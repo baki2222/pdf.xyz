@@ -334,10 +334,39 @@ processing.
   (presence-only: `in-process` / `not-implemented` / `none`), never naming a
   broker or worker URL.
 
-⏳ Remaining for production: real storage/queue/worker *adapters* behind these
-contracts (a sandboxed worker process running `drain()` on an interval), signed
-URLs, lifecycle-enforced deletion, malware scanning in the scan phase, and native
-`deep`/OCR runners behind the processor contract.
+⏳ Remaining for production: real queue/worker adapters behind these contracts (a
+sandboxed worker process running `drain()` on an interval), lifecycle-enforced
+bucket policies, malware scanning in the scan phase, and native `deep`/OCR
+runners behind the processor contract.
+
+### Phase 14 — S3/R2-compatible storage provider foundation (shipped)
+
+The object-storage seam is now production-shaped and can mint real presigned URLs
+for S3-compatible storage without claiming that the full remote worker pipeline is
+live.
+
+- **S3-compatible provider** (`src/lib/workers/storage/s3.ts`): when explicitly
+  selected with `PDFXYZ_STORAGE_PROVIDER=s3` and valid server-side config, the
+  adapter returns genuine SigV4 signed PUT/GET URLs for uploads/downloads and
+  executes signed DELETE for delete-now. No AWS SDK dependency is required; the
+  signer is a deterministic `node:crypto` implementation tested against AWS's
+  published SigV4 vector.
+- **Safe keys and ids**: bucket keys are derived only from server-minted opaque ids
+  under `inputs/` and `artifacts/` plus an optional sanitized prefix. Filenames,
+  user paths, and arbitrary object keys never enter a signed URL path.
+- **Bounded TTLs and size checks**: upload/download TTLs default to 15 minutes and
+  are bounded by SigV4's 7-day limit; oversized upload reservations fail before a
+  URL is signed.
+- **Presence-only readiness**: `/api/worker/status` can report storage ready while
+  queue/processor remain not ready. The response never names bucket, endpoint,
+  region, key id, prefix, variable names, or secret values.
+- **Still honest**: with no S3 config (or malformed config), behavior falls back to
+  the existing disabled/remote-unimplemented typed failures. Jobs still do not run
+  remotely until a real queue adapter and sandboxed worker process are deployed.
+
+⏳ Remaining for production: real queue/broker adapter, worker-side bucket byte I/O
+adapter for `ExecutorStorage`, malware scanning, native compression/OCR runners,
+and a deployed out-of-band worker process.
 
 ## Definition of production-ready per tool
 

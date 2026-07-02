@@ -25,6 +25,7 @@ import type { FieldError } from "@/lib/jobs";
 export type StorageProviderId =
   | "disabled" // no storage wired; every op is an honest not_configured
   | "remote-unimplemented" // bucket configured but this build ships no client
+  | "s3" // configured S3/R2/MinIO-compatible provider (signed URLs + delete)
   | "local-dev"; // developer-only in-process store
 
 /**
@@ -35,7 +36,8 @@ export type StorageFailureReason =
   | "not_configured" // no storage provider in this environment
   | "not_implemented" // provider configured, but no client shipped in this build
   | "not_found" // object missing or past its retention window
-  | "payload_too_large"; // object exceeds the enforced ceiling
+  | "payload_too_large" // object exceeds the enforced ceiling
+  | "unavailable"; // provider reached but errored (or was unreachable) — transient
 
 export interface StorageFailure {
   reason: StorageFailureReason;

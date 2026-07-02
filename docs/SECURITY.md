@@ -150,10 +150,13 @@ guarantee. The local-dev worker implements this literally — the input slot and
 its bytes are deleted the moment a job finishes (success or failure), and upload
 slots are single-use.
 
-**Backend detection reads no secrets.** Whether a real backend is configured is
-determined only from the *presence* of infrastructure variable names
-(`src/lib/jobs/config.ts`); their values are never read into memory, logged, or
-returned to clients.
+**Backend detection reads no secrets.** Legacy worker backend detection is based
+on the *presence* of infrastructure variable names (`src/lib/jobs/config.ts`).
+The S3-compatible storage provider introduced in Phase 14 reads server-side
+credential values only inside the storage provider closure to compute SigV4
+signatures; those values are never logged, serialized, returned in status, or
+placed in client code. `/api/worker/status` reports only presence/capability, not
+bucket, endpoint, region, key id, prefix, variable names, or secrets.
 
 ## HTTP security headers
 
@@ -205,4 +208,4 @@ business days and will coordinate a fix and disclosure timeline with you.
 
 ## Worker provider security rules
 
-Storage and queue providers must not accept user-supplied filesystem paths or object keys. Route handlers work only with opaque ids minted by the backend; providers map those ids to private bucket keys internally. Signed URLs must expire, buckets must deny public listing, and `DELETE /api/jobs/:id` must cancel queued/running work or expire completed artifacts without logging file names, file contents, raw URLs, or object keys.
+Storage and queue providers must not accept user-supplied filesystem paths or object keys. Route handlers work only with opaque ids minted by the backend; providers map those ids to private bucket keys internally. The Phase 14 S3 provider signs keys derived from `inputs/<fileId>` and `artifacts/<artifactId>` plus an optional sanitized prefix — never from filenames — rejects oversized reservations before signing, and treats malformed artifact ids as unavailable/already-gone instead of signing arbitrary paths. Signed URLs must expire, buckets must deny public listing, and `DELETE /api/jobs/:id` must cancel queued/running work or expire completed artifacts without logging file names, file contents, raw URLs, or object keys.

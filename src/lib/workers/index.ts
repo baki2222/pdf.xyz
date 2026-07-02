@@ -4,9 +4,9 @@
  *
  * Import from "@/lib/workers" for worker-mode detection, the adapter selector,
  * and the (host-agnostic) compression engine. Node-only internals (the native
- * binary layer, the in-memory dev store) are intentionally NOT re-exported here;
- * the local-dev route handlers import them directly so this entry point stays
- * free of Node built-ins.
+ * binary layer, the S3 signer, the in-memory dev store) are intentionally lazy or
+ * not re-exported; route handlers that need real adapters load them through the
+ * async selector.
  */
 
 export * from "./mode";

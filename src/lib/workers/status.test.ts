@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolAvailability } from "./compression/engine";
+import { S3_ENV } from "./storage/s3-config";
 import { buildWorkerStatus } from "./status";
 
 const noTools: ToolAvailability = {
@@ -7,6 +8,20 @@ const noTools: ToolAvailability = {
   qpdf: false,
   mutool: false,
 };
+
+/** A fully-valid S3 storage environment (fake credentials). */
+const s3Env: Record<string, string> = {
+  [S3_ENV.provider]: "s3",
+  [S3_ENV.endpoint]: "https://s3.us-east-1.amazonaws.com",
+  [S3_ENV.region]: "us-east-1",
+  [S3_ENV.bucket]: "pdfxyz-prod",
+  [S3_ENV.accessKeyId]: "AKIAEXAMPLE0000000",
+  [S3_ENV.secretAccessKey]: "s3cr3tEXAMPLEkeyValue00000000000000000000",
+};
+
+// The existing suite relies on the ambient env having no S3 config; pass an
+// explicit empty env so those cases are hermetic regardless of process.env.
+const noEnv: Record<string, string | undefined> = {};
 
 describe("buildWorkerStatus", () => {
   it("reports disabled with no capability by default", () => {
@@ -121,5 +136,39 @@ describe("buildWorkerStatus — provider readiness", () => {
       ].join(" ");
       expect(details).not.toMatch(/PDFXYZ_/);
     }
+  });
+});
+
+describe("buildWorkerStatus — S3 storage readiness (independent of queue/processor)", () => {
+  it("reports storage ready while queue/processor stay not-ready when only S3 is wired", () => {
+    for (const mode of ["disabled", "remote-configured"] as const) {
+      const { providers } = buildWorkerStatus(mode, undefined, undefined, s3Env);
+      expect(providers.storage).toMatchObject({
+        provider: "s3",
+        ready: true,
+        configured: true,
+      });
+      expect(providers.queue.ready).toBe(false);
+      expect(providers.processor.ready).toBe(false);
+    }
+  });
+
+  it("keeps the S3 storage detail free of any variable name or value", () => {
+    const { providers } = buildWorkerStatus("disabled", undefined, undefined, s3Env);
+    const detail = providers.storage.detail;
+    for (const leak of ["pdfxyz-prod", "amazonaws", "us-east-1", "AKIA", "PDFXYZ_"]) {
+      expect(detail).not.toContain(leak);
+    }
+  });
+
+  it("ignores S3 config in local-dev mode (the in-process store serves)", () => {
+    const { providers } = buildWorkerStatus("local-dev", noTools, undefined, s3Env);
+    expect(providers.storage.provider).toBe("local-dev");
+  });
+
+  it("falls back to honest not-configured storage with an explicit empty env", () => {
+    const { providers } = buildWorkerStatus("disabled", undefined, undefined, noEnv);
+    expect(providers.storage.ready).toBe(false);
+    expect(providers.storage.provider).toBe("disabled");
   });
 });

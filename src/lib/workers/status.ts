@@ -73,9 +73,10 @@ export function buildWorkerStatus(
   mode: WorkerMode,
   tools?: ToolAvailability,
   ocrEngines?: OcrEngineAvailability,
+  env: Record<string, string | undefined> = process.env,
 ): WorkerStatus {
   const ocr = buildOcrCapability(mode, ocrEngines);
-  const providers = getProviderReadiness(mode);
+  const providers = getProviderReadiness(mode, env);
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);

@@ -38,7 +38,12 @@ preview, and production.
 - `.env`, `.env.local`, and `.env*.local` are git-ignored (see `.gitignore`).
 - **Today:** no environment variables are required. The whole app builds and
   runs without any.
-- **When secure workers / AI land:** add their keys in
+- **Secure-worker storage (optional, Phase 14):** object storage can be wired
+  independently of the queue/processor by setting server-only S3-compatible
+  variables in Vercel. This enables real signed upload/download URL minting, but
+  jobs still remain honest/not-runnable until the queue and worker service are
+  also implemented.
+- **When remaining secure workers / AI land:** add their keys in
   **Vercel → Project → Settings → Environment Variables**, scoped to the right
   environment (Production / Preview / Development). Server-only secrets must
   **not** be prefixed `NEXT_PUBLIC_` (that prefix exposes a value to the
@@ -52,6 +57,31 @@ preview, and production.
   endpoint starts reporting `ocr.available` from the worker's advertised
   capability (presence-only, names not values). See
   [`docs/WORKER_ARCHITECTURE.md`](../docs/WORKER_ARCHITECTURE.md).
+
+### Optional: S3/R2-compatible secure-worker storage
+
+Set these only in server-side environments. Do **not** use `NEXT_PUBLIC_`.
+`PDFXYZ_STORAGE_PROVIDER=s3` is the explicit selector; without it the app falls
+back to the safe disabled/remote-unimplemented storage provider.
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `PDFXYZ_STORAGE_PROVIDER` | Yes | Set to `s3` to enable this provider. |
+| `PDFXYZ_S3_ENDPOINT` | Yes | S3-compatible origin only, e.g. AWS/R2/MinIO endpoint; no path/query/credentials. |
+| `PDFXYZ_S3_REGION` | Yes | Region string; R2 commonly uses `auto`. |
+| `PDFXYZ_S3_BUCKET` | Yes | Private bucket name. Public listing must be disabled. |
+| `PDFXYZ_S3_ACCESS_KEY_ID` | Yes | Server-side key id; appears inside presigned URLs by S3 design but is never reported in status. |
+| `PDFXYZ_S3_SECRET_ACCESS_KEY` | Yes | Server-side signing secret; never logged, serialized, or returned. |
+| `PDFXYZ_S3_SESSION_TOKEN` | Optional | Temporary credential token if used. |
+| `PDFXYZ_S3_FORCE_PATH_STYLE` | Optional | `true` for MinIO/some local-compatible deployments. |
+| `PDFXYZ_S3_KEY_PREFIX` | Optional | Sanitized tenant/prefix segment; no traversal or spaces. |
+| `PDFXYZ_S3_UPLOAD_TTL_SECONDS` | Optional | Default 900; must be 1–604800. |
+| `PDFXYZ_S3_DOWNLOAD_TTL_SECONDS` | Optional | Default 900; must be 1–604800. |
+
+Storage readiness is presence-only in `/api/worker/status`: it can say S3 storage
+is ready, but never names bucket, endpoint, region, prefix, variable names, or
+credential values. Queue and processor readiness remain separate; do not enable
+remote processing claims until a real broker and worker service are deployed.
 
 ### Optional: client telemetry toggles (off by default)
 
@@ -136,6 +166,30 @@ curl -sI https://pdf.xyz/opengraph-image | grep -i content-type
 ## Phase 12 worker provider checklist
 
 Production worker rollout now requires concrete providers for object storage and queueing behind the typed contracts in `src/lib/workers/storage/` and `src/lib/workers/queue/`. Configure private encrypted storage, lifecycle deletion, signed upload/download URL TTLs, a broker-backed queue, idempotency storage, and an authenticated delete-now path before enabling remote processing. Until those adapters exist, remote-configured mode must continue returning typed not-implemented/not-configured responses rather than minting dummy URLs or jobs.
+
+## Phase 14 S3-compatible storage checklist
+
+Phase 14 ships a real S3/R2/MinIO-compatible object-storage provider behind the
+Phase 12 storage contract. It can mint signed upload/download URLs and execute
+server-side delete-now when `PDFXYZ_STORAGE_PROVIDER=s3` plus the required
+server-side S3 variables are valid. Before using it for production traffic:
+
+- Create a private, encrypted bucket with public listing/access disabled.
+- Configure lifecycle deletion for input and artifact prefixes as a backstop; the
+  app's TTLs are not a substitute for bucket lifecycle rules.
+- Add a bucket **CORS policy** so the browser can transfer bytes directly against
+  the signed URLs: allow the app's exact origin(s) for `PUT` (uploads), `GET`
+  (downloads), and `DELETE` (delete-now), permit the `content-type` request
+  header, and expose `ETag`. A valid signature is still blocked by the browser
+  without this — the app server intentionally never proxies the bytes.
+- Keep upload/download TTLs short (defaults: 15 minutes) and verify clocks are in
+  sync for SigV4 signing.
+- Use a narrow IAM/R2 token that can only put/get/delete under the configured
+  prefix.
+- Confirm `/api/worker/status` reports storage ready without exposing bucket,
+  endpoint, region, key id, prefix, variable names, or secret values.
+- Remember this is **storage only**: jobs still require a real queue adapter and a
+  separate sandboxed worker process before remote processing can be enabled.
 
 ## Phase 13 worker executor checklist
 

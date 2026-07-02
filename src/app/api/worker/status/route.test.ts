@@ -2,11 +2,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { WORKER_MODE_ENV } from "@/lib/workers";
+import { S3_ENV } from "@/lib/workers/storage/s3-config";
 import { GET } from "./route";
+
+const s3Vars = Object.values(S3_ENV);
 
 function clearEnv() {
   for (const name of REQUIRED_WORKER_ENV) delete process.env[name];
+  for (const name of s3Vars) delete process.env[name];
   delete process.env[WORKER_MODE_ENV];
+}
+
+function configureS3() {
+  process.env[S3_ENV.provider] = "s3";
+  process.env[S3_ENV.endpoint] = "https://s3.us-east-1.amazonaws.com";
+  process.env[S3_ENV.region] = "us-east-1";
+  process.env[S3_ENV.bucket] = "pdfxyz-prod";
+  process.env[S3_ENV.accessKeyId] = "AKIAEXAMPLE0000000";
+  process.env[S3_ENV.secretAccessKey] = "s3cr3tEXAMPLEkeyValue00000000000000000000";
 }
 
 beforeEach(clearEnv);
@@ -43,6 +56,30 @@ describe("GET /api/worker/status", () => {
     const body = await res.json();
     expect(body.mode).toBe("remote-configured");
     expect(body.enabled).toBe(false);
+  });
+
+  it("reports storage ready — separately from queue/processor — when S3 is configured", async () => {
+    configureS3();
+    const res = await GET();
+    const body = await res.json();
+    // Only storage is wired: it reports ready while queue/processor do not.
+    expect(body.providers.storage.ready).toBe(true);
+    expect(body.providers.storage.configured).toBe(true);
+    expect(body.providers.storage.provider).toBe("s3");
+    expect(body.providers.queue.ready).toBe(false);
+    expect(body.providers.processor.ready).toBe(false);
+    // Never leaks a bucket, endpoint, region, key id, secret, or variable name.
+    const serialized = JSON.stringify(body);
+    for (const leak of [
+      "pdfxyz-prod",
+      "amazonaws.com",
+      "us-east-1",
+      "AKIAEXAMPLE0000000",
+      "s3cr3t",
+      "PDFXYZ_",
+    ]) {
+      expect(serialized).not.toContain(leak);
+    }
   });
 
   it("reports local-dev as enabled with real lossless when opted in", async () => {

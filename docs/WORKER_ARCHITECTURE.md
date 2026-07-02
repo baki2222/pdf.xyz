@@ -100,9 +100,9 @@ worker adapter:
 
 | Provider | Interface | Responsibility | Current production behavior |
 | --- | --- | --- | --- |
-| Object storage | `src/lib/workers/storage/` | signed upload slots, signed artifact downloads, delete-now receipts, retention metadata | disabled/remote-unimplemented returns typed failure |
+| Object storage | `src/lib/workers/storage/` | signed upload slots, signed artifact downloads, delete-now receipts, retention metadata | **S3/R2-compatible provider shipped** when explicitly configured; disabled/remote-unimplemented otherwise returns typed failure |
 | Queue | `src/lib/workers/queue/` | enqueue, idempotency, status, cancel, expire, job state transitions | disabled/remote-unimplemented returns typed failure |
-| Processor | `src/lib/workers/processor/` + `executor/` | processor registry + the execution loop that claims a job, reads inputs, dispatches a processor, writes artifacts, and drives status | local-dev in-process + a unit-tested executor foundation; production adapters not shipped |
+| Processor | `src/lib/workers/processor/` + `executor/` | processor registry + the execution loop that claims a job, reads inputs, dispatches a processor, and drives status | local-dev in-process + a unit-tested executor foundation; production adapters not shipped |
 
 No client supplies object keys or filesystem paths. Opaque ids (`f_…`, `job_…`,
 `art_…`) are minted server-side; production providers must map them to private
@@ -110,6 +110,38 @@ bucket keys internally. All download/upload URLs in the contract are signed and
 expiring. `DELETE /api/jobs/:id` is the delete-now/cancel seam: it returns an
 honest not-configured error with no backend, and local-dev cancels cancelable jobs
 or expires completed jobs while removing artifact references.
+
+## S3-compatible storage provider (Phase 14)
+
+Phase 14 makes the **object-storage** provider production-real without claiming a
+full remote worker is live. When `PDFXYZ_STORAGE_PROVIDER=s3` and the required
+server-side S3/R2/MinIO variables are well-formed, the non-local-dev adapter mints
+genuine AWS SigV4 presigned URLs using `src/lib/workers/storage/s3-signer.ts`
+(`node:crypto`, no SDK dependency). The browser uploads/downloads directly to the
+private bucket; the app server never proxies bytes or exposes credentials.
+
+Required server-side variables (never `NEXT_PUBLIC_`): `PDFXYZ_S3_ENDPOINT`,
+`PDFXYZ_S3_REGION`, `PDFXYZ_S3_BUCKET`, `PDFXYZ_S3_ACCESS_KEY_ID`, and
+`PDFXYZ_S3_SECRET_ACCESS_KEY`. Optional: `PDFXYZ_S3_SESSION_TOKEN`,
+`PDFXYZ_S3_FORCE_PATH_STYLE`, `PDFXYZ_S3_KEY_PREFIX`,
+`PDFXYZ_S3_UPLOAD_TTL_SECONDS`, and `PDFXYZ_S3_DOWNLOAD_TTL_SECONDS`. The parser
+validates presence/shape only; errors and status details name no values, and the
+client-facing capability names no bucket, endpoint, region, account, key id, or
+variable.
+
+Security properties of the provider:
+
+- Upload/download URLs are signed and short-lived (default 15 minutes, bounded by
+  the SigV4 7-day ceiling).
+- Keys are derived only from server-minted opaque ids under private namespaces
+  (`inputs/…`, `artifacts/…`) plus an optional sanitized prefix; filenames never
+  appear in keys.
+- Oversized reservations fail before signing; malformed artifact ids are treated
+  as unavailable/already-gone rather than signed as arbitrary paths.
+- `deleteNow` executes a short-lived signed DELETE server-side and treats 404 as
+  idempotent success.
+- A configured S3 provider makes **storage** ready in `/api/worker/status`, while
+  queue and processor still remain not ready until their real adapters are wired.
 
 ## Processor registry & worker executor (Phase 13)
 
@@ -264,7 +296,7 @@ The honest delete-now / cancel control — the user's "stop and delete my data" 
 
 ### `GET /api/worker/status`
 
-Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail }, providers: { storage, queue, processor } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only, and each `providers` entry reports only its `ready`/`configured` readiness plus a client-safe `detail` (never a bucket, queue, key, path, or variable name). The `providers.processor` entry additionally carries `executor: { mode, ready, detail }` (Phase 13) — a presence-only view of the execution loop (`in-process` / `not-implemented` / `none`), never naming a broker or worker URL. The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`; provider readiness is derived from the resolved mode so a partially configured deployment cannot be fingerprinted from the client. `no-store`; reflects live host state. See "Discovering worker availability from the client" and "Provider seams" above.
+Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail }, providers: { storage, queue, processor } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only, and each `providers` entry reports only its `ready`/`configured` readiness plus a client-safe `detail` (never a bucket, queue, key, path, or variable name). The `providers.processor` entry additionally carries `executor: { mode, ready, detail }` (Phase 13) — a presence-only view of the execution loop (`in-process` / `not-implemented` / `none`), never naming a broker or worker URL. Since Phase 14, storage readiness may report `provider: "s3"` and `ready: true` when S3-compatible storage is fully configured; queue/processor still remain mode-derived and not ready until real adapters are wired. The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`. `no-store`; reflects live host state. See "Discovering worker availability from the client" and "Provider seams" above.
 
 ### Local-dev transport (dev only)
 

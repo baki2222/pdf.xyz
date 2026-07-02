@@ -27,6 +27,11 @@ export function mapStorageFailure(failure: StorageFailure): ApiResult<ApiError> 
       return apiError("not_found", failure.message, failure.details);
     case "payload_too_large":
       return apiError("payload_too_large", failure.message, failure.details);
+    case "unavailable":
+      // The storage backend was reached but errored, or could not be reached —
+      // an unexpected, typically transient condition (never a not-configured
+      // stub). 500 so a caller can retry rather than treat it as "gone".
+      return apiError("internal_error", failure.message, failure.details);
     default: {
       // Exhaustiveness guard: a new reason must add a branch above.
       const _never: never = failure.reason;

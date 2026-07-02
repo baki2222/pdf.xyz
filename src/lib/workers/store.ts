@@ -11,29 +11,18 @@
  * read, mirroring the contract's auto-delete guarantee.
  */
 
-import { randomBytes } from "node:crypto";
 import { DEFAULT_RETENTION, JOB_LIMITS, type Job } from "@/lib/jobs";
 
 const MINUTE_MS = 60_000;
 const ARTIFACT_ID = /^art_[A-Za-z0-9_-]{10,64}$/;
 
-/** URL-safe opaque id body, matching the `[A-Za-z0-9_-]` contract charset. */
-function token(): string {
-  return randomBytes(16).toString("base64url");
-}
+// Opaque-id minting lives in the node-only `./ids` leaf (no dependency on this
+// store), so the eager production adapter can mint ids without pulling the dev
+// store in. Imported for internal use and re-exported for the many existing
+// call sites that import them from the store.
+import { newFileId, newJobId, newArtifactId, newSessionId } from "./ids";
 
-export function newFileId(): string {
-  return `f_${token()}`;
-}
-export function newJobId(): string {
-  return `job_${token()}`;
-}
-export function newArtifactId(): string {
-  return `art_${token()}`;
-}
-export function newSessionId(): string {
-  return `sess_${token()}`;
-}
+export { newFileId, newJobId, newArtifactId, newSessionId };
 
 /** True if `id` is a syntactically valid local artifact id. */
 export function isValidArtifactId(id: string): boolean {

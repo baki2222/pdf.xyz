@@ -6,16 +6,24 @@
  * This is the client-safe seam that lets the `/status` page and the tool pages
  * explain the production pipeline honestly: which pieces are live, which are
  * configured-but-not-implemented, and which are simply not wired. It is pure and
- * node-free (it constructs only the not-configured providers and reuses the
- * local-dev capability *constants*), so it never pulls the in-process store into
- * a client bundle and never reads a secret. Readiness is derived from the mode
- * alone — not from which individual variables are present — so a partially
- * configured deployment cannot be fingerprinted from the client. (Per-variable
- * diagnostics live server-side in `@/lib/jobs` `getProviderEnvStatus`.)
+ * node-free (it constructs only the not-configured providers, reuses the
+ * local-dev capability *constants*, and derives S3 readiness from a node-free
+ * config check), so it never pulls the in-process store or the signer into a
+ * client bundle and never reads a secret.
+ *
+ * Object storage is the one provider derived from *its own* configuration rather
+ * than the worker mode: a deployment that has wired S3/R2 storage reports it
+ * ready — separately from the queue/processor, which stay mode-derived — while
+ * still exposing nothing about which variables are set (the S3 capability names
+ * no bucket, endpoint, region, key, or value). The queue/processor remain
+ * mode-derived so a partially configured broker cannot be fingerprinted.
+ * (Per-variable diagnostics live server-side in `@/lib/jobs`
+ * `getProviderEnvStatus` and `parseS3Config`.)
  */
 
 import type { WorkerMode } from "./mode";
 import { createNotConfiguredStorage } from "./storage/not-configured";
+import { resolveStorageCapability } from "./storage/s3-config";
 import {
   LOCAL_DEV_STORAGE_CAPABILITY,
   type StorageCapability,
@@ -94,10 +102,18 @@ const EXECUTOR_READINESS: Record<WorkerMode, ExecutorReadiness> = {
 
 /**
  * Derive the client-facing readiness of all three providers from the resolved
- * mode. Pure and deterministic; the status route passes the result straight into
- * {@link buildWorkerStatus}.
+ * mode and the environment. Storage readiness comes from its own config (S3/R2)
+ * so it can be ready independently; queue/processor stay mode-derived. Pure and
+ * deterministic; `env` is injectable for tests. The status route passes the
+ * result straight into {@link buildWorkerStatus}.
  */
-export function getProviderReadiness(mode: WorkerMode): WorkerProviders {
+export function getProviderReadiness(
+  mode: WorkerMode,
+  env: Record<string, string | undefined> = process.env,
+): WorkerProviders {
+  // In local-dev mode the in-process store is what actually serves uploads, so
+  // storage reports the local-dev capability regardless of any S3 variables (the
+  // explicit local-dev opt-in always wins, exactly as it does for the adapter).
   if (mode === "local-dev") {
     return {
       storage: LOCAL_DEV_STORAGE_CAPABILITY,
@@ -112,8 +128,12 @@ export function getProviderReadiness(mode: WorkerMode): WorkerProviders {
   }
 
   const id = mode === "remote-configured" ? "remote-unimplemented" : "disabled";
+  // S3 storage (if fully configured) is the real provider serving uploads on the
+  // production path; otherwise fall back to the honest not-configured capability.
+  const storage =
+    resolveStorageCapability(env) ?? createNotConfiguredStorage(id).capability();
   return {
-    storage: createNotConfiguredStorage(id).capability(),
+    storage,
     queue: createNotConfiguredQueue(id).capability(),
     processor: {
       ready: false,
