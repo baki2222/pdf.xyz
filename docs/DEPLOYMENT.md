@@ -266,8 +266,9 @@ it must be *driven*. Before enabling remote processing:
   `ClaimableQueue`, `ExecutorStorage`, and processor runners behind the existing
   contracts. The native `deep`-compression and **OCR (OCRmyPDF/Tesseract, Phase 23)**
   runners already ship — both use fixed argv arrays and fixed temp paths (no
-  user-supplied paths, no shell string interpolation); enable OCR with `PDFXYZ_OCR=on`
-  and install an engine on the worker image ([`OCR_BACKEND.md`](../docs/OCR_BACKEND.md)).
+  user-supplied paths, no shell string interpolation); the Phase 24 worker image
+  already ships the OCR engines + English data, so enabling OCR in production is just
+  `PDFXYZ_OCR=on` ([`OCR_BACKEND.md`](../docs/OCR_BACKEND.md)).
 - **Tune lease & retries.** Set `leaseMs` above the worst-case job duration and
   heartbeat long jobs, so a slow job is not redelivered under a healthy worker;
   set `maxAttempts` so only genuinely transient (`retryable`) failures retry.
@@ -277,14 +278,20 @@ it must be *driven*. Before enabling remote processing:
   honest no-op (nothing scanned, and nothing is ever *reported* as scanned). Deploy
   clamd (e.g. as a sidecar) to scan for real, and arm `PDFXYZ_WORKER_REQUIRE_SCAN`
   where scanning is mandatory.
-- **OCR for real.** OCR is a real, optional backend (Phase 23), off by default. Set
-  `PDFXYZ_OCR=on` **and** install an engine on the worker image — OCRmyPDF (preferred,
-  for PDF→searchable PDF + text) or Tesseract (images) — plus the language packs your
-  allowlist advertises. Confirm with `pnpm worker:daemon --dry-run-status` (the
-  `ocr_health` line reports `enabled`/`ready`/`engine`); arm `PDFXYZ_WORKER_REQUIRE_OCR`
-  where OCR is mandatory, so the daemon refuses to start (exit `4`) without a ready
-  engine. With nothing configured, `ocr-pdf` fails honestly as `not_implemented` — never
-  a fabricated result. See [`docs/OCR_BACKEND.md`](../docs/OCR_BACKEND.md).
+- **OCR for real.** OCR is a real, optional backend (Phase 23), off by default. The
+  Phase 24 worker image already ships the engines — OCRmyPDF (preferred, for
+  PDF→searchable PDF + text) and Tesseract (images) — plus English
+  (`tesseract-ocr-eng`) language data, so enabling OCR in production is just
+  `PDFXYZ_OCR=on` on top of the usual queue/storage; add more `tesseract-ocr-<lang>`
+  packs to the image only if you advertise more languages. `PDFXYZ_OCR=on` is
+  **necessary but not sufficient** — confirm with `pnpm worker:daemon --dry-run-status`
+  (the `ocr_health` line reports `enabled`/`ready`/`engine`), and arm
+  `PDFXYZ_WORKER_REQUIRE_OCR` where OCR is mandatory, so the daemon refuses to start
+  (exit `4`) without a ready engine. With nothing configured, `ocr-pdf` fails honestly
+  as `not_implemented` — never a fabricated result. **Real end-to-end user-document OCR
+  recognition validation stays out-of-band** — the image smoke proves the engine is
+  installed and reports ready, not that any document OCRs correctly. See
+  [`docs/OCR_BACKEND.md`](../docs/OCR_BACKEND.md).
 - **Keep it presence-only.** `/api/worker/status` exposes
   `providers.processor.executor` (mode/ready/detail) — confirm no broker name,
   worker URL, key, or variable ever appears there. `remote-configured` must keep
@@ -366,6 +373,8 @@ separate, sandboxed process you build and run yourself. The artifacts:
 | [`docker-compose.worker.yml`](../docker-compose.worker.yml) | Example web + worker composition; placeholder env **names** only, no values. |
 | [`.env.worker.example`](../.env.worker.example) | The worker's server-only variables with obvious placeholders; copy to a git-ignored `.env`. |
 | `scripts/worker-smoke.sh` (`pnpm worker:smoke`) | No-config honesty smoke; asserts the daemon refuses to fake work and rejects bad flags. |
+| `scripts/worker-image-smoke.sh` (`pnpm worker:image-smoke`) | Image-level native-engine + OCR presence/readiness smoke; runs inside the built worker image. |
+| `scripts/worker-engines.sh` (`pnpm worker:engines`) | Node-free `command -v` engine preflight (`0` ok / `1` usage / `3` a required engine missing); honors the opt-in require-flags. Runs in or out of the image. |
 
 ### Build the two images separately
 
@@ -374,14 +383,19 @@ cannot run the daemon and ships no PDF engines; the worker image never bundles
 the site (`.next`) and never serves HTTP. Build one or the other by target:
 
 ```bash
-docker build --target worker -t pdfxyz-worker:local .   # Ghostscript/qpdf/mutool + daemon
+docker build --target worker -t pdfxyz-worker:local .   # Ghostscript/qpdf/mutool + Tesseract/OCRmyPDF + daemon
 docker build --target web    -t pdfxyz-web:local .        # Next.js site only
 ```
 
-- **Native compression dependencies.** The `worker` stage installs
+- **Native engine dependencies.** In one apt layer the `worker` stage installs
   **Ghostscript, qpdf, and `mupdf-tools`** (`mutool`) so `deep` image compression
-  can run; lossless structural repack needs none of them. The `web` stage installs
-  no engines by design.
+  can run, plus the OCR stack — **`ocrmypdf`, `tesseract-ocr`, and
+  `tesseract-ocr-eng`** (English language data; the `-eng` pack is listed explicitly
+  because `--no-install-recommends` would otherwise skip the language pack). Tesseract
+  is the guaranteed baseline (image → searchable PDF/text); OCRmyPDF is the PDF-first
+  engine that adds a text layer to a scanned PDF (it wraps Tesseract + Ghostscript).
+  Lossless structural repack needs none of them, and the `web` stage installs no
+  engines by design.
 - **The daemon needs no build.** It runs `scripts/worker-daemon.ts` via `tsx`, so
   the worker image copies `src/`, `scripts/`, `tsconfig.json`, and `node_modules`
   (which includes `tsx`) — but not the web build.
@@ -526,10 +540,15 @@ infrastructure.
 - **Container CI** — [`.github/workflows/container.yml`](../.github/workflows/container.yml)
   builds **both** the `web` and `worker` image targets on GitHub Actions and, inside
   the built worker image, runs the no-config honesty smoke (`pnpm worker:smoke`),
-  asserts the readiness probe reports not-configured (exit `2`), and proves the
-  web ↔ worker split at the image level (native engines present in the worker image,
-  absent from the web image). It builds with `push: false` — images are validated,
-  never published — so the workflow needs **no** secret.
+  asserts the readiness probe reports not-configured (exit `2`), and also runs the
+  image-level native-engine + OCR proofs (`pnpm worker:image-smoke`, plus the node-free
+  `pnpm worker:engines` preflight with the production require-flags armed —
+  `PDFXYZ_WORKER_REQUIRE_OCR` / `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE` — which must pass
+  precisely because the image ships the engines). It proves the
+  web ↔ worker split at the image level — asserting the worker image ships
+  `gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf` and the web image ships none. It builds
+  with `push: false` — images are validated, never published — so the workflow needs
+  **no** secret.
 - **Docker-free gate** — the JS CI job ([`ci.yml`](../.github/workflows/ci.yml)) now
   also runs `pnpm worker:smoke`, so the daemon's honest exit-code contract (clean `0`,
   not-configured `2`, usage error `1`, fail-fast guardrail `4`) gates every PR even

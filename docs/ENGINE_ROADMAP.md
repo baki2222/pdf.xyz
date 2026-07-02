@@ -479,7 +479,8 @@ model.
 
 ⏳ Remaining for production: **deploying** the daemon with a native engine in the worker
 image, lifecycle-enforced bucket deletion, malware scanning, and the OCR runner. Phase
-21 covers the Redis queue atomicity hardening pass.
+21 covers the Redis queue atomicity hardening pass; **Phase 24** packages the native +
+OCR engines into the worker image and proves them at the image level (presence-only).
 
 ### Phase 19 — worker deployment hardening + container smoke foundation (shipped)
 
@@ -488,7 +489,8 @@ worker proven to stay separated.
 
 - **Two-target container build** (`Dockerfile`): a shared build stage feeds two
   independent final images — `web` (Next.js `pnpm start`, no PDF engines) and `worker`
-  (`pnpm worker:daemon` with Ghostscript/qpdf/mutool, no `.next`, no HTTP). Built by
+  (`pnpm worker:daemon` with Ghostscript/qpdf/mutool — and, as of **Phase 24**, the OCR
+  stack: OCRmyPDF/Tesseract + English language data — no `.next`, no HTTP). Built by
   target: `docker build --target worker .` / `--target web .`.
 - **Deployment artifacts**: `.dockerignore` (keeps `.env*`, `.claude-*.md`, `.git`, and
   tests out of every layer), an example `docker-compose.worker.yml` and
@@ -528,7 +530,8 @@ lifecycle policy to a live bucket (the tooling generates and validates it; the o
 applies it with the provider CLI — the app never calls the cloud), **deploying a clamd
 scanner service** (Phase 22 ships the ClamAV scan gate — exercised by tests with a fake
 transport — but running the clamd daemon is operator-owned), and the native `deep`/OCR
-runners.
+runners — whose engine binaries **Phase 24** bundles into the worker image and proves
+present via CI (still no local Docker build).
 
 ### Phase 20 — container CI + deployment-security gates (shipped)
 
@@ -542,7 +545,10 @@ needing a single cloud secret.
   nothing configured, runs `pnpm worker:smoke`, asserts the readiness probe reports
   not-configured (exit `2`), and proves the split at the image level — the native
   engines (`gs`/`qpdf`/`mutool`) exist in the worker image and are **absent** from
-  the web image. Images build with `push: false` (validated, never published), so the
+  the web image. As of **Phase 24** it also runs `pnpm worker:image-smoke` inside the
+  built worker image (the native-engine + OCR presence/readiness proof) and asserts the
+  worker image ships `gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf` while the web image
+  ships none. Images build with `push: false` (validated, never published), so the
   workflow references **no** repository secret.
 - **Docker-free gate** (`.github/workflows/ci.yml`): the JS CI job also runs
   `pnpm worker:smoke`, gating the daemon's full exit-code contract (clean `0`,
@@ -660,9 +666,61 @@ worker never run OCR; recognition happens only on the out-of-band daemon.
   unless a ready engine is present, and a malformed `PDFXYZ_OCR*` value is a fail-fast
   `ocr_config_invalid` config error. Full operator guide: [`OCR_BACKEND.md`](./OCR_BACKEND.md).
 
-⏳ Still out-of-band (deliberately not faked): **installing an OCR engine + language
-packs** on the worker image (OCRmyPDF/Tesseract — no test invokes a real engine), and
-populating `OcrResultMeta` (pages/characters/confidence) from real recognition output.
+✅ **Phase 24** (below) closes the packaging/proof gap for the **English baseline**:
+the worker image now ships OCRmyPDF/Tesseract + English language data, and CI proves the
+image-level engine contract — presence plus a ready readout, presence-only (no user
+document is processed). ⏳ Still out-of-band (deliberately not faked): **additional
+(non-English) language packs**, real end-to-end **user-document** OCR validation on a
+running worker, and populating `OcrResultMeta` (pages/characters/confidence) from real
+recognition output.
+
+### Phase 24 — worker-image engine packaging + container proofs (shipped)
+
+The worker image now actually **carries** the native engines the earlier phases wired —
+deep compression and the English OCR baseline — and CI proves the image-level engine
+contract without a local Docker build, a secret, or any user document. The proof is
+**presence-only**: it shows the engines are installed and that the daemon reports them
+ready, never that a real document was recognized.
+
+- **One-layer engine install** (`Dockerfile`): the `worker` target installs, in a single
+  apt layer, the deep-compression binaries (Ghostscript / qpdf / mupdf-tools) **and** the
+  OCR stack (OCRmyPDF, Tesseract, and `tesseract-ocr-eng`). The English pack is listed
+  explicitly because `--no-install-recommends` skips it. Tesseract is the guaranteed
+  baseline (image → searchable PDF/text); OCRmyPDF is the PDF-first engine. The `web`
+  target installs **none** of these.
+- **Image smoke** (`scripts/worker-image-smoke.sh`, `pnpm worker:image-smoke`): runs
+  **inside** the built worker image with no cloud, secret, or document. It verifies the
+  deep-compression binaries (`gs`/`qpdf`/`mutool`) and OCR binaries (`tesseract` +
+  `ocrmypdf`) are present, that English langdata is installed (`tesseract --list-langs`
+  → `eng`), that native engines present still don't fake drainability (`--dry-run-status`
+  exits `2` with nothing wired), and presence-only OCR readiness — opting in
+  `PDFXYZ_OCR=on` flips `ocr_health` to `ready:true` and `compression_health` to
+  `deep:true`, a content-free readout with no path. It is image-only (deliberately
+  **fails** where engines are absent), so it is **not** in the Docker-free PR gate;
+  `ci.yml` still runs only `pnpm worker:smoke`.
+- **Engine preflight** (`scripts/worker-engines.sh`, `pnpm worker:engines`): a node-free
+  `command -v` companion (no daemon, no Node — runs in a bare builder, an initContainer,
+  or CI) that gates its exit code on the opt-in require-flags: `0` when every required
+  engine family is present (or nothing is required), `3` when a required engine is missing.
+  Container CI runs it **inside** the image with `PDFXYZ_WORKER_REQUIRE_OCR` +
+  `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE` armed (must pass — the engines are packaged); the
+  negative path (the same flags failing on a bare host) is proven Docker-free in
+  `worker-engines.test.ts`.
+- **Container CI proves the contract** (`.github/workflows/container.yml`): builds both
+  targets, runs `pnpm worker:smoke`, `pnpm worker:image-smoke`, **and** `pnpm
+  worker:engines` inside the worker image, and asserts the worker image ships
+  `gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf` while the web image ships none. No secrets,
+  no push. Static tests (`artifacts.test.ts`, `ci-workflow.test.ts`, `worker-engines.test.ts`)
+  pin all of it.
+- **Still presence-only, still honest**: the smoke proves the engine is **installed** and
+  that the daemon reports it **ready** — it does **not** OCR or otherwise process any user
+  document. Recognition quality is not proven, and only the **English** pack ships.
+
+⏳ Still out-of-band (deliberately not faked): **additional (non-English) language packs**,
+real end-to-end **user-document** OCR validation on a running worker, and everything prior
+phases still defer — real secrets and a provisioned bucket/broker, an applied lifecycle
+policy, a running clamd service, and the actual worker **deployment** (the image is built
+and smoked in CI, never published or run against real traffic here).
 
 ## Definition of production-ready per tool
 

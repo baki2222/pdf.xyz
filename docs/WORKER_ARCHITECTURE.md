@@ -306,12 +306,15 @@ Phase 19 turns the "separate process" invariant into a build artifact. A multi-s
 [`Dockerfile`](../Dockerfile) shares a dependency + build stage but produces **two
 independent final images**:
 
-- **`web`** runs `pnpm start` (Next.js). It installs **no** native PDF engines and its
-  layers never reference the worker daemon.
-- **`worker`** runs `pnpm worker:daemon`. It installs **Ghostscript, qpdf, and
-  `mupdf-tools`** for deep compression and copies `src/`/`scripts/`/`tsconfig.json`/
-  `node_modules` (the daemon runs via `tsx`) but **not** the web build (`.next`), and
-  serves no HTTP.
+- **`web`** runs `pnpm start` (Next.js). It installs **no** native PDF or OCR engines and
+  its layers never reference the worker daemon.
+- **`worker`** runs `pnpm worker:daemon`. In one apt layer it installs **Ghostscript,
+  qpdf, and `mupdf-tools`** for deep compression **and the OCR stack — `ocrmypdf`,
+  `tesseract-ocr`, and `tesseract-ocr-eng`** (the OCR engines plus minimal English
+  language data; `tesseract-ocr-eng` is listed explicitly because
+  `--no-install-recommends` otherwise skips the language pack). It copies
+  `src/`/`scripts/`/`tsconfig.json`/`node_modules` (the daemon runs via `tsx`) but
+  **not** the web build (`.next`), and serves no HTTP.
 
 This mirrors the code-level boundary the earlier phases built: the web app never imports
 the Node-only daemon runtime (`daemon/runtime.ts`) or the native-compression subprocess
@@ -327,10 +330,36 @@ this so it cannot silently regress:
   (worker installs the engines and runs the daemon; web runs `pnpm start` with no engines
   and no `.next` in the worker image), that the compose/`.env` examples reference provider
   variables **by name only**, and that no artifact commits a real-looking secret or a
-  `NEXT_PUBLIC_` provider value.
+  `NEXT_PUBLIC_` provider value. Since Phase 24 it also pins the worker target's OCR
+  packages (`ocrmypdf`, `tesseract-ocr`, `tesseract-ocr-eng`) and the web target's
+  exclusion of all of them, plus the image smoke's presence-only, no-secret-echo hygiene
+  and its wiring as `pnpm worker:image-smoke`.
 
-The Docker build itself was **not exercised** in this repository's environment (no Docker
-daemon); the images must be built and run in real worker infrastructure. See
+Phase 24 adds a runtime counterpart to those static checks: an **image-level
+native-engine + OCR smoke**, `pnpm worker:image-smoke` (`scripts/worker-image-smoke.sh`),
+that runs *inside the built worker image* and needs no cloud, secret, or network. It is
+the image sibling of the Docker-free `worker:smoke`: it verifies the deep-compression
+binaries (`gs`/`qpdf`/`mutool`) and the OCR binaries (`tesseract`/`ocrmypdf`) are
+installed, that English OCR language data is present (`tesseract --list-langs` lists
+`eng`), and that opting into `PDFXYZ_OCR` flips the daemon's `ocr_health` to `ready:true`
+and its `compression_health` to `deep:true` — every readout **presence-only** and
+content-free (a name or flag, never a path), and the smoke **processes no document**. It
+also pins daemon honesty: native engines being present never fakes drainability, so
+`--dry-run-status` still exits `2` (not drainable) with no queue or storage wired. It only
+ever runs the daemon in `--dry-run-status` (never the forever loop). Because it
+deliberately **fails** where the engines are absent, it is image-only and is **not** part
+of the Docker-free PR gate — it runs in the container workflow below.
+
+The Docker build itself is still **not exercised** in this repository's environment (no
+Docker daemon); the images must be built and run in real worker infrastructure. What
+covers that gap out-of-band is the GitHub **container workflow**
+([`.github/workflows/container.yml`](../.github/workflows/container.yml)): it builds both
+targets, runs `pnpm worker:smoke`, `pnpm worker:image-smoke`, **and** the node-free
+`pnpm worker:engines` preflight (with the production require-flags armed) inside the
+worker image, and asserts the worker image ships `gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf`
+while the web image ships **none** (no secrets, no push) — so the image-level engine
+contract is proven on GitHub Actions even though the local repo still does not build
+images. (The workflow's shape is itself pinned by `src/deploy/ci-workflow.test.ts`.) See
 DEPLOYMENT.md's "Phase 19 worker container" section for the build and health-check
 commands.
 

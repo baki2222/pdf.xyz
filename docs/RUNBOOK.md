@@ -36,7 +36,7 @@ that keeps Node-only worker internals out of the web bundle.
 | --- | --- | --- |
 | Image target | `web` (`docker build --target web`) | `worker` (`docker build --target worker`) |
 | Command | `pnpm start` (or Vercel) | `pnpm worker:daemon` |
-| Native engines | none | Ghostscript, qpdf, `mutool` |
+| Native engines | none | Ghostscript, qpdf, `mutool` + OCRmyPDF/Tesseract (English OCR data) |
 | Serves HTTP | yes (the site + API routes) | **never** |
 | Responsibilities | Serve the site and in-browser tools; when storage **and** queue are wired, mint signed upload/download URLs and **record** `queued` jobs | Drain the queue, run processors against object storage, complete jobs; do deep compression when a native engine is present |
 | Must **not** | Run the daemon, ship engines, or process jobs on the request path | Serve HTTP or run as a serverless function on the request path |
@@ -99,8 +99,16 @@ GIT_SHA="$(git rev-parse --short HEAD)"
 docker build --target web    -t "$REGISTRY/pdfxyz-web:$GIT_SHA"    .
 docker build --target worker -t "$REGISTRY/pdfxyz-worker:$GIT_SHA" .
 
-# 2. Smoke the worker image locally with NO config before pushing (see §4).
+# 2. Smoke the worker image locally with NO config before pushing (see §4):
+#    the no-config honesty contract, then the native + OCR engine presence proof.
+#    Both run inside the image and process no document.
 docker run --rm "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:smoke
+docker run --rm "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:image-smoke
+# …and the node-free engine preflight with your production require-flags armed (must
+# exit 0 because the image ships the engines you require):
+docker run --rm \
+  -e PDFXYZ_OCR=on -e PDFXYZ_WORKER_REQUIRE_OCR=true -e PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE=true \
+  "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:engines
 
 # 3. Push, then deploy the SAME image reference to staging first.
 docker push "$REGISTRY/pdfxyz-web:$GIT_SHA"
@@ -132,7 +140,26 @@ docker run --rm pdfxyz-worker:<tag> pnpm worker:smoke
 # clean guardrails / lifecycle-policy → 0, dangerous config → 4
 ```
 
-**b. Worker readiness, with real config** — presence-only, claims no job:
+**b. Worker image engine presence + OCR readiness** — the built worker image must
+actually ship the native + OCR engines it advertises; presence-only, processes no
+document:
+
+```bash
+docker run --rm pdfxyz-worker:<tag> pnpm worker:image-smoke
+# gs/qpdf/mutool + tesseract/ocrmypdf installed → 0; English OCR langdata present;
+# daemon still exits 2 with nothing wired (present engines must not fake work);
+# PDFXYZ_OCR=on flips ocr_health→ready:true and compression_health→deep:true
+# (a content-free, path-free readout). Absent engines → non-zero (image-only).
+```
+
+It is the image counterpart of `worker:smoke`: it proves the engines are
+**installed** and that the daemon reports them **ready** when opted in — not that any
+user document was recognized. Because it deliberately fails where engines are absent
+it is **not** in the Docker-free PR gate; the container CI
+([`container.yml`](../.github/workflows/container.yml)) runs it inside the built
+worker image.
+
+**c. Worker readiness, with real config** — presence-only, claims no job:
 
 ```bash
 pnpm worker:daemon --dry-run-status   # exit 0 = drainable (queue + storage), 2 = not configured
@@ -142,7 +169,7 @@ Confirm the `compression_health` line reports `deep: true` (with your engine in
 `engines`) before advertising **deep** compression — a worker can be drainable yet
 lossless-only.
 
-**c. Guardrails** — catch a dangerous or half-configured deployment before it runs:
+**d. Guardrails** — catch a dangerous or half-configured deployment before it runs:
 
 ```bash
 pnpm worker:daemon --check            # exit 0 = clean, 4 = a guardrail violation
@@ -152,12 +179,15 @@ In production, arm `PDFXYZ_WORKER_STRICT=true` so a selected-but-invalid provide
 an out-of-bounds retention TTL, or a missing lifecycle backstop **fails fast**
 (exit `4`) instead of silently degrading to "not configured".
 
-**d. Web** — verify security headers and share surfaces on the live URL (the
+**e. Web** — verify security headers and share surfaces on the live URL (the
 `curl` checks in [`DEPLOYMENT.md`](DEPLOYMENT.md) §6).
 
 Deploy checklist:
 
 - [ ] Worker image passes `pnpm worker:smoke` (honest-refusal contract).
+- [ ] Worker image passes `pnpm worker:image-smoke` — gs/qpdf/`mutool` +
+      tesseract/ocrmypdf installed, English OCR langdata present, and
+      `ocr_health.ready` / `compression_health.deep` when opted in (presence-only).
 - [ ] `--dry-run-status` is `0` (drainable) with production config; `2` in a
       deliberately empty environment.
 - [ ] `--check` is `0` (or intentionally `4` with strict on a config you are fixing).
@@ -207,18 +237,26 @@ remote processing production-ready:
   at it; unset, the gate is an honest inactive no-op (nothing scanned, never *reported*
   as scanned). Arm `PDFXYZ_WORKER_REQUIRE_SCAN` to make the daemon refuse to start
   (exit `4`) unless a usable scanner is configured.
-- **OCR — backend ships (Phase 23), engine is operator-owned.** OCR is a **real,
-  optional** worker backend (`src/lib/workers/ocr-native.ts`), **off by default**.
-  What's operator-owned is enabling it (`PDFXYZ_OCR=on`) and **installing an engine**
-  on the worker image — OCRmyPDF (preferred) or Tesseract — plus the language packs you
-  advertise. Unset (or enabled with no engine), `ocr-pdf` fails honestly as
-  `not_implemented`, `/api/worker/status` reports `ocr.available: false`, and no text
-  is fabricated. `--dry-run-status` distinguishes the four states via the `ocr_health`
-  line (`enabled`/`ready`/`engine`); arm `PDFXYZ_WORKER_REQUIRE_OCR` to refuse to start
+- **OCR — backend + engines ship (Phase 23–24), enabling is operator-owned.** OCR is
+  a **real, optional** worker backend (`src/lib/workers/ocr-native.ts`), **off by
+  default**. The worker image now **already ships** OCRmyPDF/Tesseract plus **English**
+  OCR language data, so what's operator-owned is **enabling** it: set `PDFXYZ_OCR=on`
+  (alongside the storage + queue a worker needs to drain). Add `tesseract-ocr-<lang>`
+  packs to the image **only** if you advertise languages beyond English. Unset (or
+  enabled with no engine), `ocr-pdf` fails honestly as `not_implemented`,
+  `/api/worker/status` reports `ocr.available: false`, and no text is fabricated.
+  `--dry-run-status` distinguishes the four states via the `ocr_health` line
+  (`enabled`/`ready`/`engine`); arm `PDFXYZ_WORKER_REQUIRE_OCR` to refuse to start
   (exit `4`) unless a ready engine is present. See [`OCR_BACKEND.md`](./OCR_BACKEND.md).
-- **Native `deep` engines are shipped, not proven.** The worker image installs
-  Ghostscript/qpdf/`mutool`, but confirm `compression_health.deep` on the running
-  image (§4) before advertising deep compression; lossless always works.
+- **Native `deep` + OCR engines — presence proven in CI, real-document quality not.**
+  `pnpm worker:image-smoke` now **proves engine presence** at the image level in the
+  container CI: the Ghostscript/qpdf/`mutool` + Tesseract/OCRmyPDF binaries are
+  installed, **English** OCR language data is present, and opting in yields a ready
+  `ocr_health` / `compression_health.deep` readout. What that does **not** prove is
+  real user-document OCR/compression **quality or behavior**: validate
+  `compression_health.deep` / `ocr_health.ready` on the **live** worker (§4) and run a
+  real document through it out-of-band before advertising deep compression or OCR.
+  Lossless always works.
 - **Image publish/promotion is not automated.** CI builds and validates the images
   but does not push them; wiring a registry and the promote-by-digest flow (§3) is
   operator-owned.

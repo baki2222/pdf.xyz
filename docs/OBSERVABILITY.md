@@ -251,7 +251,10 @@ image, or only the always-available lossless repack?". A worker can be drainable
 lossless-only because no native engine is installed. `engines` lists the detected
 engines by **binary name only** (no path, version, or value), so an operator can alert
 on "drainable but `deep: false`" when deep compression is expected. It is as content-
-free as every other line and ships to the log sink as-is.
+free as every other line and ships to the log sink as-is. Phase 24's `pnpm
+worker:image-smoke` reads exactly this line **inside the built worker image** to prove
+the packaged deep-compression engine is reported present there, not merely installed
+on disk.
 
 ## Malware-scan gate logs (Phase 22)
 
@@ -315,7 +318,17 @@ liveness/readiness gate is driven entirely by presence-only signals — never a 
 key, or value. `pnpm worker:daemon:status` is the identical probe as a package script,
 and `pnpm worker:smoke` is the offline, no-config honesty check (exit-code contract:
 `0`/`1`/`2`/`4`) suitable for CI — the Phase 20 container workflow re-runs this same
-smoke **inside the built worker image**. Alert on a worker that reports `2` when it is
+smoke **inside the built worker image**. Phase 24 adds a companion image check to
+that same workflow: `pnpm worker:image-smoke` also runs **inside the built worker
+image** as an image-level native-engine + OCR presence/readiness proof — it confirms
+the packaged deep-compression and OCR engines are installed and that opting in with
+`PDFXYZ_OCR` flips the daemon's `ocr_health` to `ready: true` (and
+`compression_health` to `deep: true`), reading that verdict **presence-only** from the
+content-free `ocr_health`/`compression_health` log lines (no path, secret, or value)
+and processing no document. Where `worker:smoke` proves the offline, no-config
+exit-code contract, `worker:image-smoke` is its image counterpart — proof the
+packaged engines report ready, never that any document was recognized. Alert on
+a worker that reports `2` when it is
 expected to be drainable, exactly as you would alert on `drainable: true` with a
 non-draining backlog.
 

@@ -12,8 +12,9 @@ is the operator-facing companion to the OCR contract/UI foundation documented in
 - **OCR is OFF by default.** With nothing configured, an `ocr-pdf` job fails honestly
   with `not_implemented` and produces no artifact, `/api/worker/status` reports
   `ocr.available: false`, and the tool page mounts no uploader. This is true in every
-  environment this build ships in unless an operator explicitly opts in **and**
-  installs an engine.
+  environment this build ships in unless an operator explicitly opts in (`PDFXYZ_OCR=on`)
+  on a worker that has an engine installed — which the Phase 24 `worker` image now does
+  by default (OCRmyPDF/Tesseract + English data), so on that image opting in is enough.
 - **No faked OCR, ever.** The backend produces artifacts only from *actual*
   recognition by a native engine. Tests may inject a deterministic fake runner, but
   product copy and status never claim OCR is available unless a real backend is
@@ -109,28 +110,57 @@ engine *family* name and prose only, never a path, binary, language, or value.
 
 ## Deployment requirements
 
-To genuinely complete OCR jobs, the worker image/host must have:
+To genuinely complete OCR jobs, the worker needs:
 
 1. A drainable queue + object storage (the standard daemon requirement — OCR does not
    change this).
-2. **[OCRmyPDF](https://ocrmypdf.readthedocs.io/) installed** (recommended). OCRmyPDF
-   is the real PDF-OCR tool; it wraps Tesseract and Ghostscript and adds an invisible
-   text layer to the original pages. Install it and the language packs you advertise,
-   e.g. on Debian/Ubuntu:
+2. **A native OCR engine installed on the worker.** The Phase 24 `worker` Docker image
+   now **ships this stack by default** — [OCRmyPDF](https://ocrmypdf.readthedocs.io/)
+   plus Tesseract and the minimal English language data (`tesseract-ocr-eng`) — so on
+   that image nothing extra is needed to run English OCR. OCRmyPDF is the real PDF-OCR
+   tool; it wraps Tesseract and Ghostscript and adds an invisible text layer to the
+   original pages. If you build your own image or host, install the same packages, e.g.
+   on Debian/Ubuntu:
 
    ```sh
-   apt-get install -y ocrmypdf tesseract-ocr \
-     tesseract-ocr-eng tesseract-ocr-spa tesseract-ocr-fra   # …and the packs you enable
+   apt-get install -y ocrmypdf tesseract-ocr tesseract-ocr-eng \
+     tesseract-ocr-spa tesseract-ocr-fra   # …and any extra language packs you enable
    ```
 
-3. `PDFXYZ_OCR=on` in the daemon's environment.
+3. `PDFXYZ_OCR=on` in the daemon's environment. (`PDFXYZ_OCR=on` is necessary but not
+   sufficient — an engine must also be installed, which on the shipped worker image it
+   already is.)
 
 Tesseract alone (`PDFXYZ_OCR_ENGINE=tesseract`) is supported for **image** inputs
-(PNG/JPEG); it cannot OCR a PDF directly. Prefer OCRmyPDF for the PDF-first flow.
+(PNG/JPEG); it cannot OCR a PDF directly. Prefer OCRmyPDF for the PDF-first flow — both
+are on the worker image, and auto-detect prefers OCRmyPDF.
 
-**Language packs.** The advertised language allowlist lives in `src/lib/jobs/ocr.ts`.
-Only install/enable packs you actually ship — extend the allowlist alongside the packs,
-never ahead of them.
+**Language packs.** The worker image ships **English only** (`tesseract-ocr-eng`). The
+advertised language allowlist lives in `src/lib/jobs/ocr.ts`; only install/enable packs
+you actually ship — add the matching `tesseract-ocr-<lang>` package (and extend the
+allowlist alongside it, never ahead of it) for any language beyond English.
+
+### Image-level proof (no cloud, no document)
+
+The worker image's engine contract is proven two ways in the container workflow
+([`.github/workflows/container.yml`](../.github/workflows/container.yml)), both running
+inside the freshly built image with nothing wired and processing no document:
+
+- **`pnpm worker:image-smoke`** — asserts the deep-compression and OCR binaries and the
+  English language data are installed, that opting in with `PDFXYZ_OCR=on` flips the
+  daemon's `ocr_health` to `ready: true` (and `compression_health` to `deep: true`), and
+  that native engines never fake drainability (`--dry-run-status` still exits `2` with no
+  queue/storage). It reads readiness **presence-only** from the content-free health lines
+  — no path, binary, language, or value is echoed.
+- **`pnpm worker:engines`** — a node-free `command -v` preflight, run with the production
+  require-flags armed (`PDFXYZ_WORKER_REQUIRE_OCR`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`);
+  it must exit `0` **because** the image genuinely ships the engines. Its negative path —
+  the same flags failing on a bare host — is proven Docker-free in
+  `src/deploy/worker-engines.test.ts`.
+
+Docker is not available in this repository's environment, so the images are **not** built
+here; these two smokes run on GitHub Actions, and the Dockerfile/CI invariants are pinned
+by `src/deploy/artifacts.test.ts` and `src/deploy/ci-workflow.test.ts`.
 
 ## Security envelope
 
@@ -192,12 +222,17 @@ line, binary path, **recognized OCR text**, or secret:
 
 ## Caveats & roadmap
 
-- **This repository cannot exercise a real engine.** OCRmyPDF/Tesseract are not
-  installed here, so the native path is proven via injected fakes (deterministic
-  runner + injected `exec`/`fs`/PATH seams) plus the CLI status/check smoke — exactly
-  as native compression is. Every argv, temp-lifecycle, bound, failure, and
-  cleanup branch is unit-tested without a binary. Real end-to-end recognition must be
-  validated on an image/host that has the engine installed.
+- **The engine is now packaged, but real recognition still isn't exercised here.** The
+  Phase 24 `worker` image installs OCRmyPDF/Tesseract + English data, and the container
+  workflow proves — inside the built image — that the binaries and language data are
+  present and that the daemon reports OCR `ready` (`worker:image-smoke` / `worker:engines`,
+  presence-only). But this repository's own environment has **no Docker daemon and no
+  engine installed**, so the native runner is still proven here via injected fakes
+  (deterministic runner + injected `exec`/`fs`/PATH seams) plus the CLI status/check smoke
+  — every argv, temp-lifecycle, bound, failure, and cleanup branch unit-tested without a
+  binary. What the image proofs establish is that an engine is **installed and reports
+  ready** — they do **not** OCR a document. Real end-to-end recognition **quality** must
+  still be validated out-of-band on a running worker that has the engine.
 - **Retryable failures are coarse.** The `OcrRunner` seam is throw-based, so the
   processor treats any runner failure as a retryable `internal_error`; a *deterministic*
   failure (e.g. a corrupt input) therefore exhausts the attempt cap before failing

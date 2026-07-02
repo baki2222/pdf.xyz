@@ -38,7 +38,8 @@ versus planned — no fake processing.
 | Worker deployment hardening: retention→lifecycle **policy generation/validation** (AWS S3/R2/MinIO/generic), composed **deployment readiness/posture** + honest not-implemented facets, and production **guardrails** that fail fast (exit `4`) on unsafe config — via `--dry-run-status` / `--check` / `--lifecycle-policy`; content-free, offline, no cloud calls | ✅ Live (ops tooling) |
 | Redis queue atomicity + lease correctness: worker-owned transitions (claim commit, stale-lease redelivery, heartbeat, advance, finalize, requeue) run through frozen Redis `EVAL` compare-and-set scripts with status + lease-attempt preconditions, so a stolen/expired lease cannot resurrect or corrupt a job; a broker without atomic scripts fails as typed `unavailable`, and strict mode / `PDFXYZ_QUEUE_REQUIRE_ATOMIC` refuse a non-atomic queue | ✅ Live (queue hardening) |
 | Malware-scan gate (Phase 22): an **optional ClamAV/clamd** scanner streams each input over INSTREAM and scans it **before** processing — an infected or unscannable upload is blocked terminally (no artifact, inputs wiped), a transient scan failure retries, and with nothing configured the honest no-op scans nothing and never reports a file as scanned. Presence-only readiness (`disabled`/`not-configured`/`ready`/`unavailable`), content-free logs/status, and an opt-in `PDFXYZ_WORKER_REQUIRE_SCAN` guardrail that fails `--check` (exit `4`) unless a usable endpoint is configured | ✅ Live (optional backend; run clamd as a sidecar) |
-| OCR backend (Phase 23): an **optional, real** OCR **processor** on the out-of-band worker — shells out to **OCRmyPDF/Tesseract** with a fixed argv (no shell), hard timeout + byte ceilings, isolated temp with guaranteed cleanup, and a structural PDF check, producing a searchable PDF and/or text sidecar from **actual** recognition. **Off by default** (`PDFXYZ_OCR`): with nothing configured, `ocr-pdf` fails honestly as `not_implemented`, `status.ocr.available` is `false`, and the tool page mounts no uploader. The malware scan runs **before** OCR; recognized text lives only in the downloaded artifact and never leaks into logs/status/errors; presence-only readiness (`disabled`/`not-configured`/`unavailable`/`ready`) with an opt-in `PDFXYZ_WORKER_REQUIRE_OCR` guardrail. See [`docs/OCR_BACKEND.md`](docs/OCR_BACKEND.md) | ✅ Live (optional backend; install an engine on the worker) |
+| OCR backend (Phase 23): an **optional, real** OCR **processor** on the out-of-band worker — shells out to **OCRmyPDF/Tesseract** with a fixed argv (no shell), hard timeout + byte ceilings, isolated temp with guaranteed cleanup, and a structural PDF check, producing a searchable PDF and/or text sidecar from **actual** recognition. **Off by default** (`PDFXYZ_OCR`): with nothing configured, `ocr-pdf` fails honestly as `not_implemented`, `status.ocr.available` is `false`, and the tool page mounts no uploader. The malware scan runs **before** OCR; recognized text lives only in the downloaded artifact and never leaks into logs/status/errors; presence-only readiness (`disabled`/`not-configured`/`unavailable`/`ready`) with an opt-in `PDFXYZ_WORKER_REQUIRE_OCR` guardrail. See [`docs/OCR_BACKEND.md`](docs/OCR_BACKEND.md) | ✅ Live (optional backend; the Phase 24 worker image ships the engine) |
+| Worker image engine packaging + container proofs (Phase 24): the `worker` image now installs the native stack it advertises — Ghostscript/qpdf/mutool **and** OCRmyPDF/Tesseract + minimal English language data (`tesseract-ocr-eng`) — while the `web` image ships none. Two in-image smokes prove it with no cloud/secret/document: `pnpm worker:image-smoke` (compression + OCR binaries and English langdata present; `PDFXYZ_OCR=on` flips `ocr_health`→`ready`/`compression_health`→`deep`; native engines never fake drainability — `--dry-run-status` still exits `2`) and the node-free `pnpm worker:engines` preflight (production require-flags satisfied because the engines are present). Both run inside the built image on GitHub Actions; static tests pin the packages, the web↔worker split, the CI steps, and the smokes' presence-only, no-secret-echo hygiene. Docker isn't run locally — proof is those static tests + the container workflow | ✅ Live (image packaging + CI proof) |
 | Secure-worker tools: Office ⇄ PDF, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign | 🔜 Planned (production) |
 | AI tools: chat, summarize, translate, extract | 🔜 Planned |
 
@@ -102,6 +103,8 @@ tool honestly says deep compression is unavailable and the API records a
 | `pnpm worker:daemon` | Run the out-of-band secure-worker daemon (`--once` / `--drain` / `--dry-run-status` / `--check` / `--lifecycle-policy`) — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
 | `pnpm worker:daemon:status` | Presence-only worker readiness probe (`--dry-run-status`); exits `0` drainable / `2` not configured. Used by the container health check |
 | `pnpm worker:smoke` | No-config honesty smoke: asserts the daemon refuses to fake work (exit `2`), rejects bad flags (exit `1`), reports clean guardrails (exit `0`), and fails fast on a dangerous config (exit `4`) — no secrets or network. Also run inside the built worker image in CI |
+| `pnpm worker:image-smoke` | Image-level native-engine + OCR proof — run inside the **built worker image** in CI: the deep-compression + OCR binaries and English OCR data are installed, `PDFXYZ_OCR=on` flips `ocr_health`→`ready`, and native engines never fake drainability. Presence-only; no cloud/secret/document |
+| `pnpm worker:engines` | Node-free `command -v` engine preflight (`0` ok / `1` usage / `3` a required engine is missing). Honors the opt-in require-flags; runs anywhere, in or out of the image. Presence-only, content-free |
 | `pnpm typecheck` | `tsc --noEmit` (strict) |
 | `pnpm lint` | ESLint (flat config, `eslint-config-next`) |
 | `pnpm test` | Unit tests (Vitest, run once) |
@@ -167,19 +170,23 @@ the preview → production workflow are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMEN
 The secure worker is a **separate process**, never a Vercel function on the
 request path. A multi-stage [`Dockerfile`](Dockerfile) exposes two independent
 targets — `web` (the site, `pnpm start`) and `worker` (the daemon with
-Ghostscript/qpdf/mutool, `pnpm worker:daemon`) — with an example
+Ghostscript/qpdf/mutool **and** the OCRmyPDF/Tesseract OCR stack, `pnpm
+worker:daemon`) — with an example
 [`docker-compose.worker.yml`](docker-compose.worker.yml) and
 [`.env.worker.example`](.env.worker.example) (placeholder names only, no secrets):
 
 ```bash
-docker build --target worker -t pdfxyz-worker:local .   # native engines + daemon
+docker build --target worker -t pdfxyz-worker:local .   # deep-compression + OCR engines + daemon
 docker build --target web    -t pdfxyz-web:local .       # site only, no engines
 ```
 
 The image build is **not exercised in this repo's environment** (no Docker daemon
-here); CI builds both targets and runs the worker no-config smoke inside the built
-worker image on GitHub Actions
-([`.github/workflows/container.yml`](.github/workflows/container.yml)), and the
+here); CI builds both targets on GitHub Actions
+([`.github/workflows/container.yml`](.github/workflows/container.yml)) and, inside
+the built worker image, runs the no-config honesty smoke (`pnpm worker:smoke`) plus
+the native-engine + OCR proofs — `pnpm worker:image-smoke` and the node-free `pnpm
+worker:engines` preflight — which confirm the packaged deep-compression and OCR
+engines are present and report ready (presence-only, no document processed). The
 Dockerfile/compose/CI invariants are pinned by static tests (`src/deploy/`). For a
 full two-service production rollout — responsibilities, env by service, image
 promotion, smoke, and rollback — see the [**production runbook**](docs/RUNBOOK.md);
