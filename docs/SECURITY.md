@@ -202,3 +202,7 @@ Include reproduction steps and impact. We aim to acknowledge within a few
 business days and will coordinate a fix and disclosure timeline with you.
 
 **Supported version:** the latest `main` deployed to production.
+
+## Worker provider security rules
+
+Storage and queue providers must not accept user-supplied filesystem paths or object keys. Route handlers work only with opaque ids minted by the backend; providers map those ids to private bucket keys internally. Signed URLs must expire, buckets must deny public listing, and `DELETE /api/jobs/:id` must cancel queued/running work or expire completed artifacts without logging file names, file contents, raw URLs, or object keys.

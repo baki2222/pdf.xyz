@@ -132,3 +132,7 @@ curl -sI https://pdf.xyz/opengraph-image | grep -i content-type
 - [ ] OG image renders (paste a tool URL into a link-preview debugger).
 - [ ] Core in-browser tools work (merge two PDFs end-to-end).
 - [ ] Lighthouse: performance, SEO, and accessibility are green.
+
+## Phase 12 worker provider checklist
+
+Production worker rollout now requires concrete providers for object storage and queueing behind the typed contracts in `src/lib/workers/storage/` and `src/lib/workers/queue/`. Configure private encrypted storage, lifecycle deletion, signed upload/download URL TTLs, a broker-backed queue, idempotency storage, and an authenticated delete-now path before enabling remote processing. Until those adapters exist, remote-configured mode must continue returning typed not-implemented/not-configured responses rather than minting dummy URLs or jobs.

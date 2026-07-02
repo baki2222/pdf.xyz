@@ -15,6 +15,7 @@ export type ApiErrorCode =
   | "unsupported_tool"
   | "unprocessable_entity"
   | "payload_too_large"
+  | "conflict"
   | "worker_not_configured"
   | "not_implemented"
   | "not_found"
@@ -63,6 +64,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   unsupported_tool: 404,
   unprocessable_entity: 422,
   payload_too_large: 413,
+  conflict: 409,
   worker_not_configured: 503,
   not_implemented: 501,
   not_found: 404,

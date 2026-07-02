@@ -205,3 +205,7 @@ and are shared with the tool runners.
   unit-testable.
 - The default build (and the e2e suite that exercises it) is **completely quiet**:
   no beacons, no console noise, no cross-origin requests.
+
+## Worker provider status fields
+
+`/api/worker/status` includes presence-only readiness for `storage`, `queue`, and `processor`. These fields are safe to expose: they report provider class/capability and readiness, never variable names, secret values, bucket names, queue names, object keys, file names, or paths. Telemetry should record only coarse mode/readiness booleans if these fields are wired into events.

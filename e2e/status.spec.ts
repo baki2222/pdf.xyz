@@ -34,6 +34,16 @@ test.describe("system status page", () => {
       page.getByText(/no secure worker is configured/i),
     ).toBeVisible();
 
+    // The production pipeline is broken out provider-by-provider, each honestly
+    // not configured in this build — so the page names exactly what a real
+    // deployment still needs (object storage, job queue, processor).
+    await expect(page.getByText("Production pipeline")).toBeVisible();
+    await expect(page.getByText("Object storage")).toBeVisible();
+    await expect(page.getByText("Job queue")).toBeVisible();
+    await expect(
+      page.getByText("Not configured", { exact: true }).first(),
+    ).toBeVisible();
+
     // Static "what runs where" explainer is present and honest.
     await expect(
       page.getByRole("heading", { name: /what runs where/i }),

@@ -53,4 +53,12 @@ export interface WorkerAdapter {
   ): Promise<AdapterOutcome<UploadSession>>;
   createJob(request: CreateJobRequest): Promise<AdapterOutcome<Job>>;
   getJob(jobId: string): Promise<AdapterOutcome<Job>>;
+  /**
+   * Cancel an in-flight job and/or delete its outputs now — the user's honest
+   * "stop and delete my data" control (see `DELETE /api/jobs/:id`). With no
+   * backend this returns the same not-configured / not-implemented error as
+   * every other operation; it never pretends to have deleted a job that never
+   * existed.
+   */
+  cancelJob(jobId: string): Promise<AdapterOutcome<Job>>;
 }

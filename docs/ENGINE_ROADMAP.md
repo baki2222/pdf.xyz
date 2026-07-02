@@ -273,6 +273,38 @@ mode-specific reason — no fake searchable PDFs or invented text.
   the adapter contract, with language packs, per-page confidence, and the same
   storage/queue/deletion guarantees as every other worker.
 
+### Phase 12 — worker storage + queue foundation (shipped)
+
+The worker backend is now decomposed into explicit provider contracts rather than
+route-level stubs. This makes the production cutover concrete without adding any
+cloud credentials or fake processing.
+
+- **Object storage provider contract** (`src/lib/workers/storage/`): typed upload
+  reservations, signed download reservations, delete-now receipts, TTL metadata,
+  disabled/remote-unimplemented/local-dev provider ids, and provider capabilities.
+  Disabled/remote providers can only return typed failures; they cannot mint a
+  usable upload or download URL.
+- **Queue provider contract** (`src/lib/workers/queue/`): typed enqueue,
+  idempotency lookup, status, cancel, expire, and a pure job state-machine. The
+  local-dev queue is in-process and deterministic; the remote skeleton remains
+  honest until a real broker adapter is wired.
+- **Adapter integration**: the local-dev worker now composes storage + queue +
+  processor seams. Upload targets and artifact downloads flow through storage;
+  job records and delete-now/cancel/expire flow through queue. Existing disabled
+  and remote-configured public responses are preserved.
+- **Delete-now path**: `DELETE /api/jobs/:id` is the signed delete/cancel control.
+  With no backend it returns the same honest not-configured response; in local-dev
+  it cancels cancelable jobs or expires completed jobs and removes artifact
+  references.
+- **Status readiness**: `/api/worker/status` now includes provider readiness for
+  storage, queue, and processor so the UI can say which production piece is
+  missing without exposing env variable names or values.
+
+⏳ Remaining for production: implement a real storage provider (S3/R2/GCS), a real
+queue provider (SQS/PubSub/Redis/etc.), worker claim/execution loops, object
+lifecycle policies, and signed authenticated delete requests in front of the
+same contracts.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

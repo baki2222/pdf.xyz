@@ -69,3 +69,43 @@ describe("buildWorkerStatus", () => {
     expect(status.compress.deep).toBe(false);
   });
 });
+
+describe("buildWorkerStatus — provider readiness", () => {
+  it("reports every provider not-ready and not-configured when disabled", () => {
+    const { providers } = buildWorkerStatus("disabled");
+    for (const p of [providers.storage, providers.queue, providers.processor]) {
+      expect(p.ready).toBe(false);
+      expect(p.configured).toBe(false);
+      expect(p.detail.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("reports providers configured-but-not-ready in remote-configured", () => {
+    const { providers } = buildWorkerStatus("remote-configured");
+    expect(providers.storage.ready).toBe(false);
+    expect(providers.storage.configured).toBe(true);
+    expect(providers.queue.configured).toBe(true);
+    expect(providers.processor.configured).toBe(true);
+  });
+
+  it("reports storage/queue/processor ready in local-dev", () => {
+    const { providers } = buildWorkerStatus("local-dev", noTools);
+    expect(providers.storage.ready).toBe(true);
+    expect(providers.queue.ready).toBe(true);
+    expect(providers.processor.ready).toBe(true);
+    expect(providers.storage.signedUploads).toBe(true);
+    expect(providers.queue.cancel).toBe(true);
+  });
+
+  it("never leaks a variable name in any provider detail", () => {
+    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+      const { providers } = buildWorkerStatus(mode);
+      const details = [
+        providers.storage.detail,
+        providers.queue.detail,
+        providers.processor.detail,
+      ].join(" ");
+      expect(details).not.toMatch(/PDFXYZ_/);
+    }
+  });
+});

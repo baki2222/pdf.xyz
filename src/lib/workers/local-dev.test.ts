@@ -233,4 +233,50 @@ describe("local-dev worker — compression job flow", () => {
       expect(created.value.error?.code).toBe("unprocessable_entity");
     }
   });
+
+  it("delete-now expires a completed job and wipes its artifact bytes", async () => {
+    const adapter = makeAdapter();
+    const fileId = await seedUpload(adapter, await makePdf(3));
+    const created = await adapter.createJob({
+      tool: "compress-pdf",
+      inputs: [fileId],
+      options: { profile: "lossless" },
+    });
+    if (!created.ok) throw new Error("job should complete");
+    const artifactId = created.value.artifacts?.[0]?.artifactId;
+    expect(artifactId).toBeDefined();
+    if (!artifactId) return;
+    expect(store.getArtifact(artifactId)).toBeDefined();
+
+    // Delete now: the completed job moves to `expired`, its download disappears,
+    // and the artifact bytes are actually gone from storage.
+    const deleted = await adapter.cancelJob(created.value.jobId);
+    expect(deleted.ok).toBe(true);
+    if (!deleted.ok) return;
+    expect(deleted.value.status).toBe("expired");
+    expect(deleted.value.artifacts).toBeUndefined();
+    expect(store.getArtifact(artifactId)).toBeUndefined();
+  });
+
+  it("delete-now is idempotent on an already-failed job", async () => {
+    const adapter = makeAdapter();
+    const fileId = await seedUpload(adapter, await makePdf());
+    const created = await adapter.createJob({
+      tool: "compress-pdf",
+      inputs: [fileId],
+      options: { profile: "deep" }, // fails: no native engine
+    });
+    if (!created.ok) throw new Error("job should be created");
+    expect(created.value.status).toBe("failed");
+    const deleted = await adapter.cancelJob(created.value.jobId);
+    expect(deleted.ok).toBe(true);
+    if (deleted.ok) expect(deleted.value.status).toBe("failed");
+  });
+
+  it("delete-now on an unknown job is an honest not_found", async () => {
+    const adapter = makeAdapter();
+    const res = await adapter.cancelJob("job_deadbeef00");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.body.error.code).toBe("not_found");
+  });
 });

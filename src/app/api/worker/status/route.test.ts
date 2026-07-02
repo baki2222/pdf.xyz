@@ -26,6 +26,12 @@ describe("GET /api/worker/status", () => {
     expect(body.ocr.available).toBe(false);
     expect(body.ocr.engine).toBeNull();
     expect(body.ocr.languages).toEqual([]);
+    // Every pipeline provider reports honestly not-configured, and nothing in
+    // the response ever names an infrastructure variable.
+    expect(body.providers.storage.ready).toBe(false);
+    expect(body.providers.queue.ready).toBe(false);
+    expect(body.providers.processor.ready).toBe(false);
+    expect(JSON.stringify(body)).not.toContain("PDFXYZ_");
   });
 
   it("reports remote-configured when backend vars are present", async () => {

@@ -16,6 +16,7 @@ describe("apiError", () => {
       unsupported_tool: 404,
       unprocessable_entity: 422,
       payload_too_large: 413,
+      conflict: 409,
       worker_not_configured: 503,
       not_implemented: 501,
       not_found: 404,

@@ -25,6 +25,7 @@ describe("getWorkerAdapter selection", () => {
       await adapter.createUploadSession(uploadReq),
       await adapter.createJob(jobReq),
       await adapter.getJob("job_1234567890"),
+      await adapter.cancelJob("job_1234567890"),
     ];
     for (const outcome of outcomes) {
       expect(outcome.ok).toBe(false);
@@ -39,11 +40,16 @@ describe("getWorkerAdapter selection", () => {
     const adapter = await getWorkerAdapter(configuredEnv());
     expect(adapter.mode).toBe("remote-configured");
 
-    const outcome = await adapter.createJob(jobReq);
-    expect(outcome.ok).toBe(false);
-    if (!outcome.ok) {
-      expect(outcome.error.status).toBe(501);
-      expect(outcome.error.body.error.code).toBe("not_implemented");
+    // Every operation — including cancel/delete-now — is honest not_implemented.
+    for (const outcome of [
+      await adapter.createJob(jobReq),
+      await adapter.cancelJob("job_1234567890"),
+    ]) {
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) {
+        expect(outcome.error.status).toBe(501);
+        expect(outcome.error.body.error.code).toBe("not_implemented");
+      }
     }
   });
 

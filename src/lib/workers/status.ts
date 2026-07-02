@@ -21,6 +21,7 @@ import {
   type OcrCapability,
   type OcrEngineAvailability,
 } from "./ocr";
+import { getProviderReadiness, type WorkerProviders } from "./providers";
 
 /** What the worker can do for the Compress tool in this environment, right now. */
 export interface CompressCapability {
@@ -47,6 +48,12 @@ export interface WorkerStatus {
   compress: CompressCapability;
   /** What the worker can do for the OCR tool right now (its own honest detail). */
   ocr: OcrCapability;
+  /**
+   * Presence-only readiness of the three providers behind the adapter — object
+   * storage, job queue, and the processor. Lets the UI distinguish which piece
+   * of the production pipeline is waiting, without ever leaking a variable value.
+   */
+  providers: WorkerProviders;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -68,6 +75,7 @@ export function buildWorkerStatus(
   ocrEngines?: OcrEngineAvailability,
 ): WorkerStatus {
   const ocr = buildOcrCapability(mode, ocrEngines);
+  const providers = getProviderReadiness(mode);
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -81,6 +89,7 @@ export function buildWorkerStatus(
         : "Local-dev worker enabled, but no native engine (Ghostscript, qpdf, or mutool) is installed, so deep image compression can't run here. Install one to enable it.",
       compress: { lossless: true, deep, engines },
       ocr,
+      providers,
     };
   }
 
@@ -93,6 +102,7 @@ export function buildWorkerStatus(
         "A worker backend is configured, but this build ships no processing pipeline yet.",
       compress: { ...NO_COMPRESS },
       ocr,
+      providers,
     };
   }
 
@@ -104,5 +114,6 @@ export function buildWorkerStatus(
       "No secure worker is configured in this environment. Deep image compression runs on an encrypted, auto-deleting worker when enabled.",
     compress: { ...NO_COMPRESS },
     ocr,
+    providers,
   };
 }

@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Cpu, Loader2, MonitorSmartphone, ScanText } from "lucide-react";
+import {
+  Cpu,
+  Database,
+  Loader2,
+  MonitorSmartphone,
+  ScanText,
+  Server,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { track } from "@/lib/telemetry/track";
 import {
@@ -33,6 +42,41 @@ function workerBadge(status: WorkerStatus): {
     return { tone: "info", label: "Configured", pulse: false };
   }
   return { tone: "muted", label: "Not enabled", pulse: false };
+}
+
+/**
+ * One provider in the production pipeline (object storage, job queue, or the
+ * processor). Presence-only: `ready` when it can serve requests now, `configured`
+ * when the infrastructure is present but this build ships no client, otherwise
+ * not wired. The `detail` never names a variable or a value.
+ */
+function ProviderRow({
+  icon: Icon,
+  label,
+  ready,
+  configured,
+  detail,
+}: {
+  icon: LucideIcon;
+  label: string;
+  ready: boolean;
+  configured: boolean;
+  detail: string;
+}) {
+  const tone: StatusTone = ready ? "ok" : configured ? "info" : "muted";
+  const badge = ready ? "Ready" : configured ? "Configured" : "Not configured";
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300">
+          <Icon className="size-3.5 text-slate-400" aria-hidden />
+          {label}
+        </span>
+        <StatusBadge tone={tone} label={badge} />
+      </div>
+      <p className="text-xs leading-relaxed text-slate-500">{detail}</p>
+    </div>
+  );
 }
 
 /**
@@ -156,6 +200,37 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                 <p className="text-xs leading-relaxed text-slate-500">
                   {status.ocr.detail}
                 </p>
+              </div>
+
+              {/* The production pipeline, piece by piece: signed upload → queued
+                  job → worker processing → signed download → deletion. Each
+                  provider reports its own honest readiness so the page can say
+                  exactly what a real deployment still needs to wire up. */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+                  Production pipeline
+                </span>
+                <ProviderRow
+                  icon={Database}
+                  label="Object storage"
+                  ready={status.providers.storage.ready}
+                  configured={status.providers.storage.configured}
+                  detail={status.providers.storage.detail}
+                />
+                <ProviderRow
+                  icon={Workflow}
+                  label="Job queue"
+                  ready={status.providers.queue.ready}
+                  configured={status.providers.queue.configured}
+                  detail={status.providers.queue.detail}
+                />
+                <ProviderRow
+                  icon={Server}
+                  label="Processor"
+                  ready={status.providers.processor.ready}
+                  configured={status.providers.processor.configured}
+                  detail={status.providers.processor.detail}
+                />
               </div>
             </div>
           )}

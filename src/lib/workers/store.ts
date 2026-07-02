@@ -183,6 +183,16 @@ export class DevWorkerStore {
     return artifact;
   }
 
+  /**
+   * Wipe an output artifact (and its bytes) immediately — the local-dev
+   * stand-in for a signed "delete now" against object storage. Idempotent:
+   * returns true if the artifact existed and was removed, false if it was
+   * already gone. Mirrors the contract's explicit delete-now guarantee.
+   */
+  deleteArtifact(artifactId: string): boolean {
+    return this.artifacts.delete(artifactId);
+  }
+
   /** Clear everything — used to isolate tests. */
   reset(): void {
     this.slots.clear();

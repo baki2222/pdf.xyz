@@ -37,3 +37,33 @@ export async function GET(
     outcome.ok ? { status: outcome.status, body: outcome.value } : outcome.error,
   );
 }
+
+/**
+ * DELETE /api/jobs/[id] — signed "delete now" / cancel path.
+ *
+ * In production this is where the adapter cancels queued/running work and asks
+ * storage to delete produced artifacts immediately. With no backend it returns
+ * the same honest not-configured response as status. The local-dev adapter uses
+ * its queue/storage providers to cancel in-flight jobs or expire completed jobs
+ * and remove their artifacts.
+ */
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const { id } = await context.params;
+
+  if (!isValidJobId(id)) {
+    return respond(
+      apiError("invalid_request", "Malformed job id.", [
+        { field: "id", message: "Expected a job id of the form job_…" },
+      ]),
+    );
+  }
+
+  const adapter = await getWorkerAdapter();
+  const outcome = await adapter.cancelJob(id);
+  return respond(
+    outcome.ok ? { status: outcome.status, body: outcome.value } : outcome.error,
+  );
+}

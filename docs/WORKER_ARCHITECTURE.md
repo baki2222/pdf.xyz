@@ -90,6 +90,24 @@ A completed OCR job's shape is typed by `OcrResultMeta` / `OcrPageResult` (engin
 
 A production OCR processor, deployed behind the same adapter contract, must: run **OCRmyPDF/Tesseract or a managed OCR provider** in a sandboxed, no-egress job; ship the language packs advertised by the capability; produce a searchable PDF (invisible text layer) and/or a text sidecar per `outputMode`; honor `skipTextPages`; and return `OcrResultMeta` from actual recognition. Inputs are wiped right after processing and outputs auto-delete on their TTL, exactly like every other job.
 
+## Provider seams
+
+Phase 12 splits the production backend into three explicit providers behind the
+worker adapter:
+
+| Provider | Interface | Responsibility | Current production behavior |
+| --- | --- | --- | --- |
+| Object storage | `src/lib/workers/storage/` | signed upload slots, signed artifact downloads, delete-now receipts, retention metadata | disabled/remote-unimplemented returns typed failure |
+| Queue | `src/lib/workers/queue/` | enqueue, idempotency, status, cancel, expire, job state transitions | disabled/remote-unimplemented returns typed failure |
+| Processor | `src/lib/workers/*` engines | compression/OCR execution after a worker claims a job | local-dev only; production worker loop not shipped |
+
+No client supplies object keys or filesystem paths. Opaque ids (`f_…`, `job_…`,
+`art_…`) are minted server-side; production providers must map them to private
+bucket keys internally. All download/upload URLs in the contract are signed and
+expiring. `DELETE /api/jobs/:id` is the delete-now/cancel seam: it returns an
+honest not-configured error with no backend, and local-dev cancels cancelable jobs
+or expires completed jobs while removing artifact references.
+
 ## Contract endpoints
 
 ### `POST /api/uploads`
@@ -153,9 +171,13 @@ The URL validator blocks localhost, private IPv4 ranges, link-local/cloud metada
 
 Returns typed job status once a real backend exists. Stub behavior is explicit and safe: invalid ids are rejected, and unknown jobs are reported without leaking implementation details.
 
+### `DELETE /api/jobs/:id`
+
+The honest delete-now / cancel control — the user's "stop and delete my data" action. It validates the id, then delegates to the adapter's `cancelJob`. With no backend it answers `503 worker_not_configured` (there is nothing to cancel or delete) and never fabricates a `canceled` job. The local-dev adapter resolves it through the queue + storage providers: an in-flight job transitions to `canceled` (queue `cancel`), a `completed` job transitions to `expired` with its artifact bytes removed via storage `deleteNow` (an early, explicit "delete now"), and an already-terminal job is an idempotent no-op. Transitions are guarded by the queue state machine (`src/lib/workers/queue/state.ts`).
+
 ### `GET /api/worker/status`
 
-Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only. The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`. `no-store`; reflects live host state. See "Discovering worker availability from the client" above.
+Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail }, providers: { storage, queue, processor } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only, and each `providers` entry reports only its `ready`/`configured` readiness plus a client-safe `detail` (never a bucket, queue, key, path, or variable name). The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`; provider readiness is derived from the resolved mode so a partially configured deployment cannot be fingerprinted from the client. `no-store`; reflects live host state. See "Discovering worker availability from the client" and "Provider seams" above.
 
 ### Local-dev transport (dev only)
 

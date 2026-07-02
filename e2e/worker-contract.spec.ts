@@ -79,6 +79,16 @@ test.describe("job API contract stubs", () => {
     const badId = await request.get("/api/jobs/not-an-id");
     expect(badId.status()).toBe(400);
 
+    // Delete-now / cancel: valid id → 503 (no backend, nothing to delete);
+    // malformed id → 400. It never fabricates a canceled or deleted job.
+    const del = await request.delete("/api/jobs/job_abcdefghij");
+    expect(del.status()).toBe(503);
+    const delBody = await del.json();
+    expect(delBody.error.code).toBe("worker_not_configured");
+    expect(JSON.stringify(delBody)).not.toContain("canceled");
+    const badDel = await request.delete("/api/jobs/not-an-id");
+    expect(badDel.status()).toBe(400);
+
     // Upload session: well-formed → 503.
     const upload = await request.post("/api/uploads", {
       data: {

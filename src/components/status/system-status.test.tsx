@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { WorkerStatus } from "@/lib/workers/status";
+import { getProviderReadiness } from "@/lib/workers/providers";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -20,6 +21,7 @@ const DISABLED_STATUS: WorkerStatus = {
     languages: [],
     detail: "OCR is unavailable in this environment.",
   },
+  providers: getProviderReadiness("disabled"),
 };
 
 const LOCAL_TOOLS: LocalToolRef[] = [
@@ -58,6 +60,18 @@ describe("SystemStatus", () => {
     expect(screen.getByText(DISABLED_STATUS.ocr.detail)).toBeInTheDocument();
     // Disabled OCR shows its own "Not enabled" badge alongside the worker one.
     expect(screen.getAllByText("Not enabled").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows the production pipeline providers, each honestly not configured", async () => {
+    mockFetchOnce(async () => ({ ok: true, json: async () => DISABLED_STATUS }));
+    render(<SystemStatus localTools={LOCAL_TOOLS} />);
+
+    expect(await screen.findByText("Production pipeline")).toBeInTheDocument();
+    expect(screen.getByText("Object storage")).toBeInTheDocument();
+    expect(screen.getByText("Job queue")).toBeInTheDocument();
+    expect(screen.getByText("Processor")).toBeInTheDocument();
+    // Storage, queue, and processor each render a "Not configured" badge.
+    expect(screen.getAllByText("Not configured").length).toBeGreaterThanOrEqual(3);
   });
 
   it("reads worker status and emits a privacy-safe worker_status_checked event", async () => {
