@@ -1,0 +1,167 @@
+/**
+ * The typed product-event schema for pdf.xyz.
+ *
+ * These events answer product questions ("which tools get used?", "do people
+ * reach the secure-worker path?") while upholding the same no-file-content
+ * promise as the rest of the app. The schema is privacy-safe *by construction*:
+ *
+ *  - No event field is a filename, raw file byte count, page text, raw URL, or
+ *    any user/device identifier. Numeric dimensions are converted to coarse
+ *    {@link CountBucket}/{@link SizeBucket}/{@link DurationBucket} labels *at the
+ *    point of construction* (see the builder helpers), so a raw measurement
+ *    never even becomes an event field.
+ *  - Every remaining field is a route slug (public), a fixed enum, or a boolean.
+ *  - {@link redactValue} still scrubs the payload in the reporter as defense in
+ *    depth, so a careless future field can't leak.
+ *
+ * `track` (in `./reporter`) accepts exactly a {@link ProductEvent}, so adding an
+ * event or field is a type-checked, reviewable change — not a free-form string.
+ */
+
+import type { ToolCapability } from "@/lib/jobs/types";
+import type { WorkerMode } from "@/lib/workers/mode";
+import type { HandoffMode } from "@/lib/handoff/capability";
+import {
+  countBucket,
+  sizeBucket,
+  durationBucket,
+  type CountBucket,
+  type SizeBucket,
+  type DurationBucket,
+} from "./buckets";
+
+/**
+ * Coarse, non-identifying reason a tool run couldn't proceed. This is a fixed
+ * category — never the raw error message, which could echo a filename or path.
+ */
+export const TOOL_ERROR_REASONS = [
+  "handoff-expired",
+  "handoff-incompatible",
+  "unsupported-tool",
+  "unsupported-batch",
+  "worker-unavailable",
+  "invalid-input",
+  "processing-error",
+] as const;
+
+export type ToolErrorReason = (typeof TOOL_ERROR_REASONS)[number];
+
+/**
+ * The product-event union. Discriminated by `name`; each variant carries only
+ * privacy-safe, low-cardinality fields. Extend by adding a variant here and its
+ * name to {@link EVENT_NAMES} — both are required for `track` to accept it.
+ */
+export type ProductEvent =
+  | {
+      /** A tool page was opened. `toolSlug` is a public route id, not user data. */
+      name: "tool_viewed";
+      toolSlug: string;
+      capability: ToolCapability;
+    }
+  | {
+      /** A tool produced output on-device. Sizes/timings are bucketed. */
+      name: "tool_completed";
+      toolSlug: string;
+      capability: ToolCapability;
+      /** How many inputs the run consumed (bucketed). */
+      inputCount: CountBucket;
+      /** Coarse size of the produced output, when there is one. */
+      outputSize?: SizeBucket;
+      /** Coarse wall-clock time the run took, when measured. */
+      duration?: DurationBucket;
+    }
+  | {
+      /** A tool run couldn't proceed; `reason` is a coarse category. */
+      name: "tool_failed";
+      toolSlug: string;
+      capability: ToolCapability;
+      reason: ToolErrorReason;
+    }
+  | {
+      /** Files were handed off from the workspace to a tool, browser-locally. */
+      name: "workspace_handoff_created";
+      toolSlug: string;
+      mode: HandoffMode;
+      /** How many files the handoff carried (bucketed). */
+      fileCount: CountBucket;
+    }
+  | {
+      /** The UI asked the honest worker-status endpoint what's available. */
+      name: "worker_status_checked";
+      mode: WorkerMode;
+      enabled: boolean;
+    }
+  | {
+      /** The browser exercised the secure-worker job contract; here's the outcome. */
+      name: "worker_contract_hit";
+      capability: ToolCapability;
+      ok: boolean;
+      /** Contract/job error code (a fixed identifier), when the run failed. */
+      code?: string;
+    };
+
+/** Every valid event name. The runtime allowlist behind {@link isKnownEventName}. */
+export const EVENT_NAMES = [
+  "tool_viewed",
+  "tool_completed",
+  "tool_failed",
+  "workspace_handoff_created",
+  "worker_status_checked",
+  "worker_contract_hit",
+] as const;
+
+export type EventName = (typeof EVENT_NAMES)[number];
+
+const EVENT_NAME_SET: ReadonlySet<string> = new Set(EVENT_NAMES);
+
+/** True when `name` is a recognized product-event name. */
+export function isKnownEventName(name: unknown): name is EventName {
+  return typeof name === "string" && EVENT_NAME_SET.has(name);
+}
+
+/* ------------------------------------------------------------------ *
+ *  Builders — convert raw measurements to bucketed events at the edge
+ * ------------------------------------------------------------------ */
+
+/**
+ * Build a `tool_completed` event, bucketing the raw input count / output byte
+ * size / elapsed milliseconds so no raw measurement is ever stored on the event.
+ */
+export function toolCompletedEvent(input: {
+  toolSlug: string;
+  capability: ToolCapability;
+  inputCount: number;
+  outputBytes?: number;
+  elapsedMs?: number;
+}): Extract<ProductEvent, { name: "tool_completed" }> {
+  const event: Extract<ProductEvent, { name: "tool_completed" }> = {
+    name: "tool_completed",
+    toolSlug: input.toolSlug,
+    capability: input.capability,
+    inputCount: countBucket(input.inputCount),
+  };
+  if (input.outputBytes !== undefined) {
+    event.outputSize = sizeBucket(input.outputBytes);
+  }
+  if (input.elapsedMs !== undefined) {
+    event.duration = durationBucket(input.elapsedMs);
+  }
+  return event;
+}
+
+/**
+ * Build a `workspace_handoff_created` event, bucketing the raw file count so the
+ * exact number of files a user staged is never recorded.
+ */
+export function handoffCreatedEvent(input: {
+  toolSlug: string;
+  mode: HandoffMode;
+  fileCount: number;
+}): Extract<ProductEvent, { name: "workspace_handoff_created" }> {
+  return {
+    name: "workspace_handoff_created",
+    toolSlug: input.toolSlug,
+    mode: input.mode,
+    fileCount: countBucket(input.fileCount),
+  };
+}

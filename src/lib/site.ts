@@ -70,7 +70,7 @@ export const footerNav: { title: string; items: NavItem[] }[] = [
     items: [
       { label: "Help center", href: "/#faq" },
       { label: "API (coming soon)", href: "/#api" },
-      { label: "Status", href: "/#status" },
+      { label: "Status", href: "/status" },
       { label: "Changelog", href: "/#changelog" },
     ],
   },
