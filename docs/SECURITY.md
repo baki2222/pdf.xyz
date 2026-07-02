@@ -168,7 +168,12 @@ hashed** before it is used as a Redis key component — the raw value never beco
 broker key name; (2) job ids, and therefore every Redis key, are derived only from
 **server-minted opaque ids** — no client ever supplies a Redis key, stream name, or
 broker id. Commands are sent as JSON argument arrays (not string-interpolated RESP),
-so a value can never be interpreted as a command. A broker outage surfaces as a
+so a value can never be interpreted as a command. Phase 21 also moves worker-owned
+state transitions behind Redis `EVAL` scripts with status + lease-attempt
+preconditions: a stale daemon cannot heartbeat, advance, complete, fail, or requeue
+a job after its lease is reclaimed, and a broker without atomic script support fails
+as typed `unavailable` rather than silently using unsafe read→write behavior. A
+broker outage surfaces as a
 typed `unavailable` (HTTP 500, retryable), never a fabricated job or status.
 
 ## HTTP security headers

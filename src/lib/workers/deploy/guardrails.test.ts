@@ -48,6 +48,7 @@ describe("worker deployment guardrails", () => {
       "deep_compression_without_engine",
       "require_drainable_unmet",
       "require_lifecycle_unmet",
+      "queue_atomic_unsupported",
     ]);
     for (const violation of report.violations) {
       expect(violation.message).not.toMatch(/PDFXYZ_|secret|token|https?:\/\//i);
@@ -74,6 +75,38 @@ describe("worker deployment guardrails", () => {
     );
     expect(report.ok).toBe(true);
     expect(report.violations).toEqual([]);
+  });
+
+  it("fails fast when atomic queue transitions are required but unavailable", () => {
+    // Opt-in on its own (no strict), with no atomic-capable queue configured.
+    const report = evaluateGuardrails(
+      { [GUARDRAIL_ENV.requireAtomicQueue]: "true" },
+      { engine: noDeepEngine },
+    );
+    expect(report.ok).toBe(false);
+    expect(report.strict).toBe(true); // any require flag arms the report
+    expect(report.violations.map((v) => v.code)).toEqual([
+      "queue_atomic_unsupported",
+    ]);
+    expect(report.violations[0]!.fields).toEqual([REDIS_QUEUE_ENV.provider]);
+    expect(report.violations[0]!.message).not.toMatch(
+      /PDFXYZ_|secret|token|https?:\/\//i,
+    );
+  });
+
+  it("passes the atomic requirement when a valid Redis queue is configured", () => {
+    const report = evaluateGuardrails(
+      {
+        [GUARDRAIL_ENV.requireAtomicQueue]: "true",
+        [REDIS_QUEUE_ENV.provider]: "redis",
+        [REDIS_QUEUE_ENV.restUrl]: "https://redis.example.test",
+        [REDIS_QUEUE_ENV.restToken]: "redis-rest-token",
+      },
+      { engine: noDeepEngine },
+    );
+    expect(report.violations.map((v) => v.code)).not.toContain(
+      "queue_atomic_unsupported",
+    );
   });
 
   it("rejects malformed lifecycle and retention settings by field names only", () => {

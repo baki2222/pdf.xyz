@@ -15,6 +15,18 @@ import type { Job, JobArtifact, JobError, JobStatus } from "@/lib/jobs";
 import type { QueueProvider, QueueResult } from "./types";
 
 /**
+ * The 1-based attempt number a job was claimed under — the **lease-ownership
+ * fingerprint** an executor threads back through {@link ClaimableQueue}'s
+ * running-state transitions. It is stable across heartbeats and bumps on every
+ * (re)claim, so an atomic provider can reject a write from a worker whose lease
+ * was stolen (its attempt no longer matches the stored lease) without resurrecting
+ * or corrupting the job. Optional on every method for backward compatibility: an
+ * omitted fingerprint means "do not check ownership" (the pre-Phase-21 behavior,
+ * still atomic on the *status* precondition). See docs/WORKER_ARCHITECTURE.md.
+ */
+export type AttemptFingerprint = number;
+
+/**
  * A queued job plus everything the executor needs to run it: the input file ids
  * and the raw option bag. Distinct from {@link Job} (the client-facing record),
  * which deliberately never exposes inputs.
@@ -91,19 +103,37 @@ export interface ClaimableQueue extends QueueProvider {
    */
   claim(options: ClaimOptions): Promise<QueueResult<ClaimedJob | null>>;
 
-  /** Extend a claimed job's lease while it is still being processed. */
-  heartbeat(jobId: string, leaseMs: number): Promise<QueueResult<Job>>;
+  /**
+   * Extend a claimed job's lease while it is still being processed. Pass the
+   * {@link AttemptFingerprint} from the claim to make an atomic provider reject a
+   * heartbeat whose lease was stolen (no resurrection); omit it to skip the
+   * ownership check.
+   */
+  heartbeat(
+    jobId: string,
+    leaseMs: number,
+    expectedAttempt?: AttemptFingerprint,
+  ): Promise<QueueResult<Job>>;
 
   /** Advance a running job's status (scan→process) and/or its progress. */
-  advance(jobId: string, update: RunningUpdate): Promise<QueueResult<Job>>;
+  advance(
+    jobId: string,
+    update: RunningUpdate,
+    expectedAttempt?: AttemptFingerprint,
+  ): Promise<QueueResult<Job>>;
 
   /** Mark a claimed job `completed` with its produced artifacts. */
-  complete(jobId: string, artifacts: JobArtifact[]): Promise<QueueResult<Job>>;
+  complete(
+    jobId: string,
+    artifacts: JobArtifact[],
+    expectedAttempt?: AttemptFingerprint,
+  ): Promise<QueueResult<Job>>;
 
   /** Fail a claimed job: terminal `failed`, or requeue it for another attempt. */
   fail(
     jobId: string,
     error: JobError,
     disposition: FailDisposition,
+    expectedAttempt?: AttemptFingerprint,
   ): Promise<QueueResult<Job>>;
 }

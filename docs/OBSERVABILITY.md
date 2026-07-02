@@ -289,3 +289,17 @@ declared yet" state; alert if a production worker you intend to be `ready` repor
 `degraded`. A non-empty `guardrails.errors` on a worker that fails to start (exit `4`)
 is the fail-fast signal — inspect the `guardrail` `code`s (never a leaked value) to see
 which provider/setting is misconfigured.
+
+## Redis queue atomicity signals (Phase 21)
+
+The Redis/Upstash provider's worker transitions are now atomic (`EVAL` scripts with
+status and lease-attempt preconditions). Normal stale-worker races surface as existing
+content-free queue outcomes: stale heartbeats/advances/finalizers return typed
+`conflict`, while broker/script failures return typed `unavailable` and should be
+alerted like any other Redis outage. No log/status line includes a Redis URL, token,
+key prefix, object key, filename, or payload. Operationally, alert on:
+
+- a spike in retryable `unavailable` queue errors (broker outage or unsupported
+  atomic script execution);
+- elevated requeue/redelivery counts (workers are losing leases or timing out);
+- dead-letter growth after the configured max attempts.

@@ -37,9 +37,25 @@ export const QUEUE_TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
   canceled: [],
 } as const;
 
+/** Every {@link JobStatus}, derived from the transition table's own keys. */
+export const ALL_STATUSES = Object.keys(QUEUE_TRANSITIONS) as JobStatus[];
+
+/** The actively-leased statuses a worker may heartbeat/advance from. */
+export const RUNNING_STATUSES: readonly JobStatus[] = ["scanning", "processing"];
+
 /** True when a job may legally move from `from` to `to`. */
 export function canTransition(from: JobStatus, to: JobStatus): boolean {
   return QUEUE_TRANSITIONS[from].includes(to);
+}
+
+/**
+ * The set of statuses a job may legally be in for a transition *to* `target` to
+ * be allowed — the inverse of {@link QUEUE_TRANSITIONS}. The atomic Redis provider
+ * passes this set into its compare-and-set scripts so the transition rules stay
+ * defined once here and are merely *enforced* server-side, never re-encoded in Lua.
+ */
+export function sourceStatusesFor(target: JobStatus): JobStatus[] {
+  return ALL_STATUSES.filter((from) => canTransition(from, target));
 }
 
 /**

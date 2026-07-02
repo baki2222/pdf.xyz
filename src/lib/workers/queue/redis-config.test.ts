@@ -5,6 +5,7 @@ import {
   REDIS_QUEUE_ENV,
   isRedisQueueSelected,
   parseRedisQueueConfig,
+  queueSupportsAtomicTransitions,
   resolveQueueCapability,
 } from "./redis-config";
 
@@ -184,6 +185,8 @@ describe("resolveQueueCapability", () => {
       enqueue: true,
       status: true,
       cancel: true,
+      // Phase 21: the Redis provider promises atomic, race-safe transitions.
+      atomicTransitions: true,
     });
   });
 
@@ -208,5 +211,23 @@ describe("resolveQueueCapability", () => {
     ]) {
       expect(serialized).not.toContain(leak);
     }
+  });
+});
+
+describe("queueSupportsAtomicTransitions", () => {
+  it("is true only when a fully valid Redis queue is selected", () => {
+    expect(queueSupportsAtomicTransitions(validEnv())).toBe(true);
+  });
+
+  it("is false when the queue is unset, misconfigured, or a placeholder", () => {
+    expect(queueSupportsAtomicTransitions({})).toBe(false);
+    expect(
+      queueSupportsAtomicTransitions(
+        validEnv({ [REDIS_QUEUE_ENV.restToken]: undefined }),
+      ),
+    ).toBe(false);
+    expect(
+      queueSupportsAtomicTransitions({ [REDIS_QUEUE_ENV.provider]: "sqs" }),
+    ).toBe(false);
   });
 });

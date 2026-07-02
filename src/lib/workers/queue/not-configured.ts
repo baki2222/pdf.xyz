@@ -67,6 +67,8 @@ export function createNotConfiguredQueue(
         enqueue: false,
         status: false,
         cancel: false,
+        // No provider is wired, so there is nothing to make atomic.
+        atomicTransitions: false,
         detail,
       };
     },

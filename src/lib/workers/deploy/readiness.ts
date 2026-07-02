@@ -176,7 +176,7 @@ export function resolveDeploymentReadiness(
       label: "Job queue",
       state: daemon.queueConfigured ? "ready" : "not-configured",
       detail: daemon.queueConfigured
-        ? "A claimable job queue is configured, so a worker can claim and complete jobs."
+        ? "A claimable job queue is configured, so a worker can claim and complete jobs; its state transitions are atomic and race-safe (server-side compare-and-set)."
         : "A claimable job queue is not configured, so a worker has nothing to drain.",
     },
     engineFacet(deps.engine),

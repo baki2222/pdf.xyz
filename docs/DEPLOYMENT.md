@@ -93,7 +93,10 @@ remote processing claims until a real broker and worker service are deployed.
 Set these only in server-side environments. Do **not** use `NEXT_PUBLIC_`.
 `PDFXYZ_QUEUE_PROVIDER=redis` (or `upstash-redis`) is the explicit selector;
 without it the app falls back to the safe disabled/remote-unimplemented queue
-provider. Works with Upstash Redis REST and any compatible HTTP Redis gateway.
+provider. Works with Upstash Redis REST and any compatible HTTP Redis gateway that
+supports Redis script execution (`EVAL`) for the Phase 21 atomic transition layer.
+If the broker/gateway cannot execute those scripts, worker-owned transitions fail as
+typed `unavailable` instead of silently falling back to unsafe read→write behavior.
 
 | Variable | Required | Notes |
 | --- | --- | --- |

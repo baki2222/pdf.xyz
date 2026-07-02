@@ -19,25 +19,37 @@
  *                     FIFO); `…:active` → ZSET of in-flight jobIds scored by lease
  *                     expiry, for redelivery.
  *
- * Concurrency: the atomic dequeue (`RPOP …:ready`) and the atomic redelivery
- * hand-off (`ZREM …:active`, whose returned count elects a single winner) are the
- * mutual-exclusion points, so two workers can never claim or requeue the same job.
- * Each multi-key transition is a MULTI/EXEC transaction, so a job never lands in a
- * half-updated state. Read-then-write transitions (status/cancel/complete) are
- * last-writer-wins within the tiny read→write window and are always guarded by the
- * shared state machine — an illegal move observed at write time is a `conflict`,
- * never a corrupt job. See docs/WORKER_ARCHITECTURE.md for the honest limits.
+ * Concurrency (Phase 21 — atomic transitions): the atomic dequeue (`RPOP …:ready`)
+ * and the atomic redelivery hand-off (`ZREM …:active`, whose returned count elects
+ * a single winner) remain the entry-point mutual-exclusion points, and record
+ * creation (`enqueue`/`submit`) still uses MULTI/EXEC so a job never lands
+ * half-written. Every *state transition* — the claim commit, heartbeat, advance,
+ * complete, fail, cancel, expire, and the redelivery requeue — now runs as a single
+ * server-side Lua script (`./redis-scripts.ts`) that re-reads the authoritative
+ * job/lease, re-validates the expected status **and** lease ownership (the claim's
+ * attempt number), and only then writes. Redis runs a script to completion with no
+ * interleaving, so the former read→write window is gone: the check and the write are
+ * one atomic compare-and-set. The transition *rules* still live only in the shared
+ * state machine (`./state.ts`); the scripts merely enforce them atomically.
  *
  * Honesty: every method returns a typed {@link QueueResult}. A missing job is a
- * clean `not_found`; an illegal transition is a `conflict`; a broker that errors
- * or is unreachable is a typed `unavailable` — never a fabricated job or status.
+ * clean `not_found`; an illegal transition or a stolen lease is a `conflict`; a
+ * broker that errors or is unreachable is a typed `unavailable` — never a fabricated
+ * job or status. See docs/WORKER_ARCHITECTURE.md for the exact race guarantees.
  */
 
 import { createHash } from "node:crypto";
 import type { Job, JobArtifact, JobError } from "@/lib/jobs";
-import { isTerminalStatus } from "@/lib/jobs";
-import { canCancel, canExpire, canRedeliver, canTransition } from "./state";
+import {
+  canCancel,
+  canExpire,
+  canRedeliver,
+  canTransition,
+  sourceStatusesFor,
+  RUNNING_STATUSES,
+} from "./state";
 import type {
+  AttemptFingerprint,
   ClaimableQueue,
   ClaimOptions,
   ClaimedJob,
@@ -54,6 +66,13 @@ import {
   type RedisFetch,
   type RedisValue,
 } from "./redis-client";
+import {
+  runTransition,
+  statusCsv,
+  NO_ATTEMPT,
+  type AtomicOutcome,
+  type TransitionKeys,
+} from "./redis-scripts";
 import { queueFail, queueOk, type QueueResult } from "./types";
 
 /** Injectable seams so the provider is fully testable without a real broker. */
@@ -138,13 +157,47 @@ export function createRedisQueue(
     "EX",
     ttl,
   ];
-  const putLease = (jobId: string, lease: RedisLease): RedisArg[] => [
-    "SET",
-    k("lease", jobId),
-    JSON.stringify(lease),
-    "EX",
-    ttl,
-  ];
+
+  /** The five keys a transition script declares, for one job. */
+  const keysFor = (jobId: string): TransitionKeys => ({
+    job: k("job", jobId),
+    spec: k("spec", jobId),
+    lease: k("lease", jobId),
+    ready: k("ready"),
+    active: k("active"),
+  });
+
+  /** Render an optional attempt fingerprint into its `ARGV` form (`''` ⇒ skip). */
+  const attemptArg = (attempt: AttemptFingerprint | undefined): string =>
+    attempt === undefined ? NO_ATTEMPT : String(attempt);
+
+  /**
+   * Map an atomic outcome to a typed {@link QueueResult}. On `applied` the caller's
+   * precomputed record is authoritative; every rejection is honest and client-safe.
+   */
+  const applyOutcome = (
+    outcome: AtomicOutcome,
+    applied: Job,
+    conflictMessage: string,
+  ): QueueResult<Job> => {
+    switch (outcome) {
+      case "applied":
+        return queueOk(applied);
+      case "missing_job":
+        return NOT_FOUND();
+      case "invalid_state":
+        return queueFail("conflict", conflictMessage);
+      case "stale_lease":
+        // The lease was reclaimed (redelivery/steal) or the job already finished:
+        // reject rather than resurrect or overwrite another attempt's work.
+        return queueFail(
+          "conflict",
+          "This job's lease is no longer held; it was reclaimed or the job already finished.",
+        );
+      case "unavailable":
+        return UNAVAILABLE();
+    }
+  };
 
   /** Run a MULTI/EXEC transaction, mapping any transport error to `unavailable`. */
   const runTx = async (commands: RedisArg[][]): Promise<QueueResult<void>> => {
@@ -185,7 +238,12 @@ export function createRedisQueue(
     return next;
   };
 
-  /** Fail a job terminally and forget its execution bookkeeping. */
+  /**
+   * Fail a job terminally and forget its execution bookkeeping — the broker's own
+   * dead-letter / missing-spec path (no worker lease is involved, so no attempt
+   * fingerprint). The finalize is guarded on the job still being non-terminal, so a
+   * job canceled in the race is left canceled rather than force-failed.
+   */
   const terminalFail = async (jobId: string, job: Job, message: string): Promise<void> => {
     const failed: Job = {
       ...job,
@@ -194,11 +252,12 @@ export function createRedisQueue(
       error: { code: "internal_error", message, retryable: false },
       updatedAt: iso(now()),
     };
-    await runTx([
-      putJob(failed),
-      ["DEL", k("spec", jobId)],
-      ["DEL", k("lease", jobId)],
-      ["ZREM", k("active"), jobId],
+    await runTransition(client, "finalize", keysFor(jobId), [
+      JSON.stringify(failed),
+      ttl,
+      NO_ATTEMPT,
+      statusCsv(sourceStatusesFor("failed")),
+      jobId,
     ]);
   };
 
@@ -288,9 +347,17 @@ export function createRedisQueue(
           updatedAt: iso(nowMs),
         };
         // Keep spec + lease: the retry needs the inputs, and the attempt count
-        // must carry forward so the dead-letter cap can eventually stop it.
-        const tx = await runTx([putJob(requeued), ["LPUSH", k("ready"), entry]]);
-        if (!tx.ok) return tx;
+        // must carry forward so the dead-letter cap can eventually stop it. The
+        // requeue is a CAS on the job still being actively leased, so a job
+        // canceled/completed in this window is never resurrected onto the ready list.
+        const outcome = await runTransition(client, "redeliver", keysFor(entry), [
+          JSON.stringify(requeued),
+          ttl,
+          entry,
+        ]);
+        if (outcome === "unavailable") return UNAVAILABLE();
+        // invalid_state/missing_job: the job changed under us (already terminal);
+        // the ZREM above removed it from `active`, so there is nothing more to do.
       }
 
       // 2. Claim the oldest queued job. RPOP is the atomic dequeue.
@@ -337,12 +404,22 @@ export function createRedisQueue(
 
       const leaseExpiresAt = nowMs + effectiveLeaseMs;
       const claimed: Job = { ...job, status: "scanning", updatedAt: iso(nowMs) };
-      const tx = await runTx([
-        putJob(claimed),
-        putLease(jobId, { leaseExpiresAt, attempts: attempt }),
-        ["ZADD", k("active"), String(leaseExpiresAt), jobId],
+      // Commit the claim atomically: the id must STILL be `queued` (no cancel
+      // slipped in between RPOP and here), then job+lease+active are written as one.
+      const lease: RedisLease = { leaseExpiresAt, attempts: attempt };
+      const outcome = await runTransition(client, "claimCommit", keysFor(jobId), [
+        JSON.stringify(claimed),
+        ttl,
+        JSON.stringify(lease),
+        String(leaseExpiresAt),
+        jobId,
       ]);
-      if (!tx.ok) return tx;
+      if (outcome === "unavailable") return UNAVAILABLE();
+      if (outcome !== "applied") {
+        // Canceled/changed in the race window: the racing writer won and the job is
+        // no longer claimable. Deterministic and safe — drop it, claim nothing.
+        return queueOk<ClaimedJob | null>(null);
+      }
       return queueOk<ClaimedJob | null>({
         job: claimed,
         inputs: specRes.value.inputs,
@@ -355,31 +432,33 @@ export function createRedisQueue(
       });
     },
 
-    async heartbeat(jobId, leaseMs) {
+    async heartbeat(jobId, leaseMs, expectedAttempt) {
+      // Load only to return the current record and short-circuit an unknown job;
+      // the heartbeat script is the authoritative, atomic guard (running status +
+      // live lease + attempt ownership) and recomputes the lease server-side.
       const jobRes = await loadJob(jobId);
       if (!jobRes.ok) return jobRes;
-      const leaseRes = await loadLease(jobId);
-      if (!leaseRes.ok) return leaseRes;
-      if (!leaseRes.value || isTerminalStatus(jobRes.value.status)) {
-        return queueFail(
-          "conflict",
-          "Only a claimed, in-flight job can be heartbeated.",
-        );
-      }
       const leaseExpiresAt = now() + Math.min(leaseMs, config.leaseCeilingMs);
-      const tx = await runTx([
-        putLease(jobId, { ...leaseRes.value, leaseExpiresAt }),
-        ["ZADD", k("active"), String(leaseExpiresAt), jobId],
+      const outcome = await runTransition(client, "heartbeat", keysFor(jobId), [
+        String(leaseExpiresAt),
+        attemptArg(expectedAttempt),
+        ttl,
+        jobId,
       ]);
-      if (!tx.ok) return tx;
-      return queueOk(jobRes.value);
+      return applyOutcome(
+        outcome,
+        jobRes.value,
+        "Only a claimed, in-flight job can be heartbeated.",
+      );
     },
 
-    async advance(jobId, update: RunningUpdate) {
+    async advance(jobId, update: RunningUpdate, expectedAttempt) {
       const jobRes = await loadJob(jobId);
       if (!jobRes.ok) return jobRes;
       const job = jobRes.value;
       if (update.status && !canTransition(job.status, update.status)) {
+        // Fast honest rejection when the read already shows the move is illegal;
+        // the CAS below is the authoritative guard for the race window.
         return queueFail(
           "conflict",
           `A ${job.status} job cannot advance to ${update.status}.`,
@@ -391,12 +470,25 @@ export function createRedisQueue(
         progress: update.progress ?? job.progress,
         updatedAt: iso(now()),
       };
-      const res = await client.command(putJob(next));
-      if (!res.ok) return UNAVAILABLE();
-      return queueOk(next);
+      // Legal source states: those the target status is reachable from, or (for a
+      // progress-only advance) the actively-leased states.
+      const allowed = update.status
+        ? sourceStatusesFor(update.status)
+        : RUNNING_STATUSES;
+      const outcome = await runTransition(client, "advance", keysFor(jobId), [
+        JSON.stringify(next),
+        ttl,
+        attemptArg(expectedAttempt),
+        statusCsv(allowed),
+      ]);
+      return applyOutcome(
+        outcome,
+        next,
+        `A ${job.status} job cannot advance to ${update.status ?? job.status}.`,
+      );
     },
 
-    async complete(jobId, artifacts: JobArtifact[]) {
+    async complete(jobId, artifacts: JobArtifact[], expectedAttempt) {
       const jobRes = await loadJob(jobId);
       if (!jobRes.ok) return jobRes;
       const job = jobRes.value;
@@ -410,17 +502,17 @@ export function createRedisQueue(
         artifacts,
         updatedAt: iso(now()),
       };
-      const tx = await runTx([
-        putJob(next),
-        ["DEL", k("spec", jobId)],
-        ["DEL", k("lease", jobId)],
-        ["ZREM", k("active"), jobId],
+      const outcome = await runTransition(client, "finalize", keysFor(jobId), [
+        JSON.stringify(next),
+        ttl,
+        attemptArg(expectedAttempt),
+        statusCsv(sourceStatusesFor("completed")),
+        jobId,
       ]);
-      if (!tx.ok) return tx;
-      return queueOk(next);
+      return applyOutcome(outcome, next, `A ${job.status} job cannot be completed.`);
     },
 
-    async fail(jobId, error: JobError, disposition: FailDisposition) {
+    async fail(jobId, error: JobError, disposition: FailDisposition, expectedAttempt) {
       const jobRes = await loadJob(jobId);
       if (!jobRes.ok) return jobRes;
       const job = jobRes.value;
@@ -435,15 +527,20 @@ export function createRedisQueue(
           progress: 0,
           updatedAt: iso(now()),
         };
-        // Keep spec (inputs) + lease (attempt count); leave `active` so the sweep
-        // doesn't also redeliver a job that is already back on the ready list.
-        const tx = await runTx([
-          putJob(requeued),
-          ["LPUSH", k("ready"), jobId],
-          ["ZREM", k("active"), jobId],
+        // Keep spec (inputs) + lease (attempt count); the requeue script re-lists
+        // the job and removes it from `active` atomically under an ownership CAS.
+        const outcome = await runTransition(client, "requeue", keysFor(jobId), [
+          JSON.stringify(requeued),
+          ttl,
+          attemptArg(expectedAttempt),
+          statusCsv(sourceStatusesFor("queued")),
+          jobId,
         ]);
-        if (!tx.ok) return tx;
-        return queueOk(requeued);
+        return applyOutcome(
+          outcome,
+          requeued,
+          `A ${job.status} job cannot be requeued.`,
+        );
       }
 
       if (!canTransition(job.status, "failed")) {
@@ -456,14 +553,14 @@ export function createRedisQueue(
         error,
         updatedAt: iso(now()),
       };
-      const tx = await runTx([
-        putJob(failed),
-        ["DEL", k("spec", jobId)],
-        ["DEL", k("lease", jobId)],
-        ["ZREM", k("active"), jobId],
+      const outcome = await runTransition(client, "finalize", keysFor(jobId), [
+        JSON.stringify(failed),
+        ttl,
+        attemptArg(expectedAttempt),
+        statusCsv(sourceStatusesFor("failed")),
+        jobId,
       ]);
-      if (!tx.ok) return tx;
-      return queueOk(failed);
+      return applyOutcome(outcome, failed, `A ${job.status} job cannot be failed.`);
     },
 
     async cancel(jobId) {
@@ -477,15 +574,21 @@ export function createRedisQueue(
         );
       }
       const canceled = toTerminal(job, "canceled");
-      const tx = await runTx([
-        putJob(canceled),
-        ["DEL", k("spec", jobId)],
-        ["DEL", k("lease", jobId)],
-        ["LREM", k("ready"), "0", jobId],
-        ["ZREM", k("active"), jobId],
+      // Cancel carries no worker lease (it is the user's stop button), so it guards
+      // on the job still being cancelable (non-terminal) — NO_ATTEMPT — and races a
+      // running complete/fail deterministically: whichever script runs first wins.
+      const outcome = await runTransition(client, "finalize", keysFor(jobId), [
+        JSON.stringify(canceled),
+        ttl,
+        NO_ATTEMPT,
+        statusCsv(sourceStatusesFor("canceled")),
+        jobId,
       ]);
-      if (!tx.ok) return tx;
-      return queueOk(canceled);
+      return applyOutcome(
+        outcome,
+        canceled,
+        `A ${job.status} job cannot be canceled; it has already finished.`,
+      );
     },
 
     async expire(jobId) {
@@ -499,14 +602,18 @@ export function createRedisQueue(
         );
       }
       const expired = toTerminal(job, "expired");
-      const tx = await runTx([
-        putJob(expired),
-        ["DEL", k("spec", jobId)],
-        ["DEL", k("lease", jobId)],
-        ["ZREM", k("active"), jobId],
+      const outcome = await runTransition(client, "finalize", keysFor(jobId), [
+        JSON.stringify(expired),
+        ttl,
+        NO_ATTEMPT,
+        statusCsv(sourceStatusesFor("expired")),
+        jobId,
       ]);
-      if (!tx.ok) return tx;
-      return queueOk(expired);
+      return applyOutcome(
+        outcome,
+        expired,
+        `Only a completed job's outputs can be expired; this job is ${job.status}.`,
+      );
     },
 
     capability() {

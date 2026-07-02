@@ -53,6 +53,15 @@ export interface QueueCapability {
   enqueue: boolean;
   status: boolean;
   cancel: boolean;
+  /**
+   * Presence-only: whether this provider's state transitions
+   * (claim/heartbeat/complete/fail/cancel/expire) are atomic and race-safe
+   * (server-side compare-and-set), as opposed to a last-writer-wins read→write.
+   * `true` for the Redis provider (Lua `EVAL`) and the single-process local-dev
+   * provider; `false` when no provider is wired. Client-safe boolean — names no
+   * broker, command, or variable.
+   */
+  atomicTransitions: boolean;
   /** One-line, client-safe explanation. Never names a variable or a value. */
   detail: string;
 }
@@ -95,6 +104,9 @@ export const LOCAL_DEV_QUEUE_CAPABILITY: QueueCapability = {
   enqueue: true,
   status: true,
   cancel: true,
+  // Single process, single thread: transitions cannot interleave, so they are
+  // atomic by construction (the honest analogue of the Redis provider's EVAL CAS).
+  atomicTransitions: true,
   detail:
     "Local-dev job queue is active: jobs run synchronously in-process on this machine. Not for production — no shared broker, lost on restart.",
 };

@@ -16,6 +16,7 @@ import { isTerminalStatus } from "@/lib/jobs";
 import { DevWorkerStore, devWorkerStore } from "../store";
 import { canCancel, canExpire, canRedeliver, canTransition } from "./state";
 import type {
+  AttemptFingerprint,
   ClaimableQueue,
   ClaimOptions,
   ClaimedJob,
@@ -60,6 +61,22 @@ export function createLocalDevQueue(
   const forgetExecution = (jobId: string): void => {
     store.deleteLease(jobId);
     store.deleteSpec(jobId);
+  };
+
+  /**
+   * True when a supplied lease-ownership fingerprint does NOT match the stored
+   * lease — the in-process analogue of the Redis provider's server-side attempt
+   * CAS. When no fingerprint is supplied the check is skipped (the pre-Phase-21
+   * behavior). In-process execution is single-threaded, so this is inherently
+   * atomic; it exists so both providers honor the identical contract.
+   */
+  const staleLease = (
+    jobId: string,
+    expectedAttempt: AttemptFingerprint | undefined,
+  ): boolean => {
+    if (expectedAttempt === undefined) return false;
+    const lease = store.getLease(jobId);
+    return !lease || lease.attempts !== expectedAttempt;
   };
 
   return {
@@ -159,11 +176,15 @@ export function createLocalDevQueue(
       });
     },
 
-    async heartbeat(jobId, leaseMs) {
+    async heartbeat(jobId, leaseMs, expectedAttempt) {
       const job = store.getJob(jobId);
       if (!job) return NOT_FOUND();
       const lease = store.getLease(jobId);
-      if (!lease || isTerminalStatus(job.status)) {
+      if (
+        !lease ||
+        isTerminalStatus(job.status) ||
+        staleLease(jobId, expectedAttempt)
+      ) {
         return queueFail(
           "conflict",
           "Only a claimed, in-flight job can be heartbeated.",
@@ -176,9 +197,15 @@ export function createLocalDevQueue(
       return queueOk(job);
     },
 
-    async advance(jobId, update: RunningUpdate) {
+    async advance(jobId, update: RunningUpdate, expectedAttempt) {
       const job = store.getJob(jobId);
       if (!job) return NOT_FOUND();
+      if (staleLease(jobId, expectedAttempt)) {
+        return queueFail(
+          "conflict",
+          "This job's lease is no longer held; it was reclaimed or the job already finished.",
+        );
+      }
       if (update.status && !canTransition(job.status, update.status)) {
         return queueFail(
           "conflict",
@@ -195,9 +222,15 @@ export function createLocalDevQueue(
       return queueOk(next);
     },
 
-    async complete(jobId, artifacts: JobArtifact[]) {
+    async complete(jobId, artifacts: JobArtifact[], expectedAttempt) {
       const job = store.getJob(jobId);
       if (!job) return NOT_FOUND();
+      if (staleLease(jobId, expectedAttempt)) {
+        return queueFail(
+          "conflict",
+          "This job's lease is no longer held; it was reclaimed or the job already finished.",
+        );
+      }
       if (!canTransition(job.status, "completed")) {
         return queueFail(
           "conflict",
@@ -216,9 +249,15 @@ export function createLocalDevQueue(
       return queueOk(next);
     },
 
-    async fail(jobId, error: JobError, disposition: FailDisposition) {
+    async fail(jobId, error: JobError, disposition: FailDisposition, expectedAttempt) {
       const job = store.getJob(jobId);
       if (!job) return NOT_FOUND();
+      if (staleLease(jobId, expectedAttempt)) {
+        return queueFail(
+          "conflict",
+          "This job's lease is no longer held; it was reclaimed or the job already finished.",
+        );
+      }
 
       if (disposition.requeue) {
         if (!canTransition(job.status, "queued")) {

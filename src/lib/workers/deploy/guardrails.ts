@@ -10,7 +10,8 @@
  * a typo — you set `…_STORAGE_PROVIDER=s3`, fat-finger one variable, and the worker
  * reports "not configured" as if you had set nothing. Guardrails re-surface those
  * cases as errors, and add opt-in production requirements (`require drainable`,
- * `require deep engine`, `require lifecycle`) an operator can enforce.
+ * `require deep engine`, `require lifecycle`, `require atomic queue`) an operator
+ * can enforce.
  *
  * Output contract: every violation is a typed `code` plus a **content-free**
  * message — no secret, value, path, object key, endpoint, or signed URL, and no
@@ -30,6 +31,7 @@ import { resolveDaemonReadiness } from "../daemon/readiness";
 import { parseS3Config, S3_ENV } from "../storage/s3-config";
 import {
   parseRedisQueueConfig,
+  queueSupportsAtomicTransitions,
   REDIS_QUEUE_ENV,
   REDIS_PROVIDER_VALUES,
 } from "../queue/redis-config";
@@ -57,6 +59,8 @@ export const GUARDRAIL_ENV = {
   requireDeepEngine: "PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE",
   /** Require the lifecycle/retention backstop to be declared AND validated. */
   requireLifecycle: "PDFXYZ_WORKER_REQUIRE_LIFECYCLE",
+  /** Require the configured queue to guarantee atomic, race-safe transitions. */
+  requireAtomicQueue: "PDFXYZ_QUEUE_REQUIRE_ATOMIC",
 } as const;
 
 /** A typed, content-free guardrail failure code. */
@@ -70,7 +74,8 @@ export type GuardrailCode =
   | "retention_out_of_bounds"
   | "deep_compression_without_engine"
   | "require_drainable_unmet"
-  | "require_lifecycle_unmet";
+  | "require_lifecycle_unmet"
+  | "queue_atomic_unsupported";
 
 export type GuardrailSeverity = "error" | "warn";
 
@@ -144,6 +149,11 @@ export function evaluateGuardrails(
   const requireDrainable = strict || flagOn(env, GUARDRAIL_ENV.requireDrainable);
   const requireDeepEngine = flagOn(env, GUARDRAIL_ENV.requireDeepEngine);
   const requireLifecycle = strict || flagOn(env, GUARDRAIL_ENV.requireLifecycle);
+  // Strict production runs demand atomic, race-safe queue transitions; it can also
+  // be required on its own. A selected-but-non-atomic (or misconfigured) queue then
+  // fails fast rather than silently degrading to last-writer-wins.
+  const requireAtomicQueue =
+    strict || flagOn(env, GUARDRAIL_ENV.requireAtomicQueue);
 
   // ── Config-integrity checks (always errors — a selected provider must be valid) ──
 
@@ -287,6 +297,28 @@ export function evaluateGuardrails(
     }
   }
 
+  // Atomic-transition guarantee: the configured queue must promise race-safe,
+  // server-side compare-and-set transitions. Today only the fully-valid Redis
+  // provider does; a missing/misconfigured/placeholder queue does not.
+  if (requireAtomicQueue && !queueSupportsAtomicTransitions(env)) {
+    violations.push({
+      code: "queue_atomic_unsupported",
+      severity: "error",
+      message:
+        "Atomic, race-safe queue transitions are required, but the configured job queue cannot guarantee them (no atomic-capable queue provider is fully configured).",
+      fields: [REDIS_QUEUE_ENV.provider],
+    });
+  }
+
   const ok = !violations.some((v) => v.severity === "error");
-  return { ok, strict: strict || requireDrainable || requireDeepEngine || requireLifecycle, violations };
+  return {
+    ok,
+    strict:
+      strict ||
+      requireDrainable ||
+      requireDeepEngine ||
+      requireLifecycle ||
+      requireAtomicQueue,
+    violations,
+  };
 }

@@ -397,10 +397,11 @@ without claiming a worker daemon is live.
   says exactly that. Nothing is reported `completed` unless a real processor writes
   artifacts.
 
-⏳ Remaining for production (the worker process + worker-side byte I/O are delivered
-by Phase 16, below): malware scanning in the scan phase, native `deep`/OCR runners,
-lifecycle-enforced bucket deletion, and a hardening pass to move the queue's read→
-write state transitions into a Lua/`WATCH` critical section.
+✅ Phase 21 later hardens the Redis queue's race-sensitive state transitions with
+atomic script execution and lease-attempt ownership checks. Remaining for production
+(the worker process + worker-side byte I/O are delivered by Phase 16, below): malware
+scanning in the scan phase, native `deep`/OCR runners, and lifecycle-enforced bucket
+deletion.
 
 ### Phase 16 — worker daemon/runner foundation (shipped)
 
@@ -427,8 +428,9 @@ native processing.
   claiming a worker is actually deployed.
 
 ⏳ Remaining for production: **deploying** the daemon in sandboxed worker infra with
-lifecycle-enforced bucket deletion and real malware scanning, native `deep`/OCR
-runners behind the processor contract, and the queue's Lua/`WATCH` hardening pass.
+lifecycle-enforced bucket deletion and real malware scanning, and native `deep`/OCR
+runners behind the processor contract. Phase 21 covers the Redis queue atomicity
+hardening pass.
 
 ### Phase 17 — native compression worker path, proven end-to-end (shipped)
 
@@ -474,8 +476,8 @@ model.
   paths share the same sanitizer and fallback behavior.
 
 ⏳ Remaining for production: **deploying** the daemon with a native engine in the worker
-image, lifecycle-enforced bucket deletion, malware scanning, the OCR runner, and the
-queue's Lua/`WATCH` hardening pass.
+image, lifecycle-enforced bucket deletion, malware scanning, and the OCR runner. Phase
+21 covers the Redis queue atomicity hardening pass.
 
 ### Phase 19 — worker deployment hardening + container smoke foundation (shipped)
 
@@ -556,6 +558,30 @@ needing a single cloud secret.
 **publish/promotion** to a registry (CI validates but never pushes), a provisioned
 S3/R2 bucket + Redis/Upstash broker and real secrets, **applying** a lifecycle
 policy to a live bucket, **malware scanning**, and the native `deep`/OCR runners.
+
+### Phase 21 — Redis queue atomicity + lease correctness (shipped)
+
+The production Redis/Upstash queue no longer relies on unsafe read→write windows for
+worker-owned state transitions. Race-sensitive operations now run through a small,
+frozen Redis script layer (`src/lib/workers/queue/redis-scripts.ts`) with behavioral
+coverage against the fake Redis transport and provider integration tests.
+
+- **Atomic transition scripts**: claim commit, stale-lease redelivery, heartbeat,
+  advance, terminal finalize, and requeue are applied by Redis `EVAL` with explicit
+  status preconditions. A provider that cannot execute the scripts returns typed
+  `unavailable` instead of silently downgrading to unsafe behavior.
+- **Lease-attempt ownership**: every claim carries an attempt fingerprint. The
+  executor passes that fingerprint into heartbeat/advance/complete/fail/requeue, so
+  a worker whose lease expired and was reclaimed cannot resurrect, complete, or fail
+  a job after another daemon owns it.
+- **Pinned concurrency invariants**: tests cover single-winner claim/redelivery,
+  holder-only heartbeat, terminal transition preconditions, requeue/dead-letter
+  behavior, idempotent submit safety, and script payload stability — all through
+  injected fake transports, never a real broker or secret.
+
+⏳ Still out-of-band: a provisioned Redis/Upstash broker with real credentials,
+applying lifecycle policies to object storage, malware scanning, and native OCR/deep
+engines in deployed worker infrastructure.
 
 ## Definition of production-ready per tool
 

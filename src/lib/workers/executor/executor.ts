@@ -90,6 +90,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
           retryable: false,
         },
         { requeue: false },
+        attempt,
       );
       await wipeInputs(inputs);
       return { outcome: "failed", jobId: job.jobId, attempt };
@@ -112,6 +113,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
             retryable: false,
           },
           { requeue: false },
+          attempt,
         );
         await wipeInputs(inputs);
         return { outcome: "failed", jobId: job.jobId, attempt };
@@ -137,10 +139,11 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
 
     // Advance scanning → processing. A conflict here means the job was canceled
     // in the race window, so we stop honestly.
-    const advanced = await queue.advance(job.jobId, {
-      status: "processing",
-      progress: 0,
-    });
+    const advanced = await queue.advance(
+      job.jobId,
+      { status: "processing", progress: 0 },
+      attempt,
+    );
     if (!advanced.ok) {
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });
@@ -156,9 +159,12 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
 
     if (!result.ok) {
       const requeue = result.error.retryable && attempt < maxAttempts;
-      const disposition = await queue.fail(job.jobId, result.error, {
-        requeue,
-      });
+      const disposition = await queue.fail(
+        job.jobId,
+        result.error,
+        { requeue },
+        attempt,
+      );
       if (!disposition.ok) {
         // The only reason fail() conflicts is that the job already reached a
         // terminal state (canceled) mid-flight. Treat it as a cancellation.
@@ -199,7 +205,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       );
     }
 
-    const completed = await queue.complete(job.jobId, artifacts);
+    const completed = await queue.complete(job.jobId, artifacts, attempt);
     if (!completed.ok) {
       // The job was canceled between processing and completion — clean up the
       // artifacts we just wrote so nothing outlives the cancellation.

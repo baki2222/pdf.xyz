@@ -280,9 +280,27 @@ export function redisQueueCapability(): QueueCapability {
     enqueue: true,
     status: true,
     cancel: true,
+    // Every state transition runs as a server-side Lua compare-and-set (Phase 21),
+    // so claim/heartbeat/complete/fail/cancel/expire are atomic and race-safe.
+    atomicTransitions: true,
     detail:
-      "A production job queue is configured and ready: jobs are enqueued with a server-minted id, and their status, cancellation, and expiry are tracked in a shared broker. Whether a queued job is then processed depends on a worker being deployed to drain the queue.",
+      "A production job queue is configured and ready: jobs are enqueued with a server-minted id, and their status, cancellation, and expiry are tracked in a shared broker with atomic, race-safe state transitions. Whether a queued job is then processed depends on a worker being deployed to drain the queue.",
   };
+}
+
+/**
+ * Presence-only: whether the queue selected by this environment can guarantee
+ * **atomic, race-safe state transitions**. True only when the Redis/Upstash
+ * provider is selected AND fully valid — its transitions run as server-side Lua
+ * compare-and-set over the REST transport. False when the queue is unset,
+ * selected-but-misconfigured, or a not-implemented placeholder. The strict
+ * production guardrail uses this to fail fast when atomicity is required but the
+ * configured provider cannot promise it. Never reads or returns a secret.
+ */
+export function queueSupportsAtomicTransitions(
+  env: EnvSource = process.env,
+): boolean {
+  return parseRedisQueueConfig(env).ok;
 }
 
 /**

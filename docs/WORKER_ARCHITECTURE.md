@@ -195,11 +195,15 @@ inputs live in object storage) and returns `202 Accepted` — and that job stays
 reported `completed` unless a real processor wrote artifacts. `/api/worker/status`
 says so: with a queue configured but no worker, `providers.queue.ready` is `true`
 while `providers.processor.ready` is `false` and its detail states jobs will queue
-but not run yet. Concurrency is correct-by-atomic-primitive (RPOP/ZREM), but the
-read→write window on state transitions is last-writer-wins guarded by the state
-machine; a production hardening step would move those to a Lua/`WATCH` critical
-section. See DEPLOYMENT.md for how to configure it and OBSERVABILITY.md for what to
-watch.
+but not run yet. Concurrency-sensitive transitions are now atomic end to end (Phase 21): claim
+commit, stale-lease redelivery, heartbeat, advance, terminal finalize, and requeue
+run through frozen Redis `EVAL` scripts with explicit status and lease-attempt
+preconditions. The executor threads the claim attempt fingerprint back into every
+running-state write, so a stale daemon whose lease was reclaimed cannot heartbeat,
+advance, complete, fail, or requeue the job. Providers that cannot run the atomic
+scripts fail as typed `unavailable` instead of silently falling back to unsafe
+read→write behavior. See DEPLOYMENT.md for how to configure it and OBSERVABILITY.md
+for what to watch.
 
 ## Worker daemon runner (Phase 16)
 
