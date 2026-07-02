@@ -294,7 +294,8 @@ export function WorkspaceClient({
           onAddAll={ws.addAllToBatch}
           onRemove={ws.removeFromBatch}
           onClear={ws.clearBatch}
-          onLaunch={ws.launchBatch}
+          onLaunch={ws.launchHandoff}
+          launchingSlug={ws.launchingSlug}
         />
       </div>
 

@@ -36,7 +36,11 @@ const MODES: { id: SplitMode; label: string }[] = [
 
 export function SplitRunner() {
   return (
-    <SinglePdfRunner hint="One PDF · it stays on your device">
+    <SinglePdfRunner
+      hint="One PDF · it stays on your device"
+      handoffSlug="split-pdf"
+      toolName="Split PDF"
+    >
       {(pdf, reset) => <SplitEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
   );

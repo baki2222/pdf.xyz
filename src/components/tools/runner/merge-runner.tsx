@@ -34,6 +34,12 @@ import {
   useAnnouncer,
   useAsyncRun,
 } from "./runner-kit";
+import {
+  HandoffLoadedBadge,
+  HandoffLoading,
+  HandoffProblem,
+} from "./handoff-notice";
+import { useToolHandoff } from "./use-tool-handoff";
 
 interface MergeItem {
   id: string;
@@ -63,6 +69,8 @@ export function MergeRunner() {
   const coverUrls = useRef<Set<string>>(new Set());
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const { announce, node: announcer } = useAnnouncer();
+  // Files handed off from the workspace (merge collects many into one).
+  const handoff = useToolHandoff("merge-pdf");
 
   useEffect(() => {
     mounted.current = true;
@@ -126,6 +134,16 @@ export function MergeRunner() {
     },
     [attachCover],
   );
+
+  // Pre-load PDFs handed off from the workspace exactly once.
+  const preloadedRef = useRef(false);
+  useEffect(() => {
+    if (preloadedRef.current) return;
+    if (handoff.status === "ready" && handoff.files.length > 0) {
+      preloadedRef.current = true;
+      void addFiles(handoff.files);
+    }
+  }, [handoff.status, handoff.files, addFiles]);
 
   const revokeCover = (item: MergeItem | undefined) => {
     if (item?.cover) {
@@ -191,9 +209,20 @@ export function MergeRunner() {
   );
 
   if (items.length === 0 && loading === 0) {
+    // While a hand-off is being claimed, show a bringing-over state instead of
+    // flashing the empty picker (files are about to appear).
+    if (handoff.status === "loading") {
+      return (
+        <div className="flex flex-col gap-4">
+          {announcer}
+          <HandoffLoading />
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col gap-4">
         {announcer}
+        <HandoffProblem handoff={handoff} toolName="Merge PDF" />
         <Dropzone
           onFiles={addFiles}
           multiple
@@ -208,6 +237,9 @@ export function MergeRunner() {
   return (
     <div className="flex flex-col gap-5">
       {announcer}
+      {handoff.status === "ready" && (
+        <HandoffLoadedBadge count={handoff.files.length} skipped={handoff.skipped} />
+      )}
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
         aside={

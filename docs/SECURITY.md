@@ -33,6 +33,21 @@ Every tool declares one of these, shown on its card and page:
 Page rendering/thumbnails use `pdfjs-dist` locally; the pdfjs worker is bundled
 (no third-party CDN request).
 
+## Browser-local workspace handoff
+
+The workspace-to-tool handoff is also local-only:
+
+- Staged files live in browser memory while the workspace tab is open.
+- Launching a supported in-browser tool writes the selected `File`/`Blob` objects
+  to origin-private IndexedDB under an opaque, unguessable handoff id.
+- The tool opens as `/tools/<slug>?handoff=<id>`, claims the record once, filters
+  incompatible files, reconstructs `File` objects in the browser, and removes the
+  token from the address bar.
+- Handoffs expire automatically and can be cleared/deleted; a missing, expired,
+  or incompatible handoff falls back to the normal file picker with honest copy.
+- The token never points to server storage, and the server never receives file
+  contents for in-browser tools.
+
 **Planned secure workers** (not yet live — pages show an implementation-ready
 overview): Office ⇄ PDF conversions, OCR, repair, web-optimize, PDF/A,
 compare, high-quality compression, irreversible redaction, fillable forms, and

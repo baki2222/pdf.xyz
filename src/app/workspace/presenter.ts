@@ -7,6 +7,7 @@
  */
 
 import type { IconName } from "@/lib/icons";
+import { handoffCapabilityFor, type HandoffMode } from "@/lib/handoff";
 import { capabilityForMode, describeCapability } from "@/lib/jobs";
 import { isToolSupported } from "@/lib/pdf/registry";
 import { getCategory } from "@/lib/tools/categories";
@@ -27,6 +28,8 @@ export interface WorkspaceToolSummary {
   uploadsFiles: boolean;
   /** True when the tool has a working in-browser runner (launchable now). */
   live: boolean;
+  /** How this tool receives handed-off files (collect/batch/single/none). */
+  handoffMode: HandoffMode;
   accept: string[];
   outputs: string[];
 }
@@ -44,6 +47,7 @@ function toSummary(tool: Tool): WorkspaceToolSummary {
     capabilityLabel: capability.label,
     uploadsFiles: capability.uploadsFiles,
     live: isToolSupported(tool.slug),
+    handoffMode: handoffCapabilityFor(tool.slug).mode,
     accept: tool.accept,
     outputs: tool.outputs,
   };

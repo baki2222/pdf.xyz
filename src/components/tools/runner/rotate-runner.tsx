@@ -36,7 +36,11 @@ import type { LoadedPdf } from "./use-single-pdf";
 
 export function RotateRunner() {
   return (
-    <SinglePdfRunner hint="One PDF · rotate any or all pages">
+    <SinglePdfRunner
+      hint="One PDF · rotate any or all pages"
+      handoffSlug="rotate-pdf"
+      toolName="Rotate PDF"
+    >
       {(pdf, reset) => <RotateEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
   );

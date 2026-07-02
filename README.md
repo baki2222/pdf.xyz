@@ -27,7 +27,7 @@ versus planned — no fake processing.
 | Compress (in-browser size analyzer + lossless structural repack) | ✅ Live |
 | Page thumbnails & visual page board (pdfjs) | ✅ Live |
 | Editor depth: undo/redo, keyboard reordering, range selection, lazy large-PDF thumbnails, per-file merge validation | ✅ Live |
-| Local-first workspace: multi-file staging, local PDF page counts, file-aware tool suggestions, batch queue | ✅ Live (local session only) |
+| Local-first workspace: multi-file staging, local PDF page counts, file-aware tool suggestions, browser-only handoff, batch launch | ✅ Live (local session only) |
 | Production hardening: CSP/security headers, robots, sitemap, manifest, OG image, JSON-LD | ✅ Live |
 | Secure-worker contract + adapter, presence-only status probe, honest Compress UI integration | ✅ Live |
 | Deep compression worker (Ghostscript/qpdf/mutool) — real, runnable via `PDFXYZ_WORKER_MODE=local-dev` | 🧪 Local-dev |
@@ -42,9 +42,10 @@ implementation-ready overview instead of pretending to process files. See
 
 The `/workspace` hub stages files locally for the current browser tab only — it
 never uploads them, page counts are parsed on-device, and only tool preferences
-(never file names) persist. Cross-route file transfer isn't implemented yet, so
-opening a tool from the workspace re-selects files on that tool's page; the UI
-says so plainly rather than faking a hand-off.
+(never file names) persist. For supported in-browser tools, workspace launch now
+uses a browser-only IndexedDB handoff: files are stored under an opaque,
+single-use, short-lived local token and preloaded on the tool page, then the URL
+parameter is consumed/removed. No server sees those bytes.
 
 ---
 

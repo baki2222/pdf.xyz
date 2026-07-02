@@ -85,8 +85,14 @@ const CONFIG: Record<Mode, ModeConfig> = {
 
 export function PageSelectRunner({ mode }: { mode: Mode }) {
   const config = CONFIG[mode];
+  const handoffSlug = mode === "extract" ? "extract-pages" : "remove-pages";
+  const toolName = mode === "extract" ? "Extract Pages" : "Remove Pages";
   return (
-    <SinglePdfRunner hint={config.emptyHint}>
+    <SinglePdfRunner
+      hint={config.emptyHint}
+      handoffSlug={handoffSlug}
+      toolName={toolName}
+    >
       {(pdf, reset) => (
         <PageSelectEditor pdf={pdf} onReset={reset} config={config} />
       )}

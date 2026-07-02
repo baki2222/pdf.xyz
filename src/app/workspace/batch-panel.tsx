@@ -2,7 +2,7 @@
 
 import { useId, useMemo } from "react";
 import Link from "next/link";
-import { ArrowRight, Cpu, Layers, Plus, ShieldCheck, X } from "lucide-react";
+import { ArrowRight, Cpu, Layers, Loader2, Plus, ShieldCheck, X } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { BatchPlan, WorkspaceFile } from "@/lib/workspace";
@@ -13,6 +13,9 @@ function statusContent(
   plan: BatchPlan,
   tool: WorkspaceToolSummary | undefined,
 ): { tone: "ready" | "muted" | "worker"; title: string; body: string } {
+  const n = plan.fileIds.length;
+  const files = `${n} file${n === 1 ? "" : "s"}`;
+  const name = tool?.name ?? "This tool";
   switch (plan.status) {
     case "empty":
       return {
@@ -32,31 +35,43 @@ function statusContent(
         title: "Add files",
         body: "Add staged files to the queue to run them through this tool.",
       };
-    case "ready":
+    case "ready": {
+      const verb =
+        tool?.handoffMode === "collect"
+          ? `combines these ${files}`
+          : `runs on each of these ${files}`;
       return {
         tone: "ready",
-        title: `Ready — ${plan.fileIds.length} file${plan.fileIds.length === 1 ? "" : "s"}`,
-        body: `${tool?.name ?? "This tool"} runs in your browser. Opening it starts a session per file — passing the queue straight in is on the roadmap.`,
+        title: `Ready — ${files}`,
+        body: `${name} ${verb} right here in your browser. They load straight in — nothing is uploaded.`,
+      };
+    }
+    case "single":
+      return {
+        tone: "ready",
+        title: "Ready — opens your first file",
+        body: `${name} works on one PDF at a time. It opens with your first queued file already loaded — nothing is uploaded.`,
       };
     case "worker-disabled":
       return {
         tone: "worker",
         title: "Runs on a secure worker",
-        body: `${tool?.name ?? "This tool"} needs an encrypted worker that isn't enabled in this environment yet. See exactly what will happen to your files first.`,
+        body: `${name} needs an encrypted worker that isn't enabled in this environment yet. See exactly what will happen to your files first.`,
       };
     default:
       return {
         tone: "worker",
         title: "Not batch-ready yet",
-        body: `${tool?.name ?? "This tool"} doesn't have an in-browser batch runner yet. Open its page to see the plan.`,
+        body: `${name} doesn't have an in-browser batch runner yet. Open its page to see the plan.`,
       };
   }
 }
 
 /**
- * Batch workflow foundation: choose a tool, queue staged files, and either launch
- * a live in-browser tool or land on the honest secure-worker preview. It never
- * fakes processing — the queue is real metadata, and "run" opens the real tool.
+ * Batch workflow foundation: choose a tool, queue staged files, and launch. For a
+ * live tool this performs a **real, browser-local hand-off** — the files are
+ * stashed in this browser's own storage and pre-loaded into the tool, never
+ * uploaded. Worker tools land on their honest secure-worker preview instead.
  */
 export function BatchPanel({
   files,
@@ -68,6 +83,7 @@ export function BatchPanel({
   onRemove,
   onClear,
   onLaunch,
+  launchingSlug,
 }: {
   files: WorkspaceFile[];
   summaries: WorkspaceToolSummary[];
@@ -77,8 +93,10 @@ export function BatchPanel({
   onAddAll: () => void;
   onRemove: (id: string) => void;
   onClear: () => void;
-  onLaunch: (tool: WorkspaceToolSummary, fileCount: number) => void;
+  onLaunch: (tool: WorkspaceToolSummary, ids: string[]) => void;
+  launchingSlug: string | null;
 }) {
+
   const selectId = useId();
   const bySlug = useMemo(() => indexSummaries(summaries), [summaries]);
   const fileById = useMemo(() => new Map(files.map((f) => [f.id, f])), [files]);
@@ -94,6 +112,12 @@ export function BatchPanel({
   const allQueued = files.length > 0 && queued === files.length;
   const content = statusContent(plan, tool);
 
+  const canHandoff =
+    !!tool && (plan.status === "ready" || plan.status === "single");
+  const isWorkerish =
+    !!tool && (plan.status === "worker-disabled" || plan.status === "unavailable");
+  const launching = !!tool && launchingSlug === tool.slug;
+
   return (
     <section
       aria-labelledby="batch-heading"
@@ -108,7 +132,7 @@ export function BatchPanel({
             Batch queue
           </h2>
           <p className="text-xs text-slate-500">
-            Line up files, choose one tool, run them together.
+            Line up files, choose one tool, hand them straight over.
           </p>
         </div>
       </div>
@@ -230,17 +254,44 @@ export function BatchPanel({
           <p className="text-xs leading-relaxed text-slate-400">{content.body}</p>
         </div>
 
-        {tool && (plan.ready || plan.status === "worker-disabled" || plan.status === "unavailable") && (
-          <Link
-            href={`/tools/${tool.slug}`}
-            onClick={() => plan.ready && onLaunch(tool, plan.fileIds.length)}
+        {canHandoff && tool && (
+          <button
+            type="button"
+            onClick={() => onLaunch(tool, batch.fileIds)}
+            disabled={launching}
+            aria-busy={launching}
             className={buttonVariants({
-              variant: plan.ready ? "primary" : "outline",
+              variant: "primary",
               size: "sm",
               className: "self-start",
             })}
           >
-            {plan.ready ? `Open ${tool.name}` : "See how it works"}
+            {launching ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Loading {tool.name}…
+              </>
+            ) : (
+              <>
+                {plan.status === "single"
+                  ? `Open ${tool.name}`
+                  : `Open ${tool.name} with ${plan.fileIds.length} file${plan.fileIds.length === 1 ? "" : "s"}`}
+                <ArrowRight className="size-4" aria-hidden />
+              </>
+            )}
+          </button>
+        )}
+
+        {isWorkerish && tool && (
+          <Link
+            href={`/tools/${tool.slug}`}
+            className={buttonVariants({
+              variant: "outline",
+              size: "sm",
+              className: "self-start",
+            })}
+          >
+            See how it works
             <ArrowRight className="size-4" aria-hidden />
           </Link>
         )}

@@ -149,10 +149,20 @@ describe("workspaceReducer — hydrate", () => {
 
 describe("planBatch", () => {
   const live: BatchToolInfo = { live: true, usesWorker: false };
+  const collect: BatchToolInfo = { live: true, usesWorker: false, handoff: "collect" };
+  const batchTool: BatchToolInfo = { live: true, usesWorker: false, handoff: "batch" };
+  const single: BatchToolInfo = { live: true, usesWorker: false, handoff: "single" };
   const worker: BatchToolInfo = { live: false, usesWorker: true };
   const clientNoRunner: BatchToolInfo = { live: false, usesWorker: false };
   const resolve = (slug: string) =>
-    ({ "merge-pdf": live, "ocr-pdf": worker, "edit-pdf": clientNoRunner })[slug];
+    ({
+      "merge-pdf": collect,
+      "compress-pdf": batchTool,
+      "rotate-pdf": single,
+      "legacy-live": live,
+      "ocr-pdf": worker,
+      "edit-pdf": clientNoRunner,
+    })[slug];
 
   it("reports 'empty' with nothing chosen", () => {
     expect(planBatch({ toolSlug: null, fileIds: [] }, resolve)).toMatchObject({
@@ -173,9 +183,24 @@ describe("planBatch", () => {
     ).toBe("needs-files");
   });
 
-  it("is 'ready' for a live tool with files", () => {
-    const plan = planBatch({ toolSlug: "merge-pdf", fileIds: ["f0"] }, resolve);
-    expect(plan).toMatchObject({ status: "ready", ready: true });
+  it("is 'ready' for a live collect/batch tool with files", () => {
+    expect(
+      planBatch({ toolSlug: "merge-pdf", fileIds: ["f0", "f1"] }, resolve),
+    ).toMatchObject({ status: "ready", ready: true });
+    expect(
+      planBatch({ toolSlug: "compress-pdf", fileIds: ["f0", "f1"] }, resolve),
+    ).toMatchObject({ status: "ready", ready: true });
+  });
+
+  it("is 'single' (still launchable) for a live one-file-at-a-time tool", () => {
+    const plan = planBatch({ toolSlug: "rotate-pdf", fileIds: ["f0", "f1"] }, resolve);
+    expect(plan).toMatchObject({ status: "single", ready: true });
+  });
+
+  it("treats a live tool with no declared handoff mode as 'ready'", () => {
+    expect(
+      planBatch({ toolSlug: "legacy-live", fileIds: ["f0"] }, resolve).status,
+    ).toBe("ready");
   });
 
   it("is 'worker-disabled' for a secure-worker tool", () => {

@@ -127,14 +127,32 @@ test("batch queue launches a live tool and is honest about worker tools", async 
     "a.pdf",
   );
 
-  // Ready to launch — the CTA links into the real in-browser runner.
+  // Ready to launch — clicking it creates a browser-only handoff and preloads
+  // the real in-browser runner. The handoff token is consumed and stripped from
+  // the URL, so users do not get a shareable file link.
   await expect(batch.getByText(/ready/i)).toBeVisible();
-  await expect(
-    batch.getByRole("link", { name: /open merge pdf/i }),
-  ).toHaveAttribute("href", "/tools/merge-pdf");
+  await batch.getByRole("button", { name: /open merge pdf with 2 files/i }).click();
+  await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
+  await expect(page.getByText("a.pdf")).toBeVisible();
+  await expect(page.getByText("b.pdf")).toBeVisible();
+  await expect(page.getByText(/loaded .* from your workspace/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /merge 2 pdfs/i })).toBeEnabled();
 
-  // Switching to a secure-worker tool shows the honest not-enabled path.
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+test("batch queue is honest about secure-worker tools", async ({ page }) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/workspace");
+  await page.locator('input[type="file"]').first().setInputFiles(await writeTempPdf("scan.pdf"));
+
+  const batch = page.getByRole("region", { name: /batch queue/i });
   await batch.getByLabel("Tool").selectOption("ocr-pdf");
+  await batch.getByRole("button", { name: /add all staged/i }).click();
+
+  // Secure-worker tools do not fake a local handoff; they route to the honest
+  // worker preview instead.
   await expect(batch.getByText(/runs on a secure worker/i)).toBeVisible();
   await expect(
     batch.getByRole("link", { name: /see how it works/i }),

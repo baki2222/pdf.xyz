@@ -194,19 +194,22 @@ suggestions), wired to React by `src/app/workspace/use-workspace.ts`.
 - **Smart suggestions.** `suggestTools` turns the staged file mix into ranked,
   honest next steps (e.g. 2+ PDFs → Merge; images → JPG/PNG→PDF), validated
   against the real catalog so it never suggests a tool that doesn't exist.
-- **Batch queue.** Choose one tool, queue staged files, and get an *honest*
-  status: `ready` (live in-browser tool), `worker-disabled` (secure-worker tool
-  not enabled in this environment), or `unavailable` — derived from tool
-  capability, never faked.
+- **Batch queue + handoff.** Choose one tool, queue staged files, and get an
+  *honest* status: `ready` (live in-browser tool), `single` (one-file runner),
+  `worker-disabled` (secure-worker tool not enabled in this environment), or
+  `unavailable` — derived from tool capability, never faked. Ready live tools
+  use a browser-only handoff: files are written to origin-private IndexedDB,
+  opened with `/tools/<slug>?handoff=<id>`, claimed exactly once, and then the
+  URL token is stripped.
 - **Name-free persistence.** Only tool preferences and a tool-oriented activity
-  log persist (versioned, migrated, guarded `localStorage`). File names, sizes,
-  ids, and bytes are never written to disk.
+  log persist (versioned, migrated, guarded `localStorage`). File names and sizes
+  stay in memory/IndexedDB only for the active handoff TTL; activity logs never
+  store file names or bytes.
 
-**Known limitation (stated honestly in the UI):** files are not yet transferred
-across routes. Launching a tool from the workspace opens that tool's real page,
-where the file must be re-selected — the workspace says so plainly rather than
-faking a hand-off. True cross-route/batch execution (passing the queue straight
-into a tool, and worker-backed batch runs) is the next increment.
+**Current limitation (stated honestly in the UI):** workspace launch preloads
+files into the first live tool. It is not yet a multi-step unattended automation
+engine: batch launch/prep opens a real supported runner, and worker-backed batch
+runs still require the secure-worker production backend.
 
 ## Definition of production-ready per tool
 

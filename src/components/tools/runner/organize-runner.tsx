@@ -43,7 +43,11 @@ import type { LoadedPdf } from "./use-single-pdf";
 
 export function OrganizeRunner() {
   return (
-    <SinglePdfRunner hint="One PDF · reorder, rotate, duplicate, or delete pages">
+    <SinglePdfRunner
+      hint="One PDF · reorder, rotate, duplicate, or delete pages"
+      handoffSlug="organize-pages"
+      toolName="Organize Pages"
+    >
       {(pdf, reset) => <OrganizeEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
   );

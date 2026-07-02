@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { eligibleFilesFor, handoffCapabilityFor, stashHandoff } from "@/lib/handoff";
 import { isLikelyPdf, MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { countPdfPages } from "@/lib/pdf/page-count";
 import {
@@ -66,6 +68,14 @@ export interface WorkspaceController {
   clearBatch: () => void;
   /** Record + persist that a batch was launched into a tool. */
   launchBatch: (tool: WorkspaceToolSummary, fileCount: number) => void;
+  /**
+   * Hand queued files off to a live tool: stash them in browser-local storage
+   * and open the tool with them pre-loaded (falls back to a plain open if the
+   * hand-off can't be created). Files never leave the device.
+   */
+  launchHandoff: (tool: WorkspaceToolSummary, ids: string[]) => void;
+  /** Slug of the tool currently being launched via hand-off, or null. */
+  launchingSlug: string | null;
 }
 
 /**
@@ -86,6 +96,15 @@ export function useWorkspace(
     { ready: false, now: 0 },
   );
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
+  const router = useRouter();
+  // Slug of the tool currently being launched with a hand-off (button spinner).
+  const [launchingSlug, setLaunchingSlug] = useState<string | null>(null);
+
+  // Live File handles for staged files, kept by id in a ref (never rendered, so
+  // no re-render churn). This is what makes a real hand-off possible: staged
+  // *metadata* lives in the reducer, but the actual bytes stay reachable here
+  // until the user hands them to a tool. Cleared with the files.
+  const fileHandles = useRef<Map<string, File>>(new Map());
 
   // Keep the latest state reachable from event handlers for eager persistence,
   // without making it an effect dependency. Written in an effect (never during
@@ -175,6 +194,8 @@ export function useWorkspace(
             now,
           ),
         );
+        // Retain the live File handle so it can be handed off to a tool later.
+        fileHandles.current.set(id, file);
         // PDFs get a locally-parsed page count; keep the live File handle for it.
         if (isLikelyPdf(file)) pdfHandles.push({ id, file });
       });
@@ -186,10 +207,12 @@ export function useWorkspace(
   );
 
   const removeFile = useCallback((id: string) => {
+    fileHandles.current.delete(id);
     dispatch({ type: "remove-file", id });
   }, []);
 
   const clearFiles = useCallback(() => {
+    fileHandles.current.clear();
     dispatch({ type: "clear-files" });
     setRejected([]);
   }, []);
@@ -265,10 +288,51 @@ export function useWorkspace(
       planBatch(state.batch, (slug) => {
         const summary = bySlug.get(slug);
         return summary
-          ? { live: summary.live, usesWorker: summary.processing !== "client" }
+          ? {
+              live: summary.live,
+              usesWorker: summary.processing !== "client",
+              handoff: summary.handoffMode,
+            }
           : undefined;
       }),
     [state.batch, bySlug],
+  );
+
+  /**
+   * Stash the queued files in browser-local storage and open the target tool
+   * with them pre-loaded. Single-file tools receive just the first eligible PDF;
+   * collect/batch tools receive the whole eligible set. If the hand-off can't be
+   * created (unsupported, no eligible files, or a storage failure) we open the
+   * tool plainly — an honest fallback, never a fake pass.
+   */
+  const launchHandoff = useCallback(
+    (tool: WorkspaceToolSummary, ids: string[]) => {
+      const cap = handoffCapabilityFor(tool.slug);
+      const target = `/tools/${tool.slug}`;
+      const ordered = ids
+        .map((id) => fileHandles.current.get(id))
+        .filter((file): file is File => file !== undefined);
+      const eligible = eligibleFilesFor(tool.slug, ordered);
+      const toStash = cap.mode === "single" ? eligible.slice(0, 1) : eligible;
+
+      // Record the launch as name-free activity, same as a plain batch launch.
+      launchBatch(tool, toStash.length || ids.length);
+
+      if (!cap.supported || toStash.length === 0) {
+        router.push(target);
+        return;
+      }
+
+      setLaunchingSlug(tool.slug);
+      void stashHandoff(tool.slug, toStash)
+        .then((token) =>
+          router.push(
+            token ? `${target}?handoff=${encodeURIComponent(token)}` : target,
+          ),
+        )
+        .catch(() => router.push(target));
+    },
+    [launchBatch, router],
   );
 
   return {
@@ -289,5 +353,7 @@ export function useWorkspace(
     removeFromBatch,
     clearBatch,
     launchBatch,
+    launchHandoff,
+    launchingSlug,
   };
 }

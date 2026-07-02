@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Boxes,
   Download,
   FileText,
@@ -20,22 +21,157 @@ import {
   type PdfAnalysis,
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { outputName } from "@/lib/pdf/files";
+import { outputName, partitionPdfFiles } from "@/lib/pdf/files";
 import {
   runWorkerCompression,
   type CompressWorkerResult,
 } from "@/lib/workers/client";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { cn, formatBytes } from "@/lib/utils";
-import { ChipButton, ErrorNote, Spinner, errorMessage } from "./runner-kit";
-import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
-import type { LoadedPdf } from "./use-single-pdf";
+import { ChipButton, Dropzone, ErrorNote, Spinner, errorMessage } from "./runner-kit";
+import { CompressBatchRunner } from "./compress-batch";
+import {
+  HandoffLoadedBadge,
+  HandoffLoading,
+  HandoffProblem,
+} from "./handoff-notice";
+import { FileHeader } from "./single-pdf-runner";
+import { useSinglePdf, type LoadedPdf } from "./use-single-pdf";
+import { useToolHandoff } from "./use-tool-handoff";
 
+interface Rejection {
+  name: string;
+  reason: string;
+}
+
+/**
+ * Compress accepts one or more PDFs. A single file gets the full on-device
+ * analyzer (image share, lossless repack, and the honest secure-worker deep
+ * path). Two or more route to the in-browser batch runner (lossless per file).
+ * Files can arrive via the picker or be handed off from the workspace — either
+ * way they stay in the browser and are never uploaded.
+ */
 export function CompressRunner() {
+  const handoff = useToolHandoff("compress-pdf");
+  const [files, setFiles] = useState<File[]>([]);
+  const [rejections, setRejections] = useState<Rejection[]>([]);
+
+  // Seed from a workspace hand-off exactly once.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (handoff.status === "ready" && handoff.files.length > 0) {
+      seededRef.current = true;
+      queueMicrotask(() => {
+        setFiles(handoff.files);
+      });
+    }
+  }, [handoff.status, handoff.files]);
+
+  const addFiles = useCallback((incoming: File[]) => {
+    const { accepted, rejected } = partitionPdfFiles(incoming);
+    setRejections(rejected.map((r) => ({ name: r.file.name, reason: r.reason })));
+    if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted]);
+  }, []);
+
+  const reset = useCallback(() => {
+    setFiles([]);
+    setRejections([]);
+  }, []);
+
+  const preloaded = handoff.status === "ready";
+
+  if (files.length >= 2) {
+    return (
+      <CompressBatchRunner
+        files={files}
+        onReset={reset}
+        preloaded={preloaded}
+        skipped={handoff.skipped}
+      />
+    );
+  }
+
+  if (files.length === 1) {
+    return (
+      <CompressSingle
+        file={files[0]!}
+        onReset={reset}
+        preloaded={preloaded}
+        skipped={handoff.skipped}
+      />
+    );
+  }
+
+  if (handoff.status === "loading") return <HandoffLoading />;
+
   return (
-    <SinglePdfRunner hint="One PDF · analyzed privately in your browser">
-      {(pdf, reset) => <CompressEditor pdf={pdf} onReset={reset} />}
-    </SinglePdfRunner>
+    <div className="flex flex-col gap-4">
+      <HandoffProblem handoff={handoff} toolName="Compress PDF" />
+      <Dropzone
+        onFiles={addFiles}
+        accept="application/pdf"
+        multiple
+        hint="One or more PDFs · analyzed privately in your browser"
+      />
+      <RejectionsNote rejections={rejections} onDismiss={() => setRejections([])} />
+    </div>
+  );
+}
+
+/** Load one File into the on-device analyzer. */
+function CompressSingle({
+  file,
+  onReset,
+  preloaded,
+  skipped,
+}: {
+  file: File;
+  onReset: () => void;
+  preloaded: boolean;
+  skipped: number;
+}) {
+  const { pdf, loading, error, open } = useSinglePdf();
+
+  useEffect(() => {
+    void open(file);
+  }, [file, open]);
+
+  if (error) {
+    return (
+      <div className="flex flex-col gap-4">
+        <ErrorNote message={error} />
+        <button
+          type="button"
+          onClick={onReset}
+          className="self-start text-xs font-medium text-slate-400 transition hover:text-white"
+        >
+          Try another file
+        </button>
+      </div>
+    );
+  }
+
+  if (!pdf || loading) {
+    return preloaded ? (
+      <HandoffLoading />
+    ) : (
+      <div className="flex items-center justify-center gap-2 rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-12 text-sm text-slate-400">
+        <Spinner />
+        Reading your PDF…
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {preloaded && <HandoffLoadedBadge count={1} skipped={skipped} />}
+      <CompressEditor
+        key={`${pdf.file.name}:${pdf.file.size}`}
+        pdf={pdf}
+        onReset={onReset}
+      />
+    </div>
   );
 }
 
@@ -442,6 +578,45 @@ function StatTile({
       </span>
       <span className="text-lg font-semibold tabular-nums text-white">{value}</span>
       {hint && <span className="text-xs text-slate-500">{hint}</span>}
+    </div>
+  );
+}
+
+/** Per-file rejection list for the compress intake (non-PDF / too large). */
+function RejectionsNote({
+  rejections,
+  onDismiss,
+}: {
+  rejections: Rejection[];
+  onDismiss: () => void;
+}) {
+  if (rejections.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="flex items-center gap-2 font-medium">
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+          {rejections.length} file{rejections.length === 1 ? "" : "s"} couldn&apos;t
+          be added
+        </span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 rounded-md px-2 py-0.5 text-xs text-amber-200/80 transition hover:bg-amber-500/15 hover:text-amber-100"
+        >
+          Dismiss
+        </button>
+      </div>
+      <ul className="flex flex-col gap-1 pl-6 text-xs text-amber-200/90">
+        {rejections.map((r, i) => (
+          <li key={`${r.name}-${i}`} className="list-disc">
+            <span className="font-medium text-amber-100">{r.name}</span> — {r.reason}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -178,13 +178,20 @@ export interface BatchToolInfo {
   live: boolean;
   /** True when the tool's path goes through a secure worker (server/hybrid/ai). */
   usesWorker: boolean;
+  /**
+   * How a live tool receives handed-off files. `single` tools work on one PDF at
+   * a time (so a batch opens the first queued file), while `collect`/`batch`
+   * tools take the whole set. Omitted/`none` is treated as a whole-set launch.
+   */
+  handoff?: "collect" | "batch" | "single" | "none";
 }
 
 export type BatchStatus =
   | "empty" // nothing chosen yet
   | "needs-tool" // files queued, no tool
   | "needs-files" // tool chosen, no files
-  | "ready" // live tool + files → can launch in-browser
+  | "ready" // live collect/batch tool + files → launch the whole set in-browser
+  | "single" // live single-file tool + files → opens with the first queued file
   | "worker-disabled" // worker tool, backend not enabled here
   | "unavailable"; // tool has no in-browser runner yet (and isn't a worker tool)
 
@@ -213,7 +220,10 @@ export function planBatch(
   const info = resolve(toolSlug);
   if (!info) return { ...base, status: "unavailable", ready: false };
   if (fileIds.length === 0) return { ...base, status: "needs-files", ready: false };
-  if (info.live) return { ...base, status: "ready", ready: true };
+  if (info.live) {
+    const status: BatchStatus = info.handoff === "single" ? "single" : "ready";
+    return { ...base, status, ready: true };
+  }
   if (info.usesWorker) return { ...base, status: "worker-disabled", ready: false };
   return { ...base, status: "unavailable", ready: false };
 }
