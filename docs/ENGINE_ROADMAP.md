@@ -499,11 +499,28 @@ worker proven to stay separated.
   `await import()` stays allowed); `src/deploy/artifacts.test.ts` pins the Dockerfile's
   web ↔ worker separation and fails on any committed real-looking secret or
   `NEXT_PUBLIC_` provider value.
+- **Lifecycle/retention policy tooling** (`src/lib/workers/lifecycle/`): turns the
+  configured retention into a provider-agnostic lifecycle **backstop** and renders it
+  for AWS S3 / Cloudflare R2 / MinIO / generic, via `pnpm worker:daemon
+  --lifecycle-policy`. Day-granular expiration is rounded *up* from the minute TTL so it
+  can never delete a live object; retention overrides validate to a ≤ 7-day privacy
+  ceiling; documents are content-free (structural prefixes + day counts, a `<bucket>`
+  placeholder — no bucket/endpoint/credential).
+- **Deployment readiness + guardrails** (`src/lib/workers/deploy/`): `--dry-run-status`
+  reports a composed posture (`ready`/`degraded`/`blocked`) over six presence-only
+  facets (storage, queue, engine, lifecycle, malware-scan, ocr); `--check` (and every
+  run mode) evaluates production guardrails and **fails fast** (exit `4`) on a
+  dangerous/invalid config — a *selected-but-invalid* provider is an error, not a silent
+  fallback. `PDFXYZ_WORKER_STRICT` / `…_REQUIRE_*` enforce production requirements;
+  defaults stay safe (a bare env has zero violations). Malware scanning and OCR are
+  reported **not-implemented**, never active.
 
-⏳ Still out-of-band (unchanged, and deliberately not faked): real secrets and a
-provisioned S3/R2 bucket + Redis/Upstash broker, the actual worker deployment and the
-Docker image build itself (not exercised here — no Docker daemon in this environment),
-lifecycle-enforced bucket deletion, malware scanning, and the native `deep`/OCR runners.
+⏳ Still out-of-band (deliberately not faked): real secrets and a provisioned S3/R2
+bucket + Redis/Upstash broker, the actual worker deployment and the Docker image build
+itself (not exercised here — no Docker daemon in this environment), **applying** a
+lifecycle policy to a live bucket (the tooling generates and validates it; the operator
+applies it with the provider CLI — the app never calls the cloud), **malware scanning**,
+and the native `deep`/OCR runners.
 
 ## Definition of production-ready per tool
 

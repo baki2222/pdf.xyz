@@ -509,6 +509,79 @@ Terminal states are encoded in `TERMINAL_STATUSES`, and `isDownloadReady()` cent
 
 Production storage must enforce lifecycle deletion independently of application code. UI copy should continue to say: files are uploaded only for secure-worker/AI tools, inputs are wiped after processing, and outputs expire automatically.
 
+## Lifecycle policy tooling, deployment readiness & guardrails (Phase 19)
+
+Phase 19 hardens the *operational safety* of deploying the daemon, without adding a
+processor. It supplies three node-free, content-free capabilities the operator CLI
+surfaces (`src/lib/workers/lifecycle/` and `src/lib/workers/deploy/`). None of it
+makes a live cloud call — everything is presence/shape-only and testable offline.
+
+### Retention → lifecycle backstop (`src/lib/workers/lifecycle/`)
+
+The retention model above is enforced primarily by the app (active delete-now on
+job completion, artifact expiry). A storage **lifecycle policy** is the independent
+*backstop* that guarantees an upper bound even if active deletion never runs. This
+tooling turns the configured retention into that policy:
+
+- `retention.ts` — parses `PDFXYZ_RETENTION_*` overrides (input/artifact TTL minutes,
+  multipart-abort hours, noncurrent-version days) for **presence and shape only**,
+  with hard privacy ceilings (≤ 7 days). A malformed/over-ceiling override fails
+  closed to the safe `DEFAULT_RETENTION_SETTINGS` (= the app-wide `DEFAULT_RETENTION`)
+  and is surfaced as a guardrail, never silently applied.
+- `policy.ts` — a **provider-agnostic** `LifecyclePolicy` model plus
+  `buildLifecyclePolicy()` and `validateLifecyclePolicy()`. S3-compatible lifecycle
+  expiration is *day-granular*, so a sub-day retention window (60 min) is rounded
+  **up** to a 1-day backstop — the backstop can never delete an object the app still
+  treats as live. Rules cover input-object expiration, artifact expiration,
+  incomplete-multipart abort, and (for versioned buckets) noncurrent-version and
+  expired-delete-marker cleanup. Rules target **structural prefixes only** (`inputs/`,
+  `artifacts/`, matching `s3-keys.ts`) — never a bucket, endpoint, or key.
+- `render.ts` — renders the model for `aws-s3`, `cloudflare-r2` (expiration +
+  multipart subset; R2 has no versioning), `minio` (`mc ilm import`), or `generic`
+  JSON. Every document is content-free and applies to a `<bucket>` the operator
+  names on the provider CLI — the bucket is never baked into the document.
+- `config.ts` — presence-only lifecycle **readiness**. The app can't inspect a live
+  bucket's lifecycle without a cloud call, so this is operator-*declared*:
+  `unknown` (nothing declared) → `declared` (`PDFXYZ_LIFECYCLE_PROVIDER` set) →
+  `validated` (`PDFXYZ_LIFECYCLE_VALIDATED=true`, the operator asserts it is applied
+  and verified). It never claims rules are in force just because a variable is set.
+
+### Composed deployment readiness (`src/lib/workers/deploy/readiness.ts`)
+
+`resolveDeploymentReadiness()` folds six presence-only facets into one posture
+(`ready` / `degraded` / `blocked`) the daemon prints on `--dry-run-status`:
+
+| Facet | Green when | Notes |
+| --- | --- | --- |
+| storage | S3/R2 configured | a worker can read inputs / write artifacts |
+| queue | claimable broker configured | a worker can claim/complete |
+| engine | native engine installed (injected probe) | lossless always; deep needs a binary |
+| lifecycle | operator-declared `validated` | else `degraded`/`unknown` — never assumed |
+| malware-scan | **never** — not implemented in this build | reports inactive, honestly |
+| ocr | **never** — not implemented in this build | reuses the OCR capability detail |
+
+`blocked` = not drainable (can't run at all); `ready` = drainable **and** a validated
+lifecycle backstop; otherwise `degraded`. Malware/OCR being not-implemented is the
+honest baseline and does not by itself degrade the posture.
+
+### Production guardrails (`src/lib/workers/deploy/guardrails.ts`)
+
+`evaluateGuardrails()` turns dangerous or silently-broken configuration into typed,
+content-free violations. Config-integrity checks are **always** errors (a *selected*
+provider must be valid, so a typo can't silently fall back to "not configured"):
+selected-but-invalid or unrecognized storage/queue provider, malformed native
+compression, malformed lifecycle declaration, out-of-bounds retention. Opt-in
+production requirements escalate on demand: `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`
+(deep enabled but no engine → error), and `PDFXYZ_WORKER_STRICT` /
+`PDFXYZ_WORKER_REQUIRE_DRAINABLE` / `PDFXYZ_WORKER_REQUIRE_LIFECYCLE`. Strict requires
+a runnable worker **and** a validated lifecycle backstop but still allows a
+lossless-only deployment. Defaults stay safe: a bare environment produces **zero**
+violations. The daemon fails fast (exit `4`) on any error before claiming work; the
+violation `message` names no variable or value (offending names live in a separate
+`fields` array used only for diagnostics, never printed by the CLI).
+
+See the operator runbook in [`DEPLOYMENT.md`](DEPLOYMENT.md) for the exact commands.
+
 ## Production worker plan
 
 ### 1. Upload/session service

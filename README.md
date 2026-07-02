@@ -35,6 +35,7 @@ versus planned — no fake processing.
 | OCR foundation: options/capability contract, honest OCR tool page + `/status` row, browser job client (no processor yet) | ✅ Live (foundation) |
 | Production storage + queue providers: S3/R2-compatible signed upload/download/delete storage, Redis/Upstash-compatible durable queue, per-provider `/status` readiness, honest `DELETE /api/jobs/:id` | ✅ Live (provider foundations) |
 | Out-of-band worker daemon runner: `pnpm worker:daemon` drains the queue → executor → worker-side S3/R2 byte I/O and **completes real `compress-pdf` jobs** (lossless always; deep when a native engine is installed) — proven end-to-end over the S3 seam — with `--once`/`--drain`/`--dry-run-status` modes, useful sanitized output filenames, a `compression_health` deep-engine smoke signal, content-free logs, and a `daemon` `/status` readiness | ✅ Live (runner) |
+| Worker deployment hardening: retention→lifecycle **policy generation/validation** (AWS S3/R2/MinIO/generic), composed **deployment readiness/posture** + honest not-implemented facets, and production **guardrails** that fail fast (exit `4`) on unsafe config — via `--dry-run-status` / `--check` / `--lifecycle-policy`; content-free, offline, no cloud calls | ✅ Live (ops tooling) |
 | Secure-worker tools: Office ⇄ PDF, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign, + the OCR **processor** | 🔜 Planned (production) |
 | AI tools: chat, summarize, translate, extract | 🔜 Planned |
 
@@ -95,7 +96,7 @@ tool honestly says deep compression is unavailable and the API records a
 | `pnpm dev` | Start the dev server |
 | `pnpm build` | Production build |
 | `pnpm start` | Serve the production build |
-| `pnpm worker:daemon` | Run the out-of-band secure-worker daemon (`--once` / `--drain` / `--dry-run-status`) — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
+| `pnpm worker:daemon` | Run the out-of-band secure-worker daemon (`--once` / `--drain` / `--dry-run-status` / `--check` / `--lifecycle-policy`) — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
 | `pnpm worker:daemon:status` | Presence-only worker readiness probe (`--dry-run-status`); exits `0` drainable / `2` not configured. Used by the container health check |
 | `pnpm worker:smoke` | No-config honesty smoke: asserts the daemon refuses to fake work (exit `2`) and rejects bad flags (exit `1`) — no secrets or network |
 | `pnpm typecheck` | `tsc --noEmit` (strict) |

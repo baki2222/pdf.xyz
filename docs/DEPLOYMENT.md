@@ -397,3 +397,99 @@ docker build --target web    -t pdfxyz-web:local .        # Next.js site only
   (orchestrator/scheduler), lifecycle-enforced bucket deletion, malware scanning,
   and the native `deep`/OCR runners themselves. None of these artifacts fake any of
   that — with nothing configured the worker honestly reports "not configured."
+
+## Phase 19 operator runbook: lifecycle, readiness & guardrails
+
+Phase 19 also adds operator tooling to deploy the daemon **safely** and verify its
+configuration without exposing secrets. Everything below is presence/shape-only,
+content-free, and offline — no command here makes a live cloud call.
+
+### Required env groups (server-only; never `NEXT_PUBLIC_`)
+
+| Group | Variables | Purpose |
+| --- | --- | --- |
+| Storage | `PDFXYZ_STORAGE_PROVIDER=s3`, `PDFXYZ_S3_ENDPOINT`, `PDFXYZ_S3_REGION`, `PDFXYZ_S3_BUCKET`, `PDFXYZ_S3_ACCESS_KEY_ID`, `PDFXYZ_S3_SECRET_ACCESS_KEY` (+ optional `…_FORCE_PATH_STYLE`, `…_KEY_PREFIX`, TTLs) | Signed I/O + delete. |
+| Queue | `PDFXYZ_QUEUE_PROVIDER=redis`, `PDFXYZ_REDIS_REST_URL`, `PDFXYZ_REDIS_REST_TOKEN` (+ optional lease/attempts/TTL) | Claim/complete jobs. |
+| Compression | `PDFXYZ_NATIVE_COMPRESSION` (auto by default), optional engine pin + absolute binary overrides | Deep image compression. |
+| Retention *(optional)* | `PDFXYZ_RETENTION_INPUT_TTL_MINUTES`, `PDFXYZ_RETENTION_ARTIFACT_TTL_MINUTES`, `PDFXYZ_RETENTION_MULTIPART_ABORT_HOURS`, `PDFXYZ_RETENTION_NONCURRENT_VERSION_DAYS` | Tighten the lifecycle backstop (≤ 7-day ceiling). |
+| Lifecycle *(optional)* | `PDFXYZ_LIFECYCLE_PROVIDER` (`aws-s3`\|`cloudflare-r2`\|`minio`\|`generic`), `PDFXYZ_LIFECYCLE_VALIDATED=true`, `PDFXYZ_LIFECYCLE_VERSIONED` | Declare that the generated policy is applied and verified. |
+| Guardrails *(optional)* | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`, `PDFXYZ_WORKER_REQUIRE_LIFECYCLE` | Fail fast on a dangerous production state. |
+
+Copy [`.env.worker.example`](../.env.worker.example) to a git-ignored `.env`. Values
+are read only to sign/authenticate inside the worker; they are never logged,
+serialized, or returned.
+
+### 1. Dry-run health (readiness + posture, claims nothing)
+
+```bash
+pnpm worker:daemon --dry-run-status   # exit 0 drainable · 2 not configured · 4 guardrail error
+```
+
+Emits content-free JSON: `readiness` (queue/storage/drainable), `compression_health`
+(`deep`/`engines`), `deployment_readiness` (`posture` + a `facet` line each for
+storage, queue, engine, lifecycle, **malware-scan**, **ocr**), and a `guardrails`
+summary. Use it as the container `HEALTHCHECK` and the pre-advertise smoke.
+
+### 2. Evaluate deployment guardrails
+
+```bash
+pnpm worker:daemon --check                        # exit 0 clean · 4 on any error violation
+PDFXYZ_WORKER_STRICT=true pnpm worker:daemon --check   # enforce production requirements
+```
+
+A *selected-but-invalid* provider (e.g. `PDFXYZ_STORAGE_PROVIDER=s3` with a typo'd
+variable) is an **error**, not a silent fallback. Run modes (`--once`/`--drain`/
+`--loop`) run the same check and refuse to start (exit `4`) on an error.
+
+### 3. Generate / validate a lifecycle policy
+
+```bash
+# Print an AWS S3 policy for a versioned bucket under a key prefix (exit 0):
+pnpm worker:daemon --lifecycle-policy --provider=aws-s3 --key-prefix=pdfxyz --versioned
+
+# Extract just the document to apply:
+pnpm worker:daemon --lifecycle-policy --provider=aws-s3 | jq -r 'select(.event=="lifecycle_policy").document' > lifecycle.json
+aws s3api put-bucket-lifecycle-configuration --bucket <your-bucket> --lifecycle-configuration file://lifecycle.json
+```
+
+`--provider` defaults to any declared `PDFXYZ_LIFECYCLE_PROVIDER` (else `generic`).
+A malformed retention override refuses generation (exit `1`) rather than emitting a
+policy from silent defaults. After applying **and verifying** the rules on the
+bucket, set `PDFXYZ_LIFECYCLE_PROVIDER` + `PDFXYZ_LIFECYCLE_VALIDATED=true` so the
+readiness reports the lifecycle facet `validated`.
+
+### 4. Start the worker (one-shot / drain / loop)
+
+```bash
+pnpm worker:daemon --once     # claim + run at most one job, then exit (smoke)
+pnpm worker:daemon --drain    # drain the backlog to idle, then exit (batch/cron)
+pnpm worker:daemon            # long-running: drain, then poll (sleeps when idle)
+```
+
+Exit codes: `0` clean · `1` usage · `2` not configured to run · `3` queue
+unreachable · `4` guardrail violation. SIGINT/SIGTERM drain the in-flight tick and
+exit cleanly.
+
+### What is real now vs. intentionally not implemented
+
+- **Real:** provider config validation; the drain/one-shot/loop daemon; lossless
+  compression always, `deep` when a native engine is installed; retention→lifecycle
+  policy generation/validation for four providers; deployment readiness/posture;
+  production guardrails; content-free readiness + logs.
+- **Intentionally NOT implemented (never faked):** *applying* a lifecycle policy to a
+  live bucket (operator runs the provider CLI; the app never calls the cloud);
+  **malware scanning** (no scanner ships — reported inactive even if a scanner
+  variable is set); **OCR** and the other non-compress processors. The status and
+  readiness surfaces state each of these honestly.
+
+### Security notes (logs / secrets / filenames / object keys)
+
+- The daemon's entire output is content-free structured JSON: run/tick counters,
+  opaque job ids, error **codes**, presence-only readiness, and typed guardrail
+  codes/messages — never a filename, byte, object key, signed URL, option value,
+  **environment-variable name**, or secret. Guardrail field names exist only in the
+  return value for programmatic use; the CLI never prints them.
+- Generated lifecycle documents contain only structural prefixes + day counts, and
+  apply to a `<bucket>` placeholder — never a real bucket, endpoint, or credential.
+- Filenames stay client-side/opaque end to end (Phase 18); object keys derive from
+  opaque ids, never from a user-supplied name.

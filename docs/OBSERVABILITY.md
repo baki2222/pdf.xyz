@@ -265,3 +265,26 @@ and `pnpm worker:smoke` is the offline, no-config honesty check (exit-code contr
 `0`/`2`/`1`) suitable for CI. Alert on a worker that reports `2` when it is expected to
 be drainable, exactly as you would alert on `drainable: true` with a non-draining
 backlog.
+
+## Deployment readiness & guardrail events (Phase 19)
+
+`--dry-run-status` and `--check` extend the daemon's content-free log stream with the
+composed deployment picture. All fields are presence-only — booleans, typed states,
+and generic prose — with **no** variable name, value, path, object key, or signed URL.
+
+| `event` | Fields | Meaning |
+| --- | --- | --- |
+| `deployment_readiness` | `posture` (`ready`\|`degraded`\|`blocked`), `drainable`, `detail` | Overall posture. `blocked` = not drainable; `ready` = drainable + validated lifecycle; else `degraded`. |
+| `facet` | `id`, `state`, `detail` | One per facet: `storage`, `queue`, `engine`, `lifecycle`, `malware-scan`, `ocr`. `state` ∈ `ready`\|`degraded`\|`not-configured`\|`not-implemented`\|`unknown`. |
+| `guardrails` | `ok`, `strict`, `errors`, `warnings` | Guardrail summary. `ok:false` ⇒ the daemon exits `4` before claiming work. |
+| `guardrail` | `code`, `severity`, `message` | One per violation. `code` is typed; `message` is content-free and names no variable. |
+| `lifecycle_policy` | `provider`, `versioned`, `filename`, `applyHint`, `derivedFrom`, `ruleCount`, `notes`, `document` | Emitted by `--lifecycle-policy`. `document` is the content-free policy JSON; `applyHint` uses a `<bucket>` placeholder. |
+| `lifecycle_policy_error` | `reason` (`retention_invalid`\|`policy_invalid`) | Generation refused (exit `1`) rather than emitting from silent defaults. |
+
+**What to watch.** The `malware-scan` facet is always `not-configured`/`not-implemented`
+and `ocr` is always `not-implemented` — these are honest baselines, not incidents. A
+`lifecycle` facet of `unknown` on a drainable worker is the expected "no backstop
+declared yet" state; alert if a production worker you intend to be `ready` reports
+`degraded`. A non-empty `guardrails.errors` on a worker that fails to start (exit `4`)
+is the fail-fast signal — inspect the `guardrail` `code`s (never a leaked value) to see
+which provider/setting is misconfigured.
