@@ -1,14 +1,30 @@
 /**
  * The real, host-side implementations behind the compression engine's injected
- * dependencies: a presence-only PATH probe and a native deep-compressor that
+ * dependencies: a presence-only binary probe and a native deep-compressor that
  * shells out to Ghostscript / qpdf / mutool in an isolated temp directory.
  *
  * This is the ONLY module that touches Node built-ins (`fs`, `child_process`,
- * …), and it is imported lazily — only when `PDFXYZ_WORKER_MODE=local-dev` —
- * so the default/remote code paths and the client bundle never pull it in. The
- * PATH probe reads the *presence* of a binary; it never executes it. The
- * compressor runs with fixed arguments over fixed temp paths (no user-supplied
- * paths), a hard timeout, and guaranteed cleanup.
+ * …). It is pulled in exclusively by non-browser code — the local-dev worker
+ * adapter and the `/api/worker/status` route (both via a lazy `import()`, only in
+ * `PDFXYZ_WORKER_MODE=local-dev`) and the out-of-band daemon runtime
+ * (`daemon/runtime.ts`, a separate Node process the web app never imports). So the
+ * default/remote request paths and the client bundle never pull it in.
+ *
+ * Everything it does is driven by the typed, bounded {@link NativeCompressionConfig}
+ * parsed from the environment (`./native-config`):
+ *  - the engine is **enable-gated** (a kill switch can force it off) and may be
+ *    **pinned** to one engine;
+ *  - each engine is invoked by a fixed command name (auto-detected on PATH) or an
+ *    allowlisted **absolute override path** (probed by existence, never executed
+ *    during detection);
+ *  - the compressor runs with a **fixed argv array** (no shell, no interpolation)
+ *    over fixed temp paths (never a user-supplied path), a hard **timeout**, hard
+ *    **input/output byte ceilings**, a structural PDF check on the output, and
+ *    **guaranteed temp-dir cleanup** on success, failure, and timeout alike.
+ *
+ * The subprocess/filesystem/probe boundaries are all injectable seams, so every
+ * branch — argv construction, timeout, engine failure, invalid output, cleanup —
+ * is unit-tested without a real binary or child process.
  */
 
 import { execFile } from "node:child_process";
@@ -18,18 +34,66 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
-  probeCompressionTools,
+  looksLikePdf,
   type CompressionDeps,
   type CompressionTool,
   type NativeCompressor,
+  type ToolAvailability,
 } from "./engine";
+import {
+  resolveNativeCompressionConfig,
+  type NativeCompressionConfig,
+} from "./native-config";
 
-const run = promisify(execFile);
-
-/** Hard ceilings so a wedged or hostile engine can't hang or exhaust the host. */
-const EXEC_TIMEOUT_MS = 120_000;
+/** stdout/stderr capture ceiling. Our engines are `-QUIET` and write to a file, so this is generous. */
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
-const MAX_OUTPUT_BYTES = 200 * 1024 * 1024;
+
+/** Run a subprocess by argv (never a shell). Injectable so tests never spawn a real process. */
+export type NativeExec = (
+  command: string,
+  args: readonly string[],
+  options: { timeout: number; maxBuffer: number; windowsHide: boolean },
+) => Promise<unknown>;
+
+/** The temp-file operations the compressor needs. Injectable for deterministic tests. */
+export interface NativeFs {
+  mkdtemp: (prefix: string) => Promise<string>;
+  writeFile: (file: string, data: Uint8Array) => Promise<void>;
+  readFile: (file: string) => Promise<Uint8Array>;
+  rm: (dir: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+}
+
+/** All the host seams the native layer touches; each defaults to the real Node built-in. */
+export interface NativeSeams {
+  /** Resolve whether a bare command exists on PATH (presence only; never executes). */
+  resolveOnPath?: (binary: string) => boolean;
+  /** Whether an absolute path exists and is a regular file (for override probing). */
+  fileExists?: (filePath: string) => boolean;
+  /** Subprocess runner. */
+  exec?: NativeExec;
+  /** Temp-file operations. */
+  fs?: NativeFs;
+}
+
+const runExecFile = promisify(execFile);
+const defaultExec: NativeExec = (command, args, options) =>
+  runExecFile(command, [...args], options);
+
+const defaultFs: NativeFs = {
+  mkdtemp: (prefix) => mkdtemp(prefix),
+  writeFile: (file, data) => writeFile(file, data),
+  readFile: async (file) => new Uint8Array(await readFile(file)),
+  rm: (dir, options) => rm(dir, options),
+};
+
+/** Is `filePath` an existing regular file? Swallows unreadable-path errors as "no". */
+function isRegularFile(filePath: string): boolean {
+  try {
+    return existsSync(filePath) && statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Presence-only resolver: is `binary` an executable file on PATH? Never runs it.
@@ -45,20 +109,23 @@ export function resolveOnPath(binary: string): boolean {
   for (const dir of pathVar.split(path.delimiter)) {
     if (dir.length === 0) continue;
     for (const ext of exts) {
-      const candidate = path.join(dir, binary + ext);
-      try {
-        if (existsSync(candidate) && statSync(candidate).isFile()) return true;
-      } catch {
-        // Unreadable PATH entry — treat as absent and keep looking.
-      }
+      if (isRegularFile(path.join(dir, binary + ext))) return true;
     }
   }
   return false;
 }
 
-/** Build the fixed argument list for each native engine. */
-function nativeArgs(
+/**
+ * Build the fixed argument list for a native engine. `command` is the resolved
+ * invocation (a bare command name or an allowlisted override path); `inputPath`
+ * and `outputPath` are worker-owned temp paths. Every value is a separate argv
+ * element — there is no shell, no string concatenation of a command line, and no
+ * user-supplied path, so filenames and options can never be interpreted as flags
+ * or shell syntax.
+ */
+export function nativeArgs(
   engine: CompressionTool,
+  command: string,
   inputPath: string,
   outputPath: string,
   targetDpi: number,
@@ -66,7 +133,7 @@ function nativeArgs(
   switch (engine) {
     case "ghostscript":
       return {
-        command: "gs",
+        command,
         args: [
           "-sDEVICE=pdfwrite",
           "-dCompatibilityLevel=1.7",
@@ -74,6 +141,7 @@ function nativeArgs(
           "-dNOPAUSE",
           "-dBATCH",
           "-dQUIET",
+          "-dSAFER",
           "-dDownsampleColorImages=true",
           "-dDownsampleGrayImages=true",
           "-dDownsampleMonoImages=true",
@@ -86,7 +154,7 @@ function nativeArgs(
       };
     case "qpdf":
       return {
-        command: "qpdf",
+        command,
         args: [
           "--object-streams=generate",
           "--compress-streams=y",
@@ -98,53 +166,128 @@ function nativeArgs(
       };
     case "mutool":
       return {
-        command: "mutool",
+        command,
         args: ["clean", "-ggg", "-z", inputPath, outputPath],
       };
   }
 }
 
 /**
- * Run a native deep-compression engine in an isolated temp directory. Writes the
- * input, invokes the tool with fixed arguments, reads the output, and always
- * removes the temp directory afterward. Throws on any failure so the engine can
- * classify it honestly as a `failed` run.
+ * Build a native deep-compressor bound to a configuration. Writes the input to an
+ * isolated temp dir, invokes the engine with a fixed argv array, reads the output,
+ * and ALWAYS removes the temp dir afterward — on success, engine failure, or
+ * timeout. Throws on any failure (oversized input/output, empty or non-PDF output,
+ * subprocess error) so the engine can classify it honestly; it never returns
+ * fabricated bytes.
  */
-export const spawnNativeCompressor: NativeCompressor = async (input, ctx) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pdfxyz-compress-"));
-  const inputPath = path.join(dir, "input.pdf");
-  const outputPath = path.join(dir, "output.pdf");
-  try {
-    await writeFile(inputPath, input);
-    const { command, args } = nativeArgs(
-      ctx.engine,
-      inputPath,
-      outputPath,
-      ctx.options.targetDpi,
-    );
-    await run(command, args, {
-      timeout: EXEC_TIMEOUT_MS,
-      maxBuffer: EXEC_MAX_BUFFER,
-      windowsHide: true,
-    });
-    const output = await readFile(outputPath);
-    if (output.byteLength === 0 || output.byteLength > MAX_OUTPUT_BYTES) {
-      throw new Error("Native compressor produced no usable output.");
+export function createNativeCompressor(
+  config: NativeCompressionConfig,
+  seams: NativeSeams = {},
+): NativeCompressor {
+  const exec = seams.exec ?? defaultExec;
+  const fs = seams.fs ?? defaultFs;
+  const baseTmp = config.tmpDir ?? tmpdir();
+
+  return async (input, ctx) => {
+    // Backstop the input ceiling here too, in case a caller reaches the native
+    // runner without the engine-level `limits` guard. Deterministic → the engine
+    // classifies the throw as a failure rather than looping.
+    if (input.byteLength > config.maxInputBytes) {
+      throw new Error("Input exceeds the configured maximum size.");
     }
-    return new Uint8Array(output);
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
-};
+    const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-compress-"));
+    const inputPath = path.join(dir, "input.pdf");
+    const outputPath = path.join(dir, "output.pdf");
+    try {
+      await fs.writeFile(inputPath, input);
+      const { command, args } = nativeArgs(
+        ctx.engine,
+        config.binaries[ctx.engine],
+        inputPath,
+        outputPath,
+        ctx.options.targetDpi,
+      );
+      await exec(command, args, {
+        timeout: config.timeoutMs,
+        maxBuffer: EXEC_MAX_BUFFER,
+        windowsHide: true,
+      });
+      const output = await fs.readFile(outputPath);
+      if (
+        output.byteLength === 0 ||
+        output.byteLength > config.maxOutputBytes ||
+        !looksLikePdf(output)
+      ) {
+        throw new Error("Native compressor produced no usable PDF output.");
+      }
+      return output instanceof Uint8Array ? output : new Uint8Array(output);
+    } finally {
+      // Cleanup runs on every exit path — success, throw, or timeout. Never let a
+      // cleanup error mask the real outcome or leak a path.
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  };
+}
 
 /**
- * The real compression dependencies for this host: a fresh PATH probe (so a
- * newly installed engine is picked up without a restart) plus the native
- * compressor. Called by the local-dev adapter at job time.
+ * Probe which deep-compression engines are actually usable under a configuration:
+ *  - a disabled config yields no engines (the kill switch);
+ *  - a pinned config considers only that engine;
+ *  - an overridden engine is probed by absolute-path existence, an auto-detected
+ *    one by PATH presence.
+ * Presence only — nothing is executed.
  */
-export function nativeCompressionDeps(): CompressionDeps {
+export function probeNativeToolsFromConfig(
+  config: NativeCompressionConfig,
+  seams: NativeSeams = {},
+): ToolAvailability {
+  const onPath = seams.resolveOnPath ?? resolveOnPath;
+  const fileExists = seams.fileExists ?? isRegularFile;
+
+  const usable = (tool: CompressionTool): boolean => {
+    if (!config.enabled) return false;
+    if (config.engine && config.engine !== tool) return false;
+    return config.overridden[tool]
+      ? fileExists(config.binaries[tool])
+      : onPath(config.binaries[tool]);
+  };
+
   return {
-    tools: probeCompressionTools(resolveOnPath),
-    native: spawnNativeCompressor,
+    ghostscript: usable("ghostscript"),
+    qpdf: usable("qpdf"),
+    mutool: usable("mutool"),
+  };
+}
+
+/**
+ * Probe deep-compression engine availability from the environment, honoring the
+ * enable flag, pin, and binary overrides. Presence only; used by the client-facing
+ * status route (which reports engine *names*, never paths). `env`/`seams` are
+ * injectable for tests.
+ */
+export function probeNativeTools(
+  env: Record<string, string | undefined> = process.env,
+  seams: NativeSeams = {},
+): ToolAvailability {
+  return probeNativeToolsFromConfig(resolveNativeCompressionConfig(env), seams);
+}
+
+/**
+ * The real compression dependencies for this host: a config-aware engine probe
+ * (so a newly installed or reconfigured engine is picked up without a restart),
+ * the native compressor bound to the same config, and the config's input-size
+ * limit. Called by the local-dev adapter and the worker daemon at wiring time.
+ * `env` defaults to `process.env`, so existing zero-argument call sites keep
+ * working and simply pick up the environment's configuration.
+ */
+export function nativeCompressionDeps(
+  env: Record<string, string | undefined> = process.env,
+  seams: NativeSeams = {},
+): CompressionDeps {
+  const config = resolveNativeCompressionConfig(env);
+  return {
+    tools: probeNativeToolsFromConfig(config, seams),
+    native: createNativeCompressor(config, seams),
+    limits: { maxInputBytes: config.maxInputBytes },
   };
 }

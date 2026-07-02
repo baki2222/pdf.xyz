@@ -13,7 +13,6 @@
 import { ok } from "@/lib/jobs";
 import {
   buildWorkerStatus,
-  probeCompressionTools,
   resolveWorkerMode,
   type ToolAvailability,
 } from "@/lib/workers";
@@ -29,8 +28,11 @@ export async function GET(): Promise<Response> {
 
   let tools: ToolAvailability | undefined;
   if (mode === "local-dev") {
-    const { resolveOnPath } = await import("@/lib/workers/compression/native");
-    tools = probeCompressionTools(resolveOnPath);
+    // Config-aware probe: honors the native-compression enable flag, engine pin,
+    // and binary-path overrides, so the client status matches what the worker will
+    // actually run. Reports engine *names* only — never a path or variable value.
+    const { probeNativeTools } = await import("@/lib/workers/compression/native");
+    tools = probeNativeTools(process.env);
   }
 
   // OCR is intentionally NOT probed: this build ships no OCR pipeline in any

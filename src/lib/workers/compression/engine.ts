@@ -146,6 +146,50 @@ export function planCompression(
 /** The producer/creator stamped onto worker-repacked PDFs (distinct from the browser tool). */
 export const WORKER_PRODUCER = "pdf.xyz secure worker";
 
+// %PDF- header and %%EOF trailer markers, as raw bytes.
+const PDF_HEADER = Uint8Array.of(0x25, 0x50, 0x44, 0x46, 0x2d);
+const PDF_EOF = Uint8Array.of(0x25, 0x25, 0x45, 0x4f, 0x46);
+
+/** True when `needle` occurs in `haystack[start, end)`. */
+function containsSequence(
+  haystack: Uint8Array,
+  needle: Uint8Array,
+  start: number,
+  end: number,
+): boolean {
+  const last = end - needle.length;
+  for (let i = Math.max(0, start); i <= last; i++) {
+    let match = true;
+    for (let j = 0; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return true;
+  }
+  return false;
+}
+
+/**
+ * Cheap, robust structural PDF check: the `%PDF-` header appears near the start
+ * and the `%%EOF` trailer near the end, with a plausible minimum length. This is
+ * the default gate that keeps the deep path honest — it reliably rejects an empty
+ * file, a truncated file, or an error message written to the output path, without
+ * the false-negative risk of a full parse on unusual-but-valid PDFs. It reads only
+ * bounded windows, so validating a large artifact stays cheap.
+ */
+export function looksLikePdf(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 32) return false;
+  // The spec allows a few junk bytes before the header; native engines emit it at
+  // offset 0, so a 1 KiB window is generous.
+  const headEnd = Math.min(bytes.byteLength, 1024);
+  if (!containsSequence(bytes, PDF_HEADER, 0, headEnd)) return false;
+  // Trailing whitespace/newlines after %%EOF are common; scan the last 2 KiB.
+  const tailStart = Math.max(0, bytes.byteLength - 2048);
+  return containsSequence(bytes, PDF_EOF, tailStart, bytes.byteLength);
+}
+
 /**
  * Real, lossless structural repack via pdf-lib. Re-serializes with object
  * streams and refreshes the producer; it never changes rendered content. Throws
@@ -168,6 +212,16 @@ export type NativeCompressor = (
   ctx: { engine: CompressionTool; options: CompressionOptions },
 ) => Promise<Uint8Array>;
 
+/** Strict resource limits enforced by the deep/native path (lossless is unaffected). */
+export interface CompressionLimits {
+  /**
+   * Max input size accepted by the DEEP path, in bytes. When set and the input
+   * exceeds it, the deep path fails honestly as `too_large` before anything is
+   * spawned. Lossless (in-process pdf-lib) is intentionally not limited here.
+   */
+  maxInputBytes?: number;
+}
+
 /** Everything {@link runCompression} needs, all injectable for tests. */
 export interface CompressionDeps {
   /** Which native engines are available on this host. */
@@ -176,6 +230,14 @@ export interface CompressionDeps {
   repack?: (bytes: Uint8Array) => Promise<Uint8Array>;
   /** Native deep compressor (required only when a deep engine is available). */
   native?: NativeCompressor;
+  /**
+   * Validate that produced/candidate bytes are a usable PDF before they are ever
+   * accepted as an artifact (deep path only). Defaults to {@link looksLikePdf}, a
+   * cheap structural header/trailer check; a deployment may inject a stricter one.
+   */
+  validate?: (bytes: Uint8Array) => boolean | Promise<boolean>;
+  /** Strict resource limits for the native/deep path. */
+  limits?: CompressionLimits;
 }
 
 /** Derived, serializable metrics for a successful compression run. */
@@ -198,15 +260,26 @@ export type CompressionRun =
   | { ok: true; output: Uint8Array; meta: CompressionResultMeta }
   | { ok: false; kind: "unsupported"; requires: readonly CompressionTool[]; message: string }
   | { ok: false; kind: "invalid_pdf"; message: string }
+  | { ok: false; kind: "too_large"; limitBytes: number; message: string }
   | { ok: false; kind: "failed"; message: string };
 
 /**
  * Plan and run a compression request. Returns an honest result:
  *  - `unsupported` when the requested profile needs a native engine that is not
  *    installed (nothing is executed, no output is invented),
+ *  - `too_large` when the deep-path input exceeds the configured size limit
+ *    (rejected before anything is spawned),
  *  - `invalid_pdf` when the input cannot be read as a PDF,
- *  - `failed` when a wired engine errors, and
+ *  - `failed` when a wired engine errors or produces an unreadable PDF, and
  *  - a success carrying the real output bytes and size metrics otherwise.
+ *
+ * Deep-path honesty guarantees (the "valid and no-worse" policy):
+ *  - the engine's output is accepted only after it passes PDF validation
+ *    (`deps.validate`, default {@link looksLikePdf}) — an unreadable result is a
+ *    `failed` run, never a fabricated success;
+ *  - the artifact is never larger than the input — if deep compression cannot
+ *    reduce the file (already-optimized / text-only PDFs), the original bytes are
+ *    returned unchanged with honest zero-savings metrics rather than a bigger file.
  */
 export async function runCompression(
   input: Uint8Array,
@@ -223,8 +296,26 @@ export async function runCompression(
     };
   }
 
+  const isNative = plan.engine !== "lossless-js";
+
+  // Strict input limit: reject an oversized deep-path job before writing a temp
+  // file or spawning a subprocess. Deterministic, so it is a terminal failure.
+  if (isNative && deps.limits?.maxInputBytes !== undefined) {
+    if (input.byteLength > deps.limits.maxInputBytes) {
+      return {
+        ok: false,
+        kind: "too_large",
+        limitBytes: deps.limits.maxInputBytes,
+        message:
+          "The input PDF exceeds the worker's size limit for deep compression.",
+      };
+    }
+  }
+
   let output: Uint8Array;
   try {
+    // Compare `plan.engine` directly (not the `isNative` alias) so TypeScript
+    // narrows it to a `CompressionTool` for the native call below.
     if (plan.engine === "lossless-js") {
       output = await (deps.repack ?? losslessRepack)(input);
     } else {
@@ -240,7 +331,7 @@ export async function runCompression(
   } catch {
     // A lossless throw almost always means the bytes weren't a readable PDF; a
     // native throw is an engine/runtime failure. Never leak the raw error text.
-    if (plan.engine === "lossless-js") {
+    if (!isNative) {
       return {
         ok: false,
         kind: "invalid_pdf",
@@ -252,6 +343,32 @@ export async function runCompression(
       kind: "failed",
       message: "The compression engine failed to process this file.",
     };
+  }
+
+  // Deep path: never accept the engine's output without validating it is a real,
+  // readable PDF, and never hand back a file larger than the input.
+  if (isNative) {
+    const validate = deps.validate ?? looksLikePdf;
+    if (!(await validate(output))) {
+      return {
+        ok: false,
+        kind: "failed",
+        message: "The compression engine produced an unreadable PDF.",
+      };
+    }
+    if (output.byteLength >= input.byteLength) {
+      // Deep compression did not reduce the file. Return the original rather than
+      // a larger artifact — but only if the original is itself a readable PDF, so
+      // we never dress up non-PDF bytes as a successful result.
+      if (!(await validate(input))) {
+        return {
+          ok: false,
+          kind: "failed",
+          message: "The compression engine produced an unreadable PDF.",
+        };
+      }
+      output = input;
+    }
   }
 
   const originalBytes = input.byteLength;

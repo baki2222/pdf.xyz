@@ -37,9 +37,11 @@ type CompressionFailure = Extract<CompressionRun, { ok: false }>;
 /**
  * Map an honest engine failure to a typed, client-safe job error. A missing
  * native engine is a non-retryable `not_implemented` (retrying won't install a
- * binary); an unreadable PDF is a non-retryable `unprocessable_entity`; a wired
- * engine that crashed is a retryable `internal_error` (a transient failure the
- * executor may re-attempt). No raw error text is ever leaked.
+ * binary); an oversized input is a non-retryable `payload_too_large` (retrying the
+ * same bytes can't shrink them); an unreadable PDF is a non-retryable
+ * `unprocessable_entity`; a wired engine that crashed or produced an unreadable
+ * result is a retryable `internal_error` (a transient failure the executor may
+ * re-attempt, bounded by the attempt cap). No raw error text is ever leaked.
  */
 export function compressionJobError(run: CompressionFailure): JobError {
   switch (run.kind) {
@@ -49,6 +51,12 @@ export function compressionJobError(run: CompressionFailure): JobError {
         message: `${run.message} Install one of: ${run.requires.join(
           ", ",
         )}. See docs/WORKER_ARCHITECTURE.md.`,
+        retryable: false,
+      };
+    case "too_large":
+      return {
+        code: "payload_too_large",
+        message: run.message,
         retryable: false,
       };
     case "invalid_pdf":

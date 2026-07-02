@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import {
   DEEP_COMPRESSION_TOOLS,
+  looksLikePdf,
   parseCompressionOptions,
   planCompression,
   probeCompressionTools,
   runCompression,
   type ToolAvailability,
 } from "./engine";
+
+/** Minimal, structurally-valid PDF bytes (header + trailer) for deep-path fakes. */
+function tinyPdf(pad = 40): Uint8Array {
+  return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
+}
 
 async function makePdf(pages = 3): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -136,7 +142,9 @@ describe("runCompression", () => {
 
   it("runs the deep path through an available native engine", async () => {
     const input = await makePdf();
-    const fakeOutput = new Uint8Array(10).fill(7);
+    // A real, structurally-valid PDF that is smaller than the input — the genuine
+    // deep-compression win case.
+    const fakeOutput = tinyPdf();
     let calledWith: string | null = null;
     const run = await runCompression(
       input,
@@ -158,6 +166,80 @@ describe("runCompression", () => {
     }
   });
 
+  it("rejects unreadable deep output as an honest failed run (never a fake artifact)", async () => {
+    const run = await runCompression(
+      await makePdf(),
+      { profile: "deep", targetDpi: 150 },
+      {
+        tools: { ghostscript: true, qpdf: false, mutool: false },
+        // A wired engine that returns bytes which are not a valid PDF.
+        native: async () => new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]),
+      },
+    );
+    expect(run.ok).toBe(false);
+    if (!run.ok) expect(run.kind).toBe("failed");
+  });
+
+  it("never returns a file larger than the input (no-worse policy returns the original)", async () => {
+    const input = await makePdf(2);
+    // A valid PDF, but LARGER than the input — deep compression backfired.
+    const bigger = tinyPdf(input.byteLength + 512);
+    expect(bigger.byteLength).toBeGreaterThan(input.byteLength);
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      {
+        tools: { ghostscript: false, qpdf: true, mutool: false },
+        native: async () => bigger,
+      },
+    );
+    expect(run.ok).toBe(true);
+    if (run.ok) {
+      // The original bytes are returned unchanged, with honest zero-savings.
+      expect(run.output).toBe(input);
+      expect(run.meta.engine).toBe("qpdf");
+      expect(run.meta.savedBytes).toBe(0);
+      expect(run.meta.savedRatio).toBe(0);
+      expect(run.meta.outputBytes).toBe(input.byteLength);
+    }
+  });
+
+  it("rejects a deep input larger than the configured limit as too_large", async () => {
+    const input = await makePdf(3);
+    let spawned = false;
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      {
+        tools: { ghostscript: true, qpdf: false, mutool: false },
+        limits: { maxInputBytes: 8 },
+        native: async () => {
+          spawned = true;
+          return tinyPdf();
+        },
+      },
+    );
+    expect(run.ok).toBe(false);
+    if (!run.ok && run.kind === "too_large") {
+      expect(run.limitBytes).toBe(8);
+    } else {
+      throw new Error("expected a too_large result");
+    }
+    // The oversized input never reached the engine.
+    expect(spawned).toBe(false);
+  });
+
+  it("does not apply the input-size limit to the lossless path", async () => {
+    const input = await makePdf(3);
+    const run = await runCompression(
+      input,
+      { profile: "lossless", targetDpi: 150 },
+      { tools: noTools, limits: { maxInputBytes: 8 } },
+    );
+    // Lossless (in-process pdf-lib) is intentionally unaffected by the deep limit.
+    expect(run.ok).toBe(true);
+  });
+
   it("classifies a native engine crash as an honest failure", async () => {
     const run = await runCompression(
       await makePdf(),
@@ -171,5 +253,25 @@ describe("runCompression", () => {
     );
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("failed");
+  });
+});
+
+describe("looksLikePdf", () => {
+  it("accepts bytes with a %PDF- header and a %%EOF trailer", () => {
+    expect(looksLikePdf(tinyPdf())).toBe(true);
+  });
+
+  it("accepts a genuine pdf-lib document", async () => {
+    expect(looksLikePdf(await makePdf(2))).toBe(true);
+  });
+
+  it("rejects empty, too-short, headerless, or trailerless bytes", () => {
+    expect(looksLikePdf(new Uint8Array(0))).toBe(false);
+    expect(looksLikePdf(new Uint8Array([1, 2, 3]))).toBe(false);
+    expect(looksLikePdf(new TextEncoder().encode("plainly not a pdf, no markers here at all"))).toBe(
+      false,
+    );
+    // Header but no trailer.
+    expect(looksLikePdf(new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(64)}`))).toBe(false);
   });
 });

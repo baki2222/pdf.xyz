@@ -11,6 +11,11 @@ async function makePdf(pages = 4): Promise<Uint8Array> {
   return doc.save();
 }
 
+/** Minimal, structurally-valid PDF bytes for mocking a native engine's output. */
+function tinyPdf(pad = 32): Uint8Array {
+  return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
+}
+
 const noEngines: CompressionDeps = {
   tools: { ghostscript: false, qpdf: false, mutool: false },
 };
@@ -75,6 +80,59 @@ describe("compression processor", () => {
     expect(result.error.retryable).toBe(false);
     expect(result.error.message).toMatch(/ghostscript|qpdf|mutool/i);
     expect(result.error.message).toContain("WORKER_ARCHITECTURE.md");
+  });
+
+  it("completes a real deep job through a wired native engine (validated, smaller output)", async () => {
+    const native = tinyPdf();
+    const proc = createCompressionProcessor({
+      tools: { ghostscript: true, qpdf: false, mutool: false },
+      native: async () => native,
+    });
+    const result = await proc.process({
+      tool: "compress-pdf",
+      options: { profile: "deep", targetDpi: 150 },
+      inputs: [await file("scan.pdf")],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.artifacts[0]?.filename).toBe("scan-compressed.pdf");
+    expect(result.artifacts[0]?.bytes).toBe(native);
+    expect(result.meta?.engine).toBe("ghostscript");
+    expect(result.meta?.profile).toBe("deep");
+    expect(Number(result.meta?.savedBytes)).toBeGreaterThan(0);
+  });
+
+  it("maps an oversized deep input to a non-retryable payload_too_large", async () => {
+    const proc = createCompressionProcessor({
+      tools: { ghostscript: true, qpdf: false, mutool: false },
+      limits: { maxInputBytes: 8 },
+      native: async () => tinyPdf(),
+    });
+    const result = await proc.process({
+      tool: "compress-pdf",
+      options: { profile: "deep" },
+      inputs: [await file()],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("payload_too_large");
+    expect(result.error.retryable).toBe(false);
+  });
+
+  it("maps unreadable engine output to a retryable internal_error (no artifact)", async () => {
+    const proc = createCompressionProcessor({
+      tools: { ghostscript: true, qpdf: false, mutool: false },
+      native: async () => new Uint8Array([9, 9, 9, 9]),
+    });
+    const result = await proc.process({
+      tool: "compress-pdf",
+      options: { profile: "deep" },
+      inputs: [await file()],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("internal_error");
+    expect(result.error.retryable).toBe(true);
   });
 
   it("classifies a wired-engine crash as a retryable internal_error", async () => {
