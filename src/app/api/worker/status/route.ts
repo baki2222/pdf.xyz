@@ -14,7 +14,9 @@ import { ok } from "@/lib/jobs";
 import {
   buildWorkerStatus,
   probeCompressionTools,
+  probeOcrEngines,
   resolveWorkerMode,
+  type OcrEngineAvailability,
   type ToolAvailability,
 } from "@/lib/workers";
 import { respond } from "../../_lib/http";
@@ -28,10 +30,13 @@ export async function GET(): Promise<Response> {
   const mode = resolveWorkerMode();
 
   let tools: ToolAvailability | undefined;
+  let ocrEngines: OcrEngineAvailability | undefined;
   if (mode === "local-dev") {
-    const { resolveOnPath } = await import("@/lib/workers/compression/native");
+    // One presence-only PATH probe, shared by both native engine families.
+    const { resolveOnPath } = await import("@/lib/workers/native-path");
     tools = probeCompressionTools(resolveOnPath);
+    ocrEngines = probeOcrEngines(resolveOnPath);
   }
 
-  return respond(ok(buildWorkerStatus(mode, tools)));
+  return respond(ok(buildWorkerStatus(mode, tools, ocrEngines)));
 }

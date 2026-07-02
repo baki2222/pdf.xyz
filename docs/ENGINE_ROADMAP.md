@@ -58,7 +58,7 @@ These require a backend/worker pipeline because high-quality results need native
 
 - Office conversions: Word/Excel/PowerPoint to PDF and PDF to Office.
 - High-quality compression: image downsampling, font subsetting, object deduplication, qpdf/ghostscript-style optimization. The engine and adapter contract exist (`src/lib/workers/compression/`); a native processor is wired for local-dev and pending for production.
-- OCR PDF and searchable scan creation.
+- OCR PDF and searchable scan creation. The engine and adapter contract exist (`src/lib/workers/ocr/`) with strict option validation, honest engine probing (OCRmyPDF/Tesseract), and searchable-PDF + text-sidecar output; wired for local-dev and pending for production. It never fakes recognized text when no engine is installed.
 - HTML/webpage to PDF rendering.
 - PDF/A conversion and compliance checks.
 - Repair PDF.
@@ -242,6 +242,39 @@ what is (and isn't) wired.
   catalog / jobs / registry graph stays out of the client bundle
   (`summary.ts` vs. `presenter.ts`); added `aria-live` status regions for
   hand-off and batch outcomes.
+
+### Phase 11 — OCR worker foundation (in progress)
+
+The second real secure-worker capability, wired behind the existing adapter with
+the same "no fake processing" guarantees as compression — and, for OCR, the
+stronger promise that it never invents recognized text.
+
+- ✅ Added a pure, dependency-injected **OCR engine + planner**
+  (`src/lib/workers/ocr/engine.ts`): strict option validation (languages, output
+  mode, deskew/rotate/clean, existing-text strategy, and a safely-parsed page
+  range), a magic-byte input sniff, and an honest plan that picks **OCRmyPDF**
+  (PDF or image, all preprocessing) or **Tesseract** (single images) — or reports
+  which engine is required when none is installed.
+- ✅ Added the **native OCR layer** (`src/lib/workers/ocr/native.ts`): presence-only
+  PATH probing (shared with compression via `src/lib/workers/native-path.ts`) and
+  an injection-safe `execFile` runner (fixed argv, fixed temp paths, hard timeout,
+  output ceiling, guaranteed cleanup). `pdftotext` is deliberately excluded — it
+  extracts existing text, it does not OCR.
+- ✅ Extended the **local-dev worker** to run `ocr-pdf` end to end (searchable-PDF
+  and text-sidecar output), while **preserving the compression flow unchanged**.
+  With no engine installed a job fails as a typed `not_implemented` — never a
+  dummy file, never invented text.
+- ✅ Extended the presence-only **status endpoint** with an `ocr` capability and
+  added an **OCR-specific tool-page panel** (`src/components/tools/ocr-preview.tsx`)
+  that reads it live and states honestly that OCR needs a native engine and is not
+  browser-only.
+- ✅ Unit tests for option validation/planning/probing/sniffing and every failure
+  mode, adapter/route tests for disabled/remote/local-dev, a mocked-processor
+  success path, and a deterministic honest-failure route flow (empty PATH) with no
+  binary shipped in CI.
+- ⏳ Remaining for production: a deployed native OCR processor behind the adapter,
+  plus the shared worker infrastructure (object storage, queue, signed URLs,
+  lifecycle-enforced deletion) tracked in `docs/WORKER_ARCHITECTURE.md`.
 
 ## Definition of production-ready per tool
 

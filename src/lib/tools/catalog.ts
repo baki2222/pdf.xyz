@@ -159,6 +159,11 @@ export const tools: Tool[] = [
     outputs: ["PDF", "TXT"],
     keywords: ["ocr pdf", "searchable pdf", "recognize text", "scan to text"],
     related: ["pdf-to-text", "compress-pdf", "extract-tables"],
+    how: [
+      "Add a scanned PDF or image — it's staged privately in your browser first.",
+      "OCR runs on a secure worker with a real engine (OCRmyPDF / Tesseract); nothing is faked in the browser.",
+      "Download a searchable PDF or a plain-text sidecar — inputs are wiped right after processing.",
+    ],
   },
   {
     slug: "repair-pdf",

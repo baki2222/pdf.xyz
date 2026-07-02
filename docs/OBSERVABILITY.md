@@ -52,6 +52,13 @@ Every field is one of: a **public route slug**, a **fixed enum**, a **boolean**,
 or a **coarse bucket label**. No field is a filename, a raw byte count, a raw
 duration, page text, a raw URL, or an identifier.
 
+Adding a new tool (e.g. `ocr-pdf`) needs **no new event**: `toolSlug` is a public
+route id and `capability` a fixed enum, so OCR usage flows through the existing
+`tool_viewed` / `tool_completed` / `tool_failed` schema unchanged. The OCR
+tool-page panel reads `/api/worker/status` for its live availability but does not
+emit `worker_status_checked` — only the `/status` page does, to avoid
+double-counting the same probe.
+
 ### Privacy by construction
 
 Three layers keep the schema honest:
@@ -149,8 +156,10 @@ track(handoffCreatedEvent({ toolSlug, mode, fileCount: files.length }));
 
 The honest, **presence-only** view of the worker layer. The browser can't read
 server env vars, so the UI asks this endpoint what the active worker can actually
-do right now. It reports the resolved mode and (for compression) capability
-**only** — never a secret, a path, or a variable value. See
+do right now. It reports the resolved mode plus the **compression** (`compress`)
+and **OCR** (`ocr`) capabilities **only** — never a secret, a path, or a variable
+value. Each capability's `engines` array lists installed native binaries by name
+only (compression: Ghostscript/qpdf/mutool; OCR: OCRmyPDF/Tesseract). See
 [`WORKER_ARCHITECTURE.md`](./WORKER_ARCHITECTURE.md) for the full contract.
 
 ### The `/status` page

@@ -51,4 +51,22 @@ describe("getWorkerAdapter selection", () => {
     const adapter = await getWorkerAdapter({ PDFXYZ_WORKER_MODE: "local-dev" });
     expect(adapter.mode).toBe("local-dev");
   });
+
+  it("routes OCR jobs through the same honest disabled/remote behavior", async () => {
+    const ocrJob: CreateJobRequest = { tool: "ocr-pdf", inputs: ["f_1234567890"] };
+
+    const disabled = await (await getWorkerAdapter({})).createJob(ocrJob);
+    expect(disabled.ok).toBe(false);
+    if (!disabled.ok) {
+      expect(disabled.error.status).toBe(503);
+      expect(disabled.error.body.error.code).toBe("worker_not_configured");
+    }
+
+    const remote = await (await getWorkerAdapter(configuredEnv())).createJob(ocrJob);
+    expect(remote.ok).toBe(false);
+    if (!remote.ok) {
+      expect(remote.error.status).toBe(501);
+      expect(remote.error.body.error.code).toBe("not_implemented");
+    }
+  });
 });

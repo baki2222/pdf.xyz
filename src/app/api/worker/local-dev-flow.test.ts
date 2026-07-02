@@ -162,3 +162,61 @@ describe("local-dev compression — full route flow", () => {
     expect((await second.json()).error.code).toBe("not_found");
   });
 });
+
+describe("local-dev OCR — honest failure through the real route handlers", () => {
+  it("runs the ocr-pdf upload→job flow and fails honestly with no OCR engine", async () => {
+    // Force the presence-only PATH probe to find no engine on any host, so this
+    // asserts the honest not-implemented path deterministically (never a fake).
+    const savedPath = process.env.PATH;
+    process.env.PATH = "";
+    try {
+      const pdf = await makePdf(2);
+
+      const sessionRes = await createUpload(
+        jsonRequest("http://localhost/api/uploads", {
+          tool: "ocr-pdf",
+          files: [
+            {
+              filename: "scan.pdf",
+              contentType: "application/pdf",
+              bytes: pdf.byteLength,
+            },
+          ],
+        }),
+      );
+      expect(sessionRes.status).toBe(201);
+      const session = (await sessionRes.json()) as UploadSession;
+      const slot = session.slots[0];
+      expect(slot?.url).toMatch(/^\/api\/uploads\/local\/f_/);
+
+      const uploadRes = await putBytes(
+        new Request(`http://localhost${slot!.url}`, {
+          method: "PUT",
+          headers: slot!.headers,
+          body: toBody(pdf),
+        }),
+        { params: Promise.resolve({ fileId: slot!.fileId }) },
+      );
+      expect(uploadRes.status).toBe(200);
+
+      const jobRes = await createJob(
+        jsonRequest("http://localhost/api/jobs", {
+          tool: "ocr-pdf",
+          inputs: [slot!.fileId],
+          options: { languages: ["eng"], outputMode: "searchable-pdf" },
+        }),
+      );
+      // A real job record — terminal and honest — never a 200-with-stub.
+      expect(jobRes.status).toBe(201);
+      const job = (await jobRes.json()) as Job;
+      expect(job.status).toBe("failed");
+      expect(job.artifacts).toBeUndefined();
+      expect(job.error?.code).toBe("not_implemented");
+      expect(job.error?.message).toMatch(/ocrmypdf/i);
+      expect(JSON.stringify(job)).not.toContain("/api/artifacts/");
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH;
+      else process.env.PATH = savedPath;
+    }
+  });
+});

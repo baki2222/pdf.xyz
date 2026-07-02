@@ -22,6 +22,7 @@ describe("GET /api/worker/status", () => {
     expect(body.mode).toBe("disabled");
     expect(body.enabled).toBe(false);
     expect(body.compress).toEqual({ lossless: false, deep: false, engines: [] });
+    expect(body.ocr).toEqual({ pdf: false, image: false, engines: [] });
   });
 
   it("reports remote-configured when backend vars are present", async () => {
@@ -43,5 +44,9 @@ describe("GET /api/worker/status", () => {
     // Deep reflects a real PATH probe on this host — a boolean either way.
     expect(typeof body.compress.deep).toBe("boolean");
     expect(Array.isArray(body.compress.engines)).toBe(true);
+    // OCR capability also reflects a real, presence-only PATH probe.
+    expect(typeof body.ocr.pdf).toBe("boolean");
+    expect(typeof body.ocr.image).toBe("boolean");
+    expect(Array.isArray(body.ocr.engines)).toBe(true);
   });
 });

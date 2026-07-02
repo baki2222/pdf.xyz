@@ -25,6 +25,7 @@ import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { WorkerPreview } from "@/components/tools/worker-preview";
+import { OcrPreview } from "@/components/tools/ocr-preview";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -262,6 +263,13 @@ export default async function ToolPage({
                       hint={`Accepts ${tool.accept.join(", ")} · Max 100 MB per file`}
                     />
                   </div>
+                </div>
+              ) : tool.slug === "ocr-pdf" ? (
+                /* OCR: the honest future-flow preview plus a live, OCR-specific
+                   capability panel that states OCR needs a native engine. */
+                <div className="flex flex-col gap-4">
+                  <OcrPreview />
+                  <WorkerPreview tool={tool} />
                 </div>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

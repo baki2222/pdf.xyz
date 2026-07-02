@@ -2,7 +2,7 @@
 
 `pdf.xyz` is browser-first. The secure-worker system exists only for operations the browser cannot do honestly or reliably: OCR, Office conversion, deep compression, repair, PDF/A, visual compare, irreversible redaction, e-signature workflows, and AI-assisted document intelligence.
 
-Phase 6 added the **contract layer** for those workers. Phase 7 adds the first real processing path: a mode-gated **worker adapter** and a developer-only **local compression worker**. Neither ever fakes success — when a real processor is unavailable, the API says so.
+Phase 6 added the **contract layer** for those workers. Phase 7 adds the first real processing path: a mode-gated **worker adapter** and a developer-only **local compression worker**. Phase 11 adds the second capability behind the same adapter — **OCR** (searchable-PDF and text-sidecar output). None of them ever fakes success — when a real processor is unavailable, the API says so, and OCR in particular never invents recognized text.
 
 ## Current implementation status
 
@@ -15,9 +15,12 @@ Phase 6 added the **contract layer** for those workers. Phase 7 adds the first r
 | Tool-page worker preview | Implemented in `src/components/tools/worker-preview.tsx` |
 | Worker mode + adapter selection | Implemented in `src/lib/workers/mode.ts` + `adapter.ts` |
 | Compression engine (lossless + deep) | Implemented in `src/lib/workers/compression/` |
-| Local-dev compression worker | Implemented in `src/lib/workers/local-dev.ts` (opt-in via `PDFXYZ_WORKER_MODE=local-dev`) |
-| Worker status endpoint (presence-only) | Implemented in `src/app/api/worker/status/route.ts` + `src/lib/workers/status.ts` |
+| OCR engine (searchable-PDF + text sidecar) | Implemented in `src/lib/workers/ocr/` |
+| Local-dev worker (compression + OCR) | Implemented in `src/lib/workers/local-dev.ts` (opt-in via `PDFXYZ_WORKER_MODE=local-dev`) |
+| Shared presence-only PATH probe | Implemented in `src/lib/workers/native-path.ts` |
+| Worker status endpoint (presence-only) | Implemented in `src/app/api/worker/status/route.ts` + `src/lib/workers/status.ts` (reports compression **and** OCR capability) |
 | Compress UI secure-worker integration | Implemented in `src/components/tools/runner/compress-runner.tsx` + `src/lib/workers/client.ts` |
+| OCR tool-page capability panel | Implemented in `src/components/tools/ocr-preview.tsx` |
 | Production processors / queues / storage | Planned, not enabled |
 
 The API route handlers stay thin: they validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then **delegate to the worker adapter** selected for the current environment. By default the adapter answers honestly that no backend is configured; nothing is ever faked.
@@ -56,6 +59,28 @@ The Compress tool page (`compress-runner.tsx`) always runs the on-device lossles
 - **`local-dev` without a native engine**: explains that no engine (Ghostscript/qpdf/mutool) is installed, so deep compression can't run here — without offering a button that would only fail.
 
 To try it locally: run `PDFXYZ_WORKER_MODE=local-dev pnpm dev`, open `/tools/compress-pdf`, and add a PDF. With no native engine installed the page honestly says deep compression is unavailable (and a `deep` job via the API fails as `not_implemented`); a `{ "profile": "lossless" }` job via the API completes with a real, smaller PDF and a working download URL. Install Ghostscript/qpdf/mutool to enable the deep path and the in-page run button.
+
+## Local-dev OCR worker (Phase 11)
+
+OCR is the second capability wired behind the same adapter, and it is the sharpest test of the "no fake processing" rule: there is **no** honest in-browser way to turn a scanned page into real, selectable text, so the engine either runs a genuine native OCR engine or fails honestly. It never invents recognized text or a dummy searchable PDF.
+
+Engine and options live in `src/lib/workers/ocr/`:
+
+- **Native engines, probed on PATH (presence only), in preference order:**
+  - **`ocrmypdf`** — the full pipeline (rasterise → Tesseract → graft an invisible text layer back onto the PDF, with an optional text sidecar). It handles multi-page **PDF** inputs and images, plus deskew, auto-rotate, clean, page-range, and the existing-text strategy.
+  - **`tesseract`** — the recognition engine alone. Used only for single **image** inputs (it cannot page through a PDF); supports languages and auto-orientation but not the PDF-level preprocessing OCRmyPDF provides.
+  - **`pdftotext` is intentionally *not* an OCR engine.** It only extracts a pre-existing text layer and would return nothing for a scan, so treating it as OCR would be dishonest.
+- **Engine selection is honest (`planOcr`).** PDF inputs — and any request using deskew, clean, or a page range — require OCRmyPDF. A plain image with only languages/rotate can also run on Tesseract. When nothing usable is installed, the plan reports which engines would satisfy it and the job fails as a typed `not_implemented` — never a fabricated result.
+- **Validated options (`parseOcrOptions`), strict and forward-compatible:**
+  - `languages`: one or more Tesseract codes (`eng`, `deu`, `chi_sim`, …), shape-validated (which also blocks argument injection), de-duplicated, max 8. Shape-only: an *uninstalled* language pack surfaces later as an honest `failed` job, never a silent wrong result — verifying installed packs would require executing the engine, which the presence-only probe deliberately avoids.
+  - `outputMode`: `searchable-pdf` (default) or `text-sidecar` (a UTF-8 `.txt`).
+  - `deskew`, `rotate`, `clean`: booleans mapped to OCRmyPDF `--deskew` / `--rotate-pages` / `--clean`.
+  - `onExistingText`: `skip` (default) / `force` / `redo` → `--skip-text` / `--force-ocr` / `--redo-ocr`.
+  - `pages`: an optional, strictly-parsed 1-based range (e.g. `"1-3,5"`), ascending, bounded, capped at 100 tokens, applied only to OCRmyPDF/PDF inputs.
+- **Injection-safe execution.** Like compression, the native runner writes the input to an isolated temp directory and invokes the engine with a fixed argv over fixed temp paths via `execFile` (**no shell**), so validated languages and page-ranges cannot inject; a hard timeout, an output-size ceiling, and guaranteed temp cleanup apply. A magic-byte sniff rejects an upload whose bytes don't match its declared kind (`invalid_input` → `unprocessable_entity`) before any engine runs.
+- **Backward compatible.** Compression job/upload/status contracts are unchanged; OCR reuses the same `WorkerAdapter`, store, transport routes, retention (inputs wiped right after processing), and idempotency. The only supported-tool change is adding `ocr-pdf` alongside `compress-pdf`.
+
+To try it locally: run `PDFXYZ_WORKER_MODE=local-dev pnpm dev`, open `/tools/ocr-pdf`. With no engine installed the page's OCR panel honestly says no native OCR engine is available, and an `ocr-pdf` job via the API fails as `not_implemented` (message names OCRmyPDF/Tesseract and points here). Install **OCRmyPDF** (`pipx install ocrmypdf`, which also pulls in Tesseract + Ghostscript) to enable real searchable-PDF and text OCR; the status endpoint and the tool page reflect it without a restart.
 
 ## Contract endpoints
 
@@ -98,7 +123,13 @@ File-input example:
 {
   "tool": "ocr-pdf",
   "inputs": ["f_1234567890"],
-  "options": { "language": "eng" },
+  "options": {
+    "languages": ["eng", "deu"],
+    "outputMode": "searchable-pdf",
+    "deskew": true,
+    "rotate": true,
+    "pages": "1-3,5"
+  },
   "idempotencyKey": "ocr:scan:1"
 }
 ```
@@ -120,7 +151,7 @@ Returns typed job status once a real backend exists. Stub behavior is explicit a
 
 ### `GET /api/worker/status`
 
-Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines } }`. It never reads or returns a secret — `engines` lists installed native binaries by *name* only. `no-store`; reflects live host state. See "Discovering worker availability from the client" above.
+Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { pdf, image, engines } }`. It never reads or returns a secret — every `engines` array lists installed native binaries by *name* only (compression: Ghostscript/qpdf/mutool; OCR: OCRmyPDF/Tesseract). `ocr.pdf` means a PDF can be OCR'd here (needs OCRmyPDF); `ocr.image` means an image can (OCRmyPDF or Tesseract). `no-store`; reflects live host state. See "Discovering worker availability from the client" above.
 
 ### Local-dev transport (dev only)
 
@@ -274,3 +305,5 @@ A worker-backed tool is production-ready only when it has:
 - Security review for input validation, egress, file handling, and logging.
 
 **Phase 7 progress toward this:** the local-dev worker already covers upload-session creation, upload transport, job creation, status polling, output download, post-job input wipe + retention/expiry, a presence-only client capability probe, an honest Compress UI integration, and tests for validation + job states + transport routes + a real happy-path processor (lossless) end-to-end through the route handlers. Remaining for production: direct-to-object-storage upload, a real queue, signed URLs, lifecycle-enforced deletion, an explicit signed "delete now", and a native `deep` processor behind the same adapter contract.
+
+**Phase 11 progress:** OCR is added as the second capability behind the same adapter, with the same guarantees — a pure, dependency-injected engine + planner (`src/lib/workers/ocr/`), strict option validation (languages, output mode, deskew/rotate/clean, existing-text strategy, page range), presence-only engine probing (OCRmyPDF/Tesseract), injection-safe native execution, an honest `not_implemented` failure when no engine is installed (never invented text), a presence-only OCR capability in `/api/worker/status`, and an OCR-specific tool-page panel. Remaining for production is the same shared list above (storage, queue, signed URLs, lifecycle deletion) plus deploying a native OCR processor behind the adapter; option validation, planning, engine probing, and every failure mode are already unit- and route-tested without shipping a binary.

@@ -13,10 +13,10 @@
 
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { resolveOnPath } from "../native-path";
 import {
   probeCompressionTools,
   type CompressionDeps,
@@ -24,37 +24,17 @@ import {
   type NativeCompressor,
 } from "./engine";
 
+// Re-exported so existing importers (e.g. the worker status route) can keep
+// resolving the presence-only PATH probe from this module. The implementation
+// now lives in the shared `native-path` module used by every native engine.
+export { resolveOnPath } from "../native-path";
+
 const run = promisify(execFile);
 
 /** Hard ceilings so a wedged or hostile engine can't hang or exhaust the host. */
 const EXEC_TIMEOUT_MS = 120_000;
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 200 * 1024 * 1024;
-
-/**
- * Presence-only resolver: is `binary` an executable file on PATH? Never runs it.
- * Handles Windows PATHEXT so the probe is correct cross-platform.
- */
-export function resolveOnPath(binary: string): boolean {
-  const pathVar = process.env.PATH ?? "";
-  if (pathVar.length === 0) return false;
-  const exts =
-    process.platform === "win32"
-      ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";")
-      : [""];
-  for (const dir of pathVar.split(path.delimiter)) {
-    if (dir.length === 0) continue;
-    for (const ext of exts) {
-      const candidate = path.join(dir, binary + ext);
-      try {
-        if (existsSync(candidate) && statSync(candidate).isFile()) return true;
-      } catch {
-        // Unreadable PATH entry — treat as absent and keep looking.
-      }
-    }
-  }
-  return false;
-}
 
 /** Build the fixed argument list for each native engine. */
 function nativeArgs(

@@ -4,6 +4,7 @@ import { PDFDocument } from "pdf-lib";
 import { createLocalDevAdapter } from "./local-dev";
 import { DevWorkerStore } from "./store";
 import type { CompressionDeps } from "./compression/engine";
+import type { OcrDeps, OcrEngineAvailability } from "./ocr/engine";
 import type { WorkerAdapter } from "./types";
 
 async function makePdf(pages = 4): Promise<Uint8Array> {
@@ -187,14 +188,15 @@ describe("local-dev worker — compression job flow", () => {
 
   it("returns not_implemented for tools the local worker does not support", async () => {
     const adapter = makeAdapter();
+    // repair-pdf is a real secure-worker tool the local worker doesn't implement.
     const upload = await adapter.createUploadSession({
-      tool: "ocr-pdf",
+      tool: "repair-pdf",
       files: [{ filename: "s.pdf", contentType: "application/pdf", bytes: 10 }],
     });
     expect(upload.ok).toBe(false);
     if (!upload.ok) expect(upload.error.body.error.code).toBe("not_implemented");
 
-    const job = await adapter.createJob({ tool: "ocr-pdf", inputs: ["f_1234567890"] });
+    const job = await adapter.createJob({ tool: "repair-pdf", inputs: ["f_1234567890"] });
     expect(job.ok).toBe(false);
     if (!job.ok) expect(job.error.body.error.code).toBe("not_implemented");
   });
@@ -227,6 +229,211 @@ describe("local-dev worker — compression job flow", () => {
       inputs: [slot.fileId],
       options: { profile: "lossless" },
     });
+    expect(created.ok).toBe(true);
+    if (created.ok) {
+      expect(created.value.status).toBe("failed");
+      expect(created.value.error?.code).toBe("unprocessable_entity");
+    }
+  });
+});
+
+/** A tiny, structurally-valid PNG header so the magic-byte sniff passes. */
+const PNG_BYTES = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+]);
+
+describe("local-dev worker — OCR job flow", () => {
+  let store: DevWorkerStore;
+
+  beforeEach(() => {
+    store = new DevWorkerStore();
+  });
+
+  const engines = (
+    o: Partial<OcrEngineAvailability> = {},
+  ): OcrEngineAvailability => ({ ocrmypdf: false, tesseract: false, ...o });
+
+  const makeAdapter = (ocrDeps: OcrDeps): WorkerAdapter =>
+    createLocalDevAdapter({ store, ocrDeps });
+
+  async function seedUpload(
+    adapter: WorkerAdapter,
+    bytes: Uint8Array,
+    contentType = "application/pdf",
+    filename = "scan.pdf",
+  ): Promise<string> {
+    const session = await adapter.createUploadSession({
+      tool: "ocr-pdf",
+      files: [{ filename, contentType, bytes: bytes.byteLength }],
+    });
+    if (!session.ok) throw new Error("ocr upload session should succeed");
+    const slot = session.value.slots[0];
+    if (!slot) throw new Error("session should mint a slot");
+    const put = store.putBytes(slot.fileId, bytes);
+    expect(put.ok).toBe(true);
+    return slot.fileId;
+  }
+
+  it("completes a real searchable-PDF OCR job with an installed engine", async () => {
+    const output = new Uint8Array(128).fill(3);
+    let sawEngine: string | null = null;
+    const adapter = makeAdapter({
+      engines: engines({ ocrmypdf: true }),
+      native: async (_bytes, ctx) => {
+        sawEngine = ctx.engine;
+        return output;
+      },
+    });
+    const pdf = await makePdf();
+    const fileId = await seedUpload(adapter, pdf);
+
+    const created = await adapter.createJob({
+      tool: "ocr-pdf",
+      inputs: [fileId],
+      options: { languages: ["eng"], outputMode: "searchable-pdf" },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.status).toBe(201);
+    expect(sawEngine).toBe("ocrmypdf");
+
+    const job = created.value;
+    expect(job.status).toBe("completed");
+    expect(job.capability).toBe("secure-worker");
+    expect(job.error).toBeUndefined();
+
+    const artifact = job.artifacts?.[0];
+    expect(artifact).toBeDefined();
+    if (!artifact) return;
+    expect(artifact.url).toMatch(/^\/api\/artifacts\/local\/art_/);
+    expect(artifact.contentType).toBe("application/pdf");
+    expect(artifact.filename).toMatch(/-ocr\.pdf$/);
+    expect(artifact.bytes).toBe(output.byteLength);
+
+    const stored = store.getArtifact(artifact.artifactId);
+    expect(stored?.bytes).toEqual(output);
+    // The input is wiped as soon as processing finishes.
+    expect(store.getSlot(fileId)).toBeUndefined();
+  });
+
+  it("produces a plain-text sidecar artifact in text-sidecar mode", async () => {
+    const text = new TextEncoder().encode("recognized text");
+    const adapter = makeAdapter({
+      engines: engines({ ocrmypdf: true }),
+      native: async () => text,
+    });
+    const fileId = await seedUpload(adapter, await makePdf());
+
+    const created = await adapter.createJob({
+      tool: "ocr-pdf",
+      inputs: [fileId],
+      options: { outputMode: "text-sidecar" },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const artifact = created.value.artifacts?.[0];
+    expect(artifact?.contentType).toBe("text/plain; charset=utf-8");
+    expect(artifact?.filename).toMatch(/-ocr\.txt$/);
+  });
+
+  it("OCRs an image via tesseract when only tesseract is installed", async () => {
+    const output = new Uint8Array(32).fill(7);
+    let sawEngine: string | null = null;
+    const adapter = makeAdapter({
+      engines: engines({ tesseract: true }),
+      native: async (_bytes, ctx) => {
+        sawEngine = ctx.engine;
+        return output;
+      },
+    });
+    const fileId = await seedUpload(adapter, PNG_BYTES, "image/png", "scan.png");
+
+    const created = await adapter.createJob({
+      tool: "ocr-pdf",
+      inputs: [fileId],
+      options: {},
+    });
+    expect(created.ok).toBe(true);
+    if (created.ok) expect(created.value.status).toBe("completed");
+    expect(sawEngine).toBe("tesseract");
+  });
+
+  it("fails honestly with no OCR engine installed — no fake text, no artifact", async () => {
+    let nativeCalled = false;
+    const adapter = makeAdapter({
+      engines: engines(),
+      native: async () => {
+        nativeCalled = true;
+        return new Uint8Array([1]);
+      },
+    });
+    const fileId = await seedUpload(adapter, await makePdf());
+
+    const created = await adapter.createJob({ tool: "ocr-pdf", inputs: [fileId] });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const job = created.value;
+    expect(nativeCalled).toBe(false);
+    expect(job.status).toBe("failed");
+    expect(job.artifacts).toBeUndefined();
+    expect(job.error?.code).toBe("not_implemented");
+    expect(job.error?.message).toMatch(/ocrmypdf/i);
+    expect(job.error?.message).toContain("WORKER_ARCHITECTURE.md");
+    expect(JSON.stringify(job)).not.toContain("/api/artifacts/");
+    // Even on failure, the input is wiped after the processing attempt.
+    expect(store.getSlot(fileId)).toBeUndefined();
+  });
+
+  it("rejects invalid OCR options before running (bad language token)", async () => {
+    let nativeCalled = false;
+    const adapter = makeAdapter({
+      engines: engines({ ocrmypdf: true }),
+      native: async () => {
+        nativeCalled = true;
+        return new Uint8Array([1]);
+      },
+    });
+    const fileId = await seedUpload(adapter, await makePdf());
+
+    const created = await adapter.createJob({
+      tool: "ocr-pdf",
+      inputs: [fileId],
+      options: { languages: ["not a lang"] },
+    });
+    expect(created.ok).toBe(false);
+    if (!created.ok) expect(created.error.body.error.code).toBe("invalid_request");
+    expect(nativeCalled).toBe(false);
+  });
+
+  it("fails honestly when a page range is asked of an image but only tesseract exists", async () => {
+    const adapter = makeAdapter({
+      engines: engines({ tesseract: true }),
+      native: async () => new Uint8Array([1]),
+    });
+    const fileId = await seedUpload(adapter, PNG_BYTES, "image/png", "scan.png");
+
+    const created = await adapter.createJob({
+      tool: "ocr-pdf",
+      inputs: [fileId],
+      options: { pages: "1-2" },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.value.status).toBe("failed");
+    expect(created.value.error?.code).toBe("not_implemented");
+    expect(created.value.error?.message).toMatch(/ocrmypdf/i);
+  });
+
+  it("records invalid_input for bytes that don't match the declared kind", async () => {
+    const adapter = makeAdapter({
+      engines: engines({ ocrmypdf: true }),
+      native: async () => new Uint8Array([1]),
+    });
+    const junk = new Uint8Array([1, 2, 3, 4]);
+    const fileId = await seedUpload(adapter, junk);
+
+    const created = await adapter.createJob({ tool: "ocr-pdf", inputs: [fileId] });
     expect(created.ok).toBe(true);
     if (created.ok) {
       expect(created.value.status).toBe("failed");

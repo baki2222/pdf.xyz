@@ -20,6 +20,12 @@ test.describe("secure-worker tool preview", () => {
     await expect(page.getByText("5. Auto-delete")).toBeVisible();
     await expect(page.getByText(/wiped after processing/i)).toBeVisible();
 
+    // The OCR-specific panel is honest that OCR needs a native engine, not the
+    // browser, and reads live availability (disabled in this environment).
+    await expect(page.getByText(/OCR isn't a browser trick/i)).toBeVisible();
+    await expect(page.getByText(/Searchable PDF or text sidecar/i)).toBeVisible();
+    await expect(page.getByText(/isn't enabled in this environment/i)).toBeVisible();
+
     // A secure-worker preview never mounts a client runner or uploader.
     expect(await page.locator('input[type="file"]').count()).toBe(0);
     await expect(
@@ -113,5 +119,6 @@ test.describe("job API contract stubs", () => {
       deep: false,
       engines: [],
     });
+    expect(body.ocr).toEqual({ pdf: false, image: false, engines: [] });
   });
 });

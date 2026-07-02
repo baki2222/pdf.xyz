@@ -14,6 +14,7 @@ const DISABLED_STATUS: WorkerStatus = {
   localDevOnly: false,
   detail: "No secure worker is configured in this environment.",
   compress: { lossless: false, deep: false, engines: [] },
+  ocr: { pdf: false, image: false, engines: [] },
 };
 
 const LOCAL_TOOLS: LocalToolRef[] = [
