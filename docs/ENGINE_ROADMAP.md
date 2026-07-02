@@ -135,13 +135,21 @@ AI features must be explicitly opt-in and should display model/data handling cle
 - ✅ Per-file validation of encrypted/corrupt PDFs before merge, with clear
   per-file errors.
 
-### Phase 6 — secure worker MVP
+### Phase 6 — secure worker contracts ✅
 
-- Implement upload/job/status/download API contract.
+- ✅ Added typed upload/job/status/artifact/error contracts under `src/lib/jobs/`.
+- ✅ Added strict dependency-free validation for worker requests, including safe filename rules, MIME allowlists, opaque file/job ids, size limits, idempotency keys, and public-URL SSRF guards.
+- ✅ Added development contract route stubs under `src/app/api/uploads` and `src/app/api/jobs/*`. These validate requests and return explicit “worker backend not configured” responses; they do **not** fake processing.
+- ✅ Added secure-worker preview UI for worker/AI/hybrid tool pages with expected inputs, outputs, retention, lifecycle stages, and “not yet enabled” status.
+- ✅ Documented queue/storage/sandbox/retention/security details in `docs/WORKER_ARCHITECTURE.md`.
+
+### Phase 7 — first real secure worker
+
 - Ship first worker-backed tool: high-quality compression or OCR.
-- Add automatic file deletion and public privacy proof points.
+- Add direct-to-storage uploads, queue-backed execution, signed downloads, and lifecycle-enforced deletion.
+- Add public privacy proof points and processor-level tests.
 
-### Phase 7 — account and workspace
+### Phase 8 — account and workspace
 
 - Anonymous local workspace first.
 - Optional account sync later.

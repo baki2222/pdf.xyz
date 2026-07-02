@@ -24,6 +24,7 @@ import { ToolCard } from "@/components/tools/tool-card";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
+import { WorkerPreview } from "@/components/tools/worker-preview";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import {
@@ -237,24 +238,30 @@ export default async function ToolPage({
             </div>
 
             <div className="lg:sticky lg:top-24">
-              <div className="gradient-border">
-                <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
-                  <div className="flex flex-col gap-1">
-                    <h2 className="text-lg font-semibold text-white">
-                      {tool.name}
-                    </h2>
-                    <p className="text-sm text-slate-400">
-                      Add your files to get started —{" "}
-                      {processing.short.toLowerCase()}.
-                    </p>
+              {tool.processing === "client" ? (
+                /* Client tool without a runner yet: stage files locally. */
+                <div className="gradient-border">
+                  <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
+                    <div className="flex flex-col gap-1">
+                      <h2 className="text-lg font-semibold text-white">
+                        {tool.name}
+                      </h2>
+                      <p className="text-sm text-slate-400">
+                        Add your files to get started —{" "}
+                        {processing.short.toLowerCase()}.
+                      </p>
+                    </div>
+                    <UploadZone
+                      ctaLabel={`Run ${tool.name}`}
+                      ctaHref={`/workspace?tool=${tool.slug}`}
+                      hint={`Accepts ${tool.accept.join(", ")} · Max 100 MB per file`}
+                    />
                   </div>
-                  <UploadZone
-                    ctaLabel={`Run ${tool.name}`}
-                    ctaHref={`/workspace?tool=${tool.slug}`}
-                    hint={`Accepts ${tool.accept.join(", ")} · Max 100 MB per file`}
-                  />
                 </div>
-              </div>
+              ) : (
+                /* Secure-worker / hybrid / AI tool: honest future-flow preview. */
+                <WorkerPreview tool={tool} />
+              )}
             </div>
           </div>
         )}
