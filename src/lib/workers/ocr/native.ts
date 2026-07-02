@@ -131,9 +131,11 @@ function inputFileName(input: Uint8Array, inputKind: OcrInputKind): string {
  * classify it honestly as a `failed` run.
  */
 export const spawnNativeOcr: NativeOcr = async (input, ctx) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pdfxyz-ocr-"));
-  const inputPath = path.join(dir, inputFileName(input, ctx.inputKind));
-  const outBase = path.join(dir, "output");
+  // These are runtime-only temp paths. Keep them opaque to Turbopack/NFT so the
+  // production route tracer does not try to include arbitrary host directories.
+  const dir = await mkdtemp(path.join(/*turbopackIgnore: true*/ tmpdir(), "pdfxyz-ocr-"));
+  const inputPath = path.join(/*turbopackIgnore: true*/ dir, inputFileName(input, ctx.inputKind));
+  const outBase = path.join(/*turbopackIgnore: true*/ dir, "output");
   const paths: OcrNativePaths = {
     inputPath,
     outBase,

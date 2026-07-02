@@ -91,9 +91,10 @@ function nativeArgs(
  * classify it honestly as a `failed` run.
  */
 export const spawnNativeCompressor: NativeCompressor = async (input, ctx) => {
-  const dir = await mkdtemp(path.join(tmpdir(), "pdfxyz-compress-"));
-  const inputPath = path.join(dir, "input.pdf");
-  const outputPath = path.join(dir, "output.pdf");
+  // Runtime-only temp paths; keep opaque to Turbopack/NFT route tracing.
+  const dir = await mkdtemp(path.join(/*turbopackIgnore: true*/ tmpdir(), "pdfxyz-compress-"));
+  const inputPath = path.join(/*turbopackIgnore: true*/ dir, "input.pdf");
+  const outputPath = path.join(/*turbopackIgnore: true*/ dir, "output.pdf");
   try {
     await writeFile(inputPath, input);
     const { command, args } = nativeArgs(
