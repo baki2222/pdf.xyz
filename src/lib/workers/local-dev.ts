@@ -183,6 +183,10 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       }
 
       const run = await runCompression(slot.bytes, options, resolveCompressionDeps());
+      // Inputs are wiped as soon as processing finishes — success or failure —
+      // so a dev machine never holds a file longer than its use, matching the
+      // contract's retention guarantee. A completed output lives on its own TTL.
+      store.deleteSlot(fileId);
 
       const nowMs = now();
       const jobId = newJobId();

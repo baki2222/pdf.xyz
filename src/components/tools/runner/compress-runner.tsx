@@ -8,6 +8,7 @@ import {
   Gauge,
   ImageIcon,
   Info,
+  Lock,
   ServerCog,
   Sparkles,
 } from "lucide-react";
@@ -16,11 +17,17 @@ import {
   summarizeAnalysis,
   type AnalyzeResult,
   type OptimizeRecommendation,
+  type PdfAnalysis,
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
+import {
+  runWorkerCompression,
+  type CompressWorkerResult,
+} from "@/lib/workers/client";
+import type { WorkerStatus } from "@/lib/workers/status";
 import { cn, formatBytes } from "@/lib/utils";
-import { ErrorNote, Spinner, errorMessage } from "./runner-kit";
+import { ChipButton, ErrorNote, Spinner, errorMessage } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 
@@ -138,7 +145,7 @@ function CompressEditor({
             {summary.recommendation === "lossless-helps" &&
               `Repacking this PDF losslessly saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) — no quality lost.`}
             {summary.recommendation === "needs-worker" &&
-              `About ${pct(summary.imageShare)}% of this file is images. Real size wins come from downsampling them, which runs on our secure worker.`}
+              `About ${pct(summary.imageShare)}% of this file is images. Real size wins come from downsampling them, which runs on the secure worker below.`}
             {summary.recommendation === "already-lean" &&
               "There's little structural overhead to remove, and images aren't the bulk of the file. Deeper compression would trade away quality."}
           </p>
@@ -179,15 +186,7 @@ function CompressEditor({
         </button>
       )}
 
-      <div className="flex items-start gap-2.5 rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm leading-relaxed text-slate-400">
-        <ServerCog className="mt-0.5 size-4 shrink-0 text-blue-300" aria-hidden />
-        <p>
-          <span className="font-medium text-slate-300">Deep compression is on the roadmap.</span>{" "}
-          Aggressive image downsampling and re-encoding can&apos;t be done reliably in
-          the browser, so it will run on an encrypted, auto-deleting worker. This
-          analysis stays 100% on your device — nothing is uploaded.
-        </p>
-      </div>
+      <WorkerDeepPanel pdf={pdf} analysis={analysis} />
 
       <button
         type="button"
@@ -196,6 +195,230 @@ function CompressEditor({
       >
         Analyze another file
       </button>
+    </div>
+  );
+}
+
+/** Quality presets for deep compression, mapped to a target image DPI. */
+const DEEP_QUALITY = [
+  { dpi: 96, label: "Smaller" },
+  { dpi: 150, label: "Balanced" },
+  { dpi: 300, label: "High quality" },
+] as const;
+
+/**
+ * The secure-worker "deep compression" path. It stays honest about the boundary:
+ * this analysis runs on-device, but real image downsampling requires a native
+ * engine on a worker. The panel asks `/api/worker/status` and only offers the
+ * upload-backed run when a worker is genuinely available — otherwise it explains
+ * exactly why (not configured, no pipeline, or no native engine installed).
+ */
+function WorkerDeepPanel({
+  pdf,
+  analysis,
+}: {
+  pdf: LoadedPdf;
+  analysis: PdfAnalysis;
+}) {
+  const [status, setStatus] = useState<WorkerStatus | null | undefined>(
+    undefined,
+  );
+  const [dpi, setDpi] = useState<number>(150);
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<CompressWorkerResult | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/worker/status", { headers: { accept: "application/json" } })
+      .then((r) => (r.ok ? (r.json() as Promise<WorkerStatus>) : null))
+      .then((s) => {
+        if (active) setStatus(s);
+      })
+      .catch(() => {
+        if (active) setStatus(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const canRunDeep =
+    status != null && status.mode === "local-dev" && status.compress.deep;
+
+  async function run() {
+    setBusy(true);
+    setOutcome(null);
+    const res = await runWorkerCompression({
+      filename: pdf.file.name,
+      bytes: pdf.bytes,
+      profile: "deep",
+      targetDpi: dpi,
+    });
+    setOutcome(res);
+    setBusy(false);
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4">
+      <div className="flex items-start gap-2.5">
+        <ServerCog className="mt-0.5 size-4 shrink-0 text-blue-300" aria-hidden />
+        <div className="flex flex-1 flex-col gap-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-200">
+              Deep image compression (secure worker)
+            </span>
+            <WorkerBadge status={status} />
+          </div>
+          <p className="text-sm leading-relaxed text-slate-400">
+            Aggressive image downsampling and re-encoding can&apos;t be done
+            reliably in the browser, so it runs on an encrypted, auto-deleting
+            worker. The analysis above stays 100% on your device.
+          </p>
+        </div>
+      </div>
+
+      {status === undefined ? (
+        <p className="inline-flex items-center gap-2 pl-6 text-xs text-slate-500">
+          <Spinner className="size-3" />
+          Checking whether a secure worker is available…
+        </p>
+      ) : canRunDeep ? (
+        <DeepRunControls
+          localDevOnly={status.localDevOnly}
+          dpi={dpi}
+          onDpi={setDpi}
+          busy={busy}
+          outcome={outcome}
+          onRun={run}
+          filename={pdf.file.name}
+          originalBytes={analysis.originalBytes}
+        />
+      ) : (
+        <p className="pl-6 text-xs leading-relaxed text-slate-500">
+          {status?.detail ??
+            "The secure worker isn't enabled in this environment, so deep compression isn't available here."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Small status pill: honest about disabled / local-dev / not-enabled. */
+function WorkerBadge({ status }: { status: WorkerStatus | null | undefined }) {
+  if (status === undefined) return null;
+  if (status?.mode === "local-dev") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-200">
+        <span className="size-1.5 rounded-full bg-amber-400" aria-hidden />
+        Local-dev worker
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-slate-400">
+      <span className="size-1.5 rounded-full bg-slate-500" aria-hidden />
+      Not enabled
+    </span>
+  );
+}
+
+function DeepRunControls({
+  localDevOnly,
+  dpi,
+  onDpi,
+  busy,
+  outcome,
+  onRun,
+  filename,
+  originalBytes,
+}: {
+  localDevOnly: boolean;
+  dpi: number;
+  onDpi: (dpi: number) => void;
+  busy: boolean;
+  outcome: CompressWorkerResult | null;
+  onRun: () => void;
+  filename: string;
+  originalBytes: number;
+}) {
+  const savedBytes =
+    outcome?.ok === true
+      ? Math.max(0, originalBytes - outcome.output.byteLength)
+      : 0;
+
+  return (
+    <div className="flex flex-col gap-3 pl-6">
+      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-amber-200/90">
+        <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+        {localDevOnly
+          ? "This runs on your local-dev worker — the file is sent to the in-process worker on this machine, not to any third party."
+          : "Running this uploads your file to the secure worker."}
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          Quality
+        </span>
+        {DEEP_QUALITY.map((q) => (
+          <ChipButton
+            key={q.dpi}
+            onClick={() => onDpi(q.dpi)}
+            active={dpi === q.dpi}
+            disabled={busy}
+            title={`${q.dpi} DPI`}
+          >
+            {q.label}
+          </ChipButton>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={onRun}
+        disabled={busy}
+        aria-busy={busy}
+        className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 px-6 py-2.5 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:self-start"
+      >
+        {busy ? (
+          <>
+            <Spinner />
+            Compressing on the worker…
+          </>
+        ) : (
+          <>
+            <ServerCog className="size-4" aria-hidden />
+            Compress images on the worker
+          </>
+        )}
+      </button>
+
+      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+
+      {outcome?.ok === true &&
+        (savedBytes > 0 ? (
+          <div className="flex flex-col gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] p-4">
+            <p className="text-sm text-emerald-200">
+              The worker shrank this file by {formatBytes(savedBytes)} (
+              {pct(savedBytes / Math.max(1, originalBytes))}%) —{" "}
+              {formatBytes(outcome.output.byteLength)} final.
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                downloadBytes(outcome.output, outputName(filename, "compressed"))
+              }
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
+            >
+              <Download className="size-4" aria-hidden />
+              Download compressed PDF
+            </button>
+          </div>
+        ) : (
+          <p className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-sm text-slate-400">
+            The worker couldn&apos;t shrink this file further without losing
+            quality — the original is already efficient.
+          </p>
+        ))}
     </div>
   );
 }

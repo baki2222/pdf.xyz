@@ -83,6 +83,9 @@ describe("local-dev worker — compression job flow", () => {
     const fetched = await adapter.getJob(job.jobId);
     expect(fetched.ok).toBe(true);
     if (fetched.ok) expect(fetched.value.status).toBe("completed");
+
+    // The input is wiped as soon as processing finishes (retention contract).
+    expect(store.getSlot(fileId)).toBeUndefined();
   });
 
   it("fails honestly for deep compression with no native engine — no dummy file", async () => {
@@ -105,6 +108,8 @@ describe("local-dev worker — compression job flow", () => {
     expect(job.error?.message).toContain("WORKER_ARCHITECTURE.md");
     // Absolutely no artifact URL was minted.
     expect(JSON.stringify(job)).not.toContain("/api/artifacts/");
+    // Even on failure, the input is wiped after the processing attempt.
+    expect(store.getSlot(fileId)).toBeUndefined();
   });
 
   it("defaults to the deep profile, so it fails honestly with no engine", async () => {

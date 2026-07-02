@@ -1,0 +1,42 @@
+import { test, expect } from "@playwright/test";
+import { attachConsoleGuard, writeTempPdf } from "./helpers";
+
+/**
+ * Proves the Compress tool is honest end-to-end: it analyzes the PDF entirely in
+ * the browser (real stats, lossless repack) and clearly labels the secure-worker
+ * deep-compression path. In the production build the worker ships disabled, so
+ * the page must say so and must NOT offer an upload-backed run — nothing leaves
+ * the device. All under the production CSP.
+ */
+test("compress analyzes in-browser and honestly labels the worker path", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  const file = await writeTempPdf("shrink.pdf", 4);
+
+  await page.goto("/tools/compress-pdf");
+
+  // Hybrid tools get the honest banner, not the pure in-browser guarantee.
+  await expect(
+    page.getByText(/any secure-worker step is optional/i),
+  ).toBeVisible();
+
+  await page.locator('input[type="file"]').first().setInputFiles(file);
+
+  // Real in-browser analysis renders.
+  await expect(page.getByText("shrink.pdf")).toBeVisible();
+  await expect(page.getByText("Current size")).toBeVisible();
+
+  // The secure-worker deep path is present but honestly labeled "Not enabled".
+  await expect(page.getByText(/deep image compression/i)).toBeVisible();
+  await expect(page.getByText("Not enabled")).toBeVisible();
+  await expect(page.getByText(/no secure worker is configured/i)).toBeVisible();
+
+  // With the worker disabled there is no run button — the file is never uploaded.
+  await expect(
+    page.getByRole("button", { name: /compress images on the worker/i }),
+  ).toHaveCount(0);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});

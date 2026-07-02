@@ -87,5 +87,31 @@ test.describe("job API contract stubs", () => {
       },
     });
     expect(upload.status()).toBe(503);
+
+    // Local transport endpoints are inert unless local-dev mode is on.
+    const localUpload = await request.put("/api/uploads/local/f_abcdefghij", {
+      data: "x",
+    });
+    expect(localUpload.status()).toBe(503);
+    const localArtifact = await request.get(
+      "/api/artifacts/local/art_abcdefghij",
+    );
+    expect(localArtifact.status()).toBe(503);
+  });
+
+  test("worker status honestly reports disabled with no capability", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/worker/status");
+    expect(res.status()).toBe(200);
+    expect(res.headers()["cache-control"]).toBe("no-store");
+    const body = await res.json();
+    expect(body.mode).toBe("disabled");
+    expect(body.enabled).toBe(false);
+    expect(body.compress).toEqual({
+      lossless: false,
+      deep: false,
+      engines: [],
+    });
   });
 });

@@ -28,7 +28,9 @@ versus planned — no fake processing.
 | Page thumbnails & visual page board (pdfjs) | ✅ Live |
 | Editor depth: undo/redo, keyboard reordering, range selection, lazy large-PDF thumbnails, per-file merge validation | ✅ Live |
 | Production hardening: CSP/security headers, robots, sitemap, manifest, OG image, JSON-LD | ✅ Live |
-| Secure-worker tools: Office ⇄ PDF, OCR, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign | 🔜 Planned |
+| Secure-worker contract + adapter, presence-only status probe, honest Compress UI integration | ✅ Live |
+| Deep compression worker (Ghostscript/qpdf/mutool) — real, runnable via `PDFXYZ_WORKER_MODE=local-dev` | 🧪 Local-dev |
+| Secure-worker tools: Office ⇄ PDF, OCR, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign | 🔜 Planned (production) |
 | AI tools: chat, summarize, translate, extract | 🔜 Planned |
 
 Every tool page states exactly where it runs (in-browser / secure worker /
@@ -50,6 +52,23 @@ pnpm dev            # http://localhost:3000
 
 No environment variables are required to run the app today — every live tool is
 client-side. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the env policy.
+
+### Optional: local-dev compression worker
+
+The secure worker is off by default and the API answers `503 worker_not_configured`.
+To exercise the real server-side compression flow on your own machine:
+
+```bash
+PDFXYZ_WORKER_MODE=local-dev pnpm dev
+```
+
+Open `/tools/compress-pdf` and add a PDF. The **lossless** path (pdf-lib) always
+works; the **deep** image-downsampling path needs a native engine on your
+`PATH` — install **Ghostscript, qpdf, or mutool** to enable it. Without one, the
+tool honestly says deep compression is unavailable and the API records a
+`not_implemented` job rather than faking a file. This mode is developer-only
+(in-memory, single-instance) and never used in production — see
+[`docs/WORKER_ARCHITECTURE.md`](docs/WORKER_ARCHITECTURE.md).
 
 ---
 

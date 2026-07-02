@@ -16,6 +16,8 @@ Phase 6 added the **contract layer** for those workers. Phase 7 adds the first r
 | Worker mode + adapter selection | Implemented in `src/lib/workers/mode.ts` + `adapter.ts` |
 | Compression engine (lossless + deep) | Implemented in `src/lib/workers/compression/` |
 | Local-dev compression worker | Implemented in `src/lib/workers/local-dev.ts` (opt-in via `PDFXYZ_WORKER_MODE=local-dev`) |
+| Worker status endpoint (presence-only) | Implemented in `src/app/api/worker/status/route.ts` + `src/lib/workers/status.ts` |
+| Compress UI secure-worker integration | Implemented in `src/components/tools/runner/compress-runner.tsx` + `src/lib/workers/client.ts` |
 | Production processors / queues / storage | Planned, not enabled |
 
 The API route handlers stay thin: they validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then **delegate to the worker adapter** selected for the current environment. By default the adapter answers honestly that no backend is configured; nothing is ever faked.
@@ -39,9 +41,21 @@ Enabled only with `PDFXYZ_WORKER_MODE=local-dev`, this is a real, in-process wor
 - **Two profiles.** `lossless` is a genuine structural repack via pdf-lib (always available). `deep` is image downsampling / re-encoding and genuinely requires a native engine — **Ghostscript, qpdf, or mutool**. The engine (`src/lib/workers/compression/engine.ts`) probes for these by *presence on PATH* and picks the first available.
 - **No fake success.** If `deep` is requested and no native engine is installed, the job is recorded as **`failed`** with a typed `not_implemented` error and docs guidance — never a dummy “completed” file. Invalid PDFs fail as `unprocessable_entity`; engine crashes as a retryable `internal_error`.
 - **Dev transport.** Bytes are uploaded to `PUT /api/uploads/local/:fileId` and outputs are fetched from `GET /api/artifacts/local/:artifactId`. Both endpoints are inert (`503`) unless local-dev mode is on, so the production build and e2e suite are unaffected.
+- **Inputs are wiped after processing.** As soon as a job finishes — success *or* failure — the local worker deletes the input slot and its bytes (`DevWorkerStore.deleteSlot`), so an input is never held past its use. Upload slots are single-use: a second job referencing the same `fileId` honestly returns `not_found`. Outputs live on their own retention TTL and are dropped lazily once expired.
 - **Separation of concerns.** This worker is deliberately distinct from the in-browser Compress analyzer (`src/lib/pdf/analyze.ts`), which only ever does lossless work on-device and never uploads.
 
-To try it locally: run `PDFXYZ_WORKER_MODE=local-dev pnpm dev`, `POST /api/uploads` for `compress-pdf`, `PUT` the file to the returned slot URL, then `POST /api/jobs`. With no native engine installed a `deep` job fails honestly; a `{ "profile": "lossless" }` job completes with a real, smaller PDF and a working download URL.
+### Discovering worker availability from the client
+
+The browser can't read environment variables, so the Compress UI asks **`GET /api/worker/status`** (`src/lib/workers/status.ts`) whether a worker is actually available before offering the upload-backed path. The response is **presence-only** — the resolved mode plus, for compression, whether each profile can run and which native engines are installed (names only; never a path, version, or value). In `local-dev` mode the route performs a live PATH probe (lazily importing the Node-only native layer, exactly like the adapter); in every other mode it answers `disabled` / `remote-configured` with no capability.
+
+The Compress tool page (`compress-runner.tsx`) always runs the on-device lossless analysis, then:
+
+- **`disabled`** (default, production, e2e): shows the honest "not enabled in this environment" note. Nothing is uploaded.
+- **`remote-configured`**: states a backend is configured but this build ships no pipeline yet.
+- **`local-dev` with a native engine**: offers a real "Compress images on the worker" action that runs the full flow via `src/lib/workers/client.ts` (create session → upload → job → poll → download), clearly labeled **Local-dev worker · runs on this machine**.
+- **`local-dev` without a native engine**: explains that no engine (Ghostscript/qpdf/mutool) is installed, so deep compression can't run here — without offering a button that would only fail.
+
+To try it locally: run `PDFXYZ_WORKER_MODE=local-dev pnpm dev`, open `/tools/compress-pdf`, and add a PDF. With no native engine installed the page honestly says deep compression is unavailable (and a `deep` job via the API fails as `not_implemented`); a `{ "profile": "lossless" }` job via the API completes with a real, smaller PDF and a working download URL. Install Ghostscript/qpdf/mutool to enable the deep path and the in-page run button.
 
 ## Contract endpoints
 
@@ -104,6 +118,14 @@ The URL validator blocks localhost, private IPv4 ranges, link-local/cloud metada
 
 Returns typed job status once a real backend exists. Stub behavior is explicit and safe: invalid ids are rejected, and unknown jobs are reported without leaking implementation details.
 
+### `GET /api/worker/status`
+
+Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines } }`. It never reads or returns a secret — `engines` lists installed native binaries by *name* only. `no-store`; reflects live host state. See "Discovering worker availability from the client" above.
+
+### Local-dev transport (dev only)
+
+`PUT /api/uploads/local/:fileId` and `GET /api/artifacts/local/:artifactId` are the developer transport that stands in for pre-signed object storage. They are **inert (`503 worker_not_configured`)** unless `PDFXYZ_WORKER_MODE=local-dev` is set. A production deployment uploads directly to an encrypted bucket and serves outputs from signed, expiring URLs — never through the app server.
+
 ## Job lifecycle
 
 ```text
@@ -133,9 +155,14 @@ Terminal states are encoded in `TERMINAL_STATUSES`, and `isDownloadReady()` cent
 
 `DEFAULT_RETENTION` currently defines the contract:
 
-- input TTL: 60 minutes maximum
+- input TTL: 60 minutes maximum (upper bound; see below — inputs are wiped much sooner)
 - output TTL: 60 minutes maximum
 - `persistsAfterJob: false`
+
+**Delete semantics.**
+
+- **Inputs** are wiped **as soon as processing finishes** (success or failure), not merely at the TTL. The TTL is only a backstop for a slot that was reserved but never turned into a job. Upload slots are single-use. The local-dev worker implements this literally (`DevWorkerStore.deleteSlot` on every job); production storage must do the same via lifecycle rules plus explicit post-job deletion.
+- **Outputs** stay downloadable until their output TTL, then auto-delete. The local-dev store drops expired outputs lazily on read; production must enforce this with a storage lifecycle policy independent of application code. A production build should also expose an explicit signed "delete now" for an artifact; the local-dev store keeps outputs only in memory and loses them on restart, so it relies on the TTL + lazy drop.
 
 Production storage must enforce lifecycle deletion independently of application code. UI copy should continue to say: files are uploaded only for secure-worker/AI tools, inputs are wiped after processing, and outputs expire automatically.
 
@@ -246,4 +273,4 @@ A worker-backed tool is production-ready only when it has:
 - Tests for validation, job states, and one happy-path processor.
 - Security review for input validation, egress, file handling, and logging.
 
-**Phase 7 progress toward this:** the local-dev worker already covers upload-session creation, upload transport, job creation, status polling, output download, retention/expiry, and tests for validation + job states + a real happy-path processor (lossless). Remaining for production: direct-to-object-storage upload, a real queue, signed URLs, lifecycle-enforced deletion, and a native `deep` processor behind the same adapter contract.
+**Phase 7 progress toward this:** the local-dev worker already covers upload-session creation, upload transport, job creation, status polling, output download, post-job input wipe + retention/expiry, a presence-only client capability probe, an honest Compress UI integration, and tests for validation + job states + transport routes + a real happy-path processor (lossless) end-to-end through the route handlers. Remaining for production: direct-to-object-storage upload, a real queue, signed URLs, lifecycle-enforced deletion, an explicit signed "delete now", and a native `deep` processor behind the same adapter contract.

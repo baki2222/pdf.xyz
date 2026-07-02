@@ -146,7 +146,9 @@ export default async function ToolPage({
               <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
                 <div className="flex items-center gap-2 text-sm text-emerald-300">
                   <ShieldCheck className="size-4" aria-hidden />
-                  Runs in your browser — your file never leaves your device.
+                  {tool.processing === "hybrid"
+                    ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
+                    : "Runs in your browser — your file never leaves your device."}
                 </div>
                 <ToolRunner kind={runnerKind} />
               </div>

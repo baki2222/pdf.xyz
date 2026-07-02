@@ -25,8 +25,10 @@ Every tool declares one of these, shown on its card and page:
 
 - Merge PDF, Split PDF, Rotate PDF
 - Delete / Extract / Organize pages
-- Compress PDF — in-browser size analyzer + **lossless** structural repack
-  (deep image downsampling is deferred to a worker rather than faked)
+- Compress PDF — in-browser size analyzer + **lossless** structural repack.
+  Deep image downsampling is not faked in the browser: it runs on the secure
+  worker, and the tool page only offers that path when a worker is actually
+  available (see `GET /api/worker/status`), labeling it honestly otherwise.
 
 Page rendering/thumbnails use `pdfjs-dist` locally; the pdfjs worker is bundled
 (no third-party CDN request).
@@ -53,11 +55,18 @@ The boundary to future server-side processing is defined as typed contracts in
 | `POST /api/uploads` | Create a short-lived, single-use upload session. |
 | `POST /api/jobs` | Create a processing job from uploaded files or a URL. |
 | `GET /api/jobs/:id` | Read typed job status and download readiness. |
+| `GET /api/worker/status` | Presence-only capability probe (mode + compression profiles); no secrets. |
 
-**No fake processing.** These route handlers are *development contract stubs*.
-They validate every request against the contract and then answer honestly: with
-no worker backend configured they return `503 worker_not_configured`. They never
-store a file, enqueue work, or fabricate a "completed" job. The full design is in
+**No fake processing.** With no worker backend configured, these route handlers
+validate every request against the contract and then answer honestly with
+`503 worker_not_configured` — they never store a file, enqueue work, or fabricate
+a "completed" job. A developer can opt a single machine into a real, in-process
+worker with `PDFXYZ_WORKER_MODE=local-dev`; it performs genuine work when it
+honestly can (lossless repack) and records an honest **`failed`** job when it
+cannot (deep image compression with no native engine installed) — never a dummy
+file. The developer transport endpoints (`PUT /api/uploads/local/:fileId`,
+`GET /api/artifacts/local/:artifactId`) are inert (`503`) unless local-dev mode
+is on, so the production build is unaffected. The full design is in
 [`docs/WORKER_ARCHITECTURE.md`](WORKER_ARCHITECTURE.md).
 
 **Strict validation at the edge** (`src/lib/jobs/validation.ts`):
@@ -77,7 +86,9 @@ store a file, enqueue work, or fabricate a "completed" job. The full design is i
 **Privacy by default.** Every job carries a `RetentionPolicy`: inputs are wiped
 right after processing and outputs auto-delete within the retention window
 (`DEFAULT_RETENTION`), with `persistsAfterJob: false` as a contractual
-guarantee.
+guarantee. The local-dev worker implements this literally — the input slot and
+its bytes are deleted the moment a job finishes (success or failure), and upload
+slots are single-use.
 
 **Backend detection reads no secrets.** Whether a real backend is configured is
 determined only from the *presence* of infrastructure variable names

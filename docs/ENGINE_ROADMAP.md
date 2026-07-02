@@ -155,10 +155,20 @@ AI features must be explicitly opt-in and should display model/data handling cle
   `not_implemented` job — never a dummy completed file.
 - ✅ Wired a developer-only **local compression worker** running the full flow —
   reserve slot → upload → job → download — in process, with unit tests for
-  adapter selection, engine planning, and every failure mode.
+  adapter selection, engine planning, and every failure mode, plus route-handler
+  tests for the transport endpoints and an end-to-end lossless run through the
+  real handlers.
+- ✅ **Inputs are wiped as soon as processing finishes** (single-use upload slots);
+  outputs live on their own retention TTL and drop lazily once expired.
+- ✅ Added a presence-only **worker status endpoint** (`GET /api/worker/status`) so
+  the client can discover availability without reading secrets, and **integrated
+  the Compress tool UI**: on-device lossless analysis always, plus the
+  secure-worker deep path where configured — labeled honestly (including
+  "local-dev only" and "no native engine installed").
 - ⏳ Remaining for production: direct-to-storage uploads, queue-backed execution,
-  signed downloads, lifecycle-enforced deletion, and a native `deep` processor
-  deployed behind the same adapter contract; plus OCR as the next capability.
+  signed downloads, lifecycle-enforced deletion, an explicit signed "delete now",
+  and a native `deep` processor deployed behind the same adapter contract; plus
+  OCR as the next capability.
 
 ### Phase 8 — account and workspace
 

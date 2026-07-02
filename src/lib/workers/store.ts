@@ -108,6 +108,15 @@ export class DevWorkerStore {
   }
 
   /**
+   * Wipe an input slot (and its bytes) immediately. Called right after a job
+   * finishes processing so inputs never linger past their use, mirroring the
+   * contract's "inputs are wiped after processing" guarantee. Idempotent.
+   */
+  deleteSlot(fileId: string): void {
+    this.slots.delete(fileId);
+  }
+
+  /**
    * Attach uploaded bytes to a reserved slot. The uploaded size must match the
    * size declared when the slot was created and stay within the hard per-file
    * limit — otherwise the upload is rejected rather than silently accepted.
