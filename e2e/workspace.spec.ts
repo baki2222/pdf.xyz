@@ -8,6 +8,12 @@ import { attachConsoleGuard, writeTempPdf } from "./helpers";
  * persist. These tests exercise those promises end-to-end.
  */
 
+async function waitForWorkspaceHydration(page: import("@playwright/test").Page) {
+  await expect(
+    page.getByText(/tools you open from here show up/i),
+  ).toBeVisible();
+}
+
 test("stages files locally, summarizes the mix, removes and clears them", async ({
   page,
 }) => {
@@ -18,6 +24,7 @@ test("stages files locally, summarizes the mix, removes and clears them", async 
   ]);
 
   await page.goto("/workspace");
+  await waitForWorkspaceHydration(page);
 
   // Honest, local-only framing is present up front.
   await expect(page.getByText(/local session only/i)).toBeVisible();
@@ -64,6 +71,7 @@ test("suggests tools from the staged file mix and links to the runner", async ({
 }) => {
   const guard = attachConsoleGuard(page);
   await page.goto("/workspace");
+  await waitForWorkspaceHydration(page);
   await page
     .locator('input[type="file"]')
     .first()
@@ -112,6 +120,7 @@ test("batch queue launches a live tool and is honest about worker tools", async 
 }) => {
   const guard = attachConsoleGuard(page);
   await page.goto("/workspace");
+  await waitForWorkspaceHydration(page);
   await page
     .locator('input[type="file"]')
     .first()
@@ -145,6 +154,7 @@ test("batch queue launches a live tool and is honest about worker tools", async 
 test("batch queue is honest about secure-worker tools", async ({ page }) => {
   const guard = attachConsoleGuard(page);
   await page.goto("/workspace");
+  await waitForWorkspaceHydration(page);
   await page.locator('input[type="file"]').first().setInputFiles(await writeTempPdf("scan.pdf"));
 
   const batch = page.getByRole("region", { name: /batch queue/i });
