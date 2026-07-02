@@ -22,7 +22,7 @@ Phase 6 added the **contract layer** for those workers. Phase 7 adds the first r
 | OCR capability mapping (presence-only) | Implemented in `src/lib/workers/ocr.ts` + `status.ts` |
 | OCR tool-page secure-worker panel | Implemented in `src/components/tools/ocr-worker-panel.tsx` |
 | OCR browser job client (contract-complete) | Implemented in `src/lib/workers/ocr-client.ts` |
-| OCR native processor (searchable PDF / text) | Planned, not enabled |
+| OCR native backend (OCRmyPDF/Tesseract) | Optional, **off by default** — `src/lib/workers/ocr-native{,-config}.ts` (Phase 23); see [`OCR_BACKEND.md`](./OCR_BACKEND.md) |
 | Processor registry + contract | Implemented in `src/lib/workers/processor/` |
 | Worker executor loop (claim → process → complete) | Implemented in `src/lib/workers/executor/` |
 | Queue claim/lease/heartbeat (`ClaimableQueue`) | Implemented in `src/lib/workers/queue/` |
@@ -94,9 +94,26 @@ A completed OCR job's shape is typed by `OcrResultMeta` / `OcrPageResult` (engin
 
 `/tools/ocr-pdf` renders a premium, OCR-specific secure-worker panel instead of the generic preview. It reads the live `/api/worker/status` endpoint (emitting the Phase 10 `worker_status_checked` event — mode + enabled only), lets the user configure a real request (languages, output, skip-text) validated by the shared `parseOcrOptions`, and shows the exact pipeline — encrypted upload → scan → isolated recognition → download → auto-delete. When OCR is unavailable it says so plainly and **mounts no uploader**; only when the endpoint honestly reports OCR available does it mount a file picker and run the documented flow via `runWorkerOcr` (`src/lib/workers/ocr-client.ts`), surfacing only real downloaded output or an honest failure.
 
-### Future OCR processor requirements
+### OCR native backend (Phase 23 — optional, off by default)
 
-A production OCR processor, deployed behind the same adapter contract, must: run **OCRmyPDF/Tesseract or a managed OCR provider** in a sandboxed, no-egress job; ship the language packs advertised by the capability; produce a searchable PDF (invisible text layer) and/or a text sidecar per `outputMode`; honor `skipTextPages`; and return `OcrResultMeta` from actual recognition. Inputs are wiped right after processing and outputs auto-delete on their TTL, exactly like every other job.
+Phase 23 makes OCR a **real, optional** worker backend behind the same processor seam,
+without faking it. The `OcrRunner` — an injected dependency of the OCR processor — is
+implemented by the Node-only `src/lib/workers/ocr-native.ts`, which shells out to
+**OCRmyPDF/Tesseract** with a fixed argv (no shell), a hard timeout, input/output byte
+ceilings, an isolated temp dir with guaranteed cleanup, a structural PDF check on the
+output, and fixed content-free errors. It is driven by the node-free
+`ocr-native-config.ts` (env → bounded config), is **opt-in** (`PDFXYZ_OCR`, disabled
+unless set), and is wired only by the out-of-band daemon runtime — never the web app or
+the local-dev worker. With nothing configured, OCR stays honestly `not_implemented` and
+`status.ocr.available` is `false`, so the tool page mounts no uploader; the moment an
+operator enables it and installs an engine, the processor flips ready and `ocr-pdf`
+jobs complete with real artifacts. The Phase 22 malware-scan gate runs **before** OCR.
+
+Full operator guide — env knobs, deployment requirements, security envelope,
+observability, and caveats — is in [`OCR_BACKEND.md`](./OCR_BACKEND.md). Still
+outstanding (documented there): the runner does not yet populate `OcrResultMeta`, and
+its throw-based failure mapping is coarse-grained (a deterministic failure retries up
+to the attempt cap before failing terminally).
 
 ## Provider seams
 
@@ -246,11 +263,13 @@ nothing. A SIGINT/SIGTERM drains the current tick and exits cleanly. Logging is
 and an error *code* only; never a filename, byte, object key, URL, option value, or
 secret.
 
-Still honest about limits: OCR and deep compression remain engine-dependent (the
-daemon changes nothing there), and whether a daemon is actually deployed and running
-is **out-of-band** — `/api/worker/status` reports `daemon.drainable` (queue + storage
-configured, so a worker *could* drain here) but never claims a worker is live, which
-the app cannot observe.
+Still honest about limits: OCR (Phase 23) and deep compression remain
+engine-dependent — both are optional native backends that light up only when an engine
+is installed and (for OCR) explicitly enabled, and stay honestly `not_implemented`
+otherwise. Whether a daemon is actually deployed and running is **out-of-band** —
+`/api/worker/status` reports `daemon.drainable` (queue + storage configured, so a
+worker *could* drain here) but never claims a worker is live, which the app cannot
+observe.
 
 ### Native/lossless compression, proven end-to-end (Phase 17)
 

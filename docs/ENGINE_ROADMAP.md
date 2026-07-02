@@ -269,9 +269,10 @@ mode-specific reason — no fake searchable PDFs or invented text.
 - **Honest status surface**: the `/status` page shows an explicit OCR capability
   row read live from the endpoint, and the OCR page reuses the Phase 10
   `worker_status_checked` telemetry event (mode + enabled only).
-- ⏳ Remaining for production: an OCRmyPDF/Tesseract (or managed) processor behind
-  the adapter contract, with language packs, per-page confidence, and the same
-  storage/queue/deletion guarantees as every other worker.
+- ✅ Delivered in **Phase 23**: a real, optional OCRmyPDF/Tesseract processor behind
+  the adapter contract with the same storage/queue/deletion guarantees as every other
+  worker (see Phase 23 below). ⏳ Remaining: language packs installed on the worker
+  image and per-page confidence populated into `OcrResultMeta` from real recognition.
 
 ### Phase 12 — worker storage + queue foundation (shipped)
 
@@ -317,8 +318,9 @@ processing.
   registry that routes a tool slug to its processor. Compression and OCR are both
   registered behind it; the local-dev adapter dispatches through the *same*
   compression processor the executor runs, so the sync and async paths can't
-  drift. OCR validates honestly and returns `not_implemented` (no runner ships);
-  it flips on the moment a real OCRmyPDF/Tesseract runner is injected.
+  drift. OCR validates honestly and returns `not_implemented` when no runner is
+  wired; as of Phase 23 a real, optional OCRmyPDF/Tesseract runner flips it on when
+  enabled and installed on the worker.
 - **Worker executor** (`src/lib/workers/executor/`): `createWorkerExecutor(...)` is
   a dependency-injected loop, **not a daemon** — it starts no timer or thread.
   `runOnce()` claims a job, reads inputs via an `ExecutorStorage` seam, dispatches
@@ -624,7 +626,43 @@ assumption — and content-free in every log, error, and status line.
 ⏳ Still out-of-band (deliberately not faked): **running the clamd daemon** (deploy it
 as a sidecar/service and point `PDFXYZ_MALWARE_SCANNER` at it — no test ever contacts a
 real clamd), a provisioned broker/bucket + real secrets, applying lifecycle policies to
-a live bucket, and the native `deep`/OCR runners.
+a live bucket, and the engine binaries the native `deep`/OCR runners shell out to.
+
+### Phase 23 — OCR backend foundation (shipped)
+
+OCR becomes a **real, optional** secure-worker backend behind the existing `OcrRunner`
+seam — never faked, and **off by default**. The web app and the in-process local-dev
+worker never run OCR; recognition happens only on the out-of-band daemon.
+
+- **Node-only native runner** (`src/lib/workers/ocr-native.ts`): shells out to
+  **OCRmyPDF** (preferred — PDF → searchable PDF + optional text sidecar) or
+  **Tesseract** (images) with a **fixed argv array** (no shell, no interpolation), over
+  worker-owned temp paths. Hard timeout, input/output byte ceilings, a structural PDF
+  check on the searchable-PDF output, an isolated `mkdtemp` dir removed on **every** exit
+  path, and single-document processing. Node-free otherwise: the subprocess/`fs`/PATH
+  boundaries are injected seams, so every argv, bound, failure, and cleanup branch is
+  unit-tested with **no real binary** (mirroring native compression).
+- **Node-free config** (`src/lib/workers/ocr-native-config.ts`): `PDFXYZ_OCR` opt-in
+  (disabled unless set), optional engine pin, allowlisted absolute binary overrides, and
+  bounded timeout/size knobs. A malformed value degrades to fully *disabled* and names
+  the offending **variable** only.
+- **Honest processor + executor**: the OCR processor validates options, then delegates to
+  the runner only when a runner **and** an engine are present; otherwise it fails
+  `not_implemented`. A runner throw is caught and mapped to a typed, content-free
+  `internal_error` — `process()` never throws, and no artifact is ever fabricated. The
+  Phase 22 malware-scan gate runs **before** OCR. Recognized text lives **only** in the
+  downloaded artifact — never a log, status field, or job record.
+- **Readiness, status & guardrails**: the daemon emits an `ocr_health` line
+  (`enabled`/`ready`/`engine`) and an `ocr` deployment facet distinguishing
+  disabled / not-configured / unavailable (opted-in, no engine) / ready; the client
+  `/api/worker/status` reports OCR presence-only (never available in-browser). Opt-in
+  `PDFXYZ_WORKER_REQUIRE_OCR` (**not** implied by strict) fails `--check` (exit `4`)
+  unless a ready engine is present, and a malformed `PDFXYZ_OCR*` value is a fail-fast
+  `ocr_config_invalid` config error. Full operator guide: [`OCR_BACKEND.md`](./OCR_BACKEND.md).
+
+⏳ Still out-of-band (deliberately not faked): **installing an OCR engine + language
+packs** on the worker image (OCRmyPDF/Tesseract — no test invokes a real engine), and
+populating `OcrResultMeta` (pages/characters/confidence) from real recognition output.
 
 ## Definition of production-ready per tool
 

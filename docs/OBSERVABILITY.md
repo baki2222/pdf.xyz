@@ -292,6 +292,18 @@ variable name. Alert on `active: false` (or `provider: unavailable`) on a worker
 intend to be scanning; `not-configured`/`disabled` on a worker that isn't meant to
 scan is the honest baseline, not an incident.
 
+The daemon likewise emits a content-free **`ocr_health`** line (Phase 23) —
+`{ enabled, engine, ready, detail }` — alongside `compression_health`/`scanner_health`.
+It fuses the config opt-in (`enabled`, from `PDFXYZ_OCR`) with the runtime engine probe
+(`ready`), so the four honest OCR states are unambiguous: `enabled: false` ⇒
+disabled/not-configured (the safe default); `enabled: true, ready: false` ⇒ *unavailable*
+(opted in, but no OCRmyPDF/Tesseract installed); `enabled: true, ready: true` ⇒ *ready*.
+`engine` is the pinned engine *family* name (or `null` for auto-detect), never a path,
+binary, language, or value. Recognized text never appears here (or anywhere in the log
+stream) — it lives only in the downloaded artifact. Alert on `enabled: true, ready:
+false` on a worker you intend to run OCR (the engine isn't installed); `enabled: false`
+on a worker that isn't meant to do OCR is the honest baseline, not an incident.
+
 ## Container health check (Phase 19)
 
 The worker image's `HEALTHCHECK` (and the `docker-compose.worker.yml` example) runs
@@ -323,14 +335,21 @@ and generic prose — with **no** variable name, value, path, object key, or sig
 | `lifecycle_policy_error` | `reason` (`retention_invalid`\|`policy_invalid`) | Generation refused (exit `1`) rather than emitting from silent defaults. |
 
 **What to watch.** The `malware-scan` facet is `not-configured`/`disabled` until an
-operator configures the optional ClamAV backend, and `ocr` is always `not-implemented`
-— honest baselines, not incidents. Once a scanner is configured, watch for the facet
-reporting `degraded`/`unavailable` (a misconfigured endpoint) on a worker you intend to
-scan. The malware-scan guardrails are the opt-in `require_scan_unmet` (armed by
-`PDFXYZ_WORKER_REQUIRE_SCAN`; fails `--check` with exit `4` when scanning is required
-but not active — an intentional refusal to run unscanned) plus `scan_selected_but_invalid`
-/ `scan_provider_unrecognized` (a misconfigured or unknown scanner value, so a typo
-can't silently disable scanning). A `lifecycle` facet of `unknown` on a drainable worker is
+operator configures the optional ClamAV backend, and the `ocr` facet is
+`not-implemented`/`not-configured` until an operator opts into the optional OCR backend
+(Phase 23) — honest baselines, not incidents. Once a scanner is configured, watch for the
+facet reporting `degraded`/`unavailable` (a misconfigured endpoint) on a worker you
+intend to scan; once OCR is enabled, watch the `ocr_health` line for `ready: false` (the
+engine isn't installed) on a worker you intend to run OCR. The malware-scan guardrails
+are the opt-in `require_scan_unmet` (armed by `PDFXYZ_WORKER_REQUIRE_SCAN`; fails
+`--check` with exit `4` when scanning is required but not active — an intentional refusal
+to run unscanned) plus `scan_selected_but_invalid` / `scan_provider_unrecognized` (a
+misconfigured or unknown scanner value, so a typo can't silently disable scanning). The
+OCR guardrails mirror them: the opt-in `require_ocr_unmet` (armed by
+`PDFXYZ_WORKER_REQUIRE_OCR`; exit `4` when a ready OCR engine is required but absent)
+plus `ocr_config_invalid` (a malformed `PDFXYZ_OCR*` value, so a typo can't silently
+disable OCR). Neither require flag is folded into `PDFXYZ_WORKER_STRICT` — a worker that
+does not scan or OCR is a legitimate production choice. A `lifecycle` facet of `unknown` on a drainable worker is
 the expected "no backstop declared yet" state; alert if a production worker you intend
 to be `ready` reports
 `degraded`. A non-empty `guardrails.errors` on a worker that fails to start (exit `4`)

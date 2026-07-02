@@ -54,13 +54,12 @@ preview, and production.
   **not** be prefixed `NEXT_PUBLIC_` (that prefix exposes a value to the
   browser). Keep worker/AI credentials server-side only.
 - **OCR (and every secure-worker tool) is disabled by default.** `/tools/ocr-pdf`
-  reads `GET /api/worker/status` and honestly reports OCR unavailable until a real
-  OCR processor (OCRmyPDF/Tesseract or a managed provider) is deployed behind the
-  worker adapter contract; no scan is uploaded and no text is fabricated until
-  then. When that processor lands, its endpoint/credentials are **server-side
-  configuration behind the adapter — never `NEXT_PUBLIC_`** — and the status
-  endpoint starts reporting `ocr.available` from the worker's advertised
-  capability (presence-only, names not values). See
+  reads `GET /api/worker/status` and honestly reports OCR unavailable in the browser;
+  no scan is uploaded and no text is fabricated. Phase 23 ships a **real, optional** OCR
+  backend (OCRmyPDF/Tesseract) that runs on the **out-of-band worker daemon** — never
+  the web app — and is **off by default**: enable it on the worker with `PDFXYZ_OCR=on`
+  and install an engine (see [`docs/OCR_BACKEND.md`](../docs/OCR_BACKEND.md)). Its
+  config is **worker-side only — never `NEXT_PUBLIC_`**, names not values. See
   [`docs/WORKER_ARCHITECTURE.md`](../docs/WORKER_ARCHITECTURE.md).
 
 ### Optional: S3/R2-compatible secure-worker storage
@@ -264,10 +263,11 @@ it must be *driven*. Before enabling remote processing:
   bucket adapters and calls `drain()` on an interval or on queue notifications.
   The Next.js app must never spawn it.
 - **Implement the adapters, not the loop.** The loop is done; wire real
-  `ClaimableQueue`, `ExecutorStorage`, and processor runners (native `deep`
-  compression, OCRmyPDF/Tesseract) behind the existing contracts. Native runners
-  use fixed argv arrays and fixed temp paths — no user-supplied paths, no shell
-  string interpolation.
+  `ClaimableQueue`, `ExecutorStorage`, and processor runners behind the existing
+  contracts. The native `deep`-compression and **OCR (OCRmyPDF/Tesseract, Phase 23)**
+  runners already ship — both use fixed argv arrays and fixed temp paths (no
+  user-supplied paths, no shell string interpolation); enable OCR with `PDFXYZ_OCR=on`
+  and install an engine on the worker image ([`OCR_BACKEND.md`](../docs/OCR_BACKEND.md)).
 - **Tune lease & retries.** Set `leaseMs` above the worst-case job duration and
   heartbeat long jobs, so a slow job is not redelivered under a healthy worker;
   set `maxAttempts` so only genuinely transient (`retryable`) failures retry.
@@ -277,6 +277,14 @@ it must be *driven*. Before enabling remote processing:
   honest no-op (nothing scanned, and nothing is ever *reported* as scanned). Deploy
   clamd (e.g. as a sidecar) to scan for real, and arm `PDFXYZ_WORKER_REQUIRE_SCAN`
   where scanning is mandatory.
+- **OCR for real.** OCR is a real, optional backend (Phase 23), off by default. Set
+  `PDFXYZ_OCR=on` **and** install an engine on the worker image — OCRmyPDF (preferred,
+  for PDF→searchable PDF + text) or Tesseract (images) — plus the language packs your
+  allowlist advertises. Confirm with `pnpm worker:daemon --dry-run-status` (the
+  `ocr_health` line reports `enabled`/`ready`/`engine`); arm `PDFXYZ_WORKER_REQUIRE_OCR`
+  where OCR is mandatory, so the daemon refuses to start (exit `4`) without a ready
+  engine. With nothing configured, `ocr-pdf` fails honestly as `not_implemented` — never
+  a fabricated result. See [`docs/OCR_BACKEND.md`](../docs/OCR_BACKEND.md).
 - **Keep it presence-only.** `/api/worker/status` exposes
   `providers.processor.executor` (mode/ready/detail) — confirm no broker name,
   worker URL, key, or variable ever appears there. `remote-configured` must keep
@@ -423,9 +431,10 @@ content-free, and offline — no command here makes a live cloud call.
 | Storage | `PDFXYZ_STORAGE_PROVIDER=s3`, `PDFXYZ_S3_ENDPOINT`, `PDFXYZ_S3_REGION`, `PDFXYZ_S3_BUCKET`, `PDFXYZ_S3_ACCESS_KEY_ID`, `PDFXYZ_S3_SECRET_ACCESS_KEY` (+ optional `…_FORCE_PATH_STYLE`, `…_KEY_PREFIX`, TTLs) | Signed I/O + delete. |
 | Queue | `PDFXYZ_QUEUE_PROVIDER=redis`, `PDFXYZ_REDIS_REST_URL`, `PDFXYZ_REDIS_REST_TOKEN` (+ optional lease/attempts/TTL) | Claim/complete jobs. |
 | Compression | `PDFXYZ_NATIVE_COMPRESSION` (auto by default), optional engine pin + absolute binary overrides | Deep image compression. |
+| OCR *(optional)* | `PDFXYZ_OCR` (`on`/`off`, **off by default**), optional `PDFXYZ_OCR_ENGINE` (`ocrmypdf`/`tesseract`), absolute binary overrides, `PDFXYZ_OCR_TIMEOUT_MS` / `_MAX_INPUT_BYTES` / `_MAX_OUTPUT_BYTES` / `_TMPDIR` | Optional OCR backend (Phase 23). Requires an engine installed on the worker. See [`OCR_BACKEND.md`](../docs/OCR_BACKEND.md). |
 | Retention *(optional)* | `PDFXYZ_RETENTION_INPUT_TTL_MINUTES`, `PDFXYZ_RETENTION_ARTIFACT_TTL_MINUTES`, `PDFXYZ_RETENTION_MULTIPART_ABORT_HOURS`, `PDFXYZ_RETENTION_NONCURRENT_VERSION_DAYS` | Tighten the lifecycle backstop (≤ 7-day ceiling). |
 | Lifecycle *(optional)* | `PDFXYZ_LIFECYCLE_PROVIDER` (`aws-s3`\|`cloudflare-r2`\|`minio`\|`generic`), `PDFXYZ_LIFECYCLE_VALIDATED=true`, `PDFXYZ_LIFECYCLE_VERSIONED` | Declare that the generated policy is applied and verified. |
-| Guardrails *(optional)* | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`, `PDFXYZ_WORKER_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC` | Fail fast on a dangerous production state. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (also implied by strict) rejects a deployment whose queue cannot guarantee atomic, race-safe transitions (`queue_atomic_unsupported`). |
+| Guardrails *(optional)* | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`, `PDFXYZ_WORKER_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC`, `PDFXYZ_WORKER_REQUIRE_SCAN`, `PDFXYZ_WORKER_REQUIRE_OCR` | Fail fast on a dangerous production state. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (also implied by strict) rejects a deployment whose queue cannot guarantee atomic, race-safe transitions (`queue_atomic_unsupported`); `PDFXYZ_WORKER_REQUIRE_SCAN` / `PDFXYZ_WORKER_REQUIRE_OCR` (opt-in, **not** implied by strict) require an active scanner / a ready OCR engine. |
 
 Copy [`.env.worker.example`](../.env.worker.example) to a git-ignored `.env`. Values
 are read only to sign/authenticate inside the worker; they are never logged,
