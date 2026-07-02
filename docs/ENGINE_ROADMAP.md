@@ -368,6 +368,41 @@ live.
 adapter for `ExecutorStorage`, malware scanning, native compression/OCR runners,
 and a deployed out-of-band worker process.
 
+### Phase 15 — Redis/Upstash queue provider foundation (shipped)
+
+The job-queue seam is now production-shaped and backs real job state with a shared
+Redis broker — the "real queue/broker adapter" that Phases 12–14 kept deferring —
+without claiming a worker daemon is live.
+
+- **Redis/Upstash provider** (`src/lib/workers/queue/redis.ts` + `redis-client.ts`):
+  when explicitly selected with `PDFXYZ_QUEUE_PROVIDER=redis` and valid server-side
+  config, the adapter records real `queued` jobs over the Redis HTTP REST API and
+  implements the full `ClaimableQueue` — enqueue/submit, idempotency, status,
+  cancel, expire, and claim/heartbeat/advance/complete/fail with leases, an attempt
+  counter, redelivery, and a dead-letter cap. No native Redis client dependency; the
+  transport is a small typed REST client with an injectable `fetch`.
+- **Safe keys and ids**: every broker key is `<prefix>:<namespace>:<server-minted
+  id>`; the client idempotency key is SHA-256 hashed, never embedded. No client ever
+  supplies a Redis key, stream name, or broker id, and commands are JSON argument
+  arrays (no RESP string interpolation).
+- **Bounded settings**: sanitized key prefix, lease-duration ceiling, dead-letter
+  attempt cap, and a per-key retention TTL, each validated within strict bounds.
+- **Independent, presence-only readiness**: `/api/worker/status` can report the
+  queue ready (`provider: "redis"`) independently of storage, exposing no endpoint,
+  token, prefix, key, or variable. A transport outage is a typed `unavailable`
+  (HTTP 500), never a fabricated job.
+- **Still honest — no fake processing**: a created job is enqueued only when storage
+  is *also* ready and returns `202` in the `queued` state; because **no worker
+  daemon ships**, it stays queued until one is deployed, and the status endpoint
+  says exactly that. Nothing is reported `completed` unless a real processor writes
+  artifacts.
+
+⏳ Remaining for production: a deployed out-of-band **worker process** that runs the
+Phase 13 executor's `drain()` against these real storage + queue adapters,
+worker-side bucket byte I/O for `ExecutorStorage`, malware scanning in the scan
+phase, native `deep`/OCR runners, and a hardening pass to move the queue's read→
+write state transitions into a Lua/`WATCH` critical section.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:
