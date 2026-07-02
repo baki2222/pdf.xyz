@@ -162,12 +162,19 @@ function composedAdapter(
         retention: DEFAULT_RETENTION,
       };
 
-      // Record the job with its execution spec (inputs + options) so a deployed
-      // worker can later claim and run it. A claimable broker uses `submit`; the
-      // base contract falls back to `enqueue`.
+      // Record the job with its execution spec (inputs + options + the sanitized
+      // display names) so a deployed worker can later claim, run, and name its
+      // outputs. `inputNames` are already validated/sanitized display strings and
+      // ride the spec as a value — never a broker key. A claimable broker uses
+      // `submit`; the base contract falls back to `enqueue`.
       const recorded = isClaimableQueue(queue)
         ? await queue.submit(
-            { job, inputs: request.inputs, options: request.options ?? {} },
+            {
+              job,
+              inputs: request.inputs,
+              ...(request.inputNames ? { inputNames: request.inputNames } : {}),
+              options: request.options ?? {},
+            },
             request.idempotencyKey,
           )
         : await queue.enqueue(job, request.idempotencyKey);

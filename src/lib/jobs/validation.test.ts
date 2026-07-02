@@ -66,6 +66,62 @@ describe("worker job validation", () => {
     if (result.ok) {
       expect(result.value.inputs).toEqual(["f_1234567890"]);
       expect(result.value.idempotencyKey).toBe("ocr:scan:1");
+      // Backward-compatible: a request without inputNames omits the field.
+      expect(result.value.inputNames).toBeUndefined();
+    }
+  });
+
+  it("accepts and sanitizes optional display inputNames", () => {
+    const result = parseCreateJobRequest({
+      tool: "ocr-pdf",
+      inputs: ["f_1234567890"],
+      inputNames: ["../../secret/Q3 Report.PDF"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Path stripped, extension normalized — a safe display name.
+      expect(result.value.inputNames).toEqual(["Q3 Report.pdf"]);
+    }
+  });
+
+  it("keeps inputNames positionally aligned and ignores extras", () => {
+    const result = parseCreateJobRequest({
+      tool: "ocr-pdf",
+      inputs: ["f_1234567890"],
+      inputNames: ["a.pdf", "b.pdf", "c.pdf"], // more names than inputs
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.inputNames).toEqual(["a.pdf"]);
+  });
+
+  it("rejects a malformed inputNames shape (not an array of strings)", () => {
+    const notArray = parseCreateJobRequest({
+      tool: "ocr-pdf",
+      inputs: ["f_1234567890"],
+      inputNames: "report.pdf",
+    });
+    expect(notArray.ok).toBe(false);
+    if (!notArray.ok) {
+      expect(notArray.error.body.error.code).toBe("invalid_request");
+    }
+
+    const nonString = parseCreateJobRequest({
+      tool: "ocr-pdf",
+      inputs: ["f_1234567890"],
+      inputNames: [42],
+    });
+    expect(nonString.ok).toBe(false);
+  });
+
+  it("rejects too many inputNames", () => {
+    const result = parseCreateJobRequest({
+      tool: "ocr-pdf",
+      inputs: ["f_1234567890"],
+      inputNames: Array.from({ length: 21 }, (_, i) => `f${i}.pdf`),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.body.error.code).toBe("unprocessable_entity");
     }
   });
 

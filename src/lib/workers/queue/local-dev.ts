@@ -79,6 +79,7 @@ export function createLocalDevQueue(
       store.putJob(submission.job);
       store.putSpec(submission.job.jobId, {
         inputs: submission.inputs,
+        ...(submission.inputNames ? { inputNames: submission.inputNames } : {}),
         options: submission.options,
       });
       if (idempotencyKey) {
@@ -151,6 +152,7 @@ export function createLocalDevQueue(
       return queueOk<ClaimedJob | null>({
         job: claimed,
         inputs: spec.inputs,
+        ...(spec.inputNames ? { inputNames: spec.inputNames } : {}),
         options: spec.options,
         attempt,
         leaseExpiresAt,

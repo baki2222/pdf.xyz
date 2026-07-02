@@ -234,7 +234,10 @@ without any additional scrubbing, and adds its own equally content-free
 opaque `jobId`/`attempt`, an error *code*, a `sleepMs` back-off, and a terminal
 `reason` — plus a final run `summary` of counters (completed / failed / requeued /
 canceled / idle / errors). Nothing in either layer carries a secret, byte, key, URL,
-or filename, so the daemon's stdout can be shipped verbatim to a log sink. The `WORKER_ARCHITECTURE.md`
+or filename, so the daemon's stdout can be shipped verbatim to a log sink. Phase 18
+filename metadata remains outside observability: sanitized display names may shape a
+user's download prompt, but they never enter status payloads, telemetry events, or
+executor/daemon log events. The `WORKER_ARCHITECTURE.md`
 "Observability" plan (structured logs keyed by `jobId`, metrics, tracing per job)
 is exactly what these events feed.
 

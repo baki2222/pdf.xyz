@@ -14,7 +14,7 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import { outputName } from "@/lib/pdf/files";
+import { compressedOutputName } from "@/lib/jobs/filenames";
 import {
   DEEP_COMPRESSION_TOOLS,
   parseCompressionOptions,
@@ -144,7 +144,11 @@ export function createCompressionProcessor(deps: CompressionDeps): Processor {
       return processorOk(
         [
           {
-            filename: outputName(file.filename, "compressed"),
+            // Deterministic `<sanitized-base>-compressed.pdf`, derived from the
+            // input's display name (recovered from object metadata / the job spec
+            // upstream). Same helper on every path, so local-dev, in-browser
+            // fallback, and secure-worker outputs share one naming scheme.
+            filename: compressedOutputName(file.filename),
             contentType: OUTPUT_CONTENT_TYPE,
             bytes: run.output,
           },

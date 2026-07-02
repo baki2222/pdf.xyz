@@ -33,6 +33,7 @@ import {
   apiError,
   getToolCapability,
   notImplemented,
+  sanitizeDisplayFilename,
   type Job,
   type JobArtifact,
   type UploadSlot,
@@ -183,13 +184,20 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       });
       const processor = registry.resolve(request.tool);
       if (!processor) return adapterError(notImplemented());
+      // Prefer the client-supplied display name (already validated + sanitized in
+      // the request) so this synchronous path names outputs identically to the
+      // async worker path; otherwise use the reserved slot's name. Either is a
+      // safe display string and never touches a key or path.
+      const displayName = sanitizeDisplayFilename(
+        request.inputNames?.[0] ?? slot.filename,
+      );
       const result = await processor.process({
         tool: request.tool,
         options: request.options ?? {},
         inputs: [
           {
             fileId,
-            filename: slot.filename,
+            filename: displayName,
             contentType: slot.contentType,
             bytes: slot.bytes,
           },

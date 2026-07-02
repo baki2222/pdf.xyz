@@ -24,6 +24,12 @@ export interface JobSubmission {
   job: Job;
   /** Input `fileId`s the executor reads and processes. */
   inputs: string[];
+  /**
+   * Optional sanitized display names, positionally aligned with `inputs`. Carried
+   * as a spec *value* (never a key) so the executor can name outputs even when the
+   * storage layer can't recover a name from object metadata. Display-only.
+   */
+  inputNames?: string[];
   /** Raw options (validated at submit time; processors re-validate defensively). */
   options: Record<string, unknown>;
 }
@@ -32,6 +38,8 @@ export interface JobSubmission {
 export interface ClaimedJob {
   job: Job;
   inputs: string[];
+  /** Sanitized display names aligned with `inputs`, when the submission carried them. */
+  inputNames?: string[];
   options: Record<string, unknown>;
   /** 1-based attempt number; increments on redelivery or a retryable requeue. */
   attempt: number;

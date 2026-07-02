@@ -315,11 +315,13 @@ one process that actually drains the queue; the Next.js app never becomes it.
   Smoke-test the image with `pnpm worker:daemon --dry-run-status` and confirm
   `compression_health.deep` is `true` (and `engines` lists your installed engine)
   before advertising deep compression.
-- **Known caveat — generic output filenames (unchanged from Phase 16).** The upload
-  contract does not persist the client's original filename, so worker outputs are
-  named from the content-type (a PDF input yields `document-compressed.pdf`). This is
-  cosmetic and honest; threading the original name through object metadata / the job
-  spec remains a follow-up.
+- **Worker output filenames are display-only metadata (Phase 18).** Upload signing
+  can carry a sanitized `x-amz-meta-filename`, and job specs can carry sanitized
+  `inputNames`, so worker outputs can download as useful names such as
+  `invoice-compressed.pdf`. These names are never used as object keys, Redis keys,
+  signed URL paths/queries, status payloads, telemetry, or daemon logs; if metadata
+  is absent, the deterministic content-type fallback (`document-compressed.pdf`) is
+  still used.
 - **Logs are content-free.** The daemon prints structured JSON with a run mode, tick
   counters, an opaque job id/attempt, an error *code*, and the presence-only
   `compression_health` booleans/engine names only — never a filename, byte count,

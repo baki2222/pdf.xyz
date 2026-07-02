@@ -71,6 +71,9 @@ describe("local-dev worker — compression job flow", () => {
     expect(artifact.url).toMatch(/^\/api\/artifacts\/local\/art_/);
     expect(artifact.contentType).toBe("application/pdf");
     expect(artifact.bytes).toBeGreaterThan(0);
+    // Output named from the uploaded slot's filename — same scheme the async
+    // secure-worker path uses (deterministic `<base>-compressed.pdf`).
+    expect(artifact.filename).toBe("report-compressed.pdf");
 
     // The stored artifact is a real, valid PDF preserving the page count.
     const stored = store.getArtifact(artifact.artifactId);
@@ -86,6 +89,26 @@ describe("local-dev worker — compression job flow", () => {
 
     // The input is wiped as soon as processing finishes (retention contract).
     expect(store.getSlot(fileId)).toBeUndefined();
+  });
+
+  it("names the output from the request's inputNames when supplied", async () => {
+    const adapter = makeAdapter();
+    const pdf = await makePdf(3);
+    // The slot was reserved under a generic name; the job carries the real one.
+    const fileId = await seedUpload(adapter, pdf, "upload.pdf");
+
+    const created = await adapter.createJob({
+      tool: "compress-pdf",
+      inputs: [fileId],
+      inputNames: ["../../Downloads/Q3 Report.PDF"],
+      options: { profile: "lossless" },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    // Sanitized display name drives the output, aligned with the worker path.
+    expect(created.value.artifacts?.[0]?.filename).toBe(
+      "Q3 Report-compressed.pdf",
+    );
   });
 
   it("fails honestly for deep compression with no native engine — no dummy file", async () => {

@@ -96,6 +96,8 @@ describe("local-dev compression — full route flow", () => {
     expect(job.status).toBe("completed");
     const artifact = job.artifacts?.[0];
     expect(artifact?.url).toMatch(/^\/api\/artifacts\/local\/art_/);
+    // The output is named from the uploaded filename (no inputNames supplied).
+    expect(artifact?.filename).toBe("report-compressed.pdf");
 
     // 4. Poll status → same terminal job.
     const statusRes = await getJob(
@@ -116,6 +118,44 @@ describe("local-dev compression — full route flow", () => {
     const out = new Uint8Array(await dlRes.arrayBuffer());
     const reloaded = await PDFDocument.load(out);
     expect(reloaded.getPageCount()).toBe(5);
+  });
+
+  it("names the download from request inputNames end-to-end through the routes", async () => {
+    const pdf = await makePdf(3);
+    const sessionRes = await createUpload(
+      jsonRequest("http://localhost/api/uploads", {
+        tool: "compress-pdf",
+        files: [
+          { filename: "upload.pdf", contentType: "application/pdf", bytes: pdf.byteLength },
+        ],
+      }),
+    );
+    const session = (await sessionRes.json()) as UploadSession;
+    const slot = session.slots[0]!;
+    await putBytes(
+      new Request(`http://localhost${slot.url}`, {
+        method: "PUT",
+        headers: slot.headers,
+        body: toBody(pdf),
+      }),
+      { params: Promise.resolve({ fileId: slot.fileId }) },
+    );
+
+    const jobRes = await createJob(
+      jsonRequest("http://localhost/api/jobs", {
+        tool: "compress-pdf",
+        inputs: [slot.fileId],
+        inputNames: ["Quarterly Statement.pdf"],
+        options: { profile: "lossless" },
+      }),
+    );
+    expect(jobRes.status).toBe(201);
+    const job = (await jobRes.json()) as Job;
+    // The sanitized display name drives the safe download filename surfaced to
+    // the client — never the object id or a fabricated fallback.
+    expect(job.artifacts?.[0]?.filename).toBe(
+      "Quarterly Statement-compressed.pdf",
+    );
   });
 
   it("wipes the input after processing: a second job on the same file 404s", async () => {

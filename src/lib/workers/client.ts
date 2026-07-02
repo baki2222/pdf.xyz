@@ -190,6 +190,10 @@ export async function runWorkerCompression(
         JSON.stringify({
           tool: "compress-pdf",
           inputs: [slot.fileId],
+          // Carry the original filename as display-only metadata so the worker
+          // names the output after it. The server re-sanitizes it and never lets
+          // it reach an object/broker key. Backward-compatible (optional field).
+          inputNames: [input.filename],
           options: options_,
         }),
       ),

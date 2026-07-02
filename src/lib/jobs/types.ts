@@ -148,6 +148,15 @@ export interface CreateJobRequest {
   tool: string;
   /** `fileId`s returned by an upload session (file-input tools). */
   inputs: string[];
+  /**
+   * Optional, positionally-aligned display names for `inputs` — the sanitized
+   * original filenames, used only to name outputs and for display. They are
+   * sanitized server-side (see {@link sanitizeDisplayFilename}) and NEVER become
+   * an object key, broker key, path, or log line. Omitting them is fully
+   * supported: the worker still recovers a name from object metadata, and legacy
+   * jobs fall back to a safe content-type-derived name. Backward-compatible.
+   */
+  inputNames?: string[];
   /** Tool-specific options (compression level, target language, url, …). */
   options?: Record<string, unknown>;
   /** Optional idempotency key so retries don't double-run or double-charge. */

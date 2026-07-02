@@ -23,6 +23,7 @@
  */
 
 import type { JobArtifact } from "@/lib/jobs";
+import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import type { ClaimableQueue } from "../queue/claim";
 import type { ProcessorInputFile } from "../processor/types";
 import type { ProcessorRegistry } from "../processor/registry";
@@ -72,7 +73,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     if (!claim.ok) return { outcome: "error" };
     if (claim.value === null) return { outcome: "idle" };
 
-    const { job, inputs, options, attempt } = claim.value;
+    const { job, inputs, inputNames, options, attempt } = claim.value;
     const base = { jobId: job.jobId, tool: job.tool, attempt };
     log({ event: "claimed", ...base });
 
@@ -98,7 +99,8 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     // (the object is gone; re-reading won't bring it back).
     log({ event: "scanning", ...base });
     const files: ProcessorInputFile[] = [];
-    for (const fileId of inputs) {
+    for (let i = 0; i < inputs.length; i++) {
+      const fileId = inputs[i]!;
       const file = await storage.readInput(fileId);
       if (!file) {
         log({ event: "input_missing", ...base });
@@ -114,7 +116,15 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
         await wipeInputs(inputs);
         return { outcome: "failed", jobId: job.jobId, attempt };
       }
-      files.push(file);
+      // The job spec's sanitized display name (when present) is the authoritative
+      // source of truth for the input's name and overrides whatever the storage
+      // layer recovered (object metadata / a content-type fallback). Re-sanitize
+      // defensively; a spec name can never influence a key, path, or log line.
+      const specName = inputNames?.[i];
+      const filename = specName
+        ? sanitizeDisplayFilename(specName)
+        : file.filename;
+      files.push(filename === file.filename ? file : { ...file, filename });
     }
 
     // Cancellation can arrive while the job is queued or being claimed; stop

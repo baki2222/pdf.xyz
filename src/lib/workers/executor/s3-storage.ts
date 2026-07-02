@@ -21,11 +21,15 @@
  *    (never a client filename), and nothing here logs, returns, or serializes a
  *    key, URL, credential, or byte.
  *
- * Known limitation (documented, not faked): the current upload contract signs an
- * object's content-type but does not persist the client's original *filename*, so
- * the worker cannot recover it. Inputs therefore surface a generic,
- * content-type-derived name; outputs are named from that. A later phase should
- * thread the filename through object metadata or the job spec. See
+ * Filename recovery (Phase 18): the app-server upload reservation now signs the
+ * sanitized original filename as `x-amz-meta-filename` object metadata, so this
+ * worker recovers a user-friendly input name from the object it reads and derives
+ * the output name from it. The value is re-sanitized on read ({@link decodeFilenameMetadata}),
+ * so a tampered/malformed header can only ever collapse to a safe name — and it is
+ * still never part of any object key. When the header is absent (a legacy object,
+ * or a deployment whose storage can't return metadata), the read falls back to a
+ * neutral, content-type-derived name; the executor may then overlay the job spec's
+ * display name, which is the deployment-independent source of truth. See
  * docs/WORKER_ARCHITECTURE.md.
  *
  * Node-only: it pulls the `node:crypto` signer, so it is constructed by the
@@ -37,6 +41,12 @@ import { newArtifactId } from "../ids";
 import type { ProcessorInputFile } from "../processor/types";
 import type { S3StorageConfig } from "../storage/s3-config";
 import { buildObjectKey, signingTarget } from "../storage/s3-keys";
+import {
+  CONTENT_DISPOSITION_HEADER,
+  FILENAME_METADATA_HEADER,
+  contentDispositionAttachment,
+  decodeFilenameMetadata,
+} from "../storage/s3-metadata";
 import { presignS3Url } from "../storage/s3-signer";
 import type { StorageObjectKind } from "../storage/types";
 import type { ExecutorStorage, WriteArtifactInput } from "./types";
@@ -91,11 +101,12 @@ const defaultFetch: S3ObjectFetch = (url, init) =>
   }) as unknown as Promise<S3ObjectResponse>;
 
 /**
- * Derive a safe, generic filename from a content-type. The original client
- * filename is not recoverable from a stored S3 object under the current upload
- * contract (see the module header), so outputs are named from this rather than
- * from a fabricated original. PDFs — the secure-worker's staple input — get a
- * `.pdf` name; everything else falls back to a neutral `input` name.
+ * Derive a safe, generic filename from a content-type. This is the FALLBACK used
+ * only when an object carries no recoverable `x-amz-meta-filename` (a legacy
+ * object, or a deployment whose storage can't return metadata); the primary path
+ * recovers the sanitized original name from object metadata. PDFs — the
+ * secure-worker's staple input — get a `.pdf` name; everything else falls back to
+ * a neutral `input` name.
  */
 export function filenameForContentType(contentType: string): string {
   const base = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
@@ -159,9 +170,15 @@ export function createS3ExecutorStorage(
       const bytes = new Uint8Array(await res.arrayBuffer());
       const contentType =
         res.headers.get("content-type")?.trim() || FALLBACK_CONTENT_TYPE;
+      // Recover the sanitized original filename from object metadata when present;
+      // otherwise fall back to a neutral content-type-derived name. The metadata
+      // value is re-sanitized, so it can never escape as a path or unsafe string.
+      const recovered = decodeFilenameMetadata(
+        res.headers.get(FILENAME_METADATA_HEADER),
+      );
       return {
         fileId,
-        filename: filenameForContentType(contentType),
+        filename: recovered ?? filenameForContentType(contentType),
         contentType,
         bytes,
       };
@@ -172,14 +189,20 @@ export function createS3ExecutorStorage(
       const key = buildObjectKey(config, "artifact", artifactId);
 
       // PUT the real bytes. Sign + echo the content-type so the stored object is
-      // typed correctly and a later signed GET serves it back as-is.
-      const putUrl = sign("PUT", key, WORKER_OP_TTL_SECONDS, {
+      // typed correctly, plus a `Content-Disposition: attachment` carrying the
+      // safe output name so a *direct* signed-URL download saves under that name
+      // (the object KEY stays opaque-id only). The name is sanitized in the header
+      // builder, so no control/CRLF can be injected.
+      const disposition = contentDispositionAttachment(input.filename);
+      const putHeaders: Record<string, string> = {
         "content-type": input.contentType,
-      });
+        [CONTENT_DISPOSITION_HEADER]: disposition,
+      };
+      const putUrl = sign("PUT", key, WORKER_OP_TTL_SECONDS, putHeaders);
       const res = await fetchImpl(putUrl, {
         method: "PUT",
         body: input.bytes,
-        headers: { "content-type": input.contentType },
+        headers: putHeaders,
       });
       if (!res.ok) {
         // Transient: throw so the job is not completed and is redelivered. Any

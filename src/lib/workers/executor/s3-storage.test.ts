@@ -32,6 +32,8 @@ interface ScriptedResponse {
   status: number;
   contentType?: string;
   bytes?: Uint8Array;
+  /** Raw `x-amz-meta-filename` value the fake object returns on a GET. */
+  filenameMeta?: string;
 }
 
 interface RecordedCall {
@@ -61,8 +63,12 @@ function fakeFetch(script: ScriptedResponse[]): {
       ok: res.status >= 200 && res.status < 300,
       status: res.status,
       headers: {
-        get: (name) =>
-          name.toLowerCase() === "content-type" ? (res.contentType ?? null) : null,
+        get: (name) => {
+          const key = name.toLowerCase();
+          if (key === "content-type") return res.contentType ?? null;
+          if (key === "x-amz-meta-filename") return res.filenameMeta ?? null;
+          return null;
+        },
       },
       arrayBuffer: async () =>
         (res.bytes ?? new Uint8Array()).slice().buffer as ArrayBuffer,
@@ -88,15 +94,22 @@ describe("filenameForContentType", () => {
 describe("createS3ExecutorStorage — readInput", () => {
   const fileId = "f_abcdefghij0123456789";
 
-  it("reads real bytes over a signed GET and derives a content-type-safe name", async () => {
+  it("recovers the sanitized original filename from x-amz-meta-filename", async () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
-    const { fn, calls } = fakeFetch([{ status: 200, contentType: "application/pdf", bytes }]);
+    const { fn, calls } = fakeFetch([
+      {
+        status: 200,
+        contentType: "application/pdf",
+        bytes,
+        filenameMeta: "Q3%20Report.pdf",
+      },
+    ]);
     const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
 
     const file = await storage.readInput(fileId);
     expect(file).toEqual({
       fileId,
-      filename: "document.pdf",
+      filename: "Q3 Report.pdf",
       contentType: "application/pdf",
       bytes,
     });
@@ -106,6 +119,36 @@ describe("createS3ExecutorStorage — readInput", () => {
     expect(calls[0]!.url).toContain("/inputs/f_abcdefghij0123456789");
     expect(calls[0]!.url).toContain("X-Amz-Signature=");
     expect(calls[0]!.url).not.toContain(S3_SECRET);
+  });
+
+  it("falls back to a content-type name when no metadata is present (legacy)", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const { fn } = fakeFetch([{ status: 200, contentType: "application/pdf", bytes }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+
+    const file = await storage.readInput(fileId);
+    expect(file).toEqual({
+      fileId,
+      filename: "document.pdf",
+      contentType: "application/pdf",
+      bytes,
+    });
+  });
+
+  it("re-sanitizes a tampered metadata value so no path can escape", async () => {
+    const bytes = new Uint8Array([1]);
+    const { fn } = fakeFetch([
+      {
+        status: 200,
+        contentType: "application/pdf",
+        bytes,
+        filenameMeta: encodeURIComponent("../../etc/passwd.pdf"),
+      },
+    ]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+    const file = await storage.readInput(fileId);
+    expect(file?.filename).toBe("passwd.pdf");
+    expect(file?.filename).not.toContain("/");
   });
 
   it("returns null for a genuinely missing object (404)", async () => {
@@ -152,11 +195,19 @@ describe("createS3ExecutorStorage — writeArtifact", () => {
       new Date(NOW + cfg.downloadTtlSeconds * 1000).toISOString(),
     );
 
-    // The PUT carried the real bytes and the declared content-type.
+    // The PUT carried the real bytes, the declared content-type, and a safe
+    // Content-Disposition so a direct signed-URL download saves under the name.
     const put = calls.find((c) => c.method === "PUT");
     expect(put).toBeDefined();
     expect(put!.body).toEqual(input.bytes);
     expect(put!.headers?.["content-type"]).toBe("application/pdf");
+    expect(put!.headers?.["content-disposition"]).toBe(
+      "attachment; filename=\"report-compressed.pdf\"; filename*=UTF-8''report-compressed.pdf",
+    );
+    // Content-Disposition is a signed header, so the client can't alter it.
+    expect(new URL(put!.url).searchParams.get("X-Amz-SignedHeaders")).toContain(
+      "content-disposition",
+    );
     expect(put!.url).not.toContain(S3_SECRET);
   });
 

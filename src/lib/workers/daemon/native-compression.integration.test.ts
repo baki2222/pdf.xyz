@@ -36,6 +36,10 @@ import {
 import type { ExecutorLogEvent } from "../executor/types";
 import { parseS3Config, type S3StorageConfig } from "../storage/s3-config";
 import { buildObjectKey, signingTarget } from "../storage/s3-keys";
+import {
+  FILENAME_METADATA_HEADER,
+  encodeFilenameMetadata,
+} from "../storage/s3-metadata";
 import type { StorageObjectKind } from "../storage/types";
 import type {
   CompressionDeps,
@@ -76,6 +80,8 @@ function keyPath(kind: StorageObjectKind, id: string): string {
 interface StoredObject {
   bytes: Uint8Array;
   contentType: string;
+  /** Raw `x-amz-meta-filename` value stored on the object (as S3 would keep it). */
+  filenameMeta?: string;
 }
 
 /**
@@ -92,8 +98,12 @@ function fakeBucket() {
     ok: status >= 200 && status < 300,
     status,
     headers: {
-      get: (name) =>
-        name.toLowerCase() === "content-type" ? (obj?.contentType ?? null) : null,
+      get: (name) => {
+        const key = name.toLowerCase();
+        if (key === "content-type") return obj?.contentType ?? null;
+        if (key === FILENAME_METADATA_HEADER) return obj?.filenameMeta ?? null;
+        return null;
+      },
     },
     arrayBuffer: async () =>
       (obj?.bytes ?? new Uint8Array()).slice().buffer as ArrayBuffer,
@@ -108,10 +118,12 @@ function fakeBucket() {
         return obj ? respond(200, obj) : respond(404);
       }
       case "PUT": {
+        const filenameMeta = init.headers?.[FILENAME_METADATA_HEADER];
         objects.set(key, {
           bytes: init.body ?? new Uint8Array(),
           contentType:
             init.headers?.["content-type"] ?? "application/octet-stream",
+          ...(filenameMeta ? { filenameMeta } : {}),
         });
         return respond(200);
       }
@@ -197,7 +209,7 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
 
     const artifact = job?.artifacts?.[0];
     expect(artifact).toBeDefined();
-    // Content-type-derived name (the Phase 16 filename caveat, unchanged).
+    // Legacy object with no filename metadata → safe content-type-derived name.
     expect(artifact!.filename).toBe("document-compressed.pdf");
     // A real, signed, expiring download URL the client fetches verbatim.
     expect(artifact!.url).toContain("X-Amz-Signature=");
@@ -215,6 +227,75 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     expect(
       bucket.calls.some((c) => c.method === "DELETE" && c.key === keyPath("input", fileId)),
     ).toBe(true);
+  });
+
+  it("names the output from x-amz-meta-filename recovered off the input object", async () => {
+    const bucket = fakeBucket();
+    const { store, queue, storage } = harness(bucket);
+
+    const fileId = newFileId();
+    const pdf = await makePdf(4);
+    // Seed the input object exactly as the app-server reservation would: bytes,
+    // content-type, AND the sanitized filename in object metadata.
+    bucket.objects.set(keyPath("input", fileId), {
+      bytes: pdf,
+      contentType: "application/pdf",
+      filenameMeta: encodeFilenameMetadata("Board Deck.pdf"),
+    });
+    // No inputNames on the submission — recovery is purely from S3 metadata.
+    await queue.submit({
+      job: queuedJob("job_meta00000001", "compress-pdf"),
+      inputs: [fileId],
+      options: { profile: "lossless" },
+    });
+
+    const runtime = resolveWorkerRuntime({}, {
+      queue,
+      storage,
+      compression: noEngines,
+    });
+    await createWorkerDaemon({ executor: runtime.executor! }).run({
+      mode: "once",
+    });
+
+    const artifact = store.getJob("job_meta00000001")?.artifacts?.[0];
+    expect(artifact!.filename).toBe("Board Deck-compressed.pdf");
+    // The recovered filename never appears in any object key touched on the bucket.
+    for (const call of bucket.calls) {
+      expect(call.key).not.toContain("Board");
+      expect(call.key).not.toContain("Deck");
+    }
+  });
+
+  it("lets the job spec's inputNames override the object metadata name", async () => {
+    const bucket = fakeBucket();
+    const { store, queue, storage } = harness(bucket);
+
+    const fileId = newFileId();
+    bucket.objects.set(keyPath("input", fileId), {
+      bytes: await makePdf(3),
+      contentType: "application/pdf",
+      filenameMeta: encodeFilenameMetadata("stale-name.pdf"),
+    });
+    await queue.submit({
+      job: queuedJob("job_override001", "compress-pdf"),
+      inputs: [fileId],
+      inputNames: ["Authoritative Report.pdf"],
+      options: { profile: "lossless" },
+    });
+
+    const runtime = resolveWorkerRuntime({}, {
+      queue,
+      storage,
+      compression: noEngines,
+    });
+    await createWorkerDaemon({ executor: runtime.executor! }).run({
+      mode: "once",
+    });
+
+    const artifact = store.getJob("job_override001")?.artifacts?.[0];
+    // The spec name is authoritative; the (stale) object metadata is ignored.
+    expect(artifact!.filename).toBe("Authoritative Report-compressed.pdf");
   });
 
   it("completes a deep compress-pdf job with a deterministic injected native runner", async () => {
@@ -329,13 +410,17 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     const { queue, storage } = harness(bucket);
 
     const fileId = newFileId();
+    // Seed a REAL filename via object metadata AND submit a spec display name, so
+    // the assertion proves neither source ever reaches a log line.
     bucket.objects.set(keyPath("input", fileId), {
       bytes: await makePdf(3),
       contentType: "application/pdf",
+      filenameMeta: encodeFilenameMetadata("Confidential Salaries.pdf"),
     });
     await queue.submit({
       job: queuedJob("job_logs0000001", "compress-pdf"),
       inputs: [fileId],
+      inputNames: ["Confidential Salaries.pdf"],
       options: { profile: "lossless" },
     });
 
@@ -359,6 +444,8 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     // Never logged: secrets, filenames, object keys, or the input id.
     expect(serialized).not.toContain(S3_SECRET);
     expect(serialized).not.toContain("document.pdf");
+    expect(serialized).not.toContain("Confidential");
+    expect(serialized).not.toContain("Salaries");
     expect(serialized).not.toContain("/artifacts/");
     expect(serialized).not.toContain("/inputs/");
     expect(serialized).not.toContain(fileId);

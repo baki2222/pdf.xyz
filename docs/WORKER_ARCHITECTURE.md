@@ -224,9 +224,13 @@ genuine SigV4-signed GET/PUT/DELETE. A missing input object (S3 `404`) is an hon
 for at-least-once redelivery instead of a false "gone". Each artifact embeds a real
 signed, expiring download URL (the client uses it verbatim), and object keys derive
 only from opaque ids — shared with the app provider (`storage/s3-keys.ts`) so the
-worker's artifact key always matches the app's download key. Known limit: the upload
-contract does not persist the client filename, so outputs use a content-type-derived
-name until a later phase threads it through object metadata or the job spec.
+worker's artifact key always matches the app's download key. Phase 18 adds a
+separate display-only naming channel: upload signing may include sanitized
+`x-amz-meta-filename` metadata and queued job specs may include sanitized
+`inputNames`, but neither channel participates in object keys, broker keys, signed
+URL paths/queries, status payloads, telemetry, or logs. Worker artifacts now use
+that metadata for `Content-Disposition`/download filenames when present, falling
+back to content-type-derived names when absent.
 
 **Run modes.** `pnpm worker:daemon [--once | --drain | --loop | --dry-run-status]`,
 plus `--max-ticks`, `--idle-sleep-ms`, `--lease-ms`. `--once` runs a single job
@@ -268,9 +272,9 @@ The daemon also reports a presence-only **compression-engine health**
 (`WorkerRuntime.compression` → the CLI's `compression_health` line): `{ lossless: true,
 deep, engines }`, **distinct from `daemon.drainable`**. Drainability is about queue +
 storage; this is about whether *this worker image* can do deep compression. An operator
-smoke-tests it with `pnpm worker:daemon --dry-run-status` (see DEPLOYMENT.md). The
-Phase 16 generic-filename caveat is unchanged — worker outputs use a content-type-derived
-name until a later phase threads the original filename through.
+smoke-tests it with `pnpm worker:daemon --dry-run-status` (see DEPLOYMENT.md). Worker
+outputs now use Phase 18 display-only filename metadata when present (for example
+`invoice-compressed.pdf`) and fall back to content-type-derived names when absent.
 
 ## Processor registry & worker executor (Phase 13)
 

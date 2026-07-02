@@ -104,6 +104,40 @@ describe("worker executor — local-dev integration", () => {
     expect(store.getSlot(fileId)).toBeUndefined();
   });
 
+  it("names the output from the job spec's display name, overriding storage", async () => {
+    const pdf = await makePdf(3);
+    // The stored slot carries a generic name; the spec carries the real one.
+    const fileId = await seedInput(pdf, "upload.pdf");
+    await queue.submit({
+      job: queuedJob("job_named00000", "compress-pdf", clock),
+      inputs: [fileId],
+      inputNames: ["Client Q3 Report.pdf"],
+      options: { profile: "lossless" },
+    });
+
+    const ticks = await executor().drain();
+    expect(ticks.map((t) => t.outcome)).toEqual(["completed", "idle"]);
+    const art = store.getJob("job_named00000")?.artifacts?.[0];
+    // The spec name wins over the storage-recovered "upload.pdf".
+    expect(art?.filename).toBe("Client Q3 Report-compressed.pdf");
+  });
+
+  it("re-sanitizes an unsafe spec display name before it names the output", async () => {
+    const pdf = await makePdf(2);
+    const fileId = await seedInput(pdf, "upload.pdf");
+    await queue.submit({
+      job: queuedJob("job_unsafe0000", "compress-pdf", clock),
+      inputs: [fileId],
+      inputNames: ["../../etc/passwd.pdf"],
+      options: { profile: "lossless" },
+    });
+
+    await executor().drain();
+    const art = store.getJob("job_unsafe0000")?.artifacts?.[0];
+    expect(art?.filename).toBe("passwd-compressed.pdf");
+    expect(art?.filename).not.toContain("/");
+  });
+
   it("fails a deep job honestly (no engine) — failed, no artifact, input wiped", async () => {
     const fileId = await seedInput(await makePdf());
     await queue.submit({

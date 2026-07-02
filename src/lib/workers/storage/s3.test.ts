@@ -68,7 +68,12 @@ describe("createS3Storage — reserveUpload", () => {
     expect(res.value.fileId).toMatch(/^f_[A-Za-z0-9_-]+$/);
     expect(res.value.filename).toBe(FILENAME);
     expect(res.value.target.method).toBe("PUT");
-    expect(res.value.target.headers).toEqual({ "content-type": "application/pdf" });
+    // The PUT now also carries the sanitized filename as signed object metadata
+    // (echoed by the client). Content-type stays locked to the declared type.
+    expect(res.value.target.headers).toEqual({
+      "content-type": "application/pdf",
+      "x-amz-meta-filename": "quarterly-invoice.pdf",
+    });
     expect(res.value.target.maxBytes).toBe(JOB_LIMITS.maxFileBytes);
     expect(res.value.expiresAt).toBe(new Date(NOW + 900_000).toISOString());
 
@@ -77,13 +82,33 @@ describe("createS3Storage — reserveUpload", () => {
     expect(url.protocol).toBe("https:");
     expect(url.host).toBe("pdfxyz-prod.s3.us-east-1.amazonaws.com");
     expect(url.pathname).toBe(`/inputs/${res.value.fileId}`);
-    // A real SigV4 presign, content-type locked, key id present, secret absent.
+    // A real SigV4 presign; content-type AND the filename metadata are signed, so
+    // the client cannot alter either without breaking the signature.
     expect(url.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
-    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("content-type;host");
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe(
+      "content-type;host;x-amz-meta-filename",
+    );
     expect(url.searchParams.get("X-Amz-Credential")).toContain("AKIAEXAMPLE0000000");
     expect(res.value.target.url).not.toContain(SECRET);
-    // The client's filename never becomes part of the bucket key.
-    expect(res.value.target.url).not.toContain("invoice");
+    // The client's filename is metadata only — never part of the bucket key/URL.
+    expect(url.pathname).not.toContain("invoice");
+    expect(url.search).not.toContain("invoice");
+  });
+
+  it("sanitizes an unsafe client filename into the metadata (path/case stripped)", async () => {
+    const provider = createS3Storage(config(), { now });
+    const res = await provider.reserveUpload({
+      ...uploadReq,
+      filename: "../../secret/Q3 Report.PDF",
+    });
+    if (!res.ok) throw new Error("reserve failed");
+    // Display filename is the safe last segment, extension normalized.
+    expect(res.value.filename).toBe("Q3 Report.pdf");
+    expect(res.value.target.headers["x-amz-meta-filename"]).toBe("Q3%20Report.pdf");
+    // No path component ever reaches the key or the signed URL.
+    const url = new URL(res.value.target.url);
+    expect(url.pathname).toBe(`/inputs/${res.value.fileId}`);
+    expect(url.pathname).not.toContain("secret");
   });
 
   it("uses path-style addressing and a key prefix when configured", async () => {

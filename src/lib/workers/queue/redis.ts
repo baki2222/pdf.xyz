@@ -68,6 +68,8 @@ export interface RedisQueueDeps {
 /** The executor-facing spec stored alongside a queued job. */
 interface RedisJobSpec {
   inputs: string[];
+  /** Sanitized display names aligned with `inputs` (a JSON value, never a key). */
+  inputNames?: string[];
   options: Record<string, unknown>;
 }
 
@@ -227,6 +229,7 @@ export function createRedisQueue(
         putJob(job),
         putSpec(job.jobId, {
           inputs: submission.inputs,
+          ...(submission.inputNames ? { inputNames: submission.inputNames } : {}),
           options: submission.options,
         }),
       ];
@@ -343,6 +346,9 @@ export function createRedisQueue(
       return queueOk<ClaimedJob | null>({
         job: claimed,
         inputs: specRes.value.inputs,
+        ...(specRes.value.inputNames
+          ? { inputNames: specRes.value.inputNames }
+          : {}),
         options: specRes.value.options,
         attempt,
         leaseExpiresAt,

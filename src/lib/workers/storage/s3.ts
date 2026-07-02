@@ -17,9 +17,14 @@
  */
 
 import { JOB_LIMITS } from "@/lib/jobs";
+import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import { newFileId } from "../ids";
 import type { S3StorageConfig } from "./s3-config";
 import { presignS3Url } from "./s3-signer";
+import {
+  FILENAME_METADATA_HEADER,
+  encodeFilenameMetadata,
+} from "./s3-metadata";
 import type { StorageObjectKind, StorageProvider } from "./types";
 import { s3StorageCapability } from "./s3-config";
 import { storageFail, storageOk } from "./types";
@@ -124,19 +129,31 @@ export function createS3Storage(
 
       const fileId = newFileId();
       const key = buildKey("input", fileId);
+      // Normalize the client filename to a safe display name and carry it as S3
+      // object metadata (never in the key). Signing `x-amz-meta-filename` locks
+      // the stored value to this sanitized token — the client must echo it exactly
+      // on its PUT, so it cannot be tampered into something unsafe. The worker
+      // recovers it on read to name the output. Object keys stay opaque-id only.
+      const displayFilename = sanitizeDisplayFilename(request.filename);
+      const filenameMeta = encodeFilenameMetadata(displayFilename);
       // Sign the content-type so the stored object's type is locked to what was
-      // declared; the client echoes exactly this header on its PUT.
-      const url = sign("PUT", key, config.uploadTtlSeconds, {
+      // declared; the client echoes exactly these headers on its PUT.
+      const signedHeaders: Record<string, string> = {
         "content-type": request.contentType,
-      });
+        [FILENAME_METADATA_HEADER]: filenameMeta,
+      };
+      const url = sign("PUT", key, config.uploadTtlSeconds, signedHeaders);
       return storageOk({
         fileId,
-        filename: request.filename,
+        filename: displayFilename,
         contentType: request.contentType,
         target: {
           url,
           method: "PUT",
-          headers: { "content-type": request.contentType },
+          headers: {
+            "content-type": request.contentType,
+            [FILENAME_METADATA_HEADER]: filenameMeta,
+          },
           maxBytes: JOB_LIMITS.maxFileBytes,
         },
         expiresAt: isoAfter(config.uploadTtlSeconds),

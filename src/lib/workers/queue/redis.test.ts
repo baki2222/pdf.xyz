@@ -169,6 +169,25 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
     expect(status.ok && status.value.status).toBe("scanning");
   });
 
+  it("round-trips display inputNames through submit → claim as a spec value only", async () => {
+    const { fake, q } = make();
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      inputNames: ["Secret Client Report.pdf"],
+      options: {},
+    });
+    // The filename rides the spec VALUE — it must never appear in any broker KEY.
+    for (const key of fake.keys()) {
+      expect(key).not.toContain("Secret");
+      expect(key).not.toContain("Report");
+      expect(key).not.toContain(".pdf");
+    }
+    const claim = await q.claim({ leaseMs: 30_000 });
+    if (!claim.ok || !claim.value) throw new Error("expected a claim");
+    expect(claim.value.inputNames).toEqual(["Secret Client Report.pdf"]);
+  });
+
   it("claims nothing when the ready list is empty", async () => {
     const { q } = make();
     const claim = await q.claim({ leaseMs: 30_000 });

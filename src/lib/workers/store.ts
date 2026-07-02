@@ -57,6 +57,8 @@ export interface StoredArtifact {
  */
 export interface StoredJobSpec {
   inputs: string[];
+  /** Optional sanitized display names aligned with `inputs` (a value, never a key). */
+  inputNames?: string[];
   options: Record<string, unknown>;
 }
 

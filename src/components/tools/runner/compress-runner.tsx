@@ -541,7 +541,13 @@ function DeepRunControls({
             <button
               type="button"
               onClick={() =>
-                downloadBytes(outcome.output, outputName(filename, "compressed"))
+                downloadBytes(
+                  outcome.output,
+                  // Prefer the worker's safe artifact filename; fall back to a
+                  // locally-derived name only if the server didn't provide one.
+                  outcome.artifact.filename ||
+                    outputName(filename, "compressed"),
+                )
               }
               className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
             >

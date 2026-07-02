@@ -11,4 +11,5 @@ export * from "./capabilities";
 export * from "./config";
 export * from "./responses";
 export * from "./validation";
+export * from "./filenames";
 export * from "./ocr";

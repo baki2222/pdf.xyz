@@ -19,6 +19,7 @@ import {
   usesWorkerBackend,
 } from "./capabilities";
 import { apiError, type ParseResult } from "./responses";
+import { sanitizeDisplayFilename } from "./filenames";
 import {
   JOB_LIMITS,
   type CreateJobRequest,
@@ -327,6 +328,45 @@ function parseIdempotencyKey(value: unknown): ParseResult<string | undefined> {
   return { ok: true, value };
 }
 
+/**
+ * Parse the optional, display-only `inputNames`: sanitized names positionally
+ * aligned with `inputs`. Absent → `undefined` (fully backward-compatible). When
+ * present it must be an array of strings within the per-file caps; each element
+ * is normalized to a safe display name via {@link sanitizeDisplayFilename} and can
+ * never influence an object key, broker key, or path. Only the first `inputCount`
+ * names are kept (extras are ignored — they have no input to name).
+ */
+function parseInputNames(
+  value: unknown,
+  inputCount: number,
+): ParseResult<string[] | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!Array.isArray(value)) {
+    return invalid("`inputNames` must be an array of strings.", "inputNames");
+  }
+  if (value.length > JOB_LIMITS.maxInputFiles) {
+    return unprocessable(
+      `Too many inputNames: max ${JOB_LIMITS.maxInputFiles}.`,
+      "inputNames",
+    );
+  }
+  const names: string[] = [];
+  for (let i = 0; i < Math.min(value.length, inputCount); i++) {
+    const raw = value[i];
+    if (typeof raw !== "string") {
+      return invalid(`inputNames[${i}] must be a string.`, `inputNames[${i}]`);
+    }
+    if (raw.length > JOB_LIMITS.maxFilenameLength) {
+      return tooLarge(
+        `inputNames[${i}] exceeds the ${JOB_LIMITS.maxFilenameLength}-char limit.`,
+        `inputNames[${i}]`,
+      );
+    }
+    names.push(sanitizeDisplayFilename(raw));
+  }
+  return { ok: true, value: names.length > 0 ? names : undefined };
+}
+
 export function parseCreateJobRequest(
   input: unknown,
 ): ParseResult<CreateJobRequest> {
@@ -404,11 +444,15 @@ export function parseCreateJobRequest(
     }
   }
 
+  const namesResult = parseInputNames(input.inputNames, inputs.length);
+  if (!namesResult.ok) return namesResult;
+
   return {
     ok: true,
     value: {
       tool: tool.slug,
       inputs: inputs as string[],
+      ...(namesResult.value ? { inputNames: namesResult.value } : {}),
       ...(input.options !== undefined ? { options } : {}),
       ...(keyResult.value ? { idempotencyKey: keyResult.value } : {}),
     },

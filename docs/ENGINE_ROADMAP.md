@@ -428,8 +428,7 @@ native processing.
 
 ⏳ Remaining for production: **deploying** the daemon in sandboxed worker infra with
 lifecycle-enforced bucket deletion and real malware scanning, native `deep`/OCR
-runners behind the processor contract, threading the original input filename through
-object metadata / the job spec, and the queue's Lua/`WATCH` hardening pass.
+runners behind the processor contract, and the queue's Lua/`WATCH` hardening pass.
 
 ### Phase 17 — native compression worker path, proven end-to-end (shipped)
 
@@ -451,13 +450,32 @@ jobs out-of-band, without weakening any honesty boundary.
   image* will do deep compression (`pnpm worker:daemon --dry-run-status`) separately from
   whether the queue + storage are drainable. Engines are named by binary name only.
 - **Still honest**: `deep` remains genuinely engine-dependent (install Ghostscript / qpdf
-  / mutool on the worker host); with none, only lossless runs. Worker outputs keep the
-  Phase 16 content-type-derived filename until it is threaded through. The in-browser
-  Compress analyzer is unchanged and never uploads.
+  / mutool on the worker host); with none, only lossless runs. Worker outputs use
+  sanitized display-only filename metadata when the client provided it, and otherwise
+  fall back to deterministic content-type-derived names. The in-browser Compress
+  analyzer is unchanged and never uploads.
+
+### Phase 18 — worker filename metadata and artifact naming (shipped)
+
+The secure-worker path now keeps useful output names without weakening the privacy
+model.
+
+- **Sanitized display names** (`src/lib/jobs/filenames.ts`): filenames are stripped
+  of path components, controls, bidi/zero-width characters, unsafe separators, and
+  header-injection vectors, then length-bounded. The sanitizer preserves a safe PDF
+  extension when appropriate and falls back deterministically when metadata is absent.
+- **Dual metadata channel**: S3/R2 uploads may include a signed
+  `x-amz-meta-filename` header, while job specs may carry sanitized `inputNames`.
+  The executor overlays these display names when it builds processor input metadata.
+  They are values only — never object keys, Redis keys, URL paths/queries, status
+  payloads, telemetry fields, or log fields.
+- **Worker artifact names**: compression outputs now use names such as
+  `invoice-compressed.pdf` when metadata is available; local-dev and production S3
+  paths share the same sanitizer and fallback behavior.
 
 ⏳ Remaining for production: **deploying** the daemon with a native engine in the worker
-image, lifecycle-enforced bucket deletion, malware scanning, the OCR runner, the original-
-filename threading, and the queue's Lua/`WATCH` hardening pass.
+image, lifecycle-enforced bucket deletion, malware scanning, the OCR runner, and the
+queue's Lua/`WATCH` hardening pass.
 
 ## Definition of production-ready per tool
 
