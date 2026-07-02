@@ -143,13 +143,15 @@ describe("runWorkerCompression", () => {
     expect(put.headers).toEqual({ "content-type": "application/pdf" });
     expect(new Uint8Array(put.body as ArrayBuffer)).toEqual(input.bytes);
 
-    // The job request carried the deep profile + DPI.
+    // The job request carried the deep profile + DPI, plus the display filename
+    // as inputNames (so the worker names the output after it).
     const jobBody = JSON.parse(
       new TextDecoder().decode(jobCall.body as ArrayBuffer),
     );
     expect(jobBody).toMatchObject({
       tool: "compress-pdf",
       inputs: ["f_abcdefghij"],
+      inputNames: ["report.pdf"],
       options: { profile: "deep", targetDpi: 150 },
     });
   });
