@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, FileDown, FileUp } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  FileDown,
+  FileUp,
+  ShieldCheck,
+} from "lucide-react";
 import {
   getAllToolSlugs,
   getRelatedTools,
@@ -9,12 +16,14 @@ import {
 } from "@/lib/tools";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
+import { getRunnerKind } from "@/lib/pdf/registry";
 import { Container } from "@/components/ui/container";
 import { ToolIcon } from "@/components/ui/tool-icon";
 import { ToolBadgePill } from "@/components/ui/badge";
 import { ToolCard } from "@/components/tools/tool-card";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { UploadZone } from "@/components/upload/upload-zone";
+import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { buildMetadata } from "@/lib/seo";
 
 export function generateStaticParams() {
@@ -52,6 +61,21 @@ export default async function ToolPage({
   const processing = getProcessingMeta(tool.processing);
   const related = getRelatedTools(tool, 3);
   const steps = tool.how ?? [];
+  const runnerKind = getRunnerKind(tool.slug);
+
+  const formatChips = (
+    <div className="flex flex-wrap items-center gap-2">
+      <ProcessingBadge mode={tool.processing} variant="long" />
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
+        <FileUp className="size-3.5 text-slate-400" aria-hidden />
+        In: {tool.accept.join(", ")}
+      </span>
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
+        <FileDown className="size-3.5 text-slate-400" aria-hidden />
+        Out: {tool.outputs.join(", ")}
+      </span>
+    </div>
+  );
 
   return (
     <div className="py-10 sm:py-14">
@@ -78,88 +102,146 @@ export default async function ToolPage({
           )}
         </nav>
 
-        <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:items-start">
-          {/* Overview */}
-          <div className="flex flex-col gap-6">
-            <div className="flex items-start gap-4">
-              <ToolIcon
-                icon={tool.icon}
-                gradient={category?.gradient}
-                size="lg"
-              />
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                    {tool.name}
-                  </h1>
-                  {tool.badge && <ToolBadgePill badge={tool.badge} />}
+        {runnerKind ? (
+          /* ── Workbench layout: interactive, client-side tool runner ── */
+          <div className="flex flex-col gap-8">
+            <div className="flex flex-col gap-5">
+              <div className="flex items-start gap-4">
+                <ToolIcon
+                  icon={tool.icon}
+                  gradient={category?.gradient}
+                  size="lg"
+                />
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                      {tool.name}
+                    </h1>
+                    {tool.badge && <ToolBadgePill badge={tool.badge} />}
+                  </div>
+                  <p className="text-base text-slate-400">{tool.tagline}</p>
                 </div>
-                <p className="text-base text-slate-400">{tool.tagline}</p>
               </div>
+              {formatChips}
             </div>
 
-            <p className="text-pretty text-base leading-relaxed text-slate-300">
-              {tool.description}
-            </p>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <ProcessingBadge mode={tool.processing} variant="long" />
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                <FileUp className="size-3.5 text-slate-400" aria-hidden />
-                In: {tool.accept.join(", ")}
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                <FileDown className="size-3.5 text-slate-400" aria-hidden />
-                Out: {tool.outputs.join(", ")}
-              </span>
-            </div>
-
-            <p className="rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm leading-relaxed text-slate-400">
-              {processing.description}
-            </p>
-
-            {steps.length > 0 && (
-              <div className="flex flex-col gap-4">
-                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
-                  How it works
-                </h2>
-                <ol className="flex flex-col gap-3">
-                  {steps.map((step, i) => (
-                    <li key={step} className="flex items-start gap-3">
-                      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-xs font-semibold text-white">
-                        {i + 1}
-                      </span>
-                      <span className="text-sm leading-relaxed text-slate-300">
-                        {step}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-          </div>
-
-          {/* Action panel */}
-          <div className="lg:sticky lg:top-24">
             <div className="gradient-border">
               <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
-                <div className="flex flex-col gap-1">
-                  <h2 className="text-lg font-semibold text-white">
-                    {tool.name}
-                  </h2>
-                  <p className="text-sm text-slate-400">
-                    Add your files to get started — {processing.short.toLowerCase()}.
-                  </p>
+                <div className="flex items-center gap-2 text-sm text-emerald-300">
+                  <ShieldCheck className="size-4" aria-hidden />
+                  {processing.label} — files never leave your device.
                 </div>
-                <UploadZone
-                  ctaLabel={`Run ${tool.name}`}
-                  ctaHref={`/workspace?tool=${tool.slug}`}
-                  hint={`Accepts ${tool.accept.join(", ")} · Max 100 MB per file`}
+                <ToolRunner kind={runnerKind} />
+              </div>
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
+                  About this tool
+                </h2>
+                <p className="text-sm leading-relaxed text-slate-300">
+                  {tool.description}
+                </p>
+                <p className="text-sm leading-relaxed text-slate-500">
+                  {processing.description}
+                </p>
+              </div>
+              {steps.length > 0 && (
+                <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
+                    How it works
+                  </h2>
+                  <ol className="flex flex-col gap-3">
+                    {steps.map((step, i) => (
+                      <li key={step} className="flex items-start gap-3">
+                        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-xs font-semibold text-white">
+                          {i + 1}
+                        </span>
+                        <span className="text-sm leading-relaxed text-slate-300">
+                          {step}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* ── Overview layout: polished, implementation-ready placeholder ── */
+          <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:items-start">
+            <div className="flex flex-col gap-6">
+              <div className="flex items-start gap-4">
+                <ToolIcon
+                  icon={tool.icon}
+                  gradient={category?.gradient}
+                  size="lg"
                 />
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                      {tool.name}
+                    </h1>
+                    {tool.badge && <ToolBadgePill badge={tool.badge} />}
+                  </div>
+                  <p className="text-base text-slate-400">{tool.tagline}</p>
+                </div>
+              </div>
+
+              <p className="text-pretty text-base leading-relaxed text-slate-300">
+                {tool.description}
+              </p>
+
+              {formatChips}
+
+              <p className="rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm leading-relaxed text-slate-400">
+                {processing.description}
+              </p>
+
+              {steps.length > 0 && (
+                <div className="flex flex-col gap-4">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
+                    How it works
+                  </h2>
+                  <ol className="flex flex-col gap-3">
+                    {steps.map((step, i) => (
+                      <li key={step} className="flex items-start gap-3">
+                        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-xs font-semibold text-white">
+                          {i + 1}
+                        </span>
+                        <span className="text-sm leading-relaxed text-slate-300">
+                          {step}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+
+            <div className="lg:sticky lg:top-24">
+              <div className="gradient-border">
+                <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
+                  <div className="flex flex-col gap-1">
+                    <h2 className="text-lg font-semibold text-white">
+                      {tool.name}
+                    </h2>
+                    <p className="text-sm text-slate-400">
+                      Add your files to get started —{" "}
+                      {processing.short.toLowerCase()}.
+                    </p>
+                  </div>
+                  <UploadZone
+                    ctaLabel={`Run ${tool.name}`}
+                    ctaHref={`/workspace?tool=${tool.slug}`}
+                    hint={`Accepts ${tool.accept.join(", ")} · Max 100 MB per file`}
+                  />
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {related.length > 0 && (
           <div className="flex flex-col gap-6 border-t border-white/10 pt-10">
@@ -186,7 +268,8 @@ export default async function ToolPage({
 
         <p className="inline-flex items-center gap-2 text-xs text-slate-500">
           <Check className="size-3.5 text-emerald-400" aria-hidden />
-          No sign-up required. Your files stay on your device until you run a tool.
+          No sign-up required. Your files stay on your device until you run a
+          tool.
         </p>
       </Container>
     </div>
