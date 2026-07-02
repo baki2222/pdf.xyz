@@ -1,0 +1,101 @@
+name: Container images
+
+# Builds the two INDEPENDENT Dockerfile targets — `web` and `worker` — as
+# first-class CI checks, and exercises the worker image's no-config honesty
+# contract. This is the real Docker build the repo's own build environment cannot
+# run (no reachable Docker daemon there); the static tests under `src/deploy/`
+# pin the Dockerfile/compose invariants, and this workflow proves the images
+# actually build and that the worker stays honest with nothing configured.
+#
+# Secrets policy — load-bearing: this workflow needs NO secrets and configures no
+# provider. Images are built with `push: false` (never published) and the worker
+# is smoked with NOTHING wired, so the daemon must refuse to fabricate work.
+# Nothing below references a repository secret or names a provider value.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: container-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  images:
+    name: Build web + worker images · worker no-config smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the web target only (the Next.js site). Loaded into the local image
+      # store so the separation checks below can run it. Never pushed.
+      - name: Build web image target
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          tags: pdfxyz-web:ci
+          push: false
+          load: true
+          cache-from: |
+            type=gha,scope=pdfxyz-web
+            type=gha,scope=pdfxyz-worker
+          cache-to: type=gha,mode=max,scope=pdfxyz-web
+
+      # Build the worker target (the daemon + native engines). Reuses the shared
+      # base/deps/build layers from the web build's cache, so `pnpm build` is not
+      # repeated. Never pushed.
+      - name: Build worker image target
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          tags: pdfxyz-worker:ci
+          push: false
+          load: true
+          cache-from: |
+            type=gha,scope=pdfxyz-worker
+            type=gha,scope=pdfxyz-web
+          cache-to: type=gha,mode=max,scope=pdfxyz-worker
+
+      # Headline honesty check: run the REAL worker CLI inside the built image with
+      # NO providers configured. It must pass the honest-refusal contract — report
+      # not-configured / refuse to fabricate work (exit 2), reject bad flags
+      # (exit 1), and fail fast on a dangerous config (exit 4) — never invent a job.
+      - name: Worker no-config honesty smoke (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:smoke
+
+      # The container HEALTHCHECK / readiness probe must honestly report
+      # not-configured (exit 2) when nothing is wired — it claims no job.
+      - name: Worker readiness probe is honest with no config (exit 2)
+        run: |
+          set +e
+          docker run --rm pdfxyz-worker:ci pnpm worker:daemon --dry-run-status
+          code=$?
+          set -e
+          if [ "$code" -ne 2 ]; then
+            echo "::error::worker --dry-run-status expected exit 2 (not configured), got $code"
+            exit 1
+          fi
+          echo "worker readiness honestly reported not-configured (exit 2)"
+
+      # Separation, proven at the image level (not just in the Dockerfile text):
+      # the worker image DOES ship the native deep-compression engines.
+      - name: Worker image ships the native deep-compression engines
+        run: docker run --rm pdfxyz-worker:ci sh -c 'command -v gs && command -v qpdf && command -v mutool'
+
+      # …and the web image ships NONE of them — the web app never does worker work.
+      - name: Web image ships no native engines (web ↔ worker separation)
+        run: |
+          if docker run --rm pdfxyz-web:ci sh -c 'command -v gs || command -v qpdf || command -v mutool'; then
+            echo "::error::web image unexpectedly contains a native PDF engine"
+            exit 1
+          fi
+          echo "web image ships no native engines, as designed"

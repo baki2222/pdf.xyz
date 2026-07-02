@@ -83,6 +83,17 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(stageInstructions(stages, "worker")).not.toContain(".next");
   });
 
+  it("the worker HEALTHCHECK is the presence-only readiness probe; the default CMD drains", () => {
+    const worker = stageInstructions(stages, "worker");
+    // A container health probe must claim nothing — it resolves config and reports
+    // drainable/not via `--dry-run-status`, never a processing mode that could
+    // fabricate or attempt work. In the worker stage that flag appears only here.
+    expect(worker).toMatch(/^\s*HEALTHCHECK\b/m);
+    expect(worker).toContain("--dry-run-status");
+    // The default command is the long-running drain-then-poll daemon, not the probe.
+    expect(worker).toMatch(/CMD\s*\[\s*"pnpm",\s*"worker:daemon"\s*\]\s*$/m);
+  });
+
   it("the web image serves the site and ships no worker daemon or native engines", () => {
     const web = stageInstructions(stages, "web");
     expect(web).toMatch(/CMD\s*\[\s*"pnpm",\s*"start"\s*\]/);
@@ -98,8 +109,24 @@ describe(".dockerignore keeps secrets, prompts, and build output out of the cont
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("#"));
 
-  it("excludes dependencies, build output, VCS, secrets, and internal prompts", () => {
-    for (const needed of ["node_modules", ".next", ".git", ".env", ".claude-*.md"]) {
+  it("excludes dependencies, build output, VCS/CI, and internal prompts", () => {
+    for (const needed of ["node_modules", ".next", ".git", ".github", ".claude-*.md"]) {
+      expect(patterns).toContain(needed);
+    }
+  });
+
+  it("excludes every secret shape — .env variants and private keys", () => {
+    // The load-bearing rule: no secret file may ever reach an image layer. The
+    // plain `.env` and the `.env*.local` glob together cover `.env*`.
+    for (const needed of [".env", ".env.local", ".env*.local", "*.pem"]) {
+      expect(patterns).toContain(needed);
+    }
+  });
+
+  it("excludes test-only assets and local build artifacts", () => {
+    // The web/worker images ship no tests or fixtures, and host-only outputs must
+    // not bloat (or leak into) the build context.
+    for (const needed of ["**/*.test.ts", "test-results", "e2e", "coverage", "vitest.config.ts"]) {
       expect(patterns).toContain(needed);
     }
   });
@@ -149,9 +176,26 @@ describe("worker smoke script is present and honest", () => {
     expect(script.startsWith("#!")).toBe(true);
     expect(script).toContain("worker:daemon");
     expect(script).toContain("--dry-run-status");
-    // Asserts the not-configured (2) and usage-error (1) contracts.
-    expect(script).toMatch(/\bcheck 2\b/);
+    // The full exit-code contract: clean (0), not-configured (2), usage error (1),
+    // and the fail-fast guardrail (4) — so the smoke proves guardrails aren't a no-op.
+    expect(script).toMatch(/\bcheck 0\b/);
     expect(script).toMatch(/\bcheck 1\b/);
+    expect(script).toMatch(/\bcheck 2\b/);
+    expect(script).toMatch(/\bcheck_env 4\b/);
+  });
+
+  it("never invokes the bare default (loop) mode, which would run forever", () => {
+    // Every assertion passes an explicit flag; a bare `worker:daemon` with no mode
+    // is the long-running loop and would block the smoke (and CI) indefinitely.
+    const invocations = script
+      .split("\n")
+      .filter((l) => /^\s*check(_env)?\s+\d/.test(l)); // an actual `check[_env] <exit> …` call
+    expect(invocations.length).toBeGreaterThan(0);
+    for (const line of invocations) {
+      // Drop the quoted label (it also contains `--`) before checking the flags.
+      const flags = line.replace(/"[^"]*"/g, "");
+      expect(flags, `smoke invocation must pass a mode flag: ${line}`).toMatch(/--\w/);
+    }
   });
 });
 
@@ -159,7 +203,7 @@ describe("worker smoke script is present and honest", () => {
 // Secret hygiene — no committed artifact may carry a real-looking credential.
 // --------------------------------------------------------------------------- //
 const CONFIG_FILES = ["Dockerfile", "docker-compose.worker.yml", ".env.worker.example"];
-const DOC_FILES = ["docs/DEPLOYMENT.md", "docs/WORKER_ARCHITECTURE.md"];
+const DOC_FILES = ["docs/DEPLOYMENT.md", "docs/WORKER_ARCHITECTURE.md", "docs/RUNBOOK.md"];
 
 /** AWS-style access-key ids — a hard fail wherever they appear. */
 const AWS_KEY = /\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/;

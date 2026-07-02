@@ -43,6 +43,13 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # Docker-free worker contract: the REAL daemon CLI must refuse to fabricate
+      # work with nothing configured (exit 2), reject bad flags (exit 1), and fail
+      # fast on a dangerous config (exit 4). The container workflow re-runs this
+      # inside the built worker image; here it gates every PR without Docker.
+      - name: Worker no-config honesty smoke
+        run: pnpm worker:smoke
+
       - name: Build
         run: pnpm build
 
