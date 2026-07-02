@@ -11,7 +11,7 @@
  * reports "not configured" as if you had set nothing. Guardrails re-surface those
  * cases as errors, and add opt-in production requirements (`require drainable`,
  * `require deep engine`, `require lifecycle`, `require atomic queue`, `require
- * scan`) an operator can enforce.
+ * scan`, `require ocr`) an operator can enforce.
  *
  * Output contract: every violation is a typed `code` plus a **content-free**
  * message — no secret, value, path, object key, endpoint, or signed URL, and no
@@ -39,6 +39,11 @@ import {
   parseNativeCompressionConfig,
   NATIVE_COMPRESSION_ENV,
 } from "../compression/native-config";
+import {
+  parseNativeOcrConfig,
+  nativeOcrCapability,
+  NATIVE_OCR_ENV,
+} from "../ocr-native-config";
 import {
   parseRetentionSettings,
   parseLifecycleConfig,
@@ -77,6 +82,15 @@ export const GUARDRAIL_ENV = {
    * rather than letting the worker process unscanned files.
    */
   requireScan: "PDFXYZ_WORKER_REQUIRE_SCAN",
+  /**
+   * Require a READY OCR backend (a real engine is enabled and installed on this
+   * worker). Opt-in and NOT armed by `strict`: OCR is an optional capability (a
+   * worker that does not run OCR is a legitimate production choice, mirroring
+   * `require deep engine`/`require scan`), so a strict run without OCR must still
+   * pass. An operator who ships OCR arms this so a disabled/misconfigured/engine-less
+   * OCR backend fails fast rather than accepting `ocr-pdf` jobs it cannot run.
+   */
+  requireOcr: "PDFXYZ_WORKER_REQUIRE_OCR",
 } as const;
 
 /** A typed, content-free guardrail failure code. */
@@ -94,7 +108,9 @@ export type GuardrailCode =
   | "queue_atomic_unsupported"
   | "scan_provider_unrecognized"
   | "scan_selected_but_invalid"
-  | "require_scan_unmet";
+  | "require_scan_unmet"
+  | "ocr_config_invalid"
+  | "require_ocr_unmet";
 
 export type GuardrailSeverity = "error" | "warn";
 
@@ -121,10 +137,17 @@ export interface GuardrailReport {
   readonly violations: GuardrailViolation[];
 }
 
-/** Injectable, host-dependent inputs (the native engine probe). */
+/** Injectable, host-dependent inputs (the native engine + OCR probes). */
 export interface GuardrailDeps {
   /** Probed compression-engine health; omit when it can't be determined here. */
   readonly engine?: EngineHealthInput;
+  /**
+   * Wired OCR health from the Node runtime's registered OCR processor: `ready` only
+   * when a real engine + runner are present on this worker. Omit when it can't be
+   * probed here — the OCR requirement then falls back to the node-free config
+   * (`PDFXYZ_OCR` enabled), which is the strongest signal available without a host.
+   */
+  readonly ocr?: { readonly ready: boolean };
 }
 
 /** Trimmed value, or `undefined` when absent/blank. */
@@ -177,6 +200,9 @@ export function evaluateGuardrails(
   // legitimate production choice, so a strict run must still be able to pass. An
   // operator mandates scanning by arming this flag explicitly (alongside strict).
   const requireScan = flagOn(env, GUARDRAIL_ENV.requireScan);
+  // Same posture as require-scan: OCR is optional, so `strict` alone never demands
+  // it; an operator who ships OCR arms this explicitly.
+  const requireOcr = flagOn(env, GUARDRAIL_ENV.requireOcr);
 
   // ── Config-integrity checks (always errors — a selected provider must be valid) ──
 
@@ -267,6 +293,21 @@ export function evaluateGuardrails(
       message:
         "The native compression configuration is malformed and was disabled; deep compression will not run until it is fixed.",
       fields: fieldNames(compression.issues),
+    });
+  }
+
+  // Native OCR: same posture as compression — a malformed OCR config (unknown enable
+  // token, unknown engine pin, unsafe binary path, out-of-bounds limit) silently
+  // disables OCR, so surface it as an error rather than letting a typo hide. A bare
+  // environment (OCR unset) parses clean, so this never fires on the safe default.
+  const ocrConfig = parseNativeOcrConfig(env);
+  if (!ocrConfig.ok) {
+    violations.push({
+      code: "ocr_config_invalid",
+      severity: "error",
+      message:
+        "The native OCR configuration is malformed and was disabled; OCR jobs will fail as not-implemented until it is fixed.",
+      fields: fieldNames(ocrConfig.issues),
     });
   }
 
@@ -373,6 +414,22 @@ export function evaluateGuardrails(
     });
   }
 
+  // Ready OCR backend: the worker must actually be able to run OCR. Met when a real
+  // engine + runner are wired (the runtime injects `deps.ocr.ready`); when the host
+  // can't be probed here, fall back to whether OCR is *enabled* in config. Unmet when
+  // OCR is disabled, not opted into, or opted into with no engine installed — fails
+  // fast rather than accepting `ocr-pdf` jobs that would only fail as not-implemented.
+  const ocrRunnable = deps.ocr ? deps.ocr.ready : nativeOcrCapability(env).enabled;
+  if (requireOcr && !ocrRunnable) {
+    violations.push({
+      code: "require_ocr_unmet",
+      severity: "error",
+      message:
+        "A ready OCR backend is required, but OCR is not enabled with an installed engine in this environment, so OCR jobs would fail as not-implemented. The worker refuses to run rather than accept OCR work it cannot do.",
+      fields: [NATIVE_OCR_ENV.enable],
+    });
+  }
+
   const ok = !violations.some((v) => v.severity === "error");
   return {
     ok,
@@ -382,7 +439,8 @@ export function evaluateGuardrails(
       requireDeepEngine ||
       requireLifecycle ||
       requireAtomicQueue ||
-      requireScan,
+      requireScan ||
+      requireOcr,
     violations,
   };
 }

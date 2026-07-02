@@ -78,6 +78,12 @@ function reportReadiness(runtime: WorkerRuntime): void {
   // no-op (`active: false`), distinguishing `disabled` / `not-configured` /
   // `unavailable`. Content-free — no variable name, endpoint, host, port, or value.
   emit({ src: "daemon", event: "scanner_health", ...runtime.scanner });
+  // The OCR backend's presence-only health (Phase 23): `enabled` (opted into via
+  // config) fused with `ready` (a real engine is installed here), so an operator can
+  // tell `disabled`/`not-configured` from `unavailable` (opted in, engine missing)
+  // from `ready`. Content-free — engine *family* name + prose only, never a path,
+  // binary, language, variable name, or value.
+  emit({ src: "daemon", event: "ocr_health", ...runtime.ocr });
   for (const cap of runtime.processors) {
     emit({
       src: "daemon",

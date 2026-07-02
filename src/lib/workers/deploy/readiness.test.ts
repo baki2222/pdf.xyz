@@ -110,9 +110,30 @@ describe("resolveDeploymentReadiness — facets", () => {
     );
   });
 
-  it("always reports OCR as not-implemented", () => {
+  it("reports OCR not-implemented by default (no OCR backend wired)", () => {
+    // With no OCR health injected, OCR stays honestly not-implemented — the default
+    // in every environment that has not opted into an OCR backend.
     expect(facet({}, "ocr").state).toBe("not-implemented");
     expect(facet({ ...DRAINABLE_ENV }, "ocr").state).toBe("not-implemented");
+  });
+
+  it("reflects the injected OCR backend health when one is wired (Phase 23)", () => {
+    const daemon = resolveDaemonReadiness(DRAINABLE_ENV);
+    // A real engine + runner are wired → ready.
+    const ready = resolveDeploymentReadiness(daemon, DRAINABLE_ENV, {
+      engine: DEEP,
+      ocr: { ready: true, detail: "OCR ready on an encrypted, auto-deleting secure worker." },
+    });
+    expect(ready.facets.find((f) => f.id === "ocr")!.state).toBe("ready");
+    expect(ready.detail).toMatch(/OCR is available/);
+
+    // The OCR backend exists in this build but no engine is installed / it's off →
+    // honestly not-configured, never falsely "ready".
+    const notReady = resolveDeploymentReadiness(daemon, DRAINABLE_ENV, {
+      engine: DEEP,
+      ocr: { ready: false, detail: "OCR isn't available: this build ships no OCR runner here." },
+    });
+    expect(notReady.facets.find((f) => f.id === "ocr")!.state).toBe("not-configured");
   });
 });
 

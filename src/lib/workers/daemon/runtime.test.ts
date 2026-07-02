@@ -164,6 +164,37 @@ describe("resolveWorkerRuntime — compression-engine health vs drainability", (
   });
 });
 
+describe("resolveWorkerRuntime — OCR backend wiring (Phase 23)", () => {
+  it("registers OCR not-ready by default and reports the facet not-configured", () => {
+    // No OCR deps injected + no `PDFXYZ_OCR` in the env ⇒ empty native deps ⇒ the OCR
+    // processor is registered but honestly not ready (a bare env touches no host).
+    const runtime = resolveWorkerRuntime({}, { compression: noEngines });
+    expect(runtime.processors.find((p) => p.id === "ocr")?.ready).toBe(false);
+    expect(runtime.deployment.facets.find((f) => f.id === "ocr")?.state).toBe(
+      "not-configured",
+    );
+  });
+
+  it("flips the OCR facet to ready when a runner + engine are wired, leaking no path", () => {
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        compression: noEngines,
+        ocr: {
+          engines: { ocrmypdf: true, tesseract: false },
+          runner: async () => [],
+        },
+      },
+    );
+    const ocrProc = runtime.processors.find((p) => p.id === "ocr");
+    expect(ocrProc?.ready).toBe(true);
+    const facet = runtime.deployment.facets.find((f) => f.id === "ocr")!;
+    expect(facet.state).toBe("ready");
+    // Presence-only: engine name + prose, never a path or value.
+    expect(JSON.stringify(facet)).not.toMatch(/[/\\]/);
+  });
+});
+
 describe("resolveWorkerRuntime — real providers from the environment", () => {
   it("wires a drainable Redis queue + S3 storage into a runnable executor", () => {
     const env = {
@@ -289,6 +320,55 @@ describe("worker daemon runtime — honesty end-to-end", () => {
     expect(job?.status).toBe("failed");
     expect(job?.error?.code).toBe("malware_detected");
     expect(job?.artifacts ?? []).toHaveLength(0);
+    expect(store.getSlot(slot.fileId)).toBeUndefined();
+  });
+
+  it("completes an OCR job end-to-end when a real OCR runner is wired into the runtime", async () => {
+    const queue = createLocalDevQueue({ store, now: () => clock });
+    const storage = createLocalDevExecutorStorage({ store, now: () => clock });
+    const slot = store.reserveSlot({
+      sessionId: "sess_x",
+      filename: "scan.pdf",
+      contentType: "application/pdf",
+      declaredBytes: 3,
+    });
+    store.putBytes(slot.fileId, new Uint8Array([1, 2, 3]));
+    await queue.submit({
+      job: queuedJob("job_ocr_ready0001", "ocr-pdf"),
+      inputs: [slot.fileId],
+      options: { languages: ["eng"], outputMode: "searchable-pdf" },
+    });
+
+    // A structurally-valid searchable PDF the injected runner "produces".
+    const ocrPdf = new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(64)}\n%%EOF\n`);
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        queue,
+        storage,
+        compression: noEngines,
+        ocr: {
+          engines: { ocrmypdf: true, tesseract: false },
+          runner: async () => [
+            { filename: "scan-ocr.pdf", contentType: "application/pdf", bytes: ocrPdf },
+          ],
+        },
+      },
+    );
+    // The wired OCR processor reports ready, and the deployment facet agrees.
+    expect(runtime.processors.find((p) => p.id === "ocr")?.ready).toBe(true);
+    expect(runtime.deployment.facets.find((f) => f.id === "ocr")?.state).toBe("ready");
+
+    const summary = await createWorkerDaemon({ executor: runtime.executor! }).run({
+      mode: "drain",
+    });
+
+    // A genuinely completed OCR job with a real artifact — never fabricated by the
+    // orchestration, and only because a runner + engine were actually wired.
+    expect(summary.completed).toBe(1);
+    const job = store.getJob("job_ocr_ready0001");
+    expect(job?.status).toBe("completed");
+    expect(job?.artifacts?.[0]?.filename).toBe("scan-ocr.pdf");
     expect(store.getSlot(slot.fileId)).toBeUndefined();
   });
 });

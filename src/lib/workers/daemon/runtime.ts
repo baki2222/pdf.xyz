@@ -40,8 +40,12 @@ import type { RedisQueueDeps } from "../queue/redis";
 import type { ClaimableQueue } from "../queue/claim";
 import type { QueueProvider } from "../queue/types";
 import { createProcessorRegistry } from "../processor";
+import type { OcrProcessorDeps } from "../processor/ocr";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { ProcessorCapability } from "../processor/types";
+import { nativeOcrDeps } from "../ocr-native";
+import { nativeOcrCapability } from "../ocr-native-config";
+import type { OcrEngine } from "../ocr";
 import type {
   ClamavTransport,
   MalwareScanCapability,
@@ -64,6 +68,9 @@ import {
 } from "../deploy";
 
 type EnvSource = Record<string, string | undefined>;
+
+/** The tool slug the OCR processor owns; used to read its capability for the readout. */
+const OCR_TOOL = "ocr-pdf";
 
 /** Why no executor could be built, when the runtime is not runnable. Content-free. */
 export type RuntimeBlock =
@@ -88,6 +95,28 @@ export interface CompressionEngineHealth {
   deep: boolean;
   /** Native engines detected on the host, in preference order. Names only. */
   engines: CompressionTool[];
+  /** One-line, client-safe explanation. Never a path, version, key, or value. */
+  detail: string;
+}
+
+/**
+ * Presence-only OCR health of the worker — deliberately distinct from daemon
+ * drainability, the OCR analogue of {@link CompressionEngineHealth}. It combines the
+ * node-free config capability (is OCR *opted into*?) with the wired processor's
+ * runtime readiness (is an engine actually *installed* here?), so `--dry-run-status`
+ * can tell the four honest OCR states apart:
+ *  - `enabled: false`                → `disabled`/`not-configured` (the safe default);
+ *  - `enabled: true`, `ready: false` → `unavailable` (opted in, but no engine installed);
+ *  - `enabled: true`, `ready: true`  → `ready` (a real engine + runner can run OCR now).
+ * Presence-only: it names the engine *family* only — never a path, version, or value.
+ */
+export interface OcrRuntimeHealth {
+  /** True when OCR is opted into via config (`PDFXYZ_OCR` enabled + shape-valid). */
+  enabled: boolean;
+  /** Pinned engine family (name only), or null for auto-detect / when disabled. */
+  engine: OcrEngine | null;
+  /** True ONLY when a real engine + runner are wired on THIS worker (can run now). */
+  ready: boolean;
   /** One-line, client-safe explanation. Never a path, version, key, or value. */
   detail: string;
 }
@@ -123,6 +152,13 @@ export interface WorkerRuntime {
    * is not. Reported even when the runtime is not drainable. Content-free.
    */
   scanner: MalwareScanCapability;
+  /**
+   * Presence-only OCR health (Phase 23): whether OCR is opted into (config) and
+   * whether a real engine + runner are wired here (runtime). Reported even when the
+   * runtime is not drainable, so a smoke check can distinguish `disabled` /
+   * `not-configured` / `unavailable` / `ready`. Content-free.
+   */
+  ocr: OcrRuntimeHealth;
   /** Honest, presence-only capability of every registered processor. */
   processors: ProcessorCapability[];
   /** The executor to tick — present ONLY when the queue is drainable and storage is ready. */
@@ -181,6 +217,13 @@ export interface WorkerRuntimeDeps {
   scannerTransport?: ClamavTransport;
   /** Override the compression deps (tests avoid probing the host PATH / shelling out). */
   compression?: CompressionDeps;
+  /**
+   * Override the OCR deps (engine availability + native runner). Tests inject a fake
+   * runner so OCR completes without a real engine; the shipped runtime resolves them
+   * from the environment via {@link nativeOcrDeps} — empty (honestly not-implemented)
+   * unless an operator has opted in with `PDFXYZ_OCR` and installed an engine.
+   */
+  ocr?: OcrProcessorDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -228,18 +271,54 @@ export function resolveWorkerRuntime(
   // compression deps nor a full registry override was supplied — tests inject one
   // of those, so they never touch the host.
   const compressionDeps = deps.compression ?? nativeCompressionDeps();
+  // OCR is opt-in: with `PDFXYZ_OCR` unset, `nativeOcrDeps(env)` returns empty deps
+  // (a disabled config touches no host), so the OCR processor is honestly not-ready
+  // and `ocr-pdf` fails as `not_implemented` — no host probe, no runner. A test
+  // injects a fake runner to exercise the ready path.
+  const ocrDeps = deps.ocr ?? nativeOcrDeps(env);
   const registry =
-    deps.registry ?? createProcessorRegistry({ compression: compressionDeps });
+    deps.registry ??
+    createProcessorRegistry({ compression: compressionDeps, ocr: ocrDeps });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
+
+  // Derive the presence-only OCR health from the actually-registered processor, so
+  // the deployment facet and the `--dry-run-status` processor readout can never
+  // disagree about whether THIS worker can genuinely run OCR. Absent (a test wired a
+  // bare registry) ⇒ the facet stays honestly not-implemented.
+  const ocrCapability = registry.resolve(OCR_TOOL)?.capability();
+
+  // Presence-only OCR health: the node-free config capability (opted in? which engine
+  // family?) fused with the wired processor's runtime readiness (engine installed?).
+  // When ready, the processor's own detail is the most precise ("OCR ready on
+  // <engine>"); otherwise the config capability's detail honestly explains whether OCR
+  // is disabled/not-configured or opted-into-but-engine-missing. Content-free.
+  const ocrConfigCapability = nativeOcrCapability(env);
+  const ocr: OcrRuntimeHealth = {
+    enabled: ocrConfigCapability.enabled,
+    engine: ocrConfigCapability.engine,
+    ready: ocrCapability?.ready ?? false,
+    detail:
+      ocrCapability?.ready === true
+        ? ocrCapability.detail
+        : ocrConfigCapability.detail,
+  };
 
   // Compose the operator-facing deployment readiness and evaluate the production
   // guardrails with the SAME probed engine health, so the readout and the pass/fail
   // gate can never disagree about which engines this worker actually has.
   const deployment = resolveDeploymentReadiness(readiness, env, {
     engine: compression,
+    ...(ocrCapability
+      ? { ocr: { ready: ocrCapability.ready, detail: ocrCapability.detail } }
+      : {}),
   });
-  const guardrails = evaluateGuardrails(env, { engine: compression });
+  const guardrails = evaluateGuardrails(env, {
+    engine: compression,
+    // Gate `require-ocr` on the SAME wired OCR processor the readiness facet uses, so
+    // the pass/fail check and the readout can never disagree about OCR runnability.
+    ...(ocrCapability ? { ocr: { ready: ocrCapability.ready } } : {}),
+  });
 
   // Wire the malware-scan gate. When a usable clamd endpoint is configured this
   // resolves the real ClamAV scanner over a socket transport; otherwise the honest
@@ -276,6 +355,7 @@ export function resolveWorkerRuntime(
       deployment,
       guardrails,
       scanner: scannerCapability,
+      ocr,
       processors,
       executor,
     };
@@ -293,6 +373,7 @@ export function resolveWorkerRuntime(
     deployment,
     guardrails,
     scanner: scannerCapability,
+    ocr,
     processors,
     blocked,
   };

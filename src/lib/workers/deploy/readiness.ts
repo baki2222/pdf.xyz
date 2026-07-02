@@ -11,7 +11,9 @@
  *  - lifecycle      — is a retention/lifecycle backstop declared/validated/unknown?
  *  - malware-scan   — is an optional ClamAV scanner configured/ready/unavailable/off?
  *                     (never claims a scan happened unless one is configured & ready);
- *  - ocr            — explicitly NOT implemented in this build.
+ *  - ocr            — an optional native OCR backend (Phase 23): `ready` only when a
+ *                     real engine + runner are wired on this worker, else honestly
+ *                     `not-configured`/`not-implemented` (never over-claims).
  *
  * Every facet is presence-only and content-free: a boolean-ish state plus a
  * one-line explanation that names no variable, secret, path, object key, endpoint,
@@ -87,10 +89,30 @@ export interface EngineHealthInput {
   readonly engines: readonly string[];
 }
 
+/**
+ * The injected, presence-only OCR health (structurally the wired OCR processor's
+ * capability). Kept as a local structural type so this module never imports the
+ * Node-only OCR runner. Omit ⇒ the OCR facet is honestly `not-implemented` (the
+ * default in every environment that has not opted into an OCR backend).
+ */
+export interface OcrHealthInput {
+  /** True only when a real OCR runner is wired AND an engine is present on the worker. */
+  readonly ready: boolean;
+  /** One-line, content-free explanation. Never names a variable, path, or value. */
+  readonly detail: string;
+}
+
 /** Inputs for composing the readiness — all optional and injectable for tests. */
 export interface DeploymentReadinessDeps {
   /** Probed compression-engine health (from the Node runtime). Omit ⇒ engine facet `unknown`. */
   readonly engine?: EngineHealthInput;
+  /**
+   * Wired OCR health (from the Node runtime's registered OCR processor). Omit ⇒ the
+   * OCR facet is `not-implemented`, preserving the honest default; supplied and
+   * `ready` ⇒ `ready`; supplied and not ready ⇒ `not-configured` (a backend exists in
+   * this build but isn't enabled/installed here).
+   */
+  readonly ocr?: OcrHealthInput;
 }
 
 function engineFacet(engine: EngineHealthInput | undefined): OperationalFacet {
@@ -155,9 +177,36 @@ function malwareFacet(scan: MalwareScanReadiness): OperationalFacet {
 }
 
 /**
+ * Derive the OCR facet from the injected OCR health. With none supplied, OCR is
+ * honestly `not-implemented` (the default this build ships in — no OCR backend
+ * opted into); supplied and `ready` ⇒ `ready` (a real engine + runner are wired on
+ * this worker); supplied and not ready ⇒ `not-configured` (the OCR backend exists in
+ * the build but is disabled or has no engine installed here). Never over-claims.
+ */
+function ocrFacet(
+  mode: DaemonReadiness["mode"],
+  ocr: OcrHealthInput | undefined,
+): OperationalFacet {
+  if (!ocr) {
+    return {
+      id: "ocr",
+      label: "OCR",
+      state: "not-implemented",
+      detail: buildOcrCapability(mode).detail,
+    };
+  }
+  return {
+    id: "ocr",
+    label: "OCR",
+    state: ocr.ready ? "ready" : "not-configured",
+    detail: ocr.detail,
+  };
+}
+
+/**
  * Compose the full {@link WorkerDeploymentReadiness} from a resolved
  * {@link DaemonReadiness} (storage/queue/drainable) plus the environment (lifecycle,
- * malware) and an injected engine health. Pure and deterministic; `env` is
+ * malware) and injected engine + OCR health. Pure and deterministic; `env` is
  * injectable. Content-free throughout.
  */
 export function resolveDeploymentReadiness(
@@ -167,10 +216,10 @@ export function resolveDeploymentReadiness(
 ): WorkerDeploymentReadiness {
   const lifecycle = resolveLifecycleReadiness(env);
   const malwareScan = resolveMalwareScanReadiness(env);
-  // OCR is never probed — this build ships no OCR pipeline in any mode — so it is
-  // honestly not-implemented everywhere, with its own detail reused from the OCR
-  // capability layer.
-  const ocr = buildOcrCapability(daemon.mode);
+  // OCR is now an OPTIONAL backend (Phase 23): the runtime injects the wired OCR
+  // processor's health so this facet reflects reality. With none injected it stays
+  // honestly not-implemented, reusing the OCR capability layer's mode-specific detail.
+  const ocr = ocrFacet(daemon.mode, deps.ocr);
 
   const facets: OperationalFacet[] = [
     {
@@ -192,12 +241,7 @@ export function resolveDeploymentReadiness(
     engineFacet(deps.engine),
     lifecycleFacet(lifecycle),
     malwareFacet(malwareScan),
-    {
-      id: "ocr",
-      label: "OCR",
-      state: "not-implemented",
-      detail: ocr.detail,
-    },
+    ocr,
   ];
 
   const posture: DeploymentPosture = !daemon.drainable
@@ -209,12 +253,18 @@ export function resolveDeploymentReadiness(
   const scanNote = malwareScan.active
     ? " A malware scanner is configured, so inputs are scanned before processing."
     : " Malware scanning is optional and not active here.";
+  const ocrNote =
+    ocr.state === "ready"
+      ? " OCR is available on this worker."
+      : " OCR is optional and not enabled here.";
   const detail =
     posture === "blocked"
       ? "Blocked: the queue and/or object storage are not configured, so no worker can run in this environment."
       : posture === "ready"
-        ? `Ready: the queue and storage are configured and a lifecycle backstop is declared and validated.${scanNote} OCR remains intentionally not implemented.`
-        : "Degraded: a worker can run, but a recommended backstop is missing or unverified (typically the lifecycle/retention policy). Review the facets before production.";
+        ? `Ready: the queue and storage are configured and a lifecycle backstop is declared and validated.${scanNote}${ocrNote}`
+        : // Degraded still surfaces the optional scan/OCR facets so an operator sees
+          // what IS on (e.g. OCR ready) even while a backstop is unverified.
+          `Degraded: a worker can run, but a recommended backstop is missing or unverified (typically the lifecycle/retention policy). Review the facets before production.${scanNote}${ocrNote}`;
 
   return { drainable: daemon.drainable, posture, facets, lifecycle, malwareScan, detail };
 }

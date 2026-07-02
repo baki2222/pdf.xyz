@@ -27,8 +27,13 @@ describe("buildOcrCapability", () => {
     expect(buildOcrCapability("disabled").detail).toMatch(
       /native ocr engine/i,
     );
+    // Phase 23: OCR is a real, optional out-of-band backend — the copy no longer
+    // implies it is future/vaporware, but still honestly says it can't run *here*.
     expect(buildOcrCapability("remote-configured").detail).toMatch(
-      /no ocr pipeline/i,
+      /out-of-band secure worker/i,
+    );
+    expect(buildOcrCapability("remote-configured").detail).not.toMatch(
+      /no ocr pipeline|when ocr ships/i,
     );
     expect(buildOcrCapability("local-dev").detail).toMatch(
       /doesn't include an ocr processor/i,

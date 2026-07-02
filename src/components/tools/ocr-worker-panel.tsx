@@ -360,9 +360,10 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         <p className="text-xs leading-relaxed text-slate-500">
-          No account required. When OCR ships, files are encrypted in transit and
-          at rest, recognized in an isolated sandbox with no network egress, and
-          deleted automatically — see our worker architecture and security docs.
+          No account required. OCR runs on an isolated secure worker: files are
+          encrypted in transit and at rest, recognized in a sandbox with no network
+          egress, and deleted automatically. It&apos;s enabled per deployment — see
+          our worker architecture and security docs.
         </p>
       </div>
     </div>
@@ -409,10 +410,10 @@ function OcrUnavailable({
 }
 
 /**
- * The available (future) state: an uploader plus a run button that drives the
- * real, documented job flow via {@link runWorkerOcr}. Reached only when the
- * status endpoint honestly reports OCR available; every result here is real
- * output downloaded from the worker, never fabricated.
+ * The available state: an uploader plus a run button that drives the real,
+ * documented job flow via {@link runWorkerOcr}. Reached only when the status
+ * endpoint honestly reports OCR available; every result here is real output
+ * downloaded from the worker, never fabricated.
  */
 function OcrRunArea({
   request,

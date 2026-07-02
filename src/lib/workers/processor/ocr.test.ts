@@ -30,7 +30,7 @@ describe("ocr processor — shipped state (no runner)", () => {
     if (result.ok) return;
     expect(result.error.code).toBe("not_implemented");
     expect(result.error.retryable).toBe(false);
-    expect(result.error.message).toContain("WORKER_ARCHITECTURE.md");
+    expect(result.error.message).toContain("OCR_BACKEND.md");
   });
 
   it("rejects a malformed request before the capability check", async () => {
@@ -90,5 +90,44 @@ describe("ocr processor — flips on when a real runner is wired", () => {
       runner: async () => [],
     });
     expect(proc.capability().ready).toBe(false);
+  });
+});
+
+describe("ocr processor — maps a runner failure to a typed, content-free error", () => {
+  const readyDeps = (runner: OcrRunner) => ({
+    engines: { ocrmypdf: true, tesseract: false },
+    runner,
+  });
+
+  it("catches a runner throw and never lets process() throw or leak the message", async () => {
+    const runner: OcrRunner = async () => {
+      throw new Error("ocrmypdf exited 2 on /tmp/pdfxyz-ocr-xyz/input.pdf: EICAR");
+    };
+    const proc = createOcrProcessor(readyDeps(runner));
+    const result = await proc.process({
+      tool: "ocr-pdf",
+      options: { languages: ["eng"] },
+      inputs: [scan],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // A crashed/timed-out engine is a retryable internal error (the executor bounds
+    // retries) — never a fabricated success, and never the raw error text.
+    expect(result.error.code).toBe("internal_error");
+    expect(result.error.retryable).toBe(true);
+    const serialized = JSON.stringify(result.error);
+    expect(serialized).not.toContain("/tmp/");
+    expect(serialized).not.toContain("EICAR");
+  });
+
+  it("treats an empty artifact list as a failure, not a completed job", async () => {
+    const proc = createOcrProcessor(readyDeps(async () => []));
+    const result = await proc.process({
+      tool: "ocr-pdf",
+      options: { languages: ["eng"] },
+      inputs: [scan],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("internal_error");
   });
 });

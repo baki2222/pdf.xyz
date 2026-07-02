@@ -25,6 +25,7 @@ const SRC = path.join(ROOT, "src");
  */
 const FORBIDDEN = [
   "compression/native",
+  "ocr-native",
   "daemon/runtime",
   "node:child_process",
 ] as const;
@@ -37,6 +38,7 @@ const FORBIDDEN = [
 const ALLOWED = new Set(
   [
     "src/lib/workers/compression/native.ts",
+    "src/lib/workers/ocr-native.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
   ].map((rel) => path.join(ROOT, rel)),
@@ -80,6 +82,11 @@ function matchesForbiddenImport(spec: string, forbidden: string): boolean {
   if (forbidden === "compression/native") {
     return spec === "@/lib/workers/compression/native" || spec.endsWith("/compression/native");
   }
+  if (forbidden === "ocr-native") {
+    // Exact leaf only — the node-free `ocr-native-config` (which ends with
+    // `/ocr-native-config`) is safe to import eagerly and must NOT be flagged.
+    return spec === "@/lib/workers/ocr-native" || spec.endsWith("/ocr-native");
+  }
   return spec.includes(forbidden);
 }
 
@@ -104,11 +111,12 @@ describe("web-eager modules do not statically import Node-only worker internals"
     });
   }
 
-  it("the eager @/lib/workers barrel pulls in neither the daemon runtime nor the native probe", () => {
+  it("the eager @/lib/workers barrel pulls in neither the daemon runtime nor a native probe", () => {
     const barrel = readFileSync(path.join(SRC, "lib/workers/index.ts"), "utf8");
     const specs = staticImportSpecifiers(barrel);
     expect(specs.some((s) => s.includes("daemon/runtime"))).toBe(false);
     expect(specs.some((s) => s.includes("compression/native"))).toBe(false);
+    expect(specs.some((s) => matchesForbiddenImport(s, "ocr-native"))).toBe(false);
     expect(specs.some((s) => s.startsWith("node:"))).toBe(false);
   });
 

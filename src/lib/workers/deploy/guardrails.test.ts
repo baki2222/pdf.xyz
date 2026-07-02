@@ -3,6 +3,7 @@ import { evaluateGuardrails, GUARDRAIL_ENV } from "./guardrails";
 import { MALWARE_SCANNER_ENV } from "./scanner";
 import { LIFECYCLE_ENV, RETENTION_ENV } from "../lifecycle";
 import { NATIVE_COMPRESSION_ENV } from "../compression/native-config";
+import { NATIVE_OCR_ENV } from "../ocr-native-config";
 import { REDIS_QUEUE_ENV } from "../queue/redis-config";
 import { S3_ENV } from "../storage/s3-config";
 
@@ -166,6 +167,70 @@ describe("worker deployment guardrails", () => {
       { engine: noDeepEngine },
     );
     expect(report.violations.map((v) => v.code)).not.toContain("require_scan_unmet");
+  });
+
+  it("flags a malformed OCR configuration as an error, by field name only", () => {
+    // An unknown enable token silently disables OCR; surface it (like compression).
+    const report = evaluateGuardrails(
+      { [NATIVE_OCR_ENV.enable]: "maybe-later" },
+      { engine: noDeepEngine },
+    );
+    expect(report.ok).toBe(false);
+    expect(report.violations.map((v) => v.code)).toContain("ocr_config_invalid");
+    const violation = report.violations.find((v) => v.code === "ocr_config_invalid")!;
+    expect(violation.fields).toEqual([NATIVE_OCR_ENV.enable]);
+    expect(violation.message).not.toMatch(/PDFXYZ_|maybe-later/i);
+  });
+
+  it("keeps OCR clean and does NOT arm require-ocr under strict alone", () => {
+    // OCR is optional: strict enforces drainable/lifecycle/atomic but must never
+    // demand OCR, so a strict run with no OCR still passes the OCR requirement.
+    const report = evaluateGuardrails(
+      { [GUARDRAIL_ENV.strict]: "true" },
+      { engine: noDeepEngine },
+    );
+    expect(report.violations.map((v) => v.code)).not.toContain("require_ocr_unmet");
+    expect(report.violations.map((v) => v.code)).not.toContain("ocr_config_invalid");
+  });
+
+  it("fails fast when a ready OCR backend is required but the engine is not wired", () => {
+    // Opt-in on its own. The runtime injects the wired processor's readiness; here it
+    // is not ready, so the requirement is unmet. Content-free; variable in `fields`.
+    const report = evaluateGuardrails(
+      { [GUARDRAIL_ENV.requireOcr]: "true" },
+      { engine: noDeepEngine, ocr: { ready: false } },
+    );
+    expect(report.ok).toBe(false);
+    expect(report.strict).toBe(true); // any require flag arms the report
+    expect(report.violations.map((v) => v.code)).toEqual(["require_ocr_unmet"]);
+    expect(report.violations[0]!.fields).toEqual([NATIVE_OCR_ENV.enable]);
+    expect(report.violations[0]!.message).not.toMatch(
+      /PDFXYZ_|secret|token|https?:\/\//i,
+    );
+  });
+
+  it("PASSES require-ocr when a real OCR engine + runner are wired (ready)", () => {
+    const report = evaluateGuardrails(
+      { [GUARDRAIL_ENV.requireOcr]: "true" },
+      { engine: noDeepEngine, ocr: { ready: true } },
+    );
+    expect(report.violations.map((v) => v.code)).not.toContain("require_ocr_unmet");
+  });
+
+  it("falls back to config-enabled for require-ocr when the host can't be probed", () => {
+    // With no injected OCR health, `PDFXYZ_OCR` enabled is the strongest signal —
+    // enough to satisfy the requirement in a non-runtime evaluation context.
+    const enabled = evaluateGuardrails(
+      { [GUARDRAIL_ENV.requireOcr]: "true", [NATIVE_OCR_ENV.enable]: "on" },
+      { engine: noDeepEngine },
+    );
+    expect(enabled.violations.map((v) => v.code)).not.toContain("require_ocr_unmet");
+
+    const disabled = evaluateGuardrails(
+      { [GUARDRAIL_ENV.requireOcr]: "true" },
+      { engine: noDeepEngine },
+    );
+    expect(disabled.violations.map((v) => v.code)).toEqual(["require_ocr_unmet"]);
   });
 
   it("rejects malformed lifecycle and retention settings by field names only", () => {

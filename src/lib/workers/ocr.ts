@@ -7,13 +7,16 @@
  * client-safe statement of what OCR can do right now. It never reads a secret
  * and never claims a capability that isn't there.
  *
- * Honesty posture: **this build ships no OCR processing pipeline in any mode.**
- * OCR requires a native engine (OCRmyPDF/Tesseract) or a managed provider on a
- * secure worker, which the local-dev worker does not include. So the status
- * route deliberately passes no engines, and every environment reports OCR as
- * unavailable with a mode-specific reason. The `engines`-driven branch exists so
- * the capability flips on correctly — and is unit-testable — the moment a real
- * OCR processor is wired behind the adapter contract.
+ * Honesty posture: **OCR is a real, optional backend that runs OUT-OF-BAND on the
+ * secure worker (Phase 23), never in-browser or in this web process.** A native
+ * engine (OCRmyPDF/Tesseract) recognizes text on the isolated worker daemon when an
+ * operator enables and installs it (`PDFXYZ_OCR`; see `@/lib/workers/ocr-native`).
+ * The web app cannot run OCR itself and cannot observe the daemon's installed
+ * engines, so this client-facing capability reports OCR as unavailable *in the
+ * browser* with a mode-specific reason — it never claims a searchable PDF or text it
+ * can't produce here. The `engines`-driven branch exists so the capability flips on
+ * correctly — and is unit-testable — for any future in-app OCR surface, mirroring the
+ * compression status probe.
  */
 
 import type { OcrLanguage } from "@/lib/jobs/ocr";
@@ -62,7 +65,7 @@ function unavailableDetail(mode: WorkerMode): string {
     case "local-dev":
       return "The local-dev worker doesn't include an OCR processor. OCR needs a native engine (OCRmyPDF/Tesseract) on a secure worker, so it can't run here.";
     case "remote-configured":
-      return "A worker backend is configured, but this build ships no OCR pipeline yet, so OCR is not available.";
+      return "OCR runs on the out-of-band secure worker when its OCR backend is enabled and installed there. It isn't enabled in this environment, so OCR can't run here — nothing is uploaded and no text is produced.";
     case "disabled":
     default:
       return "OCR needs a secure worker with a native OCR engine, which isn't enabled in this environment — nothing is uploaded and no text is produced here.";
