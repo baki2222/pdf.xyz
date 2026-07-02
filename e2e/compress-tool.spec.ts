@@ -28,7 +28,9 @@ test("compress analyzes in-browser and honestly labels the worker path", async (
   await expect(page.getByText("Current size")).toBeVisible();
 
   // The secure-worker deep path is present but honestly labeled "Not enabled".
-  await expect(page.getByText(/deep image compression/i)).toBeVisible();
+  await expect(
+    page.getByText("Deep image compression (secure worker)"),
+  ).toBeVisible();
   await expect(page.getByText("Not enabled")).toBeVisible();
   await expect(page.getByText(/no secure worker is configured/i)).toBeVisible();
 
