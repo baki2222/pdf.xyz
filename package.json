@@ -10,6 +10,7 @@
     "worker:daemon": "tsx scripts/worker-daemon.ts",
     "worker:daemon:status": "tsx scripts/worker-daemon.ts --dry-run-status",
     "worker:smoke": "sh scripts/worker-smoke.sh",
+    "worker:engines": "sh scripts/worker-engines.sh",
     "worker:image-smoke": "sh scripts/worker-image-smoke.sh",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

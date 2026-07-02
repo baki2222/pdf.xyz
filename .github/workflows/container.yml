@@ -86,6 +86,21 @@ jobs:
       - name: Worker image native-engine + OCR smoke (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:image-smoke
 
+      # Engine preflight, POSITIVE path: the node-free `worker:engines` preflight must
+      # PASS (exit 0) inside the built image with the production require-flags armed —
+      # OCR opted in and both `require OCR` + `require deep engine` demanded — precisely
+      # because the image genuinely ships the engines. This proves the packaged engines
+      # satisfy the exact opt-in gates an operator arms in production (the Docker-free
+      # unit test proves the negative path, where the same flags fail on a bare host).
+      # Presence-only: no cloud, secret, queue, store, or document.
+      - name: Worker image engine preflight passes with require-flags armed
+        run: |
+          docker run --rm \
+            -e PDFXYZ_OCR=on \
+            -e PDFXYZ_WORKER_REQUIRE_OCR=true \
+            -e PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE=true \
+            pdfxyz-worker:ci pnpm worker:engines
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)

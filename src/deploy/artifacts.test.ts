@@ -290,11 +290,63 @@ describe("worker IMAGE smoke script proves the engine contract, presence-only", 
   });
 });
 
+describe("worker ENGINE PREFLIGHT script is present, wired, and opt-in gated", () => {
+  // Static half of the preflight's contract; its RUNTIME exit-code behavior (green by
+  // default, exit 3 when a required engine is missing) is exercised end-to-end in
+  // `worker-engines.test.ts`. This node-free probe is the dependency-light companion of
+  // the image smoke — it runs anywhere `command -v` does, with or without Node.
+  const script = read("scripts/worker-engines.sh");
+  const pkg = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  const container = read(".github/workflows/container.yml");
+
+  it("is a shell script wired as `worker:engines`", () => {
+    expect(script.startsWith("#!")).toBe(true);
+    expect(pkg.scripts?.["worker:engines"]).toBe("sh scripts/worker-engines.sh");
+  });
+
+  it("probes every deep-compression and OCR engine, presence-only", () => {
+    expect(script).toContain("command -v"); // presence, never a resolved path
+    for (const bin of ["gs", "qpdf", "mutool", "tesseract", "ocrmypdf"]) {
+      expect(script, `preflight must probe for ${bin}`).toContain(bin);
+    }
+  });
+
+  it("gates its exit code on the documented opt-in require flags only", () => {
+    // The require flags it honors are exactly the daemon's engine-family guardrails.
+    expect(script).toContain("PDFXYZ_WORKER_REQUIRE_OCR");
+    expect(script).toContain("PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE");
+    // …and an unmet requirement is a non-zero exit (3), so a require flag is not a no-op.
+    expect(script).toMatch(/fail=3\b/);
+  });
+
+  it("is a pure local probe — it contacts no provider and processes no document", () => {
+    // No network/provider client, and nothing that could touch a real job's bytes.
+    expect(script).not.toMatch(/\b(curl|wget|nc|redis|http|https|s3:)/i);
+  });
+
+  it("is exercised inside the built worker image by the container workflow", () => {
+    // CI runs the preflight INSIDE the image with the production require-flags armed, so
+    // the packaged engines must satisfy the exact gates an operator arms in production.
+    expect(container).toMatch(/worker:engines/);
+    expect(container).toContain("PDFXYZ_WORKER_REQUIRE_OCR");
+    expect(container).toContain("PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE");
+  });
+
+  it("carries no committed secret", () => {
+    expect(script).not.toMatch(AWS_KEY);
+  });
+});
+
 // --------------------------------------------------------------------------- //
 // Secret hygiene — no committed artifact may carry a real-looking credential.
 // --------------------------------------------------------------------------- //
 const CONFIG_FILES = ["Dockerfile", "docker-compose.worker.yml", ".env.worker.example"];
-const DOC_FILES = ["docs/DEPLOYMENT.md", "docs/WORKER_ARCHITECTURE.md", "docs/RUNBOOK.md"];
+const DOC_FILES = [
+  "docs/DEPLOYMENT.md",
+  "docs/WORKER_ARCHITECTURE.md",
+  "docs/RUNBOOK.md",
+  "docs/OCR_BACKEND.md",
+];
 
 /** AWS-style access-key ids — a hard fail wherever they appear. */
 const AWS_KEY = /\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/;
