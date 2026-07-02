@@ -1,0 +1,50 @@
+# Build context excludes for the pdf.xyz web + worker images.
+#
+# Goals: a small, reproducible context; and — load-bearing — never copy secrets
+# or internal prompt files into an image layer. Anything a fresh build produces
+# or that is host-/CI-only is excluded; `src/`, `scripts/`, and the config files
+# the build and the worker daemon actually need are kept.
+
+# Dependencies + build output (reinstalled/rebuilt inside the image).
+node_modules
+.pnp
+.pnp.*
+.next
+out
+build
+coverage
+
+# Secrets — NEVER bake these into a layer.
+.env
+.env.local
+.env*.local
+*.pem
+
+# Internal agent prompts (kept untracked; must never reach an image).
+.claude-*.md
+
+# VCS + CI + editor metadata.
+.git
+.gitignore
+.github
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Test-only assets and their outputs — the worker/web images ship no tests.
+e2e
+playwright.config.ts
+playwright-report
+test-results
+blob-report
+playwright/.cache
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+vitest.config.ts
+
+# Local Docker/compose files don't belong inside the context they describe.
+Dockerfile
+.dockerignore
+docker-compose*.yml

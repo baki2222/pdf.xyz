@@ -96,6 +96,8 @@ tool honestly says deep compression is unavailable and the API records a
 | `pnpm build` | Production build |
 | `pnpm start` | Serve the production build |
 | `pnpm worker:daemon` | Run the out-of-band secure-worker daemon (`--once` / `--drain` / `--dry-run-status`) — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
+| `pnpm worker:daemon:status` | Presence-only worker readiness probe (`--dry-run-status`); exits `0` drainable / `2` not configured. Used by the container health check |
+| `pnpm worker:smoke` | No-config honesty smoke: asserts the daemon refuses to fake work (exit `2`) and rejects bad flags (exit `1`) — no secrets or network |
 | `pnpm typecheck` | `tsc --noEmit` (strict) |
 | `pnpm lint` | ESLint (flat config, `eslint-config-next`) |
 | `pnpm test` | Unit tests (Vitest, run once) |
@@ -157,6 +159,23 @@ dev-relaxed) and are asserted by the Playwright suite. Details in
 
 Target host is **Vercel** on the **pdf.xyz** domain. Full setup, env policy, and
 the preview → production workflow are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+The secure worker is a **separate process**, never a Vercel function on the
+request path. A multi-stage [`Dockerfile`](Dockerfile) exposes two independent
+targets — `web` (the site, `pnpm start`) and `worker` (the daemon with
+Ghostscript/qpdf/mutool, `pnpm worker:daemon`) — with an example
+[`docker-compose.worker.yml`](docker-compose.worker.yml) and
+[`.env.worker.example`](.env.worker.example) (placeholder names only, no secrets):
+
+```bash
+docker build --target worker -t pdfxyz-worker:local .   # native engines + daemon
+docker build --target web    -t pdfxyz-web:local .       # site only, no engines
+```
+
+The image build was **not exercised here** (no Docker daemon in this
+environment); its structure and the web ↔ worker separation are enforced by
+static tests (`src/deploy/`). See the worker container checklist in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## License
 

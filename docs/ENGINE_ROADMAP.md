@@ -477,6 +477,34 @@ model.
 image, lifecycle-enforced bucket deletion, malware scanning, the OCR runner, and the
 queue's Lua/`WATCH` hardening pass.
 
+### Phase 19 — worker deployment hardening + container smoke foundation (shipped)
+
+The secure-worker stack is now shippable as real infrastructure, with the web app and
+worker proven to stay separated.
+
+- **Two-target container build** (`Dockerfile`): a shared build stage feeds two
+  independent final images — `web` (Next.js `pnpm start`, no PDF engines) and `worker`
+  (`pnpm worker:daemon` with Ghostscript/qpdf/mutool, no `.next`, no HTTP). Built by
+  target: `docker build --target worker .` / `--target web .`.
+- **Deployment artifacts**: `.dockerignore` (keeps `.env*`, `.claude-*.md`, `.git`, and
+  tests out of every layer), an example `docker-compose.worker.yml` and
+  `.env.worker.example` with placeholder variable **names** only, and
+  `scripts/worker-smoke.sh` (`pnpm worker:smoke`).
+- **No-config, CI-safe smoke**: `pnpm worker:smoke` and the new CLI test spawn the real
+  daemon and pin the honest exit-code contract (`--help` → 0; `--dry-run-status` /
+  `--once` / `--drain` → 2; bad or conflicting flags → 1). The container `HEALTHCHECK`
+  reuses `--dry-run-status` (`pnpm worker:daemon:status`).
+- **Enforced boundaries**: `src/deploy/import-boundary.test.ts` fails if a web bundle
+  eagerly imports the Node-only daemon runtime or native-compression module (lazy
+  `await import()` stays allowed); `src/deploy/artifacts.test.ts` pins the Dockerfile's
+  web ↔ worker separation and fails on any committed real-looking secret or
+  `NEXT_PUBLIC_` provider value.
+
+⏳ Still out-of-band (unchanged, and deliberately not faked): real secrets and a
+provisioned S3/R2 bucket + Redis/Upstash broker, the actual worker deployment and the
+Docker image build itself (not exercised here — no Docker daemon in this environment),
+lifecycle-enforced bucket deletion, malware scanning, and the native `deep`/OCR runners.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

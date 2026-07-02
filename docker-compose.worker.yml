@@ -1,0 +1,57 @@
+# pdf.xyz — example web + secure-worker composition.
+#
+# This is a DOCUMENTED EXAMPLE, not a provisioned stack. It shows how the two
+# Dockerfile targets run side by side and where the worker's provider variables
+# plug in. It was NOT run in this environment (no reachable Docker daemon).
+#
+# Secrets policy — load-bearing:
+#   * Only placeholder env NAMES appear here; NO values are committed.
+#   * `${VAR}` interpolates from your shell or a git-ignored `--env-file .env`
+#     (copy `.env.worker.example`). Unset variables stay empty, and the daemon
+#     then honestly reports "not configured" (exit 2) instead of faking work.
+#   * All provider variables are server-side only — never NEXT_PUBLIC_*.
+#
+# Provision a real S3/R2 bucket and Redis/Upstash broker out-of-band first, then:
+#
+#   docker compose -f docker-compose.worker.yml --env-file .env up --build web worker
+#
+services:
+  # The public site. Serves users; needs no worker secrets; never drains a queue.
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
+
+  # The out-of-band secure-worker daemon. Drains the queue and completes jobs.
+  worker:
+    build:
+      context: .
+      target: worker
+    environment:
+      # Object storage (S3/R2-compatible). See .env.worker.example for the shapes.
+      PDFXYZ_STORAGE_PROVIDER: ${PDFXYZ_STORAGE_PROVIDER:-}
+      PDFXYZ_S3_ENDPOINT: ${PDFXYZ_S3_ENDPOINT:-}
+      PDFXYZ_S3_REGION: ${PDFXYZ_S3_REGION:-}
+      PDFXYZ_S3_BUCKET: ${PDFXYZ_S3_BUCKET:-}
+      PDFXYZ_S3_ACCESS_KEY_ID: ${PDFXYZ_S3_ACCESS_KEY_ID:-}
+      PDFXYZ_S3_SECRET_ACCESS_KEY: ${PDFXYZ_S3_SECRET_ACCESS_KEY:-}
+      # Job queue (Redis/Upstash-compatible).
+      PDFXYZ_QUEUE_PROVIDER: ${PDFXYZ_QUEUE_PROVIDER:-}
+      PDFXYZ_REDIS_REST_URL: ${PDFXYZ_REDIS_REST_URL:-}
+      PDFXYZ_REDIS_REST_TOKEN: ${PDFXYZ_REDIS_REST_TOKEN:-}
+      # Native deep compression (optional; lossless always works). auto | off.
+      PDFXYZ_NATIVE_COMPRESSION: ${PDFXYZ_NATIVE_COMPRESSION:-auto}
+    # Long-running drain-then-poll. For a one-shot backlog drain, override with:
+    #   command: ["pnpm", "worker:daemon", "--drain"]
+    restart: unless-stopped
+    # Presence-only readiness probe (exit 0 = drainable, 2 = not configured).
+    healthcheck:
+      test: ["CMD", "pnpm", "worker:daemon", "--dry-run-status"]
+      interval: 1m
+      timeout: 30s
+      retries: 3

@@ -8,6 +8,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "worker:daemon": "tsx scripts/worker-daemon.ts",
+    "worker:daemon:status": "tsx scripts/worker-daemon.ts --dry-run-status",
+    "worker:smoke": "sh scripts/worker-smoke.sh",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",

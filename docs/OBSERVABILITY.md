@@ -251,3 +251,17 @@ lossless-only because no native engine is installed. `engines` lists the detecte
 engines by **binary name only** (no path, version, or value), so an operator can alert
 on "drainable but `deep: false`" when deep compression is expected. It is as content-
 free as every other line and ships to the log sink as-is.
+
+## Container health check (Phase 19)
+
+The worker image's `HEALTHCHECK` (and the `docker-compose.worker.yml` example) runs
+`pnpm worker:daemon --dry-run-status`, whose **exit code is the health signal**: `0`
+when the queue *and* storage are configured (drainable), `2` when they are not. The
+probe claims no job and processes nothing; it emits the same content-free `readiness`
+and `compression_health` lines described above and then exits. So an orchestrator's
+liveness/readiness gate is driven entirely by presence-only signals — never a secret,
+key, or value. `pnpm worker:daemon:status` is the identical probe as a package script,
+and `pnpm worker:smoke` is the offline, no-config honesty check (exit-code contract:
+`0`/`2`/`1`) suitable for CI. Alert on a worker that reports `2` when it is expected to
+be drainable, exactly as you would alert on `drainable: true` with a non-draining
+backlog.

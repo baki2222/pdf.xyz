@@ -332,3 +332,68 @@ one process that actually drains the queue; the Next.js app never becomes it.
 - **Still operator-owned:** lifecycle-enforced bucket deletion, malware scanning in
   the `scanning` phase, and native `deep`/OCR runners remain your responsibility; the
   daemon changes none of those honesty boundaries.
+
+## Phase 19 worker container & deployment artifacts
+
+Phase 19 makes the split between the **web app** and the **worker daemon**
+concrete infrastructure. The web app deploys to Vercel as before; the worker is a
+separate, sandboxed process you build and run yourself. The artifacts:
+
+| File | Purpose |
+| --- | --- |
+| [`Dockerfile`](../Dockerfile) | Multi-stage build with two independent targets, `web` and `worker`. |
+| [`.dockerignore`](../.dockerignore) | Keeps `node_modules`, `.next`, `.env*`, and the `.claude-*.md` prompts out of every image layer. |
+| [`docker-compose.worker.yml`](../docker-compose.worker.yml) | Example web + worker composition; placeholder env **names** only, no values. |
+| [`.env.worker.example`](../.env.worker.example) | The worker's server-only variables with obvious placeholders; copy to a git-ignored `.env`. |
+| `scripts/worker-smoke.sh` (`pnpm worker:smoke`) | No-config honesty smoke; asserts the daemon refuses to fake work and rejects bad flags. |
+
+### Build the two images separately
+
+The web and worker are **completely separate final images** — the web image
+cannot run the daemon and ships no PDF engines; the worker image never bundles
+the site (`.next`) and never serves HTTP. Build one or the other by target:
+
+```bash
+docker build --target worker -t pdfxyz-worker:local .   # Ghostscript/qpdf/mutool + daemon
+docker build --target web    -t pdfxyz-web:local .        # Next.js site only
+```
+
+- **Native compression dependencies.** The `worker` stage installs
+  **Ghostscript, qpdf, and `mupdf-tools`** (`mutool`) so `deep` image compression
+  can run; lossless structural repack needs none of them. The `web` stage installs
+  no engines by design.
+- **The daemon needs no build.** It runs `scripts/worker-daemon.ts` via `tsx`, so
+  the worker image copies `src/`, `scripts/`, `tsconfig.json`, and `node_modules`
+  (which includes `tsx`) — but not the web build.
+- **Provider config comes from the environment at run time**, never baked into a
+  layer. Give the worker container the same server-only S3/R2 **and** Redis/Upstash
+  variables from [`.env.worker.example`](../.env.worker.example) (see the tables
+  above). They must **not** be `NEXT_PUBLIC_`.
+
+### Health checks and smoke commands (no secrets required)
+
+- **Container `HEALTHCHECK`** runs `pnpm worker:daemon --dry-run-status`: exit `0`
+  when the queue **and** storage are configured (drainable), `2` otherwise. It
+  claims no job and processes nothing. `pnpm worker:daemon:status` is the same
+  probe as a package script.
+- **No-config honesty smoke** — `pnpm worker:smoke` — runs the real CLI in a
+  scrubbed environment and asserts the honest exit-code contract (`--help` → 0;
+  `--dry-run-status` / `--once` / `--drain` → 2; bad/conflicting flags → 1). It is
+  deterministic and offline, so it runs in CI without any provider wired.
+- **Verify the deep engine** on the built image with
+  `docker run --rm pdfxyz-worker:local pnpm worker:daemon --dry-run-status` and
+  confirm the `compression_health` line reports `deep: true` with your engine in
+  `engines` before advertising deep compression.
+
+### Not exercised here / still out-of-band
+
+- The **Docker image build was not run** in this repository's environment (no
+  reachable Docker daemon). The Dockerfile structure, the web ↔ worker separation,
+  and the "no committed secrets" rule are enforced instead by static tests under
+  `src/deploy/`. Build and run the images in real worker infrastructure before
+  trusting them.
+- Still operator-owned and **not** provided by these artifacts: real secrets and a
+  provisioned S3/R2 bucket + Redis/Upstash broker, the actual worker deployment
+  (orchestrator/scheduler), lifecycle-enforced bucket deletion, malware scanning,
+  and the native `deep`/OCR runners themselves. None of these artifacts fake any of
+  that — with nothing configured the worker honestly reports "not configured."

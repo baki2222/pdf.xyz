@@ -206,6 +206,16 @@ today and tighten it deliberately rather than leave CSP off.
   environment settings.
 - Dependencies are installed with a **frozen lockfile** in CI and on Vercel for
   reproducible builds; the dependency surface is kept intentionally small.
+- **Container images bake no secrets (Phase 19).** The worker/web `Dockerfile`
+  reads provider configuration from the environment at run time only; nothing is
+  copied into a layer. [`.dockerignore`](../.dockerignore) excludes `.env*`, the
+  `.claude-*.md` prompt files, `.git`, and test code from every build context. The
+  `docker-compose.worker.yml` and `.env.worker.example` examples carry placeholder
+  variable **names** only — never values — and all worker/provider variables are
+  server-side (never `NEXT_PUBLIC_`). A static test (`src/deploy/artifacts.test.ts`)
+  fails the build if any artifact grows a real-looking secret or a `NEXT_PUBLIC_`
+  provider value, and `src/deploy/import-boundary.test.ts` fails if a web bundle
+  eagerly imports the Node-only daemon runtime or native-compression subprocess.
 
 ## Reporting a vulnerability
 

@@ -1,0 +1,223 @@
+// @vitest-environment node
+/**
+ * Static checks for the Phase 19 worker deployment artifacts. The Docker daemon
+ * is not available in this repo's build environment, so the images are never
+ * built here — instead these assertions pin the structure that keeps the web app
+ * and the worker image separated, and prove no artifact carries a real-looking
+ * secret. They are the testable stand-in for a Docker build.
+ */
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ROOT = process.cwd();
+const read = (rel: string): string => readFileSync(path.join(ROOT, rel), "utf8");
+
+// --------------------------------------------------------------------------- //
+// Minimal Dockerfile stage model: split the file on `FROM … [AS name]` lines.
+// --------------------------------------------------------------------------- //
+interface Stage {
+  name: string;
+  body: string;
+}
+
+function parseStages(dockerfile: string): Stage[] {
+  const stages: Stage[] = [];
+  let current: Stage | null = null;
+  for (const line of dockerfile.split("\n")) {
+    const from = /^\s*FROM\s+\S+(?:\s+AS\s+(\S+))?/i.exec(line);
+    if (from) {
+      if (current) stages.push(current);
+      current = { name: from[1] ?? "", body: "" };
+    } else if (current) {
+      current.body += `${line}\n`;
+    }
+  }
+  if (current) stages.push(current);
+  return stages;
+}
+
+/**
+ * The build INSTRUCTIONS of a stage, with `#` comment lines removed — so
+ * assertions about what an image actually does are never fooled by documentation
+ * (e.g. a comment that mentions `.next` or the other target's command). Dockerfile
+ * comments are whole-line (`#` as the first non-space char); inline `#` is literal.
+ */
+function stageInstructions(stages: Stage[], name: string): string {
+  const found = stages.find((s) => s.name === name);
+  if (!found) throw new Error(`Dockerfile stage '${name}' not found`);
+  return found.body
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+}
+
+describe("Dockerfile — two independent targets, web ↔ worker separation", () => {
+  const dockerfile = read("Dockerfile");
+  const stages = parseStages(dockerfile);
+  const names = stages.map((s) => s.name);
+
+  it("defines the base, deps, build, web, and worker stages", () => {
+    for (const name of ["base", "deps", "build", "web", "worker"]) {
+      expect(names).toContain(name);
+    }
+  });
+
+  it("the worker image installs the native deep-compression engines", () => {
+    const worker = stageInstructions(stages, "worker");
+    expect(worker).toMatch(/apt-get install[\s\S]*ghostscript/);
+    expect(worker).toContain("qpdf");
+    expect(worker).toContain("mupdf-tools"); // provides `mutool`
+  });
+
+  it("the worker image runs the daemon and never the web server", () => {
+    const worker = stageInstructions(stages, "worker");
+    expect(worker).toContain("worker:daemon");
+    expect(worker).not.toContain("next start");
+    expect(worker).not.toMatch(/CMD\s*\[\s*"pnpm",\s*"start"\s*\]/);
+    // A worker never serves HTTP, so it exposes no port.
+    expect(worker).not.toMatch(/^\s*EXPOSE/m);
+  });
+
+  it("the worker image does not bundle the web build (.next)", () => {
+    expect(stageInstructions(stages, "worker")).not.toContain(".next");
+  });
+
+  it("the web image serves the site and ships no worker daemon or native engines", () => {
+    const web = stageInstructions(stages, "web");
+    expect(web).toMatch(/CMD\s*\[\s*"pnpm",\s*"start"\s*\]/);
+    expect(web).not.toContain("worker:daemon");
+    expect(web).not.toContain("apt-get install");
+    expect(web).not.toMatch(/ghostscript|qpdf|mupdf/);
+  });
+});
+
+describe(".dockerignore keeps secrets, prompts, and build output out of the context", () => {
+  const patterns = read(".dockerignore")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+
+  it("excludes dependencies, build output, VCS, secrets, and internal prompts", () => {
+    for (const needed of ["node_modules", ".next", ".git", ".env", ".claude-*.md"]) {
+      expect(patterns).toContain(needed);
+    }
+  });
+});
+
+describe("docker-compose.worker.yml — example wiring, names only", () => {
+  const compose = read("docker-compose.worker.yml");
+
+  it("builds both the web and worker targets", () => {
+    expect(compose).toMatch(/target:\s*web\b/);
+    expect(compose).toMatch(/target:\s*worker\b/);
+  });
+
+  it("references the worker's provider variables by name", () => {
+    for (const name of [
+      "PDFXYZ_STORAGE_PROVIDER",
+      "PDFXYZ_S3_BUCKET",
+      "PDFXYZ_S3_SECRET_ACCESS_KEY",
+      "PDFXYZ_REDIS_REST_URL",
+      "PDFXYZ_REDIS_REST_TOKEN",
+    ]) {
+      expect(compose).toContain(name);
+    }
+  });
+
+  it("supplies every provider value by interpolation, never inline", () => {
+    // Each PDFXYZ_* mapping must be `${...}` (or a non-secret literal like `auto`),
+    // so no value is committed. Assert every secret-ish mapping interpolates.
+    const secretMappings = compose
+      .split("\n")
+      .filter((l) => /PDFXYZ_\w*(SECRET|TOKEN|ACCESS_KEY)\w*\s*:/.test(l));
+    expect(secretMappings.length).toBeGreaterThan(0);
+    for (const line of secretMappings) {
+      expect(line).toContain("${");
+    }
+  });
+
+  it("healthchecks the worker with the presence-only readiness probe", () => {
+    expect(compose).toContain("--dry-run-status");
+  });
+});
+
+describe("worker smoke script is present and honest", () => {
+  const script = read("scripts/worker-smoke.sh");
+
+  it("is a shell script that exercises the daemon's honest exit codes", () => {
+    expect(script.startsWith("#!")).toBe(true);
+    expect(script).toContain("worker:daemon");
+    expect(script).toContain("--dry-run-status");
+    // Asserts the not-configured (2) and usage-error (1) contracts.
+    expect(script).toMatch(/\bcheck 2\b/);
+    expect(script).toMatch(/\bcheck 1\b/);
+  });
+});
+
+// --------------------------------------------------------------------------- //
+// Secret hygiene — no committed artifact may carry a real-looking credential.
+// --------------------------------------------------------------------------- //
+const CONFIG_FILES = ["Dockerfile", "docker-compose.worker.yml", ".env.worker.example"];
+const DOC_FILES = ["docs/DEPLOYMENT.md", "docs/WORKER_ARCHITECTURE.md"];
+
+/** AWS-style access-key ids — a hard fail wherever they appear. */
+const AWS_KEY = /\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/;
+
+/** A value is safe-by-inspection when it is empty, an interpolation, or a placeholder. */
+const PLACEHOLDER =
+  /(REPLACE|EXAMPLE|CHANGE|CHANGEME|YOUR[-_]|PLACEHOLDER|\bXXX+\b|<[^>]+>|\.\.\.|\.invalid\b)/i;
+
+/** Variable names whose committed value must be a placeholder/reference/empty. */
+const SECRETISH = /(SECRET|TOKEN|PASSWORD|ACCESS_KEY_ID|ACCESS_KEY|PRIVATE_KEY|_KEY)$/i;
+
+/** Drop `#` comments (whole-line and inline) so doc text can safely name a rule. */
+function stripHashComments(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/(^|\s)#.*$/, "$1"))
+    .join("\n");
+}
+
+/** Extract `NAME=value` / `NAME: value` (env, compose, Dockerfile ENV/ARG) assignments. */
+function assignments(text: string): { name: string; value: string }[] {
+  const out: { name: string; value: string }[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/^\s*#.*$/, ""); // drop full-line comments
+    if (!line.trim()) continue;
+    const m = /^\s*(?:-\s*)?(?:ENV\s+|ARG\s+)?([A-Z][A-Z0-9_]+)\s*[:=]\s*(.*?)\s*$/.exec(line);
+    if (!m) continue;
+    const value = m[2]!
+      .replace(/\s+#.*$/, "") // drop trailing inline comment
+      .replace(/^["']|["']$/g, "") // unquote
+      .trim();
+    out.push({ name: m[1]!, value });
+  }
+  return out;
+}
+
+describe("deployment artifacts carry no real-looking secrets", () => {
+  for (const rel of CONFIG_FILES) {
+    it(`${rel}: no AWS keys; every secret var is a placeholder or interpolation`, () => {
+      const text = read(rel);
+      expect(text).not.toMatch(AWS_KEY);
+      for (const { name, value } of assignments(text)) {
+        if (!SECRETISH.test(name)) continue;
+        const safe = value === "" || value.includes("${") || PLACEHOLDER.test(value);
+        expect(safe, `${rel}: ${name} looks like a committed secret ("${value}")`).toBe(true);
+      }
+    });
+
+    it(`${rel}: exposes no server-only provider secret via NEXT_PUBLIC_`, () => {
+      // A comment MAY state the "never NEXT_PUBLIC_" rule; no instruction may set one.
+      expect(stripHashComments(read(rel))).not.toContain("NEXT_PUBLIC_");
+    });
+  }
+
+  for (const rel of DOC_FILES) {
+    it(`${rel}: documents provider variables without embedding AWS keys`, () => {
+      if (!existsSync(path.join(ROOT, rel))) return;
+      expect(read(rel)).not.toMatch(AWS_KEY);
+    });
+  }
+});

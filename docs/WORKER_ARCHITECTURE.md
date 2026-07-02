@@ -276,6 +276,40 @@ smoke-tests it with `pnpm worker:daemon --dry-run-status` (see DEPLOYMENT.md). W
 outputs now use Phase 18 display-only filename metadata when present (for example
 `invoice-compressed.pdf`) and fall back to content-type-derived names when absent.
 
+### Container image & web/worker separation (Phase 19)
+
+Phase 19 turns the "separate process" invariant into a build artifact. A multi-stage
+[`Dockerfile`](../Dockerfile) shares a dependency + build stage but produces **two
+independent final images**:
+
+- **`web`** runs `pnpm start` (Next.js). It installs **no** native PDF engines and its
+  layers never reference the worker daemon.
+- **`worker`** runs `pnpm worker:daemon`. It installs **Ghostscript, qpdf, and
+  `mupdf-tools`** for deep compression and copies `src/`/`scripts/`/`tsconfig.json`/
+  `node_modules` (the daemon runs via `tsx`) but **not** the web build (`.next`), and
+  serves no HTTP.
+
+This mirrors the code-level boundary the earlier phases built: the web app never imports
+the Node-only daemon runtime (`daemon/runtime.ts`) or the native-compression subprocess
+module (`compression/native.ts`) eagerly — both are reached only via lazy `import()` (the
+`/status` route's engine probe) or the out-of-band CLI. Two kinds of static test enforce
+this so it cannot silently regress:
+
+- `src/deploy/import-boundary.test.ts` scans every non-test module under `src/` and fails
+  if anything outside the three allowlisted Node-only files statically imports
+  `compression/native`, `daemon/runtime`, or `node:child_process` (lazy `await import(...)`
+  is allowed). It also asserts the eager `@/lib/workers` barrel pulls in no `node:` builtin.
+- `src/deploy/artifacts.test.ts` parses the `Dockerfile` stages and asserts the separation
+  (worker installs the engines and runs the daemon; web runs `pnpm start` with no engines
+  and no `.next` in the worker image), that the compose/`.env` examples reference provider
+  variables **by name only**, and that no artifact commits a real-looking secret or a
+  `NEXT_PUBLIC_` provider value.
+
+The Docker build itself was **not exercised** in this repository's environment (no Docker
+daemon); the images must be built and run in real worker infrastructure. See
+DEPLOYMENT.md's "Phase 19 worker container" section for the build and health-check
+commands.
+
 ## Processor registry & worker executor (Phase 13)
 
 Phase 13 adds the **execution foundation**: the compute seam is now a typed
