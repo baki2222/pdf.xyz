@@ -1,9 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { PDFDocument } from "pdf-lib";
 import type { OcrOptions } from "@/lib/jobs/ocr";
 import type { ProcessorInputFile } from "./processor/types";
 import type { NativeOcrConfig } from "./ocr-native-config";
 import {
+  countPdfPages,
+  countTextCharacters,
   createNativeOcrRunner,
   firstUsableOcrEngine,
   inputExtension,
@@ -167,9 +170,10 @@ describe("createNativeOcrRunner — success paths", () => {
       exec,
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
+      countPages: async () => 5,
     });
 
-    const artifacts = await runner({ options: BOTH, inputs: [scan] });
+    const { artifacts, meta } = await runner({ options: BOTH, inputs: [scan] });
 
     expect(artifacts.map((a) => a.filename)).toEqual(["Client Scan-ocr.pdf", "Client Scan.txt"]);
     expect(artifacts[0]?.contentType).toBe("application/pdf");
@@ -183,18 +187,39 @@ describe("createNativeOcrRunner — success paths", () => {
     // The subprocess was invoked by argv with the configured timeout.
     expect(execCalls[0]!.command).toBe("ocrmypdf");
     expect(execCalls[0]!.options).toMatchObject({ timeout: 300_000, windowsHide: true });
+
+    // Metadata is derived from the ACTUAL run: engine family, validated languages,
+    // produced artifact kinds, and real COUNTS — never invented, never leaking text.
+    expect(meta).toEqual({
+      engine: "ocrmypdf",
+      languages: ["eng", "spa"],
+      outputMode: "both",
+      producedSearchablePdf: true,
+      producedTextSidecar: true,
+      pageCount: 5,
+      textCharacters: TEXT_OUT.byteLength, // "Recognized text from the scan." → 30 ASCII chars
+      meanConfidence: null, // the native backend exposes none — never fabricated
+    });
+    // The recognized text itself never rides along in the metadata.
+    expect(JSON.stringify(meta)).not.toContain("Recognized text");
   });
 
-  it("returns only the searchable PDF for pdf-only mode", async () => {
+  it("returns only the searchable PDF for pdf-only mode, with pdf-only metadata", async () => {
     const { fs } = fakeFs(pdfOrText);
     const runner = createNativeOcrRunner(cfg(), {
       exec: async () => {},
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
+      countPages: async () => 2,
     });
-    const artifacts = await runner({ options: PDF_ONLY, inputs: [scan] });
+    const { artifacts, meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]?.filename).toBe("Client Scan-ocr.pdf");
+    expect(meta.producedSearchablePdf).toBe(true);
+    expect(meta.producedTextSidecar).toBe(false);
+    expect(meta.pageCount).toBe(2);
+    // No sidecar ⇒ no character count (honestly null, not zero).
+    expect(meta.textCharacters).toBeNull();
   });
 
   it("returns only the text sidecar for text-only mode (no PDF validation needed)", async () => {
@@ -208,14 +233,18 @@ describe("createNativeOcrRunner — success paths", () => {
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
     });
-    const artifacts = await runner({ options: TEXT_ONLY, inputs: [scan] });
+    const { artifacts, meta } = await runner({ options: TEXT_ONLY, inputs: [scan] });
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]?.filename).toBe("Client Scan.txt");
     // The PDF output is never read in text-only mode.
     expect(readCalls.every((f) => f.endsWith(".txt"))).toBe(true);
+    // No PDF ⇒ null page count; the sidecar's characters ARE counted.
+    expect(meta.producedSearchablePdf).toBe(false);
+    expect(meta.pageCount).toBeNull();
+    expect(meta.textCharacters).toBe(TEXT_OUT.byteLength);
   });
 
-  it("uses tesseract when it is the only engine present", async () => {
+  it("uses tesseract when it is the only engine present, and names it in the meta", async () => {
     const execCalls: string[][] = [];
     const { fs } = fakeFs(pdfOrText);
     const runner = createNativeOcrRunner(cfg(), {
@@ -224,12 +253,27 @@ describe("createNativeOcrRunner — success paths", () => {
       },
       fs,
       resolveOnPath: onlyEngine("tesseract"),
+      countPages: async () => 1,
     });
-    const artifacts = await runner({ options: PDF_ONLY, inputs: [scan] });
+    const { artifacts, meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
     expect(artifacts).toHaveLength(1);
     // tesseract argv shape: input, base, -l, lang, pdf
     expect(execCalls[0]?.[2]).toBe("-l");
     expect(execCalls[0]).toContain("pdf");
+    expect(meta.engine).toBe("tesseract");
+  });
+
+  it("falls back to a null page count when the produced PDF cannot be parsed (never fabricated)", async () => {
+    // The default page-counter (real pdf-lib) can't parse the minimal fake PDF, so the
+    // page count is honestly null rather than a made-up number.
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+    });
+    const { meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
+    expect(meta.pageCount).toBeNull();
   });
 });
 
@@ -375,5 +419,34 @@ describe("nativeOcrDeps / probeNativeOcrEngines — from the environment", () =>
   it("reports no engines from the env when OCR is disabled", () => {
     const engines = probeNativeOcrEngines({ PDFXYZ_OCR: "off" }, { resolveOnPath: () => true });
     expect(engines).toEqual({ ocrmypdf: false, tesseract: false });
+  });
+});
+
+describe("countPdfPages — bounded, best-effort, never throws", () => {
+  it("counts the pages of a real PDF", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage([200, 200]);
+    const bytes = await doc.save();
+    expect(await countPdfPages(bytes)).toBe(3);
+  });
+
+  it("returns null for empty or non-PDF bytes rather than throwing", async () => {
+    expect(await countPdfPages(new Uint8Array(0))).toBeNull();
+    expect(await countPdfPages(new TextEncoder().encode("not a pdf"))).toBeNull();
+    // A minimal %PDF header with no object structure is not parseable → null, not a guess.
+    expect(await countPdfPages(new TextEncoder().encode("%PDF-1.7\n%%EOF\n"))).toBeNull();
+  });
+});
+
+describe("countTextCharacters — a count only, never the text", () => {
+  it("counts characters in a decoded sidecar", () => {
+    expect(countTextCharacters(new TextEncoder().encode("hello"))).toBe(5);
+    expect(countTextCharacters(new Uint8Array(0))).toBe(0);
+  });
+
+  it("returns null (not a partial count) for a sidecar above the measure ceiling", () => {
+    // A 33 MiB buffer exceeds the 32 MiB measure ceiling: honestly "not measured".
+    const huge = new Uint8Array(33 * 1024 * 1024);
+    expect(countTextCharacters(huge)).toBeNull();
   });
 });

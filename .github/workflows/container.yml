@@ -101,6 +101,16 @@ jobs:
             -e PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE=true \
             pdfxyz-worker:ci pnpm worker:engines
 
+      # Deterministic native OCR proof (Phase 25): after presence is established, prove
+      # the packaged Tesseract baseline can actually RECOGNIZE text end-to-end. It
+      # generates a tiny synthetic raster of a known sentinel (Ghostscript), OCRs it to
+      # a searchable PDF + text sidecar (Tesseract), and asserts the sidecar contains
+      # the sentinel — real recognition, not just structure. It uses NO user document,
+      # cloud service, secret, queue, store, or scanner; its output is presence-only and
+      # content-free (no path or recognized text), and it always cleans up its temp dir.
+      - name: Worker image deterministic OCR recognition proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)

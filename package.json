@@ -12,6 +12,7 @@
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",
     "worker:image-smoke": "sh scripts/worker-image-smoke.sh",
+    "worker:ocr-proof": "sh scripts/worker-ocr-proof.sh",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",

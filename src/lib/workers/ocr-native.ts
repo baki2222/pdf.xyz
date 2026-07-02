@@ -36,6 +36,8 @@ import { existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { PDFDocument } from "pdf-lib";
+import { buildOcrResultMeta } from "@/lib/jobs/ocr";
 import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import { looksLikePdf } from "./compression/engine";
 import {
@@ -47,7 +49,7 @@ import {
   resolveNativeOcrConfig,
   type NativeOcrConfig,
 } from "./ocr-native-config";
-import type { OcrProcessorDeps, OcrRunner } from "./processor/ocr";
+import type { OcrProcessorDeps, OcrRunner, OcrRunResult } from "./processor/ocr";
 import type { ProcessorArtifact, ProcessorInputFile } from "./processor/types";
 
 /** stdout/stderr capture ceiling. Engines are `--quiet` and write to files, so this is generous. */
@@ -56,6 +58,17 @@ const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 /** The searchable-PDF and text artifacts a completed OCR run yields. */
 const PDF_CONTENT_TYPE = "application/pdf";
 const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
+
+/**
+ * Metadata measurement ceilings. Populating {@link OcrResultMeta} must never turn a
+ * bounded worker into an unbounded one: we only STRUCTURALLY parse a produced PDF for
+ * its page count, or decode a produced sidecar to count characters, when the artifact
+ * is within these ceilings. Above them the count is honestly `null` ("not measured")
+ * rather than fabricated or paid for with unbounded work. Both are well under the
+ * config's output byte ceiling — this bounds the *metadata* pass, not the artifact.
+ */
+const META_PDF_MAX_PARSE_BYTES = 64 * 1024 * 1024;
+const META_TEXT_MAX_MEASURE_BYTES = 32 * 1024 * 1024;
 
 /** Run a subprocess by argv (never a shell). Injectable so tests never spawn a real process. */
 export type NativeOcrExec = (
@@ -82,6 +95,13 @@ export interface NativeOcrSeams {
   exec?: NativeOcrExec;
   /** Temp-file operations. */
   fs?: NativeOcrFs;
+  /**
+   * Best-effort page counter for a produced searchable PDF (metadata only). Defaults
+   * to {@link countPdfPages}, a bounded pdf-lib structural probe that returns `null`
+   * (never throws) when the PDF can't be parsed. Injectable so tests are deterministic
+   * without a real pdf-lib parse.
+   */
+  countPages?: (pdf: Uint8Array) => Promise<number | null>;
 }
 
 const runExecFile = promisify(execFile);
@@ -261,6 +281,43 @@ function ocrOutputBase(displayName: string): string {
 }
 
 /**
+ * Best-effort structural page count of a produced searchable PDF, for
+ * {@link OcrResultMeta}. Bounded (skips a very large PDF) and total: it NEVER throws
+ * and returns `null` on an empty/oversized/unparseable input, so a missing page count
+ * is honestly `null` rather than a fabricated number. The bytes here are the OCR
+ * engine's own output (already validated as a PDF), not raw user input.
+ */
+export async function countPdfPages(bytes: Uint8Array): Promise<number | null> {
+  if (bytes.byteLength === 0 || bytes.byteLength > META_PDF_MAX_PARSE_BYTES) {
+    return null;
+  }
+  try {
+    const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    const pages = doc.getPageCount();
+    return Number.isInteger(pages) && pages > 0 ? pages : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Count the characters in a produced text sidecar for {@link OcrResultMeta}. Returns a
+ * COUNT ONLY — the decoded text is never returned, logged, or retained. Bounded: a
+ * sidecar above the measure ceiling reports `null` ("not measured") rather than
+ * decoding an unbounded string. `0` bytes ⇒ `0` characters.
+ */
+export function countTextCharacters(bytes: Uint8Array): number | null {
+  if (bytes.byteLength === 0) return 0;
+  if (bytes.byteLength > META_TEXT_MAX_MEASURE_BYTES) return null;
+  try {
+    // Decode only to measure length, then drop the string — nothing is retained.
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes).length;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build a native OCR runner bound to a configuration. Writes the single input to an
  * isolated temp dir, invokes the engine with a fixed argv array, reads the requested
  * outputs, validates them, and ALWAYS removes the temp dir afterward — on success,
@@ -274,9 +331,10 @@ export function createNativeOcrRunner(
 ): OcrRunner {
   const exec = seams.exec ?? defaultExec;
   const fs = seams.fs ?? defaultFs;
+  const countPages = seams.countPages ?? countPdfPages;
   const baseTmp = config.tmpDir ?? tmpdir();
 
-  return async ({ options, inputs }): Promise<ProcessorArtifact[]> => {
+  return async ({ options, inputs }): Promise<OcrRunResult> => {
     const input = inputs[0];
     // OCR runs over a single document; the contract and UI submit exactly one file.
     if (inputs.length !== 1 || !input) {
@@ -317,6 +375,8 @@ export function createNativeOcrRunner(
 
       const base = ocrOutputBase(input.filename);
       const artifacts: ProcessorArtifact[] = [];
+      let pdfBytes: Uint8Array | null = null;
+      let txtBytes: Uint8Array | null = null;
 
       if (wantPdf) {
         const pdf = await fs.readFile(pdfOut);
@@ -327,10 +387,11 @@ export function createNativeOcrRunner(
         ) {
           throw new Error("OCR produced no usable PDF output.");
         }
+        pdfBytes = pdf instanceof Uint8Array ? pdf : new Uint8Array(pdf);
         artifacts.push({
           filename: `${base}-ocr.pdf`,
           contentType: PDF_CONTENT_TYPE,
-          bytes: pdf instanceof Uint8Array ? pdf : new Uint8Array(pdf),
+          bytes: pdfBytes,
         });
       }
 
@@ -339,10 +400,11 @@ export function createNativeOcrRunner(
         if (txt.byteLength === 0 || txt.byteLength > config.maxOutputBytes) {
           throw new Error("OCR produced no usable text output.");
         }
+        txtBytes = txt instanceof Uint8Array ? txt : new Uint8Array(txt);
         artifacts.push({
           filename: `${base}.txt`,
           contentType: TEXT_CONTENT_TYPE,
-          bytes: txt instanceof Uint8Array ? txt : new Uint8Array(txt),
+          bytes: txtBytes,
         });
       }
 
@@ -351,7 +413,23 @@ export function createNativeOcrRunner(
         // failure, never a fabricated success.
         throw new Error("OCR produced no output.");
       }
-      return artifacts;
+
+      // Derive the bounded, content-free result metadata from the ACTUAL artifacts:
+      // the engine family, which artifact kinds were produced, the validated language
+      // set, and best-effort page/character COUNTS. `meanConfidence` is null — the
+      // native OCRmyPDF/Tesseract path exposes no safe document-level confidence, so we
+      // never invent one. No recognized text, filename, or path enters the metadata.
+      const meta = buildOcrResultMeta({
+        engine,
+        languages: options.languages,
+        outputMode: options.outputMode,
+        producedSearchablePdf: pdfBytes !== null,
+        producedTextSidecar: txtBytes !== null,
+        pageCount: pdfBytes ? await countPages(pdfBytes) : null,
+        textCharacters: txtBytes ? countTextCharacters(txtBytes) : null,
+        meanConfidence: null,
+      });
+      return { artifacts, meta };
     } finally {
       // Cleanup runs on every exit path — success, throw, or timeout. Never let a
       // cleanup error mask the real outcome or leak a path.

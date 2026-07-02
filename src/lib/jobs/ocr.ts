@@ -268,34 +268,125 @@ export function describeOcrRequest(options: OcrOptions): string {
   return `${languages} → ${mode}`;
 }
 
-/** Per-page recognition result a real OCR processor reports (never fabricated here). */
-export interface OcrPageResult {
-  pageNumber: number;
-  /** Characters recognized on the page. */
-  characters: number;
-  /** Mean per-word confidence, 0–1. */
-  meanConfidence: number;
+/**
+ * Serializable, bounded metadata a COMPLETED OCR job attaches to its successful
+ * result (populated by the secure worker's OCR processor from an ACTUAL run — see
+ * `@/lib/workers/ocr-native`). Every field is either a hard fact of the run — which
+ * engine family ran, what was produced, the validated language set — or a
+ * COUNT/derived number. It NEVER carries recognized text, an input filename, an
+ * object key, a temp path, a command path, or any secret, so it is safe to log,
+ * persist, and return to a client.
+ *
+ * Honesty rules the {@link buildOcrResultMeta} builder enforces:
+ *  - nullable fields are `null` when the value could not be safely determined — they
+ *    are never fabricated (a backend that does not expose confidence reports `null`,
+ *    it does not invent a number);
+ *  - counts are coerced to bounded, non-negative integers;
+ *  - the shape is schema-stable — it does not vary by engine or option.
+ */
+export interface OcrResultMeta {
+  /** OCR engine family that did the work (short name only, e.g. "ocrmypdf"). Never a path or version. */
+  engine: string;
+  /** Validated, de-duplicated recognition languages (allowlist codes only). */
+  languages: OcrLanguage[];
+  /** What the job produced. */
+  outputMode: OcrOutputMode;
+  /** True when a searchable-PDF artifact was produced. */
+  producedSearchablePdf: boolean;
+  /** True when a plain-text sidecar artifact was produced. */
+  producedTextSidecar: boolean;
+  /** Page count of the searchable-PDF output when structurally determinable; `null` otherwise. */
+  pageCount: number | null;
+  /**
+   * Character count of the text sidecar when it was produced and measured; `null`
+   * otherwise. A COUNT ONLY — never the recognized text itself.
+   */
+  textCharacters: number | null;
+  /**
+   * Mean recognition confidence in [0, 1] ONLY when the backend reports it safely;
+   * `null` otherwise. The native OCRmyPDF/Tesseract backend does not currently expose
+   * a document-level confidence, so it stays `null` — it is never invented.
+   */
+  meanConfidence: number | null;
+}
+
+/** Upper bound on a reported page count — keeps the metric bounded against pathological input. */
+export const OCR_MAX_REPORTED_PAGES = 200_000;
+/**
+ * Upper bound on a reported character count. A sidecar can never exceed the worker's
+ * output byte ceiling, and (for UTF-8) its character count can never exceed its byte
+ * count, so this 2 GiB cap is a safe, tangible bound the count can never legitimately
+ * pass — it only clamps a pathological/garbage value.
+ */
+export const OCR_MAX_REPORTED_CHARACTERS = 2 * 1024 * 1024 * 1024;
+
+/** Raw facts a runner observes from an actual OCR run, before bounding/sanitization. */
+export interface OcrResultMetaInput {
+  /** Engine family name (a short token; sanitized defensively). */
+  engine: string;
+  languages: readonly OcrLanguage[];
+  outputMode: OcrOutputMode;
+  producedSearchablePdf: boolean;
+  producedTextSidecar: boolean;
+  /** Best-effort page count of the produced PDF; null/absent when not determinable. */
+  pageCount?: number | null;
+  /** Best-effort character count of the produced sidecar; null/absent when not measured. */
+  textCharacters?: number | null;
+  /** Backend-reported mean confidence in [0, 1]; null/absent when the backend has none. */
+  meanConfidence?: number | null;
+}
+
+/** Coerce a raw metric to a bounded, non-negative integer in [0, max]; anything else ⇒ null. */
+function boundedCount(value: number | null | undefined, max: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  return Math.min(Math.floor(value), max);
+}
+
+/** Reduce an engine name to a short, safe token so a stray path/text can never ride in as "engine". */
+function sanitizeOcrEngineName(engine: string): string {
+  const token = engine.trim().toLowerCase().replace(/[^a-z0-9_+-]/g, "");
+  return token.slice(0, 32) || "unknown";
 }
 
 /**
- * Serializable metadata a COMPLETED OCR job returns alongside its artifacts.
- * These are type definitions for a real processor's output — this module never
- * produces, estimates, or fakes them. A worker fills them in from actual
- * recognition results.
+ * Build the bounded, content-free {@link OcrResultMeta} a successful OCR run reports.
+ * Pure and schema-stable: it sanitizes the engine name, filters languages to the
+ * allowlist, coerces counts to bounded non-negative integers, and keeps a confidence
+ * ONLY when it is a real number in [0, 1] — never inventing one. Counts that only make
+ * sense for a produced artifact are nulled when that artifact was not produced (no PDF
+ * ⇒ null pages; no sidecar ⇒ null characters), so the metadata can never imply an
+ * output that does not exist.
  */
-export interface OcrResultMeta {
-  /** OCR engine that did the work (name only, e.g. "ocrmypdf"). */
-  engine: string;
-  languages: OcrLanguage[];
-  outputMode: OcrOutputMode;
-  /** Pages the processor ran recognition over. */
-  pagesProcessed: number;
-  /** Pages skipped because they already had a text layer (`skipTextPages`). */
-  pagesSkipped: number;
-  /** Total characters recognized across the document. */
-  textCharacters: number;
-  /** Mean confidence across recognized words, 0–1. */
-  meanConfidence: number;
-  producedSearchablePdf: boolean;
-  producedTextSidecar: boolean;
+export function buildOcrResultMeta(input: OcrResultMetaInput): OcrResultMeta {
+  const producedSearchablePdf = input.producedSearchablePdf === true;
+  const producedTextSidecar = input.producedTextSidecar === true;
+
+  const languages: OcrLanguage[] = [];
+  for (const code of input.languages) {
+    if (isOcrLanguage(code) && !languages.includes(code)) languages.push(code);
+  }
+
+  const rawConfidence = input.meanConfidence;
+  const meanConfidence =
+    typeof rawConfidence === "number" &&
+    Number.isFinite(rawConfidence) &&
+    rawConfidence >= 0 &&
+    rawConfidence <= 1
+      ? rawConfidence
+      : null;
+
+  return {
+    engine: sanitizeOcrEngineName(input.engine),
+    languages: languages.slice(0, MAX_OCR_LANGUAGES),
+    outputMode: input.outputMode,
+    producedSearchablePdf,
+    producedTextSidecar,
+    pageCount: producedSearchablePdf
+      ? boundedCount(input.pageCount, OCR_MAX_REPORTED_PAGES)
+      : null,
+    textCharacters: producedTextSidecar
+      ? boundedCount(input.textCharacters, OCR_MAX_REPORTED_CHARACTERS)
+      : null,
+    meanConfidence,
+  };
 }

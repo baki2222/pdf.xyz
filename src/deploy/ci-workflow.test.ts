@@ -52,6 +52,21 @@ describe("container CI builds both image targets and smokes the worker", () => {
     expect(container).toMatch(/docker run[\s\S]*?worker:image-smoke/);
   });
 
+  it("runs the deterministic OCR recognition proof inside the built worker image", () => {
+    // Phase 25: after presence is established, the proof generates a synthetic raster
+    // of a known sentinel and recognizes it with the packaged Tesseract baseline —
+    // real recognition end-to-end, no user document, no cloud, no secret.
+    expect(container).toMatch(/docker run[\s\S]*?worker:ocr-proof/);
+  });
+
+  it("runs the engine presence preflight before the OCR recognition proof", () => {
+    // The presence smoke (`worker:engines`) must appear before the behavior proof
+    // (`worker:ocr-proof`) — you establish the engines exist, then prove they work.
+    expect(container.indexOf("worker:engines")).toBeLessThan(
+      container.indexOf("worker:ocr-proof"),
+    );
+  });
+
   it("proves web ↔ worker separation at the image level (engines only in the worker)", () => {
     // The worker image must ship the native deep-compression AND OCR engines; the web
     // image must ship none of them.

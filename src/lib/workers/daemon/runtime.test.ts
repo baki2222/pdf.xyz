@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_RETENTION, type Job } from "@/lib/jobs";
+import { DEFAULT_RETENTION, buildOcrResultMeta, type Job } from "@/lib/jobs";
 import { DevWorkerStore } from "../store";
 import { createLocalDevQueue } from "../queue/local-dev";
 import { createNotConfiguredQueue } from "../queue/not-configured";
@@ -182,7 +182,16 @@ describe("resolveWorkerRuntime — OCR backend wiring (Phase 23)", () => {
         compression: noEngines,
         ocr: {
           engines: { ocrmypdf: true, tesseract: false },
-          runner: async () => [],
+          runner: async () => ({
+            artifacts: [],
+            meta: buildOcrResultMeta({
+              engine: "ocrmypdf",
+              languages: ["eng"],
+              outputMode: "searchable-pdf",
+              producedSearchablePdf: false,
+              producedTextSidecar: false,
+            }),
+          }),
         },
       },
     );
@@ -349,9 +358,19 @@ describe("worker daemon runtime — honesty end-to-end", () => {
         compression: noEngines,
         ocr: {
           engines: { ocrmypdf: true, tesseract: false },
-          runner: async () => [
-            { filename: "scan-ocr.pdf", contentType: "application/pdf", bytes: ocrPdf },
-          ],
+          runner: async () => ({
+            artifacts: [
+              { filename: "scan-ocr.pdf", contentType: "application/pdf", bytes: ocrPdf },
+            ],
+            meta: buildOcrResultMeta({
+              engine: "ocrmypdf",
+              languages: ["eng"],
+              outputMode: "searchable-pdf",
+              producedSearchablePdf: true,
+              producedTextSidecar: false,
+              pageCount: 1,
+            }),
+          }),
         },
       },
     );

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createOcrProcessor, type OcrRunner } from "./ocr";
+import { buildOcrResultMeta, type OcrResultMeta } from "@/lib/jobs/ocr";
+import { createOcrProcessor, ocrProcessorMeta, type OcrRunner } from "./ocr";
 import type { ProcessorInputFile } from "./types";
 
 const scan: ProcessorInputFile = {
@@ -8,6 +9,19 @@ const scan: ProcessorInputFile = {
   contentType: "application/pdf",
   bytes: new Uint8Array([1, 2, 3]),
 };
+
+/** A representative, valid OCR result-meta for a runner fake. */
+function fakeMeta(over: Partial<OcrResultMeta> = {}): OcrResultMeta {
+  return buildOcrResultMeta({
+    engine: "ocrmypdf",
+    languages: ["eng"],
+    outputMode: "searchable-pdf",
+    producedSearchablePdf: true,
+    producedTextSidecar: false,
+    pageCount: 3,
+    ...over,
+  });
+}
 
 describe("ocr processor — shipped state (no runner)", () => {
   const proc = createOcrProcessor();
@@ -56,17 +70,20 @@ describe("ocr processor — shipped state (no runner)", () => {
 });
 
 describe("ocr processor — flips on when a real runner is wired", () => {
-  it("becomes ready and delegates to the runner (never fabricates text)", async () => {
+  it("becomes ready, delegates to the runner, and attaches safe metadata", async () => {
     const runner: OcrRunner = async ({ options, inputs }) => {
       expect(inputs).toHaveLength(1);
       expect(options.languages).toEqual(["eng"]);
-      return [
-        {
-          filename: "scan-ocr.pdf",
-          contentType: "application/pdf",
-          bytes: new Uint8Array([9, 9, 9]),
-        },
-      ];
+      return {
+        artifacts: [
+          {
+            filename: "scan-ocr.pdf",
+            contentType: "application/pdf",
+            bytes: new Uint8Array([9, 9, 9]),
+          },
+        ],
+        meta: fakeMeta({ languages: ["eng"], pageCount: 4 }),
+      };
     };
     const proc = createOcrProcessor({
       engines: { ocrmypdf: true, tesseract: false },
@@ -81,15 +98,80 @@ describe("ocr processor — flips on when a real runner is wired", () => {
       inputs: [scan],
     });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.artifacts[0]?.filename).toBe("scan-ocr.pdf");
+    if (!result.ok) return;
+    expect(result.artifacts[0]?.filename).toBe("scan-ocr.pdf");
+    // The processor surfaces the runner's bounded metadata on the success result,
+    // flattened to the content-free ProcessorMeta seam.
+    expect(result.meta).toMatchObject({
+      engine: "ocrmypdf",
+      outputMode: "searchable-pdf",
+      languages: "eng",
+      languageCount: 1,
+      producedSearchablePdf: true,
+      producedTextSidecar: false,
+      pageCount: 4,
+    });
+    // A confidence the native backend never provides must not appear (never invented).
+    expect(result.meta && "meanConfidence" in result.meta).toBe(false);
   });
 
   it("stays not-ready when a runner is wired but no engine is present", () => {
     const proc = createOcrProcessor({
       engines: { ocrmypdf: false, tesseract: false },
-      runner: async () => [],
+      runner: async () => ({ artifacts: [], meta: fakeMeta() }),
     });
     expect(proc.capability().ready).toBe(false);
+  });
+});
+
+describe("ocrProcessorMeta — flat, bounded, null-free flattening", () => {
+  it("joins languages, drops nulls, and keeps a real confidence", () => {
+    const flat = ocrProcessorMeta(
+      buildOcrResultMeta({
+        engine: "tesseract",
+        languages: ["eng", "spa"],
+        outputMode: "both",
+        producedSearchablePdf: true,
+        producedTextSidecar: true,
+        pageCount: 2,
+        textCharacters: 128,
+        meanConfidence: 0.87,
+      }),
+    );
+    expect(flat).toEqual({
+      engine: "tesseract",
+      outputMode: "both",
+      languages: "eng+spa",
+      languageCount: 2,
+      producedSearchablePdf: true,
+      producedTextSidecar: true,
+      pageCount: 2,
+      textCharacters: 128,
+      meanConfidence: 0.87,
+    });
+    // Flat and content-free: only primitive scalars, no nested object/array.
+    for (const value of Object.values(flat)) {
+      expect(["string", "number", "boolean"]).toContain(typeof value);
+    }
+  });
+
+  it("omits page/character counts and confidence that are null (never as null keys)", () => {
+    const flat = ocrProcessorMeta(
+      buildOcrResultMeta({
+        engine: "ocrmypdf",
+        languages: ["eng"],
+        outputMode: "searchable-pdf",
+        producedSearchablePdf: true,
+        producedTextSidecar: false,
+        pageCount: null,
+        textCharacters: null,
+        meanConfidence: null,
+      }),
+    );
+    expect("pageCount" in flat).toBe(false);
+    expect("textCharacters" in flat).toBe(false);
+    expect("meanConfidence" in flat).toBe(false);
+    expect(Object.values(flat)).not.toContain(null);
   });
 });
 
@@ -121,7 +203,9 @@ describe("ocr processor — maps a runner failure to a typed, content-free error
   });
 
   it("treats an empty artifact list as a failure, not a completed job", async () => {
-    const proc = createOcrProcessor(readyDeps(async () => []));
+    const proc = createOcrProcessor(
+      readyDeps(async () => ({ artifacts: [], meta: fakeMeta() })),
+    );
     const result = await proc.process({
       tool: "ocr-pdf",
       options: { languages: ["eng"] },

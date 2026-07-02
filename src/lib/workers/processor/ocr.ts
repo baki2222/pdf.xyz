@@ -15,7 +15,7 @@
  * wired" branch and the failure mapping are unit-tested without shipping an engine.
  */
 
-import { parseOcrOptions, type OcrOptions } from "@/lib/jobs";
+import { parseOcrOptions, type OcrOptions, type OcrResultMeta } from "@/lib/jobs";
 import {
   OCR_ENGINES,
   type OcrEngine,
@@ -27,21 +27,55 @@ import {
   type Processor,
   type ProcessorArtifact,
   type ProcessorInputFile,
+  type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
 
 const OCR_TOOL = "ocr-pdf";
 
 /**
+ * What a native OCR runner returns: the produced artifacts (a searchable PDF and/or
+ * a text sidecar) plus the bounded, content-free {@link OcrResultMeta} it observed
+ * from the ACTUAL run. The meta never carries recognized text, a path, or a filename;
+ * it is derived structurally (engine family, produced flags, page/character counts).
+ */
+export interface OcrRunResult {
+  artifacts: ProcessorArtifact[];
+  meta: OcrResultMeta;
+}
+
+/**
  * A native OCR runner: given input files and validated options, produce real
- * artifacts (a searchable PDF and/or a text sidecar). This build provides none,
- * so the OCR processor reports itself not ready and fails honestly. A production
- * worker supplies a runner that shells out to OCRmyPDF/Tesseract in a sandbox.
+ * artifacts and their safe metadata. This build provides none, so the OCR processor
+ * reports itself not ready and fails honestly. A production worker supplies a runner
+ * that shells out to OCRmyPDF/Tesseract in a sandbox.
  */
 export type OcrRunner = (input: {
   options: OcrOptions;
   inputs: ProcessorInputFile[];
-}) => Promise<ProcessorArtifact[]>;
+}) => Promise<OcrRunResult>;
+
+/**
+ * Flatten the structured {@link OcrResultMeta} to the flat, content-free
+ * {@link ProcessorMeta} the processor attaches to its success. Nulls are OMITTED
+ * (ProcessorMeta holds no null), and the language set becomes a stable, bounded
+ * `"eng+spa"` token plus a count — so a downstream reader gets every safe fact and
+ * never a null, a path, or recognized text.
+ */
+export function ocrProcessorMeta(meta: OcrResultMeta): ProcessorMeta {
+  const flat: ProcessorMeta = {
+    engine: meta.engine,
+    outputMode: meta.outputMode,
+    languages: meta.languages.join("+"),
+    languageCount: meta.languages.length,
+    producedSearchablePdf: meta.producedSearchablePdf,
+    producedTextSidecar: meta.producedTextSidecar,
+  };
+  if (meta.pageCount !== null) flat.pageCount = meta.pageCount;
+  if (meta.textCharacters !== null) flat.textCharacters = meta.textCharacters;
+  if (meta.meanConfidence !== null) flat.meanConfidence = meta.meanConfidence;
+  return flat;
+}
 
 /** Injected OCR dependencies: which engines are present and the native runner. */
 export interface OcrProcessorDeps {
@@ -134,18 +168,18 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
         });
       }
 
-      // A real runner returns artifacts from ACTUAL recognition, or throws on any
-      // failure (unreadable input, engine error, timeout, oversized/invalid output).
-      // A throw is caught here and mapped to a typed, content-free failure — never a
-      // raw error message and never fabricated output. It is retryable because an OCR
-      // failure MAY be transient (a timed-out or memory-pressured worker); the
-      // executor bounds retries by its attempt cap, so a deterministic failure
-      // exhausts attempts and then fails the job terminally. This is the OCR analogue
-      // of how the compression processor maps a crashed native engine to a retryable
-      // `internal_error`, and it is why `process()` never throws.
-      let artifacts: ProcessorArtifact[];
+      // A real runner returns artifacts + safe metadata from ACTUAL recognition, or
+      // throws on any failure (unreadable input, engine error, timeout,
+      // oversized/invalid output). A throw is caught here and mapped to a typed,
+      // content-free failure — never a raw error message and never fabricated output.
+      // It is retryable because an OCR failure MAY be transient (a timed-out or
+      // memory-pressured worker); the executor bounds retries by its attempt cap, so a
+      // deterministic failure exhausts attempts and then fails the job terminally. This
+      // is the OCR analogue of how the compression processor maps a crashed native
+      // engine to a retryable `internal_error`, and it is why `process()` never throws.
+      let run: OcrRunResult;
       try {
-        artifacts = await deps.runner({
+        run = await deps.runner({
           options: parsed.value,
           inputs: input.inputs,
         });
@@ -159,14 +193,17 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
       }
 
       // A runner that returns no artifacts is a failure, never a fabricated success.
-      if (artifacts.length === 0) {
+      if (run.artifacts.length === 0) {
         return processorFail({
           code: "internal_error",
           message: "The OCR engine produced no output.",
           retryable: true,
         });
       }
-      return processorOk(artifacts);
+      // Attach the bounded, content-free result metadata (engine family, produced
+      // artifact kinds, validated languages, page/character counts). It carries no
+      // recognized text, filename, or path — safe to log, persist, and return.
+      return processorOk(run.artifacts, ocrProcessorMeta(run.meta));
     },
   };
 }

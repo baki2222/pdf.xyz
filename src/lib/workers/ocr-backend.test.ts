@@ -17,7 +17,7 @@
  * status/copy still reports OCR unavailable unless a real backend is configured.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_RETENTION, type Job } from "@/lib/jobs";
+import { DEFAULT_RETENTION, buildOcrResultMeta, type Job } from "@/lib/jobs";
 import { DevWorkerStore } from "./store";
 import { createLocalDevQueue } from "./queue/local-dev";
 import type { ClaimableQueue } from "./queue/claim";
@@ -36,13 +36,25 @@ const OCR_PDF = new TextEncoder().encode(`%PDF-1.7\n${"ocr".repeat(32)}\n%%EOF\n
 const OCR_TEXT_SENTINEL = "SENSITIVE-OCR-TEXT-9f3c";
 const OCR_TEXT = new TextEncoder().encode(`${OCR_TEXT_SENTINEL} recognized on page 1.`);
 
-/** A deterministic fake OCR runner returning a searchable PDF + text sidecar. */
-const fakeOcrRunner: OcrRunner = async ({ inputs }) => {
+/** A deterministic fake OCR runner returning a searchable PDF + text sidecar + safe meta. */
+const fakeOcrRunner: OcrRunner = async ({ options, inputs }) => {
   const base = inputs[0]?.filename.replace(/\.[^.]+$/, "") ?? "document";
-  return [
-    { filename: `${base}-ocr.pdf`, contentType: "application/pdf", bytes: OCR_PDF },
-    { filename: `${base}.txt`, contentType: "text/plain; charset=utf-8", bytes: OCR_TEXT },
-  ];
+  return {
+    artifacts: [
+      { filename: `${base}-ocr.pdf`, contentType: "application/pdf", bytes: OCR_PDF },
+      { filename: `${base}.txt`, contentType: "text/plain; charset=utf-8", bytes: OCR_TEXT },
+    ],
+    // Metadata carries only bounded, structural facts — never the recognized text.
+    meta: buildOcrResultMeta({
+      engine: "ocrmypdf",
+      languages: options.languages,
+      outputMode: options.outputMode,
+      producedSearchablePdf: true,
+      producedTextSidecar: true,
+      pageCount: 1,
+      textCharacters: OCR_TEXT.byteLength,
+    }),
+  };
 };
 
 function queuedJob(jobId: string, createdAtMs: number): Job {
@@ -139,7 +151,16 @@ describe("OCR backend — executor integration", () => {
     let ran = false;
     const runner: OcrRunner = async () => {
       ran = true;
-      return [];
+      return {
+        artifacts: [],
+        meta: buildOcrResultMeta({
+          engine: "ocrmypdf",
+          languages: ["eng"],
+          outputMode: "searchable-pdf",
+          producedSearchablePdf: false,
+          producedTextSidecar: false,
+        }),
+      };
     };
     const registry = createProcessorRegistry({
       ocr: { engines: { ocrmypdf: true, tesseract: false }, runner },
@@ -160,7 +181,16 @@ describe("OCR backend — executor integration", () => {
     let ran = false;
     const runner: OcrRunner = async () => {
       ran = true;
-      return [{ filename: "x-ocr.pdf", contentType: "application/pdf", bytes: OCR_PDF }];
+      return {
+        artifacts: [{ filename: "x-ocr.pdf", contentType: "application/pdf", bytes: OCR_PDF }],
+        meta: buildOcrResultMeta({
+          engine: "ocrmypdf",
+          languages: ["eng"],
+          outputMode: "searchable-pdf",
+          producedSearchablePdf: true,
+          producedTextSidecar: false,
+        }),
+      };
     };
     const seen: string[] = [];
     const [tick] = await createWorkerExecutor({
