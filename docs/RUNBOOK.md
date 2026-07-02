@@ -201,6 +201,11 @@ Deploy checklist:
 - [ ] `compression_health.deep` is `true` if you advertise deep compression.
 - [ ] Web security headers + CSP present; core in-browser tools work.
 - [ ] A test job flows end-to-end (queued → claimed → completed) in staging.
+- [ ] A completed **OCR** job's status (`GET /api/jobs/:id`) carries `results.ocr`
+      with structural facts (pages, output kind, languages, character count) and
+      **no** recognized text, path, key, or URL (Phase 26). A failed/blocked OCR job,
+      or any compression job, carries **no** `results` block — if one appears where it
+      should not, treat it as a bug, not a cosmetic issue.
 
 ---
 

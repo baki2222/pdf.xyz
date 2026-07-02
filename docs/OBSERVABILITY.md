@@ -337,6 +337,17 @@ it always cleans up its temp dir. Alert on a worker that reports `2` when it is
 expected to be drainable, exactly as you would alert on `drainable: true` with a
 non-draining backlog.
 
+Phase 26 makes a completed OCR job's **result metadata** observable to a client via the
+job status API: `GET /api/jobs/:id` now returns `results.ocr` — the engine family
+(one of the closed set `ocrmypdf`/`tesseract`/`unknown`), validated languages, output
+mode, produced artifact kinds, and page/character **counts**. Like every other job field
+it is presence-only and content-free: it carries no recognized text, filename, object
+key, signed URL, temp path, or secret, and it is written only on a genuinely completed
+job and dropped when the outputs are deleted. There is still **no OCR-specific executor
+log field** — the per-job log line remains `claimed → scanning → [scan_clean] →
+processing → completed` with an error *code* only — so no recognition detail can leak
+through the log stream; the structural metadata lives on the job record alone.
+
 ## Deployment readiness & guardrail events (Phase 19)
 
 `--dry-run-status` and `--check` extend the daemon's content-free log stream with the

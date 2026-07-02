@@ -292,6 +292,16 @@ it must be *driven*. Before enabling remote processing:
   recognition validation stays out-of-band** — the image smoke proves the engine is
   installed and reports ready, not that any document OCRs correctly. See
   [`docs/OCR_BACKEND.md`](../docs/OCR_BACKEND.md).
+- **OCR job status now carries safe metadata (Phase 26).** Once OCR is enabled, a
+  completed `ocr-pdf` job's status (`GET /api/jobs/:id`) includes `results.ocr` —
+  structural, content-free metadata (engine family from the closed set
+  `ocrmypdf`/`tesseract`/`unknown`, validated languages, output kind, page count,
+  sidecar character count). It never carries recognized text, a filename, object key,
+  signed URL, or path; it is written only on a genuinely completed job and dropped when
+  the outputs are deleted. Nothing new to configure — it rides the existing job record;
+  the recognized text itself remains download-only in the artifact. If you proxy or log
+  job-status responses, note `results.ocr` is safe to retain (it is a *description* of
+  the output, never the output).
 - **Keep it presence-only.** `/api/worker/status` exposes
   `providers.processor.executor` (mode/ready/detail) — confirm no broker name,
   worker URL, key, or variable ever appears there. `remote-configured` must keep

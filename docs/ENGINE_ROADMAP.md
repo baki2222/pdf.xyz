@@ -272,10 +272,10 @@ mode-specific reason — no fake searchable PDFs or invented text.
   `worker_status_checked` telemetry event (mode + enabled only).
 - ✅ Delivered in **Phase 23**: a real, optional OCRmyPDF/Tesseract processor behind
   the adapter contract with the same storage/queue/deletion guarantees as every other
-  worker (see Phase 23 below). English packaging landed in **Phase 24** and result
-  metadata is now populated in **Phase 25**. ⏳ Remaining: additional (non-English)
-  language packs, and surfacing the populated `OcrResultMeta` into the client-facing
-  job record.
+  worker (see Phase 23 below). English packaging landed in **Phase 24**, result
+  metadata was populated in **Phase 25**, and **Phase 26** surfaced that metadata into
+  the client-facing job record (`Job.results.ocr`) and the job status API. ⏳ Remaining:
+  additional (non-English) language packs.
 
 ### Phase 12 — worker storage + queue foundation (shipped)
 
@@ -749,8 +749,9 @@ next honest OCR gap in two ways, without faking anything.
   exit `3`, cleanup) is proven Docker-free with stub engines in `worker-ocr-proof.test.ts`.
 
 ⏳ Still out-of-band (deliberately not faked): production OCR **quality**, OCRmyPDF's
-PDF→searchable-PDF path, **non-English** language packs, real **user-document**/traffic
-validation, and surfacing the populated metadata into the client-facing job record.
+PDF→searchable-PDF path, **non-English** language packs, and real **user-document**/traffic
+validation. (Surfacing the populated metadata into the client-facing job record shipped in
+**Phase 26**, below.)
 
 ### Phase 25 — lifecycle retention enforcement + deletion proof (shipped)
 
@@ -792,6 +793,37 @@ bucket and **exporting** its config for verification (the operator runs the prov
 for both; the app never calls the cloud), plus everything prior phases defer — real
 secrets and a provisioned bucket/broker, a running clamd service, and the actual worker
 **deployment**.
+
+### Phase 26 — OCR result metadata surfaced to clients (shipped)
+
+Phase 25 populated `OcrResultMeta` at the processor seam but left it there; the executor
+dropped it at `queue.complete()`, so it never reached a client. Phase 26 closes that gap
+end-to-end — safely, and without faking anything.
+
+- **Job-record schema** (`src/lib/jobs/results.ts`): a namespaced, optional `Job.results`
+  container (today only `results.ocr: OcrResultMeta`), present **only** on a completed job
+  that produced the described output. A compression job never grows a `results` block; a
+  failed/infected/not-enabled OCR job carries none; and the block is dropped alongside the
+  artifacts when outputs are deleted (cancel/expire), so metadata never outlives its output.
+- **One redaction boundary** (`sanitizeJobResults`): every write path — the async executor
+  via both queue providers (`queue/local-dev.ts`, `queue/redis.ts`) and the synchronous
+  local-dev adapter — funnels through it. It re-bounds the block through `buildOcrResultMeta`
+  and collapses the engine to the closed client-facing family set (`normalizeOcrEngineFamily`
+  → `ocrmypdf`/`tesseract`/`unknown`, exact-match so a version or fragment reads `unknown`),
+  and drops a block with an out-of-contract `outputMode`. So even a buggy or hostile runner
+  cannot land an unsafe value on a client-facing record.
+- **API + UI**: `GET /api/jobs/:id` returns the safe metadata verbatim (the route is a
+  pass-through of the sanitized `Job`), and the OCR tool panel renders a structural
+  "Recognition summary" (pages · output kind · languages · character count) — never
+  recognized text, and rows omit when a value is unknown.
+- **Tests**: redaction/no-leak bounds (`jobs/results.test.ts`), completion carries metadata
+  only on success and none on failure/block (`ocr-backend.test.ts`), the Redis persistence
+  round-trip (`queue/redis.test.ts`), compression unaffected (`local-dev.test.ts`), and the
+  UI summary's structural-only contract (`ocr-worker-panel.test.tsx`).
+
+⏳ Still artifact-only / out-of-band (deliberately): the **recognized text** itself (it lives
+only in the downloaded searchable-PDF/sidecar bytes — the record carries only its structural
+description), `meanConfidence` (the native backend exposes none), and production OCR quality.
 
 ## Definition of production-ready per tool
 
