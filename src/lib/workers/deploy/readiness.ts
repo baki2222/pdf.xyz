@@ -9,7 +9,8 @@
  *  - queue          — is a claimable job queue configured enough to run?
  *  - engine         — can this worker do lossless (always) and/or deep compression?
  *  - lifecycle      — is a retention/lifecycle backstop declared/validated/unknown?
- *  - malware-scan   — explicitly NOT implemented in this build (never claims a scan);
+ *  - malware-scan   — is an optional ClamAV scanner configured/ready/unavailable/off?
+ *                     (never claims a scan happened unless one is configured & ready);
  *  - ocr            — explicitly NOT implemented in this build.
  *
  * Every facet is presence-only and content-free: a boolean-ish state plus a
@@ -136,10 +137,19 @@ function lifecycleFacet(lifecycle: LifecycleReadiness): OperationalFacet {
 }
 
 function malwareFacet(scan: MalwareScanReadiness): OperationalFacet {
+  // `ready` → a scanner is configured and inputs are scanned; `unavailable` (selected
+  // but its endpoint config is missing/malformed) is a caveat worth surfacing as
+  // `degraded`; `disabled`/`not-configured` are honest "no scanning here" defaults.
+  const state: FacetState =
+    scan.state === "ready"
+      ? "ready"
+      : scan.state === "unavailable"
+        ? "degraded"
+        : "not-configured";
   return {
     id: "malware-scan",
     label: "Malware scanning",
-    state: scan.state === "not-configured" ? "not-configured" : "not-implemented",
+    state,
     detail: scan.detail,
   };
 }
@@ -196,11 +206,14 @@ export function resolveDeploymentReadiness(
       ? "ready"
       : "degraded";
 
+  const scanNote = malwareScan.active
+    ? " A malware scanner is configured, so inputs are scanned before processing."
+    : " Malware scanning is optional and not active here.";
   const detail =
     posture === "blocked"
       ? "Blocked: the queue and/or object storage are not configured, so no worker can run in this environment."
       : posture === "ready"
-        ? "Ready: the queue and storage are configured and a lifecycle backstop is declared and validated. Malware scanning and OCR remain intentionally not implemented."
+        ? `Ready: the queue and storage are configured and a lifecycle backstop is declared and validated.${scanNote} OCR remains intentionally not implemented.`
         : "Degraded: a worker can run, but a recommended backstop is missing or unverified (typically the lifecycle/retention policy). Review the facets before production.";
 
   return { drainable: daemon.drainable, posture, facets, lifecycle, malwareScan, detail };

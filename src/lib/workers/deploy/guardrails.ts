@@ -10,8 +10,8 @@
  * a typo — you set `…_STORAGE_PROVIDER=s3`, fat-finger one variable, and the worker
  * reports "not configured" as if you had set nothing. Guardrails re-surface those
  * cases as errors, and add opt-in production requirements (`require drainable`,
- * `require deep engine`, `require lifecycle`, `require atomic queue`) an operator
- * can enforce.
+ * `require deep engine`, `require lifecycle`, `require atomic queue`, `require
+ * scan`) an operator can enforce.
  *
  * Output contract: every violation is a typed `code` plus a **content-free**
  * message — no secret, value, path, object key, endpoint, or signed URL, and no
@@ -45,6 +45,12 @@ import {
   resolveLifecycleReadiness,
   LIFECYCLE_ENV,
 } from "../lifecycle";
+import {
+  resolveScannerReadiness,
+  scannerProviderToken,
+  parseClamavConfig,
+  MALWARE_SCANNER_ENV,
+} from "../scanner/config";
 import type { EngineHealthInput } from "./readiness";
 
 type EnvSource = Record<string, string | undefined>;
@@ -61,6 +67,16 @@ export const GUARDRAIL_ENV = {
   requireLifecycle: "PDFXYZ_WORKER_REQUIRE_LIFECYCLE",
   /** Require the configured queue to guarantee atomic, race-safe transitions. */
   requireAtomicQueue: "PDFXYZ_QUEUE_REQUIRE_ATOMIC",
+  /**
+   * Require an ACTIVE malware scanner (uploads are actually scanned). Opt-in and
+   * NOT armed by `strict`: a lossless-only worker with no scanner is a legitimate
+   * production choice (mirroring `require deep engine`), so a strict run without a
+   * scanner must still pass. Phase 22 ships an optional ClamAV backend, so this is
+   * now MET when a scanner is configured with a usable endpoint; an operator who
+   * mandates scanning arms this, and a missing/misconfigured scanner then fails fast
+   * rather than letting the worker process unscanned files.
+   */
+  requireScan: "PDFXYZ_WORKER_REQUIRE_SCAN",
 } as const;
 
 /** A typed, content-free guardrail failure code. */
@@ -75,7 +91,10 @@ export type GuardrailCode =
   | "deep_compression_without_engine"
   | "require_drainable_unmet"
   | "require_lifecycle_unmet"
-  | "queue_atomic_unsupported";
+  | "queue_atomic_unsupported"
+  | "scan_provider_unrecognized"
+  | "scan_selected_but_invalid"
+  | "require_scan_unmet";
 
 export type GuardrailSeverity = "error" | "warn";
 
@@ -154,6 +173,10 @@ export function evaluateGuardrails(
   // fails fast rather than silently degrading to last-writer-wins.
   const requireAtomicQueue =
     strict || flagOn(env, GUARDRAIL_ENV.requireAtomicQueue);
+  // Deliberately NOT armed by strict: a lossless-only worker without a scanner is a
+  // legitimate production choice, so a strict run must still be able to pass. An
+  // operator mandates scanning by arming this flag explicitly (alongside strict).
+  const requireScan = flagOn(env, GUARDRAIL_ENV.requireScan);
 
   // ── Config-integrity checks (always errors — a selected provider must be valid) ──
 
@@ -205,6 +228,32 @@ export function evaluateGuardrails(
           fields: fieldNames(parsed.issues),
         });
       }
+    }
+  }
+
+  // Malware scanner: like storage/queue, a selected-but-misconfigured scanner would
+  // silently fall back to not-scanning; surface it as an error so a typo can't hide
+  // (a scanner an operator meant to configure must actually be usable). `disabled`
+  // and `not-configured` are clean, expected no-ops and produce no violation.
+  const scanToken = scannerProviderToken(env);
+  if (scanToken === "unrecognized") {
+    violations.push({
+      code: "scan_provider_unrecognized",
+      severity: "error",
+      message:
+        "A malware scanner is selected but its value is not a supported scanner endpoint, so scanning silently falls back to not-configured.",
+      fields: [MALWARE_SCANNER_ENV],
+    });
+  } else if (scanToken === "clamav") {
+    const parsed = parseClamavConfig(env);
+    if (!parsed.ok) {
+      violations.push({
+        code: "scan_selected_but_invalid",
+        severity: "error",
+        message:
+          "A malware scanner is selected but its endpoint configuration is incomplete or malformed, so it cannot connect and inputs would not be scanned.",
+        fields: fieldNames(parsed.issues),
+      });
     }
   }
 
@@ -310,6 +359,20 @@ export function evaluateGuardrails(
     });
   }
 
+  // Active malware scanning: the worker must actually scan uploads. Met when a
+  // scanner is configured with a usable endpoint (`ready`); unmet when it is
+  // disabled, not-configured, or selected-but-misconfigured (`unavailable`). Fails
+  // fast rather than processing unscanned files, and never pretends a scan happened.
+  if (requireScan && !resolveScannerReadiness(env).active) {
+    violations.push({
+      code: "require_scan_unmet",
+      severity: "error",
+      message:
+        "An active malware scanner is required, but none is configured and ready in this environment, so uploads would not be scanned. The worker refuses to run rather than process unscanned files.",
+      fields: [MALWARE_SCANNER_ENV],
+    });
+  }
+
   const ok = !violations.some((v) => v.severity === "error");
   return {
     ok,
@@ -318,7 +381,8 @@ export function evaluateGuardrails(
       requireDrainable ||
       requireDeepEngine ||
       requireLifecycle ||
-      requireAtomicQueue,
+      requireAtomicQueue ||
+      requireScan,
     violations,
   };
 }

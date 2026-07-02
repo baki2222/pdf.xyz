@@ -73,6 +73,11 @@ function reportReadiness(runtime: WorkerRuntime): void {
   // smoke-check whether THIS image will actually do deep compression. Content-free
   // (booleans + engine binary names), so it ships to the log sink verbatim.
   emit({ src: "daemon", event: "compression_health", ...runtime.compression });
+  // The malware-scan gate's presence-only capability: `active: true` only when a
+  // real scanner (ClamAV) is configured with a usable endpoint, else the honest
+  // no-op (`active: false`), distinguishing `disabled` / `not-configured` /
+  // `unavailable`. Content-free — no variable name, endpoint, host, port, or value.
+  emit({ src: "daemon", event: "scanner_health", ...runtime.scanner });
   for (const cap of runtime.processors) {
     emit({
       src: "daemon",

@@ -42,6 +42,12 @@ import type { QueueProvider } from "../queue/types";
 import { createProcessorRegistry } from "../processor";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { ProcessorCapability } from "../processor/types";
+import type {
+  ClamavTransport,
+  MalwareScanCapability,
+  MalwareScanner,
+} from "../scanner";
+import { resolveWorkerScanner } from "../scanner/node";
 import {
   DEEP_COMPRESSION_TOOLS,
   type CompressionDeps,
@@ -109,6 +115,14 @@ export interface WorkerRuntime {
    * the deployment readiness, so the two never disagree.
    */
   guardrails: GuardrailReport;
+  /**
+   * Presence-only capability of the wired malware-scan gate. `active: true` only
+   * when a real scanner (ClamAV) is configured with a usable endpoint; otherwise
+   * the honest no-op is wired (`active: false`), distinguishing `disabled` /
+   * `not-configured` / `unavailable`. It can never be mistaken for scanning when it
+   * is not. Reported even when the runtime is not drainable. Content-free.
+   */
+  scanner: MalwareScanCapability;
   /** Honest, presence-only capability of every registered processor. */
   processors: ProcessorCapability[];
   /** The executor to tick — present ONLY when the queue is drainable and storage is ready. */
@@ -153,6 +167,18 @@ export interface WorkerRuntimeDeps {
   storageDeps?: S3ExecutorStorageDeps;
   /** Override the processor registry entirely. */
   registry?: ProcessorRegistry;
+  /**
+   * Override the malware scanner. Tests inject a fake (clean/infected/error); the
+   * shipped runtime resolves the real ClamAV scanner (when configured) or the honest
+   * no-op via {@link resolveWorkerScanner}, which never claims a file was scanned.
+   */
+  scanner?: MalwareScanner;
+  /**
+   * Override the clamd transport used when a scanner is configured. Tests inject a
+   * fake so a clamav-configured environment is wired WITHOUT opening a socket; the
+   * shipped runtime uses the real Node socket transport.
+   */
+  scannerTransport?: ClamavTransport;
   /** Override the compression deps (tests avoid probing the host PATH / shelling out). */
   compression?: CompressionDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
@@ -215,6 +241,16 @@ export function resolveWorkerRuntime(
   });
   const guardrails = evaluateGuardrails(env, { engine: compression });
 
+  // Wire the malware-scan gate. When a usable clamd endpoint is configured this
+  // resolves the real ClamAV scanner over a socket transport; otherwise the honest
+  // no-op (never claims a file was scanned). A test can inject a scanner or a fake
+  // transport. Its presence-only capability is reported even when not drainable.
+  const scanner = resolveWorkerScanner(env, {
+    ...(deps.scanner ? { scanner: deps.scanner } : {}),
+    ...(deps.scannerTransport ? { transport: deps.scannerTransport } : {}),
+  });
+  const scannerCapability = scanner.capability();
+
   const queue = deps.queue ?? createQueueProvider(env, deps.queueDeps);
   const storage =
     deps.storage !== undefined
@@ -229,11 +265,20 @@ export function resolveWorkerRuntime(
       queue,
       storage,
       registry,
+      scanner,
       ...(deps.leaseMs !== undefined ? { leaseMs: deps.leaseMs } : {}),
       ...(deps.maxAttempts !== undefined ? { maxAttempts: deps.maxAttempts } : {}),
       ...(deps.log ? { log: deps.log } : {}),
     });
-    return { readiness, compression, deployment, guardrails, processors, executor };
+    return {
+      readiness,
+      compression,
+      deployment,
+      guardrails,
+      scanner: scannerCapability,
+      processors,
+      executor,
+    };
   }
 
   const blocked: RuntimeBlock =
@@ -242,5 +287,13 @@ export function resolveWorkerRuntime(
       : !drainable
         ? "queue_not_drainable"
         : "storage_not_configured";
-  return { readiness, compression, deployment, guardrails, processors, blocked };
+  return {
+    readiness,
+    compression,
+    deployment,
+    guardrails,
+    scanner: scannerCapability,
+    processors,
+    blocked,
+  };
 }

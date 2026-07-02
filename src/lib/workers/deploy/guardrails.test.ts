@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateGuardrails, GUARDRAIL_ENV } from "./guardrails";
+import { MALWARE_SCANNER_ENV } from "./scanner";
 import { LIFECYCLE_ENV, RETENTION_ENV } from "../lifecycle";
 import { NATIVE_COMPRESSION_ENV } from "../compression/native-config";
 import { REDIS_QUEUE_ENV } from "../queue/redis-config";
@@ -107,6 +108,64 @@ describe("worker deployment guardrails", () => {
     expect(report.violations.map((v) => v.code)).not.toContain(
       "queue_atomic_unsupported",
     );
+  });
+
+  it("fails fast when active malware scanning is required but not configured", () => {
+    // Opt-in on its own (no strict): no scanner is configured, so the requirement is
+    // unmet. Content-free message; the variable name is in `fields`.
+    const report = evaluateGuardrails(
+      { [GUARDRAIL_ENV.requireScan]: "true" },
+      { engine: noDeepEngine },
+    );
+    expect(report.ok).toBe(false);
+    expect(report.strict).toBe(true); // any require flag arms the report
+    expect(report.violations.map((v) => v.code)).toEqual(["require_scan_unmet"]);
+    expect(report.violations[0]!.fields).toEqual([MALWARE_SCANNER_ENV]);
+    expect(report.violations[0]!.message).not.toMatch(
+      /PDFXYZ_|secret|token|https?:\/\//i,
+    );
+  });
+
+  it("PASSES require-scan when a scanner is configured with a usable endpoint", () => {
+    // Phase 22 ships an optional ClamAV backend: a configured endpoint IS active,
+    // so the requirement is met (readiness is presence-only, like storage/queue).
+    const report = evaluateGuardrails(
+      {
+        [GUARDRAIL_ENV.requireScan]: "true",
+        [MALWARE_SCANNER_ENV]: "clamav://clamd.internal:3310",
+      },
+      { engine: noDeepEngine },
+    );
+    expect(report.violations.map((v) => v.code)).not.toContain("require_scan_unmet");
+  });
+
+  it("flags a selected-but-misconfigured scanner as an error (even without require)", () => {
+    const report = evaluateGuardrails(
+      { [MALWARE_SCANNER_ENV]: "clamav://" }, // no host → cannot connect
+      { engine: noDeepEngine },
+    );
+    expect(report.ok).toBe(false);
+    expect(report.violations.map((v) => v.code)).toContain("scan_selected_but_invalid");
+    expect(report.violations[0]!.message).not.toMatch(/PDFXYZ_|clamav:\/\//i);
+  });
+
+  it("flags an unrecognized scanner value as an error", () => {
+    const report = evaluateGuardrails(
+      { [MALWARE_SCANNER_ENV]: "ftp://scanner" },
+      { engine: noDeepEngine },
+    );
+    expect(report.violations.map((v) => v.code)).toEqual(["scan_provider_unrecognized"]);
+    expect(report.violations[0]!.fields).toEqual([MALWARE_SCANNER_ENV]);
+  });
+
+  it("does NOT arm require-scan under strict alone (scanning stays opt-in)", () => {
+    // Strict enforces drainable/lifecycle/atomic, but must NOT demand scanning: a
+    // lossless-only worker with no scanner is a legitimate production choice.
+    const report = evaluateGuardrails(
+      { [GUARDRAIL_ENV.strict]: "true" },
+      { engine: noDeepEngine },
+    );
+    expect(report.violations.map((v) => v.code)).not.toContain("require_scan_unmet");
   });
 
   it("rejects malformed lifecycle and retention settings by field names only", () => {

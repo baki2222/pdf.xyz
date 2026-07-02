@@ -8,6 +8,7 @@ import type { ClaimableQueue } from "../queue/claim";
 import { createLocalDevExecutorStorage } from "../executor/local-dev-storage";
 import type { ExecutorStorage } from "../executor/types";
 import { createProcessorRegistry } from "../processor";
+import { fakeScanner, scanInfected } from "../scanner";
 import { createWorkerDaemon } from "./daemon";
 import { deriveCompressionHealth, resolveWorkerRuntime } from "./runtime";
 
@@ -65,6 +66,44 @@ describe("resolveWorkerRuntime — gating", () => {
     );
     expect(runtime.executor).toBeDefined();
     expect(runtime.blocked).toBeUndefined();
+  });
+});
+
+describe("resolveWorkerRuntime — malware-scan gate", () => {
+  const fixedTransport = (reply: string) => ({
+    async roundtrip() {
+      const b = new Uint8Array(reply.length);
+      for (let i = 0; i < reply.length; i++) b[i] = reply.charCodeAt(i);
+      return b;
+    },
+  });
+
+  it("reports the honest no-op scanner (inactive) even when not drainable", () => {
+    const runtime = resolveWorkerRuntime({}, { compression: noEngines });
+    expect(runtime.executor).toBeUndefined();
+    expect(runtime.scanner.active).toBe(false);
+    expect(runtime.scanner.provider).toBe("not-configured");
+  });
+
+  it("reports an inactive scanner for a selected-but-misconfigured endpoint", () => {
+    const runtime = resolveWorkerRuntime(
+      { PDFXYZ_MALWARE_SCANNER: "clamav://" },
+      { compression: noEngines },
+    );
+    expect(runtime.scanner.active).toBe(false);
+    expect(runtime.scanner.provider).toBe("unavailable");
+  });
+
+  it("wires an ACTIVE clamav scanner when configured, leaking nothing", () => {
+    const runtime = resolveWorkerRuntime(
+      { PDFXYZ_MALWARE_SCANNER: "clamav://scanner.internal:3310" },
+      { compression: noEngines, scannerTransport: fixedTransport("stream: OK\0") },
+    );
+    expect(runtime.scanner.active).toBe(true);
+    expect(runtime.scanner.provider).toBe("clamav");
+    const serialized = JSON.stringify(runtime.scanner);
+    expect(serialized).not.toContain("scanner.internal");
+    expect(serialized).not.toContain("PDFXYZ_");
   });
 });
 
@@ -207,5 +246,49 @@ describe("worker daemon runtime — honesty end-to-end", () => {
     expect(job?.status).toBe("failed");
     expect(job?.artifacts ?? []).toHaveLength(0);
     expect(job?.error?.code).toBe("not_implemented");
+  });
+
+  it("wires an injected scanner into the executor so an infected job is blocked before processing", async () => {
+    const queue = createLocalDevQueue({ store, now: () => clock });
+    const storage = createLocalDevExecutorStorage({ store, now: () => clock });
+    const slot = store.reserveSlot({
+      sessionId: "sess_x",
+      filename: "upload.pdf",
+      contentType: "application/pdf",
+      declaredBytes: 3,
+    });
+    store.putBytes(slot.fileId, new Uint8Array([1, 2, 3]));
+    await queue.submit({
+      job: queuedJob("job_infected00001", "compress-pdf"),
+      inputs: [slot.fileId],
+      options: { profile: "lossless" },
+    });
+
+    // A drainable runtime with an injected infected scanner — proves the runtime
+    // actually threads the scanner into the executor gate.
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        queue,
+        storage,
+        registry: createProcessorRegistry({ compression: noEngines }),
+        compression: noEngines,
+        scanner: fakeScanner(scanInfected()),
+      },
+    );
+    expect(runtime.scanner.active).toBe(true);
+
+    const summary = await createWorkerDaemon({ executor: runtime.executor! }).run({
+      mode: "drain",
+    });
+
+    // Blocked before processing: failed, no artifact, and the input was wiped.
+    expect(summary.completed).toBe(0);
+    expect(summary.failed).toBe(1);
+    const job = store.getJob("job_infected00001");
+    expect(job?.status).toBe("failed");
+    expect(job?.error?.code).toBe("malware_detected");
+    expect(job?.artifacts ?? []).toHaveLength(0);
+    expect(store.getSlot(slot.fileId)).toBeUndefined();
   });
 });

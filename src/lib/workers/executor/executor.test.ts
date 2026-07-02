@@ -13,9 +13,17 @@ import {
   type Processor,
   type ProcessorInputFile,
 } from "../processor/types";
+import {
+  fakeScanner,
+  notConfiguredScanner,
+  scanClean,
+  scanError,
+  scanInfected,
+  scanInvalid,
+} from "../scanner";
 import { createLocalDevExecutorStorage } from "./local-dev-storage";
-import { createWorkerExecutor } from "./executor";
-import type { ExecutorStorage } from "./types";
+import { createWorkerExecutor, MALWARE_DETECTED_ERROR } from "./executor";
+import type { ExecutorLogEvent, ExecutorStorage } from "./types";
 
 const LEASE_MS = 1_000;
 
@@ -401,5 +409,229 @@ describe("worker executor — orchestration", () => {
       leaseMs: LEASE_MS,
     }).drain();
     expect(ticks.map((t) => t.outcome)).toEqual(["failed", "idle"]);
+  });
+});
+
+// ───────────────────────────── malware scan gate ─────────────────────────────
+
+describe("worker executor — malware scan gate", () => {
+  let clock: number;
+  let store: DevWorkerStore;
+  let queue: ClaimableQueue;
+
+  beforeEach(() => {
+    clock = 1_000;
+    store = new DevWorkerStore(() => clock);
+    queue = createLocalDevQueue({ store, now: () => clock });
+  });
+
+  const submit = (jobId: string, tool = "t") =>
+    queue.submit({
+      job: queuedJob(jobId, tool, clock),
+      inputs: ["f_in0000000000"],
+      options: {},
+    });
+
+  const okProcessor = () =>
+    new ProcessorRegistry().register(
+      fakeProcessor("t", async () => processorOk(okArtifact)),
+    );
+
+  it("logs scan_clean before processing when a real scan passes", async () => {
+    const { storage, artifacts } = recordingStorage(oneInput);
+    await submit("job_clean0000");
+    const seen: string[] = [];
+    const [tick] = await createWorkerExecutor({
+      queue,
+      storage,
+      registry: okProcessor(),
+      leaseMs: LEASE_MS,
+      scanner: fakeScanner(scanClean()),
+      log: (e) => seen.push(e.event),
+    }).drain();
+    expect(tick?.outcome).toBe("completed");
+    expect(artifacts.size).toBe(1);
+    expect(seen).toEqual([
+      "claimed",
+      "scanning",
+      "scan_clean",
+      "processing",
+      "completed",
+    ]);
+  });
+
+  it("blocks an infected input: failed, never processed, no artifact, input wiped", async () => {
+    const { storage, artifacts, deletedInputs } = recordingStorage(oneInput);
+    let processed = false;
+    await submit("job_infected00");
+    const registry = new ProcessorRegistry().register(
+      fakeProcessor("t", async () => {
+        processed = true;
+        return processorOk(okArtifact);
+      }),
+    );
+    const seen: string[] = [];
+    const [tick] = await createWorkerExecutor({
+      queue,
+      storage,
+      registry,
+      leaseMs: LEASE_MS,
+      scanner: fakeScanner(scanInfected()),
+      log: (e) => seen.push(e.event),
+    }).drain();
+
+    expect(tick?.outcome).toBe("failed");
+    expect(processed).toBe(false); // never reached the processor
+    expect(artifacts.size).toBe(0); // no artifact was ever written
+    expect(deletedInputs).toContain("f_in0000000000"); // input wiped on terminal
+
+    const job = store.getJob("job_infected00");
+    expect(job?.status).toBe("failed");
+    expect(job?.error?.code).toBe("malware_detected");
+    expect(job?.error?.retryable).toBe(false);
+    expect(job?.artifacts).toBeUndefined();
+
+    // A dedicated security event fires; the job never advanced to processing.
+    expect(seen).toContain("scan_blocked");
+    expect(seen).not.toContain("processing");
+    expect(seen).not.toContain("scan_clean");
+  });
+
+  it("never leaks the scanner's detail (signature/path) into the error or logs", async () => {
+    const { storage } = recordingStorage(oneInput);
+    await submit("job_leak00000");
+    const events: ExecutorLogEvent[] = [];
+    await createWorkerExecutor({
+      queue,
+      storage,
+      registry: okProcessor(),
+      leaseMs: LEASE_MS,
+      // A deliberately noisy provider detail — it must never escape the executor.
+      scanner: fakeScanner(scanInfected("EICAR-Test-Signature in /tmp/report.pdf")),
+      log: (e) => events.push(e),
+    }).drain();
+
+    const job = store.getJob("job_leak00000");
+    const serialized = JSON.stringify({ job, events });
+    expect(serialized).not.toContain("EICAR");
+    expect(serialized).not.toContain("/tmp/report.pdf");
+    // The stored client-facing error is the fixed, content-free message.
+    expect(job?.error?.message).toBe(MALWARE_DETECTED_ERROR.message);
+  });
+
+  it("fails closed on an unscannable input (invalid): terminal, never processed, no artifact, input wiped", async () => {
+    const { storage, artifacts, deletedInputs } = recordingStorage(oneInput);
+    let processed = false;
+    await submit("job_invalid000");
+    const registry = new ProcessorRegistry().register(
+      fakeProcessor("t", async () => {
+        processed = true;
+        return processorOk(okArtifact);
+      }),
+    );
+    const seen: string[] = [];
+    const [tick] = await createWorkerExecutor({
+      queue,
+      storage,
+      registry,
+      leaseMs: LEASE_MS,
+      // e.g. the input exceeds the scanner's hard size limit — never processed unscanned.
+      scanner: fakeScanner(scanInvalid()),
+      log: (e) => seen.push(e.event),
+    }).drain();
+
+    expect(tick?.outcome).toBe("failed");
+    expect(processed).toBe(false);
+    expect(artifacts.size).toBe(0);
+    expect(deletedInputs).toContain("f_in0000000000");
+    const job = store.getJob("job_invalid000");
+    expect(job?.status).toBe("failed");
+    expect(job?.error?.code).toBe("scan_invalid");
+    expect(job?.error?.retryable).toBe(false);
+    expect(seen).toContain("scan_blocked");
+    expect(seen).not.toContain("processing");
+  });
+
+  it("requeues a scan that could not complete, then fails terminally when attempts run out", async () => {
+    const { storage, artifacts } = recordingStorage(oneInput);
+    await submit("job_scanerr00");
+    const ticks = await createWorkerExecutor({
+      queue,
+      storage,
+      registry: okProcessor(),
+      leaseMs: LEASE_MS,
+      maxAttempts: 2,
+      scanner: fakeScanner(scanError()),
+    }).drain();
+
+    expect(ticks.map((t) => t.outcome)).toEqual(["requeued", "failed", "idle"]);
+    expect(artifacts.size).toBe(0);
+    const job = store.getJob("job_scanerr00");
+    expect(job?.status).toBe("failed");
+    expect(job?.error?.code).toBe("scan_unavailable");
+    expect(job?.error?.retryable).toBe(true);
+  });
+
+  it("processes normally once a transient scan error clears on retry", async () => {
+    const { storage, artifacts } = recordingStorage(oneInput);
+    await submit("job_scanret00");
+    let calls = 0;
+    const scanner = fakeScanner(() => (++calls === 1 ? scanError() : scanClean()));
+    const ticks = await createWorkerExecutor({
+      queue,
+      storage,
+      registry: okProcessor(),
+      leaseMs: LEASE_MS,
+      maxAttempts: 3,
+      scanner,
+    }).drain();
+
+    expect(ticks.map((t) => t.outcome)).toEqual(["requeued", "completed", "idle"]);
+    expect(artifacts.size).toBe(1);
+    expect(calls).toBe(2);
+    expect(store.getJob("job_scanret00")?.status).toBe("completed");
+  });
+
+  it("processes unchanged (no scan_clean) when the wired provider skips (the shipped no-op)", async () => {
+    const { storage, artifacts } = recordingStorage(oneInput);
+    await submit("job_skip00000");
+    const seen: string[] = [];
+    const [tick] = await createWorkerExecutor({
+      queue,
+      storage,
+      registry: okProcessor(),
+      leaseMs: LEASE_MS,
+      scanner: notConfiguredScanner({}),
+      log: (e) => seen.push(e.event),
+    }).drain();
+
+    expect(tick?.outcome).toBe("completed");
+    expect(artifacts.size).toBe(1);
+    // The skip path is transparent — identical to having no scanner at all.
+    expect(seen).toEqual(["claimed", "scanning", "processing", "completed"]);
+    expect(seen).not.toContain("scan_clean");
+  });
+
+  it("does not scan a job canceled before the gate — no verdict, no processing", async () => {
+    const { storage, artifacts } = recordingStorage(oneInput);
+    await submit("job_cancel000");
+    await queue.cancel("job_cancel000");
+    let scanned = false;
+    const scanner = fakeScanner(() => {
+      scanned = true;
+      return scanInfected();
+    });
+    const [tick] = await createWorkerExecutor({
+      queue,
+      storage,
+      registry: okProcessor(),
+      leaseMs: LEASE_MS,
+      scanner,
+    }).drain();
+
+    expect(tick?.outcome).toBe("idle"); // the canceled job is skipped
+    expect(scanned).toBe(false); // the gate never ran
+    expect(artifacts.size).toBe(0);
+    expect(store.getJob("job_cancel000")?.status).toBe("canceled");
   });
 });

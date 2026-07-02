@@ -91,13 +91,23 @@ describe("resolveDeploymentReadiness — facets", () => {
     expect(facet({}, "engine").state).toBe("unknown");
   });
 
-  it("always reports malware scanning as not active, distinguishing configured-ness", () => {
+  it("maps the optional malware scanner's state to a facet, honestly", () => {
+    // Nothing declared → not-configured & inactive.
     expect(facet({}, "malware-scan").state).toBe("not-configured");
+    expect(resolveDeploymentReadiness(resolveDaemonReadiness({}), {}).malwareScan.active).toBe(
+      false,
+    );
+    // A usable clamd endpoint → ready & ACTIVE (inputs are scanned).
+    const configured = { [MALWARE_SCANNER_ENV]: "clamav://clamd.internal:3310" };
+    expect(facet(configured, "malware-scan").state).toBe("ready");
     expect(
-      facet({ [MALWARE_SCANNER_ENV]: "clamav://x" }, "malware-scan").state,
-    ).toBe("not-implemented");
-    const r = resolveDeploymentReadiness(resolveDaemonReadiness({}), {});
-    expect(r.malwareScan.active).toBe(false);
+      resolveDeploymentReadiness(resolveDaemonReadiness(configured), configured).malwareScan
+        .active,
+    ).toBe(true);
+    // Selected-but-misconfigured → degraded & inactive (a caveat, not a silent pass).
+    expect(facet({ [MALWARE_SCANNER_ENV]: "clamav://" }, "malware-scan").state).toBe(
+      "degraded",
+    );
   });
 
   it("always reports OCR as not-implemented", () => {

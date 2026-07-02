@@ -1,34 +1,53 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { MALWARE_SCANNER_ENV, resolveMalwareScanReadiness } from "./scanner";
+import {
+  MALWARE_SCANNER_ENV,
+  MALWARE_SCAN_REQUIRED_ENV,
+  resolveMalwareScanReadiness,
+} from "./scanner";
 
 describe("resolveMalwareScanReadiness", () => {
-  it("is not-configured and never active on an empty environment", () => {
+  it("is not-configured and inactive on an empty environment", () => {
     const r = resolveMalwareScanReadiness({});
     expect(r.active).toBe(false);
     expect(r.state).toBe("not-configured");
-    expect(r.detail).toMatch(/not scanned/i);
+    expect(r.detail).toMatch(/not scanned|not configured/i);
   });
 
-  it("is declared-not-implemented — and STILL not active — when a scanner is set", () => {
-    const r = resolveMalwareScanReadiness({
-      [MALWARE_SCANNER_ENV]: "clamav://scanner.internal",
-    });
-    // The critical honesty invariant: declaring a scanner does not make one exist.
+  it("is disabled and inactive when explicitly turned off", () => {
+    const r = resolveMalwareScanReadiness({ [MALWARE_SCANNER_ENV]: "disabled" });
     expect(r.active).toBe(false);
-    expect(r.state).toBe("declared-not-implemented");
-    expect(r.detail).toMatch(/not scanned|no scanner runner/i);
+    expect(r.state).toBe("disabled");
+  });
+
+  it("is ready and ACTIVE when a usable clamd endpoint is configured", () => {
+    const r = resolveMalwareScanReadiness({
+      [MALWARE_SCANNER_ENV]: "clamav://clamd.internal:3310",
+    });
+    expect(r.active).toBe(true);
+    expect(r.state).toBe("ready");
+  });
+
+  it("is unavailable and inactive when selected but misconfigured", () => {
+    const r = resolveMalwareScanReadiness({ [MALWARE_SCANNER_ENV]: "clamav://" });
+    expect(r.active).toBe(false);
+    expect(r.state).toBe("unavailable");
+  });
+
+  it("reflects whether scanning is required", () => {
+    const r = resolveMalwareScanReadiness({
+      [MALWARE_SCANNER_ENV]: "clamav://clamd.internal:3310",
+      [MALWARE_SCAN_REQUIRED_ENV]: "true",
+    });
+    expect(r.required).toBe(true);
   });
 
   it("never leaks the declared value or a variable name", () => {
     const r = resolveMalwareScanReadiness({
-      [MALWARE_SCANNER_ENV]: "clamav://scanner.internal",
+      [MALWARE_SCANNER_ENV]: "clamav://scanner.internal:3310",
     });
     const serialized = JSON.stringify(r);
     expect(serialized).not.toContain("scanner.internal");
     expect(serialized).not.toContain("PDFXYZ_");
-    // Every mention of scanning is an explicit negative — active is false.
-    expect(r.active).toBe(false);
-    expect(r.detail).toMatch(/\bnot\b/i);
   });
 });

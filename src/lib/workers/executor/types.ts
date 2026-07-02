@@ -58,11 +58,21 @@ export interface ExecutorTick {
  * A content-free structured log event. It carries only opaque ids, the tool
  * slug, the attempt number, and an error *code* — never filenames, object keys,
  * temp paths, option values, or document bytes.
+ *
+ * The malware-scan gate adds two events, emitted only when a scanner is wired:
+ *  - `scan_clean`   — a real scan ran and passed (its ABSENCE before `processing`
+ *    honestly signals an unscanned/`skipped` path);
+ *  - `scan_blocked` — the gate blocked an input (a detected threat → `malware_detected`,
+ *    or one it cannot scan → `scan_invalid`); the job is failed before processing.
+ * A scan that could not complete reuses `requeued`/`failed` with a `scan_unavailable`
+ * error code, so no new event is needed for it.
  */
 export interface ExecutorLogEvent {
   event:
     | "claimed"
     | "scanning"
+    | "scan_clean"
+    | "scan_blocked"
     | "processing"
     | "completed"
     | "failed"

@@ -16,17 +16,22 @@
  * Honesty and privacy guarantees:
  *  - a job is `completed` only after real artifact bytes were written;
  *  - every failure carries a typed {@link import("@/lib/jobs").JobError};
+ *  - an infected (or unscannable) input is blocked BEFORE any processing, so no
+ *    artifact is ever produced for it, and the scan gate never reports an input as
+ *    scanned unless a real scanner inspected it (the shipped default scans nothing
+ *    and blocks nothing);
  *  - inputs are wiped once a job reaches a terminal state (a retryable requeue is
  *    *not* terminal, so its inputs survive for the retry);
  *  - the log callback only ever receives opaque ids, the tool slug, an attempt
  *    number, and an error code — never bytes, filenames, keys, or paths.
  */
 
-import type { JobArtifact } from "@/lib/jobs";
+import type { JobArtifact, JobError } from "@/lib/jobs";
 import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import type { ClaimableQueue } from "../queue/claim";
 import type { ProcessorInputFile } from "../processor/types";
 import type { ProcessorRegistry } from "../processor/registry";
+import type { MalwareScanner } from "../scanner/types";
 import type { ExecutorLogEvent, ExecutorStorage, ExecutorTick } from "./types";
 
 /** Everything the executor needs, all injectable for deterministic tests. */
@@ -34,6 +39,13 @@ export interface ExecutorDeps {
   queue: ClaimableQueue;
   storage: ExecutorStorage;
   registry: ProcessorRegistry;
+  /**
+   * The malware-scan gate. Absent ⇒ no scan step runs and inputs are processed
+   * unscanned (the honest default this build ships). When present, an `infected`
+   * verdict blocks the job before processing and an `error` verdict is retried;
+   * a `skipped` verdict proceeds without claiming the input was scanned.
+   */
+  scanner?: MalwareScanner;
   /** Lease each claimed job for this long (ms). */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -41,6 +53,45 @@ export interface ExecutorDeps {
   /** Content-free log sink; receives only ids, tool, attempt, and error code. */
   log?: (event: ExecutorLogEvent) => void;
 }
+
+/**
+ * Terminal, non-retryable failure when the scanner flags an input as infected. The
+ * message is fixed and content-free — it never carries a filename, signature name,
+ * scanner endpoint, or byte content — and the job is blocked before any processing,
+ * so no artifact is ever produced.
+ */
+export const MALWARE_DETECTED_ERROR: JobError = {
+  code: "malware_detected",
+  message:
+    "This file was blocked by a security scan and was not processed. No output was produced.",
+  retryable: false,
+};
+
+/**
+ * Retryable failure when a malware scan could not be completed (e.g. the scanner
+ * was unreachable). Retryable because a later attempt MAY reach the scanner; the
+ * input is never downgraded to "scanned" or "clean" and is never processed unscanned
+ * on this path.
+ */
+export const SCAN_UNAVAILABLE_ERROR: JobError = {
+  code: "scan_unavailable",
+  message:
+    "The security scan could not be completed, so the file was not processed. The request may succeed on retry.",
+  retryable: true,
+};
+
+/**
+ * Terminal, non-retryable failure when an input can never be scanned by the wired
+ * scanner (e.g. it exceeds a hard scanner size limit): retrying cannot help, so the
+ * gate fails closed and blocks it BEFORE processing rather than letting it through
+ * unscanned. Content-free, and never propagates the scanner's own detail.
+ */
+export const SCAN_INVALID_ERROR: JobError = {
+  code: "scan_invalid",
+  message:
+    "This file could not be security-scanned and was not processed. No output was produced.",
+  retryable: false,
+};
 
 export interface WorkerExecutor {
   /** Claim and run at most one job; returns what happened this tick. */
@@ -54,7 +105,7 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_DRAIN_CAP = 1000;
 
 export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
-  const { queue, storage, registry } = deps;
+  const { queue, storage, registry, scanner } = deps;
   const leaseMs = deps.leaseMs ?? DEFAULT_LEASE_MS;
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const log = deps.log ?? (() => {});
@@ -76,6 +127,37 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     const { job, inputs, inputNames, options, attempt } = claim.value;
     const base = { jobId: job.jobId, tool: job.tool, attempt };
     log({ event: "claimed", ...base });
+
+    // Dispatch a running-state failure identically for the scan gate and the
+    // processor: requeue a retryable error while attempts remain, else fail
+    // terminally (wiping inputs). A conflict from fail() means the job was canceled
+    // mid-flight, so it is reported as canceled. `terminalEvent` lets the infected
+    // case log a distinct `scan_blocked` while everything else logs `failed`.
+    const dispatchFailure = async (
+      error: JobError,
+      terminalEvent: ExecutorLogEvent["event"],
+    ): Promise<ExecutorTick> => {
+      const requeue = error.retryable && attempt < maxAttempts;
+      const disposition = await queue.fail(
+        job.jobId,
+        error,
+        { requeue },
+        attempt,
+      );
+      if (!disposition.ok) {
+        await wipeInputs(inputs);
+        log({ event: "canceled", ...base });
+        return { outcome: "canceled", jobId: job.jobId, attempt };
+      }
+      if (requeue) {
+        // A retryable failure is NOT terminal — keep the inputs for the retry.
+        log({ event: "requeued", ...base, errorCode: error.code });
+        return { outcome: "requeued", jobId: job.jobId, attempt, error };
+      }
+      await wipeInputs(inputs);
+      log({ event: terminalEvent, ...base, errorCode: error.code });
+      return { outcome: "failed", jobId: job.jobId, attempt, error };
+    };
 
     // Resolve the processor for this tool. An unroutable job fails terminally —
     // retrying can't invent a processor.
@@ -130,11 +212,43 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     }
 
     // Cancellation can arrive while the job is queued or being claimed; stop
-    // before doing any real work and wipe the inputs.
+    // before doing any real work (including the scan) and wipe the inputs.
     if (await isCanceled(job.jobId)) {
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });
       return { outcome: "canceled", jobId: job.jobId, attempt };
+    }
+
+    // Malware-scan gate. It runs only when a scanner is wired; with none, the
+    // inputs are NOT scanned and the job proceeds unchanged (the honest default
+    // this build ships). A real scanner blocks an infected input here, before any
+    // processing, so no artifact is ever produced for it.
+    if (scanner) {
+      const scan = await scanner.scan({ tool: job.tool, inputs: files });
+      if (scan.verdict === "infected") {
+        // Blocked: terminal and non-retryable (the same bytes scan the same way),
+        // inputs wiped, no artifact. `scan.detail` is deliberately NOT propagated —
+        // the client error is a fixed, content-free message.
+        return dispatchFailure(MALWARE_DETECTED_ERROR, "scan_blocked");
+      }
+      if (scan.verdict === "invalid") {
+        // The scanner cannot scan this input and retrying won't help (e.g. it
+        // exceeds a hard size limit). Fail CLOSED — block it before processing
+        // rather than let an unscanned input through. Terminal, no artifact.
+        return dispatchFailure(SCAN_INVALID_ERROR, "scan_blocked");
+      }
+      if (scan.verdict === "error") {
+        // The scan could not complete: requeue (retryable) or fail terminally. We
+        // never fall through to processing an input a wired scanner failed to clear.
+        return dispatchFailure(SCAN_UNAVAILABLE_ERROR, "failed");
+      }
+      if (scan.verdict === "clean") {
+        // A real scan ran and passed — record it so an audit can prove the input
+        // was scanned. Its ABSENCE before `processing` honestly signals a
+        // `skipped` (unscanned) path.
+        log({ event: "scan_clean", ...base });
+      }
+      // "skipped": no scanner ran; proceed WITHOUT claiming the input was scanned.
     }
 
     // Advance scanning → processing. A conflict here means the job was canceled
@@ -158,38 +272,10 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     });
 
     if (!result.ok) {
-      const requeue = result.error.retryable && attempt < maxAttempts;
-      const disposition = await queue.fail(
-        job.jobId,
-        result.error,
-        { requeue },
-        attempt,
-      );
-      if (!disposition.ok) {
-        // The only reason fail() conflicts is that the job already reached a
-        // terminal state (canceled) mid-flight. Treat it as a cancellation.
-        await wipeInputs(inputs);
-        log({ event: "canceled", ...base });
-        return { outcome: "canceled", jobId: job.jobId, attempt };
-      }
-      if (requeue) {
-        // A retryable failure is NOT terminal — keep the inputs for the retry.
-        log({ event: "requeued", ...base, errorCode: result.error.code });
-        return {
-          outcome: "requeued",
-          jobId: job.jobId,
-          attempt,
-          error: result.error,
-        };
-      }
-      await wipeInputs(inputs);
-      log({ event: "failed", ...base, errorCode: result.error.code });
-      return {
-        outcome: "failed",
-        jobId: job.jobId,
-        attempt,
-        error: result.error,
-      };
+      // A conflict from fail() means the job was canceled mid-flight; the helper
+      // reports that as canceled. Otherwise it requeues (retryable, attempts left)
+      // or fails terminally, wiping inputs on any terminal disposition.
+      return dispatchFailure(result.error, "failed");
     }
 
     // Success: persist the real artifacts, then mark the job completed.
