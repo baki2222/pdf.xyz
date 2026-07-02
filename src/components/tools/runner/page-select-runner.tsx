@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Download,
   FileOutput,
@@ -23,6 +23,13 @@ import {
   errorMessage,
   useAsyncRun,
 } from "./runner-kit";
+import {
+  allIndices,
+  invertSelection,
+  isAllSelected,
+  selectRange,
+  toggleIndex,
+} from "./selection";
 import { PageTile } from "./page-tile";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
@@ -99,35 +106,43 @@ function PageSelectEditor({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [rangeInput, setRangeInput] = useState("");
   const [rangeError, setRangeError] = useState<string | null>(null);
+  const anchorRef = useRef<number | null>(null);
   const { busy, error, result, run } = useAsyncRun<Uint8Array>();
-  const { thumbs, rendered, status } = usePdfThumbnails(pdf.bytes, pdf.pageCount);
+  const { thumbs, rendered, status, capped, eagerCount, requestPage } =
+    usePdfThumbnails(pdf.bytes, pdf.pageCount);
 
   const selectedList = useMemo(
     () => [...selected].sort((a, b) => a - b),
     [selected],
   );
 
-  const toggle = (index: number) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
+  // Click / Enter / Space toggles a page; holding Shift selects the range from
+  // the last-touched page to this one (mouse or keyboard).
+  const onSelectPage = (index: number, shiftKey: boolean) => {
+    setSelected((prev) =>
+      shiftKey && anchorRef.current !== null
+        ? selectRange(prev, anchorRef.current, index, pdf.pageCount)
+        : toggleIndex(prev, index),
+    );
+    anchorRef.current = index;
+  };
 
-  const selectAll = () =>
-    setSelected(new Set(Array.from({ length: pdf.pageCount }, (_, i) => i)));
+  const selectAll = () => {
+    setSelected(allIndices(pdf.pageCount));
+    anchorRef.current = null;
+  };
+  const clear = () => {
+    setSelected(new Set());
+    anchorRef.current = null;
+  };
   const invert = () =>
-    setSelected((prev) => {
-      const next = new Set<number>();
-      for (let i = 0; i < pdf.pageCount; i++) if (!prev.has(i)) next.add(i);
-      return next;
-    });
+    setSelected((prev) => invertSelection(prev, pdf.pageCount));
 
   const applyRange = () => {
     try {
       setSelected(new Set(parsePageList(rangeInput, pdf.pageCount)));
       setRangeError(null);
+      anchorRef.current = null;
     } catch (err) {
       setRangeError(errorMessage(err));
     }
@@ -140,7 +155,7 @@ function PageSelectEditor({
         : deletePages(pdf.bytes, selectedList),
     );
 
-  const allSelected = selected.size === pdf.pageCount;
+  const allSelected = isAllSelected(selected, pdf.pageCount);
   const disabled =
     selected.size === 0 || (config.disallowSelectAll && allSelected);
 
@@ -181,7 +196,7 @@ function PageSelectEditor({
       >
         <div className="flex flex-wrap items-center gap-2">
           <ChipButton onClick={selectAll}>Select all</ChipButton>
-          <ChipButton onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
+          <ChipButton onClick={clear} disabled={selected.size === 0}>
             Clear
           </ChipButton>
           <ChipButton onClick={invert}>Invert</ChipButton>
@@ -205,19 +220,31 @@ function PageSelectEditor({
 
       {rangeError && <ErrorNote message={rangeError} />}
 
-      <PreviewStatus rendered={rendered} total={pdf.pageCount} status={status} />
+      <PreviewStatus
+        rendered={rendered}
+        total={pdf.pageCount}
+        status={status}
+        capped={capped}
+        eager={eagerCount}
+      />
 
-      <div className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+      <div
+        role="group"
+        aria-label={`Pages — select the ones to ${config === CONFIG.extract ? "extract" : "remove"}. Shift-click to select a range.`}
+        className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
+      >
         {pdf.rotations.map((rotation, i) => (
           <PageTile
             key={i}
             label={`Page ${i + 1}`}
+            ariaLabel={`Page ${i + 1}`}
             rotation={rotation}
             thumbnail={thumbs[i]}
             loading={status === "rendering"}
+            onEnterView={capped ? () => requestPage(i) : undefined}
             selectable
             selected={selected.has(i)}
-            onSelect={() => toggle(i)}
+            onSelect={(shiftKey) => onSelectPage(i, shiftKey)}
           />
         ))}
       </div>

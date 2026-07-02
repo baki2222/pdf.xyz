@@ -26,6 +26,7 @@ versus planned — no fake processing.
 | Real in-browser tools: merge, split, rotate, delete/extract/organize pages | ✅ Live |
 | Compress (in-browser size analyzer + lossless structural repack) | ✅ Live |
 | Page thumbnails & visual page board (pdfjs) | ✅ Live |
+| Editor depth: undo/redo, keyboard reordering, range selection, lazy large-PDF thumbnails, per-file merge validation | ✅ Live |
 | Production hardening: CSP/security headers, robots, sitemap, manifest, OG image, JSON-LD | ✅ Live |
 | Secure-worker tools: Office ⇄ PDF, OCR, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign | 🔜 Planned |
 | AI tools: chat, summarize, translate, extract | 🔜 Planned |

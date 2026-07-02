@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Download,
   FlipHorizontal2,
@@ -23,6 +23,12 @@ import {
   RunnerSection,
   useAsyncRun,
 } from "./runner-kit";
+import {
+  allIndices,
+  invertSelection,
+  selectRange,
+  toggleIndex,
+} from "./selection";
 import { PageTile, TileAction } from "./page-tile";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
@@ -36,19 +42,15 @@ export function RotateRunner() {
   );
 }
 
-function RotateEditor({
-  pdf,
-  onReset,
-}: {
-  pdf: LoadedPdf;
-  onReset: () => void;
-}) {
+function RotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   const [rotations, setRotations] = useState<Rotation[]>(pdf.rotations);
   const [selected, setSelected] = useState<Set<number>>(
-    () => new Set(pdf.rotations.map((_, i) => i)),
+    () => allIndices(pdf.pageCount),
   );
+  const anchorRef = useRef<number | null>(null);
   const { busy, error, result, run } = useAsyncRun<Uint8Array>();
-  const { thumbs, rendered, status } = usePdfThumbnails(pdf.bytes, pdf.pageCount);
+  const { thumbs, rendered, status, capped, eagerCount, requestPage } =
+    usePdfThumbnails(pdf.bytes, pdf.pageCount);
 
   const changedCount = useMemo(
     () =>
@@ -59,13 +61,14 @@ function RotateEditor({
     [rotations, pdf],
   );
 
-  const toggle = (index: number) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
+  const onSelectPage = (index: number, shiftKey: boolean) => {
+    setSelected((prev) =>
+      shiftKey && anchorRef.current !== null
+        ? selectRange(prev, anchorRef.current, index, pdf.pageCount)
+        : toggleIndex(prev, index),
+    );
+    anchorRef.current = index;
+  };
 
   const rotateBy = (delta: number, only?: number) => {
     const targets =
@@ -73,7 +76,7 @@ function RotateEditor({
         ? new Set([only])
         : selected.size > 0
           ? selected
-          : new Set(rotations.map((_, i) => i));
+          : allIndices(pdf.pageCount);
     setRotations((prev) =>
       prev.map((rot, i) => (targets.has(i) ? normalizeAngle(rot + delta) : rot)),
     );
@@ -132,7 +135,7 @@ function RotateEditor({
             180°
           </ChipButton>
           <span className="mx-1 h-4 w-px bg-white/10" aria-hidden />
-          <ChipButton onClick={() => setSelected(new Set(rotations.map((_, i) => i)))}>
+          <ChipButton onClick={() => setSelected(allIndices(pdf.pageCount))}>
             Select all
           </ChipButton>
           <ChipButton
@@ -140,6 +143,11 @@ function RotateEditor({
             disabled={selected.size === 0}
           >
             Clear
+          </ChipButton>
+          <ChipButton
+            onClick={() => setSelected((prev) => invertSelection(prev, pdf.pageCount))}
+          >
+            Invert
           </ChipButton>
           <ChipButton
             onClick={() => setRotations(pdf.rotations)}
@@ -151,19 +159,31 @@ function RotateEditor({
         </div>
       </RunnerSection>
 
-      <PreviewStatus rendered={rendered} total={pdf.pageCount} status={status} />
+      <PreviewStatus
+        rendered={rendered}
+        total={pdf.pageCount}
+        status={status}
+        capped={capped}
+        eager={eagerCount}
+      />
 
-      <div className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+      <div
+        role="group"
+        aria-label="Pages — select the ones to rotate. Shift-click to select a range."
+        className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
+      >
         {rotations.map((rotation, i) => (
           <PageTile
             key={i}
             label={`Page ${i + 1}`}
+            ariaLabel={`Page ${i + 1}`}
             rotation={rotation}
             thumbnail={thumbs[i]}
             loading={status === "rendering"}
+            onEnterView={capped ? () => requestPage(i) : undefined}
             selectable
             selected={selected.has(i)}
-            onSelect={() => toggle(i)}
+            onSelect={(shiftKey) => onSelectPage(i, shiftKey)}
             actions={
               <>
                 <TileAction

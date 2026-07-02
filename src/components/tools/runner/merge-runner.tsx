@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Download,
@@ -30,6 +31,7 @@ import {
   Spinner,
   errorMessage,
   reorder,
+  useAnnouncer,
   useAsyncRun,
 } from "./runner-kit";
 
@@ -43,15 +45,15 @@ interface MergeItem {
   cover: Thumbnail | null;
 }
 
-/** Summarize why some dropped files couldn't be added, for one clear message. */
-function rejectionMessage(rejected: { reason: string }[]): string | null {
-  if (rejected.length === 0) return null;
-  if (rejected.length === 1) return rejected[0]!.reason;
-  return `${rejected.length} files skipped — only PDFs under 100 MB can be merged.`;
+/** A file we couldn't add, with the specific reason (validation or parse). */
+interface Rejection {
+  name: string;
+  reason: string;
 }
 
 export function MergeRunner() {
   const [items, setItems] = useState<MergeItem[]>([]);
+  const [rejections, setRejections] = useState<Rejection[]>([]);
   const [loading, setLoading] = useState(0);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -59,8 +61,8 @@ export function MergeRunner() {
   const mounted = useRef(true);
   // Every cover object URL we create, so we can revoke them on unmount.
   const coverUrls = useRef<Set<string>>(new Set());
-  const { busy, error, result, run, reset, setError } =
-    useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
+  const { announce, node: announcer } = useAnnouncer();
 
   useEffect(() => {
     mounted.current = true;
@@ -91,11 +93,20 @@ export function MergeRunner() {
   const addFiles = useCallback(
     async (files: File[]) => {
       const { accepted, rejected } = partitionPdfFiles(files);
-      setError(rejectionMessage(rejected));
+      // Type/size rejections are known synchronously.
+      if (rejected.length > 0) {
+        setRejections((prev) => [
+          ...prev,
+          ...rejected.map((r) => ({ name: r.file.name, reason: r.reason })),
+        ]);
+      }
       setLoading((n) => n + accepted.length);
       for (const file of accepted) {
         try {
           const bytes = await readFileBytes(file);
+          // Parsing here validates the PDF *before* merge: an encrypted or
+          // corrupt file throws a typed, user-facing reason we can attribute
+          // to this specific file rather than failing the whole merge later.
           const pageCount = await getPageCount(bytes);
           const id = `f${idRef.current++}`;
           setItems((prev) => [
@@ -104,13 +115,16 @@ export function MergeRunner() {
           ]);
           attachCover(id, bytes);
         } catch (err) {
-          setError(errorMessage(err));
+          setRejections((prev) => [
+            ...prev,
+            { name: file.name, reason: errorMessage(err) },
+          ]);
         } finally {
           setLoading((n) => n - 1);
         }
       }
     },
-    [setError, attachCover],
+    [attachCover],
   );
 
   const revokeCover = (item: MergeItem | undefined) => {
@@ -120,11 +134,17 @@ export function MergeRunner() {
     }
   };
 
-  const move = (from: number, to: number) =>
+  const move = (from: number, to: number) => {
+    if (to < 0 || to >= items.length || to === from) return;
+    const name = items[from]?.name ?? "file";
     setItems((prev) => reorder(prev, from, to));
+    announce(`Moved ${name} to position ${to + 1} of ${items.length}.`);
+  };
   const removeAt = (index: number) =>
     setItems((prev) => {
-      revokeCover(prev[index]);
+      const removed = prev[index];
+      revokeCover(removed);
+      if (removed) announce(`Removed ${removed.name}.`);
       return prev.filter((_, i) => i !== index);
     });
 
@@ -133,6 +153,7 @@ export function MergeRunner() {
     coverUrls.current.clear();
     reset();
     setItems([]);
+    setRejections([]);
     setDragIndex(null);
     setOverIndex(null);
   };
@@ -162,14 +183,23 @@ export function MergeRunner() {
     );
   }
 
+  const rejectionsPanel = (
+    <RejectionsNote
+      rejections={rejections}
+      onDismiss={() => setRejections([])}
+    />
+  );
+
   if (items.length === 0 && loading === 0) {
     return (
       <div className="flex flex-col gap-4">
+        {announcer}
         <Dropzone
           onFiles={addFiles}
           multiple
           hint="Add two or more PDFs · they stay on your device"
         />
+        {rejectionsPanel}
         {error && <ErrorNote message={error} />}
       </div>
     );
@@ -177,6 +207,7 @@ export function MergeRunner() {
 
   return (
     <div className="flex flex-col gap-5">
+      {announcer}
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
         aside={
@@ -185,10 +216,15 @@ export function MergeRunner() {
           </span>
         }
       >
-        <ul className="flex flex-col gap-2">
+        <ul
+          role="list"
+          aria-label="PDFs to merge, in output order — drag a row or use its move buttons to reorder"
+          className="flex flex-col gap-2"
+        >
           {items.map((item, index) => (
             <li
               key={item.id}
+              aria-label={`${item.name}, file ${index + 1} of ${items.length}, ${item.pageCount} page${item.pageCount === 1 ? "" : "s"}`}
               draggable
               onDragStart={() => setDragIndex(index)}
               onDragOver={(e) => {
@@ -206,7 +242,7 @@ export function MergeRunner() {
               }}
               className={cn(
                 "flex items-center gap-3 rounded-2xl border bg-surface-2 px-3 py-2.5 transition",
-                overIndex === index && dragIndex !== null
+                overIndex === index && dragIndex !== null && dragIndex !== index
                   ? "border-violet-400/60 ring-1 ring-violet-400/40"
                   : "border-white/10",
                 dragIndex === index && "opacity-50",
@@ -288,6 +324,7 @@ export function MergeRunner() {
         hint="Drop files or click to browse"
       />
 
+      {rejectionsPanel}
       {error && <ErrorNote message={error} />}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -305,6 +342,46 @@ export function MergeRunner() {
           Merge {items.length} PDF{items.length === 1 ? "" : "s"}
         </RunButton>
       </div>
+    </div>
+  );
+}
+
+/** Per-file rejection list: names + specific, honest reasons, dismissible. */
+function RejectionsNote({
+  rejections,
+  onDismiss,
+}: {
+  rejections: Rejection[];
+  onDismiss: () => void;
+}) {
+  if (rejections.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="flex items-center gap-2 font-medium">
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+          {rejections.length} file{rejections.length === 1 ? "" : "s"} couldn&apos;t
+          be added
+        </span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 rounded-md px-2 py-0.5 text-xs text-amber-200/80 transition hover:bg-amber-500/15 hover:text-amber-100"
+        >
+          Dismiss
+        </button>
+      </div>
+      <ul className="flex flex-col gap-1 pl-6 text-xs text-amber-200/90">
+        {rejections.map((r, i) => (
+          <li key={`${r.name}-${i}`} className="list-disc">
+            <span className="font-medium text-amber-100">{r.name}</span> —{" "}
+            {r.reason}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

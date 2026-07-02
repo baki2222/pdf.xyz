@@ -4,8 +4,8 @@
 // for already-rasterized, ephemeral bitmaps, so a plain <img> is intentional.
 /* eslint-disable @next/next/no-img-element */
 
-import type { ReactNode } from "react";
-import { CheckSquare, Square } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { CheckSquare, GripVertical, Square } from "lucide-react";
 import type { Rotation } from "@/lib/pdf/types";
 import type { Thumbnail } from "@/lib/pdf/render-utils";
 import { cn } from "@/lib/utils";
@@ -27,10 +27,27 @@ function SheetLines() {
   );
 }
 
+/** Keyboard-operable drag handle config for a sortable (organize) tile. */
+export interface DragHandle {
+  /** Whether this tile is currently "grabbed" for keyboard movement. */
+  grabbed: boolean;
+  /** Full accessible name, including how to move (changes when grabbed). */
+  label: string;
+  /** Grab/drop toggle for pointer users. */
+  onToggle: () => void;
+  /** Arrow/Home/End/Enter/Escape handling while focused. */
+  onKeyDown: (event: React.KeyboardEvent) => void;
+}
+
 /**
  * A page-shaped tile. The inner "sheet" rotates to preview orientation, so a
- * 90°/270° rotation visibly becomes landscape. Presentational only — selection
- * and actions are driven by props.
+ * 90°/270° rotation visibly becomes landscape. Presentational only — selection,
+ * ordering, and lazy preview requests are driven by props.
+ *
+ * Three usage modes:
+ *  - `selectable`: a toggle button (extract / delete / rotate scope).
+ *  - `dragHandle`: a sortable list item with a focusable keyboard drag handle.
+ *  - plain: a static preview.
  */
 export function PageTile({
   label,
@@ -40,6 +57,7 @@ export function PageTile({
   selectable = false,
   selected = false,
   onSelect,
+  ariaLabel,
   cornerBadge,
   actions,
   dimmed = false,
@@ -49,6 +67,8 @@ export function PageTile({
   onDrop,
   onDragEnd,
   dropTarget = false,
+  dragHandle,
+  onEnterView,
   className,
 }: {
   label: ReactNode;
@@ -59,7 +79,10 @@ export function PageTile({
   loading?: boolean;
   selectable?: boolean;
   selected?: boolean;
-  onSelect?: () => void;
+  /** Called on click/Enter/Space; `shiftKey` powers range selection. */
+  onSelect?: (shiftKey: boolean) => void;
+  /** Accessible name override (used by sortable tiles to announce position). */
+  ariaLabel?: string;
   cornerBadge?: ReactNode;
   actions?: ReactNode;
   dimmed?: boolean;
@@ -69,21 +92,55 @@ export function PageTile({
   onDrop?: () => void;
   onDragEnd?: () => void;
   dropTarget?: boolean;
+  dragHandle?: DragHandle;
+  /** Called once when the tile scrolls near the viewport without a preview. */
+  onEnterView?: () => void;
   className?: string;
 }) {
   const interactive = selectable && Boolean(onSelect);
+  const grabbed = dragHandle?.grabbed ?? false;
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Lazy previews: ask for this page's thumbnail once it nears the viewport.
+  // Kept in a ref so an inline `() => requestPage(i)` doesn't re-arm the
+  // observer every render. Degrades gracefully where IntersectionObserver is
+  // unavailable (SSR/jsdom) — the placeholder simply stays.
+  const enterViewRef = useRef(onEnterView);
+  useEffect(() => {
+    enterViewRef.current = onEnterView;
+  }, [onEnterView]);
+  const hasThumb = Boolean(thumbnail);
+  useEffect(() => {
+    if (hasThumb || !enterViewRef.current) return;
+    const el = rootRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          enterViewRef.current?.();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "400px 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasThumb]);
+
   return (
     <div
-      role={interactive ? "button" : undefined}
+      ref={rootRef}
+      role={interactive ? "button" : dragHandle ? "listitem" : undefined}
       tabIndex={interactive ? 0 : undefined}
       aria-pressed={interactive ? selected : undefined}
-      onClick={interactive ? onSelect : undefined}
+      aria-label={ariaLabel}
+      onClick={interactive ? (e) => onSelect?.(e.shiftKey) : undefined}
       onKeyDown={
         interactive
           ? (e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                onSelect?.();
+                onSelect?.(e.shiftKey);
               }
             }
           : undefined
@@ -101,6 +158,7 @@ export function PageTile({
           ? "border-violet-400/60 bg-violet-500/10 ring-2 ring-violet-400/40"
           : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
         dropTarget && "ring-2 ring-violet-400/70",
+        grabbed && "ring-2 ring-violet-400/80 ring-offset-2 ring-offset-ink",
         dimmed && "opacity-40",
         className,
       )}
@@ -113,6 +171,27 @@ export function PageTile({
             <Square className="size-4 text-slate-500" aria-hidden />
           )}
         </span>
+      )}
+      {dragHandle && (
+        <button
+          type="button"
+          aria-label={dragHandle.label}
+          aria-pressed={dragHandle.grabbed}
+          aria-roledescription="Draggable page"
+          onKeyDown={dragHandle.onKeyDown}
+          onClick={(e) => {
+            e.stopPropagation();
+            dragHandle.onToggle();
+          }}
+          className={cn(
+            "absolute left-2 top-2 z-10 grid size-6 cursor-grab place-items-center rounded-md border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60 active:cursor-grabbing",
+            grabbed
+              ? "border-violet-400/60 bg-violet-500/25 text-violet-100"
+              : "border-white/10 bg-ink/70 text-slate-400 hover:text-white",
+          )}
+        >
+          <GripVertical className="size-3.5" aria-hidden />
+        </button>
       )}
       {cornerBadge && (
         <span className="absolute right-2 top-2 z-10 grid min-w-5 place-items-center rounded-full bg-ink/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-200 ring-1 ring-white/10">

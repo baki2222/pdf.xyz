@@ -30,6 +30,28 @@ These tools currently run in the user's browser using `pdf-lib` and related brow
 - Page tiles with rotation state.
 - Real thumbnail rendering utilities when browser support allows it; graceful fallback to lightweight page glyphs.
 
+### Phase 5 editor depth (shipped)
+
+- **Undo/redo** in Organize Pages, backed by a pure, unit-tested history reducer
+  (`organize-history.ts`) with a bounded timeline and `Ctrl/⌘+Z` / `Ctrl/⌘+Shift+Z`
+  shortcuts.
+- **Keyboard reordering:** each organize tile has a focusable drag handle —
+  Enter/Space to grab, arrow keys / Home / End to move, Escape to cancel — with
+  live-region announcements for screen readers. uid-addressed moves keep it
+  correct under key-repeat.
+- **Selection helpers:** shared, tested `Select all` / `Clear` / `Invert` plus
+  Shift-click (and Shift-Enter/Space) range selection across the extract, delete,
+  and rotate runners (`selection.ts`).
+- **Large-PDF thumbnails:** documents are parsed once into an on-demand renderer
+  (`createThumbnailRenderer`); the first ~60 pages render eagerly and the rest
+  render lazily as they scroll into view, bounding up-front work and peak memory.
+  Object URLs and the pdfjs document are always released on unmount/source change.
+- **Thumbnail status UI:** a reusable progress/`capped`/error component with
+  honest fallback copy when previews can't render.
+- **Merge validation:** encrypted/corrupt/oversized files are validated per file
+  before merge and surfaced as a dismissible, per-file reason list rather than a
+  single overwritten error; each staged file shows its page count.
+
 ## Secure worker tools
 
 These require a backend/worker pipeline because high-quality results need native binaries, Office renderers, OCR engines, image recompression, sandboxing, or AI models.
@@ -102,12 +124,16 @@ AI features must be explicitly opt-in and should display model/data handling cle
 - Add basic analytics events that do not include document contents.
 - Add security headers and CSP review.
 
-### Phase 5 — thumbnails and visual editor depth
+### Phase 5 — thumbnails and visual editor depth ✅
 
-- Improve thumbnail performance for large PDFs with virtualization.
-- Add rendered thumbnails for merge multi-file previews.
-- Add keyboard controls for page selection and ordering.
-- Add undo/redo for organize pages.
+- ✅ Improve thumbnail performance for large PDFs — eager cap + lazy, in-view,
+  on-demand page rendering (parse once, render per page). Windowed/virtualized
+  scrolling remains a future refinement for extreme page counts.
+- ✅ Rendered thumbnails for merge multi-file previews (per-file cover images).
+- ✅ Keyboard controls for page selection and ordering.
+- ✅ Undo/redo for organize pages.
+- ✅ Per-file validation of encrypted/corrupt PDFs before merge, with clear
+  per-file errors.
 
 ### Phase 6 — secure worker MVP
 

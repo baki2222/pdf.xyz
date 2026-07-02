@@ -10,6 +10,8 @@ import {
 import {
   AlertTriangle,
   CheckCircle2,
+  Image as ImageIcon,
+  ImageOff,
   Loader2,
   RefreshCw,
   UploadCloud,
@@ -66,19 +68,10 @@ export function useAsyncRun<T>() {
 }
 
 /* ------------------------------------------------------------------ *
- *  Pure list helpers
+ *  Pure list helpers (re-exported from the pure module for call sites)
  * ------------------------------------------------------------------ */
 
-/** Immutably move an item from one index to another. */
-export function reorder<T>(list: readonly T[], from: number, to: number): T[] {
-  const next = list.slice();
-  if (from < 0 || from >= next.length) return next;
-  const clampedTo = Math.max(0, Math.min(to, next.length - 1));
-  const [moved] = next.splice(from, 1);
-  if (moved === undefined) return list.slice();
-  next.splice(clampedTo, 0, moved);
-  return next;
-}
+export { reorder } from "./list-utils";
 
 /* ------------------------------------------------------------------ *
  *  Presentational primitives
@@ -319,32 +312,90 @@ export function ChipButton({
   );
 }
 
-/** Compact status line for progressive thumbnail rendering. */
+/**
+ * Compact, reusable status line for progressive thumbnail rendering: a live
+ * progress bar while the eager pass runs, an honest "rendering as you scroll"
+ * note when a large document is capped, and a graceful fallback message when
+ * previews can't render at all.
+ */
 export function PreviewStatus({
   rendered,
   total,
   status,
+  capped = false,
+  eager,
 }: {
   rendered: number;
   total: number;
   status: "idle" | "rendering" | "done" | "error";
+  /** True when only the first `eager` pages render up front (rest on scroll). */
+  capped?: boolean;
+  /** How many pages render eagerly; defaults to `total`. */
+  eager?: number;
 }) {
-  if (status === "rendering" && rendered < total) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-        <Spinner className="size-3" />
-        Rendering previews… {rendered}/{total}
-      </span>
-    );
-  }
   if (status === "error") {
     return (
-      <span className="text-xs text-slate-500">
-        Live previews unavailable — showing placeholders.
+      <p className="inline-flex items-center gap-1.5 text-xs text-slate-500" role="status">
+        <ImageOff className="size-3.5" aria-hidden />
+        Live previews couldn&apos;t be rendered — showing page placeholders. All
+        tools still work.
+      </p>
+    );
+  }
+
+  const target = capped && eager ? eager : total;
+  const done = Math.min(rendered, target);
+
+  if (status === "rendering" && done < target) {
+    const pct = target > 0 ? Math.round((done / target) * 100) : 0;
+    return (
+      <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
+        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+          <Spinner className="size-3" />
+          Rendering previews… {done}/{target}
+        </span>
+        <span
+          className="h-1 w-full overflow-hidden rounded-full bg-white/5"
+          aria-hidden
+        >
+          <span
+            className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </span>
+      </div>
+    );
+  }
+
+  if (capped && (status === "done" || done >= target)) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+        <ImageIcon className="size-3.5 text-violet-300/70" aria-hidden />
+        Showing {eager ?? target} previews — the rest render as you scroll.
       </span>
     );
   }
+
   return null;
+}
+
+/**
+ * A visually-hidden, polite live region plus an `announce()` setter. Runners use
+ * it to voice reorder/undo/redo results for screen-reader users without any
+ * visible UI. Render `node` once inside the runner.
+ */
+export function useAnnouncer(): {
+  announce: (message: string) => void;
+  node: ReactNode;
+} {
+  const [message, setMessage] = useState("");
+  const announce = useCallback((next: string) => setMessage(next), []);
+  const node = (
+    <p role="status" aria-live="polite" className="sr-only">
+      {message}
+    </p>
+  );
+  return { announce, node };
 }
 
 /** Section wrapper giving each runner a consistent titled block. */
