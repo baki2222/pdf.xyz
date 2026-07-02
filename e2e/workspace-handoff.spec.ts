@@ -9,11 +9,18 @@ import { attachConsoleGuard, writeTempPdf } from "./helpers";
  * runner → run → download — under the production build and CSP.
  */
 
+async function waitForWorkspaceHydration(page: import("@playwright/test").Page) {
+  await expect(
+    page.getByText(/tools you open from here show up/i),
+  ).toBeVisible();
+}
+
 test("hands a batch off from the workspace to Compress and runs it in-browser", async ({
   page,
 }) => {
   const guard = attachConsoleGuard(page);
   await page.goto("/workspace");
+  await waitForWorkspaceHydration(page);
   await page
     .locator('input[type="file"]')
     .first()
@@ -50,6 +57,7 @@ test("hands a single PDF off from the workspace to Rotate and runs it", async ({
 }) => {
   const guard = attachConsoleGuard(page);
   await page.goto("/workspace");
+  await waitForWorkspaceHydration(page);
   await page
     .locator('input[type="file"]')
     .first()
@@ -120,6 +128,7 @@ test("clear session wipes staged files, remembered activity, and hand-offs", asy
 }) => {
   const guard = attachConsoleGuard(page);
   await page.goto("/workspace");
+  await waitForWorkspaceHydration(page);
   await page
     .locator('input[type="file"]')
     .first()
