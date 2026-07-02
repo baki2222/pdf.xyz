@@ -27,6 +27,7 @@ versus planned — no fake processing.
 | Compress (in-browser size analyzer + lossless structural repack) | ✅ Live |
 | Page thumbnails & visual page board (pdfjs) | ✅ Live |
 | Editor depth: undo/redo, keyboard reordering, range selection, lazy large-PDF thumbnails, per-file merge validation | ✅ Live |
+| Local-first workspace: multi-file staging, local PDF page counts, file-aware tool suggestions, batch queue | ✅ Live (local session only) |
 | Production hardening: CSP/security headers, robots, sitemap, manifest, OG image, JSON-LD | ✅ Live |
 | Secure-worker contract + adapter, presence-only status probe, honest Compress UI integration | ✅ Live |
 | Deep compression worker (Ghostscript/qpdf/mutool) — real, runnable via `PDFXYZ_WORKER_MODE=local-dev` | 🧪 Local-dev |
@@ -38,6 +39,12 @@ hybrid / AI). Tools without a live engine render a polished,
 implementation-ready overview instead of pretending to process files. See
 [`docs/ENGINE_ROADMAP.md`](docs/ENGINE_ROADMAP.md) for the full plan and
 [`docs/SECURITY.md`](docs/SECURITY.md) for the privacy model.
+
+The `/workspace` hub stages files locally for the current browser tab only — it
+never uploads them, page counts are parsed on-device, and only tool preferences
+(never file names) persist. Cross-route file transfer isn't implemented yet, so
+opening a tool from the workspace re-selects files on that tool's page; the UI
+says so plainly rather than faking a hand-off.
 
 ---
 

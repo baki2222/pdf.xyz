@@ -1,33 +1,24 @@
 import type { Metadata } from "next";
 import { ShieldCheck } from "lucide-react";
-import { getToolBySlug } from "@/lib/tools";
-import { getCategory } from "@/lib/tools/categories";
-import { isToolSupported, supportedToolSlugs } from "@/lib/pdf/registry";
+import { getPopularTools, getToolBySlug } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { Pill } from "@/components/ui/badge";
 import { buildMetadata } from "@/lib/seo";
-import { WorkspaceClient, type WorkspaceTool } from "./workspace-client";
+import { buildToolSummaries } from "./presenter";
+import { WorkspaceClient } from "./workspace-client";
 
 export const metadata: Metadata = buildMetadata({
   title: "Workspace",
   description:
-    "Your private pdf.xyz workspace. Stage files locally in your browser, then jump into any in-browser tool. Nothing is uploaded.",
+    "Your private pdf.xyz workspace. Stage files locally in your browser, get file-aware tool suggestions, and line up batches. Nothing is uploaded.",
   path: "/workspace",
   noIndex: true,
 });
 
-/** Every tool with a working in-browser runner, as a client-safe summary. */
-const workspaceTools: WorkspaceTool[] = supportedToolSlugs
-  .map((slug) => getToolBySlug(slug))
-  .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool))
-  .map((tool) => ({
-    slug: tool.slug,
-    name: tool.name,
-    tagline: tool.tagline,
-    icon: tool.icon,
-    gradient: getCategory(tool.category)?.gradient,
-    badge: tool.badge,
-  }));
+/** Client-safe summary for every catalog tool, built once on the server. */
+const toolSummaries = buildToolSummaries();
+const popularSlugs = new Set(getPopularTools(6).map((tool) => tool.slug));
+const popularSummaries = toolSummaries.filter((tool) => popularSlugs.has(tool.slug));
 
 export default async function WorkspacePage({
   searchParams,
@@ -35,9 +26,9 @@ export default async function WorkspacePage({
   searchParams: Promise<{ tool?: string }>;
 }) {
   const { tool } = await searchParams;
-  // Only honor the deep-link when the tool actually has an in-browser runner —
-  // no point suggesting a tool the workspace can't open.
-  const preselected = tool && isToolSupported(tool) ? tool : undefined;
+  // Honor the deep-link only for a real catalog tool; the workspace states
+  // honestly whether that tool runs in-browser or on a (not-yet-enabled) worker.
+  const preselected = tool && getToolBySlug(tool) ? tool : undefined;
 
   return (
     <div className="py-14 sm:py-20">
@@ -51,13 +42,17 @@ export default async function WorkspacePage({
             Your workspace
           </h1>
           <p className="max-w-2xl text-pretty text-base leading-relaxed text-slate-400 sm:text-lg">
-            Stage your documents here, then open a tool to work on them.
-            Everything sits in this browser tab — nothing is uploaded, and your
-            files clear the moment you close it.
+            Stage your documents here, get tool suggestions based on what you
+            dropped, and line up a batch. Everything sits in this browser tab —
+            nothing is uploaded, and your files clear the moment you close it.
           </p>
         </div>
 
-        <WorkspaceClient tools={workspaceTools} preselected={preselected} />
+        <WorkspaceClient
+          tools={toolSummaries}
+          popular={popularSummaries}
+          preselected={preselected}
+        />
       </Container>
     </div>
   );

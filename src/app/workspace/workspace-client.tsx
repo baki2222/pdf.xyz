@@ -1,280 +1,387 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useId, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight,
+  AlertTriangle,
+  Clock,
+  File,
+  FileImage,
+  FileSpreadsheet,
   FileText,
+  FolderOpen,
+  Layers,
+  Presentation,
   ShieldCheck,
   Trash2,
   UploadCloud,
   X,
 } from "lucide-react";
-import type { IconName } from "@/lib/icons";
-import type { ToolBadge } from "@/lib/tools/types";
-import { ToolIcon } from "@/components/ui/tool-icon";
-import { ToolBadgePill } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
+import { FILE_FAMILIES, type FileFamily, type WorkspaceAction } from "@/lib/workspace";
+import { BatchPanel } from "./batch-panel";
+import type { WorkspaceToolSummary } from "./presenter";
+import { SuggestedTools } from "./suggested-tools";
+import { useWorkspace } from "./use-workspace";
 
-/** Lightweight, server-computed summary of a live tool the workspace can open. */
-export type WorkspaceTool = {
-  slug: string;
-  name: string;
-  tagline: string;
-  icon: IconName;
-  gradient?: string;
-  badge?: ToolBadge;
+const FAMILY_LABEL: Record<FileFamily, string> = {
+  pdf: "PDF",
+  image: "Images",
+  word: "Word",
+  excel: "Sheets",
+  powerpoint: "Slides",
+  text: "Text",
+  other: "Other",
 };
 
-/** A document staged in this browser session — never leaves the tab. */
-type StagedFile = { id: string; name: string; size: number; kind: string };
+/** Family-appropriate card glyph, so a staged set reads at a glance. */
+const FAMILY_ICON: Record<FileFamily, typeof FileText> = {
+  pdf: FileText,
+  image: FileImage,
+  word: FileText,
+  excel: FileSpreadsheet,
+  powerpoint: Presentation,
+  text: FileText,
+  other: File,
+};
 
-/** Derive a short, honest type label from the file name or MIME type. */
-function fileKind(file: File): string {
-  const ext = file.name.includes(".") ? file.name.split(".").pop() : undefined;
-  if (ext && ext.length > 0 && ext.length <= 5) return ext.toUpperCase();
-  const sub = file.type ? file.type.split("/").pop() : undefined;
-  return sub ? sub.toUpperCase() : "File";
+const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv";
+
+/** Compact relative time for the activity log (client-only, post-hydration). */
+function formatRelative(at: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function activityIcon(kind: WorkspaceAction["kind"]) {
+  if (kind === "queued-batch") return Layers;
+  if (kind === "cleared-files") return Trash2;
+  return FolderOpen;
 }
 
 /**
- * The interactive workspace shell. Files are staged purely in React state — they
- * never touch the network. Picking a tool routes to that tool's page; because we
- * don't yet hand files across routes, we say so plainly rather than fake it.
+ * The interactive local workspace command center. Files are staged as metadata
+ * in browser memory (bytes are never held or uploaded); a guarded localStorage
+ * bridge remembers only tool choices + a name-free activity log. Everything else
+ * — summaries, suggestions, batch queue — is derived from that in-memory state.
  */
 export function WorkspaceClient({
   tools,
+  popular,
   preselected,
 }: {
-  tools: WorkspaceTool[];
+  tools: WorkspaceToolSummary[];
+  popular: WorkspaceToolSummary[];
   preselected?: string;
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<StagedFile[]>([]);
   const [dragging, setDragging] = useState(false);
-
-  const addFiles = useCallback((list: FileList | null) => {
-    if (!list || list.length === 0) return;
-    const incoming = Array.from(list).map((file, i) => ({
-      id: `${file.name}-${file.size}-${file.lastModified}-${i}`,
-      name: file.name,
-      size: file.size,
-      kind: fileKind(file),
-    }));
-    setFiles((prev) => {
-      const seen = new Set(prev.map((f) => f.id));
-      return [...prev, ...incoming.filter((f) => !seen.has(f.id))];
-    });
-  }, []);
-
-  const removeFile = useCallback((id: string) => {
-    setFiles((prev) => prev.filter((f) => f.id !== id));
-  }, []);
-
-  const clearAll = useCallback(() => setFiles([]), []);
+  const ws = useWorkspace(tools, preselected);
+  const { state, rejected } = ws;
 
   const totalBytes = useMemo(
-    () => files.reduce((sum, f) => sum + f.size, 0),
-    [files],
+    () => state.files.reduce((sum, f) => sum + f.size, 0),
+    [state.files],
+  );
+  const familyChips = useMemo(
+    () =>
+      FILE_FAMILIES.map((family) => ({
+        family,
+        count: state.files.filter((f) => f.family === family).length,
+      })).filter((entry) => entry.count > 0),
+    [state.files],
   );
 
-  // Surface the tool the user arrived with (from an "open in workspace" CTA)
-  // first, so the suggested next step is obvious.
-  const orderedTools = useMemo(() => {
-    if (!preselected) return tools;
-    const idx = tools.findIndex((t) => t.slug === preselected);
-    const chosen = idx < 0 ? undefined : tools[idx];
-    return chosen
-      ? [chosen, ...tools.slice(0, idx), ...tools.slice(idx + 1)]
-      : tools;
-  }, [tools, preselected]);
+  const hasFiles = state.files.length > 0;
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1.35fr_1fr] lg:items-start">
-      {/* ── Staging column ── */}
-      <div className="gradient-border">
-        <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
-          <label
-            htmlFor={inputId}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              addFiles(e.dataTransfer.files);
-            }}
-            className={cn(
-              "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
-              "has-[:focus-visible]:border-violet-400/70 has-[:focus-visible]:bg-violet-500/10 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-400/50",
-              dragging
-                ? "border-violet-400/70 bg-violet-500/10"
-                : "border-white/15 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]",
-            )}
-          >
-            <input
-              id={inputId}
-              ref={inputRef}
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
-              multiple
-              className="sr-only"
-              onChange={(e) => {
-                addFiles(e.target.files);
-                e.target.value = "";
+      {/* ── Staging + batch column ── */}
+      <div className="flex flex-col gap-6">
+        <div className="gradient-border">
+          <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
+            {/* Dropzone */}
+            <label
+              htmlFor={inputId}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
               }}
-            />
-            <span className="grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500 text-white shadow-lg shadow-violet-500/30 transition-transform duration-200 group-hover:scale-105">
-              <UploadCloud className="size-7" strokeWidth={1.75} aria-hidden />
-            </span>
-            <span className="flex flex-col gap-1">
-              <span className="text-base font-semibold text-white">
-                Drop files here, or{" "}
-                <span className="text-violet-300 underline underline-offset-4">
-                  browse
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                ws.addFiles(e.dataTransfer.files);
+              }}
+              className={cn(
+                "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
+                "has-[:focus-visible]:border-violet-400/70 has-[:focus-visible]:bg-violet-500/10 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-400/50",
+                dragging
+                  ? "border-violet-400/70 bg-violet-500/10"
+                  : "border-white/15 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]",
+              )}
+            >
+              <input
+                id={inputId}
+                ref={inputRef}
+                type="file"
+                accept={ACCEPT}
+                multiple
+                className="sr-only"
+                onChange={(e) => {
+                  ws.addFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <span className="grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500 text-white shadow-lg shadow-violet-500/30 transition-transform duration-200 group-hover:scale-105">
+                <UploadCloud className="size-7" strokeWidth={1.75} aria-hidden />
+              </span>
+              <span className="flex flex-col gap-1">
+                <span className="text-base font-semibold text-white">
+                  Drop files here, or{" "}
+                  <span className="text-violet-300 underline underline-offset-4">
+                    browse
+                  </span>
+                </span>
+                <span className="text-sm text-slate-400">
+                  PDF, images, Word, Excel, PowerPoint, text · Max 100 MB per file
                 </span>
               </span>
-              <span className="text-sm text-slate-400">
-                PDF, images, Word, Excel, PowerPoint · Max 100 MB per file
-              </span>
-            </span>
-          </label>
+            </label>
 
-          {files.length > 0 && (
-            <ul className="flex flex-col gap-2" aria-label="Staged files">
-              {files.map((file) => (
-                <li
-                  key={file.id}
-                  className="flex items-center gap-3 rounded-xl border border-white/10 bg-surface-2 px-3.5 py-2.5"
-                >
-                  <FileText
-                    className="size-4 shrink-0 text-violet-300"
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
-                    {file.name}
-                  </span>
-                  <span className="shrink-0 rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    {file.kind}
-                  </span>
-                  <span className="shrink-0 text-xs tabular-nums text-slate-500">
-                    {formatBytes(file.size)}
+            {/* Error state — files we declined to stage */}
+            {rejected.length > 0 && (
+              <div
+                role="alert"
+                className="flex flex-col gap-2 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] p-3.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-200">
+                    <AlertTriangle className="size-4" aria-hidden />
+                    {rejected.length} file{rejected.length === 1 ? "" : "s"} couldn&apos;t
+                    be staged
                   </span>
                   <button
                     type="button"
-                    onClick={() => removeFile(file.id)}
-                    aria-label={`Remove ${file.name}`}
-                    className="grid size-6 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-white/10 hover:text-white"
+                    onClick={ws.dismissRejected}
+                    className="grid size-6 place-items-center rounded-md text-amber-300/70 transition hover:bg-white/10 hover:text-white"
+                    aria-label="Dismiss"
                   >
                     <X className="size-3.5" aria-hidden />
                   </button>
-                </li>
-              ))}
-            </ul>
-          )}
+                </div>
+                <ul className="flex flex-col gap-1 text-xs text-amber-100/80">
+                  {rejected.map((r, i) => (
+                    <li key={`${r.name}-${i}`}>
+                      <span className="font-medium text-amber-100">{r.name}</span> — {r.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-              <ShieldCheck className="size-3.5 text-emerald-400" aria-hidden />
-              {files.length > 0 ? (
-                <span>
-                  {files.length} file{files.length === 1 ? "" : "s"} ·{" "}
-                  {formatBytes(totalBytes)} — staged in this browser only.
-                </span>
-              ) : (
-                <span>Files stay in this browser. Nothing is uploaded.</span>
-              )}
-            </p>
-            <div className="flex items-center gap-2">
-              {files.length > 0 && (
+            {/* Staged files or the empty state */}
+            {hasFiles ? (
+              <ul className="flex flex-col gap-2" aria-label="Staged files">
+                {state.files.map((file) => {
+                  const Icon = FAMILY_ICON[file.family];
+                  return (
+                    <li
+                      key={file.id}
+                      className="flex items-center gap-3 rounded-xl border border-white/10 bg-surface-2 px-3 py-2.5"
+                    >
+                      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/5 text-violet-300">
+                        <Icon className="size-4" aria-hidden />
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-sm text-slate-200">{file.name}</span>
+                        <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500">
+                          <span className="rounded border border-white/10 bg-white/5 px-1 py-px text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                            {file.kind}
+                          </span>
+                          <span className="truncate tabular-nums">
+                            {formatBytes(file.size)}
+                            {typeof file.pageCount === "number"
+                              ? ` · ${file.pageCount} ${file.pageCount === 1 ? "page" : "pages"}`
+                              : ""}
+                          </span>
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => ws.removeFile(file.id)}
+                        aria-label={`Remove ${file.name}`}
+                        className="grid size-7 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-white/10 hover:text-white"
+                      >
+                        <X className="size-3.5" aria-hidden />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="flex flex-col items-center gap-1 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-8 text-center">
+                <p className="text-sm font-medium text-slate-300">No files staged yet</p>
+                <p className="max-w-sm text-xs text-slate-500">
+                  Drop documents above to see file-aware tool suggestions and build a
+                  batch. Nothing is uploaded.
+                </p>
+              </div>
+            )}
+
+            {/* Summary + actions */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <p className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                  <ShieldCheck className="size-3.5 text-emerald-400" aria-hidden />
+                  {hasFiles ? (
+                    <span>
+                      {state.files.length} file{state.files.length === 1 ? "" : "s"} ·{" "}
+                      {formatBytes(totalBytes)} — staged in this browser only.
+                    </span>
+                  ) : (
+                    <span>Files stay in this browser. Nothing is uploaded.</span>
+                  )}
+                </p>
+                {familyChips.length > 0 && (
+                  <ul className="flex flex-wrap gap-1.5" aria-label="File types staged">
+                    {familyChips.map(({ family, count }) => (
+                      <li
+                        key={family}
+                        className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-medium text-slate-300"
+                      >
+                        {FAMILY_LABEL[family]} · {count}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {hasFiles && (
+                  <button
+                    type="button"
+                    onClick={ws.clearFiles}
+                    className={buttonVariants({ variant: "ghost", size: "sm" })}
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                    Clear all
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={clearAll}
-                  className={buttonVariants({ variant: "ghost", size: "sm" })}
+                  onClick={() => inputRef.current?.click()}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
-                  <Trash2 className="size-3.5" aria-hidden />
-                  Clear all
+                  Add files
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-              >
-                Add files
-              </button>
+              </div>
             </div>
           </div>
         </div>
+
+        <BatchPanel
+          files={state.files}
+          summaries={tools}
+          batch={state.batch}
+          plan={ws.batchPlan}
+          onSetTool={ws.setBatchTool}
+          onAddAll={ws.addAllToBatch}
+          onRemove={ws.removeFromBatch}
+          onClear={ws.clearBatch}
+          onLaunch={ws.launchBatch}
+        />
       </div>
 
-      {/* ── Tool chooser column ── */}
-      <aside className="flex flex-col gap-5 rounded-3xl border border-white/10 bg-surface-2 p-6">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
-            Run a tool
-          </h2>
-          <Link
-            href="/tools"
-            className="text-xs font-medium text-violet-300 transition hover:text-violet-200"
-          >
-            All tools
-          </Link>
-        </div>
+      {/* ── Tools + activity column ── */}
+      <aside className="flex flex-col gap-6">
+        <SuggestedTools
+          suggestions={ws.suggestions}
+          summaries={tools}
+          popular={popular}
+          hasFiles={hasFiles}
+          preselected={preselected}
+          onOpen={ws.openTool}
+        />
 
-        <ul className="flex flex-col gap-2">
-          {orderedTools.map((tool) => {
-            const suggested = tool.slug === preselected;
+        <RecentActivity
+          actions={state.recentActions}
+          hydrated={ws.hydrated}
+          now={ws.now}
+        />
+
+        <p className="flex items-start gap-2 rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.04] p-4 text-xs leading-relaxed text-slate-400">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-400" aria-hidden />
+          <span>
+            Browser tools never upload — your files stay in this tab and clear when
+            you close it. Only your tool choices are remembered on this device;
+            file names and contents never are.
+          </span>
+        </p>
+      </aside>
+    </div>
+  );
+}
+
+/** The recent-activity log, with a loading skeleton until preferences hydrate. */
+function RecentActivity({
+  actions,
+  hydrated,
+  now,
+}: {
+  actions: WorkspaceAction[];
+  hydrated: boolean;
+  now: number;
+}) {
+  return (
+    <section
+      aria-labelledby="activity-heading"
+      className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-5"
+    >
+      <h2
+        id="activity-heading"
+        className="inline-flex items-center gap-1.5 text-sm font-semibold text-white"
+      >
+        <Clock className="size-4 text-slate-400" aria-hidden />
+        Recent activity
+      </h2>
+
+      {!hydrated ? (
+        <ul className="flex flex-col gap-2" aria-hidden>
+          {[0, 1].map((i) => (
+            <li key={i} className="h-9 animate-pulse rounded-lg bg-white/[0.04]" />
+          ))}
+        </ul>
+      ) : actions.length === 0 ? (
+        <p className="text-xs text-slate-500">
+          Tools you open from here show up as your recent activity.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {actions.map((action) => {
+            const Icon = activityIcon(action.kind);
             return (
-              <li key={tool.slug}>
-                <Link
-                  href={`/tools/${tool.slug}`}
-                  aria-current={suggested ? "true" : undefined}
-                  className={cn(
-                    "group flex items-center gap-3 rounded-xl border px-2.5 py-2 transition",
-                    suggested
-                      ? "border-violet-400/40 bg-violet-500/10"
-                      : "border-transparent hover:border-white/10 hover:bg-white/[0.04]",
-                  )}
-                >
-                  <ToolIcon icon={tool.icon} gradient={tool.gradient} size="sm" />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-medium text-white">
-                        {tool.name}
-                      </span>
-                      {suggested ? (
-                        <span className="rounded-full border border-violet-400/40 bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-200">
-                          Suggested
-                        </span>
-                      ) : (
-                        tool.badge && <ToolBadgePill badge={tool.badge} />
-                      )}
-                    </span>
-                    <span className="block truncate text-xs text-slate-500">
-                      {tool.tagline}
-                    </span>
-                  </span>
-                  <ArrowRight
-                    className="size-4 shrink-0 text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-white"
-                    aria-hidden
-                  />
-                </Link>
+              <li
+                key={action.id}
+                className="flex items-center gap-2.5 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-1.5"
+              >
+                <Icon className="size-3.5 shrink-0 text-slate-500" aria-hidden />
+                <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
+                  {action.label}
+                </span>
+                <span className="shrink-0 text-[11px] tabular-nums text-slate-600">
+                  {formatRelative(action.at, now)}
+                </span>
               </li>
             );
           })}
         </ul>
-
-        <p className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-xs leading-relaxed text-slate-400">
-          Each tool opens on its own page and runs in your browser. Staged files
-          don&apos;t follow you across pages yet, so you&apos;ll re-select them
-          on the tool page for now.
-        </p>
-      </aside>
-    </div>
+      )}
+    </section>
   );
 }

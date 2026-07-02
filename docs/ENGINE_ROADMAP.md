@@ -172,10 +172,41 @@ AI features must be explicitly opt-in and should display model/data handling cle
 
 ### Phase 8 — account and workspace
 
-- Anonymous local workspace first.
-- Optional account sync later.
-- Saved workflows and batch processing.
-- Team workspaces only after core consumer tools are excellent.
+Direction: anonymous local workspace first, optional account sync later, saved
+workflows and batch processing next, and team workspaces only after core
+consumer tools are excellent.
+
+#### Local-first batch workspace (shipped)
+
+The `/workspace` route is a browser-only staging hub — a "professional batch
+hub" feel without ever leaving the device. All logic lives in a pure,
+unit-tested model under `src/lib/workspace/` (classify · reducer · storage ·
+suggestions), wired to React by `src/app/workspace/use-workspace.ts`.
+
+- **Local-only staging.** Files are staged as *metadata* in browser memory. Raw
+  bytes are never uploaded and never persisted; drag-drop or browse, per-file
+  remove, and clear-all all operate in-tab. Empty/oversized files are rejected
+  with a specific reason (100 MB in-browser ceiling).
+- **File-aware cards.** Each staged file shows a family glyph, a type label, its
+  size, and — for PDFs — a **page count parsed locally in the browser**
+  (`src/lib/pdf/page-count.ts`, `pdf-lib` via dynamic import; best-effort, null
+  on failure, never uploaded). A per-type breakdown summarizes the mix.
+- **Smart suggestions.** `suggestTools` turns the staged file mix into ranked,
+  honest next steps (e.g. 2+ PDFs → Merge; images → JPG/PNG→PDF), validated
+  against the real catalog so it never suggests a tool that doesn't exist.
+- **Batch queue.** Choose one tool, queue staged files, and get an *honest*
+  status: `ready` (live in-browser tool), `worker-disabled` (secure-worker tool
+  not enabled in this environment), or `unavailable` — derived from tool
+  capability, never faked.
+- **Name-free persistence.** Only tool preferences and a tool-oriented activity
+  log persist (versioned, migrated, guarded `localStorage`). File names, sizes,
+  ids, and bytes are never written to disk.
+
+**Known limitation (stated honestly in the UI):** files are not yet transferred
+across routes. Launching a tool from the workspace opens that tool's real page,
+where the file must be re-selected — the workspace says so plainly rather than
+faking a hand-off. True cross-route/batch execution (passing the queue straight
+into a tool, and worker-backed batch runs) is the next increment.
 
 ## Definition of production-ready per tool
 
