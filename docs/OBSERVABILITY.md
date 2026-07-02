@@ -327,8 +327,13 @@ the packaged deep-compression and OCR engines are installed and that opting in w
 content-free `ocr_health`/`compression_health` log lines (no path, secret, or value)
 and processing no document. Where `worker:smoke` proves the offline, no-config
 exit-code contract, `worker:image-smoke` is its image counterpart — proof the
-packaged engines report ready, never that any document was recognized. Alert on
-a worker that reports `2` when it is
+packaged engines report ready, never that any document was recognized. Phase 25 adds a
+**behavior** counterpart to that same workflow, `pnpm worker:ocr-proof`, which runs
+inside the built worker image *after* the presence checks: it OCRs a generated sentinel
+raster with the Tesseract baseline and asserts the sidecar contains the sentinel —
+genuine recognition on a synthetic, non-user-document fixture. Its output is likewise
+presence-only and content-free (it never prints a temp path or the recognized text), and
+it always cleans up its temp dir. Alert on a worker that reports `2` when it is
 expected to be drainable, exactly as you would alert on `drainable: true` with a
 non-draining backlog.
 

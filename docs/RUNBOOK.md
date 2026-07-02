@@ -109,6 +109,9 @@ docker run --rm "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:image-smoke
 docker run --rm \
   -e PDFXYZ_OCR=on -e PDFXYZ_WORKER_REQUIRE_OCR=true -e PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE=true \
   "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:engines
+# …then the deterministic OCR recognition proof (Phase 25): OCRs a generated sentinel
+# raster and verifies the sentinel is recognized. Exit 0 = passed. No document, no cloud.
+docker run --rm "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:ocr-proof
 
 # 3. Push, then deploy the SAME image reference to staging first.
 docker push "$REGISTRY/pdfxyz-web:$GIT_SHA"
@@ -188,6 +191,9 @@ Deploy checklist:
 - [ ] Worker image passes `pnpm worker:image-smoke` — gs/qpdf/`mutool` +
       tesseract/ocrmypdf installed, English OCR langdata present, and
       `ocr_health.ready` / `compression_health.deep` when opted in (presence-only).
+- [ ] Worker image passes `pnpm worker:ocr-proof` — the packaged Tesseract baseline
+      recognizes a synthetic sentinel raster into a searchable PDF + sidecar (Phase 25;
+      genuine recognition, no user document). Exit `0`.
 - [ ] `--dry-run-status` is `0` (drainable) with production config; `2` in a
       deliberately empty environment.
 - [ ] `--check` is `0` (or intentionally `4` with strict on a config you are fixing).
@@ -248,15 +254,17 @@ remote processing production-ready:
   `--dry-run-status` distinguishes the four states via the `ocr_health` line
   (`enabled`/`ready`/`engine`); arm `PDFXYZ_WORKER_REQUIRE_OCR` to refuse to start
   (exit `4`) unless a ready engine is present. See [`OCR_BACKEND.md`](./OCR_BACKEND.md).
-- **Native `deep` + OCR engines — presence proven in CI, real-document quality not.**
-  `pnpm worker:image-smoke` now **proves engine presence** at the image level in the
-  container CI: the Ghostscript/qpdf/`mutool` + Tesseract/OCRmyPDF binaries are
-  installed, **English** OCR language data is present, and opting in yields a ready
-  `ocr_health` / `compression_health.deep` readout. What that does **not** prove is
-  real user-document OCR/compression **quality or behavior**: validate
-  `compression_health.deep` / `ocr_health.ready` on the **live** worker (§4) and run a
-  real document through it out-of-band before advertising deep compression or OCR.
-  Lossless always works.
+- **Native `deep` + OCR engines — presence + synthetic recognition proven in CI,
+  real-document quality not.** `pnpm worker:image-smoke` **proves engine presence** at the
+  image level in the container CI (Ghostscript/qpdf/`mutool` + Tesseract/OCRmyPDF binaries
+  installed, **English** OCR language data present, ready `ocr_health` /
+  `compression_health.deep` when opted in), and Phase 25's `pnpm worker:ocr-proof` proves
+  the Tesseract baseline actually **recognizes** a generated sentinel raster into a
+  searchable PDF + sidecar. What neither proves is real user-document OCR/compression
+  **quality or behavior**, OCRmyPDF's PDF→PDF path, or non-English packs: validate
+  `compression_health.deep` / `ocr_health.ready` on the **live** worker (§4) and run a real
+  document through it out-of-band before advertising deep compression or OCR. Lossless
+  always works.
 - **Image publish/promotion is not automated.** CI builds and validates the images
   but does not push them; wiring a registry and the promote-by-digest flow (§3) is
   operator-owned.

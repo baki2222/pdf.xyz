@@ -375,6 +375,7 @@ separate, sandboxed process you build and run yourself. The artifacts:
 | `scripts/worker-smoke.sh` (`pnpm worker:smoke`) | No-config honesty smoke; asserts the daemon refuses to fake work and rejects bad flags. |
 | `scripts/worker-image-smoke.sh` (`pnpm worker:image-smoke`) | Image-level native-engine + OCR presence/readiness smoke; runs inside the built worker image. |
 | `scripts/worker-engines.sh` (`pnpm worker:engines`) | Node-free `command -v` engine preflight (`0` ok / `1` usage / `3` a required engine missing); honors the opt-in require-flags. Runs in or out of the image. |
+| `scripts/worker-ocr-proof.sh` (`pnpm worker:ocr-proof`) | Deterministic OCR **recognition** proof on a synthetic fixture (Phase 25): gs renders a sentinel raster, Tesseract OCRs it, the sidecar must contain the sentinel. `0` pass / `2` engine missing / `3` proof failed. Presence-only, content-free, self-cleaning; runs inside the built worker image. |
 
 ### Build the two images separately
 
@@ -544,7 +545,10 @@ infrastructure.
   image-level native-engine + OCR proofs (`pnpm worker:image-smoke`, plus the node-free
   `pnpm worker:engines` preflight with the production require-flags armed —
   `PDFXYZ_WORKER_REQUIRE_OCR` / `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE` — which must pass
-  precisely because the image ships the engines). It proves the
+  precisely because the image ships the engines), and — after presence is established —
+  the deterministic OCR **recognition** proof (`pnpm worker:ocr-proof`, Phase 25), which
+  OCRs a generated sentinel raster and verifies the sentinel is recognized (no user
+  document, no cloud, no secret). It proves the
   web ↔ worker split at the image level — asserting the worker image ships
   `gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf` and the web image ships none. It builds
   with `push: false` — images are validated, never published — so the workflow needs

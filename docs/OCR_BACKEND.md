@@ -32,10 +32,11 @@ a node-free config parser, and a Node-only subprocess runner, all dependency-inj
 | Piece | Module | Node? |
 | --- | --- | --- |
 | OCR options contract + validator | `src/lib/jobs/ocr.ts` | no |
+| OCR **result-metadata** type + builder (`buildOcrResultMeta`) | `src/lib/jobs/ocr.ts` | no |
 | OCR capability mapping (presence-only) | `src/lib/workers/ocr.ts` | no |
-| OCR **processor** (contract → `Processor`) | `src/lib/workers/processor/ocr.ts` | no |
+| OCR **processor** (contract → `Processor`, flattens meta) | `src/lib/workers/processor/ocr.ts` | no |
 | OCR **native config** (env → bounded config) | `src/lib/workers/ocr-native-config.ts` | no |
-| OCR **native runner** (OCRmyPDF/Tesseract) | `src/lib/workers/ocr-native.ts` | **yes** |
+| OCR **native runner** (OCRmyPDF/Tesseract, measures meta) | `src/lib/workers/ocr-native.ts` | **yes** |
 | Daemon runtime wiring | `src/lib/workers/daemon/runtime.ts` | yes |
 
 The `OcrRunner` is an injected dependency of the OCR processor. With none injected
@@ -157,10 +158,28 @@ inside the freshly built image with nothing wired and processing no document:
   it must exit `0` **because** the image genuinely ships the engines. Its negative path —
   the same flags failing on a bare host — is proven Docker-free in
   `src/deploy/worker-engines.test.ts`.
+- **`pnpm worker:ocr-proof`** (Phase 25) — the deterministic **recognition** proof. After
+  presence is established, it generates a tiny synthetic raster of a fixed sentinel word
+  with Ghostscript (a pure image, **no** text layer), OCRs it with the packaged Tesseract
+  baseline to a searchable PDF + text sidecar, and asserts the sidecar — normalized to
+  letters/digits — **contains the sentinel**. That is real recognition end-to-end, not a
+  structural fluke. It uses **no** user document, cloud service, secret, queue, store, or
+  scanner; its output is presence-only and content-free (it never prints a temp path or the
+  recognized text); and it always removes its temp dir on success, failure, or signal. It
+  runs in the container workflow *after* `worker:engines`. Its whole plumbing — the
+  prerequisite-missing exit `2`, the enforced-sentinel exit `3`, and the temp cleanup — is
+  proven Docker-free with stub engines in `src/deploy/worker-ocr-proof.test.ts`.
 
 Docker is not available in this repository's environment, so the images are **not** built
-here; these two smokes run on GitHub Actions, and the Dockerfile/CI invariants are pinned
+here; these smokes run on GitHub Actions, and the Dockerfile/CI invariants are pinned
 by `src/deploy/artifacts.test.ts` and `src/deploy/ci-workflow.test.ts`.
+
+**What the synthetic proof does and does not establish.** It proves the packaged Tesseract
+baseline can turn a generated raster of known text into a searchable PDF + text sidecar and
+recognize the expected sentinel — a genuine, deterministic recognition path on a
+non-user-document fixture. It does **not** prove production OCR *quality*, OCRmyPDF's
+PDF→searchable-PDF path, any non-English language pack, or anything about real user
+documents/traffic. Those remain out-of-band validation on a running worker.
 
 ## Security envelope
 
@@ -204,6 +223,45 @@ line, binary path, **recognized OCR text**, or secret:
   in `ocr-backend.test.ts` (a sentinel string in the text sidecar must not appear in
   the job record or any log event).
 
+## Result metadata (Phase 25)
+
+A successful OCR job now attaches **safe, bounded, structural metadata** to its result,
+derived from the *actual* run — never estimated or fabricated. The shape is
+`OcrResultMeta` (`src/lib/jobs/ocr.ts`), built by the pure `buildOcrResultMeta` and
+measured by the native runner; the processor flattens it onto the content-free
+`ProcessorMeta` seam it already carries for compression.
+
+| Field | Meaning | When `null` |
+| --- | --- | --- |
+| `engine` | Engine family that ran (short token, e.g. `ocrmypdf`) | never (sanitized to a safe token) |
+| `languages` | Validated, de-duplicated recognition languages (allowlist codes only) | never (may be empty) |
+| `outputMode` | What was requested/produced (`searchable-pdf`/`text`/`both`) | never |
+| `producedSearchablePdf` / `producedTextSidecar` | Which artifact kinds were produced | never |
+| `pageCount` | Structural page count of the produced searchable PDF (best-effort, pdf-lib) | no PDF produced, unparseable, or above the 64 MiB parse ceiling |
+| `textCharacters` | Character **count** of the produced text sidecar | no sidecar, or above the 32 MiB measure ceiling |
+| `meanConfidence` | Mean recognition confidence in `[0, 1]` **only if a backend safely reports it** | always for the native backend (it exposes none) |
+
+The honesty rules the builder enforces:
+
+- **No recognized text, ever.** Counts are counts — the character count is the sidecar's
+  length, never its contents. `pageCount` is a structural page count of the *output* PDF.
+  Nothing in the metadata is a filename, object key, signed URL, temp path, command path,
+  or secret. This is asserted directly (`JSON.stringify(meta)` must not contain the
+  recognized text) in `ocr-native.test.ts`.
+- **Missing is allowed; fabricated is not.** A value that can't be safely determined is
+  `null` — a null page count is honest, an invented one is forbidden. `meanConfidence`
+  stays `null` because OCRmyPDF/Tesseract expose no safe document-level confidence here; we
+  never invent one.
+- **Bounded & schema-stable.** Counts are coerced to non-negative integers and clamped to
+  fixed maxima; the field set never varies by engine or option; the language set is filtered
+  to the allowlist and capped. Metadata extraction is itself bounded — a very large PDF or
+  sidecar reports `null` ("not measured") rather than paying unbounded cost.
+
+Metadata rides on the processor's success result (the same seam compression uses). It is
+safe to log, persist, or return — but note the executor does **not** currently thread it
+into the job record, so it is not yet surfaced to a client; wiring that through is future
+work, and the safety guarantees above are what make it safe to do so.
+
 ## Observability
 
 - **Readiness:** `pnpm worker:daemon --dry-run-status` emits a `processor` line for
@@ -222,26 +280,28 @@ line, binary path, **recognized OCR text**, or secret:
 
 ## Caveats & roadmap
 
-- **The engine is now packaged, but real recognition still isn't exercised here.** The
-  Phase 24 `worker` image installs OCRmyPDF/Tesseract + English data, and the container
-  workflow proves — inside the built image — that the binaries and language data are
-  present and that the daemon reports OCR `ready` (`worker:image-smoke` / `worker:engines`,
-  presence-only). But this repository's own environment has **no Docker daemon and no
-  engine installed**, so the native runner is still proven here via injected fakes
-  (deterministic runner + injected `exec`/`fs`/PATH seams) plus the CLI status/check smoke
-  — every argv, temp-lifecycle, bound, failure, and cleanup branch unit-tested without a
-  binary. What the image proofs establish is that an engine is **installed and reports
-  ready** — they do **not** OCR a document. Real end-to-end recognition **quality** must
-  still be validated out-of-band on a running worker that has the engine.
+- **Synthetic recognition is proven; production quality is not.** Phase 25 adds a
+  deterministic recognition proof (`worker:ocr-proof`, run in the container workflow inside
+  the built image) that turns a generated raster of a known sentinel into a searchable PDF +
+  sidecar and verifies the sentinel is recognized — genuine OCR on a non-user-document
+  fixture. This repository's own environment has **no Docker daemon and no engine
+  installed**, so that proof runs on GitHub Actions, and the native runner is *also* proven
+  here via injected fakes (deterministic runner + injected `exec`/`fs`/PATH/`countPages`
+  seams) — every argv, temp-lifecycle, bound, failure, metadata, and cleanup branch
+  unit-tested without a binary. What none of this establishes: production OCR **quality**,
+  OCRmyPDF's PDF→searchable-PDF path, non-English language packs, or real user
+  documents/traffic. Those remain out-of-band validation on a running worker.
+- **Result metadata is populated but not yet surfaced to clients.** The native runner now
+  measures a bounded `OcrResultMeta` (see *Result metadata* above) and the processor
+  attaches it to its success result, but the executor does not thread it into the job
+  record, so it is not returned to a client yet. Doing so is future work; the metadata's
+  content-free, bounded guarantees are what make it safe.
 - **Retryable failures are coarse.** The `OcrRunner` seam is throw-based, so the
   processor treats any runner failure as a retryable `internal_error`; a *deterministic*
   failure (e.g. a corrupt input) therefore exhausts the attempt cap before failing
   terminally. A future refinement can give the runner a discriminated result (like the
   compression engine's) for precise `not_implemented` / `payload_too_large` /
   `unprocessable_entity` classification.
-- **Result metadata.** `OcrResultMeta` (pages processed, characters, confidence) is
-  defined in the contract but not yet populated by the native runner — the runner
-  returns validated artifacts only, never estimated stats. Populating it from real
-  recognition output is future work.
 - **Determinism.** OCRmyPDF embeds timestamps, so native output is not byte-stable;
-  only the injected fake runner used in tests is deterministic.
+  only the injected fake runner used in tests and the synthetic proof's structural/sentinel
+  checks are deterministic.

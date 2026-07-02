@@ -84,7 +84,7 @@ OCR is a **secure-worker-only** capability: turning a scan into a searchable PDF
 | `outputMode` | `searchable-pdf` (invisible selectable text layer under the scan), `text` (a `.txt` sidecar), or `both`. Defaults to `searchable-pdf`. |
 | `skipTextPages` | Boolean; skip pages that already carry a text layer (OCRmyPDF `--skip-text`) instead of re-recognizing them. Defaults to `false`. |
 
-A completed OCR job's shape is typed by `OcrResultMeta` / `OcrPageResult` (engine, languages, pages processed/skipped, characters recognized, mean confidence, which artifacts were produced). These describe what a real processor fills in — this module never estimates or fakes them.
+A completed OCR job attaches bounded, content-free metadata typed by `OcrResultMeta` and built by the pure `buildOcrResultMeta` (both in `src/lib/jobs/ocr.ts`): the engine family, validated languages, output mode, which artifact kinds were produced, a best-effort output **page count**, a text-sidecar **character count**, and an optional mean confidence. As of Phase 25 the native runner **measures and populates** these from the actual run (page count via pdf-lib, character count from the sidecar length) — never estimated. Nulls are honest ("not determinable / not measured"), counts are bounded, and `meanConfidence` stays `null` because the native backend exposes none. No recognized text, filename, or path ever enters the metadata. See [`OCR_BACKEND.md`](./OCR_BACKEND.md) → *Result metadata*.
 
 ### OCR capability (`src/lib/workers/ocr.ts`)
 
@@ -110,10 +110,12 @@ operator enables it and installs an engine, the processor flips ready and `ocr-p
 jobs complete with real artifacts. The Phase 22 malware-scan gate runs **before** OCR.
 
 Full operator guide — env knobs, deployment requirements, security envelope,
-observability, and caveats — is in [`OCR_BACKEND.md`](./OCR_BACKEND.md). Still
-outstanding (documented there): the runner does not yet populate `OcrResultMeta`, and
-its throw-based failure mapping is coarse-grained (a deterministic failure retries up
-to the attempt cap before failing terminally).
+observability, and caveats — is in [`OCR_BACKEND.md`](./OCR_BACKEND.md). Phase 25
+extends the runner to **populate `OcrResultMeta`** from the real run and adds a
+deterministic in-container recognition proof (`pnpm worker:ocr-proof`, below). Still
+outstanding (documented there): the populated metadata is not yet threaded into the job
+record returned to a client, and the throw-based failure mapping is coarse-grained (a
+deterministic failure retries up to the attempt cap before failing terminally).
 
 ## Provider seams
 
@@ -350,18 +352,30 @@ ever runs the daemon in `--dry-run-status` (never the forever loop). Because it
 deliberately **fails** where the engines are absent, it is image-only and is **not** part
 of the Docker-free PR gate — it runs in the container workflow below.
 
+Phase 25 adds a **behavior** proof to that same image: `pnpm worker:ocr-proof`
+(`scripts/worker-ocr-proof.sh`) runs *inside the built worker image*, after the presence
+smokes, and proves the packaged Tesseract baseline can actually **recognize** text. It
+renders a tiny synthetic raster of a fixed sentinel with Ghostscript (a pure image, no
+text layer), OCRs it to a searchable PDF + text sidecar, and asserts the normalized
+sidecar contains the sentinel — genuine recognition on a generated, **non-user-document**
+fixture. It needs no cloud/secret/queue/store/scanner, its output is presence-only and
+content-free (never a path or the recognized text), and it always cleans up its temp dir.
+Its whole plumbing (prerequisite exit `2`, enforced-sentinel exit `3`, cleanup) is proven
+Docker-free with stub engines in `src/deploy/worker-ocr-proof.test.ts`. What it does **not**
+prove: production OCR quality, OCRmyPDF's PDF→PDF path, non-English packs, or real traffic.
+
 The Docker build itself is still **not exercised** in this repository's environment (no
 Docker daemon); the images must be built and run in real worker infrastructure. What
 covers that gap out-of-band is the GitHub **container workflow**
 ([`.github/workflows/container.yml`](../.github/workflows/container.yml)): it builds both
-targets, runs `pnpm worker:smoke`, `pnpm worker:image-smoke`, **and** the node-free
-`pnpm worker:engines` preflight (with the production require-flags armed) inside the
-worker image, and asserts the worker image ships `gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf`
-while the web image ships **none** (no secrets, no push) — so the image-level engine
-contract is proven on GitHub Actions even though the local repo still does not build
-images. (The workflow's shape is itself pinned by `src/deploy/ci-workflow.test.ts`.) See
-DEPLOYMENT.md's "Phase 19 worker container" section for the build and health-check
-commands.
+targets, runs `pnpm worker:smoke`, `pnpm worker:image-smoke`, the node-free
+`pnpm worker:engines` preflight (with the production require-flags armed), **and**
+`pnpm worker:ocr-proof` inside the worker image, and asserts the worker image ships
+`gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf` while the web image ships **none** (no secrets,
+no push) — so the image-level engine + recognition contract is proven on GitHub Actions
+even though the local repo still does not build images. (The workflow's shape is itself
+pinned by `src/deploy/ci-workflow.test.ts`.) See DEPLOYMENT.md's "Phase 19 worker
+container" section for the build and health-check commands.
 
 ## Processor registry & worker executor (Phase 13)
 

@@ -253,8 +253,9 @@ mode-specific reason — no fake searchable PDFs or invented text.
 - **OCR options contract** (`src/lib/jobs/ocr.ts`): a pure, unit-tested
   `parseOcrOptions` validating recognition languages (curated ISO 639-2/T
   allowlist, 1–4, de-duplicated), output mode (`searchable-pdf` / `text` /
-  `both`), and `skipTextPages`; plus `OcrResultMeta` / `OcrPageResult` typing what
-  a real processor returns.
+  `both`), and `skipTextPages`; plus `OcrResultMeta` and the pure `buildOcrResultMeta`
+  builder that types and constructs the bounded, content-free result metadata a real
+  processor returns (populated from the actual run in Phase 25).
 - **Presence-only OCR capability** (`src/lib/workers/ocr.ts`): `buildOcrCapability`
   extends `WorkerStatus` with an `ocr` field carrying its own honest `detail`. The
   status route never probes an OCR engine, so `ocr.available` is `false` in every
@@ -271,8 +272,10 @@ mode-specific reason — no fake searchable PDFs or invented text.
   `worker_status_checked` telemetry event (mode + enabled only).
 - ✅ Delivered in **Phase 23**: a real, optional OCRmyPDF/Tesseract processor behind
   the adapter contract with the same storage/queue/deletion guarantees as every other
-  worker (see Phase 23 below). ⏳ Remaining: language packs installed on the worker
-  image and per-page confidence populated into `OcrResultMeta` from real recognition.
+  worker (see Phase 23 below). English packaging landed in **Phase 24** and result
+  metadata is now populated in **Phase 25**. ⏳ Remaining: additional (non-English)
+  language packs, and surfacing the populated `OcrResultMeta` into the client-facing
+  job record.
 
 ### Phase 12 — worker storage + queue foundation (shipped)
 
@@ -721,6 +724,33 @@ real end-to-end **user-document** OCR validation on a running worker, and everyt
 phases still defer — real secrets and a provisioned bucket/broker, an applied lifecycle
 policy, a running clamd service, and the actual worker **deployment** (the image is built
 and smoked in CI, never published or run against real traffic here).
+
+### Phase 25 — OCR result metadata + deterministic recognition proof (shipped)
+
+Phase 24 packaged the engines and proved **presence**; Phase 25 closes the next honest gap
+in two ways, without faking anything.
+
+- **Populated result metadata** (`src/lib/jobs/ocr.ts`, `src/lib/workers/ocr-native.ts`):
+  the native runner now measures a bounded, content-free `OcrResultMeta` from the actual
+  run — engine family, validated languages, output mode, which artifact kinds were
+  produced, a best-effort output **page count** (pdf-lib, bounded), and a text-sidecar
+  **character count** — built by the pure `buildOcrResultMeta` and attached to the
+  processor's success result (the same seam compression uses). `meanConfidence` stays
+  `null` (the native backend exposes none — never invented); every count is clamped and
+  schema-stable; nulls are honest; and **no recognized text, filename, or path** ever
+  enters the metadata (asserted in `ocr-native.test.ts` and `jobs/ocr.test.ts`).
+- **Deterministic recognition proof** (`scripts/worker-ocr-proof.sh`, `pnpm
+  worker:ocr-proof`): a synthetic, non-user-document proof that the packaged **Tesseract
+  baseline actually recognizes text**. Ghostscript renders a fixed sentinel to a raster (no
+  text layer), Tesseract OCRs it to a searchable PDF + sidecar, and the normalized sidecar
+  must contain the sentinel. Presence-only, content-free output; temp dir always cleaned up
+  (EXIT trap); no cloud/secret/queue/store/scanner. It runs in the container workflow
+  **after** `worker:engines`; its full plumbing (missing-engine exit `2`, enforced-sentinel
+  exit `3`, cleanup) is proven Docker-free with stub engines in `worker-ocr-proof.test.ts`.
+
+⏳ Still out-of-band (deliberately not faked): production OCR **quality**, OCRmyPDF's
+PDF→searchable-PDF path, **non-English** language packs, real **user-document**/traffic
+validation, and surfacing the populated metadata into the client-facing job record.
 
 ## Definition of production-ready per tool
 
