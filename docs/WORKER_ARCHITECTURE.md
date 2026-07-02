@@ -160,6 +160,40 @@ Each job runs in an isolated temporary directory/container. Recommended processo
 - Signed, expiring download URLs.
 - Idempotency keys for retry-safe job creation.
 
+### 6. Rate limits
+
+Abuse limits are part of the contract (`RATE_LIMITS` in `src/lib/jobs/types.ts`)
+and are enforced at the edge/gateway, not in application code:
+
+- Upload sessions: **60 / hour / client**.
+- Job creation: **60 / hour / client**.
+- Status polling: **120 / minute / client** (polling is expected; keep it cheap).
+
+A client is keyed by API token when present, otherwise by IP + coarse
+fingerprint. Exceeding a limit returns `429 rate_limited` with a `Retry-After`
+header. Per-tool concurrency is additionally capped by the queue (section 3).
+Static file limits (`JOB_LIMITS`) — 100 MB/file, 500 MB/session, 20 files —
+are validated before any byte is uploaded.
+
+### 7. Observability
+
+Operability without ever logging document contents:
+
+- **Structured logs** keyed by `jobId` / `sessionId` — status transitions,
+  timings, error codes, scan verdicts. Never filenames' contents, never bytes,
+  never option values that could carry PII (e.g. URLs are logged host-only).
+- **Metrics**: queue depth and age, job duration and progress, failure rate by
+  tool and error code, malware-scan hit rate, storage bytes in flight, and
+  deletion lag (outputs still present past their TTL — should be ~0).
+- **Tracing**: one trace per job, spanning upload → scan → process → delete, so
+  latency regressions are attributable to a stage.
+- **Audit trail**: irreversible actions (redaction, e-signature) record a
+  tamper-evident, content-free audit record retained separately from inputs.
+- **Alerting**: page on deletion lag > 0, scan-service unavailability, queue age
+  over SLO, and error-rate spikes.
+- **Log retention** is short and access-controlled; logs never outlive their
+  operational need and are excluded from the document retention path entirely.
+
 ## UI contract
 
 Secure-worker and AI tool pages render a contract preview instead of a fake uploader. The preview shows:

@@ -43,6 +43,47 @@ When workers ship they will follow the plan in
 storage, isolated per-job sandboxes, malware scanning, strict egress limits,
 automatic deletion within minutes, and **no document contents in logs**.
 
+## Server API contract (secure workers)
+
+The boundary to future server-side processing is defined as typed contracts in
+[`src/lib/jobs`](../src/lib/jobs) and exposed as three App Router endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/uploads` | Create a short-lived, single-use upload session. |
+| `POST /api/jobs` | Create a processing job from uploaded files or a URL. |
+| `GET /api/jobs/:id` | Read typed job status and download readiness. |
+
+**No fake processing.** These route handlers are *development contract stubs*.
+They validate every request against the contract and then answer honestly: with
+no worker backend configured they return `503 worker_not_configured`. They never
+store a file, enqueue work, or fabricate a "completed" job. The full design is in
+[`docs/WORKER_ARCHITECTURE.md`](WORKER_ARCHITECTURE.md).
+
+**Strict validation at the edge** (`src/lib/jobs/validation.ts`):
+
+- Only worker-capable tools accept jobs; in-browser tools are rejected.
+- Filenames may not contain path separators or `..` traversal.
+- Declared MIME types must be in the tool's allowlist; sizes are bounded by
+  `JOB_LIMITS` (100 MB/file, 500 MB/session, 20 files) and request bodies are
+  capped before parsing.
+- URL-input tools (e.g. webpage-to-PDF) accept only public `http(s)` URLs;
+  localhost, private, link-local/metadata ranges, embedded credentials, and
+  non-http(s) schemes are blocked — defense-in-depth against SSRF, with the
+  worker's egress policy as the real enforcement.
+- Rate limits (`RATE_LIMITS`) are published in the contract and enforced at the
+  gateway.
+
+**Privacy by default.** Every job carries a `RetentionPolicy`: inputs are wiped
+right after processing and outputs auto-delete within the retention window
+(`DEFAULT_RETENTION`), with `persistsAfterJob: false` as a contractual
+guarantee.
+
+**Backend detection reads no secrets.** Whether a real backend is configured is
+determined only from the *presence* of infrastructure variable names
+(`src/lib/jobs/config.ts`); their values are never read into memory, logged, or
+returned to clients.
+
 ## HTTP security headers
 
 Set for every response in [`next.config.mjs`](../next.config.mjs) and asserted by
