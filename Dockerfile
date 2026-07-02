@@ -5,8 +5,9 @@
 #   * `web`    — the Next.js App Router site (`pnpm start`). Serves users. Ships
 #                NO native PDF engines and never imports or starts the daemon.
 #   * `worker` — the out-of-band secure-worker daemon (`pnpm worker:daemon`).
-#                Ships Ghostscript / qpdf / mutool for deep compression, drains
-#                the queue, and never serves HTTP.
+#                Ships Ghostscript / qpdf / mutool for deep compression AND the
+#                OCRmyPDF / Tesseract OCR stack (English language data), drains the
+#                queue, and never serves HTTP.
 #
 # The targets share the dependency + build stages but have completely separate
 # final images, which is what keeps the web app and the worker physically
@@ -71,18 +72,33 @@ CMD ["pnpm", "start"]
 
 # --------------------------------------------------------------------------- #
 # worker — the out-of-band secure-worker daemon runtime. Installs the native
-# deep-compression engines and runs `pnpm worker:daemon`. Never serves HTTP.
+# deep-compression + OCR engines and runs `pnpm worker:daemon`. Never serves HTTP.
 # --------------------------------------------------------------------------- #
 FROM base AS worker
 ENV NODE_ENV=production
-# Native deep-compression engines. Lossless structural repack needs none of
-# these; deep image compression auto-detects Ghostscript (`gs`), qpdf, or mutool
-# on PATH and runs the first it finds. `mupdf-tools` provides `mutool`.
+# Native engines the secure-worker path advertises. Two families, one apt layer
+# (a single `apt-get update` + cleanup keeps the layer small and cache-honest):
+#
+#   * Deep compression — lossless structural repack needs none of these; deep
+#     image compression auto-detects Ghostscript (`gs`), qpdf, or mutool on PATH
+#     and runs the first it finds. `mupdf-tools` provides `mutool`.
+#   * OCR (optional; `PDFXYZ_OCR`, off by default) — `ocrmypdf` is the PDF-first
+#     engine (adds an invisible text layer to a scanned PDF; it wraps Tesseract +
+#     Ghostscript). `tesseract-ocr` is the guaranteed baseline (image → searchable
+#     PDF / text sidecar), and `tesseract-ocr-eng` is the minimal English language
+#     data both engines need — installed EXPLICITLY because `--no-install-recommends`
+#     would otherwise skip the language pack and leave OCR with no traineddata.
+#
+# Installed here and ONLY here: the `web` target ships none of these. Provider and
+# OCR config is still read from the environment at run time, never baked into a layer.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ghostscript \
       qpdf \
       mupdf-tools \
+      ocrmypdf \
+      tesseract-ocr \
+      tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/*
 # Run as a non-root user.
 RUN groupadd --system --gid 1001 worker \

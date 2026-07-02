@@ -45,11 +45,21 @@ describe("container CI builds both image targets and smokes the worker", () => {
     expect(container).toContain("--dry-run-status");
   });
 
+  it("runs the native-engine + OCR image smoke inside the built worker image", () => {
+    // Phase 24: the second in-image smoke proves the worker image actually contains
+    // the deep-compression + OCR engine stack it advertises and reads OCR readiness
+    // presence-only — run inside the built image, no cloud, no secret.
+    expect(container).toMatch(/docker run[\s\S]*?worker:image-smoke/);
+  });
+
   it("proves web ↔ worker separation at the image level (engines only in the worker)", () => {
-    // The worker image must ship the native engines; the web image must not.
+    // The worker image must ship the native deep-compression AND OCR engines; the web
+    // image must ship none of them.
     expect(container).toMatch(/command -v gs/);
     expect(container).toMatch(/command -v qpdf/);
     expect(container).toMatch(/command -v mutool/);
+    expect(container).toMatch(/command -v tesseract/);
+    expect(container).toMatch(/command -v ocrmypdf/);
   });
 
   it("never publishes an image (build-only, so it needs no registry secret)", () => {

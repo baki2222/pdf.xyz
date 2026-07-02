@@ -70,6 +70,18 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(worker).toContain("mupdf-tools"); // provides `mutool`
   });
 
+  it("the worker image installs the OCR engine stack (OCRmyPDF/Tesseract + English data)", () => {
+    // Phase 24: the worker image now ships the native OCR stack it advertises so the
+    // optional `PDFXYZ_OCR` backend can actually run there. Tesseract is the
+    // guaranteed baseline (image → searchable PDF); `tesseract-ocr-eng` is the minimal
+    // English traineddata (must be explicit — `--no-install-recommends` skips it);
+    // OCRmyPDF is the PDF-first engine.
+    const worker = stageInstructions(stages, "worker");
+    expect(worker).toMatch(/apt-get install[\s\S]*ocrmypdf/);
+    expect(worker).toContain("tesseract-ocr"); // the engine (provides `tesseract`)
+    expect(worker).toContain("tesseract-ocr-eng"); // minimal English language data
+  });
+
   it("the worker image runs the daemon and never the web server", () => {
     const worker = stageInstructions(stages, "worker");
     expect(worker).toContain("worker:daemon");
@@ -99,7 +111,8 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(web).toMatch(/CMD\s*\[\s*"pnpm",\s*"start"\s*\]/);
     expect(web).not.toContain("worker:daemon");
     expect(web).not.toContain("apt-get install");
-    expect(web).not.toMatch(/ghostscript|qpdf|mupdf/);
+    // Neither the deep-compression engines NOR the OCR stack belong in the web image.
+    expect(web).not.toMatch(/ghostscript|qpdf|mupdf|ocrmypdf|tesseract/);
   });
 });
 
@@ -196,6 +209,84 @@ describe("worker smoke script is present and honest", () => {
       const flags = line.replace(/"[^"]*"/g, "");
       expect(flags, `smoke invocation must pass a mode flag: ${line}`).toMatch(/--\w/);
     }
+  });
+});
+
+describe("worker IMAGE smoke script proves the engine contract, presence-only", () => {
+  const script = read("scripts/worker-image-smoke.sh");
+  const pkg = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  const container = read(".github/workflows/container.yml");
+
+  it("is a shell script wired as `worker:image-smoke` and run by the container workflow", () => {
+    expect(script.startsWith("#!")).toBe(true);
+    expect(pkg.scripts?.["worker:image-smoke"]).toBe("sh scripts/worker-image-smoke.sh");
+    // The image proof only means something if CI actually runs it inside the image.
+    expect(container).toMatch(/docker run[\s\S]*?worker:image-smoke/);
+  });
+
+  it("verifies the deep-compression AND OCR binaries are installed (presence only)", () => {
+    // Presence probes via `command -v` — the deep-compression trio and both OCR engines.
+    expect(script).toContain("command -v");
+    for (const bin of ["gs", "qpdf", "mutool", "tesseract", "ocrmypdf"]) {
+      expect(script, `image smoke must probe for ${bin}`).toContain(bin);
+    }
+  });
+
+  it("verifies the English OCR language data is present", () => {
+    // `--list-langs` + a match on the `eng` line — the minimal traineddata the image ships.
+    expect(script).toContain("--list-langs");
+    expect(script).toMatch(/\beng\b/);
+  });
+
+  it("re-proves daemon honesty and reads OCR/deep readiness presence-only", () => {
+    // Native engines present must NOT fake drainability: the probe still exits 2.
+    expect(script).toContain("--dry-run-status");
+    expect(script).toMatch(/-eq 2\b/);
+    // Presence-only readiness is read from the content-free health lines, not a path.
+    expect(script).toContain("ocr_health");
+    expect(script).toContain("compression_health");
+    // Opting into OCR is exercised so an installed engine reports ready in the image.
+    expect(script).toContain("PDFXYZ_OCR=on");
+  });
+
+  it("only ever runs the daemon in the terminating readiness mode (never the forever loop)", () => {
+    const invocations = script
+      .split("\n")
+      .filter((l) => !/^\s*#/.test(l) && /worker:daemon/.test(l));
+    expect(invocations.length).toBeGreaterThan(0);
+    for (const line of invocations) {
+      expect(line, `image smoke daemon call must be the probe: ${line}`).toMatch(
+        /--dry-run-status/,
+      );
+    }
+  });
+
+  it("checks OCR readiness WITHOUT exposing paths (asserts a path-free readout)", () => {
+    // The presence-only contract: the health readout must contain no `/` — the script
+    // asserts exactly that, so a leaked path fails the smoke instead of passing silently.
+    expect(script).toMatch(/grep\s+-q\s+'\/'/);
+  });
+
+  it("never echoes an env value or the captured daemon output to its visible output", () => {
+    const lines = script.split("\n");
+    // No user-facing `echo` may surface a captured-output var or a PDFXYZ_* value.
+    const CAPTURED = /\$\{?(out|onout|health|ocr_off|ocr_on|comp_on|PDFXYZ)/;
+    for (const line of lines) {
+      if (/^\s*echo\b/.test(line)) {
+        expect(line, `echo must not surface captured output/env: ${line}`).not.toMatch(CAPTURED);
+      }
+    }
+    // Any printf that references the captured daemon output must consume it via a pipe
+    // to grep (pattern-matching), never print it to the visible stream.
+    for (const line of lines) {
+      if (/\bprintf\b/.test(line) && /\$\{?(out|onout|health)\b/.test(line)) {
+        expect(line, `printf of captured output must pipe to grep: ${line}`).toMatch(/\|\s*grep/);
+      }
+    }
+  });
+
+  it("carries no committed secret", () => {
+    expect(script).not.toMatch(AWS_KEY);
   });
 });
 

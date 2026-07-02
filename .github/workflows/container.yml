@@ -65,12 +65,26 @@ jobs:
             type=gha,scope=pdfxyz-web
           cache-to: type=gha,mode=max,scope=pdfxyz-worker
 
+      # ----------------------------------------------------------------------- #
+      # Smoke — every step below runs INSIDE the already-built worker image, so a
+      # failure here is a CONTRACT failure (the image is wrong), cleanly separated
+      # from the build-failures of the two steps above (the image did not build).
+      # ----------------------------------------------------------------------- #
+
       # Headline honesty check: run the REAL worker CLI inside the built image with
       # NO providers configured. It must pass the honest-refusal contract — report
       # not-configured / refuse to fabricate work (exit 2), reject bad flags
       # (exit 1), and fail fast on a dangerous config (exit 4) — never invent a job.
       - name: Worker no-config honesty smoke (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:smoke
+
+      # Image-level engine proof: run the native-engine + OCR smoke INSIDE the built
+      # worker image. It asserts the deep-compression + OCR binaries and the English
+      # OCR language data are actually installed, that opting into OCR flips
+      # `ocr_health` to ready here (a real engine is present), and that native engines
+      # never fake drainability — all presence-only: no cloud, no secret, no document.
+      - name: Worker image native-engine + OCR smoke (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:image-smoke
 
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
@@ -87,15 +101,15 @@ jobs:
           echo "worker readiness honestly reported not-configured (exit 2)"
 
       # Separation, proven at the image level (not just in the Dockerfile text):
-      # the worker image DOES ship the native deep-compression engines.
-      - name: Worker image ships the native deep-compression engines
-        run: docker run --rm pdfxyz-worker:ci sh -c 'command -v gs && command -v qpdf && command -v mutool'
+      # the worker image DOES ship the native deep-compression AND OCR engines.
+      - name: Worker image ships the native deep-compression + OCR engines
+        run: docker run --rm pdfxyz-worker:ci sh -c 'command -v gs && command -v qpdf && command -v mutool && command -v tesseract && command -v ocrmypdf'
 
       # …and the web image ships NONE of them — the web app never does worker work.
       - name: Web image ships no native engines (web ↔ worker separation)
         run: |
-          if docker run --rm pdfxyz-web:ci sh -c 'command -v gs || command -v qpdf || command -v mutool'; then
-            echo "::error::web image unexpectedly contains a native PDF engine"
+          if docker run --rm pdfxyz-web:ci sh -c 'command -v gs || command -v qpdf || command -v mutool || command -v tesseract || command -v ocrmypdf'; then
+            echo "::error::web image unexpectedly contains a native PDF/OCR engine"
             exit 1
           fi
           echo "web image ships no native engines, as designed"
