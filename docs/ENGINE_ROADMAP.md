@@ -865,6 +865,33 @@ language packs, and real **user-document**/traffic validation on a running worke
 establishes the packaged OCRmyPDF *path* works end-to-end on a generated fixture — not that
 any real document OCRs well.
 
+### Phase 28 — worker operations snapshot + content-free SLO metrics (shipped)
+
+Phase 28 adds the operator-facing observability seam without weakening the privacy model.
+It does **not** claim a daemon is deployed when the web app cannot observe one; it folds
+already-safe readiness, guardrail, lifecycle, scanner/OCR/native-engine, and loop signals
+into bounded health classes and coarse metrics.
+
+- **Operations snapshot** (`src/lib/workers/observability/snapshot.ts`,
+  `/api/worker/operations`): reports `version`, vantage (`web`/`worker`), drainability,
+  `daemonObserved`, per-subsystem health, lifecycle-verification state, proof tri-states,
+  and one `recommendedAction`. From the web vantage, native engines and out-of-band daemon
+  liveness stay `unknown`; only the worker/daemon vantage can observe them.
+- **Metrics/SLO seam** (`metrics.ts`, `collector.ts`, `slo.ts`): bounded metric names and
+  enum labels only. Latency/depth/age are coarse buckets; Prometheus text output contains
+  no filenames, object keys, URLs, bucket names, env values, scanner signatures, paths,
+  or OCR text. SLO helpers return `unknown` for missing data rather than green defaults.
+- **Daemon readout**: `worker:daemon --dry-run-status`, `--check`, and real run modes now
+  emit `operations`, `metrics`, and `slo` JSON lines in addition to the existing
+  readiness/guardrail lines. The lines are content-free and safe to scrape.
+- **API surface**: `/api/worker/operations` is the operator snapshot counterpart to
+  `/api/worker/status`; it is dynamic, node-runtime, and web-vantage honest. It does not
+  return provider values or imply a separate worker is alive.
+
+⏳ Still out-of-band (deliberately not faked): a real metrics backend/dashboard, alerts
+wired to a pager, cross-process daemon heartbeats visible to the web app, real production
+traffic SLO windows, and Docker/image execution on this host.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

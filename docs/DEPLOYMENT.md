@@ -197,6 +197,9 @@ curl -sI https://pdf.xyz/opengraph-image | grep -i content-type
 - [ ] OG image renders (paste a tool URL into a link-preview debugger).
 - [ ] Core in-browser tools work (merge two PDFs end-to-end).
 - [ ] Lighthouse: performance, SEO, and accessibility are green.
+- [ ] `GET /api/worker/operations` returns a content-free web-vantage operations snapshot:
+      `daemonObserved:false`, no provider values, bounded subsystem health, and a single
+      `recommendedAction`. Use worker-side daemon logs for actual process liveness.
 
 ## Phase 12 worker provider checklist
 

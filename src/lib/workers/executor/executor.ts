@@ -32,7 +32,21 @@ import type { ClaimableQueue } from "../queue/claim";
 import type { ProcessorInputFile } from "../processor/types";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { MalwareScanner } from "../scanner/types";
-import type { ExecutorLogEvent, ExecutorStorage, ExecutorTick } from "./types";
+import {
+  deadLetterMetric,
+  failureClassForCode,
+  jobTerminalMetric,
+  processorKindForId,
+  processorLatencyMetric,
+  processorMetric,
+  redeliveryMetric,
+  retryMetric,
+  scanMetric,
+  type ProcessorOutcome,
+  type WorkerMetricSample,
+} from "../observability/metrics";
+import type { WorkerMetricSink } from "../observability/collector";
+import type { ExecutorLogEvent, ExecutorOutcome, ExecutorStorage, ExecutorTick } from "./types";
 
 /** Everything the executor needs, all injectable for deterministic tests. */
 export interface ExecutorDeps {
@@ -52,6 +66,34 @@ export interface ExecutorDeps {
   maxAttempts?: number;
   /** Content-free log sink; receives only ids, tool, attempt, and error code. */
   log?: (event: ExecutorLogEvent) => void;
+  /**
+   * Optional content-free metrics sink (Phase 28). When present, the executor emits
+   * bounded {@link WorkerMetricSample}s at the scan gate, the processor boundary, and
+   * every terminal disposition — never bytes, filenames, keys, or paths. Absent (the
+   * default, and every pre-Phase-28 caller) ⇒ no metric is emitted and no clock is
+   * read, so behavior is byte-for-byte unchanged.
+   */
+  metrics?: WorkerMetricSink;
+  /**
+   * Injected clock used ONLY to measure processor latency for metrics, read only when
+   * `metrics` is present. Defaults to `Date.now`; tests inject a fake to make the
+   * latency bucket deterministic. It never influences orchestration logic.
+   */
+  now?: () => number;
+}
+
+/** Map an executor tick outcome to the processor's own outcome label. */
+function processorOutcomeFromTick(outcome: ExecutorOutcome): ProcessorOutcome {
+  switch (outcome) {
+    case "completed":
+      return "completed";
+    case "requeued":
+      return "requeued";
+    case "canceled":
+      return "canceled";
+    default:
+      return "failed";
+  }
 }
 
 /**
@@ -109,6 +151,12 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
   const leaseMs = deps.leaseMs ?? DEFAULT_LEASE_MS;
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const log = deps.log ?? (() => {});
+  const metrics = deps.metrics;
+  const now = deps.now ?? (() => Date.now());
+  /** Emit a content-free metric sample when a sink is wired; a no-op otherwise. */
+  const emit = (sample: WorkerMetricSample): void => {
+    if (metrics) metrics(sample);
+  };
 
   const wipeInputs = async (inputs: string[]): Promise<void> => {
     for (const fileId of inputs) await storage.deleteInput(fileId);
@@ -127,6 +175,9 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     const { job, inputs, inputNames, options, attempt } = claim.value;
     const base = { jobId: job.jobId, tool: job.tool, attempt };
     log({ event: "claimed", ...base });
+    // A claim past the first attempt is a redelivery (a prior lease expired or a
+    // retryable requeue returned the job to the queue). Content-free — no id leaves.
+    if (attempt > 1) emit(redeliveryMetric());
 
     // Dispatch a running-state failure identically for the scan gate and the
     // processor: requeue a retryable error while attempts remain, else fail
@@ -147,15 +198,21 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       if (!disposition.ok) {
         await wipeInputs(inputs);
         log({ event: "canceled", ...base });
+        emit(jobTerminalMetric("canceled"));
         return { outcome: "canceled", jobId: job.jobId, attempt };
       }
       if (requeue) {
         // A retryable failure is NOT terminal — keep the inputs for the retry.
         log({ event: "requeued", ...base, errorCode: error.code });
+        emit(retryMetric());
         return { outcome: "requeued", jobId: job.jobId, attempt, error };
       }
       await wipeInputs(inputs);
       log({ event: terminalEvent, ...base, errorCode: error.code });
+      emit(jobTerminalMetric("failed", failureClassForCode(error.code)));
+      // requeue is false here, so a still-`retryable` error means its attempts were
+      // exhausted — a dead letter, distinct from a non-retryable terminal failure.
+      if (error.retryable) emit(deadLetterMetric());
       return { outcome: "failed", jobId: job.jobId, attempt, error };
     };
 
@@ -175,6 +232,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
         attempt,
       );
       await wipeInputs(inputs);
+      emit(jobTerminalMetric("failed", "unsupported"));
       return { outcome: "failed", jobId: job.jobId, attempt };
     }
 
@@ -198,6 +256,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
           attempt,
         );
         await wipeInputs(inputs);
+        emit(jobTerminalMetric("failed", "input_missing"));
         return { outcome: "failed", jobId: job.jobId, attempt };
       }
       // The job spec's sanitized display name (when present) is the authoritative
@@ -216,6 +275,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     if (await isCanceled(job.jobId)) {
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });
+      emit(jobTerminalMetric("canceled"));
       return { outcome: "canceled", jobId: job.jobId, attempt };
     }
 
@@ -225,6 +285,9 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     // processing, so no artifact is ever produced for it.
     if (scanner) {
       const scan = await scanner.scan({ tool: job.tool, inputs: files });
+      // Record the verdict category (and the honesty bit) before acting on it. The
+      // detail is deliberately never read — only the bounded verdict/scanned enum.
+      emit(scanMetric(scan.verdict, scan.scanned));
       if (scan.verdict === "infected") {
         // Blocked: terminal and non-retryable (the same bytes scan the same way),
         // inputs wiped, no artifact. `scan.detail` is deliberately NOT propagated —
@@ -261,9 +324,15 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     if (!advanced.ok) {
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });
+      emit(jobTerminalMetric("canceled"));
       return { outcome: "canceled", jobId: job.jobId, attempt };
     }
     log({ event: "processing", ...base });
+
+    // The bounded processor family (compress/ocr/other) and a metrics-only clock read
+    // — used solely to bucket processor latency; neither influences orchestration.
+    const kind = processorKindForId(processor.id);
+    const startedAt = metrics ? now() : 0;
 
     const result = await processor.process({
       tool: job.tool,
@@ -271,11 +340,17 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       inputs: files,
     });
 
+    // Record the processor's wall-clock latency (bucketed at construction) for both a
+    // successful and a failed run, before the disposition branches below.
+    if (metrics) emit(processorLatencyMetric(kind, now() - startedAt));
+
     if (!result.ok) {
       // A conflict from fail() means the job was canceled mid-flight; the helper
       // reports that as canceled. Otherwise it requeues (retryable, attempts left)
       // or fails terminally, wiping inputs on any terminal disposition.
-      return dispatchFailure(result.error, "failed");
+      const tick = await dispatchFailure(result.error, "failed");
+      emit(processorMetric(kind, processorOutcomeFromTick(tick.outcome)));
+      return tick;
     }
 
     // Success: persist the real artifacts, then mark the job completed. Any safe,
@@ -309,11 +384,15 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       }
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });
+      emit(processorMetric(kind, "canceled"));
+      emit(jobTerminalMetric("canceled"));
       return { outcome: "canceled", jobId: job.jobId, attempt };
     }
 
     await wipeInputs(inputs);
     log({ event: "completed", ...base });
+    emit(processorMetric(kind, "completed"));
+    emit(jobTerminalMetric("completed"));
     return { outcome: "completed", jobId: job.jobId, attempt };
   }
 

@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "title": "pdf.xyz secure worker — operations & SLOs",
+  "description": "Provider-neutral dashboard model for the content-free worker metrics emitted by the secure-worker daemon (Phase 28). Every panel references only metric names and label values from the committed metric schema, so it is content-free by construction: it can render on any backend that ingests the worker's Prometheus/JSON export, and it carries no bucket name, endpoint, host, object key, filename, secret, or user data. Panels whose source is `operator-fed` are only populated when a deployment feeds its broker's observed queue depth/age in; the shipped daemon does not sample them (no provider method exposes queue depth), so they read `no data` until wired.",
+  "panels": [
+    {
+      "id": "job-success-rate",
+      "title": "Job completion success rate",
+      "type": "stat",
+      "unit": "ratio",
+      "slo": "job_success_rate",
+      "series": [
+        { "metric": "worker_job_terminal_total", "labels": { "outcome": "completed" } },
+        { "metric": "worker_job_terminal_total", "labels": { "outcome": "failed" } }
+      ],
+      "note": "completed / (completed + failed); canceled is user-initiated and excluded."
+    },
+    {
+      "id": "success-rate-by-processor",
+      "title": "Success rate by processor kind",
+      "type": "timeseries",
+      "unit": "ratio",
+      "slo": "job_success_rate_compress",
+      "series": [
+        { "metric": "worker_processor_total", "labels": { "processor": "compress", "outcome": "completed" } },
+        { "metric": "worker_processor_total", "labels": { "processor": "compress", "outcome": "failed" } },
+        { "metric": "worker_processor_total", "labels": { "processor": "ocr", "outcome": "completed" } },
+        { "metric": "worker_processor_total", "labels": { "processor": "ocr", "outcome": "failed" } }
+      ]
+    },
+    {
+      "id": "processor-latency",
+      "title": "Processor latency (p95 / p99, histogram estimate)",
+      "type": "heatmap",
+      "unit": "seconds",
+      "slo": "processor_latency_p95",
+      "series": [
+        { "metric": "worker_processor_latency_seconds", "labels": { "processor": "compress" } },
+        { "metric": "worker_processor_latency_seconds", "labels": { "processor": "ocr" } }
+      ],
+      "note": "Prometheus-style le buckets; p95/p99 resolve to a bucket upper bound, not an exact value."
+    },
+    {
+      "id": "queue-claims",
+      "title": "Queue claim outcomes",
+      "type": "timeseries",
+      "unit": "count",
+      "series": [
+        { "metric": "worker_claim_total", "labels": { "result": "claimed" } },
+        { "metric": "worker_claim_total", "labels": { "result": "empty" } },
+        { "metric": "worker_claim_total", "labels": { "result": "error" } }
+      ]
+    },
+    {
+      "id": "retries-and-dead-letters",
+      "title": "Retries, redeliveries & dead letters",
+      "type": "timeseries",
+      "unit": "count",
+      "slo": "retry_rate",
+      "series": [
+        { "metric": "worker_retry_total" },
+        { "metric": "worker_redelivery_total" },
+        { "metric": "worker_dead_letter_total" }
+      ]
+    },
+    {
+      "id": "queue-depth",
+      "title": "Queue depth (bucketed)",
+      "type": "gauge",
+      "unit": "bucket",
+      "source": "operator-fed",
+      "slo": "queue_depth",
+      "series": [{ "metric": "worker_queue_depth" }],
+      "note": "Operator-fed: the shipped daemon does not sample live queue depth; feed your broker's observed depth to populate this."
+    },
+    {
+      "id": "queue-age",
+      "title": "Oldest runnable job age (bucketed)",
+      "type": "gauge",
+      "unit": "bucket",
+      "source": "operator-fed",
+      "slo": "queue_age",
+      "series": [{ "metric": "worker_queue_age_seconds" }],
+      "note": "Operator-fed, like queue depth."
+    },
+    {
+      "id": "scan-verdicts",
+      "title": "Malware scan verdicts",
+      "type": "timeseries",
+      "unit": "count",
+      "slo": "scanner_unavailable_rate",
+      "series": [
+        { "metric": "worker_scan_total", "labels": { "verdict": "clean", "scanned": "true" } },
+        { "metric": "worker_scan_total", "labels": { "verdict": "infected", "scanned": "true" } },
+        { "metric": "worker_scan_total", "labels": { "verdict": "error", "scanned": "false" } },
+        { "metric": "worker_scan_total", "labels": { "verdict": "invalid", "scanned": "false" } },
+        { "metric": "worker_scan_total", "labels": { "verdict": "skipped", "scanned": "false" } }
+      ],
+      "note": "Verdict category and the honesty bit only; never a signature, filename, or byte."
+    },
+    {
+      "id": "storage-ops",
+      "title": "Storage operations",
+      "type": "timeseries",
+      "unit": "count",
+      "series": [
+        { "metric": "worker_storage_ops_total", "labels": { "op": "read", "result": "success" } },
+        { "metric": "worker_storage_ops_total", "labels": { "op": "read", "result": "missing" } },
+        { "metric": "worker_storage_ops_total", "labels": { "op": "write", "result": "success" } },
+        { "metric": "worker_storage_ops_total", "labels": { "op": "write", "result": "failure" } },
+        { "metric": "worker_storage_ops_total", "labels": { "op": "delete", "result": "success" } }
+      ]
+    },
+    {
+      "id": "engine-readiness",
+      "title": "Engine & gate readiness",
+      "type": "state",
+      "slo": "engine_readiness",
+      "series": [
+        { "metric": "worker_engine_capability", "labels": { "capability": "compression_lossless", "available": "true" } },
+        { "metric": "worker_engine_capability", "labels": { "capability": "compression_deep", "available": "true" } },
+        { "metric": "worker_engine_capability", "labels": { "capability": "ocr", "available": "true" } },
+        { "metric": "worker_engine_capability", "labels": { "capability": "scanner", "available": "true" } }
+      ]
+    },
+    {
+      "id": "deployment-facets",
+      "title": "Deployment facet readiness",
+      "type": "state",
+      "series": [
+        { "metric": "worker_readiness", "labels": { "facet": "storage", "state": "ready" } },
+        { "metric": "worker_readiness", "labels": { "facet": "queue", "state": "ready" } },
+        { "metric": "worker_readiness", "labels": { "facet": "engine", "state": "ready" } },
+        { "metric": "worker_readiness", "labels": { "facet": "lifecycle", "state": "ready" } },
+        { "metric": "worker_readiness", "labels": { "facet": "malware-scan", "state": "ready" } },
+        { "metric": "worker_readiness", "labels": { "facet": "ocr", "state": "ready" } }
+      ]
+    },
+    {
+      "id": "lifecycle-verification",
+      "title": "Lifecycle backstop verification",
+      "type": "state",
+      "slo": "lifecycle_drift",
+      "series": [
+        { "metric": "worker_lifecycle_verification_total", "labels": { "verdict": "verified" } },
+        { "metric": "worker_lifecycle_verification_total", "labels": { "verdict": "drift" } },
+        { "metric": "worker_lifecycle_drift_rules" }
+      ]
+    }
+  ]
+}

@@ -30,6 +30,8 @@ import {
   type WorkerExecutor,
 } from "../executor/executor";
 import type { ExecutorLogEvent, ExecutorStorage } from "../executor/types";
+import { instrumentExecutorStorage } from "../observability/instrument";
+import type { WorkerMetricSink } from "../observability/collector";
 import {
   createS3ExecutorStorage,
   type S3ExecutorStorageDeps,
@@ -230,6 +232,15 @@ export interface WorkerRuntimeDeps {
   maxAttempts?: number;
   /** Content-free executor log sink (claimed/scanning/…); forwarded to the executor. */
   log?: (event: ExecutorLogEvent) => void;
+  /**
+   * Optional content-free metrics sink (Phase 28). When present, the resolved executor
+   * storage is wrapped to emit `worker_storage_ops_total{op,result}`, and the sink is
+   * forwarded to the executor for scan/processor/terminal/redelivery metrics. Absent ⇒
+   * no metrics are emitted and the wiring is byte-for-byte unchanged.
+   */
+  metrics?: WorkerMetricSink;
+  /** Metrics-only clock forwarded to the executor for latency buckets (defaults to Date.now). */
+  now?: () => number;
 }
 
 /** A queue that can also `submit`/`claim` (store execution specs) is drainable. */
@@ -340,14 +351,21 @@ export function resolveWorkerRuntime(
   const hasStorage = storage !== null;
 
   if (drainable && hasStorage) {
+    // When a metrics sink is wired, observe storage at the exact seam that touches the
+    // bucket (content-free op/result categories only); otherwise pass storage through.
+    const executorStorage = deps.metrics
+      ? instrumentExecutorStorage(storage, deps.metrics)
+      : storage;
     const executor = createWorkerExecutor({
       queue,
-      storage,
+      storage: executorStorage,
       registry,
       scanner,
       ...(deps.leaseMs !== undefined ? { leaseMs: deps.leaseMs } : {}),
       ...(deps.maxAttempts !== undefined ? { maxAttempts: deps.maxAttempts } : {}),
       ...(deps.log ? { log: deps.log } : {}),
+      ...(deps.metrics ? { metrics: deps.metrics } : {}),
+      ...(deps.now ? { now: deps.now } : {}),
     });
     return {
       readiness,

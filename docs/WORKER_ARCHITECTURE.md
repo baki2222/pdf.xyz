@@ -128,7 +128,8 @@ worker adapter:
 | --- | --- | --- | --- |
 | Object storage | `src/lib/workers/storage/` | signed upload slots, signed artifact downloads, delete-now receipts, retention metadata | **S3/R2-compatible provider shipped** when explicitly configured; disabled/remote-unimplemented otherwise returns typed failure |
 | Queue | `src/lib/workers/queue/` | enqueue, idempotency, status, cancel, expire, job state transitions, claim/lease/heartbeat | **Redis/Upstash-compatible provider shipped** when explicitly configured; disabled/remote-unimplemented otherwise returns typed failure |
-| Processor | `src/lib/workers/processor/` + `executor/` | processor registry + the execution loop that claims a job, reads inputs, dispatches a processor, and drives status | local-dev in-process + a unit-tested executor foundation; **no production worker daemon shipped** (a configured queue accepts jobs that stay `queued` until one is deployed) |
+| Processor | `src/lib/workers/processor/` + `executor/` | processor registry + the execution loop that claims a job, reads inputs, dispatches a processor, and drives status | local-dev in-process + a unit-tested executor/daemon foundation; production worker image/daemon artifacts are shipped but deployment remains operator-owned |
+| Operations observability | `src/lib/workers/observability/`, `/api/worker/operations` | content-free health/SLO snapshot, bounded metrics, one recommended next action | **Phase 28 shipped.** Web vantage never claims daemon liveness; daemon vantage emits operations/metrics/SLO lines. |
 
 No client supplies object keys or filesystem paths. Opaque ids (`f_…`, `job_…`,
 `art_…`) are minted server-side; production providers must map them to private

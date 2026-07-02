@@ -181,6 +181,15 @@ as typed `unavailable` rather than silently using unsafe read→write behavior. 
 broker outage surfaces as a
 typed `unavailable` (HTTP 500, retryable), never a fabricated job or status.
 
+## Worker operations observability (Phase 28)
+
+`/api/worker/operations` and daemon `operations`/`metrics`/`slo` lines are deliberately
+content-free. They expose bounded enums, health classes, coarse buckets, counts, and safe
+recommended-action prose only. They must never include bucket names, endpoints, object
+keys, filenames, signed URLs, command paths, env values, OCR text, scanner signatures, or
+job/user ids. From the web vantage, `daemonObserved:false` and worker-image proof fields
+may be `unknown`; this is an honesty boundary, not a hidden green check.
+
 ## HTTP security headers
 
 Set for every response in [`next.config.mjs`](../next.config.mjs) and asserted by

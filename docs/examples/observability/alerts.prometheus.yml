@@ -1,0 +1,97 @@
+# Prometheus / OpenMetrics alerting rules for the pdf.xyz secure-worker SLOs (Phase 28).
+#
+# These are ILLUSTRATIVE and provider-neutral: they reference only the bounded, content-free
+# worker metric names and enum labels the daemon exports (see `renderPrometheus` in
+# src/lib/workers/observability/collector.ts), so this file carries no endpoint, host, bucket,
+# object key, filename, secret, or user data. Thresholds mirror DEFAULT_SLO_THRESHOLDS and are a
+# STARTING POINT you tune to your traffic.
+#
+# The worker daemon does not itself run a Prometheus server; it emits content-free metric series
+# (as JSON on its `metrics` log line, or the text-exposition form). Ship those to your own
+# Prometheus/OTel pipeline, then load rules like these. The processor-latency histogram is
+# exported in canonical form (`worker_processor_latency_seconds_bucket` + `_count`), so
+# `histogram_quantile()` works directly.
+
+groups:
+  - name: pdfxyz-worker-slo
+    rules:
+      - alert: WorkerJobSuccessRateLow
+        expr: |
+          sum(rate(worker_job_terminal_total{outcome="completed"}[10m]))
+            /
+          clamp_min(sum(rate(worker_job_terminal_total{outcome=~"completed|failed"}[10m])), 1)
+            < 0.95
+        for: 10m
+        labels:
+          severity: page
+          slo: job_success_rate
+        annotations:
+          summary: "Worker job completion success rate is below its SLO."
+
+      - alert: WorkerProcessorLatencyP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(worker_processor_latency_seconds_bucket[15m]))
+          ) > 30
+        for: 15m
+        labels:
+          severity: ticket
+          slo: processor_latency_p95
+        annotations:
+          summary: "p95 processor latency exceeds its SLO (histogram estimate)."
+
+      - alert: WorkerDeadLetterRateHigh
+        expr: |
+          sum(rate(worker_dead_letter_total[10m]))
+            /
+          clamp_min(sum(rate(worker_job_terminal_total{outcome=~"completed|failed"}[10m])), 1)
+            > 0.05
+        for: 10m
+        labels:
+          severity: page
+          slo: dead_letter_rate
+        annotations:
+          summary: "Dead-letter rate is elevated; jobs are exhausting retries and failing terminally."
+
+      - alert: WorkerScannerUnavailable
+        expr: |
+          sum(rate(worker_scan_total{verdict="error"}[5m]))
+            /
+          clamp_min(sum(rate(worker_scan_total{verdict=~"clean|infected|error|invalid"}[5m])), 1)
+            > 0.05
+        for: 5m
+        labels:
+          severity: page
+          slo: scanner_unavailable_rate
+        annotations:
+          summary: "The malware scanner is failing to complete scans; the queue may back up."
+
+      - alert: WorkerMalwareBlockedSpike
+        # A nonzero infected rate is a security signal worth surfacing (not necessarily a fault).
+        expr: sum(increase(worker_scan_total{verdict="infected"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: ticket
+          slo: scanner_unavailable_rate
+        annotations:
+          summary: "The malware scan gate blocked one or more infected inputs."
+
+      - alert: WorkerLifecycleDrift
+        expr: max(worker_lifecycle_drift_rules) > 0
+        for: 0m
+        labels:
+          severity: page
+          slo: lifecycle_drift
+        annotations:
+          summary: "A verified bucket configuration shows retention drift; objects can outlive the privacy ceiling."
+
+      - alert: WorkerDeepEngineUnavailable
+        # Degraded, not a breach: lossless still works; deep image compression does not.
+        expr: max(worker_engine_capability{capability="compression_deep",available="true"}) < 1
+        for: 10m
+        labels:
+          severity: warning
+          slo: engine_readiness
+        annotations:
+          summary: "No native deep-compression engine is available on the worker; deep jobs fail honestly."

@@ -23,6 +23,13 @@
 
 import type { WorkerExecutor } from "../executor/executor";
 import type { ExecutorOutcome, ExecutorTick } from "../executor/types";
+import {
+  claimMetric,
+  runMetric,
+  tickMetric,
+  type ClaimResult,
+} from "../observability/metrics";
+import type { WorkerMetricSink } from "../observability/collector";
 
 /** A run mode the daemon loop can execute (readiness-only `dry-run-status` is CLI-side). */
 export type DaemonRunMode = "once" | "drain" | "loop";
@@ -69,6 +76,19 @@ export interface WorkerDaemonDeps {
   sleep?: (ms: number) => Promise<void>;
   /** Cooperative stop, checked before every tick (SIGINT/SIGTERM in the CLI). */
   shouldStop?: () => boolean;
+  /**
+   * Optional content-free metrics sink (Phase 28). When present, the loop emits a
+   * `worker_tick_total` + `worker_claim_total` sample per tick and a `worker_run_total`
+   * sample per run. Absent (the default) ⇒ nothing is emitted; the loop is unchanged.
+   */
+  metrics?: WorkerMetricSink;
+}
+
+/** Map a tick outcome to the bounded queue-claim result it implies. */
+function claimResultForOutcome(outcome: ExecutorOutcome): ClaimResult {
+  if (outcome === "idle") return "empty";
+  if (outcome === "error") return "error";
+  return "claimed";
 }
 
 /** Options for a single {@link WorkerDaemon.run} invocation. */
@@ -108,6 +128,7 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
   const log = deps.log ?? (() => {});
   const sleep = deps.sleep ?? defaultSleep;
   const shouldStop = deps.shouldStop ?? (() => false);
+  const metrics = deps.metrics;
 
   /**
    * Run one executor tick, containing any throw as an `error` outcome. A thrown
@@ -175,11 +196,18 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
         ...(tick.attempt !== undefined ? { attempt: tick.attempt } : {}),
         ...(tick.error ? { errorCode: tick.error.code } : {}),
       });
+      if (metrics) {
+        // Per-tick outcome + the queue-claim result it implies (claimed/empty/error).
+        // The executor emits the finer processor/scan/terminal metrics for a claim.
+        metrics(tickMetric(mode, tick.outcome));
+        metrics(claimMetric(claimResultForOutcome(tick.outcome)));
+      }
     };
 
     const finish = (reason: DaemonStopReason): DaemonRunSummary => {
       summary.reason = reason;
       log({ event: "stop", mode, tick: summary.ticks, reason });
+      if (metrics) metrics(runMetric(mode, reason));
       return summary;
     };
 

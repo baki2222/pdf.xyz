@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "description": "Provider-neutral example alert rules for the pdf.xyz secure-worker SLOs (Phase 28). One rule per SLO indicator; thresholds mirror DEFAULT_SLO_THRESHOLDS in src/lib/workers/observability/slo.ts and are a STARTING POINT an operator tunes to their traffic. Content-free by construction: every rule references only a bounded SLO id, a severity, a duration, and generic prose — no endpoint, host, bucket, object key, filename, secret, or user data. `severity` is one of page | ticket | warn.",
+  "rules": [
+    {
+      "slo": "job_success_rate",
+      "severity": "page",
+      "for": "10m",
+      "warn": "< 99%",
+      "breach": "< 95%",
+      "summary": "Worker job completion success rate has fallen below its SLO (completed / (completed + failed)).",
+      "runbook": "docs/RUNBOOK.md#worker-observability"
+    },
+    {
+      "slo": "job_success_rate_compress",
+      "severity": "ticket",
+      "for": "15m",
+      "warn": "< 99%",
+      "breach": "< 95%",
+      "summary": "Compression processor success rate is below its SLO; inspect executor error codes and engine health."
+    },
+    {
+      "slo": "job_success_rate_ocr",
+      "severity": "ticket",
+      "for": "15m",
+      "warn": "< 99%",
+      "breach": "< 95%",
+      "summary": "OCR processor success rate is below its SLO; check the OCR engine readiness on the worker image."
+    },
+    {
+      "slo": "processor_latency_p95",
+      "severity": "ticket",
+      "for": "15m",
+      "warn": "> 10s",
+      "breach": "> 30s",
+      "summary": "p95 processor latency exceeds its SLO (histogram bucket estimate); investigate slow inputs or engine contention."
+    },
+    {
+      "slo": "processor_latency_p99",
+      "severity": "ticket",
+      "for": "15m",
+      "warn": "> 30s",
+      "breach": "> 60s",
+      "summary": "p99 processor latency exceeds its SLO (histogram bucket estimate)."
+    },
+    {
+      "slo": "retry_rate",
+      "severity": "ticket",
+      "for": "15m",
+      "warn": "> 10%",
+      "breach": "> 25%",
+      "summary": "Retry rate is elevated; a high share of attempts are being requeued (transient failures or broker blips)."
+    },
+    {
+      "slo": "dead_letter_rate",
+      "severity": "page",
+      "for": "10m",
+      "warn": "> 1%",
+      "breach": "> 5%",
+      "summary": "Dead-letter rate is elevated; jobs are exhausting their retries and failing terminally."
+    },
+    {
+      "slo": "scanner_unavailable_rate",
+      "severity": "page",
+      "for": "5m",
+      "warn": "> 1%",
+      "breach": "> 5%",
+      "summary": "The malware scanner is failing to complete scans; inputs are not processed unscanned, so the queue may back up."
+    },
+    {
+      "slo": "queue_depth",
+      "severity": "ticket",
+      "for": "15m",
+      "warn": ">= bucket 51-200",
+      "breach": ">= bucket 1000+",
+      "summary": "Runnable queue depth is high and the backlog is not draining; scale workers or investigate stalls. Operator-fed metric.",
+      "note": "Requires feeding the broker's observed depth; the shipped daemon does not sample it."
+    },
+    {
+      "slo": "queue_age",
+      "severity": "page",
+      "for": "15m",
+      "warn": ">= bucket 2-10m",
+      "breach": ">= bucket 60m+",
+      "summary": "The oldest runnable job has aged past the SLO; jobs are waiting too long to be claimed. Operator-fed metric."
+    },
+    {
+      "slo": "engine_readiness",
+      "severity": "warn",
+      "for": "0m",
+      "warn": "deep engine unavailable (lossless-only)",
+      "breach": "n/a",
+      "summary": "Deep image compression is unavailable on the worker (no native engine); deep jobs fail honestly. Degraded, not a breach."
+    },
+    {
+      "slo": "lifecycle_drift",
+      "severity": "page",
+      "for": "0m",
+      "warn": "n/a",
+      "breach": "verified drift, or drifted rules > 0",
+      "summary": "A verified observed bucket configuration shows the retention backstop does not hold; objects can outlive the privacy ceiling. Reconcile the drift."
+    }
+  ]
+}

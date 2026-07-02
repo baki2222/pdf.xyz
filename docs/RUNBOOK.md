@@ -214,6 +214,29 @@ Deploy checklist:
       **no** recognized text, path, key, or URL (Phase 26). A failed/blocked OCR job,
       or any compression job, carries **no** `results` block — if one appears where it
       should not, treat it as a bug, not a cosmetic issue.
+- [ ] `GET /api/worker/operations` reports the expected web-vantage posture: no fake
+      daemon liveness (`daemonObserved:false`), safe recommended action, and no provider
+      values. Confirm worker-side `operations`/`metrics`/`slo` JSON lines from the daemon
+      logs for actual worker-vantage health (Phase 28).
+
+**f. Worker operations/SLO snapshot** — use this for dashboards and runbook triage:
+
+```bash
+curl -fsS https://<your-web-host>/api/worker/operations | jq .
+pnpm worker:daemon --dry-run-status   # emits readiness + operations + metrics + slo
+pnpm worker:daemon --check            # emits guardrails + operations + metrics + slo
+```
+
+Interpretation:
+
+- Web-vantage `daemonObserved:false` is expected; the web app cannot see a separate worker
+  process. Use worker logs/process supervision for actual daemon liveness.
+- `recommendedAction` is the first safe next step. `configure-providers`,
+  `fix-guardrail`, `reconcile-lifecycle-drift`, and `investigate-loop-errors` are
+  operator-action states; `confirm-worker-deployment` means config looks good from the web
+  but the daemon must be checked out-of-band.
+- SLO entries are computed from content-free metric samples. Missing observations are
+  `unknown`; latency is bucketed (`≤2.5s`, `≤10s`, …), never exact per-document timing.
 
 ---
 

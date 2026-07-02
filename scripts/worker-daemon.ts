@@ -38,7 +38,17 @@ import {
   DAEMON_USAGE,
   type DaemonArgs,
   type DaemonLogEvent,
+  type DaemonRunSummary,
 } from "@/lib/workers/daemon";
+import {
+  collectRuntimeOperationsSnapshot,
+  createWorkerMetricsCollector,
+  deriveLifecycleMetrics,
+  deriveRuntimeMetrics,
+  evaluateSlos,
+  type LifecycleMetricVerdict,
+  type WorkerMetricsCollector,
+} from "@/lib/workers/observability";
 import type { ExecutorLogEvent } from "@/lib/workers/executor";
 import {
   resolveWorkerRuntime,
@@ -154,6 +164,50 @@ function reportGuardrails(report: GuardrailReport): void {
 }
 
 /**
+ * Emit the Phase 28 observability lines for a resolved runtime: the composed
+ * operations snapshot (overall health + the one recommended action), the aggregated
+ * content-free metric series, and the SLO evaluation. All three are content-free —
+ * bounded enums, coarse buckets, small counts, and generic prose only. Called once
+ * per invocation after the work (or the readiness readout) completes.
+ */
+function reportObservability(
+  metrics: WorkerMetricsCollector,
+  runtime: WorkerRuntime,
+  extras: { lastLoop?: DaemonRunSummary } = {},
+): void {
+  emit({
+    src: "daemon",
+    event: "operations",
+    ...collectRuntimeOperationsSnapshot(runtime, extras),
+  });
+  // Fold the resolved readiness posture (facets + engine/gate capabilities) into the
+  // collector just before snapshotting, so even a readiness-only run reports content-free
+  // gauges. Idempotent: these are gauges (last-write-wins), so a repeat call is a no-op.
+  for (const sample of deriveRuntimeMetrics(runtime)) metrics.record(sample);
+  const snapshot = metrics.snapshot();
+  emit({ src: "daemon", event: "metrics", series: snapshot.series });
+  const slo = evaluateSlos(snapshot);
+  emit({ src: "daemon", event: "slo", worst: slo.worst, slos: slo.slos });
+}
+
+/**
+ * Emit the content-free lifecycle metric series for a `--lifecycle-verify` verdict.
+ * Self-contained (its own collector), so it needs no runtime — the verify command is
+ * pure/offline and never builds one. `driftedRules` is a bounded count of the app's
+ * OWN `pdfxyz-*` rules, never an observed rule id or value.
+ */
+function emitLifecycleMetrics(
+  verdict: LifecycleMetricVerdict,
+  driftedRules = 0,
+): void {
+  const collector = createWorkerMetricsCollector();
+  for (const sample of deriveLifecycleMetrics({ verdict, driftedRules })) {
+    collector.record(sample);
+  }
+  emit({ src: "daemon", event: "metrics", series: collector.snapshot().series });
+}
+
+/**
  * `--lifecycle-policy`: generate and print a lifecycle/retention policy for the
  * configured retention settings and exit. Pure generation — it never contacts a
  * cloud API, builds a runtime, or probes the host. Refuses (exit 1) when a retention
@@ -262,6 +316,7 @@ function runLifecycleVerify(args: DaemonArgs): number {
       detail:
         "No observed lifecycle document was supplied, so the generated backstop could not be checked against the bucket. Export it out-of-band (the app never reads the bucket) and pass --observed. The operator's env-declared readiness is reported as declaredReadiness.",
     });
+    emitLifecycleMetrics("unknown");
     return EXIT_NOT_CONFIGURED;
   }
 
@@ -289,10 +344,20 @@ function runLifecycleVerify(args: DaemonArgs): number {
       reason: "observed_malformed",
       issues: observed.issues.map((i) => i.code),
     });
+    emitLifecycleMetrics("malformed");
     return EXIT_GUARDRAIL;
   }
 
   const result = verifyLifecyclePolicy(expected, observed.observed);
+  // A content-free lifecycle metric: the verdict plus the count of the app's OWN rules
+  // found drifted (missing/weaker/disabled) — never an observed rule id, prefix, or value.
+  emitLifecycleMetrics(
+    result.verdict,
+    result.checks.filter(
+      (c) =>
+        c.status === "missing" || c.status === "weaker" || c.status === "disabled",
+    ).length,
+  );
   // Versioned foot-gun safety net: verifying without `--versioned` omits the
   // noncurrent-version and delete-marker backstops from the expected policy, so they
   // go unchecked. If the observed config itself carries version-cleanup rules, the
@@ -354,10 +419,21 @@ async function main(): Promise<number> {
     return runLifecycleVerify(args);
   }
 
+  // The content-free metrics collector for this invocation. It is the sink the runtime
+  // (→ executor storage/scan/processor/terminal) and the daemon loop (→ tick/claim/run)
+  // emit into; `--dry-run-status`/`--check` still report the readiness gauges + SLOs.
+  const metrics = createWorkerMetricsCollector();
   const runtime = resolveWorkerRuntime(process.env, {
     ...(args.leaseMs !== undefined ? { leaseMs: args.leaseMs } : {}),
     log: (event: ExecutorLogEvent) => emit({ src: "executor", ...event }),
+    metrics: metrics.sink,
   });
+
+  // Reflect the resolved readiness posture (facets + engine capabilities) into the
+  // metric snapshot, so even readiness-only runs report content-free gauges.
+  for (const sample of deriveRuntimeMetrics(runtime)) {
+    metrics.record(sample);
+  }
 
   // `--check`: evaluate deployment guardrails only. Exit 0 when clean, 4 when a
   // dangerous/invalid configuration is found. Never claims a job.
@@ -365,6 +441,7 @@ async function main(): Promise<number> {
     reportReadiness(runtime);
     reportDeployment(runtime);
     reportGuardrails(runtime.guardrails);
+    reportObservability(metrics, runtime);
     return runtime.guardrails.ok ? EXIT_OK : EXIT_GUARDRAIL;
   }
 
@@ -375,6 +452,7 @@ async function main(): Promise<number> {
     reportReadiness(runtime);
     reportDeployment(runtime);
     reportGuardrails(runtime.guardrails);
+    reportObservability(metrics, runtime);
     if (!runtime.guardrails.ok) return EXIT_GUARDRAIL;
     return runtime.readiness.drainable ? EXIT_OK : EXIT_NOT_CONFIGURED;
   }
@@ -387,6 +465,7 @@ async function main(): Promise<number> {
   if (!runtime.guardrails.ok) {
     reportGuardrails(runtime.guardrails);
     emit({ src: "daemon", event: "guardrail_blocked" });
+    reportObservability(metrics, runtime);
     return EXIT_GUARDRAIL;
   }
 
@@ -398,6 +477,7 @@ async function main(): Promise<number> {
       event: "not_configured",
       reason: runtime.blocked ?? "not_configured",
     });
+    reportObservability(metrics, runtime);
     return EXIT_NOT_CONFIGURED;
   }
 
@@ -416,6 +496,7 @@ async function main(): Promise<number> {
     executor: runtime.executor,
     log: (event: DaemonLogEvent) => emit({ src: "daemon", ...event }),
     shouldStop: () => stopping,
+    metrics: metrics.sink,
   });
 
   const summary = await daemon.run({
@@ -424,6 +505,10 @@ async function main(): Promise<number> {
     idleSleepMs: args.idleSleepMs,
   });
   emit({ src: "daemon", event: "summary", ...summary });
+  // The Phase 28 observability readout: the composed operations snapshot (with this
+  // run's loop outcome), the aggregated content-free metric series, and the SLO
+  // evaluation over the work just processed.
+  reportObservability(metrics, runtime, { lastLoop: summary });
 
   // A drain that stopped on a queue error is a runtime failure worth a non-zero
   // exit; every other clean stop (drained/once/max_ticks/stopped) is success.

@@ -1,0 +1,659 @@
+/**
+ * The **worker operations snapshot** — a single, content-free SLO/health projection
+ * an operator (or a dashboard/alert rule) can read to see, at a glance, whether the
+ * worker stack is healthy and what the *one* next action is.
+ *
+ * It is deliberately a **projection**, not a re-derivation: the worker layer already
+ * resolves provider readiness ({@link DaemonReadiness}), the composed deployment
+ * picture ({@link WorkerDeploymentReadiness}), the production guardrails
+ * ({@link GuardrailReport}), the lifecycle verification verdict
+ * ({@link LifecycleVerdict}), and the last daemon loop outcome
+ * ({@link DaemonRunSummary}). Each answers a narrow question. This module folds them
+ * into one alert-oriented view that adds exactly four things none of them have:
+ *
+ *  1. an SLO **health class** per subsystem (`ok`/`warn`/`blocked`/`unknown`) — the
+ *     green/yellow/red/grey a pager cares about, distinct from the finer facet states;
+ *  2. **vantage honesty** — a snapshot collected from the *web* app cannot observe a
+ *     separate worker image's installed engines, its OCR runner, or whether a daemon
+ *     is actually draining; those are reported `unknown`, never guessed. The same
+ *     snapshot collected *on the worker* fills them in from real probes;
+ *  3. a single, safe **recommended next action** enum — the highest-priority thing to
+ *     fix, so an operator is never left to rank ten facets themselves;
+ *  4. optional **evidence** — the lifecycle verification verdict (when an operator
+ *     supplied an observed document) and the last in-process loop outcome (when a run
+ *     just completed), each classified into the same health vocabulary.
+ *
+ * Honesty & privacy posture (identical to every other worker seam):
+ *  - **Node-free.** It composes only the node-free readiness/guardrail parsers, so it
+ *    is safe to import from the `/api/worker/operations` route and any status bundle,
+ *    and it is reused verbatim by the Node-only daemon CLI. The one host-dependent
+ *    input (native-engine availability) is *injected* — never probed here.
+ *  - **Content-free by construction.** Every field is a boolean, a fixed enum, a
+ *    small integer count, or generic prose. It never carries — and has nowhere to put
+ *    — a variable name, secret, value, path, object key, endpoint, signed URL, bucket
+ *    name, filename, recognized OCR text, or scanner signature.
+ *  - **No fake liveness.** `daemonObserved` is `false` from the web (the app never
+ *    becomes the daemon), so the snapshot can never imply a worker is deployed and
+ *    running when that is unknowable from here.
+ */
+
+import type { WorkerMode } from "../mode";
+import type { DaemonReadiness } from "../daemon/readiness";
+import { resolveDaemonReadiness } from "../daemon/readiness";
+import type { DaemonRunMode, DaemonRunSummary, DaemonStopReason } from "../daemon/daemon";
+import type { LifecycleVerdict } from "../lifecycle";
+import {
+  DEEP_COMPRESSION_TOOLS,
+  type CompressionTool,
+  type ToolAvailability,
+} from "../compression/engine";
+import {
+  evaluateGuardrails,
+  resolveDeploymentReadiness,
+  type EngineHealthInput,
+  type FacetId,
+  type FacetState,
+  type GuardrailReport,
+  type OperationalFacet,
+  type WorkerDeploymentReadiness,
+} from "../deploy";
+
+type EnvSource = Record<string, string | undefined>;
+
+/** The bump-on-change schema version, so a metrics/log consumer can evolve safely. */
+export const OPERATIONS_SNAPSHOT_VERSION = 1 as const;
+
+/**
+ * Where a snapshot was collected — the load-bearing input for honesty. The `web`
+ * app can resolve provider configuration but can never observe the *separate* worker
+ * image's installed engines, OCR runner, or a running daemon (those are `unknown`);
+ * the `worker` vantage fills them in from real probes and, after a run, real loop
+ * counters.
+ */
+export type SnapshotVantage = "web" | "worker";
+
+/**
+ * An SLO health class — the alert-oriented projection of the finer facet/verdict
+ * states. `unknown` is first-class: it means "not observable from this vantage / not
+ * declared", which a dashboard should render as grey, never as green.
+ */
+export type HealthClass = "ok" | "warn" | "blocked" | "unknown";
+
+/** Whether an engine/proof could be confirmed here (never a path, version, or value). */
+export type ProofAvailability = "available" | "unavailable" | "unknown";
+
+/** A subsystem the snapshot classifies into an SLO health class. */
+export type SnapshotSubsystemId =
+  | "drainability"
+  | "storage"
+  | "queue"
+  | "compression-engine"
+  | "ocr"
+  | "malware-scan"
+  | "lifecycle"
+  | "lifecycle-verification"
+  | "guardrails"
+  | "daemon-loop";
+
+/** One subsystem's SLO classification. Content-free (label + class + generic prose). */
+export interface SnapshotSubsystem {
+  readonly id: SnapshotSubsystemId;
+  /** Short human label. */
+  readonly label: string;
+  /** The SLO health class a pager/dashboard reads. */
+  readonly health: HealthClass;
+  /** One-line, content-free explanation. Never names a variable, path, or value. */
+  readonly detail: string;
+}
+
+/**
+ * The single, safe next action an operator should take — the highest-priority issue,
+ * so a snapshot always points at *one* thing rather than a wall of facets. Every
+ * value is a fixed enum with a fixed, content-free message (see
+ * {@link RECOMMENDED_ACTION_DETAIL}).
+ */
+export type RecommendedAction =
+  | "none" // everything observable here is healthy (worker vantage)
+  | "configure-providers" // neither queue nor storage is configured
+  | "configure-storage" // object storage is not configured
+  | "configure-queue" // the job queue is not configured
+  | "fix-guardrail" // a guardrail error would stop the worker from starting
+  | "install-deep-engine" // deep compression is wanted but no native engine is installed
+  | "install-ocr-engine" // OCR is opted into but no engine is installed on the worker
+  | "fix-scanner" // a malware scanner is selected but misconfigured
+  | "declare-lifecycle" // no retention/lifecycle backstop is declared
+  | "verify-lifecycle" // a backstop is declared but not asserted validated
+  | "reconcile-lifecycle-drift" // an observed config shows the backstop does not hold
+  | "investigate-loop-errors" // the last daemon loop hit queue/transient errors
+  | "confirm-worker-deployment"; // web vantage: everything observable is green, but a
+// separate worker daemon must be deployed and its liveness cannot be seen from here
+
+/** Engine/proof availability, honest about the web's blindness to the worker image. */
+export interface SnapshotProofs {
+  /** Deep image compression — a native engine installed on the worker. */
+  readonly compressionDeep: ProofAvailability;
+  /** OCR — a real engine + runner wired on the worker. */
+  readonly ocr: ProofAvailability;
+}
+
+/** The lifecycle verification rung — checked evidence, when an operator supplied it. */
+export interface SnapshotLifecycleVerification {
+  /** True only when an observed document was supplied and parsed to a verdict. */
+  readonly known: boolean;
+  /** `verified`/`drift` when known; `unknown` when nothing was verified against. */
+  readonly verdict: LifecycleVerdict | "unknown";
+  /** The SLO class of the verification. */
+  readonly health: HealthClass;
+  /** One-line, content-free explanation. */
+  readonly detail: string;
+}
+
+/** The last in-process daemon loop outcome, classified into the health vocabulary. */
+export interface SnapshotLoopOutcome {
+  readonly mode: DaemonRunMode;
+  readonly reason: DaemonStopReason;
+  readonly ticks: number;
+  readonly completed: number;
+  readonly failed: number;
+  readonly requeued: number;
+  readonly canceled: number;
+  readonly idle: number;
+  readonly errors: number;
+  /** The SLO class of the run (`warn` on any queue/transient error, else `ok`). */
+  readonly health: HealthClass;
+}
+
+/** The full, content-free worker operations snapshot. */
+export interface WorkerOperationsSnapshot {
+  readonly version: typeof OPERATIONS_SNAPSHOT_VERSION;
+  readonly vantage: SnapshotVantage;
+  /** The resolved web-app worker mode, for context. */
+  readonly mode: WorkerMode;
+  /** True only when queue AND storage are configured (a worker CAN run here). */
+  readonly drainable: boolean;
+  /**
+   * Whether this snapshot can observe an actual worker process. `false` from the web
+   * (the app never becomes the daemon), so the snapshot never implies a deployed,
+   * running worker. `true` from the worker vantage (a worker demonstrably runs here).
+   */
+  readonly daemonObserved: boolean;
+  /** The overall SLO health class. */
+  readonly health: HealthClass;
+  /** One-line, content-free summary of the overall health + recommended action. */
+  readonly detail: string;
+  /** The single, safe recommended next action. */
+  readonly recommendedAction: RecommendedAction;
+  /** One-line, content-free explanation of the recommended action. */
+  readonly recommendedActionDetail: string;
+  /** Per-subsystem SLO classification (diagnostic breakdown). */
+  readonly subsystems: SnapshotSubsystem[];
+  /** Engine/proof availability tri-states (honest `unknown` from the web). */
+  readonly proofs: SnapshotProofs;
+  /** The lifecycle verification rung (usually `unknown` unless a doc was supplied). */
+  readonly lifecycleVerification: SnapshotLifecycleVerification;
+  /** The last in-process loop outcome, when a run just completed; else `null`. */
+  readonly lastLoop: SnapshotLoopOutcome | null;
+}
+
+/** The lifecycle verification input a caller supplies when it has a verdict. */
+export interface LifecycleVerificationInput {
+  readonly verdict: LifecycleVerdict;
+}
+
+/** Everything the pure builder needs. The extras are optional and injectable. */
+export interface OperationsSnapshotInput {
+  readonly vantage: SnapshotVantage;
+  readonly readiness: DaemonReadiness;
+  readonly deployment: WorkerDeploymentReadiness;
+  /**
+   * Whether OCR is opted into via config (from the worker runtime's `OcrRuntimeHealth`
+   * — `PDFXYZ_OCR` enabled). Lets the snapshot tell "OCR is off" (fine) from "OCR is
+   * on but its engine is missing" (a caveat). Omit ⇒ the web vantage, which can't
+   * observe the worker's OCR at all, so the OCR subsystem stays `unknown`.
+   */
+  readonly ocrEnabled?: boolean;
+  /** The evaluated production guardrails, when known. Omit ⇒ guardrails `unknown`. */
+  readonly guardrails?: GuardrailReport;
+  /** A supplied lifecycle verification verdict (checked evidence). Omit ⇒ `unknown`. */
+  readonly lifecycleVerification?: LifecycleVerificationInput;
+  /** The last in-process daemon loop outcome, when a run completed. Omit ⇒ `null`. */
+  readonly lastLoop?: DaemonRunSummary;
+}
+
+/** Fixed, content-free message for each recommended action. */
+export const RECOMMENDED_ACTION_DETAIL: Record<RecommendedAction, string> = {
+  none: "Everything observable here is healthy; no action is required.",
+  "configure-providers":
+    "Neither the job queue nor object storage is configured, so no worker can run here. Configure both to make the queue drainable.",
+  "configure-storage":
+    "Object storage is not configured, so a worker has nowhere to read inputs from or write artifacts to. Configure it to make the queue drainable.",
+  "configure-queue":
+    "The job queue is not configured, so a worker has nothing to drain. Configure it to make the queue drainable.",
+  "fix-guardrail":
+    "A production guardrail reports an error, so the worker refuses to start. Inspect the guardrail codes (run --check) and fix the flagged configuration.",
+  "install-deep-engine":
+    "Deep compression is enabled but no native engine is installed on this worker, so deep jobs cannot run (lossless still works). Install an engine or disable deep.",
+  "install-ocr-engine":
+    "OCR is opted into but no engine is installed on this worker, so OCR jobs would fail as not-implemented. Install the OCR engine or turn OCR off.",
+  "fix-scanner":
+    "A malware scanner is selected but its endpoint configuration is missing or malformed, so inputs would not be scanned. Fix the scanner configuration.",
+  "declare-lifecycle":
+    "No retention/lifecycle backstop is declared, so bucket auto-deletion is unknown here. Generate a policy, apply it out-of-band, and declare it.",
+  "verify-lifecycle":
+    "A retention/lifecycle backstop is declared but not asserted validated. Verify it against the bucket and mark it validated so the backstop is trusted.",
+  "reconcile-lifecycle-drift":
+    "A verified observed configuration shows the retention backstop does not hold as generated, so objects can outlive the privacy ceiling. Reconcile the drift.",
+  "investigate-loop-errors":
+    "The last worker loop hit queue or transient errors. Check broker reachability and the executor logs; retryable failures are left for redelivery.",
+  "confirm-worker-deployment":
+    "Everything this app can observe is healthy, but a worker daemon runs out-of-band and its liveness cannot be seen from here. Confirm a worker is deployed and draining.",
+};
+
+/** Human labels for each subsystem. */
+const SUBSYSTEM_LABEL: Record<SnapshotSubsystemId, string> = {
+  drainability: "Drainability",
+  storage: "Object storage",
+  queue: "Job queue",
+  "compression-engine": "Compression engine",
+  ocr: "OCR",
+  "malware-scan": "Malware scanning",
+  lifecycle: "Lifecycle backstop",
+  "lifecycle-verification": "Lifecycle verification",
+  guardrails: "Deployment guardrails",
+  "daemon-loop": "Daemon loop",
+};
+
+/** Look up a deployment facet by id (facets are a fixed, small set). */
+function facetOf(
+  deployment: WorkerDeploymentReadiness,
+  id: FacetId,
+): OperationalFacet | undefined {
+  return deployment.facets.find((f) => f.id === id);
+}
+
+/** Map the compression-engine facet state to its deep-compression proof tri-state. */
+function compressionProof(state: FacetState | undefined): ProofAvailability {
+  if (state === "ready") return "available"; // a native (deep) engine is installed
+  if (state === "degraded") return "unavailable"; // lossless-only; no deep engine
+  return "unknown"; // not probed here (the web can't see the worker image)
+}
+
+/** Map the OCR facet state to its proof tri-state. */
+function ocrProof(state: FacetState | undefined): ProofAvailability {
+  if (state === "ready") return "available"; // a real engine + runner are wired
+  if (state === "not-configured") return "unavailable"; // probed: not enabled/installed
+  return "unknown"; // not-implemented/unknown: not observable from this vantage
+}
+
+/** Classify the guardrail report into an SLO health class. */
+function guardrailHealth(report: GuardrailReport | undefined): HealthClass {
+  if (!report) return "unknown";
+  if (!report.ok) return "blocked"; // an error-severity violation stops startup
+  return report.violations.length > 0 ? "warn" : "ok"; // warnings only, or clean
+}
+
+/** Classify a completed loop run into an SLO health class. */
+function loopHealth(summary: DaemonRunSummary): HealthClass {
+  // A queue error (broker unreachable) or any caught/transient tick error is worth a
+  // look; terminal job failures likewise (a spike is the docs' alerting signal).
+  if (summary.reason === "queue_error") return "warn";
+  if (summary.errors > 0 || summary.failed > 0) return "warn";
+  return "ok";
+}
+
+/** Classify the lifecycle readiness state into an SLO health class. */
+function lifecycleHealth(state: WorkerDeploymentReadiness["lifecycle"]["state"]): HealthClass {
+  switch (state) {
+    case "validated":
+      return "ok";
+    case "declared":
+    case "unknown":
+      return "warn"; // a recommended backstop is missing or unverified
+    case "invalid":
+      return "blocked"; // a malformed declaration (also a guardrail error)
+  }
+}
+
+/** Build the per-subsystem SLO breakdown. Pure; reuses the facets' own prose. */
+function buildSubsystems(
+  input: OperationsSnapshotInput,
+  lifecycleVerification: SnapshotLifecycleVerification,
+): SnapshotSubsystem[] {
+  const { readiness, deployment } = input;
+  const engineState = facetOf(deployment, "engine")?.state;
+  const ocrState = facetOf(deployment, "ocr")?.state;
+  const scan = deployment.malwareScan;
+
+  const sub = (
+    id: SnapshotSubsystemId,
+    health: HealthClass,
+    detail: string,
+  ): SnapshotSubsystem => ({ id, label: SUBSYSTEM_LABEL[id], health, detail });
+
+  // OCR: `ready` is healthy; `not-configured` means probed-and-absent — a caveat only
+  // when OCR is actually opted into (else "off" is a fine choice); not observable from
+  // the web (no runtime health) ⇒ `unknown`.
+  const ocrHealth: HealthClass =
+    ocrState === "ready"
+      ? "ok"
+      : ocrState === "not-configured"
+        ? input.ocrEnabled
+          ? "warn"
+          : "ok"
+        : "unknown";
+
+  return [
+    sub(
+      "drainability",
+      readiness.drainable ? "ok" : "blocked",
+      readiness.drainable
+        ? "A worker can claim and complete jobs here (queue + storage configured)."
+        : "No worker can run here: the queue and/or object storage are not configured.",
+    ),
+    sub(
+      "storage",
+      readiness.storageConfigured ? "ok" : "warn",
+      facetOf(deployment, "storage")?.detail ??
+        "Object storage configuration is unknown.",
+    ),
+    sub(
+      "queue",
+      readiness.queueConfigured ? "ok" : "warn",
+      facetOf(deployment, "queue")?.detail ?? "Job queue configuration is unknown.",
+    ),
+    sub(
+      "compression-engine",
+      engineState === "ready" ? "ok" : engineState === "degraded" ? "warn" : "unknown",
+      facetOf(deployment, "engine")?.detail ??
+        "Compression-engine availability is not observable from here.",
+    ),
+    sub(
+      "ocr",
+      ocrHealth,
+      ocrState === "not-implemented" || ocrState === undefined
+        ? "OCR runs out-of-band on the secure worker; whether an engine is installed there is not observable from here."
+        : (facetOf(deployment, "ocr")?.detail ?? "OCR availability is unknown."),
+    ),
+    sub(
+      "malware-scan",
+      scan.state === "ready" ? "ok" : scan.state === "unavailable" ? "warn" : "ok",
+      scan.detail,
+    ),
+    sub("lifecycle", lifecycleHealth(deployment.lifecycle.state), deployment.lifecycle.detail),
+    sub("lifecycle-verification", lifecycleVerification.health, lifecycleVerification.detail),
+    sub(
+      "guardrails",
+      guardrailHealth(input.guardrails),
+      input.guardrails
+        ? input.guardrails.ok
+          ? input.guardrails.violations.length > 0
+            ? "Deployment guardrails pass with warnings; review them before production."
+            : "Deployment guardrails pass with no violations."
+          : "A deployment guardrail reports an error; the worker refuses to start until it is fixed."
+        : "Deployment guardrails were not evaluated in this context.",
+    ),
+    sub(
+      "daemon-loop",
+      input.lastLoop ? loopHealth(input.lastLoop) : "unknown",
+      input.lastLoop
+        ? "The last in-process loop outcome is reported; a queue/transient error is worth a look."
+        : "No worker loop outcome is observable from here (this snapshot did not run the loop).",
+    ),
+  ];
+}
+
+/** Resolve the lifecycle verification rung from an optionally-supplied verdict. */
+function resolveLifecycleVerification(
+  supplied: LifecycleVerificationInput | undefined,
+): SnapshotLifecycleVerification {
+  if (!supplied) {
+    return {
+      known: false,
+      verdict: "unknown",
+      health: "unknown",
+      detail:
+        "No observed bucket configuration was supplied, so the retention backstop has not been checked against evidence here. Export it out-of-band and verify it.",
+    };
+  }
+  if (supplied.verdict === "verified") {
+    return {
+      known: true,
+      verdict: "verified",
+      health: "ok",
+      detail:
+        "A supplied observed configuration verifies: every generated backstop rule is enforced at least as strongly as generated.",
+    };
+  }
+  return {
+    known: true,
+    verdict: "drift",
+    health: "warn",
+    detail:
+      "A supplied observed configuration shows drift: at least one generated backstop rule is missing, weaker, or disabled, so objects can outlive the privacy ceiling.",
+  };
+}
+
+/**
+ * Derive the single overall health + recommended action from the resolved inputs.
+ * The order is a strict priority: the worst, most-actionable issue wins, so a snapshot
+ * always points at exactly one next step. Startup blockers (guardrail errors, an
+ * unrunnable environment) rank above caveats (an unverified backstop, a lossless-only
+ * engine), which rank above the honest web-vantage residual ("confirm a worker is
+ * deployed"). On the worker vantage a fully-green stack resolves to `none`.
+ */
+function deriveVerdict(
+  input: OperationsSnapshotInput,
+  lifecycleVerification: SnapshotLifecycleVerification,
+): { health: HealthClass; action: RecommendedAction } {
+  const { readiness, deployment, vantage } = input;
+
+  // 1. A guardrail error stops the worker from starting — the hardest failure.
+  if (input.guardrails && !input.guardrails.ok) {
+    return { health: "blocked", action: "fix-guardrail" };
+  }
+
+  // 2. Not drainable: no worker can run here at all.
+  if (!readiness.drainable) {
+    if (!readiness.storageConfigured && !readiness.queueConfigured) {
+      return { health: "blocked", action: "configure-providers" };
+    }
+    if (!readiness.storageConfigured) {
+      return { health: "blocked", action: "configure-storage" };
+    }
+    return { health: "blocked", action: "configure-queue" };
+  }
+
+  // 3. Verified drift: checked evidence that the retention backstop does not hold.
+  if (lifecycleVerification.verdict === "drift") {
+    return { health: "warn", action: "reconcile-lifecycle-drift" };
+  }
+
+  // 4. The last loop hit queue/transient/terminal errors worth investigating.
+  if (
+    input.lastLoop &&
+    (input.lastLoop.reason === "queue_error" ||
+      input.lastLoop.errors > 0 ||
+      input.lastLoop.failed > 0)
+  ) {
+    return { health: "warn", action: "investigate-loop-errors" };
+  }
+
+  // 5. A scanner is selected but misconfigured (would silently not scan).
+  if (deployment.malwareScan.state === "unavailable") {
+    return { health: "warn", action: "fix-scanner" };
+  }
+
+  // 6. OCR is opted into but its engine is missing on this worker.
+  if (input.ocrEnabled && facetOf(deployment, "ocr")?.state === "not-configured") {
+    return { health: "warn", action: "install-ocr-engine" };
+  }
+
+  // 7. Deep compression is wanted but no native engine is installed (guardrail warn).
+  if (
+    input.guardrails?.violations.some(
+      (v) => v.code === "deep_compression_without_engine",
+    )
+  ) {
+    return { health: "warn", action: "install-deep-engine" };
+  }
+
+  // 8. A recommended retention/lifecycle backstop is missing or unverified.
+  if (deployment.lifecycle.state === "unknown") {
+    return { health: "warn", action: "declare-lifecycle" };
+  }
+  if (deployment.lifecycle.state === "declared" || deployment.lifecycle.state === "invalid") {
+    return { health: "warn", action: "verify-lifecycle" };
+  }
+
+  // 9. Everything observable is green. From the web, the honest residual is that a
+  // worker must be deployed out-of-band and its liveness is not observable here.
+  if (vantage === "web") {
+    return { health: "ok", action: "confirm-worker-deployment" };
+  }
+  return { health: "ok", action: "none" };
+}
+
+/** Fixed, content-free one-line summary for the overall health. */
+const HEALTH_SUMMARY: Record<HealthClass, string> = {
+  ok: "Healthy",
+  warn: "Degraded — a recommended fix is outstanding",
+  blocked: "Blocked — a worker cannot run correctly here",
+  unknown: "Unknown",
+};
+
+/**
+ * Build a {@link WorkerOperationsSnapshot} from already-resolved readiness inputs.
+ * Pure, deterministic, and content-free — the same function backs both the web route
+ * and the worker daemon; the vantage and the optional evidence are all it needs.
+ */
+export function buildWorkerOperationsSnapshot(
+  input: OperationsSnapshotInput,
+): WorkerOperationsSnapshot {
+  const lifecycleVerification = resolveLifecycleVerification(input.lifecycleVerification);
+  const subsystems = buildSubsystems(input, lifecycleVerification);
+  const { health, action } = deriveVerdict(input, lifecycleVerification);
+
+  const engineState = facetOf(input.deployment, "engine")?.state;
+  const ocrState = facetOf(input.deployment, "ocr")?.state;
+
+  const lastLoop: SnapshotLoopOutcome | null = input.lastLoop
+    ? {
+        mode: input.lastLoop.mode,
+        reason: input.lastLoop.reason,
+        ticks: input.lastLoop.ticks,
+        completed: input.lastLoop.completed,
+        failed: input.lastLoop.failed,
+        requeued: input.lastLoop.requeued,
+        canceled: input.lastLoop.canceled,
+        idle: input.lastLoop.idle,
+        errors: input.lastLoop.errors,
+        health: loopHealth(input.lastLoop),
+      }
+    : null;
+
+  return {
+    version: OPERATIONS_SNAPSHOT_VERSION,
+    vantage: input.vantage,
+    mode: input.readiness.mode,
+    drainable: input.readiness.drainable,
+    // The web app is never the draining daemon; only the worker vantage observes one.
+    daemonObserved: input.vantage === "worker",
+    health,
+    detail: `${HEALTH_SUMMARY[health]}. ${RECOMMENDED_ACTION_DETAIL[action]}`,
+    recommendedAction: action,
+    recommendedActionDetail: RECOMMENDED_ACTION_DETAIL[action],
+    subsystems,
+    proofs: {
+      compressionDeep: compressionProof(engineState),
+      ocr: ocrProof(ocrState),
+    },
+    lifecycleVerification,
+    lastLoop,
+  };
+}
+
+/**
+ * Derive the injected {@link EngineHealthInput} from probed native tools — the lean,
+ * node-free counterpart of the runtime's `deriveCompressionHealth`. Lossless repack is
+ * always available (pure-JS); deep requires a native engine. Names engines by binary
+ * name only. Returns `undefined` when nothing was probed, so the engine facet stays
+ * honestly `unknown` (the web can't see a separate worker image's engines).
+ */
+export function engineHealthFromTools(
+  tools: ToolAvailability | undefined,
+): EngineHealthInput | undefined {
+  if (!tools) return undefined;
+  const engines: CompressionTool[] = DEEP_COMPRESSION_TOOLS.filter((t) => tools[t]);
+  return { lossless: true, deep: engines.length > 0, engines };
+}
+
+/**
+ * Collect the **web-vantage** snapshot from an environment. Presence-only and
+ * node-free: it resolves the daemon readiness, composes the deployment readiness, and
+ * evaluates the guardrails, all from config. The one host-dependent input — native
+ * engine availability — is only meaningful in `local-dev` (where the web app *is* the
+ * in-process worker, so its own PATH probe is honest); in every other mode `tools` is
+ * omitted, so the engine/OCR proofs are honestly `unknown` (a separate worker image
+ * cannot be probed from here). `daemonObserved` is always `false`. `env` is injectable.
+ */
+export function collectWebOperationsSnapshot(
+  env: EnvSource = process.env,
+  opts: { tools?: ToolAvailability } = {},
+): WorkerOperationsSnapshot {
+  const readiness = resolveDaemonReadiness(env);
+  const engine = engineHealthFromTools(opts.tools);
+  const deployment = resolveDeploymentReadiness(
+    readiness,
+    env,
+    engine ? { engine } : {},
+  );
+  const guardrails = evaluateGuardrails(env, engine ? { engine } : {});
+  return buildWorkerOperationsSnapshot({
+    vantage: "web",
+    readiness,
+    deployment,
+    guardrails,
+    // No `ocrEnabled`: the web can't observe the worker's OCR, so OCR stays `unknown`.
+  });
+}
+
+/**
+ * The structural subset of the worker runtime this collector reads — the already-
+ * resolved readiness, composed deployment, wired OCR health, and evaluated guardrails.
+ * Declared locally so this node-free module never imports the Node-only runtime; the
+ * daemon passes its `WorkerRuntime`, which is structurally compatible.
+ */
+export interface RuntimeSnapshotSource {
+  readonly readiness: DaemonReadiness;
+  readonly deployment: WorkerDeploymentReadiness;
+  readonly ocr: { readonly enabled: boolean };
+  readonly guardrails: GuardrailReport;
+}
+
+/**
+ * Collect the **worker-vantage** snapshot from an already-resolved runtime. Unlike the
+ * web collector, this fills in the engine/OCR proofs and guardrails from the worker's
+ * real probes, and `daemonObserved` is `true` (a worker demonstrably runs here). The
+ * optional extras attach checked evidence: a lifecycle verification verdict (when an
+ * operator supplied an observed document) and the last in-process loop outcome (after
+ * a run). Pure — it only reads already-computed structural data.
+ */
+export function collectRuntimeOperationsSnapshot(
+  runtime: RuntimeSnapshotSource,
+  extras: {
+    lifecycleVerification?: LifecycleVerificationInput;
+    lastLoop?: DaemonRunSummary;
+  } = {},
+): WorkerOperationsSnapshot {
+  return buildWorkerOperationsSnapshot({
+    vantage: "worker",
+    readiness: runtime.readiness,
+    deployment: runtime.deployment,
+    ocrEnabled: runtime.ocr.enabled,
+    guardrails: runtime.guardrails,
+    ...(extras.lifecycleVerification
+      ? { lifecycleVerification: extras.lifecycleVerification }
+      : {}),
+    ...(extras.lastLoop ? { lastLoop: extras.lastLoop } : {}),
+  });
+}

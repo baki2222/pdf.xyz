@@ -174,6 +174,40 @@ and are shared with the tool runners.
 
 ---
 
+## Worker operations snapshot + SLO metrics (Phase 28)
+
+Phase 28 adds a dedicated operator surface in addition to the user-facing worker status
+endpoint:
+
+- `GET /api/worker/operations` returns a **web-vantage** `WorkerOperationsSnapshot`:
+  `version`, `vantage`, `mode`, `drainable`, `daemonObserved`, overall `health`, one
+  `recommendedAction`, per-subsystem health, engine/OCR proof tri-states, lifecycle
+  verification state, and the last loop outcome when collected from a worker. From the
+  web app, `daemonObserved:false` and worker-image engine proofs are `unknown`; the app
+  never pretends a separate daemon is deployed.
+- `worker:daemon --dry-run-status`, `--check`, and real run modes emit content-free
+  `operations`, `metrics`, and `slo` JSON lines. The daemon-vantage snapshot can include
+  host probes and last-loop counters because it runs in the worker process.
+- Metrics are fixed-name, low-cardinality samples (`worker_run_total`,
+  `worker_processor_total`, `worker_processor_latency_seconds`, `worker_storage_ops_total`,
+  `worker_readiness`, `worker_engine_capability`, lifecycle counters, etc.). Labels are
+  bounded enums only; latency/depth/age are coarse buckets. No metric label can contain a
+  filename, object key, URL, endpoint, bucket name, env value, command path, scanner
+  signature, OCR text, or job/user id.
+- SLO reports are pure calculations over a metric snapshot. Missing observations return
+  `unknown`; latency percentiles are bucket upper bounds (for example `≤2.5s`), not
+  invented exact timings.
+
+Suggested alerts:
+
+| Signal | Alert posture |
+|---|---|
+| `operations.health=blocked` | page/operator action required before workers can drain |
+| `recommendedAction=fix-guardrail` | deployment should not start; inspect `worker:daemon --check` codes |
+| `lifecycleVerification.verdict=drift` | retention backstop is not enforced as generated |
+| SLO `dead_letter_rate=breach` or `retry_rate=breach` | queue/processor reliability incident |
+| SLO `scanner_unavailable_rate=breach` when scanner required | fail-closed scan dependency incident |
+
 ## Production readiness checklist (observability)
 
 - [ ] **Product analytics is inert by default.** With no sink configured,
