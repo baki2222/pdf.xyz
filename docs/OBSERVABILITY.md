@@ -333,7 +333,14 @@ inside the built worker image *after* the presence checks: it OCRs a generated s
 raster with the Tesseract baseline and asserts the sidecar contains the sentinel —
 genuine recognition on a synthetic, non-user-document fixture. Its output is likewise
 presence-only and content-free (it never prints a temp path or the recognized text), and
-it always cleans up its temp dir. Alert on a worker that reports `2` when it is
+it always cleans up its temp dir. Phase 27 adds the PDF→PDF counterpart to that same
+workflow, `pnpm worker:ocrmypdf-proof`, run **inside the built worker image** after the
+recognition proof: it builds a synthetic **image-only** PDF (Ghostscript's `pdfimage`
+device — no text layer), confirms with `pdftotext` that the source yields no selectable
+text, runs the packaged OCRmyPDF, and confirms with the same `pdftotext` that the
+**output** yields the sentinel — proving image-only became genuinely **searchable**,
+again presence-only, content-free (never a path or the recognized text), and
+self-cleaning. Alert on a worker that reports `2` when it is
 expected to be drainable, exactly as you would alert on `drainable: true` with a
 non-draining backlog.
 

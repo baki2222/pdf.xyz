@@ -36,7 +36,7 @@ that keeps Node-only worker internals out of the web bundle.
 | --- | --- | --- |
 | Image target | `web` (`docker build --target web`) | `worker` (`docker build --target worker`) |
 | Command | `pnpm start` (or Vercel) | `pnpm worker:daemon` |
-| Native engines | none | Ghostscript, qpdf, `mutool` + OCRmyPDF/Tesseract (English OCR data) |
+| Native engines | none | Ghostscript, qpdf, `mutool` + OCRmyPDF/Tesseract (English OCR data); plus `pdftotext` (poppler-utils) as **proof-only** tooling (not a runtime engine) |
 | Serves HTTP | yes (the site + API routes) | **never** |
 | Responsibilities | Serve the site and in-browser tools; when storage **and** queue are wired, mint signed upload/download URLs and **record** `queued` jobs | Drain the queue, run processors against object storage, complete jobs; do deep compression when a native engine is present |
 | Must **not** | Run the daemon, ship engines, or process jobs on the request path | Serve HTTP or run as a serverless function on the request path |
@@ -112,6 +112,10 @@ docker run --rm \
 # …then the deterministic OCR recognition proof (Phase 25): OCRs a generated sentinel
 # raster and verifies the sentinel is recognized. Exit 0 = passed. No document, no cloud.
 docker run --rm "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:ocr-proof
+# …and the OCRmyPDF searchable-PDF proof (Phase 27): builds an image-only PDF, runs
+# OCRmyPDF, and verifies pdftotext extracts the sentinel from the OUTPUT (image-only →
+# searchable). Exit 0 = passed. No document, no cloud.
+docker run --rm "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:ocrmypdf-proof
 
 # 3. Push, then deploy the SAME image reference to staging first.
 docker push "$REGISTRY/pdfxyz-web:$GIT_SHA"
@@ -195,6 +199,10 @@ Deploy checklist:
 - [ ] Worker image passes `pnpm worker:ocr-proof` — the packaged Tesseract baseline
       recognizes a synthetic sentinel raster into a searchable PDF + sidecar (Phase 25;
       genuine recognition, no user document). Exit `0`.
+- [ ] Worker image passes `pnpm worker:ocrmypdf-proof` — the packaged OCRmyPDF turns a
+      synthetic **image-only** PDF into a genuinely **searchable** one, confirmed by
+      `pdftotext` extracting the sentinel from the OUTPUT but not the source (Phase 27;
+      the PDF→PDF path, no user document). Exit `0`.
 - [ ] `--dry-run-status` is `0` (drainable) with production config; `2` in a
       deliberately empty environment.
 - [ ] `--check` is `0` (or intentionally `4` with strict on a config you are fixing).
@@ -267,14 +275,16 @@ remote processing production-ready:
   `--dry-run-status` distinguishes the four states via the `ocr_health` line
   (`enabled`/`ready`/`engine`); arm `PDFXYZ_WORKER_REQUIRE_OCR` to refuse to start
   (exit `4`) unless a ready engine is present. See [`OCR_BACKEND.md`](./OCR_BACKEND.md).
-- **Native `deep` + OCR engines — presence + synthetic recognition proven in CI,
-  real-document quality not.** `pnpm worker:image-smoke` **proves engine presence** at the
-  image level in the container CI (Ghostscript/qpdf/`mutool` + Tesseract/OCRmyPDF binaries
-  installed, **English** OCR language data present, ready `ocr_health` /
-  `compression_health.deep` when opted in), and Phase 25's `pnpm worker:ocr-proof` proves
-  the Tesseract baseline actually **recognizes** a generated sentinel raster into a
-  searchable PDF + sidecar. What neither proves is real user-document OCR/compression
-  **quality or behavior**, OCRmyPDF's PDF→PDF path, or non-English packs: validate
+- **Native `deep` + OCR engines — presence + synthetic recognition AND the OCRmyPDF
+  searchable-PDF path proven in CI, real-document quality not.** `pnpm worker:image-smoke`
+  **proves engine presence** at the image level in the container CI (Ghostscript/qpdf/`mutool`
+  + Tesseract/OCRmyPDF binaries installed, **English** OCR language data present, ready
+  `ocr_health` / `compression_health.deep` when opted in); Phase 25's `pnpm worker:ocr-proof`
+  proves the Tesseract baseline actually **recognizes** a generated sentinel raster into a
+  searchable PDF + sidecar; and Phase 27's `pnpm worker:ocrmypdf-proof` proves the **OCRmyPDF
+  PDF→PDF path** — a synthetic **image-only** PDF becomes genuinely **searchable** (verified
+  by `pdftotext` on the output, not the source). What none of them proves is real
+  user-document OCR/compression **quality or behavior**, or non-English packs: validate
   `compression_health.deep` / `ocr_health.ready` on the **live** worker (§4) and run a real
   document through it out-of-band before advertising deep compression or OCR. Lossless
   always works.

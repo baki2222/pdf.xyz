@@ -748,10 +748,11 @@ next honest OCR gap in two ways, without faking anything.
   **after** `worker:engines`; its full plumbing (missing-engine exit `2`, enforced-sentinel
   exit `3`, cleanup) is proven Docker-free with stub engines in `worker-ocr-proof.test.ts`.
 
-⏳ Still out-of-band (deliberately not faked): production OCR **quality**, OCRmyPDF's
-PDF→searchable-PDF path, **non-English** language packs, and real **user-document**/traffic
-validation. (Surfacing the populated metadata into the client-facing job record shipped in
-**Phase 26**, below.)
+⏳ Still out-of-band at this phase: production OCR **quality**, **non-English** language
+packs, and real **user-document**/traffic validation. (OCRmyPDF's PDF→searchable-PDF path
+— named here as unproven — is proven on a synthetic fixture in **Phase 27**, below;
+surfacing the populated metadata into the client-facing job record shipped in **Phase 26**,
+below.)
 
 ### Phase 25 — lifecycle retention enforcement + deletion proof (shipped)
 
@@ -824,6 +825,45 @@ end-to-end — safely, and without faking anything.
 ⏳ Still artifact-only / out-of-band (deliberately): the **recognized text** itself (it lives
 only in the downloaded searchable-PDF/sidecar bytes — the record carries only its structural
 description), `meanConfidence` (the native backend exposes none), and production OCR quality.
+
+### Phase 27 — OCRmyPDF searchable-PDF proof + metadata fidelity (shipped)
+
+Phase 25 proved the **Tesseract baseline** turns a raster into recognized text (image→PDF),
+but explicitly left OCRmyPDF's **PDF→searchable-PDF** path unproven. Phase 27 closes exactly
+that gap on a synthetic, non-user-document fixture — the honest next step — without faking
+production quality.
+
+- **Deterministic searchable-PDF proof** (`scripts/worker-ocrmypdf-proof.sh`, `pnpm
+  worker:ocrmypdf-proof`): Ghostscript's `pdfimage` device renders a fixed sentinel into an
+  **image-only PDF** (each page a raster — no text layer). `pdftotext` confirms the source
+  yields **no** selectable sentinel text; the packaged **OCRmyPDF** is invoked by a **fixed
+  argv** (the same option shape the native runner uses — `--language eng --output-type pdf
+  --sidecar … --quiet in out`, no shell, worker-owned temp paths only) to add a text layer;
+  and the **same** `pdftotext` then extracts the sentinel from the **output** PDF — proving
+  image-only became genuinely **searchable**. Because the same tool extracts nothing from the
+  input and the sentinel from the output, the hit is real OCR, not a structural fluke; the
+  OCRmyPDF sidecar corroborates. Presence-only, content-free output (never a temp path,
+  filename, or recognized text); temp dir always removed (EXIT trap); no
+  cloud/secret/queue/store/scanner. It runs in the container workflow **after**
+  `worker:ocr-proof`; its full plumbing — prerequisite-missing exit `2` (Ghostscript,
+  OCRmyPDF, **or** `pdftotext`), each enforced check's exit `3`, and cleanup — is proven
+  Docker-free with stub `gs`/`ocrmypdf`/`pdftotext` in `worker-ocrmypdf-proof.test.ts`.
+- **Proof-only tooling, split-preserving** (`Dockerfile`): `pdftotext` (`poppler-utils`) is
+  added to the **worker image only**, purely as proof tooling — it is **not** on the OCR
+  runtime path. The `web` image ships none of the engines *or* `pdftotext`; the split is
+  pinned by `artifacts.test.ts` and proven at the image level in the container workflow
+  (`command -v pdftotext` succeeds in the worker image, fails in the web image).
+- **Metadata fidelity** (`src/lib/workers/ocr-native.ts`): the native runner now derives the
+  result metadata's produced-kind flags and page/character counts from the artifacts it
+  **actually returns** — the searchable-PDF page count is measured from the produced PDF's
+  bytes (never the input scan), and the sidecar character count from the produced sidecar —
+  so the counts can never drift from the output, and a missing/invalid searchable PDF still
+  fabricates nothing (the runner throws, no metadata). Asserted in `ocr-native.test.ts`.
+
+⏳ Still out-of-band (deliberately not faked): production OCR **quality**, **non-English**
+language packs, and real **user-document**/traffic validation on a running worker. The proof
+establishes the packaged OCRmyPDF *path* works end-to-end on a generated fixture — not that
+any real document OCRs well.
 
 ## Definition of production-ready per tool
 

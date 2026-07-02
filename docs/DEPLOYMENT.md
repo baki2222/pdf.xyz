@@ -296,7 +296,10 @@ it must be *driven*. Before enabling remote processing:
   completed `ocr-pdf` job's status (`GET /api/jobs/:id`) includes `results.ocr` —
   structural, content-free metadata (engine family from the closed set
   `ocrmypdf`/`tesseract`/`unknown`, validated languages, output kind, page count,
-  sidecar character count). It never carries recognized text, a filename, object key,
+  sidecar character count). As of Phase 27 those produced-kind flags and page/character
+  counts are derived from the artifacts **actually produced** — the searchable-PDF page
+  count is measured from the produced PDF's bytes, never the input — so a missing or
+  invalid output fabricates nothing. It never carries recognized text, a filename, object key,
   signed URL, or path; it is written only on a genuinely completed job and dropped when
   the outputs are deleted. Nothing new to configure — it rides the existing job record;
   the recognized text itself remains download-only in the artifact. If you proxy or log
@@ -386,6 +389,7 @@ separate, sandboxed process you build and run yourself. The artifacts:
 | `scripts/worker-image-smoke.sh` (`pnpm worker:image-smoke`) | Image-level native-engine + OCR presence/readiness smoke; runs inside the built worker image. |
 | `scripts/worker-engines.sh` (`pnpm worker:engines`) | Node-free `command -v` engine preflight (`0` ok / `1` usage / `3` a required engine missing); honors the opt-in require-flags. Runs in or out of the image. |
 | `scripts/worker-ocr-proof.sh` (`pnpm worker:ocr-proof`) | Deterministic OCR **recognition** proof on a synthetic fixture (Phase 25): gs renders a sentinel raster, Tesseract OCRs it, the sidecar must contain the sentinel. `0` pass / `2` engine missing / `3` proof failed. Presence-only, content-free, self-cleaning; runs inside the built worker image. |
+| `scripts/worker-ocrmypdf-proof.sh` (`pnpm worker:ocrmypdf-proof`) | Deterministic OCRmyPDF **searchable-PDF** proof on a synthetic fixture (Phase 27): gs's `pdfimage` device builds an **image-only** PDF, `pdftotext` confirms the source has no selectable text, OCRmyPDF adds a text layer, and the same `pdftotext` confirms the **output** yields the sentinel (image-only → searchable) with the sidecar corroborating. `0` pass / `2` tool missing (gs/ocrmypdf/pdftotext) / `3` proof failed. Presence-only, content-free, self-cleaning; runs inside the built worker image. |
 
 ### Build the two images separately
 
@@ -405,8 +409,11 @@ docker build --target web    -t pdfxyz-web:local .        # Next.js site only
   because `--no-install-recommends` would otherwise skip the language pack). Tesseract
   is the guaranteed baseline (image → searchable PDF/text); OCRmyPDF is the PDF-first
   engine that adds a text layer to a scanned PDF (it wraps Tesseract + Ghostscript).
-  Lossless structural repack needs none of them, and the `web` stage installs no
-  engines by design.
+  The same apt layer also installs **`poppler-utils`** (which provides `pdftotext`) as
+  **proof-only** tooling — used solely by the Phase 27 searchable-PDF proof to confirm
+  the OUTPUT is selectable, and **not** on the OCR runtime path. Lossless structural
+  repack needs none of them, and the `web` stage installs no engines — nor `pdftotext` —
+  by design.
 - **The daemon needs no build.** It runs `scripts/worker-daemon.ts` via `tsx`, so
   the worker image copies `src/`, `scripts/`, `tsconfig.json`, and `node_modules`
   (which includes `tsx`) — but not the web build.
@@ -592,10 +599,14 @@ infrastructure.
   `PDFXYZ_WORKER_REQUIRE_OCR` / `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE` — which must pass
   precisely because the image ships the engines), and — after presence is established —
   the deterministic OCR **recognition** proof (`pnpm worker:ocr-proof`, Phase 25), which
-  OCRs a generated sentinel raster and verifies the sentinel is recognized (no user
-  document, no cloud, no secret). It proves the
+  OCRs a generated sentinel raster and verifies the sentinel is recognized, and then the
+  OCRmyPDF **searchable-PDF** proof (`pnpm worker:ocrmypdf-proof`, Phase 27), which turns a
+  generated **image-only** PDF into a genuinely **searchable** one and verifies `pdftotext`
+  extracts the sentinel from the OUTPUT but not the source (no user document, no cloud, no
+  secret). It proves the
   web ↔ worker split at the image level — asserting the worker image ships
-  `gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf` and the web image ships none. It builds
+  `gs`/`qpdf`/`mutool`/`tesseract`/`ocrmypdf` (and the proof-only `pdftotext`) and the web
+  image ships none. It builds
   with `push: false` — images are validated, never published — so the workflow needs
   **no** secret.
 - **Docker-free gate** — the JS CI job ([`ci.yml`](../.github/workflows/ci.yml)) now

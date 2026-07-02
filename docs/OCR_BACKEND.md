@@ -169,17 +169,40 @@ inside the freshly built image with nothing wired and processing no document:
   runs in the container workflow *after* `worker:engines`. Its whole plumbing — the
   prerequisite-missing exit `2`, the enforced-sentinel exit `3`, and the temp cleanup — is
   proven Docker-free with stub engines in `src/deploy/worker-ocr-proof.test.ts`.
+- **`pnpm worker:ocrmypdf-proof`** (Phase 27) — the deterministic **searchable-PDF** proof:
+  the PDF→PDF counterpart of the recognition proof above. It renders the fixed sentinel into
+  an **image-only PDF** with Ghostscript's `pdfimage` device (each page a raster — **no**
+  text layer), confirms with `pdftotext` that the source PDF yields **no** selectable
+  sentinel text, runs the packaged **OCRmyPDF** over it by fixed argv (the same option shape
+  the native runner uses — `--language eng --output-type pdf --sidecar … --quiet in out`),
+  and then confirms with the **same** `pdftotext` that the **output** PDF now yields the
+  sentinel — proving OCRmyPDF added a real, selectable text layer (image-only → searchable).
+  The OCRmyPDF sidecar corroborates recognition. Because the same tool extracts nothing from
+  the input and the sentinel from the output, the hit is genuine OCR, not a structural fluke.
+  Same envelope as the recognition proof: **no** user document, cloud, secret, queue, store,
+  or scanner; presence-only, content-free output (never a temp path, filename, or recognized
+  text); temp dir always removed. It runs in the container workflow *after* `worker:ocr-proof`.
+  Its whole plumbing — prerequisite-missing exit `2` (Ghostscript, OCRmyPDF, **or**
+  `pdftotext`), each enforced check's exit `3`, and the temp cleanup — is proven Docker-free
+  with stub `gs`/`ocrmypdf`/`pdftotext` in `src/deploy/worker-ocrmypdf-proof.test.ts`.
+
+`pdftotext` comes from **`poppler-utils`**, installed in the **worker image only** and
+purely as **proof tooling** — it is not on the OCR runtime path. The web image ships none of
+the engines *or* `pdftotext`; the split is pinned by `src/deploy/artifacts.test.ts` and
+proven at the image level in the container workflow (`command -v pdftotext` succeeds in the
+worker image, fails in the web image).
 
 Docker is not available in this repository's environment, so the images are **not** built
 here; these smokes run on GitHub Actions, and the Dockerfile/CI invariants are pinned
 by `src/deploy/artifacts.test.ts` and `src/deploy/ci-workflow.test.ts`.
 
-**What the synthetic proof does and does not establish.** It proves the packaged Tesseract
-baseline can turn a generated raster of known text into a searchable PDF + text sidecar and
-recognize the expected sentinel — a genuine, deterministic recognition path on a
-non-user-document fixture. It does **not** prove production OCR *quality*, OCRmyPDF's
-PDF→searchable-PDF path, any non-English language pack, or anything about real user
-documents/traffic. Those remain out-of-band validation on a running worker.
+**What the synthetic proofs do and do not establish.** Together they prove the packaged OCR
+stack works end-to-end on generated, non-user-document fixtures: the Tesseract baseline
+recognizes a raster of known text (`worker:ocr-proof`), **and** OCRmyPDF turns an image-only
+PDF into a structurally valid, genuinely **searchable** PDF + sidecar (`worker:ocrmypdf-proof`,
+Phase 27). They do **not** prove production OCR *quality*, any **non-English** language pack
+(English-only ships), or anything about real **user** documents/traffic. Those remain
+out-of-band validation on a running worker.
 
 ## Security envelope
 
@@ -260,6 +283,17 @@ The honesty rules the builder enforces:
 Metadata rides on the processor's success result (the same seam compression uses). It is
 safe to log, persist, or return; **Phase 26 threads it through to the client** (below).
 
+**Fidelity for searchable-PDF outputs (Phase 27).** The native runner now derives the
+produced-kind flags and the counts from the artifacts it *actually returns* — the
+searchable-PDF `pageCount` is measured from the produced searchable-PDF artifact's bytes
+(never the input, never a parallel bookkeeping variable), and `textCharacters` from the
+produced sidecar's bytes. `producedSearchablePdf` / `producedTextSidecar` therefore cannot
+drift from the artifacts a job hands back, and a missing or invalid searchable-PDF output
+still *throws* (no artifact, no fabricated metadata) rather than reporting a page count for
+a PDF that was never produced. This is locked by `ocr-native.test.ts` (searchable-pdf and
+both modes; the page count is asserted to come from the produced PDF, not the input scan;
+no recognized text survives `JSON.stringify(meta)`; a failed run yields no metadata).
+
 ## Client-visible OCR metadata (Phase 26)
 
 A completed OCR job now carries its safe metadata on the **job record itself**, so the
@@ -319,17 +353,21 @@ native runner → OcrResultMeta                     (measured from the actual ru
 
 ## Caveats & roadmap
 
-- **Synthetic recognition is proven; production quality is not.** Phase 25 adds a
-  deterministic recognition proof (`worker:ocr-proof`, run in the container workflow inside
-  the built image) that turns a generated raster of a known sentinel into a searchable PDF +
-  sidecar and verifies the sentinel is recognized — genuine OCR on a non-user-document
-  fixture. This repository's own environment has **no Docker daemon and no engine
-  installed**, so that proof runs on GitHub Actions, and the native runner is *also* proven
-  here via injected fakes (deterministic runner + injected `exec`/`fs`/PATH/`countPages`
-  seams) — every argv, temp-lifecycle, bound, failure, metadata, and cleanup branch
-  unit-tested without a binary. What none of this establishes: production OCR **quality**,
-  OCRmyPDF's PDF→searchable-PDF path, non-English language packs, or real user
-  documents/traffic. Those remain out-of-band validation on a running worker.
+- **Synthetic recognition AND the searchable-PDF path are proven; production quality is
+  not.** Phase 25 added a deterministic **recognition** proof (`worker:ocr-proof`) that turns
+  a generated raster of a known sentinel into a searchable PDF + sidecar and verifies the
+  sentinel is recognized. Phase 27 adds the **searchable-PDF** proof (`worker:ocrmypdf-proof`):
+  it renders the sentinel into an **image-only PDF** (Ghostscript `pdfimage`), confirms with
+  `pdftotext` that the source yields no selectable text, runs **OCRmyPDF** to add a text
+  layer, and confirms with the same `pdftotext` that the **output** PDF now yields the
+  sentinel — proving image-only → genuinely searchable end-to-end. Both run in the container
+  workflow inside the built image. This repository's own environment has **no Docker daemon
+  and no engine installed**, so those proofs run on GitHub Actions, and the native runner is
+  *also* proven here via injected fakes (deterministic runner + injected
+  `exec`/`fs`/PATH/`countPages` seams) — every argv, temp-lifecycle, bound, failure,
+  metadata, and cleanup branch unit-tested without a binary. What none of this establishes:
+  production OCR **quality**, **non-English** language packs (English-only ships), or real
+  **user** documents/traffic. Those remain out-of-band validation on a running worker.
 - **Result metadata is now surfaced to clients (Phase 26).** The native runner measures a
   bounded `OcrResultMeta`, and it is threaded end-to-end onto the completed job record
   (`Job.results.ocr`) and returned by `GET /api/jobs/{id}`, re-bounded at the persistence
@@ -342,5 +380,5 @@ native runner → OcrResultMeta                     (measured from the actual ru
   compression engine's) for precise `not_implemented` / `payload_too_large` /
   `unprocessable_entity` classification.
 - **Determinism.** OCRmyPDF embeds timestamps, so native output is not byte-stable;
-  only the injected fake runner used in tests and the synthetic proof's structural/sentinel
-  checks are deterministic.
+  only the injected fake runner used in tests and the synthetic proofs' structural /
+  sentinel / searchability checks are deterministic.
