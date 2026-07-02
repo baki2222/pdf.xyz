@@ -40,9 +40,13 @@ preview, and production.
   runs without any.
 - **Secure-worker storage (optional, Phase 14):** object storage can be wired
   independently of the queue/processor by setting server-only S3-compatible
-  variables in Vercel. This enables real signed upload/download URL minting, but
-  jobs still remain honest/not-runnable until the queue and worker service are
-  also implemented.
+  variables in Vercel. This enables real signed upload/download URL minting.
+- **Secure-worker queue (optional, Phase 15):** the job queue can be wired
+  independently of storage/processor by setting server-only Redis/Upstash REST
+  variables. This enables real queue-backed job creation, status, cancel/expire,
+  and idempotency. **A configured queue accepts jobs but nothing runs them until a
+  worker daemon is deployed** — a created job stays `queued`, and the status
+  endpoint says so. Never claim remote processing is live on this basis alone.
 - **When remaining secure workers / AI land:** add their keys in
   **Vercel → Project → Settings → Environment Variables**, scoped to the right
   environment (Production / Preview / Development). Server-only secrets must
@@ -82,6 +86,30 @@ Storage readiness is presence-only in `/api/worker/status`: it can say S3 storag
 is ready, but never names bucket, endpoint, region, prefix, variable names, or
 credential values. Queue and processor readiness remain separate; do not enable
 remote processing claims until a real broker and worker service are deployed.
+
+### Optional: Redis/Upstash-compatible secure-worker queue
+
+Set these only in server-side environments. Do **not** use `NEXT_PUBLIC_`.
+`PDFXYZ_QUEUE_PROVIDER=redis` (or `upstash-redis`) is the explicit selector;
+without it the app falls back to the safe disabled/remote-unimplemented queue
+provider. Works with Upstash Redis REST and any compatible HTTP Redis gateway.
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `PDFXYZ_QUEUE_PROVIDER` | Yes | Set to `redis` (or `upstash-redis`) to enable this provider. |
+| `PDFXYZ_REDIS_REST_URL` | Yes | REST endpoint origin only, e.g. `https://<db>.upstash.io`; no path/query/credentials. |
+| `PDFXYZ_REDIS_REST_TOKEN` | Yes | Server-side REST bearer token; sent only as an `Authorization` header, never logged, serialized, or returned. |
+| `PDFXYZ_QUEUE_KEY_PREFIX` | Optional | Sanitized key namespace (default `pdfxyz`); no traversal or spaces. |
+| `PDFXYZ_QUEUE_LEASE_SECONDS` | Optional | Lease-duration ceiling; default 300, must be 5–3600. |
+| `PDFXYZ_QUEUE_MAX_ATTEMPTS` | Optional | Dead-letter cap on delivery attempts; default 5, must be 1–20. |
+| `PDFXYZ_QUEUE_JOB_TTL_SECONDS` | Optional | Retention TTL applied to every broker key; default 86400, must be 300–604800. |
+
+Queue readiness is presence-only in `/api/worker/status`: it can say the queue is
+ready and configured, but never names the endpoint, token, prefix, variable names,
+or key names. **Enabling the queue does not enable processing** — with no worker
+daemon deployed, `POST /api/jobs` (when storage is also ready) records a `queued`
+job and returns `202`, and it stays queued. Deploy a worker that runs the
+executor's `drain()` loop before advertising that jobs complete.
 
 ### Optional: client telemetry toggles (off by default)
 
@@ -190,6 +218,30 @@ server-side S3 variables are valid. Before using it for production traffic:
   endpoint, region, key id, prefix, variable names, or secret values.
 - Remember this is **storage only**: jobs still require a real queue adapter and a
   separate sandboxed worker process before remote processing can be enabled.
+
+## Phase 15 Redis/Upstash queue checklist
+
+Phase 15 ships a real Redis/Upstash-compatible **queue** provider behind the Phase
+12 queue contract. It records real `queued` jobs and serves status/cancel/expire/
+idempotency (plus the worker-claim surface) when `PDFXYZ_QUEUE_PROVIDER=redis` plus
+the required REST variables are valid. Before using it for production traffic:
+
+- Provision a private Redis/Upstash database with REST enabled; use a token scoped
+  to that database only. Prefer a per-environment database (or a distinct
+  `PDFXYZ_QUEUE_KEY_PREFIX`) so preview and production never share job state.
+- Enable in-transit encryption (Upstash REST is HTTPS) and encryption at rest.
+- Set `PDFXYZ_QUEUE_JOB_TTL_SECONDS` so every key auto-expires comfortably past the
+  retention window — it is the backstop that keeps no job state around forever.
+- Tune `PDFXYZ_QUEUE_LEASE_SECONDS` (lease ceiling) above the worst-case job slice
+  and `PDFXYZ_QUEUE_MAX_ATTEMPTS` so only genuinely transient failures retry before
+  a job is dead-lettered.
+- Confirm `/api/worker/status` reports the queue ready/configured without exposing
+  the endpoint, token, prefix, variable names, or key names.
+- **This is the queue only.** With no worker daemon deployed, a created job stays
+  `queued` forever (until its TTL) and nothing is processed. Do **not** tell users
+  jobs complete until the Phase 13 executor is deployed as a separate worker (next
+  section) draining this queue. Enable storage *and* queue together, then the
+  worker, before advertising end-to-end processing.
 
 ## Phase 13 worker executor checklist
 

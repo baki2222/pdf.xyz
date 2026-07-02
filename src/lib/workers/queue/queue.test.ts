@@ -140,5 +140,11 @@ describe("mapQueueFailure", () => {
       status: 409,
       body: { error: { code: "conflict" } },
     });
+    // A transient broker outage maps to 500 (retryable), never a not-configured
+    // stub — mirrors the storage provider's `unavailable` mapping.
+    expect(mapQueueFailure({ reason: "unavailable", message: "" })).toMatchObject({
+      status: 500,
+      body: { error: { code: "internal_error" } },
+    });
   });
 });

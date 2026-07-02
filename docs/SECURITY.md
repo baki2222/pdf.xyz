@@ -158,6 +158,19 @@ signatures; those values are never logged, serialized, returned in status, or
 placed in client code. `/api/worker/status` reports only presence/capability, not
 bucket, endpoint, region, key id, prefix, variable names, or secrets.
 
+**The Redis/Upstash queue provider (Phase 15) follows the identical posture.** Its
+REST token is read only inside the provider/client closure and sent solely as an
+`Authorization: Bearer` header — never placed in a URL, a thrown error, a log line,
+a returned value, or client code. Config parse errors and `/api/worker/status` name
+no endpoint, token, prefix, variable, or key. Two queue-specific rules matter for
+security: (1) the client idempotency key is user-supplied, so it is **SHA-256
+hashed** before it is used as a Redis key component — the raw value never becomes a
+broker key name; (2) job ids, and therefore every Redis key, are derived only from
+**server-minted opaque ids** — no client ever supplies a Redis key, stream name, or
+broker id. Commands are sent as JSON argument arrays (not string-interpolated RESP),
+so a value can never be interpreted as a command. A broker outage surfaces as a
+typed `unavailable` (HTTP 500, retryable), never a fabricated job or status.
+
 ## HTTP security headers
 
 Set for every response in [`next.config.mjs`](../next.config.mjs) and asserted by
@@ -208,4 +221,4 @@ business days and will coordinate a fix and disclosure timeline with you.
 
 ## Worker provider security rules
 
-Storage and queue providers must not accept user-supplied filesystem paths or object keys. Route handlers work only with opaque ids minted by the backend; providers map those ids to private bucket keys internally. The Phase 14 S3 provider signs keys derived from `inputs/<fileId>` and `artifacts/<artifactId>` plus an optional sanitized prefix — never from filenames — rejects oversized reservations before signing, and treats malformed artifact ids as unavailable/already-gone instead of signing arbitrary paths. Signed URLs must expire, buckets must deny public listing, and `DELETE /api/jobs/:id` must cancel queued/running work or expire completed artifacts without logging file names, file contents, raw URLs, or object keys.
+Storage and queue providers must not accept user-supplied filesystem paths, object keys, Redis keys, stream names, or broker ids. Route handlers work only with opaque ids minted by the backend; providers map those ids to private bucket or broker keys internally. The Phase 14 S3 provider signs keys derived from `inputs/<fileId>` and `artifacts/<artifactId>` plus an optional sanitized prefix — never from filenames — rejects oversized reservations before signing, and treats malformed artifact ids as unavailable/already-gone instead of signing arbitrary paths. The Phase 15 Redis/Upstash queue provider stores jobs under sanitized namespaces (`job`, `spec`, `lease`, `ready`, `active`, `idem`) and hashes idempotency keys before they become broker keys, so raw user-provided idempotency strings are never persisted as key names. Signed URLs and queue keys must expire, buckets must deny public listing, Redis/Upstash tokens must stay server-side only, and `DELETE /api/jobs/:id` must cancel queued/running work or expire completed artifacts without logging file names, file contents, raw URLs, object keys, Redis keys, queue payloads, or credentials.

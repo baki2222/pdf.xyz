@@ -3,14 +3,23 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { WORKER_MODE_ENV } from "@/lib/workers";
 import { S3_ENV } from "@/lib/workers/storage/s3-config";
+import { REDIS_QUEUE_ENV } from "@/lib/workers/queue/redis-config";
 import { GET } from "./route";
 
 const s3Vars = Object.values(S3_ENV);
+const redisVars = Object.values(REDIS_QUEUE_ENV);
 
 function clearEnv() {
   for (const name of REQUIRED_WORKER_ENV) delete process.env[name];
   for (const name of s3Vars) delete process.env[name];
+  for (const name of redisVars) delete process.env[name];
   delete process.env[WORKER_MODE_ENV];
+}
+
+function configureRedis() {
+  process.env[REDIS_QUEUE_ENV.provider] = "redis";
+  process.env[REDIS_QUEUE_ENV.restUrl] = "https://us1-example-12345.upstash.io";
+  process.env[REDIS_QUEUE_ENV.restToken] = "AX_tokenEXAMPLEvalue000000000000000000000";
 }
 
 function configureS3() {
@@ -76,6 +85,31 @@ describe("GET /api/worker/status", () => {
       "us-east-1",
       "AKIAEXAMPLE0000000",
       "s3cr3t",
+      "PDFXYZ_",
+    ]) {
+      expect(serialized).not.toContain(leak);
+    }
+  });
+
+  it("reports the queue ready — presence-only — when Redis is configured", async () => {
+    configureRedis();
+    const res = await GET();
+    const body = await res.json();
+    // The queue reports ready and configured, independently of storage/processor.
+    expect(body.providers.queue.ready).toBe(true);
+    expect(body.providers.queue.configured).toBe(true);
+    expect(body.providers.queue.provider).toBe("redis");
+    expect(body.providers.storage.ready).toBe(false);
+    // The processor stays honestly not-ready, and now says jobs will queue but
+    // not run until a worker is deployed.
+    expect(body.providers.processor.ready).toBe(false);
+    expect(body.providers.processor.executor.ready).toBe(false);
+    // Never leaks the endpoint, token, prefix, or any variable name.
+    const serialized = JSON.stringify(body);
+    for (const leak of [
+      "upstash.io",
+      "us1-example-12345",
+      "AX_token",
       "PDFXYZ_",
     ]) {
       expect(serialized).not.toContain(leak);

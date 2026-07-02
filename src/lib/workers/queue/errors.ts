@@ -30,6 +30,12 @@ export function mapQueueFailure(failure: QueueFailure): ApiResult<ApiError> {
       // delete-now orchestration resolves these to idempotent no-ops, so a route
       // reaches this only via a direct queue op; the mapping stays correct (409).
       return apiError("conflict", failure.message, failure.details);
+    case "unavailable":
+      // The broker was reached but errored, or could not be reached — an
+      // unexpected, typically transient condition (never a not-configured stub).
+      // 500 so a caller can retry rather than treat the job as gone. Mirrors the
+      // storage provider's `unavailable` mapping exactly.
+      return apiError("internal_error", failure.message, failure.details);
     default: {
       // Exhaustiveness guard: a new reason must add a branch above.
       const _never: never = failure.reason;

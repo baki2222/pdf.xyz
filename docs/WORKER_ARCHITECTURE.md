@@ -26,7 +26,9 @@ Phase 6 added the **contract layer** for those workers. Phase 7 adds the first r
 | Processor registry + contract | Implemented in `src/lib/workers/processor/` |
 | Worker executor loop (claim → process → complete) | Implemented in `src/lib/workers/executor/` |
 | Queue claim/lease/heartbeat (`ClaimableQueue`) | Implemented in `src/lib/workers/queue/` |
-| Production storage/queue/processor adapters | Planned, not enabled |
+| S3/R2-compatible storage provider (production) | Implemented in `src/lib/workers/storage/s3*.ts` (opt-in via `PDFXYZ_STORAGE_PROVIDER=s3`) |
+| Redis/Upstash queue provider (production) | Implemented in `src/lib/workers/queue/redis*.ts` (opt-in via `PDFXYZ_QUEUE_PROVIDER=redis`) |
+| Worker daemon that drains the queue (processor) | Planned, not enabled |
 
 The API route handlers stay thin: they validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then **delegate to the worker adapter** selected for the current environment. By default the adapter answers honestly that no backend is configured; nothing is ever faked.
 
@@ -101,8 +103,8 @@ worker adapter:
 | Provider | Interface | Responsibility | Current production behavior |
 | --- | --- | --- | --- |
 | Object storage | `src/lib/workers/storage/` | signed upload slots, signed artifact downloads, delete-now receipts, retention metadata | **S3/R2-compatible provider shipped** when explicitly configured; disabled/remote-unimplemented otherwise returns typed failure |
-| Queue | `src/lib/workers/queue/` | enqueue, idempotency, status, cancel, expire, job state transitions | disabled/remote-unimplemented returns typed failure |
-| Processor | `src/lib/workers/processor/` + `executor/` | processor registry + the execution loop that claims a job, reads inputs, dispatches a processor, and drives status | local-dev in-process + a unit-tested executor foundation; production adapters not shipped |
+| Queue | `src/lib/workers/queue/` | enqueue, idempotency, status, cancel, expire, job state transitions, claim/lease/heartbeat | **Redis/Upstash-compatible provider shipped** when explicitly configured; disabled/remote-unimplemented otherwise returns typed failure |
+| Processor | `src/lib/workers/processor/` + `executor/` | processor registry + the execution loop that claims a job, reads inputs, dispatches a processor, and drives status | local-dev in-process + a unit-tested executor foundation; **no production worker daemon shipped** (a configured queue accepts jobs that stay `queued` until one is deployed) |
 
 No client supplies object keys or filesystem paths. Opaque ids (`f_…`, `job_…`,
 `art_…`) are minted server-side; production providers must map them to private
@@ -141,7 +143,60 @@ Security properties of the provider:
 - `deleteNow` executes a short-lived signed DELETE server-side and treats 404 as
   idempotent success.
 - A configured S3 provider makes **storage** ready in `/api/worker/status`, while
-  queue and processor still remain not ready until their real adapters are wired.
+  queue and processor readiness are decided independently.
+
+## Redis/Upstash queue provider (Phase 15)
+
+Phase 15 makes the **job-queue** provider production-real without claiming a
+worker daemon is live. When `PDFXYZ_QUEUE_PROVIDER=redis` (or the alias
+`upstash-redis`) and the required REST variables are well-formed, the
+non-local-dev adapter records **real, server-minted `queued` jobs** in a shared
+Redis broker over its HTTP REST API (Upstash Redis REST and compatible gateways),
+via `src/lib/workers/queue/redis.ts` + `redis-client.ts`. Job state, idempotency
+records, leases, attempts, and cancellation all live in Redis, so they survive a
+process restart and are visible across replicas — the two things the in-process
+dev queue can never offer.
+
+Required server-side variables (never `NEXT_PUBLIC_`): `PDFXYZ_REDIS_REST_URL`
+and `PDFXYZ_REDIS_REST_TOKEN`. Optional, all bounded: `PDFXYZ_QUEUE_KEY_PREFIX`
+(default `pdfxyz`), `PDFXYZ_QUEUE_LEASE_SECONDS` (lease ceiling, default 300, 5–3600),
+`PDFXYZ_QUEUE_MAX_ATTEMPTS` (dead-letter cap, default 5, 1–20), and
+`PDFXYZ_QUEUE_JOB_TTL_SECONDS` (per-key retention TTL, default 86400, 300–604800).
+The parser validates presence/shape only; errors and status details name no values,
+and the client-facing capability names no endpoint, token, prefix, key, or variable.
+
+What the provider implements (the full `ClaimableQueue` contract):
+
+- **App-server operations** — `enqueue`/`submit` (server-minted opaque `job_…`
+  id only), `lookupIdempotent`, `status`, `cancel`, `expire`. Every op returns a
+  typed result: a missing job is a clean `not_found`, an illegal transition a
+  `conflict`, and a broker that errors or is unreachable a typed `unavailable`
+  (mapped to `500`, retryable) — never a fabricated job or status.
+- **Worker-claim operations** — `claim` (atomic dequeue via `RPOP` of the FIFO
+  ready list, plus a redelivery sweep of the ZSET of leased jobs whose atomic
+  `ZREM` elects a single winner), `heartbeat`, `advance`, `complete`, `fail`
+  (terminal or requeue), with per-job leases, an attempt counter, and a hard
+  dead-letter cap so a job that keeps timing out cannot be redelivered forever.
+
+Data model, all keys under the sanitized prefix: `…:job:{id}`, `…:spec:{id}`
+(executor-facing inputs+options, never exposed to a client), `…:lease:{id}`,
+`…:idem:{sha256}` (the client idempotency key is **hashed**, so the raw value never
+becomes a broker key), `…:ready` (LIST), `…:active` (ZSET). No client ever supplies
+a Redis key, stream name, or broker id.
+
+**Honest limits — what Phase 15 does NOT do.** This build ships **no worker daemon**
+that drains the queue. So when a queue is configured, `POST /api/jobs` records a
+**`queued`** job (only when storage is *also* ready, since inputs live in object
+storage) and returns `202 Accepted` — and that job stays `queued` until a worker is
+deployed to run `drain()`. `getJob` honestly returns `queued`; nothing is ever
+reported `completed` unless a real processor wrote artifacts. `/api/worker/status`
+says so: with a queue configured but no worker, `providers.queue.ready` is `true`
+while `providers.processor.ready` is `false` and its detail states jobs will queue
+but not run yet. Concurrency is correct-by-atomic-primitive (RPOP/ZREM), but the
+read→write window on state transitions is last-writer-wins guarded by the state
+machine; a production hardening step would move those to a Lua/`WATCH` critical
+section. See DEPLOYMENT.md for how to configure it and OBSERVABILITY.md for what to
+watch.
 
 ## Processor registry & worker executor (Phase 13)
 
@@ -296,7 +351,7 @@ The honest delete-now / cancel control — the user's "stop and delete my data" 
 
 ### `GET /api/worker/status`
 
-Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail }, providers: { storage, queue, processor } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only, and each `providers` entry reports only its `ready`/`configured` readiness plus a client-safe `detail` (never a bucket, queue, key, path, or variable name). The `providers.processor` entry additionally carries `executor: { mode, ready, detail }` (Phase 13) — a presence-only view of the execution loop (`in-process` / `not-implemented` / `none`), never naming a broker or worker URL. Since Phase 14, storage readiness may report `provider: "s3"` and `ready: true` when S3-compatible storage is fully configured; queue/processor still remain mode-derived and not ready until real adapters are wired. The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`. `no-store`; reflects live host state. See "Discovering worker availability from the client" and "Provider seams" above.
+Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail }, providers: { storage, queue, processor } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only, and each `providers` entry reports only its `ready`/`configured` readiness plus a client-safe `detail` (never a bucket, queue, key, path, or variable name). The `providers.processor` entry additionally carries `executor: { mode, ready, detail }` (Phase 13) — a presence-only view of the execution loop (`in-process` / `not-implemented` / `none`), never naming a broker or worker URL. Since Phase 14, storage readiness may report `provider: "s3"` and `ready: true` when S3-compatible storage is fully configured; since Phase 15, queue readiness may likewise report `provider: "redis"`, `ready: true`, `configured: true` when a Redis/Upstash broker is fully configured — independently of storage. The processor stays honestly not ready (no worker daemon ships); when a queue is configured its `detail`/`executor` state that jobs are accepted but stay queued until a worker is deployed. The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`. `no-store`; reflects live host state. See "Discovering worker availability from the client" and "Provider seams" above.
 
 ### Local-dev transport (dev only)
 
@@ -451,4 +506,8 @@ A worker-backed tool is production-ready only when it has:
 
 **Phase 7 progress toward this:** the local-dev worker already covers upload-session creation, upload transport, job creation, status polling, output download, post-job input wipe + retention/expiry, a presence-only client capability probe, an honest Compress UI integration, and tests for validation + job states + transport routes + a real happy-path processor (lossless) end-to-end through the route handlers.
 
-**Phase 13 progress toward this:** the compute seam is now a typed **processor registry** and a real, unit-tested **executor loop** (claim → read inputs → dispatch processor → write artifacts → complete/fail), with a backward-compatible `ClaimableQueue` (claim/lease/heartbeat/redelivery) and a worker-side `ExecutorStorage` seam. It proves queue-backed job state progression (`queued → scanning → processing → completed/failed`), retryable-vs-terminal failure handling, cancellation while queued/running, and artifact cleanup on failure — deterministically, with no daemon in the app runtime. Remaining for production: real storage/queue/worker *adapters* behind these contracts (S3/R2/GCS, SQS/PubSub/Redis, a sandboxed worker process that runs `drain()` on an interval), signed URLs, lifecycle-enforced deletion, an explicit signed "delete now", malware scanning in the scan phase, and native `deep`/OCR runners behind the processor contract.
+**Phase 13 progress toward this:** the compute seam is now a typed **processor registry** and a real, unit-tested **executor loop** (claim → read inputs → dispatch processor → write artifacts → complete/fail), with a backward-compatible `ClaimableQueue` (claim/lease/heartbeat/redelivery) and a worker-side `ExecutorStorage` seam. It proves queue-backed job state progression (`queued → scanning → processing → completed/failed`), retryable-vs-terminal failure handling, cancellation while queued/running, and artifact cleanup on failure — deterministically, with no daemon in the app runtime.
+
+**Phase 14 progress toward this:** the **storage adapter** is now real — a configured S3/R2/MinIO backend mints genuine signed upload/download URLs and executes signed deletes (direct-to-storage upload + signed output download, two of the checklist items above).
+
+**Phase 15 progress toward this:** the **queue adapter** is now real — a configured Redis/Upstash broker gives genuine queue-backed job creation, status polling, cancel/expire, and idempotency, plus the worker-claim surface (claim/lease/heartbeat/retry/dead-letter) a daemon would call. Upload-session creation, direct-to-storage upload, queue-backed job creation, status polling, and signed output download are therefore all covered by shipped adapters. Remaining for production: a sandboxed **worker daemon** that actually runs `drain()` on an interval (nothing drains the queue yet, so a configured deployment holds jobs `queued`), lifecycle-enforced deletion policies on the bucket, malware scanning in the scan phase, native `deep`/OCR runners behind the processor contract, and a hardening pass to move the queue's read→write state transitions into a Lua/`WATCH` critical section.

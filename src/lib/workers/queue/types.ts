@@ -17,6 +17,7 @@ import type { FieldError, Job } from "@/lib/jobs";
 export type QueueProviderId =
   | "disabled" // no queue wired; every op is an honest not_configured
   | "remote-unimplemented" // queue configured but this build ships no client
+  | "redis" // configured Redis/Upstash-compatible REST broker (real job state)
   | "local-dev"; // developer-only in-process queue
 
 /**
@@ -27,7 +28,8 @@ export type QueueFailureReason =
   | "not_configured" // no queue provider in this environment
   | "not_implemented" // provider configured, but no client shipped in this build
   | "not_found" // no such job (or it expired out of the queue)
-  | "conflict"; // illegal state transition (e.g. cancel an already-done job)
+  | "conflict" // illegal state transition (e.g. cancel an already-done job)
+  | "unavailable"; // broker reached but errored, or was unreachable — transient
 
 export interface QueueFailure {
   reason: QueueFailureReason;

@@ -33,7 +33,7 @@ versus planned — no fake processing.
 | Secure-worker contract + adapter, presence-only status probe, honest Compress UI integration | ✅ Live |
 | Deep compression worker (Ghostscript/qpdf/mutool) — real, runnable via `PDFXYZ_WORKER_MODE=local-dev` | 🧪 Local-dev |
 | OCR foundation: options/capability contract, honest OCR tool page + `/status` row, browser job client (no processor yet) | ✅ Live (foundation) |
-| Storage + queue provider contracts: signed upload/download & delete-now storage seam, queue state machine (enqueue/status/cancel/expire), per-provider `/status` readiness, honest `DELETE /api/jobs/:id` | ✅ Live (foundation) |
+| Production storage + queue providers: S3/R2-compatible signed upload/download/delete storage, Redis/Upstash-compatible durable queue, per-provider `/status` readiness, honest `DELETE /api/jobs/:id` | ✅ Live (provider foundations) |
 | Secure-worker tools: Office ⇄ PDF, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign, + the OCR **processor** | 🔜 Planned (production) |
 | AI tools: chat, summarize, translate, extract | 🔜 Planned |
 

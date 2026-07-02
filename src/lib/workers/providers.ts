@@ -29,6 +29,7 @@ import {
   type StorageCapability,
 } from "./storage/types";
 import { createNotConfiguredQueue } from "./queue/not-configured";
+import { resolveQueueCapability } from "./queue/redis-config";
 import { LOCAL_DEV_QUEUE_CAPABILITY, type QueueCapability } from "./queue/types";
 
 /**
@@ -101,11 +102,30 @@ const EXECUTOR_READINESS: Record<WorkerMode, ExecutorReadiness> = {
 };
 
 /**
+ * The honest processor/executor readiness when a job queue IS wired but no worker
+ * ships in this build: jobs are accepted and stay queued until a worker is
+ * deployed to drain them. Names no broker, worker URL, or variable.
+ */
+const QUEUE_READY_NO_WORKER = {
+  processorDetail:
+    "A job queue is configured and accepts jobs, but no processor/worker is deployed to run them in this environment, so a job stays queued and nothing is processed yet.",
+  executor: {
+    mode: "not-implemented",
+    ready: false,
+    detail:
+      "A job queue is configured, but this build ships no worker to claim and run queued jobs, so a queued job stays queued until a worker is deployed.",
+  },
+} as const satisfies { processorDetail: string; executor: ExecutorReadiness };
+
+/**
  * Derive the client-facing readiness of all three providers from the resolved
- * mode and the environment. Storage readiness comes from its own config (S3/R2)
- * so it can be ready independently; queue/processor stay mode-derived. Pure and
- * deterministic; `env` is injectable for tests. The status route passes the
- * result straight into {@link buildWorkerStatus}.
+ * mode and the environment. Storage AND queue readiness each come from their own
+ * config (S3/R2 and Redis/Upstash respectively), so either can be ready
+ * independently of the other and of the processor. The processor/executor stays
+ * honestly not-ready — this build ships no worker daemon — but its detail becomes
+ * precise once a queue exists to accept jobs. Pure and deterministic; `env` is
+ * injectable for tests. The status route passes the result straight into
+ * {@link buildWorkerStatus}.
  */
 export function getProviderReadiness(
   mode: WorkerMode,
@@ -128,18 +148,22 @@ export function getProviderReadiness(
   }
 
   const id = mode === "remote-configured" ? "remote-unimplemented" : "disabled";
-  // S3 storage (if fully configured) is the real provider serving uploads on the
-  // production path; otherwise fall back to the honest not-configured capability.
+  // Storage and queue are each the real provider (S3/R2, Redis) when fully
+  // configured; otherwise each falls back to the honest not-configured capability.
   const storage =
     resolveStorageCapability(env) ?? createNotConfiguredStorage(id).capability();
+  const queue =
+    resolveQueueCapability(env) ?? createNotConfiguredQueue(id).capability();
+
   return {
     storage,
-    queue: createNotConfiguredQueue(id).capability(),
+    queue,
     processor: {
+      // Never ready: this build ships no processor pipeline in any non-dev mode.
       ready: false,
       configured: mode === "remote-configured",
-      detail: PROCESSOR_DETAIL[mode],
-      executor: EXECUTOR_READINESS[mode],
+      detail: queue.ready ? QUEUE_READY_NO_WORKER.processorDetail : PROCESSOR_DETAIL[mode],
+      executor: queue.ready ? QUEUE_READY_NO_WORKER.executor : EXECUTOR_READINESS[mode],
     },
   };
 }
