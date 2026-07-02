@@ -431,6 +431,34 @@ lifecycle-enforced bucket deletion and real malware scanning, native `deep`/OCR
 runners behind the processor contract, threading the original input filename through
 object metadata / the job spec, and the queue's Lua/`WATCH` hardening pass.
 
+### Phase 17 — native compression worker path, proven end-to-end (shipped)
+
+The compression worker path the earlier phases wired is now **proven** to complete real
+jobs out-of-band, without weakening any honesty boundary.
+
+- **End-to-end integration + daemon smoke proof**
+  (`src/lib/workers/daemon/native-compression.integration.test.ts`): a queued
+  `compress-pdf` job is driven through the real stack — `resolveWorkerRuntime` →
+  `createWorkerDaemon` (`--once`/`--drain`) → `createWorkerExecutor` → the compression
+  processor — reading and writing bytes through the **production** worker-side S3 seam
+  (`createS3ExecutorStorage`, over a stateful fake bucket). A job reaches `completed`
+  **only after** real artifact bytes were read, processed, and written back; `lossless`
+  always completes, `deep` completes through a deterministic injected native runner, and
+  `deep` with no engine writes no artifact and fails honestly (`not_implemented`).
+- **Compression-engine health, distinct from drainability**: `WorkerRuntime.compression`
+  (surfaced as the daemon's `compression_health` line) reports presence-only
+  `{ lossless: true, deep, engines }`, so an operator can smoke-test whether *this worker
+  image* will do deep compression (`pnpm worker:daemon --dry-run-status`) separately from
+  whether the queue + storage are drainable. Engines are named by binary name only.
+- **Still honest**: `deep` remains genuinely engine-dependent (install Ghostscript / qpdf
+  / mutool on the worker host); with none, only lossless runs. Worker outputs keep the
+  Phase 16 content-type-derived filename until it is threaded through. The in-browser
+  Compress analyzer is unchanged and never uploads.
+
+⏳ Remaining for production: **deploying** the daemon with a native engine in the worker
+image, lifecycle-enforced bucket deletion, malware scanning, the OCR runner, the original-
+filename threading, and the queue's Lua/`WATCH` hardening pass.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

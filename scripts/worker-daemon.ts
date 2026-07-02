@@ -53,6 +53,11 @@ function emit(line: Record<string, unknown>): void {
 /** Report presence-only readiness + processor capabilities. Content-free. */
 function reportReadiness(runtime: WorkerRuntime): void {
   emit({ src: "daemon", event: "readiness", ...runtime.readiness });
+  // The compression-engine health is distinct from daemon drainability: a worker
+  // can be drainable yet lossless-only. Surfacing `deep`/`engines` lets a deploy
+  // smoke-check whether THIS image will actually do deep compression. Content-free
+  // (booleans + engine binary names), so it ships to the log sink verbatim.
+  emit({ src: "daemon", event: "compression_health", ...runtime.compression });
   for (const cap of runtime.processors) {
     emit({
       src: "daemon",

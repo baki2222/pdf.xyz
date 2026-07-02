@@ -298,11 +298,32 @@ one process that actually drains the queue; the Next.js app never becomes it.
 - **It refuses to fake work.** With no drainable queue + storage the daemon exits `2`
   (not configured); a processor with no runner (OCR, or `deep` compression with no
   native engine) fails the job honestly (`not_implemented`) — it never fabricates a
-  completion. Only lossless compression completes today without extra engines.
+  completion. **Lossless compression always completes** (pure-JS repack, no extra
+  dependencies); **deep image compression completes only when a native engine is
+  installed on the worker host** (see the next bullet).
+- **Install a native engine for deep compression (Phase 17).** The daemon's
+  compression processor auto-detects **Ghostscript (`gs`), qpdf, or mutool** on the
+  worker's `PATH` and runs the first it finds — so the worker **container image** must
+  ship one for `deep` jobs to complete (e.g. `apt-get install -y ghostscript` in the
+  worker Dockerfile). Lossless needs nothing. Native compression can be tuned or hard-
+  disabled with the `PDFXYZ_NATIVE_COMPRESSION` / `PDFXYZ_COMPRESSION_*` server-side
+  variables (presence/shape only; never `NEXT_PUBLIC_`); see the compression-engine
+  config (`src/lib/workers/compression/native-config.ts`).
+- **Verify the deep engine with the health signal.** Alongside `readiness`, the daemon
+  emits a content-free `compression_health` line — `{ lossless: true, deep, engines }`.
+  This is **distinct from `drainable`**: a worker can be drainable yet lossless-only.
+  Smoke-test the image with `pnpm worker:daemon --dry-run-status` and confirm
+  `compression_health.deep` is `true` (and `engines` lists your installed engine)
+  before advertising deep compression.
+- **Known caveat — generic output filenames (unchanged from Phase 16).** The upload
+  contract does not persist the client's original filename, so worker outputs are
+  named from the content-type (a PDF input yields `document-compressed.pdf`). This is
+  cosmetic and honest; threading the original name through object metadata / the job
+  spec remains a follow-up.
 - **Logs are content-free.** The daemon prints structured JSON with a run mode, tick
-  counters, an opaque job id/attempt, and an error *code* only — never a filename,
-  byte count, object key, URL, option value, or secret. Ship stdout to your log sink
-  as-is.
+  counters, an opaque job id/attempt, an error *code*, and the presence-only
+  `compression_health` booleans/engine names only — never a filename, byte count,
+  object key, URL, option value, or secret. Ship stdout to your log sink as-is.
 - **Shut it down cleanly.** SIGINT/SIGTERM lets the in-flight tick finish and the
   loop exit; a second signal forces an immediate stop. Run several replicas safely —
   the broker's atomic claim (RPOP/ZREM) guarantees no two workers run the same job.

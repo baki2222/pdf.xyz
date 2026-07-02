@@ -30,6 +30,7 @@ Phase 6 added the **contract layer** for those workers. Phase 7 adds the first r
 | Redis/Upstash queue provider (production) | Implemented in `src/lib/workers/queue/redis*.ts` (opt-in via `PDFXYZ_QUEUE_PROVIDER=redis`) |
 | Worker-side S3/R2 executor storage (byte I/O) | Implemented in `src/lib/workers/executor/s3-storage.ts` |
 | Worker daemon runner (drains queue → executor → storage) | Implemented in `src/lib/workers/daemon/` + `scripts/worker-daemon.ts` (out-of-band; run via `pnpm worker:daemon`) |
+| Native/lossless compression worker path (daemon completes `compress-pdf`) | Proven end-to-end over the S3 seam in `src/lib/workers/daemon/native-compression.integration.test.ts` — lossless always; deep with a native engine — plus a `compression_health` readiness distinct from drainability (Phase 17) |
 
 The API route handlers stay thin: they validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then **delegate to the worker adapter** selected for the current environment. By default the adapter answers honestly that no backend is configured; nothing is ever faked.
 
@@ -241,6 +242,35 @@ daemon changes nothing there), and whether a daemon is actually deployed and run
 is **out-of-band** — `/api/worker/status` reports `daemon.drainable` (queue + storage
 configured, so a worker *could* drain here) but never claims a worker is live, which
 the app cannot observe.
+
+### Native/lossless compression, proven end-to-end (Phase 17)
+
+Phase 17 does not add new daemon machinery — it **proves** the one the earlier phases
+built and adds a health distinction. `resolveWorkerRuntime` already wires the Phase 13
+compression processor with a live native-engine probe (`nativeCompressionDeps()`), so a
+deployed daemon completes real `compress-pdf` jobs end-to-end:
+
+- **Lossless always completes** — a genuine pure-JS pdf-lib structural repack, no
+  native dependency.
+- **Deep completes when a native engine is installed** — the processor auto-detects
+  Ghostscript / qpdf / mutool on the worker's `PATH` and runs the first available; with
+  none installed, `deep` stays honestly `not_implemented` and only lossless runs.
+
+This is now covered by an **integration + daemon smoke test** that drives the real stack
+(`resolveWorkerRuntime` → `createWorkerDaemon` → `createWorkerExecutor` → compression
+processor) reading and writing bytes through the **production** worker-side S3 seam
+(`createS3ExecutorStorage`, over a stateful fake bucket), in both `--once` and `--drain`
+modes (`src/lib/workers/daemon/native-compression.integration.test.ts`). A job reaches
+`completed` **only after** real artifact bytes were read, processed, and written back to
+the bucket; a `deep` job with no engine writes no artifact and never completes.
+
+The daemon also reports a presence-only **compression-engine health**
+(`WorkerRuntime.compression` → the CLI's `compression_health` line): `{ lossless: true,
+deep, engines }`, **distinct from `daemon.drainable`**. Drainability is about queue +
+storage; this is about whether *this worker image* can do deep compression. An operator
+smoke-tests it with `pnpm worker:daemon --dry-run-status` (see DEPLOYMENT.md). The
+Phase 16 generic-filename caveat is unchanged — worker outputs use a content-type-derived
+name until a later phase threads the original filename through.
 
 ## Processor registry & worker executor (Phase 13)
 

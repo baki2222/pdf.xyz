@@ -237,3 +237,14 @@ canceled / idle / errors). Nothing in either layer carries a secret, byte, key, 
 or filename, so the daemon's stdout can be shipped verbatim to a log sink. The `WORKER_ARCHITECTURE.md`
 "Observability" plan (structured logs keyed by `jobId`, metrics, tracing per job)
 is exactly what these events feed.
+
+At startup (and on `--dry-run-status`) the daemon also emits a content-free
+`compression_health` readiness line — `{ lossless: true, deep, engines }` — **distinct
+from `readiness.drainable`** (Phase 17). Drainability answers "is a queue + storage
+wired so this worker can claim and complete jobs at all?"; `compression_health.deep`
+answers the orthogonal "will `deep` image compression actually run on THIS worker
+image, or only the always-available lossless repack?". A worker can be drainable yet
+lossless-only because no native engine is installed. `engines` lists the detected
+engines by **binary name only** (no path, version, or value), so an operator can alert
+on "drainable but `deep: false`" when deep compression is expected. It is as content-
+free as every other line and ships to the log sink as-is.

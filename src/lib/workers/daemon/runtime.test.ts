@@ -9,7 +9,7 @@ import { createLocalDevExecutorStorage } from "../executor/local-dev-storage";
 import type { ExecutorStorage } from "../executor/types";
 import { createProcessorRegistry } from "../processor";
 import { createWorkerDaemon } from "./daemon";
-import { resolveWorkerRuntime } from "./runtime";
+import { deriveCompressionHealth, resolveWorkerRuntime } from "./runtime";
 
 const noEngines = { tools: { ghostscript: false, qpdf: false, mutool: false } };
 
@@ -65,6 +65,63 @@ describe("resolveWorkerRuntime — gating", () => {
     );
     expect(runtime.executor).toBeDefined();
     expect(runtime.blocked).toBeUndefined();
+  });
+});
+
+describe("deriveCompressionHealth", () => {
+  it("is lossless-only when no native engine is present", () => {
+    const health = deriveCompressionHealth({
+      ghostscript: false,
+      qpdf: false,
+      mutool: false,
+    });
+    expect(health).toMatchObject({ lossless: true, deep: false, engines: [] });
+    // States the honest consequence: deep jobs fail as not_implemented.
+    expect(health.detail).toMatch(/not_implemented/);
+  });
+
+  it("reports deep available and lists engines in preference order", () => {
+    const health = deriveCompressionHealth({
+      ghostscript: false,
+      qpdf: true,
+      mutool: true,
+    });
+    expect(health.deep).toBe(true);
+    // Preference order is fixed (ghostscript, qpdf, mutool); ghostscript is absent.
+    expect(health.engines).toEqual(["qpdf", "mutool"]);
+    expect(health.detail).toMatch(/qpdf/);
+  });
+});
+
+describe("resolveWorkerRuntime — compression-engine health vs drainability", () => {
+  it("reports lossless-only health even when nothing is configured (not drainable)", () => {
+    const runtime = resolveWorkerRuntime({}, { compression: noEngines });
+    // Not drainable — but the compression health is still reported, honestly
+    // distinguishing "no queue/storage" from "no deep engine".
+    expect(runtime.executor).toBeUndefined();
+    expect(runtime.blocked).toBe("not_configured");
+    expect(runtime.compression).toMatchObject({
+      lossless: true,
+      deep: false,
+      engines: [],
+    });
+  });
+
+  it("reports deep-capable health from the wired engine, independent of drainability", () => {
+    const runtime = resolveWorkerRuntime(
+      {},
+      { compression: { tools: { ghostscript: true, qpdf: false, mutool: false } } },
+    );
+    expect(runtime.compression).toMatchObject({
+      deep: true,
+      engines: ["ghostscript"],
+    });
+  });
+
+  it("never leaks a path or secret into the health detail", () => {
+    const runtime = resolveWorkerRuntime({}, { compression: noEngines });
+    // Presence-only: engine names, booleans, and prose — never a path/key/value.
+    expect(JSON.stringify(runtime.compression)).not.toMatch(/[/\\]/);
   });
 });
 
@@ -129,7 +186,14 @@ describe("worker daemon runtime — honesty end-to-end", () => {
       options: {},
     });
 
-    const runtime = resolveWorkerRuntime({}, { queue, storage, registry });
+    // `compression: noEngines` keeps the derived compression health hermetic (no
+    // host PATH probe); the injected `registry` is what actually runs the job.
+    const runtime = resolveWorkerRuntime({}, {
+      queue,
+      storage,
+      registry,
+      compression: noEngines,
+    });
     expect(runtime.executor).toBeDefined();
 
     const summary = await createWorkerDaemon({ executor: runtime.executor! }).run({
