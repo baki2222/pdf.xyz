@@ -2,7 +2,7 @@
 
 `pdf.xyz` is browser-first. The secure-worker system exists only for operations the browser cannot do honestly or reliably: OCR, Office conversion, deep compression, repair, PDF/A, visual compare, irreversible redaction, e-signature workflows, and AI-assisted document intelligence.
 
-This phase adds the **contract layer** for those workers. It does not pretend to process files yet.
+Phase 6 added the **contract layer** for those workers. Phase 7 adds the first real processing path: a mode-gated **worker adapter** and a developer-only **local compression worker**. Neither ever fakes success — when a real processor is unavailable, the API says so.
 
 ## Current implementation status
 
@@ -13,9 +13,35 @@ This phase adds the **contract layer** for those workers. It does not pretend to
 | Request validation | Implemented in `src/lib/jobs/validation.ts` |
 | Development route stubs | Implemented under `src/app/api/uploads` and `src/app/api/jobs` |
 | Tool-page worker preview | Implemented in `src/components/tools/worker-preview.tsx` |
-| Real processors / queues / storage | Planned, not enabled |
+| Worker mode + adapter selection | Implemented in `src/lib/workers/mode.ts` + `adapter.ts` |
+| Compression engine (lossless + deep) | Implemented in `src/lib/workers/compression/` |
+| Local-dev compression worker | Implemented in `src/lib/workers/local-dev.ts` (opt-in via `PDFXYZ_WORKER_MODE=local-dev`) |
+| Production processors / queues / storage | Planned, not enabled |
 
-The API route handlers are intentionally **development contract stubs**. They validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then return explicit “worker backend not configured” responses until storage and processors are connected.
+The API route handlers stay thin: they validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then **delegate to the worker adapter** selected for the current environment. By default the adapter answers honestly that no backend is configured; nothing is ever faked.
+
+## Worker execution modes
+
+`resolveWorkerMode()` (`src/lib/workers/mode.ts`) picks exactly one mode from the environment, reading only the *presence* of variables — never a secret value:
+
+| Mode | When | API behavior |
+| --- | --- | --- |
+| `disabled` | default (no flags) | `503 worker_not_configured` |
+| `remote-configured` | `PDFXYZ_WORKER_URL` + `PDFXYZ_STORAGE_BUCKET` + `PDFXYZ_JOB_QUEUE` all present | `501 not_implemented` (no pipeline shipped yet) |
+| `local-dev` | `PDFXYZ_WORKER_MODE=local-dev` (explicit opt-in) | runs supported jobs in-process for real |
+
+`getWorkerAdapter()` is the single seam the routes call. The local-dev implementation — and the Node built-ins it needs (`child_process`, `fs`) — is imported lazily, so the default and remote paths never load it.
+
+## Local-dev compression worker (Phase 7)
+
+Enabled only with `PDFXYZ_WORKER_MODE=local-dev`, this is a real, in-process worker for developing the compression pipeline end to end — reserve slot → upload → job → download — without object storage or a queue. It is **not** production infrastructure (in-memory, single-instance, lost on restart), but it is honest:
+
+- **Two profiles.** `lossless` is a genuine structural repack via pdf-lib (always available). `deep` is image downsampling / re-encoding and genuinely requires a native engine — **Ghostscript, qpdf, or mutool**. The engine (`src/lib/workers/compression/engine.ts`) probes for these by *presence on PATH* and picks the first available.
+- **No fake success.** If `deep` is requested and no native engine is installed, the job is recorded as **`failed`** with a typed `not_implemented` error and docs guidance — never a dummy “completed” file. Invalid PDFs fail as `unprocessable_entity`; engine crashes as a retryable `internal_error`.
+- **Dev transport.** Bytes are uploaded to `PUT /api/uploads/local/:fileId` and outputs are fetched from `GET /api/artifacts/local/:artifactId`. Both endpoints are inert (`503`) unless local-dev mode is on, so the production build and e2e suite are unaffected.
+- **Separation of concerns.** This worker is deliberately distinct from the in-browser Compress analyzer (`src/lib/pdf/analyze.ts`), which only ever does lossless work on-device and never uploads.
+
+To try it locally: run `PDFXYZ_WORKER_MODE=local-dev pnpm dev`, `POST /api/uploads` for `compress-pdf`, `PUT` the file to the returned slot URL, then `POST /api/jobs`. With no native engine installed a `deep` job fails honestly; a `{ "profile": "lossless" }` job completes with a real, smaller PDF and a working download URL.
 
 ## Contract endpoints
 
@@ -219,3 +245,5 @@ A worker-backed tool is production-ready only when it has:
 - Automatic deletion verified by lifecycle policy.
 - Tests for validation, job states, and one happy-path processor.
 - Security review for input validation, egress, file handling, and logging.
+
+**Phase 7 progress toward this:** the local-dev worker already covers upload-session creation, upload transport, job creation, status polling, output download, retention/expiry, and tests for validation + job states + a real happy-path processor (lossless). Remaining for production: direct-to-object-storage upload, a real queue, signed URLs, lifecycle-enforced deletion, and a native `deep` processor behind the same adapter contract.

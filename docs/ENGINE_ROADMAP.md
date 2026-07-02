@@ -20,7 +20,7 @@ These tools currently run in the user's browser using `pdf-lib` and related brow
 - `remove-pages`: delete selected pages from a PDF.
 - `extract-pages`: extract selected pages into a new PDF.
 - `organize-pages`: reorder, rotate, duplicate, and delete pages before exporting.
-- `compress-pdf`: honest in-browser optimization analyzer and lossless structural repack. It does **not** pretend to downsample images when that is not available client-side.
+- `compress-pdf`: honest in-browser optimization analyzer and lossless structural repack. It does **not** pretend to downsample images when that is not available client-side. Deep image compression is a **separate secure-worker path** (`src/lib/workers/compression/`), never conflated with this on-device analyzer.
 
 ## Live UX upgrades
 
@@ -57,7 +57,7 @@ These tools currently run in the user's browser using `pdf-lib` and related brow
 These require a backend/worker pipeline because high-quality results need native binaries, Office renderers, OCR engines, image recompression, sandboxing, or AI models.
 
 - Office conversions: Word/Excel/PowerPoint to PDF and PDF to Office.
-- High-quality compression: image downsampling, font subsetting, object deduplication, qpdf/ghostscript-style optimization.
+- High-quality compression: image downsampling, font subsetting, object deduplication, qpdf/ghostscript-style optimization. The engine and adapter contract exist (`src/lib/workers/compression/`); a native processor is wired for local-dev and pending for production.
 - OCR PDF and searchable scan creation.
 - HTML/webpage to PDF rendering.
 - PDF/A conversion and compliance checks.
@@ -143,11 +143,22 @@ AI features must be explicitly opt-in and should display model/data handling cle
 - ✅ Added secure-worker preview UI for worker/AI/hybrid tool pages with expected inputs, outputs, retention, lifecycle stages, and “not yet enabled” status.
 - ✅ Documented queue/storage/sandbox/retention/security details in `docs/WORKER_ARCHITECTURE.md`.
 
-### Phase 7 — first real secure worker
+### Phase 7 — first real secure worker (in progress)
 
-- Ship first worker-backed tool: high-quality compression or OCR.
-- Add direct-to-storage uploads, queue-backed execution, signed downloads, and lifecycle-enforced deletion.
-- Add public privacy proof points and processor-level tests.
+- ✅ Added a mode-gated **worker adapter** (`src/lib/workers/`) that the API routes
+  delegate to. Modes are presence-only: `disabled` (default → `503`),
+  `remote-configured` (backend vars present → `501`), and `local-dev`
+  (`PDFXYZ_WORKER_MODE=local-dev` → real in-process processing).
+- ✅ Added a high-quality **compression engine** with an honest `lossless` (pdf-lib,
+  always available) vs `deep` (native Ghostscript/qpdf/mutool, probed on PATH)
+  split. Deep compression without a native engine fails honestly as a typed
+  `not_implemented` job — never a dummy completed file.
+- ✅ Wired a developer-only **local compression worker** running the full flow —
+  reserve slot → upload → job → download — in process, with unit tests for
+  adapter selection, engine planning, and every failure mode.
+- ⏳ Remaining for production: direct-to-storage uploads, queue-backed execution,
+  signed downloads, lifecycle-enforced deletion, and a native `deep` processor
+  deployed behind the same adapter contract; plus OCR as the next capability.
 
 ### Phase 8 — account and workspace
 
