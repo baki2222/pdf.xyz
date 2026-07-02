@@ -112,12 +112,12 @@ jobs complete with real artifacts. The Phase 22 malware-scan gate runs **before*
 Full operator guide — env knobs, deployment requirements, security envelope,
 observability, and caveats — is in [`OCR_BACKEND.md`](./OCR_BACKEND.md). Phase 25
 extends the runner to **populate `OcrResultMeta`** from the real run and adds a
-deterministic in-container recognition proof (`pnpm worker:ocr-proof`, below); Phase 27
-adds an OCRmyPDF **searchable-PDF** proof (`pnpm worker:ocrmypdf-proof`, below) alongside
-it. Still
-outstanding (documented there): the populated metadata is not yet threaded into the job
-record returned to a client, and the throw-based failure mapping is coarse-grained (a
-deterministic failure retries up to the attempt cap before failing terminally).
+deterministic in-container recognition proof (`pnpm worker:ocr-proof`, below); Phase 26
+threads that bounded metadata into `Job.results.ocr` and the client-facing job API; Phase
+27 adds an OCRmyPDF **searchable-PDF** proof (`pnpm worker:ocrmypdf-proof`, below)
+alongside it. Still outstanding (documented there): the throw-based OCR failure mapping
+is coarse-grained (a deterministic failure retries up to the attempt cap before failing
+terminally).
 
 ## Provider seams
 
