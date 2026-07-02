@@ -75,6 +75,14 @@ function staticImportSpecifiers(source: string): string[] {
   return specs;
 }
 
+/** Match a forbidden static import without flagging node-free config modules. */
+function matchesForbiddenImport(spec: string, forbidden: string): boolean {
+  if (forbidden === "compression/native") {
+    return spec === "@/lib/workers/compression/native" || spec.endsWith("/compression/native");
+  }
+  return spec.includes(forbidden);
+}
+
 describe("web-eager modules do not statically import Node-only worker internals", () => {
   const files = walk(SRC);
 
@@ -88,7 +96,7 @@ describe("web-eager modules do not statically import Node-only worker internals"
         .filter((file) => !ALLOWED.has(file))
         .filter((file) =>
           staticImportSpecifiers(readFileSync(file, "utf8")).some((spec) =>
-            spec.includes(forbidden),
+            matchesForbiddenImport(spec, forbidden),
           ),
         )
         .map((file) => path.relative(ROOT, file));

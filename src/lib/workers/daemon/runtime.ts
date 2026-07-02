@@ -50,6 +50,12 @@ import {
 } from "../compression/engine";
 import { nativeCompressionDeps } from "../compression/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
+import {
+  resolveDeploymentReadiness,
+  evaluateGuardrails,
+  type WorkerDeploymentReadiness,
+  type GuardrailReport,
+} from "../deploy";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -90,6 +96,19 @@ export interface WorkerRuntime {
    * check can distinguish "no queue/storage" from "no deep engine".
    */
   compression: CompressionEngineHealth;
+  /**
+   * Composed, presence-only deployment readiness (Phase 19): storage/queue/engine
+   * plus the lifecycle backstop, and the honest not-implemented facets for malware
+   * scanning and OCR. Content-free; drives `--dry-run-status`.
+   */
+  deployment: WorkerDeploymentReadiness;
+  /**
+   * The production guardrail report (Phase 19): typed, content-free violations for
+   * dangerous or invalid deployment configuration. `ok: false` fails a run fast and
+   * drives the `--check` exit code. Evaluated with the same probed engine health as
+   * the deployment readiness, so the two never disagree.
+   */
+  guardrails: GuardrailReport;
   /** Honest, presence-only capability of every registered processor. */
   processors: ProcessorCapability[];
   /** The executor to tick — present ONLY when the queue is drainable and storage is ready. */
@@ -188,6 +207,14 @@ export function resolveWorkerRuntime(
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
 
+  // Compose the operator-facing deployment readiness and evaluate the production
+  // guardrails with the SAME probed engine health, so the readout and the pass/fail
+  // gate can never disagree about which engines this worker actually has.
+  const deployment = resolveDeploymentReadiness(readiness, env, {
+    engine: compression,
+  });
+  const guardrails = evaluateGuardrails(env, { engine: compression });
+
   const queue = deps.queue ?? createQueueProvider(env, deps.queueDeps);
   const storage =
     deps.storage !== undefined
@@ -206,7 +233,7 @@ export function resolveWorkerRuntime(
       ...(deps.maxAttempts !== undefined ? { maxAttempts: deps.maxAttempts } : {}),
       ...(deps.log ? { log: deps.log } : {}),
     });
-    return { readiness, compression, processors, executor };
+    return { readiness, compression, deployment, guardrails, processors, executor };
   }
 
   const blocked: RuntimeBlock =
@@ -215,5 +242,5 @@ export function resolveWorkerRuntime(
       : !drainable
         ? "queue_not_drainable"
         : "storage_not_configured";
-  return { readiness, compression, processors, blocked };
+  return { readiness, compression, deployment, guardrails, processors, blocked };
 }

@@ -8,12 +8,16 @@
  * that reads the real `argv`, prints {@link DAEMON_USAGE}, and exits.
  */
 
+import { isLifecycleProvider, LIFECYCLE_PROVIDERS, type LifecycleProvider } from "../lifecycle";
+
 /** How the daemon runs one invocation. */
 export type DaemonMode =
   | "loop" // long-running: keep polling, sleeping when the queue is idle
   | "once" // claim/run at most one job, then exit (smoke test)
   | "drain" // run until the queue is idle (or the tick cap), then exit
-  | "dry-run-status"; // resolve + report readiness only; never claim a job
+  | "dry-run-status" // resolve + report readiness only; never claim a job
+  | "check" // evaluate deployment guardrails only; never claim a job
+  | "lifecycle-policy"; // generate + print a lifecycle policy; never claim a job
 
 /** The validated arguments the CLI hands to the runtime + daemon. */
 export interface DaemonArgs {
@@ -27,6 +31,12 @@ export interface DaemonArgs {
   idleSleepMs: number;
   /** Lease duration (ms) requested per claim; `undefined` uses the executor default. */
   leaseMs?: number;
+  /** `lifecycle-policy`: which provider to render for; `undefined` ⇒ generic. */
+  lifecycleProvider?: LifecycleProvider;
+  /** `lifecycle-policy`: optional structural key prefix every rule nests under. */
+  keyPrefix?: string;
+  /** `lifecycle-policy`: render the versioned-bucket rules. */
+  versioned?: boolean;
 }
 
 /** Outcome of parsing argv: run with args, show help, or a usage error. */
@@ -43,13 +53,18 @@ const MAX_MAX_TICKS = 1_000_000;
 const MIN_LEASE_MS = 1_000;
 const MAX_LEASE_MS = 3_600_000; // 1h — matches the queue's lease ceiling.
 
-/** The three mutually-exclusive mode flags (default is `loop`). */
+/** The mutually-exclusive mode flags (default is `loop`). */
 const MODE_FLAGS: Record<string, DaemonMode> = {
   "--once": "once",
   "--drain": "drain",
   "--dry-run-status": "dry-run-status",
+  "--check": "check",
+  "--lifecycle-policy": "lifecycle-policy",
   "--loop": "loop",
 };
+
+/** A structural key prefix: relative, no traversal, path-safe characters only. */
+const KEY_PREFIX_RE = /^[A-Za-z0-9][A-Za-z0-9/_-]*$/;
 
 /** Human-readable usage, printed by the CLI on `--help` or a parse error. */
 export const DAEMON_USAGE = `pdf.xyz secure-worker daemon
@@ -65,19 +80,25 @@ Modes (choose at most one; default: --loop):
   --loop                Run continuously, sleeping when the queue is idle.
   --drain               Run until the queue is idle, then exit.
   --once                Claim and run at most one job, then exit.
-  --dry-run-status      Report provider/daemon readiness and exit. Claims nothing.
+  --dry-run-status      Report provider/daemon/deployment readiness and exit.
+  --check               Evaluate deployment guardrails and exit. Claims nothing.
+  --lifecycle-policy    Generate + print a lifecycle/retention policy and exit.
 
 Options:
   --max-ticks=<n>       Cap total ticks for --loop/--drain (1..1000000).
   --idle-sleep-ms=<ms>  --loop sleep after an idle tick (0..3600000; default 1000).
   --lease-ms=<ms>       Lease requested per claimed job (1000..3600000).
+  --provider=<name>     --lifecycle-policy target: ${LIFECYCLE_PROVIDERS.join(" | ")}.
+  --key-prefix=<p>      --lifecycle-policy: structural key prefix rules nest under.
+  --versioned           --lifecycle-policy: also emit versioned-bucket rules.
   -h, --help            Show this help.
 
 Exit codes:
-  0  clean exit (work done, drained, or readiness reported)
+  0  clean exit (work done, drained, readiness/policy reported, guardrails clean)
   1  usage error
   2  not configured to run (no drainable queue + storage in this environment)
-  3  runtime error (the queue could not be reached)`;
+  3  runtime error (the queue could not be reached)
+  4  guardrail violation (a dangerous or invalid deployment configuration)`;
 
 /** Split `--flag=value` / `--flag value` into a name and an optional inline value. */
 interface Flag {
@@ -122,6 +143,9 @@ export function parseDaemonArgs(argv: readonly string[]): ParseArgsResult {
   let maxTicks: number | undefined;
   let idleSleepMs = DEFAULT_IDLE_SLEEP_MS;
   let leaseMs: number | undefined;
+  let lifecycleProvider: LifecycleProvider | undefined;
+  let keyPrefix: string | undefined;
+  let versioned: boolean | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -177,6 +201,46 @@ export function parseDaemonArgs(argv: readonly string[]): ParseArgsResult {
         leaseMs = parsed.value;
         break;
       }
+      case "--provider": {
+        const value = takeValue();
+        if (value === undefined || value === "") {
+          return { ok: false, message: `${name} requires a value.` };
+        }
+        const lower = value.toLowerCase();
+        if (!isLifecycleProvider(lower)) {
+          return {
+            ok: false,
+            message: `${name} must be one of: ${LIFECYCLE_PROVIDERS.join(", ")}.`,
+          };
+        }
+        lifecycleProvider = lower;
+        break;
+      }
+      case "--key-prefix": {
+        const value = takeValue();
+        if (value === undefined || value === "") {
+          return { ok: false, message: `${name} requires a value.` };
+        }
+        if (value.includes("..") || !KEY_PREFIX_RE.test(value)) {
+          return {
+            ok: false,
+            message: `${name} must be a safe relative prefix (no '..', no leading slash).`,
+          };
+        }
+        keyPrefix = value;
+        break;
+      }
+      case "--versioned": {
+        // A bare flag means true; an inline value may override (--versioned=false).
+        if (inlineValue === undefined) {
+          versioned = true;
+        } else if (inlineValue === "true" || inlineValue === "false") {
+          versioned = inlineValue === "true";
+        } else {
+          return { ok: false, message: `${name} must be true or false.` };
+        }
+        break;
+      }
       default:
         return { ok: false, message: `Unknown option: ${name}` };
     }
@@ -190,6 +254,9 @@ export function parseDaemonArgs(argv: readonly string[]): ParseArgsResult {
       ...(maxTicks !== undefined ? { maxTicks } : {}),
       idleSleepMs,
       ...(leaseMs !== undefined ? { leaseMs } : {}),
+      ...(lifecycleProvider !== undefined ? { lifecycleProvider } : {}),
+      ...(keyPrefix !== undefined ? { keyPrefix } : {}),
+      ...(versioned !== undefined ? { versioned } : {}),
     },
   };
 }

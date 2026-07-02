@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
  * return the process exit code. Output is discarded; a spawn failure re-throws so
  * the test surfaces it loudly rather than masquerading as a wrong exit code.
  */
-function runDaemon(args: string[]): number {
+function runDaemon(args: string[], env: Record<string, string> = {}): number {
   try {
     execFileSync("pnpm", ["-s", "worker:daemon", ...args], {
       cwd: process.cwd(),
@@ -34,6 +34,7 @@ function runDaemon(args: string[]): number {
         PDFXYZ_STORAGE_PROVIDER: "",
         PDFXYZ_QUEUE_PROVIDER: "",
         PDFXYZ_WORKER_MODE: "",
+        ...env,
       },
       stdio: "ignore",
       timeout: 60_000,
@@ -94,6 +95,37 @@ describe("worker daemon CLI — honest no-config exit codes", () => {
     "exits 1 for conflicting modes",
     () => {
       expect(runDaemon(["--once", "--drain"])).toBe(1);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "exits 0 for --check in a default no-config development environment",
+    () => {
+      expect(runDaemon(["--check"])).toBe(0);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "exits 4 for --check when strict production guardrails are armed",
+    () => {
+      expect(runDaemon(["--check"], { PDFXYZ_WORKER_STRICT: "true" })).toBe(4);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "exits 0 for offline lifecycle policy generation",
+    () => {
+      expect(
+        runDaemon([
+          "--lifecycle-policy",
+          "--provider=aws-s3",
+          "--key-prefix=pdfxyz",
+          "--versioned",
+        ]),
+      ).toBe(0);
     },
     SPAWN_TIMEOUT_MS,
   );
