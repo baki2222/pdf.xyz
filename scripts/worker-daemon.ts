@@ -428,12 +428,8 @@ async function main(): Promise<number> {
     log: (event: ExecutorLogEvent) => emit({ src: "executor", ...event }),
     metrics: metrics.sink,
   });
-
-  // Reflect the resolved readiness posture (facets + engine capabilities) into the
-  // metric snapshot, so even readiness-only runs report content-free gauges.
-  for (const sample of deriveRuntimeMetrics(runtime)) {
-    metrics.record(sample);
-  }
+  // `reportObservability` folds the readiness gauges into the collector just before it
+  // snapshots (in every mode that emits), so there is no separate recording step here.
 
   // `--check`: evaluate deployment guardrails only. Exit 0 when clean, 4 when a
   // dangerous/invalid configuration is found. Never claims a job.

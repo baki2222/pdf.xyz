@@ -7,8 +7,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { createWorkerMetricsCollector } from "./collector";
+import { deriveEngineCapabilityMetrics } from "./derive";
 import {
-  deriveEngineCapabilityMetrics,
   jobTerminalMetric,
   lifecycleDriftMetric,
   lifecycleVerificationMetric,

@@ -208,6 +208,22 @@ Suggested alerts:
 | SLO `dead_letter_rate=breach` or `retry_rate=breach` | queue/processor reliability incident |
 | SLO `scanner_unavailable_rate=breach` when scanner required | fail-closed scan dependency incident |
 
+### Export & examples (bring your own backend)
+
+There is **no bundled metrics backend and no egress**. The collector holds samples in
+memory; ship the daemon's `metrics`/`slo`/`operations` JSON lines to your own pipeline,
+or scrape the Prometheus text-exposition form produced by `renderPrometheus(snapshot)`
+(the processor-latency histogram is emitted canonically as `_bucket` + `_count`, so
+`histogram_quantile()` works directly). To point metrics somewhere else, implement a
+`WorkerMetricSink` and hand it to the runtime/daemon — no call site changes.
+
+Provider-neutral, content-free examples live in
+[`docs/examples/observability/`](examples/observability/): a `dashboard.json` model, a
+per-SLO `alerts.json`, and an illustrative Prometheus `alerts.prometheus.yml`. A static
+test (`observability/examples.test.ts`) pins every example to the metric schema — every
+metric, label, and SLO id it references must be on the allowlist — and asserts it stays
+content-free, so an example can never drift from the code.
+
 ## Production readiness checklist (observability)
 
 - [ ] **Product analytics is inert by default.** With no sink configured,
