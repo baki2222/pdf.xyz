@@ -1,0 +1,24 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-inputs-30d",
+      "Filter": { "Prefix": "inputs/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 30 }
+    },
+    {
+      "ID": "expire-artifacts-1d",
+      "Filter": { "Prefix": "artifacts/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 1 }
+    },
+    {
+      "ID": "cleanup-bucket-versions-and-parts",
+      "Filter": { "Prefix": "" },
+      "Status": "Enabled",
+      "Expiration": { "ExpiredObjectDeleteMarker": true },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+    }
+  ]
+}

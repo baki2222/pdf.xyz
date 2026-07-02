@@ -643,6 +643,19 @@ Terminal states are encoded in `TERMINAL_STATUSES`, and `isDownloadReady()` cent
 
 Production storage must enforce lifecycle deletion independently of application code. UI copy should continue to say: files are uploaded only for secure-worker/AI tools, inputs are wiped after processing, and outputs expire automatically.
 
+**Active-deletion proof.** The executor's active delete-now is proven, not asserted:
+`src/lib/workers/executor/executor.leak.test.ts` sweeps *every* terminal path the
+executor can drive a claimed job to — completion, no-processor, an expired/missing
+input, a terminal processing failure, an OCR failure, the three malware-scan blocks
+(infected / unscannable / scan-unavailable), and cancellation mid-run — and asserts
+the invariant that **no input survives a terminal state and no artifact survives a
+failed/canceled one**. Only a *successful* job retains its single artifact, and only
+with a bounded `expiresAt` (the output TTL). The complement is proven too: a
+*retryable* requeue is not terminal, so its inputs are preserved for the retry. The
+lifecycle backstop below is the independent net if this active path ever fails; the
+Phase 25 `--lifecycle-verify` seam lets an operator confirm that net is actually in
+force on the bucket.
+
 ## Lifecycle policy tooling, deployment readiness & guardrails (Phase 19)
 
 Phase 19 hardens the *operational safety* of deploying the daemon, without adding a
@@ -679,6 +692,29 @@ tooling turns the configured retention into that policy:
   `unknown` (nothing declared) → `declared` (`PDFXYZ_LIFECYCLE_PROVIDER` set) →
   `validated` (`PDFXYZ_LIFECYCLE_VALIDATED=true`, the operator asserts it is applied
   and verified). It never claims rules are in force just because a variable is set.
+- `verify.ts` (Phase 25) — a **dry-run verifier** that turns the bare `validated`
+  *assertion* into checkable *evidence*. `parseObservedLifecycle()` normalizes a
+  lifecycle configuration the operator exports from the bucket out-of-band (the S3
+  `{ Rules }` shape from `aws s3api get-bucket-lifecycle-configuration`, or the
+  agnostic `generic` render), and `verifyLifecyclePolicy()` compares it to the policy
+  the app *would* generate — per-rule `satisfied` / `stricter` / `weaker` / `disabled`
+  / `missing`, an overall `verified`/`drift` verdict, and a reconciliation plan.
+  Matching is **structural, not by id** (an observed rule governs a generated one when
+  it covers the same prefix and carries that role's field, so operator-named rules and
+  whole-bucket rules verify correctly; when several rules cover a prefix the shortest
+  expiration wins, mirroring S3). It is node-free and **makes no cloud call** — the app
+  never reads the bucket; the operator supplies the exported document. Output is
+  content-free: only the app's own `pdfxyz-*` rule ids, a status/action enum, prose,
+  and a count of unrelated observed rules — never an observed rule's id, prefix, or
+  value.
+
+This makes the retention-enforcement ladder explicit and honest:
+**generated** (the tooling builds a content-free policy) → **applied** (the operator
+runs the provider CLI against the bucket; the app never calls the cloud) →
+**verified** (the operator exports the live config and `--lifecycle-verify` structurally
+confirms the generated backstop is in force) → **declared** (`PDFXYZ_LIFECYCLE_VALIDATED=true`
+asserts that state to the readiness facet). `verified` is *evidence* the daemon checked;
+`declared` is the operator's assertion. Neither is the app calling the cloud.
 
 ### Composed deployment readiness (`src/lib/workers/deploy/readiness.ts`)
 
@@ -822,7 +858,9 @@ A worker-backed tool is production-ready only when it has:
 - Queue-backed job creation.
 - Status polling.
 - Signed output download.
-- Automatic deletion verified by lifecycle policy.
+- Automatic deletion — proven active on every terminal executor path
+  (`executor.leak.test.ts`) and verifiable against the bucket's live lifecycle config
+  out-of-band (`--lifecycle-verify`, Phase 25).
 - Tests for validation, job states, and one happy-path processor.
 - Security review for input validation, egress, file handling, and logging.
 

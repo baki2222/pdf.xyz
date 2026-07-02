@@ -140,7 +140,8 @@ fake work with nothing wired:
 ```bash
 docker run --rm pdfxyz-worker:<tag> pnpm worker:smoke
 # help → 0, dry-run-status/once/drain → 2, bad/conflicting flags → 1,
-# clean guardrails / lifecycle-policy → 0, dangerous config → 4
+# clean guardrails / lifecycle-policy / lifecycle-verify(matching export) → 0,
+# lifecycle-verify without a doc → 2, drifted export / dangerous config → 4
 ```
 
 **b. Worker image engine presence + OCR readiness** — the built worker image must
@@ -230,11 +231,18 @@ remote processing production-ready:
 - **Provisioned infrastructure.** A real private, encrypted S3/R2 **bucket** and a
   private Redis/Upstash **broker** are not created here. Provision them out-of-band
   with public access disabled, scoped tokens, and encryption at rest/in transit.
-- **Lifecycle-enforced deletion.** The daemon can **generate** a retention policy
-  (`pnpm worker:daemon --lifecycle-policy --provider=aws-s3|cloudflare-r2|minio|generic`),
-  but **applying** it to the bucket — plus the bucket CORS rules the browser needs
-  for direct signed transfers — is operator-owned. The app's URL TTLs are not a
-  substitute for bucket lifecycle rules.
+- **Lifecycle-enforced deletion — generate + verify ship, applying is operator-owned.**
+  The daemon can **generate** a retention policy
+  (`pnpm worker:daemon --lifecycle-policy --provider=aws-s3|cloudflare-r2|minio|generic`)
+  and, since Phase 25, **verify** an operator-exported lifecycle config against that
+  generated backstop out-of-band
+  (`pnpm worker:daemon --lifecycle-verify --observed=<exported.json>`: exit `0`
+  verified · `2` unknown/no doc · `4` drift). What stays operator-owned is **applying**
+  the policy to the bucket, **exporting** the live config for verification (the app
+  never reads the bucket), and the bucket CORS rules the browser needs for direct
+  signed transfers. The app's URL TTLs are not a substitute for bucket lifecycle rules,
+  and the active delete-now on job completion is proven, not assumed
+  (`executor.leak.test.ts`).
 - **Malware scanning — gate ships, clamd is operator-owned.** The executor scan gate
   and an **optional ClamAV/clamd** backend ship (Phase 22): set `PDFXYZ_MALWARE_SCANNER`
   to a clamd endpoint and the worker streams inputs over INSTREAM and blocks infected

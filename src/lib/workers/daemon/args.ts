@@ -17,7 +17,8 @@ export type DaemonMode =
   | "drain" // run until the queue is idle (or the tick cap), then exit
   | "dry-run-status" // resolve + report readiness only; never claim a job
   | "check" // evaluate deployment guardrails only; never claim a job
-  | "lifecycle-policy"; // generate + print a lifecycle policy; never claim a job
+  | "lifecycle-policy" // generate + print a lifecycle policy; never claim a job
+  | "lifecycle-verify"; // verify a generated policy against an observed config; claim nothing
 
 /** The validated arguments the CLI hands to the runtime + daemon. */
 export interface DaemonArgs {
@@ -35,8 +36,15 @@ export interface DaemonArgs {
   lifecycleProvider?: LifecycleProvider;
   /** `lifecycle-policy`: optional structural key prefix every rule nests under. */
   keyPrefix?: string;
-  /** `lifecycle-policy`: render the versioned-bucket rules. */
+  /** `lifecycle-policy`/`lifecycle-verify`: render/expect the versioned-bucket rules. */
   versioned?: boolean;
+  /**
+   * `lifecycle-verify`: path to the observed lifecycle document an operator exported
+   * out-of-band (e.g. `s3api get-bucket-lifecycle-configuration`). Absent ⇒ nothing to
+   * verify against, so the CLI reports an honest not-configured. The path is the
+   * operator's own file reference and is never logged.
+   */
+  observedPath?: string;
 }
 
 /** Outcome of parsing argv: run with args, show help, or a usage error. */
@@ -60,6 +68,7 @@ const MODE_FLAGS: Record<string, DaemonMode> = {
   "--dry-run-status": "dry-run-status",
   "--check": "check",
   "--lifecycle-policy": "lifecycle-policy",
+  "--lifecycle-verify": "lifecycle-verify",
   "--loop": "loop",
 };
 
@@ -83,22 +92,32 @@ Modes (choose at most one; default: --loop):
   --dry-run-status      Report provider/daemon/deployment readiness and exit.
   --check               Evaluate deployment guardrails and exit. Claims nothing.
   --lifecycle-policy    Generate + print a lifecycle/retention policy and exit.
+  --lifecycle-verify    Verify a generated policy against an observed bucket config.
 
 Options:
   --max-ticks=<n>       Cap total ticks for --loop/--drain (1..1000000).
   --idle-sleep-ms=<ms>  --loop sleep after an idle tick (0..3600000; default 1000).
   --lease-ms=<ms>       Lease requested per claimed job (1000..3600000).
-  --provider=<name>     --lifecycle-policy target: ${LIFECYCLE_PROVIDERS.join(" | ")}.
-  --key-prefix=<p>      --lifecycle-policy: structural key prefix rules nest under.
-  --versioned           --lifecycle-policy: also emit versioned-bucket rules.
+  --provider=<name>     --lifecycle-policy/--lifecycle-verify target: ${LIFECYCLE_PROVIDERS.join(" | ")}.
+  --key-prefix=<p>      --lifecycle-policy/--lifecycle-verify: structural key prefix rules nest under.
+  --versioned           --lifecycle-policy/--lifecycle-verify: also expect versioned-bucket rules.
+  --observed=<path>     --lifecycle-verify: path to the lifecycle config an operator
+                        exported out-of-band (e.g. s3api get-bucket-lifecycle-configuration).
+                        Absent ⇒ nothing to verify against (honest not-configured, exit 2).
   -h, --help            Show this help.
+
+--lifecycle-verify compares the policy the app WOULD generate against the observed
+document you supply; the app never reads the bucket itself. It exits:
+  0  verified   — every generated backstop is enforced at least as strongly
+  2  unknown    — no --observed document was supplied (nothing to verify)
+  4  invalid    — drift detected, or the observed document is malformed
 
 Exit codes:
   0  clean exit (work done, drained, readiness/policy reported, guardrails clean)
   1  usage error
-  2  not configured to run (no drainable queue + storage in this environment)
+  2  not configured to run (no drainable queue + storage, or nothing to verify)
   3  runtime error (the queue could not be reached)
-  4  guardrail violation (a dangerous or invalid deployment configuration)`;
+  4  guardrail violation, or lifecycle drift/invalid observed document`;
 
 /** Split `--flag=value` / `--flag value` into a name and an optional inline value. */
 interface Flag {
@@ -146,6 +165,7 @@ export function parseDaemonArgs(argv: readonly string[]): ParseArgsResult {
   let lifecycleProvider: LifecycleProvider | undefined;
   let keyPrefix: string | undefined;
   let versioned: boolean | undefined;
+  let observedPath: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -241,6 +261,17 @@ export function parseDaemonArgs(argv: readonly string[]): ParseArgsResult {
         }
         break;
       }
+      case "--observed": {
+        // A filesystem path to the operator's exported lifecycle document. Its only
+        // constraint is being non-empty; it is the operator's own file reference (never
+        // logged), and the CLI reads it defensively (bounded, content-free on error).
+        const value = takeValue();
+        if (value === undefined || value === "") {
+          return { ok: false, message: `${name} requires a value.` };
+        }
+        observedPath = value;
+        break;
+      }
       default:
         return { ok: false, message: `Unknown option: ${name}` };
     }
@@ -257,6 +288,7 @@ export function parseDaemonArgs(argv: readonly string[]): ParseArgsResult {
       ...(lifecycleProvider !== undefined ? { lifecycleProvider } : {}),
       ...(keyPrefix !== undefined ? { keyPrefix } : {}),
       ...(versioned !== undefined ? { versioned } : {}),
+      ...(observedPath !== undefined ? { observedPath } : {}),
     },
   };
 }

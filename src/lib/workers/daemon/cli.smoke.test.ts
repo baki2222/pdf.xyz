@@ -137,4 +137,62 @@ describe("worker daemon CLI — honest no-config exit codes", () => {
     },
     SPAWN_TIMEOUT_MS,
   );
+
+  // ─── --lifecycle-verify: offline verification against a committed observed doc ───
+  // These run the REAL CLI against the content-free example documents an operator
+  // would export from their bucket, pinning the ok/not-configured/invalid contract.
+  const VERIFIED = "docs/examples/lifecycle/observed-verified.aws-s3.json";
+  const DRIFTED = "docs/examples/lifecycle/observed-drift-weaker.aws-s3.json";
+
+  it(
+    "exits 2 (unknown) for --lifecycle-verify with no observed document",
+    () => {
+      expect(runDaemon(["--lifecycle-verify", "--provider=aws-s3", "--versioned"])).toBe(2);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "exits 0 when the observed config matches the generated backstop",
+    () => {
+      expect(
+        runDaemon([
+          "--lifecycle-verify",
+          "--provider=aws-s3",
+          "--versioned",
+          `--observed=${VERIFIED}`,
+        ]),
+      ).toBe(0);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "exits 4 (invalid) when the observed config drifts from the backstop",
+    () => {
+      expect(
+        runDaemon([
+          "--lifecycle-verify",
+          "--provider=aws-s3",
+          "--versioned",
+          `--observed=${DRIFTED}`,
+        ]),
+      ).toBe(4);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "exits 4 (invalid) when the observed document cannot be read",
+    () => {
+      expect(
+        runDaemon([
+          "--lifecycle-verify",
+          "--provider=aws-s3",
+          "--observed=/this/path/does/not/exist.json",
+        ]),
+      ).toBe(4);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
 });

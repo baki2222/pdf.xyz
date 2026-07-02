@@ -6,6 +6,8 @@
 #   * reports readiness / refuses to process (exit 2) with nothing configured,
 #   * rejects bad or conflicting flags (exit 1),
 #   * reports clean guardrails and generates an offline lifecycle policy (exit 0),
+#   * verifies a lifecycle policy against a committed example export — unknown with
+#     no doc (exit 2), verified (0), drifted (4) — without ever reading a bucket,
 #   * and FAILS FAST on a dangerous/invalid config (exit 4) rather than silently
 #     falling back to "not configured".
 # It never fabricates work. Deterministic and offline: needs no Redis, S3,
@@ -75,6 +77,12 @@ check 1 "unknown flag is a usage error"            --not-a-flag
 check 1 "conflicting modes are rejected"           --once --drain
 check 0 "--check reports clean guardrails"         --check
 check 0 "--lifecycle-policy generates offline"     --lifecycle-policy
+# --lifecycle-verify: offline, against committed content-free example documents.
+# No observed doc ⇒ nothing to verify ⇒ honest not-configured (exit 2). A matching
+# export verifies (0); a drifted export is invalid (4). The app never reads a bucket.
+check 2 "--lifecycle-verify without a doc is unknown"    --lifecycle-verify --provider=aws-s3 --versioned
+check 0 "--lifecycle-verify accepts a matching export"   --lifecycle-verify --provider=aws-s3 --versioned --observed=docs/examples/lifecycle/observed-verified.aws-s3.json
+check 4 "--lifecycle-verify flags a drifted export"      --lifecycle-verify --provider=aws-s3 --versioned --observed=docs/examples/lifecycle/observed-drift-weaker.aws-s3.json
 # A selected-but-unsupported provider is a DANGEROUS config: the daemon must fail
 # fast (exit 4, guardrail) instead of silently reporting "not configured".
 check_env 4 "--check rejects a dangerous config"   PDFXYZ_STORAGE_PROVIDER=not-a-real-provider --check

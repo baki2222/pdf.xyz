@@ -28,6 +28,7 @@
  *   pnpm worker:daemon --dry-run-status    # report readiness + posture, claim nothing
  *   pnpm worker:daemon --check             # evaluate deployment guardrails, claim nothing
  *   pnpm worker:daemon --lifecycle-policy --provider=aws-s3   # print a lifecycle policy
+ *   pnpm worker:daemon --lifecycle-verify --observed=cfg.json # verify it vs an exported config
  *   pnpm worker:daemon                     # long-running: drain, then poll
  */
 
@@ -46,11 +47,14 @@ import {
 import type { GuardrailReport } from "@/lib/workers/deploy";
 import {
   buildLifecyclePolicy,
+  parseObservedLifecycle,
   parseRetentionSettings,
   renderLifecyclePolicy,
   resolveLifecycleReadiness,
   validateLifecyclePolicy,
+  verifyLifecyclePolicy,
 } from "@/lib/workers/lifecycle";
+import { readFileSync, statSync } from "node:fs";
 
 /** Exit codes — mirrored in {@link DAEMON_USAGE}. */
 const EXIT_OK = 0;
@@ -206,6 +210,123 @@ function runLifecyclePolicy(args: DaemonArgs): number {
   return EXIT_OK;
 }
 
+/** Hard cap on the observed document a `--lifecycle-verify` read will accept. */
+const MAX_OBSERVED_FILE_BYTES = 1_048_576; // 1 MiB — a lifecycle config is tiny.
+
+/**
+ * `--lifecycle-verify`: verify the policy the app WOULD generate against an observed
+ * lifecycle configuration the operator exported out-of-band (e.g. via
+ * `aws s3api get-bucket-lifecycle-configuration`). Pure and offline — it NEVER calls a
+ * cloud API or builds a runtime; the operator does the privileged read themselves and
+ * hands this a content-free document. Honest states:
+ *  - no `--observed`  → nothing to verify against → `unknown` (exit 2, not-configured);
+ *  - verified         → every generated backstop is enforced ≥ as strongly (exit 0);
+ *  - drift / malformed → the backstop does not hold, or the document is unreadable/bad
+ *    (exit 4, invalid).
+ * Output is content-free: our own `pdfxyz-*` rule ids, status/action enums, counts,
+ * and prose — never the observed document's ids, prefixes, values, or the file path.
+ */
+function runLifecycleVerify(args: DaemonArgs): number {
+  const parsed = parseRetentionSettings(process.env);
+  if (!parsed.ok) {
+    emit({ src: "daemon", event: "lifecycle_verify_error", reason: "retention_invalid" });
+    return EXIT_USAGE;
+  }
+
+  const declared = resolveLifecycleReadiness(process.env);
+  const provider = args.lifecycleProvider ?? declared.provider ?? "generic";
+  const versioned = args.versioned ?? declared.versioned ?? false;
+
+  const expected = buildLifecyclePolicy(parsed.config, {
+    ...(args.keyPrefix !== undefined ? { keyPrefix: args.keyPrefix } : {}),
+    versioned,
+  });
+  if (!validateLifecyclePolicy(expected).ok) {
+    emit({ src: "daemon", event: "lifecycle_verify_error", reason: "policy_invalid" });
+    return EXIT_USAGE;
+  }
+
+  // No observed document ⇒ there is nothing to verify against. The app never reads
+  // the bucket itself, so this is an honest `unknown`, never a pass. We still surface
+  // the operator's own env-declared readiness so `validated` (a bare assertion) can be
+  // told apart from `verified` (checked evidence).
+  if (args.observedPath === undefined) {
+    emit({
+      src: "daemon",
+      event: "lifecycle_verify",
+      configured: false,
+      verdict: "unknown",
+      provider,
+      versioned,
+      declaredReadiness: declared.state,
+      detail:
+        "No observed lifecycle document was supplied, so the generated backstop could not be checked against the bucket. Export it out-of-band (the app never reads the bucket) and pass --observed. The operator's env-declared readiness is reported as declaredReadiness.",
+    });
+    return EXIT_NOT_CONFIGURED;
+  }
+
+  // Read the operator's exported document defensively: bound the size before reading,
+  // and on ANY read failure emit a fixed, content-free reason — never the OS error or
+  // the path, which could carry a filename.
+  let text: string;
+  try {
+    if (statSync(args.observedPath).size > MAX_OBSERVED_FILE_BYTES) {
+      emit({ src: "daemon", event: "lifecycle_verify_error", reason: "observed_too_large" });
+      return EXIT_GUARDRAIL;
+    }
+    text = readFileSync(args.observedPath, "utf8");
+  } catch {
+    emit({ src: "daemon", event: "lifecycle_verify_error", reason: "observed_unreadable" });
+    return EXIT_GUARDRAIL;
+  }
+
+  const observed = parseObservedLifecycle(text);
+  if (!observed.ok) {
+    // Content-free: the parse issue codes, never the document contents.
+    emit({
+      src: "daemon",
+      event: "lifecycle_verify_error",
+      reason: "observed_malformed",
+      issues: observed.issues.map((i) => i.code),
+    });
+    return EXIT_GUARDRAIL;
+  }
+
+  const result = verifyLifecyclePolicy(expected, observed.observed);
+  // Versioned foot-gun safety net: verifying without `--versioned` omits the
+  // noncurrent-version and delete-marker backstops from the expected policy, so they
+  // go unchecked. If the observed config itself carries version-cleanup rules, the
+  // bucket is almost certainly versioned — surface a content-free advisory (it does
+  // NOT change the verdict) so a `verified` here can't hide unchecked version rules.
+  const versionedRulesUnchecked =
+    !versioned &&
+    observed.observed.rules.some(
+      (r) =>
+        r.noncurrentVersionExpireAfterDays !== undefined ||
+        r.expiredObjectDeleteMarker === true,
+    );
+  emit({
+    src: "daemon",
+    event: "lifecycle_verify",
+    configured: true,
+    verdict: result.verdict,
+    provider,
+    versioned,
+    declaredReadiness: declared.state,
+    checks: result.checks,
+    plan: result.plan.filter((p) => p.action !== "none"),
+    unmatchedObservedRules: result.unmatchedObservedRules,
+    summary: result.summary,
+    ...(versionedRulesUnchecked
+      ? {
+          note: "The observed config has version-cleanup rules, but --versioned was not set, so noncurrent-version and delete-marker backstops were not checked. Re-run with --versioned on a versioning-enabled bucket.",
+        }
+      : {}),
+  });
+  // Verified ⇒ 0; drift ⇒ 4 (the backstop does not actually hold — an invalid state).
+  return result.verdict === "verified" ? EXIT_OK : EXIT_GUARDRAIL;
+}
+
 async function main(): Promise<number> {
   const parsed = parseDaemonArgs(process.argv.slice(2));
   if (!parsed.ok) {
@@ -224,6 +345,13 @@ async function main(): Promise<number> {
   // runtime so it never probes the host or touches a provider.
   if (args.mode === "lifecycle-policy") {
     return runLifecyclePolicy(args);
+  }
+
+  // `--lifecycle-verify`: pure, offline comparison of the generated policy against an
+  // operator-exported observed document. Handled before the runtime so it never probes
+  // the host, touches a provider, or calls a cloud API.
+  if (args.mode === "lifecycle-verify") {
+    return runLifecycleVerify(args);
   }
 
   const runtime = resolveWorkerRuntime(process.env, {

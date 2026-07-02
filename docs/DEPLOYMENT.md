@@ -448,7 +448,7 @@ content-free, and offline — no command here makes a live cloud call.
 | Compression | `PDFXYZ_NATIVE_COMPRESSION` (auto by default), optional engine pin + absolute binary overrides | Deep image compression. |
 | OCR *(optional)* | `PDFXYZ_OCR` (`on`/`off`, **off by default**), optional `PDFXYZ_OCR_ENGINE` (`ocrmypdf`/`tesseract`), absolute binary overrides, `PDFXYZ_OCR_TIMEOUT_MS` / `_MAX_INPUT_BYTES` / `_MAX_OUTPUT_BYTES` / `_TMPDIR` | Optional OCR backend (Phase 23). Requires an engine installed on the worker. See [`OCR_BACKEND.md`](../docs/OCR_BACKEND.md). |
 | Retention *(optional)* | `PDFXYZ_RETENTION_INPUT_TTL_MINUTES`, `PDFXYZ_RETENTION_ARTIFACT_TTL_MINUTES`, `PDFXYZ_RETENTION_MULTIPART_ABORT_HOURS`, `PDFXYZ_RETENTION_NONCURRENT_VERSION_DAYS` | Tighten the lifecycle backstop (≤ 7-day ceiling). |
-| Lifecycle *(optional)* | `PDFXYZ_LIFECYCLE_PROVIDER` (`aws-s3`\|`cloudflare-r2`\|`minio`\|`generic`), `PDFXYZ_LIFECYCLE_VALIDATED=true`, `PDFXYZ_LIFECYCLE_VERSIONED` | Declare that the generated policy is applied and verified. |
+| Lifecycle *(optional)* | `PDFXYZ_LIFECYCLE_PROVIDER` (`aws-s3`\|`cloudflare-r2`\|`minio`\|`generic`), `PDFXYZ_LIFECYCLE_VALIDATED=true`, `PDFXYZ_LIFECYCLE_VERSIONED` | Declare that the generated policy is applied and verified. Back the assertion with evidence via `--lifecycle-verify` (§3). |
 | Guardrails *(optional)* | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`, `PDFXYZ_WORKER_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC`, `PDFXYZ_WORKER_REQUIRE_SCAN`, `PDFXYZ_WORKER_REQUIRE_OCR` | Fail fast on a dangerous production state. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (also implied by strict) rejects a deployment whose queue cannot guarantee atomic, race-safe transitions (`queue_atomic_unsupported`); `PDFXYZ_WORKER_REQUIRE_SCAN` / `PDFXYZ_WORKER_REQUIRE_OCR` (opt-in, **not** implied by strict) require an active scanner / a ready OCR engine. |
 
 Copy [`.env.worker.example`](../.env.worker.example) to a git-ignored `.env`. Values
@@ -477,7 +477,7 @@ A *selected-but-invalid* provider (e.g. `PDFXYZ_STORAGE_PROVIDER=s3` with a typo
 variable) is an **error**, not a silent fallback. Run modes (`--once`/`--drain`/
 `--loop`) run the same check and refuse to start (exit `4`) on an error.
 
-### 3. Generate / validate a lifecycle policy
+### 3. Generate, apply & verify a lifecycle policy
 
 ```bash
 # Print an AWS S3 policy for a versioned bucket under a key prefix (exit 0):
@@ -490,9 +490,39 @@ aws s3api put-bucket-lifecycle-configuration --bucket <your-bucket> --lifecycle-
 
 `--provider` defaults to any declared `PDFXYZ_LIFECYCLE_PROVIDER` (else `generic`).
 A malformed retention override refuses generation (exit `1`) rather than emitting a
-policy from silent defaults. After applying **and verifying** the rules on the
-bucket, set `PDFXYZ_LIFECYCLE_PROVIDER` + `PDFXYZ_LIFECYCLE_VALIDATED=true` so the
-readiness reports the lifecycle facet `validated`.
+policy from silent defaults.
+
+**Verify the applied policy (Phase 25).** After applying the rules, confirm the bucket
+actually enforces the generated backstop — evidence, not just an assertion. You export
+the live config out-of-band (the app never reads the bucket) and hand it to the daemon:
+
+```bash
+# Export the LIVE bucket lifecycle config (your credentials, out-of-band):
+aws s3api get-bucket-lifecycle-configuration --bucket <your-bucket> > observed.json
+
+# Verify it against the policy the app would generate. No cloud call happens here.
+pnpm worker:daemon --lifecycle-verify --provider=aws-s3 --versioned --observed=observed.json
+#   exit 0 verified · 2 unknown (no --observed supplied) · 4 drift or malformed document
+```
+
+The exported document is content-free (rule ids, structural prefixes, `Status`, day
+counts — no bucket, endpoint, or credential), so it is safe to keep in CI. The output
+reports each generated rule as `satisfied`/`stricter`/`weaker`/`disabled`/`missing`
+plus a reconciliation plan; a `drift` verdict (exit `4`) means a backstop is not
+actually in force. Only after verifying should you set `PDFXYZ_LIFECYCLE_PROVIDER` +
+`PDFXYZ_LIFECYCLE_VALIDATED=true` so the readiness facet reports `validated`. See the
+example exports and README in [`examples/lifecycle/`](examples/lifecycle/).
+
+Two honesty caveats, both fail-safe (they never turn a real gap into `verified`):
+
+- **Pass `--versioned` on a versioning-enabled bucket**, so the noncurrent-version and
+  delete-marker backstops are checked; without it they are skipped. The daemon flags
+  this with a `note` when the exported config itself contains version-cleanup rules.
+- **Only pure-prefix (or whole-bucket) rules count** toward a backstop. A rule scoped
+  by tag, object size, or a multi-condition `Filter.And` deletes only a subset of a
+  prefix, so it is reported as `missing`/drift (never credited), and a version rule
+  that *retains* recent versions (`NewerNoncurrentVersions`) does not satisfy the
+  noncurrent backstop. If your bucket relies on such a rule, confirm coverage manually.
 
 ### 4. Start the worker (one-shot / drain / loop)
 
@@ -512,10 +542,15 @@ exit cleanly.
   compression always, `deep` when a native engine is installed; an **optional
   ClamAV/clamd malware-scan gate** (streams inputs over INSTREAM; blocks infected
   before processing) — off unless a clamd endpoint is configured, else the honest
-  no-op; retention→lifecycle policy generation/validation for four providers;
-  deployment readiness/posture; production guardrails; content-free readiness + logs.
+  no-op; retention→lifecycle policy generation/validation for four providers, plus
+  **structural verification** of an operator-exported lifecycle config against the
+  generated backstop (`--lifecycle-verify`, offline — no cloud call); active
+  delete-now proven on every terminal executor path; deployment readiness/posture;
+  production guardrails; content-free readiness + logs.
 - **Intentionally NOT implemented (never faked):** *applying* a lifecycle policy to a
-  live bucket (operator runs the provider CLI; the app never calls the cloud);
+  live bucket, and *reading* the live bucket to verify it — the operator runs the
+  provider CLI for both (apply, then export the config for `--lifecycle-verify`); the
+  app never calls the cloud;
   **OCR** and the other non-compress processors; and, when no clamd endpoint is
   configured, **malware scanning** stays inactive and an unscanned upload is never
   reported as scanned. The status and readiness surfaces state each of these honestly.

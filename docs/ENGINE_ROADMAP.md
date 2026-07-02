@@ -727,8 +727,8 @@ and smoked in CI, never published or run against real traffic here).
 
 ### Phase 25 — OCR result metadata + deterministic recognition proof (shipped)
 
-Phase 24 packaged the engines and proved **presence**; Phase 25 closes the next honest gap
-in two ways, without faking anything.
+Phase 24 packaged the engines and proved **presence**; the OCR metadata proof closes the
+next honest OCR gap in two ways, without faking anything.
 
 - **Populated result metadata** (`src/lib/jobs/ocr.ts`, `src/lib/workers/ocr-native.ts`):
   the native runner now measures a bounded, content-free `OcrResultMeta` from the actual
@@ -751,6 +751,47 @@ in two ways, without faking anything.
 ⏳ Still out-of-band (deliberately not faked): production OCR **quality**, OCRmyPDF's
 PDF→searchable-PDF path, **non-English** language packs, real **user-document**/traffic
 validation, and surfacing the populated metadata into the client-facing job record.
+
+### Phase 25 — lifecycle retention enforcement + deletion proof (shipped)
+
+Closes the retention/deletion loop with two independent **proofs** — active deletion and
+lifecycle-backstop verification — without ever faking a cloud call. It adds no processor;
+it makes the existing delete-now and lifecycle backstop *provable and honest*.
+
+- **Active-deletion proof** (`src/lib/workers/executor/executor.leak.test.ts`): an
+  invariant sweep over **every** terminal path the executor can drive a claimed job to —
+  completion, no-processor, an expired/missing input, a terminal processing failure, an
+  OCR failure, the three malware-scan blocks (infected / unscannable / scan-unavailable),
+  and cancellation mid-run — asserting **no input survives a terminal state and no
+  artifact survives a failed/canceled one**. Only a successful job keeps its single
+  artifact, with a bounded `expiresAt`; the complement is proven too (a retryable requeue
+  preserves inputs for the retry).
+- **Dry-run lifecycle verifier** (`src/lib/workers/lifecycle/verify.ts`,
+  `pnpm worker:daemon --lifecycle-verify`): turns the bare `PDFXYZ_LIFECYCLE_VALIDATED`
+  *assertion* into checked *evidence*. The operator exports the bucket's live lifecycle
+  config out-of-band (`aws s3api get-bucket-lifecycle-configuration`; the app never reads
+  the bucket) and the daemon structurally compares it to the policy it would generate —
+  per-rule `satisfied`/`stricter`/`weaker`/`disabled`/`missing`, a `verified`/`drift`
+  verdict, and a reconciliation plan. Exit `0` verified · `2` unknown (no `--observed`
+  doc) · `4` drift/malformed. Matching is structural (prefix coverage + role field, not
+  by id; shortest covering expiration wins, mirroring S3), so operator-named and
+  whole-bucket rules verify correctly.
+- **Honest states, content-free output**: with no observed document the verifier reports
+  `unknown`, never a pass — the app never upgrades absence to success. The report carries
+  only the app's own `pdfxyz-*` rule ids, a status/action enum, prose, and a **count** of
+  unrelated observed rules; an observed rule's id, prefix, or day count is never echoed
+  into the report or logs. New events `lifecycle_verify` / `lifecycle_verify_error`
+  ([`OBSERVABILITY.md`](./OBSERVABILITY.md)).
+- **Static proof**: committed, content-free example exports ([`docs/examples/lifecycle/`](examples/lifecycle/))
+  pinned by `examples.test.ts`; the offline `pnpm worker:smoke` and the CLI exit-code
+  contract (`cli.smoke.test.ts`) verify a matching export (`0`), a drifted export (`4`),
+  and the no-document case (`2`) against the real daemon.
+
+⏳ Still out-of-band (deliberately not faked): **applying** the lifecycle policy to a live
+bucket and **exporting** its config for verification (the operator runs the provider CLI
+for both; the app never calls the cloud), plus everything prior phases defer — real
+secrets and a provisioned bucket/broker, a running clamd service, and the actual worker
+**deployment**.
 
 ## Definition of production-ready per tool
 

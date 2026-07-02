@@ -12,3 +12,4 @@ export * from "./retention";
 export * from "./policy";
 export * from "./render";
 export * from "./config";
+export * from "./verify";

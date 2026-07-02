@@ -26,6 +26,7 @@ describe("parseDaemonArgs — modes", () => {
     expect(run(["--dry-run-status"]).mode).toBe("dry-run-status");
     expect(run(["--check"]).mode).toBe("check");
     expect(run(["--lifecycle-policy"]).mode).toBe("lifecycle-policy");
+    expect(run(["--lifecycle-verify"]).mode).toBe("lifecycle-verify");
   });
 
   it("treats a repeated same mode flag as the same mode", () => {
@@ -132,6 +133,32 @@ describe("parseDaemonArgs — lifecycle-policy options", () => {
 
   it("rejects --provider with no value", () => {
     expect(parseDaemonArgs(["--provider"]).ok).toBe(false);
+  });
+});
+
+describe("parseDaemonArgs — lifecycle-verify options", () => {
+  it("parses --observed as a path, with = and space forms", () => {
+    expect(
+      run(["--lifecycle-verify", "--provider=aws-s3", "--observed=cfg.json"]),
+    ).toMatchObject({
+      mode: "lifecycle-verify",
+      lifecycleProvider: "aws-s3",
+      observedPath: "cfg.json",
+    });
+    expect(
+      run(["--lifecycle-verify", "--observed", "/tmp/observed.json"]).observedPath,
+    ).toBe("/tmp/observed.json");
+  });
+
+  it("verifies with no --observed (the honest not-configured path is a valid parse)", () => {
+    const args = run(["--lifecycle-verify", "--provider=aws-s3", "--versioned"]);
+    expect(args.mode).toBe("lifecycle-verify");
+    expect(args.observedPath).toBeUndefined();
+  });
+
+  it("rejects --observed with no value", () => {
+    expect(parseDaemonArgs(["--lifecycle-verify", "--observed"]).ok).toBe(false);
+    expect(parseDaemonArgs(["--observed", "--versioned"]).ok).toBe(false);
   });
 });
 

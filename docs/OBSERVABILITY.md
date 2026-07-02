@@ -351,6 +351,8 @@ and generic prose — with **no** variable name, value, path, object key, or sig
 | `guardrail` | `code`, `severity`, `message` | One per violation. `code` is typed; `message` is content-free and names no variable. |
 | `lifecycle_policy` | `provider`, `versioned`, `filename`, `applyHint`, `derivedFrom`, `ruleCount`, `notes`, `document` | Emitted by `--lifecycle-policy`. `document` is the content-free policy JSON; `applyHint` uses a `<bucket>` placeholder. |
 | `lifecycle_policy_error` | `reason` (`retention_invalid`\|`policy_invalid`) | Generation refused (exit `1`) rather than emitting from silent defaults. |
+| `lifecycle_verify` | `configured`, `verdict` (`verified`\|`drift`\|`unknown`), `provider`, `versioned`, `declaredReadiness`, and (when `configured`) `checks[]`, `plan[]`, `unmatchedObservedRules`, `summary` | Emitted by `--lifecycle-verify`. `verdict` ⇒ exit `0` verified · `2` unknown (no `--observed` doc) · `4` drift. `checks[].ruleId` are the app's own `pdfxyz-*` ids; `status` ∈ `satisfied`\|`stricter`\|`weaker`\|`disabled`\|`missing`; `plan[].action` ∈ `create`\|`update`\|`review`. `unmatchedObservedRules` is a **count** — no observed rule id, prefix, or value is echoed. |
+| `lifecycle_verify_error` | `reason` (`retention_invalid`\|`policy_invalid`\|`observed_unreadable`\|`observed_too_large`\|`observed_malformed`), optional `issues[]` (parse codes) | `--lifecycle-verify` refused (exit `1` for retention/policy, `4` for an unreadable/oversized/malformed observed document). Names no path or document content. |
 
 **What to watch.** The `malware-scan` facet is `not-configured`/`disabled` until an
 operator configures the optional ClamAV backend, and the `ocr` facet is
@@ -370,7 +372,11 @@ disable OCR). Neither require flag is folded into `PDFXYZ_WORKER_STRICT` — a w
 does not scan or OCR is a legitimate production choice. A `lifecycle` facet of `unknown` on a drainable worker is
 the expected "no backstop declared yet" state; alert if a production worker you intend
 to be `ready` reports
-`degraded`. A non-empty `guardrails.errors` on a worker that fails to start (exit `4`)
+`degraded`. If you wire `--lifecycle-verify` into CI or a scheduled check, a
+`lifecycle_verify` `verdict` of `drift` (exit `4`) is the actionable signal that the
+bucket no longer enforces the generated backstop — inspect `plan[]` for the `create`/
+`update` actions needed to reconcile it; `unknown` (exit `2`) just means no exported
+document was supplied that run. A non-empty `guardrails.errors` on a worker that fails to start (exit `4`)
 is the fail-fast signal — inspect the `guardrail` `code`s (never a leaked value) to see
 which provider/setting is misconfigured.
 
