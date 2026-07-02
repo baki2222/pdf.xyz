@@ -514,15 +514,19 @@ worker proven to stay separated.
   run mode) evaluates production guardrails and **fails fast** (exit `4`) on a
   dangerous/invalid config — a *selected-but-invalid* provider is an error, not a silent
   fallback. `PDFXYZ_WORKER_STRICT` / `…_REQUIRE_*` enforce production requirements;
-  defaults stay safe (a bare env has zero violations). Malware scanning and OCR are
-  reported **not-implemented**, never active.
+  defaults stay safe (a bare env has zero violations). OCR is reported
+  **not-implemented**; malware scanning is a presence-only facet that **Phase 22**
+  turns into a real, optional scanner (`ready`/`active` once a clamd endpoint is
+  configured — see below).
 
 ⏳ Still out-of-band (deliberately not faked): real secrets and a provisioned S3/R2
 bucket + Redis/Upstash broker, the actual worker deployment and the Docker image build
 itself (not exercised here — no Docker daemon in this environment), **applying** a
 lifecycle policy to a live bucket (the tooling generates and validates it; the operator
-applies it with the provider CLI — the app never calls the cloud), **malware scanning**,
-and the native `deep`/OCR runners.
+applies it with the provider CLI — the app never calls the cloud), **deploying a clamd
+scanner service** (Phase 22 ships the ClamAV scan gate — exercised by tests with a fake
+transport — but running the clamd daemon is operator-owned), and the native `deep`/OCR
+runners.
 
 ### Phase 20 — container CI + deployment-security gates (shipped)
 
@@ -580,8 +584,47 @@ coverage against the fake Redis transport and provider integration tests.
   injected fake transports, never a real broker or secret.
 
 ⏳ Still out-of-band: a provisioned Redis/Upstash broker with real credentials,
-applying lifecycle policies to object storage, malware scanning, and native OCR/deep
-engines in deployed worker infrastructure.
+applying lifecycle policies to object storage, and native OCR/deep engines in
+deployed worker infrastructure. (Malware scanning becomes a real, optional gate in
+Phase 22, below — running the clamd service stays operator-owned.)
+
+### Phase 22 — malware-scan gate + optional ClamAV backend (shipped)
+
+The secure-worker path now scans a job's inputs **before** any native processing,
+behind a provider seam like storage/queue/the processor (`src/lib/workers/scanner/`).
+It is **optional by default** — a real capability an operator turns on, never a silent
+assumption — and content-free in every log, error, and status line.
+
+- **Optional ClamAV/clamd backend** (`./clamav`): streams each input to a `clamd`
+  daemon over the INSTREAM protocol (protocol-safe framing, no shell) and maps the
+  reply to a verdict. Node-free — its socket is an injected `ClamavTransport`, so the
+  client is unit-tested with a fake and never hits a real daemon or the network; only
+  the Node socket transport (`./clamav-transport`) and the runtime resolver (`./node`)
+  are Node-only. Enforces a strict per-scan timeout and a client-side max-bytes ceiling.
+- **Honest states, presence-only**: `resolveScannerReadiness` reports `disabled`,
+  `not-configured`, `ready` (a usable endpoint → `active: true`, inputs are scanned),
+  or `unavailable` (selected but misconfigured/unrecognized → cannot connect, still
+  inactive). Config is `PDFXYZ_MALWARE_SCANNER=clamav://host[:port]` (or
+  `clamav+unix:///path`), with bounded `PDFXYZ_CLAMAV_TIMEOUT_MS` / `PDFXYZ_CLAMAV_MAX_BYTES`.
+  Nothing echoes the endpoint host, port, path, or value.
+- **Fail-closed verdicts** (executor gate): `infected` → blocked terminally before
+  processing (`malware_detected`, no artifact, inputs wiped, a `scan_blocked` security
+  log); `invalid` (unscannable — e.g. over the hard size limit) → blocked
+  (`scan_invalid`) rather than processed unscanned; `error` (transient — clamd
+  unreachable) → retryable `scan_unavailable`, never downgraded to clean; `clean` →
+  `scan_clean`, then processing; `skipped` → proceed, honestly unscanned. Required-vs-
+  optional is decided at the scanner boundary (required fails/retries, optional
+  degrades to `skipped`); an `infected` detection blocks either way. clamd's reply is
+  classified so the **signature name is dropped at the protocol layer**.
+- **Guardrails**: `PDFXYZ_WORKER_REQUIRE_SCAN` (opt-in, **not** implied by strict — a
+  lossless-only worker with no scanner is a legitimate production choice) fails `--check`
+  (exit `4`) unless a usable endpoint is configured, and passes once it is; a
+  selected-but-invalid or unrecognized scanner value is itself a fail-fast config error.
+
+⏳ Still out-of-band (deliberately not faked): **running the clamd daemon** (deploy it
+as a sidecar/service and point `PDFXYZ_MALWARE_SCANNER` at it — no test ever contacts a
+real clamd), a provisioned broker/bucket + real secrets, applying lifecycle policies to
+a live bucket, and the native `deep`/OCR runners.
 
 ## Definition of production-ready per tool
 

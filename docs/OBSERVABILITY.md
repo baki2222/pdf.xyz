@@ -217,8 +217,9 @@ log sink — `log(event)` — that is **content-free by construction**, the oper
 counterpart of the product-analytics rule above. Each `ExecutorLogEvent` carries
 only:
 
-- `event` — a fixed enum (`claimed`, `scanning`, `processing`, `completed`,
-  `failed`, `requeued`, `canceled`, `no_processor`, `input_missing`);
+- `event` — a fixed enum (`claimed`, `scanning`, `scan_clean`, `scan_blocked`,
+  `processing`, `completed`, `failed`, `requeued`, `canceled`, `no_processor`,
+  `input_missing`);
 - `jobId` — an opaque, server-minted id (`job_…`);
 - `tool` — the public tool slug;
 - `attempt` — the delivery attempt number;
@@ -252,6 +253,45 @@ engines by **binary name only** (no path, version, or value), so an operator can
 on "drainable but `deep: false`" when deep compression is expected. It is as content-
 free as every other line and ships to the log sink as-is.
 
+## Malware-scan gate logs (Phase 22)
+
+The executor runs a **malware-scan gate** on a job's inputs before it advances to
+processing (`src/lib/workers/scanner/`). Phase 22 ships an **optional ClamAV/clamd**
+backend behind it, off by default. With no scanner configured the wired no-op inspects
+nothing and returns `skipped` — the job proceeds and **no log event is emitted for the
+skip**, so a job that goes straight `claimed → scanning → processing` is transparently
+signalling "not scanned". When a scanner IS active (a configured clamd endpoint or an
+injected provider), two events appear:
+
+- `scan_clean` — a scanner actually inspected the bytes and passed; logged **before**
+  `processing`, so its presence is the audit proof that an input was scanned, and its
+  absence is the honest signal that it was not.
+- `scan_blocked` — the gate blocked an input **before** processing (non-retryable,
+  **no artifact written**): either a detected threat (error code `malware_detected`)
+  or an input the scanner cannot scan and never will — e.g. it exceeds the hard size
+  limit (error code `scan_invalid`, a deliberate **fail-closed** so nothing is
+  processed unscanned). A high-signal **security** event worth alerting on: a nonzero
+  `scan_blocked` rate on a worker with an active scanner means real detections (or a
+  size-limit misconfiguration) — investigate.
+
+A scan that could not complete (clamd unreachable/timed out for a *required* scanner)
+reuses `requeued`/`failed` with the `scan_unavailable` error code — retryable, never
+downgraded to "clean" (an *optional* scanner degrades to `skipped` instead). None of
+these carry a filename, a scanner **signature name**, an endpoint, a byte, or a value:
+clamd's reply is classified so the signature is dropped at the protocol layer, and the
+scanner's own `detail` is deliberately **not** propagated into the job error or the
+log — the client-facing error is a fixed, content-free message.
+
+At startup (and on `--dry-run-status`) the daemon emits a content-free `scanner_health`
+line — `{ active, provider, detail }` — alongside `compression_health`. `active` is
+`true` only when a scanner (ClamAV) is configured with a usable endpoint; `provider`
+distinguishes `not-configured` (nothing declared), `disabled` (explicitly off),
+`unavailable` (selected but its endpoint is missing/malformed — inactive), and
+`clamav` (active), without ever exposing the endpoint host, port, socket path, or the
+variable name. Alert on `active: false` (or `provider: unavailable`) on a worker you
+intend to be scanning; `not-configured`/`disabled` on a worker that isn't meant to
+scan is the honest baseline, not an incident.
+
 ## Container health check (Phase 19)
 
 The worker image's `HEALTHCHECK` (and the `docker-compose.worker.yml` example) runs
@@ -282,10 +322,17 @@ and generic prose — with **no** variable name, value, path, object key, or sig
 | `lifecycle_policy` | `provider`, `versioned`, `filename`, `applyHint`, `derivedFrom`, `ruleCount`, `notes`, `document` | Emitted by `--lifecycle-policy`. `document` is the content-free policy JSON; `applyHint` uses a `<bucket>` placeholder. |
 | `lifecycle_policy_error` | `reason` (`retention_invalid`\|`policy_invalid`) | Generation refused (exit `1`) rather than emitting from silent defaults. |
 
-**What to watch.** The `malware-scan` facet is always `not-configured`/`not-implemented`
-and `ocr` is always `not-implemented` — these are honest baselines, not incidents. A
-`lifecycle` facet of `unknown` on a drainable worker is the expected "no backstop
-declared yet" state; alert if a production worker you intend to be `ready` reports
+**What to watch.** The `malware-scan` facet is `not-configured`/`disabled` until an
+operator configures the optional ClamAV backend, and `ocr` is always `not-implemented`
+— honest baselines, not incidents. Once a scanner is configured, watch for the facet
+reporting `degraded`/`unavailable` (a misconfigured endpoint) on a worker you intend to
+scan. The malware-scan guardrails are the opt-in `require_scan_unmet` (armed by
+`PDFXYZ_WORKER_REQUIRE_SCAN`; fails `--check` with exit `4` when scanning is required
+but not active — an intentional refusal to run unscanned) plus `scan_selected_but_invalid`
+/ `scan_provider_unrecognized` (a misconfigured or unknown scanner value, so a typo
+can't silently disable scanning). A `lifecycle` facet of `unknown` on a drainable worker is
+the expected "no backstop declared yet" state; alert if a production worker you intend
+to be `ready` reports
 `degraded`. A non-empty `guardrails.errors` on a worker that fails to start (exit `4`)
 is the fail-fast signal — inspect the `guardrail` `code`s (never a leaked value) to see
 which provider/setting is misconfigured.

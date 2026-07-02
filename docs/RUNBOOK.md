@@ -73,7 +73,8 @@ this section is the by-service summary.
 | `PDFXYZ_QUEUE_PROVIDER` (`redis`) + `PDFXYZ_REDIS_REST_URL` / `_TOKEN` | **Yes, to drain** | The broker the worker claims jobs from. The Redis/Upstash-compatible REST gateway must support script execution (`EVAL`) for Phase 21 atomic transitions; otherwise worker writes fail as typed `unavailable`. Without both storage **and** queue the daemon exits `2` (not configured). |
 | `PDFXYZ_NATIVE_COMPRESSION` (`auto`/`off`), `PDFXYZ_COMPRESSION_*` | Optional | Deep image compression. `auto` detects an installed engine; lossless always works. |
 | `PDFXYZ_LIFECYCLE_PROVIDER` / `PDFXYZ_LIFECYCLE_VALIDATED` / `PDFXYZ_LIFECYCLE_VERSIONED` | Optional | Declare the retention/lifecycle backstop so `--check` / `--dry-run-status` can report it. |
-| `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE` / `_REQUIRE_DEEP_ENGINE` / `_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC` | Optional (recommended in prod) | Opt-in guardrails: turn a dangerous or half-configured deployment into a fail-fast (exit `4`) instead of a silent fallback. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (implied by strict) requires a queue that guarantees atomic, race-safe transitions. See §4. |
+| `PDFXYZ_MALWARE_SCANNER` (`clamav://host[:port]` or `clamav+unix:///path`), `PDFXYZ_CLAMAV_TIMEOUT_MS` / `PDFXYZ_CLAMAV_MAX_BYTES` | Optional | Enable the optional ClamAV/clamd malware-scan gate (streams inputs over INSTREAM, blocks infected before processing). Unset ⇒ inactive no-op (nothing scanned, never *reported* as scanned); `disabled`/`off` turns it off explicitly. Run clamd as a sidecar. Set `PDFXYZ_WORKER_REQUIRE_SCAN` to make `--check` refuse to run (exit `4`) unless a usable endpoint is configured. |
+| `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE` / `_REQUIRE_DEEP_ENGINE` / `_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC`, `PDFXYZ_WORKER_REQUIRE_SCAN` | Optional (recommended in prod) | Opt-in guardrails: turn a dangerous or half-configured deployment into a fail-fast (exit `4`) instead of a silent fallback. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (implied by strict) requires a queue that guarantees atomic, race-safe transitions; `PDFXYZ_WORKER_REQUIRE_SCAN` (opt-in, **not** implied by strict) requires an active scanner. See §4. |
 
 Provider config is read from the **environment at run time** and is never baked
 into an image layer, never logged, and never returned by `/api/worker/status`
@@ -197,10 +198,14 @@ remote processing production-ready:
   but **applying** it to the bucket — plus the bucket CORS rules the browser needs
   for direct signed transfers — is operator-owned. The app's URL TTLs are not a
   substitute for bucket lifecycle rules.
-- **Malware / soundness scanning.** The executor has a `scanning` phase, but this
-  build ships **no** scanner — the deployment readiness reports malware scanning as
-  **not implemented**. A production worker must add real scanning there before
-  processing untrusted uploads.
+- **Malware scanning — gate ships, clamd is operator-owned.** The executor scan gate
+  and an **optional ClamAV/clamd** backend ship (Phase 22): set `PDFXYZ_MALWARE_SCANNER`
+  to a clamd endpoint and the worker streams inputs over INSTREAM and blocks infected
+  (and unscannable) uploads before processing. What's operator-owned is **running the
+  clamd daemon** (a sidecar with current signature databases) and pointing the worker
+  at it; unset, the gate is an honest inactive no-op (nothing scanned, never *reported*
+  as scanned). Arm `PDFXYZ_WORKER_REQUIRE_SCAN` to make the daemon refuse to start
+  (exit `4`) unless a usable scanner is configured.
 - **OCR.** Not implemented in any build; `/api/worker/status` and the OCR tool
   honestly report it unavailable. No scan is uploaded and no text is fabricated
   until a real OCR processor is deployed behind the worker contract.

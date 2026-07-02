@@ -271,8 +271,12 @@ it must be *driven*. Before enabling remote processing:
 - **Tune lease & retries.** Set `leaseMs` above the worst-case job duration and
   heartbeat long jobs, so a slow job is not redelivered under a healthy worker;
   set `maxAttempts` so only genuinely transient (`retryable`) failures retry.
-- **Scan for real.** The executor's `scanning` phase is a state today; a
-  production worker must run malware/soundness scanning there before processing.
+- **Scan for real.** The executor's `scanning` phase runs the Phase 22 malware-scan
+  gate: point `PDFXYZ_MALWARE_SCANNER` at an **optional ClamAV/clamd** endpoint and an
+  infected or unscannable input is blocked before processing; unconfigured, it is an
+  honest no-op (nothing scanned, and nothing is ever *reported* as scanned). Deploy
+  clamd (e.g. as a sidecar) to scan for real, and arm `PDFXYZ_WORKER_REQUIRE_SCAN`
+  where scanning is mandatory.
 - **Keep it presence-only.** `/api/worker/status` exposes
   `providers.processor.executor` (mode/ready/detail) — confirm no broker name,
   worker URL, key, or variable ever appears there. `remote-configured` must keep
@@ -335,9 +339,11 @@ one process that actually drains the queue; the Next.js app never becomes it.
 - **Shut it down cleanly.** SIGINT/SIGTERM lets the in-flight tick finish and the
   loop exit; a second signal forces an immediate stop. Run several replicas safely —
   the broker's atomic claim (RPOP/ZREM) guarantees no two workers run the same job.
-- **Still operator-owned:** lifecycle-enforced bucket deletion, malware scanning in
-  the `scanning` phase, and native `deep`/OCR runners remain your responsibility; the
-  daemon changes none of those honesty boundaries.
+- **Still operator-owned:** lifecycle-enforced bucket deletion and native `deep`/OCR
+  runners remain your responsibility. Malware scanning now ships as an **optional gate**
+  (Phase 22 — configure `PDFXYZ_MALWARE_SCANNER` and run a clamd service), but the clamd
+  daemon itself is operator-owned; the worker daemon changes none of those honesty
+  boundaries.
 
 ## Phase 19 worker container & deployment artifacts
 
@@ -479,14 +485,16 @@ exit cleanly.
 ### What is real now vs. intentionally not implemented
 
 - **Real:** provider config validation; the drain/one-shot/loop daemon; lossless
-  compression always, `deep` when a native engine is installed; retention→lifecycle
-  policy generation/validation for four providers; deployment readiness/posture;
-  production guardrails; content-free readiness + logs.
+  compression always, `deep` when a native engine is installed; an **optional
+  ClamAV/clamd malware-scan gate** (streams inputs over INSTREAM; blocks infected
+  before processing) — off unless a clamd endpoint is configured, else the honest
+  no-op; retention→lifecycle policy generation/validation for four providers;
+  deployment readiness/posture; production guardrails; content-free readiness + logs.
 - **Intentionally NOT implemented (never faked):** *applying* a lifecycle policy to a
   live bucket (operator runs the provider CLI; the app never calls the cloud);
-  **malware scanning** (no scanner ships — reported inactive even if a scanner
-  variable is set); **OCR** and the other non-compress processors. The status and
-  readiness surfaces state each of these honestly.
+  **OCR** and the other non-compress processors; and, when no clamd endpoint is
+  configured, **malware scanning** stays inactive and an unscanned upload is never
+  reported as scanned. The status and readiness surfaces state each of these honestly.
 
 ### Security notes (logs / secrets / filenames / object keys)
 

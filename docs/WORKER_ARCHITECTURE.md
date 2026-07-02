@@ -369,6 +369,73 @@ Guarantees the executor upholds:
   slug, an attempt number, and an error *code* — never bytes, filenames, object
   keys, temp paths, or option values.
 
+### Malware-scan gate (`src/lib/workers/scanner/`, Phase 22)
+
+The executor runs a typed **malware-scan gate** on a job's already-read inputs
+**between** reading them and advancing to `processing`, so an infected upload is
+blocked before any compute touches it. It is a provider seam like storage/queue/the
+processor — pure data + a tiny `MalwareScanner` interface (`scan()` → a content-free
+verdict, `capability()` → presence-only readiness), node-free, and injectable.
+
+Phase 22 ships an **optional ClamAV/clamd backend** (`./clamav`) behind that seam —
+it streams each input to a `clamd` daemon over INSTREAM and maps the reply to a
+verdict — **plus the honest no-op** for when no scanner is configured. It is optional
+by default: scanning is a real capability an operator turns on, exactly like storage
+or the queue, never a silent assumption.
+
+- **Configuration & states (presence-only).** With nothing set the gate is
+  `not-configured` and the no-op runs. An operator opts in by pointing
+  `PDFXYZ_MALWARE_SCANNER` at a clamd endpoint — `clamav://host[:port]` (default port
+  3310) or `clamav+unix:///path` — with bounded `PDFXYZ_CLAMAV_TIMEOUT_MS` /
+  `PDFXYZ_CLAMAV_MAX_BYTES` knobs. `resolveScannerReadiness` reports one of four
+  honest, content-free states: `disabled` (explicitly `off`), `not-configured`,
+  `ready` (a usable endpoint → **`active: true`**, inputs are actually scanned), or
+  `unavailable` (selected but its endpoint is missing/malformed/unrecognized → cannot
+  connect, still inactive). It never echoes the endpoint host, port, socket path, or
+  value.
+- **The shipped no-op is honest.** `notConfiguredScanner` is wired for every
+  non-`ready` state; it inspects nothing and returns `skipped` — **never `clean`** —
+  so an unscanned input is never reported as scanned. A `skipped` verdict emits **no**
+  log event, so an unscanned job is byte-identical to having no gate; the node-free
+  `createMalwareScanner` only ever wires the no-op or an injected provider, so a
+  client bundle or unit test never pulls a socket in.
+- **Verdict handling** (the executor gate, exercised by the ClamAV client, an
+  injected fake, and unit tests): `infected` → the job fails **terminally and
+  non-retryably** with error code `malware_detected`, **before** `processing`, so
+  **no artifact is ever produced**, inputs wiped, a `scan_blocked` log event fires for
+  security monitoring; `invalid` (the input can never be scanned — e.g. it exceeds the
+  hard size limit) → **fail closed**, blocked terminally with code `scan_invalid`
+  (same `scan_blocked` event) rather than processed unscanned; `error` (a transient
+  scan failure — clamd unreachable/timed out) → a **retryable** `scan_unavailable`
+  failure (requeue up to `maxAttempts`, then terminal), never downgraded to clean;
+  `clean` → a `scan_clean` log event, then processing proceeds; `skipped` → proceed,
+  honestly unscanned.
+- **Required vs optional (fail-closed vs fail-open) lives at the scanner boundary.**
+  An `infected` detection ALWAYS blocks. For a scanner that can't reach a verdict
+  (unreachable/oversize), a **required** scanner returns `error`/`invalid` (fail or
+  retry, never bypass) while an **optional** one degrades to `skipped` (proceed,
+  honestly not-scanned) — so the executor policy (`error` retries, `skipped`
+  proceeds) stays simple and provider-agnostic.
+- **Content-free by construction.** clamd's reply is classified to a kind at the
+  protocol layer, which **drops the signature name**; the scanner's `detail` is a
+  fixed sentence and is deliberately **never** propagated into the `JobError` or the
+  logs. Verdicts, log events, and the `scanner_health` readiness line carry no
+  filename, signature, endpoint, host, port, byte, or value.
+- **Operator control.** `PDFXYZ_WORKER_REQUIRE_SCAN` arms the opt-in `require-scan`
+  guardrail: `--check` fails fast (exit `4`) when scanning is required but not active,
+  and **passes** once a usable clamd endpoint is configured. A selected-but-invalid
+  or unrecognized scanner value is itself a guardrail error (`scan_selected_but_invalid`
+  / `scan_provider_unrecognized`) so a typo can't silently disable scanning. It is
+  **not** folded into `PDFXYZ_WORKER_STRICT` — a lossless-only worker with no scanner
+  is a legitimate production choice — so strict stays passable without a scanner. The
+  daemon's `--dry-run-status` reports a presence-only `scanner_health`
+  (`{ active, provider, detail }`).
+
+Node boundary: the ClamAV client (`./clamav`) is node-free (its socket is an injected
+`ClamavTransport`); only the real Node socket transport (`./clamav-transport`) and the
+runtime resolver (`./node`, `resolveWorkerScanner`) are Node-only, imported by the
+worker runtime alone — so the eager scanner barrel never pulls a socket into a bundle.
+
 ### Storage seams: worker I/O vs app-server ops
 
 The executor reads inputs and writes artifacts through its own
@@ -562,12 +629,13 @@ tooling turns the configured retention into that policy:
 | queue | claimable broker configured | a worker can claim/complete |
 | engine | native engine installed (injected probe) | lossless always; deep needs a binary |
 | lifecycle | operator-declared `validated` | else `degraded`/`unknown` — never assumed |
-| malware-scan | **never** — not implemented in this build | reports inactive, honestly |
+| malware-scan | optional ClamAV clamd endpoint configured (`ready`) | `not-configured`/`disabled` when off; `unavailable` (degraded) if selected-but-misconfigured |
 | ocr | **never** — not implemented in this build | reuses the OCR capability detail |
 
 `blocked` = not drainable (can't run at all); `ready` = drainable **and** a validated
-lifecycle backstop; otherwise `degraded`. Malware/OCR being not-implemented is the
-honest baseline and does not by itself degrade the posture.
+lifecycle backstop; otherwise `degraded`. OCR being not-implemented, and malware
+scanning being `not-configured` when no scanner is wired, are honest baselines and do
+not by themselves degrade the posture.
 
 ### Production guardrails (`src/lib/workers/deploy/guardrails.ts`)
 
@@ -626,7 +694,9 @@ Each job runs in an isolated temporary directory/container. Recommended processo
 
 ### 5. Security controls
 
-- Malware scanning before processing.
+- Malware scanning before processing — **shipped (Phase 22)** as the executor scan
+  gate with an optional ClamAV/clamd backend; blocks infected/unscannable inputs
+  before any compute, off unless a clamd endpoint is configured.
 - No document contents in logs.
 - Strict timeout and memory limits.
 - No arbitrary file paths in requests or outputs.
@@ -704,4 +774,6 @@ A worker-backed tool is production-ready only when it has:
 
 **Phase 16 progress toward this:** the **worker daemon runner** is now real — an out-of-band CLI (`pnpm worker:daemon`, `src/lib/workers/daemon/`) that wires the real queue + a worker-side S3/R2 `ExecutorStorage` (genuine signed byte I/O) + the processor registry into `createWorkerExecutor(...)` and runs `runOnce()`/`drain()` with `--once`/`--drain`/`--loop`/`--dry-run-status` modes, cooperative shutdown, and content-free logging. A deployment can now genuinely drain a configured queue and complete real (lossless-compression) jobs. What remains is operational, not architectural: **deploy** this daemon in sandboxed worker infrastructure (the app still never runs it) with lifecycle-enforced bucket deletion and malware scanning in the scan phase; wire native `deep`/OCR runners behind the processor contract (still honestly `not_implemented` without them); thread the original input filename through object metadata / the job spec (worker outputs currently use a content-type-derived name); and move the queue's read→write transitions into a Lua/`WATCH` critical section.
 
-**Phase 21 progress toward this:** the last item above — the queue's read→write transition window — is now **closed**. Every worker-owned state transition (the claim commit, stale-lease redelivery, heartbeat, advance, terminal complete/fail, requeue) runs as a single server-side Lua `EVAL` compare-and-set (`src/lib/workers/queue/redis-scripts.ts`) that re-reads the authoritative job/lease, re-validates the expected status **and** the claim's attempt fingerprint, and only then writes — so the check and the write are one atomic step, not a last-writer-wins race. (`WATCH`/`MULTI` is not viable here: the Upstash Redis REST transport is stateless, with no persistent connection to hold a watch across requests; `EVAL` is the atomic primitive that transport does support.) The executor threads each claim's attempt back through its transitions, so a daemon whose lease was reclaimed cannot heartbeat, complete, fail, or requeue the job another worker now owns; `cancel`/`expire` remain status-guarded (no lease) and race a running completion deterministically. A provider that cannot execute the scripts returns a typed `unavailable` rather than silently degrading, and `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (implied by `PDFXYZ_WORKER_STRICT`) fails a deployment fast when atomic transitions cannot be guaranteed. Still out-of-band and unchanged: deploying the daemon with real broker/storage credentials, lifecycle-enforced bucket deletion, malware scanning, and native `deep`/OCR runners.
+**Phase 21 progress toward this:** the last item above — the queue's read→write transition window — is now **closed**. Every worker-owned state transition (the claim commit, stale-lease redelivery, heartbeat, advance, terminal complete/fail, requeue) runs as a single server-side Lua `EVAL` compare-and-set (`src/lib/workers/queue/redis-scripts.ts`) that re-reads the authoritative job/lease, re-validates the expected status **and** the claim's attempt fingerprint, and only then writes — so the check and the write are one atomic step, not a last-writer-wins race. (`WATCH`/`MULTI` is not viable here: the Upstash Redis REST transport is stateless, with no persistent connection to hold a watch across requests; `EVAL` is the atomic primitive that transport does support.) The executor threads each claim's attempt back through its transitions, so a daemon whose lease was reclaimed cannot heartbeat, complete, fail, or requeue the job another worker now owns; `cancel`/`expire` remain status-guarded (no lease) and race a running completion deterministically. A provider that cannot execute the scripts returns a typed `unavailable` rather than silently degrading, and `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (implied by `PDFXYZ_WORKER_STRICT`) fails a deployment fast when atomic transitions cannot be guaranteed. Still out-of-band and unchanged: deploying the daemon with real broker/storage credentials, lifecycle-enforced bucket deletion, and native `deep`/OCR runners.
+
+**Phase 22 progress toward this:** the **malware-scan gate** — "Malware scanning before processing" from the security-controls list — is now real. The executor runs a typed scan gate on a job's inputs **before** advancing to `processing` (`src/lib/workers/scanner/`), and Phase 22 ships an **optional ClamAV/clamd** backend behind it (streams each input over INSTREAM; `./clamav` node-free, its socket behind an injected transport). It is off by default (the honest no-op runs — nothing is scanned, nothing is *reported* as scanned); an operator turns it on with `PDFXYZ_MALWARE_SCANNER=clamav://host[:port]` (or `clamav+unix:///path`) plus bounded `PDFXYZ_CLAMAV_*` knobs. An `infected` verdict blocks the job terminally (`malware_detected`) before any processing so no artifact is produced; an unscannable/oversize input fails closed (`scan_invalid`); a transient clamd failure is retryable (`scan_unavailable`) for a required scanner or degrades to `skipped` for an optional one; `clean` proceeds. Readiness (`disabled`/`not-configured`/`ready`/`unavailable`), a `scanner_health` line, and guardrails (`require-scan`, `scan_selected_but_invalid`, `scan_provider_unrecognized`) are all presence-only and content-free — the clamd signature name is dropped at the protocol layer and never reaches a log or error. Still out-of-band and unchanged: deploying the daemon (and a clamd sidecar) with real credentials, lifecycle-enforced bucket deletion, and native `deep`/OCR runners.
