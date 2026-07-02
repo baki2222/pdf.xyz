@@ -419,7 +419,7 @@ content-free, and offline — no command here makes a live cloud call.
 | Compression | `PDFXYZ_NATIVE_COMPRESSION` (auto by default), optional engine pin + absolute binary overrides | Deep image compression. |
 | Retention *(optional)* | `PDFXYZ_RETENTION_INPUT_TTL_MINUTES`, `PDFXYZ_RETENTION_ARTIFACT_TTL_MINUTES`, `PDFXYZ_RETENTION_MULTIPART_ABORT_HOURS`, `PDFXYZ_RETENTION_NONCURRENT_VERSION_DAYS` | Tighten the lifecycle backstop (≤ 7-day ceiling). |
 | Lifecycle *(optional)* | `PDFXYZ_LIFECYCLE_PROVIDER` (`aws-s3`\|`cloudflare-r2`\|`minio`\|`generic`), `PDFXYZ_LIFECYCLE_VALIDATED=true`, `PDFXYZ_LIFECYCLE_VERSIONED` | Declare that the generated policy is applied and verified. |
-| Guardrails *(optional)* | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`, `PDFXYZ_WORKER_REQUIRE_LIFECYCLE` | Fail fast on a dangerous production state. |
+| Guardrails *(optional)* | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`, `PDFXYZ_WORKER_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC` | Fail fast on a dangerous production state. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (also implied by strict) rejects a deployment whose queue cannot guarantee atomic, race-safe transitions (`queue_atomic_unsupported`). |
 
 Copy [`.env.worker.example`](../.env.worker.example) to a git-ignored `.env`. Values
 are read only to sign/authenticate inside the worker; they are never logged,
