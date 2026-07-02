@@ -5,8 +5,9 @@ import {
   claimHandoff,
   eligibleFilesFor,
   handoffEntriesToFiles,
-  looksLikeHandoffId,
   purgeExpiredHandoffs,
+  readHandoffId,
+  stripHandoffFromUrl,
 } from "@/lib/handoff";
 
 /**
@@ -39,8 +40,6 @@ export interface ToolHandoff {
   dismiss: () => void;
 }
 
-const PARAM = "handoff";
-
 const IDLE: Omit<ToolHandoff, "dismiss"> = {
   status: "idle",
   files: [],
@@ -48,11 +47,10 @@ const IDLE: Omit<ToolHandoff, "dismiss"> = {
   claimed: 0,
 };
 
-/** Read a validated handoff id from the current URL, or null. */
-function readHandoffId(): string | null {
+/** Read a validated handoff id from the current address bar, or null. */
+function readHandoffIdFromLocation(): string | null {
   try {
-    const id = new URLSearchParams(window.location.search).get(PARAM);
-    return id && looksLikeHandoffId(id) ? id : null;
+    return readHandoffId(window.location.search);
   } catch {
     return null;
   }
@@ -61,10 +59,10 @@ function readHandoffId(): string | null {
 /** Drop the `?handoff=` param from the address bar without navigating. */
 function stripHandoffParam(): void {
   try {
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has(PARAM)) return;
-    url.searchParams.delete(PARAM);
-    window.history.replaceState(window.history.state, "", url.toString());
+    const stripped = stripHandoffFromUrl(window.location.href);
+    if (stripped !== window.location.href) {
+      window.history.replaceState(window.history.state, "", stripped);
+    }
   } catch {
     // history/URL can be unavailable in exotic embeddings — safe to ignore.
   }
@@ -91,7 +89,7 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
     if (!slug || startedRef.current) return;
     startedRef.current = true;
 
-    const id = readHandoffId();
+    const id = readHandoffIdFromLocation();
     stripHandoffParam();
     if (!id) return; // no token → stay idle (normal file picker), no storage touch
 

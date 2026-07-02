@@ -6,7 +6,7 @@ import { ArrowRight, Cpu, Layers, Loader2, Plus, ShieldCheck, X } from "lucide-r
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { BatchPlan, WorkspaceFile } from "@/lib/workspace";
-import { indexSummaries, type WorkspaceToolSummary } from "./presenter";
+import { indexSummaries, type WorkspaceToolSummary } from "./summary";
 
 /** Honest, per-status copy for the launch area. `tone` maps to accent colors. */
 function statusContent(
@@ -238,7 +238,7 @@ export function BatchPanel({
           content.tone === "muted" && "border-white/10 bg-white/[0.02]",
         )}
       >
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1" role="status" aria-live="polite">
           <span
             className={cn(
               "inline-flex items-center gap-1.5 text-sm font-semibold",

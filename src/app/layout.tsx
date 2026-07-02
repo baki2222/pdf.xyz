@@ -4,6 +4,8 @@ import { GeistMono } from "geist/font/mono";
 import { siteConfig } from "@/lib/site";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
+import { WebVitals } from "@/components/telemetry/web-vitals";
+import { isTelemetryEnabled } from "@/lib/telemetry";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
@@ -71,6 +73,9 @@ export default function RootLayout({
         <SiteHeader />
         <main id="main">{children}</main>
         <SiteFooter />
+        {/* Privacy-safe Web Vitals — only mounted when a telemetry endpoint is
+            configured; otherwise this is not rendered and ships no listener. */}
+        {isTelemetryEnabled() && <WebVitals />}
       </body>
     </html>
   );

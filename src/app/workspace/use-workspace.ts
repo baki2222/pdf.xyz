@@ -2,10 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { eligibleFilesFor, handoffCapabilityFor, stashHandoff } from "@/lib/handoff";
+import {
+  clearHandoffs,
+  eligibleFilesFor,
+  handoffCapabilityFor,
+  purgeExpiredHandoffs,
+  stashHandoff,
+} from "@/lib/handoff";
 import { isLikelyPdf, MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { countPdfPages } from "@/lib/pdf/page-count";
 import {
+  clearPersisted,
   createWorkspaceFile,
   emptyWorkspace,
   loadPersisted,
@@ -20,7 +27,7 @@ import {
   type WorkspaceFile,
   type WorkspaceState,
 } from "@/lib/workspace";
-import { indexSummaries, type WorkspaceToolSummary } from "./presenter";
+import { indexSummaries, type WorkspaceToolSummary } from "./summary";
 
 /** In-browser tools never load files larger than this (matches the "100 MB" copy). */
 const MAX_FILE_BYTES = MAX_PDF_BYTES;
@@ -58,6 +65,12 @@ export interface WorkspaceController {
   addFiles: (list: FileList | File[] | null) => void;
   removeFile: (id: string) => void;
   clearFiles: () => void;
+  /**
+   * Wipe the whole session: staged files, remembered tool prefs, the activity
+   * log, and any browser-local hand-off bytes still awaiting a claim. Purely
+   * local — there is nothing on a server to clear.
+   */
+  clearSession: () => void;
   dismissRejected: () => void;
   selectTool: (slug: string | null) => void;
   /** Record + persist a tool open (survives the immediate client navigation). */
@@ -121,6 +134,14 @@ export function useWorkspace(
     return () => {
       aliveRef.current = false;
     };
+  }, []);
+
+  // Sweep any expired hand-off bytes when the workspace opens. Landing here is
+  // the natural moment to reclaim storage from a launch the user never finished,
+  // rather than waiting for them to next open a tool page. Best-effort; failures
+  // are swallowed inside the store.
+  useEffect(() => {
+    void purgeExpiredHandoffs();
   }, []);
 
   const bySlug = useMemo(() => indexSummaries(summaries), [summaries]);
@@ -215,6 +236,17 @@ export function useWorkspace(
     fileHandles.current.clear();
     dispatch({ type: "clear-files" });
     setRejected([]);
+  }, []);
+
+  const clearSession = useCallback(() => {
+    fileHandles.current.clear();
+    dispatch({ type: "reset" });
+    setRejected([]);
+    setLaunchingSlug(null);
+    clearPersisted();
+    // Drop any hand-off bytes this browser is still holding for an unclaimed
+    // launch. Best-effort and local-only.
+    void clearHandoffs();
   }, []);
 
   const dismissRejected = useCallback(() => setRejected([]), []);
@@ -345,6 +377,7 @@ export function useWorkspace(
     addFiles,
     removeFile,
     clearFiles,
+    clearSession,
     dismissRejected,
     selectTool,
     openTool,

@@ -97,3 +97,51 @@ test("shows an honest expired state for a stale hand-off token", async ({
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
+
+test("strips only the hand-off token from the URL, keeping other params", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  // The token must be removed reliably even alongside unrelated query params.
+  await page.goto("/tools/merge-pdf?ref=email&handoff=h_deadbeefdeadbeef01");
+
+  await expect(
+    page.getByText(/hand-off expired or was already used/i),
+  ).toBeVisible();
+  // `handoff` is gone; `ref` is preserved — no full token-bearing URL lingers.
+  await expect(page).toHaveURL(/\/tools\/merge-pdf\?ref=email$/);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+test("clear session wipes staged files, remembered activity, and hand-offs", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/workspace");
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles(await writeTempPdf("keep.pdf", 2));
+
+  // Launch a hand-off so the workspace records a persisted activity entry.
+  const batch = page.getByRole("region", { name: /batch queue/i });
+  await batch.getByLabel("Tool").selectOption("compress-pdf");
+  await batch.getByRole("button", { name: /add all staged/i }).click();
+  await batch.getByRole("button", { name: /open compress pdf/i }).click();
+  await expect(page).toHaveURL(/\/tools\/compress-pdf$/);
+
+  // Returning to the workspace, the launch shows as remembered activity…
+  await page.goto("/workspace");
+  await expect(page.getByText(/queued .* compress pdf/i)).toBeVisible();
+
+  // …and "Clear session" wipes it (and any pending hand-off bytes), on-device.
+  await page.getByRole("button", { name: /clear session/i }).click();
+  await expect(
+    page.getByText(/tools you open from here show up/i),
+  ).toBeVisible();
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});

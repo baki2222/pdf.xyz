@@ -24,6 +24,23 @@ function action(id: string, at = 1): WorkspaceAction {
   return { id, kind: "opened-tool", label: `Opened ${id}`, at };
 }
 
+describe("workspaceReducer — reset", () => {
+  it("wipes files, tool, activity, and batch back to empty", () => {
+    let state = withFiles(2);
+    state = workspaceReducer(state, { type: "select-tool", slug: "merge-pdf" });
+    state = workspaceReducer(state, { type: "set-batch-tool", slug: "merge-pdf" });
+    state = workspaceReducer(state, { type: "add-to-batch", ids: ["f0", "f1"] });
+    state = workspaceReducer(state, { type: "record-action", action: action("a1") });
+
+    expect(workspaceReducer(state, { type: "reset" })).toEqual(emptyWorkspace());
+  });
+
+  it("is a no-op (same reference) when already empty", () => {
+    const empty = emptyWorkspace();
+    expect(workspaceReducer(empty, { type: "reset" })).toBe(empty);
+  });
+});
+
 describe("workspaceReducer — files", () => {
   it("adds files and de-duplicates by id", () => {
     let state = withFiles(2);

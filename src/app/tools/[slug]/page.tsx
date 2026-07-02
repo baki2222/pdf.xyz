@@ -25,6 +25,7 @@ import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { WorkerPreview } from "@/components/tools/worker-preview";
+import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import {
@@ -150,7 +151,9 @@ export default async function ToolPage({
                     ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
                     : "Runs in your browser — your file never leaves your device."}
                 </div>
-                <ToolRunner kind={runnerKind} />
+                <ErrorBoundary boundary="tool-runner">
+                  <ToolRunner kind={runnerKind} />
+                </ErrorBoundary>
               </div>
             </div>
 

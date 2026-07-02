@@ -7,7 +7,7 @@ import { ToolIcon } from "@/components/ui/tool-icon";
 import { cn } from "@/lib/utils";
 import type { ProcessingMode } from "@/lib/tools/types";
 import type { ToolSuggestion } from "@/lib/workspace";
-import { indexSummaries, type WorkspaceToolSummary } from "./presenter";
+import { indexSummaries, type WorkspaceToolSummary } from "./summary";
 
 /** Accent classes for the small "where it runs" tag on each tool. */
 function capabilityTone(live: boolean, processing: ProcessingMode): string {

@@ -20,7 +20,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import { FILE_FAMILIES, type FileFamily, type WorkspaceAction } from "@/lib/workspace";
 import { BatchPanel } from "./batch-panel";
-import type { WorkspaceToolSummary } from "./presenter";
+import type { WorkspaceToolSummary } from "./summary";
 import { SuggestedTools } from "./suggested-tools";
 import { useWorkspace } from "./use-workspace";
 
@@ -314,6 +314,7 @@ export function WorkspaceClient({
           actions={state.recentActions}
           hydrated={ws.hydrated}
           now={ws.now}
+          onClearSession={ws.clearSession}
         />
 
         <p className="flex items-start gap-2 rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.04] p-4 text-xs leading-relaxed text-slate-400">
@@ -334,23 +335,39 @@ function RecentActivity({
   actions,
   hydrated,
   now,
+  onClearSession,
 }: {
   actions: WorkspaceAction[];
   hydrated: boolean;
   now: number;
+  onClearSession: () => void;
 }) {
+  const canClear = hydrated && actions.length > 0;
   return (
     <section
       aria-labelledby="activity-heading"
       className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-5"
     >
-      <h2
-        id="activity-heading"
-        className="inline-flex items-center gap-1.5 text-sm font-semibold text-white"
-      >
-        <Clock className="size-4 text-slate-400" aria-hidden />
-        Recent activity
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2
+          id="activity-heading"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-white"
+        >
+          <Clock className="size-4 text-slate-400" aria-hidden />
+          Recent activity
+        </h2>
+        {canClear && (
+          <button
+            type="button"
+            onClick={onClearSession}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 transition hover:bg-white/5 hover:text-slate-200"
+            title="Clear staged files, remembered tools, activity, and any pending hand-off — all on this device"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            Clear session
+          </button>
+        )}
+      </div>
 
       {!hydrated ? (
         <ul className="flex flex-col gap-2" aria-hidden>

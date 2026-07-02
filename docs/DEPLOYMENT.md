@@ -44,6 +44,35 @@ preview, and production.
   **not** be prefixed `NEXT_PUBLIC_` (that prefix exposes a value to the
   browser). Keep worker/AI credentials server-side only.
 
+### Optional: client telemetry toggles (off by default)
+
+Client error + Web-Vitals telemetry is **inert unless you point it at an ingest
+endpoint**. With nothing set, no beacon is sent, the Web-Vitals listener is not
+even mounted, and the CSP is unchanged. These are the only knobs:
+
+| Variable | Effect |
+| --- | --- |
+| `NEXT_PUBLIC_TELEMETRY_ENDPOINT` | Where redacted reports are POSTed. Unset ⇒ telemetry disabled. Accepts a same-origin path (`/api/telemetry`) or an absolute `http(s)` URL; anything else is ignored and telemetry stays off. |
+| `NEXT_PUBLIC_TELEMETRY_SAMPLE_RATE` | Optional `0`–`1` sampling rate (default `1`). `0` disables sending. |
+
+Notes specific to this feature:
+
+- **`NEXT_PUBLIC_` is correct here.** The browser must read the endpoint to send
+  a beacon, so it is public by nature and is **not a secret** — unlike the
+  server-only worker/AI credentials above. Never put a secret behind this prefix.
+- **Payloads are redacted at the source.** Reports carry a coarse error name,
+  a scrubbed message/stack, the current page URL reduced to origin+path, and a
+  deep-scrubbed context — **never** file names, file contents, hand-off tokens,
+  or a URL query string. See [`docs/SECURITY.md`](SECURITY.md).
+- **CSP is handled for you.** If the endpoint is cross-origin, `next.config.mjs`
+  adds exactly that origin to `connect-src` at build time; a same-origin path is
+  already covered by `connect-src 'self'`. No manual CSP edit is needed.
+- **These vars are build-time inlined.** Set them **before** the build (in the
+  Vercel environment for the target deployment) — changing them requires a
+  rebuild to take effect.
+- We ship **no** ingest endpoint. Bring your own (a serverless route, a
+  collector, or a third-party sink). Absent one, leave these unset.
+
 ## 4. Custom domain (pdf.xyz)
 
 1. **Project → Settings → Domains → Add** `pdf.xyz` and `www.pdf.xyz`.

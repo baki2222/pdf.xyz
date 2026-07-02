@@ -1,38 +1,20 @@
 /**
- * Client-safe presentation summaries for the workspace. The server page builds
- * one {@link WorkspaceToolSummary} per catalog tool and hands the array to the
- * client, so the workspace can render suggestions, the tool chooser, and the
- * batch panel — including each tool's honest capability — without importing
- * server-only helpers into the client bundle.
+ * Server-side builder for workspace tool summaries. This is where the heavy
+ * catalog / jobs / registry imports live; the server page calls
+ * {@link buildToolSummaries} once and hands the finished array to the client.
+ * The client-safe shape and the `indexSummaries` helper live in `./summary` so
+ * that importing them into a browser bundle pulls in no server-only code.
  */
 
-import type { IconName } from "@/lib/icons";
-import { handoffCapabilityFor, type HandoffMode } from "@/lib/handoff";
+import { handoffCapabilityFor } from "@/lib/handoff";
 import { capabilityForMode, describeCapability } from "@/lib/jobs";
 import { isToolSupported } from "@/lib/pdf/registry";
 import { getCategory } from "@/lib/tools/categories";
 import { tools as allTools } from "@/lib/tools";
-import type { ProcessingMode, Tool, ToolBadge } from "@/lib/tools/types";
+import type { Tool } from "@/lib/tools/types";
+import type { WorkspaceToolSummary } from "./summary";
 
-export interface WorkspaceToolSummary {
-  slug: string;
-  name: string;
-  tagline: string;
-  icon: IconName;
-  gradient?: string;
-  badge?: ToolBadge;
-  processing: ProcessingMode;
-  /** Human capability label, e.g. "In-browser", "Secure worker". */
-  capabilityLabel: string;
-  /** True when files leave the device under this tool's capability. */
-  uploadsFiles: boolean;
-  /** True when the tool has a working in-browser runner (launchable now). */
-  live: boolean;
-  /** How this tool receives handed-off files (collect/batch/single/none). */
-  handoffMode: HandoffMode;
-  accept: string[];
-  outputs: string[];
-}
+export type { WorkspaceToolSummary } from "./summary";
 
 function toSummary(tool: Tool): WorkspaceToolSummary {
   const capability = describeCapability(capabilityForMode(tool.processing));
@@ -56,11 +38,4 @@ function toSummary(tool: Tool): WorkspaceToolSummary {
 /** Build a client-safe summary for every catalog tool. */
 export function buildToolSummaries(): WorkspaceToolSummary[] {
   return allTools.map(toSummary);
-}
-
-/** Index summaries by slug for quick client-side lookup. */
-export function indexSummaries(
-  summaries: WorkspaceToolSummary[],
-): Map<string, WorkspaceToolSummary> {
-  return new Map(summaries.map((summary) => [summary.slug, summary]));
 }

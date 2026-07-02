@@ -28,6 +28,7 @@ export {
   totalHandoffBytes,
 } from "./record";
 export { newHandoffId, looksLikeHandoffId } from "./ids";
+export { HANDOFF_PARAM, readHandoffId, stripHandoffFromUrl } from "./url";
 export {
   eligibleFilesFor,
   handoffCapabilityFor,
@@ -107,4 +108,13 @@ export function handoffEntriesToFiles(entries: HandoffFileEntry[]): File[] {
 /** Best-effort purge of expired handoffs (e.g. on page load / unload). */
 export async function purgeExpiredHandoffs(): Promise<void> {
   await getHandoffStore().purgeExpired();
+}
+
+/**
+ * Best-effort deletion of **every** handoff in this browser — the bytes backing
+ * a "clear session" control. Never throws; a storage failure degrades to a
+ * no-op (there is simply nothing more we can delete).
+ */
+export async function clearHandoffs(): Promise<void> {
+  await getHandoffStore().clear();
 }

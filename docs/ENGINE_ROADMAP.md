@@ -211,6 +211,38 @@ files into the first live tool. It is not yet a multi-step unattended automation
 engine: batch launch/prep opens a real supported runner, and worker-backed batch
 runs still require the secure-worker production backend.
 
+### Phase 10 — production polish, resilience & observability (shipped)
+
+Hardening the shipped surface so it feels safer, faster, and production-operable
+— without faking any monitoring. All of it is inert by default and honest about
+what is (and isn't) wired.
+
+- **App-wide resilience.** Added App Router `error`, `global-error`, and
+  `loading` boundaries plus a reusable client `ErrorBoundary`
+  (`src/components/telemetry/error-boundary.tsx`) wrapping the heavy in-browser
+  tool runner, so one component's failure shows a localized, retryable fallback
+  instead of a blank page. User-facing copy never exposes raw error internals.
+- **Privacy-safe telemetry (opt-in, no-op by default).** A small client reporter
+  (`src/lib/telemetry/`) sends redacted error + Web-Vitals reports **only** when
+  `NEXT_PUBLIC_TELEMETRY_ENDPOINT` is set. Presence-only config mirrors the
+  worker-backend pattern; with nothing set there is no beacon, no Web-Vitals
+  listener, and no CSP change. There is **no** invented backend — bring your own
+  sink. See [`docs/SECURITY.md`](SECURITY.md).
+- **Redaction as a primitive.** Reusable, unit-tested helpers scrub file names,
+  file contents, hand-off tokens, `data:`/`blob:` URLs, and URL query strings
+  from every payload, and reduce any URL to origin+path — enforced in the pure
+  report builders, not left to call sites.
+- **Hand-off cleanup & reliability.** Expired hand-offs are now swept on
+  workspace open (not just tool mount); the URL-token read/strip logic is
+  extracted to a pure, unit-tested module (`src/lib/handoff/url.ts`) that removes
+  the token while preserving sibling params; and a workspace **Clear session**
+  control wipes staged files, remembered preferences, activity, and any pending
+  hand-off bytes — all on-device.
+- **Performance & a11y polish.** Split the workspace tool-summary builder so the
+  catalog / jobs / registry graph stays out of the client bundle
+  (`summary.ts` vs. `presenter.ts`); added `aria-live` status regions for
+  hand-off and batch outcomes.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

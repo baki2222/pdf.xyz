@@ -52,7 +52,9 @@ export type WorkspaceEvent =
       selectedToolSlug: string | null;
       batchToolSlug: string | null;
       recentActions: WorkspaceAction[];
-    };
+    }
+  /** Reset everything to a fresh, empty workspace (the "clear session" control). */
+  | { type: "reset" };
 
 /** Drop ids from a batch fileId list, preserving order. */
 function pruneBatch(batch: BatchQueue, keep: (id: string) => boolean): BatchQueue {
@@ -162,6 +164,16 @@ export function workspaceReducer(
         batch: { ...state.batch, toolSlug: event.batchToolSlug },
         recentActions: event.recentActions.slice(0, MAX_RECENT_ACTIONS),
       };
+    }
+
+    case "reset": {
+      const isEmpty =
+        state.files.length === 0 &&
+        state.selectedToolSlug === null &&
+        state.recentActions.length === 0 &&
+        state.batch.toolSlug === null &&
+        state.batch.fileIds.length === 0;
+      return isEmpty ? state : emptyWorkspace();
     }
 
     default:

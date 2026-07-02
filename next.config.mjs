@@ -3,6 +3,22 @@
 const isDev = process.env.NODE_ENV !== "production";
 
 /**
+ * The cross-origin telemetry endpoint's origin, for `connect-src`, or "" when
+ * telemetry is unset or same-origin. Presence-only: the value is inspected just
+ * enough to extract an origin and is never otherwise read, logged, or exposed.
+ */
+function telemetryConnectSrc() {
+  const raw = process.env.NEXT_PUBLIC_TELEMETRY_ENDPOINT?.trim();
+  if (!raw || raw.startsWith("/")) return ""; // unset or same-origin ('self' covers it)
+  try {
+    const { origin, protocol } = new URL(raw);
+    return protocol === "http:" || protocol === "https:" ? origin : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Content-Security-Policy, tuned for a Next.js (App Router / SSG) app whose PDF
  * pipeline runs entirely in the browser via pdfjs-dist.
  *
@@ -17,6 +33,10 @@ const isDev = process.env.NODE_ENV !== "production";
  *    blob: covers browsers that spin the worker up from a blob.
  *  - img-src blob: data:: rendered page thumbnails become blob/data URLs.
  *  - 'unsafe-eval' (dev only): React Fast Refresh evaluates modules in dev.
+ *  - connect-src telemetry origin: when (and only when) NEXT_PUBLIC_TELEMETRY_ENDPOINT
+ *    points at a cross-origin URL, that origin is allowlisted so the privacy-safe
+ *    beacon isn't blocked. Unset (the default) or a same-origin path → no change,
+ *    so the shipping policy stays same-origin-only.
  */
 function contentSecurityPolicy() {
   const scriptSrc = [
@@ -28,8 +48,11 @@ function contentSecurityPolicy() {
     .filter(Boolean)
     .join(" ");
 
-  // Same-origin only in production; dev adds the HMR websocket.
-  const connectSrc = ["'self'", isDev ? "ws: wss:" : ""].filter(Boolean).join(" ");
+  // Same-origin only in production; dev adds the HMR websocket. A configured,
+  // cross-origin telemetry endpoint (if any) contributes exactly its origin.
+  const connectSrc = ["'self'", isDev ? "ws: wss:" : "", telemetryConnectSrc()]
+    .filter(Boolean)
+    .join(" ");
 
   const directives = [
     `default-src 'self'`,

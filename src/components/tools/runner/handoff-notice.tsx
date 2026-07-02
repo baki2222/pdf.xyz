@@ -72,7 +72,11 @@ export function HandoffLoadedBadge({
   skipped: number;
 }) {
   return (
-    <p className="inline-flex flex-wrap items-center gap-1.5 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] px-3 py-2 text-xs text-emerald-200">
+    <p
+      role="status"
+      aria-live="polite"
+      className="inline-flex flex-wrap items-center gap-1.5 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] px-3 py-2 text-xs text-emerald-200"
+    >
       <FolderInput className="size-3.5 shrink-0" aria-hidden />
       <span>
         Loaded {count} file{count === 1 ? "" : "s"} from your workspace.

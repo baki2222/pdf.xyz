@@ -43,10 +43,46 @@ The workspace-to-tool handoff is also local-only:
 - The tool opens as `/tools/<slug>?handoff=<id>`, claims the record once, filters
   incompatible files, reconstructs `File` objects in the browser, and removes the
   token from the address bar.
-- Handoffs expire automatically and can be cleared/deleted; a missing, expired,
-  or incompatible handoff falls back to the normal file picker with honest copy.
+- Handoffs expire automatically, are swept on both workspace open and tool
+  mount, and can be wiped on demand with the workspace **Clear session** control
+  (which also clears staged files and remembered preferences); a missing,
+  expired, or incompatible handoff falls back to the normal file picker with
+  honest copy.
+- Reading a token strips it from the address bar reliably — the `handoff`
+  parameter is removed while any sibling query params and the path are preserved
+  (`src/lib/handoff/url.ts`, unit-tested) — so a token never lingers in a
+  shareable, reloadable, or logged URL.
 - The token never points to server storage, and the server never receives file
   contents for in-browser tools.
+
+## Client telemetry (privacy-safe, off by default)
+
+Error and Web-Vitals telemetry holds the same line as the rest of the app: it is
+**inert unless a deployment explicitly configures an ingest endpoint**
+(`NEXT_PUBLIC_TELEMETRY_ENDPOINT`; see [`docs/DEPLOYMENT.md`](DEPLOYMENT.md)).
+With nothing set — the default, and what the e2e suite exercises — no beacon is
+sent, the Web-Vitals listener is not mounted, and the CSP is unchanged.
+
+When it *is* enabled, every payload is scrubbed at the source before it can leave
+the browser (`src/lib/telemetry/redact.ts`, unit-tested):
+
+- **Never sent:** file names, file contents/bytes, `data:`/`blob:` URLs,
+  hand-off tokens, or any URL query string.
+- The current page URL is reduced to **origin + path only**, so a `?handoff=`
+  token can't ride along in an error report.
+- Error messages and stacks are pattern-scrubbed (tokens, quoted/unquoted
+  filenames, inline data URLs) and length-clipped; a structured context object is
+  deep-scrubbed, dropping known-sensitive keys (`name`, `file*`, `token`, …)
+  outright and reducing URL-shaped keys to origin+path.
+- Redaction is enforced in the pure `build*Report` layer, not left to callers, so
+  a careless call site still can't leak — and reporting is fully exception-proof
+  and fire-and-forget, so it can never break the app.
+
+Web Vitals themselves are pure performance numbers (LCP/CLS/INP/…), never
+document-derived, and still pass through the same redactor for defense in depth.
+The endpoint is public by nature (the browser reads it to send a beacon) and is
+**not** a secret; if it is cross-origin, its origin is added to `connect-src`
+automatically at build time.
 
 **Planned secure workers** (not yet live — pages show an implementation-ready
 overview): Office ⇄ PDF conversions, OCR, repair, web-optimize, PDF/A,

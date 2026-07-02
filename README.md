@@ -29,6 +29,7 @@ versus planned — no fake processing.
 | Editor depth: undo/redo, keyboard reordering, range selection, lazy large-PDF thumbnails, per-file merge validation | ✅ Live |
 | Local-first workspace: multi-file staging, local PDF page counts, file-aware tool suggestions, browser-only handoff, batch launch | ✅ Live (local session only) |
 | Production hardening: CSP/security headers, robots, sitemap, manifest, OG image, JSON-LD | ✅ Live |
+| Client resilience & observability: error/not-found/loading boundaries, reusable error boundary, privacy-safe error + Web Vitals telemetry (inert unless an endpoint is set) | ✅ Live |
 | Secure-worker contract + adapter, presence-only status probe, honest Compress UI integration | ✅ Live |
 | Deep compression worker (Ghostscript/qpdf/mutool) — real, runnable via `PDFXYZ_WORKER_MODE=local-dev` | 🧪 Local-dev |
 | Secure-worker tools: Office ⇄ PDF, OCR, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign | 🔜 Planned (production) |
@@ -59,7 +60,11 @@ pnpm dev            # http://localhost:3000
 ```
 
 No environment variables are required to run the app today — every live tool is
-client-side. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the env policy.
+client-side. Client error/Web-Vitals telemetry is **opt-in**: it stays inert
+unless you set `NEXT_PUBLIC_TELEMETRY_ENDPOINT`, and even then it only ever emits
+redacted payloads (never file names, contents, or hand-off tokens). See
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the env policy and toggles, and
+[`docs/SECURITY.md`](docs/SECURITY.md) for the telemetry privacy model.
 
 ### Optional: local-dev compression worker
 
