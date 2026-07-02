@@ -1,0 +1,121 @@
+import {
+  AlignLeft,
+  Bot,
+  Contrast,
+  Crop,
+  Droplets,
+  EyeOff,
+  FileCheck2,
+  FileCode,
+  FileImage,
+  FileInput,
+  FileOutput,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  FormInput,
+  Gauge,
+  GitCompare,
+  Globe,
+  Hash,
+  Highlighter,
+  Image as ImageIcon,
+  Images,
+  Languages,
+  Layers,
+  LayoutGrid,
+  ListChecks,
+  ListOrdered,
+  ListTree,
+  LockOpen,
+  Merge,
+  Minimize2,
+  PanelTop,
+  PenLine,
+  Presentation,
+  RotateCw,
+  ScanSearch,
+  ScanText,
+  Scissors,
+  Send,
+  ShieldCheck,
+  Signature,
+  Sparkles,
+  SquareStack,
+  Table,
+  Trash2,
+  Type,
+  Unlock,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+
+/**
+ * Central icon registry. Tools and categories reference icons by a stable
+ * semantic key so the data model never imports component references directly.
+ * This keeps the catalog serializable and the icon set tree-shakeable.
+ */
+export const ICONS = {
+  // organize
+  merge: Merge,
+  split: Scissors,
+  organize: LayoutGrid,
+  extractPages: FileOutput,
+  removePages: Trash2,
+  rotate: RotateCw,
+  extractImages: Images,
+  // optimize
+  compress: Minimize2,
+  ocr: ScanText,
+  repair: Wrench,
+  speed: Gauge,
+  grayscale: Contrast,
+  // convert
+  word: FileText,
+  excel: FileSpreadsheet,
+  powerpoint: Presentation,
+  jpg: FileImage,
+  png: ImageIcon,
+  html: FileCode,
+  web: Globe,
+  markdown: FileType,
+  text: Type,
+  pdfa: FileCheck2,
+  align: AlignLeft,
+  table: Table,
+  convertTo: FileInput,
+  convertFrom: FileOutput,
+  // edit
+  edit: PenLine,
+  annotate: Highlighter,
+  pageNumbers: ListOrdered,
+  watermark: Droplets,
+  crop: Crop,
+  headerFooter: PanelTop,
+  overlay: Layers,
+  // sign
+  sign: Signature,
+  requestSign: Send,
+  fillForm: FormInput,
+  createForm: ListChecks,
+  // security
+  protect: LockOpen,
+  unlock: Unlock,
+  redact: EyeOff,
+  flatten: SquareStack,
+  compare: GitCompare,
+  shield: ShieldCheck,
+  hash: Hash,
+  // ai
+  chat: Bot,
+  summarize: ListTree,
+  translate: Languages,
+  aiExtract: ScanSearch,
+  ai: Sparkles,
+} as const;
+
+export type IconName = keyof typeof ICONS;
+
+export function getIcon(name: IconName): LucideIcon {
+  return ICONS[name];
+}
