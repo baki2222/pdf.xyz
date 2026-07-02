@@ -397,11 +397,39 @@ without claiming a worker daemon is live.
   says exactly that. Nothing is reported `completed` unless a real processor writes
   artifacts.
 
-⏳ Remaining for production: a deployed out-of-band **worker process** that runs the
-Phase 13 executor's `drain()` against these real storage + queue adapters,
-worker-side bucket byte I/O for `ExecutorStorage`, malware scanning in the scan
-phase, native `deep`/OCR runners, and a hardening pass to move the queue's read→
+⏳ Remaining for production (the worker process + worker-side byte I/O are delivered
+by Phase 16, below): malware scanning in the scan phase, native `deep`/OCR runners,
+lifecycle-enforced bucket deletion, and a hardening pass to move the queue's read→
 write state transitions into a Lua/`WATCH` critical section.
+
+### Phase 16 — worker daemon/runner foundation (shipped)
+
+The out-of-band worker process the queue/storage phases kept deferring is now real:
+an opt-in daemon that drains the queue and runs the executor, without faking any
+native processing.
+
+- **Daemon runner + CLI** (`src/lib/workers/daemon/` + `scripts/worker-daemon.ts`,
+  `pnpm worker:daemon`): `resolveWorkerRuntime(env)` wires a drainable `ClaimableQueue`
+  + a worker-side `ExecutorStorage` + the processor registry into
+  `createWorkerExecutor(...)`; an injectable loop runs `--once`/`--drain`/`--loop`
+  with tick caps, an idle-poll sleep, cooperative SIGINT/SIGTERM shutdown, and a
+  `--dry-run-status` readiness report. It is never imported by the web app.
+- **Worker-side S3/R2 byte I/O** (`src/lib/workers/executor/s3-storage.ts`): the
+  deployed worker reads input objects and writes artifact objects itself with genuine
+  SigV4-signed GET/PUT/DELETE. A missing object is an honest terminal `not_found`; a
+  transient failure is retried via lease expiry; each artifact embeds a real signed
+  download URL, and object keys are shared with the app provider so the two can never
+  drift.
+- **Honest by construction**: exits `2` when not configured to run, fails an
+  unrunnable job with `not_implemented` (OCR, or `deep` with no native engine) rather
+  than fabricating a completion, and logs only content-free structured events. The
+  web `/status` gains a `daemon` readiness that reports drainability without ever
+  claiming a worker is actually deployed.
+
+⏳ Remaining for production: **deploying** the daemon in sandboxed worker infra with
+lifecycle-enforced bucket deletion and real malware scanning, native `deep`/OCR
+runners behind the processor contract, threading the original input filename through
+object metadata / the job spec, and the queue's Lua/`WATCH` hardening pass.
 
 ## Definition of production-ready per tool
 

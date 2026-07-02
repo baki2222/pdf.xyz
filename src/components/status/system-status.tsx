@@ -56,15 +56,19 @@ function ProviderRow({
   ready,
   configured,
   detail,
+  readyLabel = "Ready",
 }: {
   icon: LucideIcon;
   label: string;
   ready: boolean;
   configured: boolean;
   detail: string;
+  /** Badge shown when `ready` (default "Ready"); the daemon uses "Drainable" so
+   *  it never implies a worker is actually running. */
+  readyLabel?: string;
 }) {
   const tone: StatusTone = ready ? "ok" : configured ? "info" : "muted";
-  const badge = ready ? "Ready" : configured ? "Configured" : "Not configured";
+  const badge = ready ? readyLabel : configured ? "Configured" : "Not configured";
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
       <div className="flex items-center justify-between gap-2">
@@ -230,6 +234,19 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   ready={status.providers.processor.ready}
                   configured={status.providers.processor.configured}
                   detail={status.providers.processor.detail}
+                />
+                {/* The out-of-band worker daemon (Phase 16). "Drainable" means a
+                    separately deployed worker COULD claim + run jobs here — never
+                    that one is actually running, which this app can't observe. */}
+                <ProviderRow
+                  icon={Cpu}
+                  label="Worker daemon"
+                  ready={status.daemon.drainable}
+                  configured={
+                    status.daemon.queueConfigured || status.daemon.storageConfigured
+                  }
+                  detail={status.daemon.detail}
+                  readyLabel="Drainable"
                 />
               </div>
             </div>

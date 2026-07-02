@@ -208,7 +208,7 @@ and are shared with the tool runners.
 
 ## Worker provider status fields
 
-`/api/worker/status` includes presence-only readiness for `storage`, `queue`, and `processor`. These fields are safe to expose: they report provider class/capability and readiness, never variable names, secret values, bucket names, queue names, object keys, file names, or paths. With Phase 14, `storage.provider` may be `s3` and `ready: true` when S3/R2-compatible storage is fully configured; that still does **not** expose endpoint, region, bucket, prefix, key id, or any `PDFXYZ_*` variable. With Phase 15, `queue.provider` may likewise be `redis` with `ready: true`/`configured: true` when a Redis/Upstash broker is fully configured — independently of storage — and it exposes no endpoint, token, prefix, key name, or variable. Because no worker daemon ships, whenever the queue is ready the `processor` stays `ready: false` and its `detail`/`executor` honestly state that jobs are accepted but stay queued until a worker is deployed. **That combination is worth alerting on:** queue ready + processor not ready for a sustained period means jobs are enqueued but nothing is draining them. Telemetry should record only coarse mode/readiness booleans if these fields are wired into events. The `processor.executor` field (Phase 13) is the same shape of promise: it reports the execution-loop mode (`in-process` / `not-implemented` / `none`) and a client-safe detail, never a broker name or worker URL.
+`/api/worker/status` includes presence-only readiness for `storage`, `queue`, and `processor`. These fields are safe to expose: they report provider class/capability and readiness, never variable names, secret values, bucket names, queue names, object keys, file names, or paths. With Phase 14, `storage.provider` may be `s3` and `ready: true` when S3/R2-compatible storage is fully configured; that still does **not** expose endpoint, region, bucket, prefix, key id, or any `PDFXYZ_*` variable. With Phase 15, `queue.provider` may likewise be `redis` with `ready: true`/`configured: true` when a Redis/Upstash broker is fully configured — independently of storage — and it exposes no endpoint, token, prefix, key name, or variable. The web app never processes jobs itself, so in every non-dev mode `processor.ready` stays `false` — that alone is expected, not an alert. With Phase 16, a separate `daemon` field reports the out-of-band worker daemon's readiness: `drainable` (queue + storage both configured, so a deployed worker *could* drain here), `queueConfigured`/`storageConfigured`, and `runsInThisProcess` (always `false` — the app can never observe whether a worker is actually running). It exposes no endpoint, token, prefix, key, or variable. **What is worth alerting on** is the queue backlog: `daemon.drainable: true` while queued jobs are not decreasing for a sustained period means the queue and storage are wired but no worker daemon is actually draining them (deploy or restart it). Telemetry should record only coarse mode/readiness booleans if these fields are wired into events. The `processor.executor` field (Phase 13) is the same shape of promise: it reports the execution-loop mode (`in-process` / `not-implemented` / `none`) and a client-safe detail, never a broker name or worker URL.
 
 ## Worker executor logs (Phase 13)
 
@@ -226,9 +226,14 @@ only:
 
 It **never** receives file bytes, a file **name**, an object key, a temp path, an
 option value, or document text — the same invariant the product-analytics and
-telemetry seams enforce. A production worker driving `drain()` can forward these
-events straight to a structured-log/metrics pipeline (queue depth from `claimed`
-vs terminal counts, failure rate by `tool` + `errorCode`, redelivery rate from
-`requeued`) without any additional scrubbing. The `WORKER_ARCHITECTURE.md`
+telemetry seams enforce. The Phase 16 daemon (`pnpm worker:daemon`) forwards these
+events straight to stdout as structured JSON (queue depth from `claimed` vs terminal
+counts, failure rate by `tool` + `errorCode`, redelivery rate from `requeued`)
+without any additional scrubbing, and adds its own equally content-free
+`DaemonLogEvent` layer — a run `mode`, a `tick` counter, the per-tick `outcome`, an
+opaque `jobId`/`attempt`, an error *code*, a `sleepMs` back-off, and a terminal
+`reason` — plus a final run `summary` of counters (completed / failed / requeued /
+canceled / idle / errors). Nothing in either layer carries a secret, byte, key, URL,
+or filename, so the daemon's stdout can be shipped verbatim to a log sink. The `WORKER_ARCHITECTURE.md`
 "Observability" plan (structured logs keyed by `jobId`, metrics, tracing per job)
 is exactly what these events feed.

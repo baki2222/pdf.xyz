@@ -22,6 +22,7 @@ import {
   type OcrEngineAvailability,
 } from "./ocr";
 import { getProviderReadiness, type WorkerProviders } from "./providers";
+import { resolveDaemonReadiness, type DaemonReadiness } from "./daemon/readiness";
 
 /** What the worker can do for the Compress tool in this environment, right now. */
 export interface CompressCapability {
@@ -54,6 +55,13 @@ export interface WorkerStatus {
    * of the production pipeline is waiting, without ever leaking a variable value.
    */
   providers: WorkerProviders;
+  /**
+   * Presence-only readiness of the out-of-band worker daemon (Phase 16). Kept
+   * distinct from `providers`: the queue/storage can be ready while whether a
+   * separate worker process is actually deployed to drain them is unknowable from
+   * here — the daemon never runs inside this app.
+   */
+  daemon: DaemonReadiness;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -77,6 +85,7 @@ export function buildWorkerStatus(
 ): WorkerStatus {
   const ocr = buildOcrCapability(mode, ocrEngines);
   const providers = getProviderReadiness(mode, env);
+  const daemon = resolveDaemonReadiness(env);
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -91,6 +100,7 @@ export function buildWorkerStatus(
       compress: { lossless: true, deep, engines },
       ocr,
       providers,
+      daemon,
     };
   }
 
@@ -104,6 +114,7 @@ export function buildWorkerStatus(
       compress: { ...NO_COMPRESS },
       ocr,
       providers,
+      daemon,
     };
   }
 
@@ -116,5 +127,6 @@ export function buildWorkerStatus(
     compress: { ...NO_COMPRESS },
     ocr,
     providers,
+    daemon,
   };
 }

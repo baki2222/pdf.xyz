@@ -44,9 +44,10 @@ preview, and production.
 - **Secure-worker queue (optional, Phase 15):** the job queue can be wired
   independently of storage/processor by setting server-only Redis/Upstash REST
   variables. This enables real queue-backed job creation, status, cancel/expire,
-  and idempotency. **A configured queue accepts jobs but nothing runs them until a
-  worker daemon is deployed** — a created job stays `queued`, and the status
-  endpoint says so. Never claim remote processing is live on this basis alone.
+  and idempotency. **A configured queue accepts jobs, but nothing runs them until
+  the Phase 16 worker daemon (`pnpm worker:daemon`) is deployed and running against
+  it** — a created job stays `queued`, and the status endpoint says so. Never claim
+  remote processing is live on this basis alone.
 - **When remaining secure workers / AI land:** add their keys in
   **Vercel → Project → Settings → Environment Variables**, scoped to the right
   environment (Production / Preview / Development). Server-only secrets must
@@ -107,9 +108,10 @@ provider. Works with Upstash Redis REST and any compatible HTTP Redis gateway.
 Queue readiness is presence-only in `/api/worker/status`: it can say the queue is
 ready and configured, but never names the endpoint, token, prefix, variable names,
 or key names. **Enabling the queue does not enable processing** — with no worker
-daemon deployed, `POST /api/jobs` (when storage is also ready) records a `queued`
-job and returns `202`, and it stays queued. Deploy a worker that runs the
-executor's `drain()` loop before advertising that jobs complete.
+daemon running, `POST /api/jobs` (when storage is also ready) records a `queued`
+job and returns `202`, and it stays queued. Deploy the Phase 16 worker daemon
+(`pnpm worker:daemon`, see its checklist below) to drain the queue before
+advertising that jobs complete.
 
 ### Optional: client telemetry toggles (off by default)
 
@@ -269,3 +271,41 @@ it must be *driven*. Before enabling remote processing:
   `providers.processor.executor` (mode/ready/detail) — confirm no broker name,
   worker URL, key, or variable ever appears there. `remote-configured` must keep
   reporting `executor.mode: "not-implemented"` until the worker is live.
+
+## Phase 16 worker daemon checklist
+
+Phase 16 ships the **out-of-band worker daemon runner** that Phase 13's checklist
+called for — `scripts/worker-daemon.ts`, run with `pnpm worker:daemon`. It is the
+one process that actually drains the queue; the Next.js app never becomes it.
+
+- **Run it as a separate process.** In sandboxed worker infrastructure (a container,
+  VM, or worker dyno — *not* a Vercel serverless function on the request path), give
+  the process the same server-only S3/R2 **and** Redis/Upstash variables the web app
+  uses, then run one of:
+
+  ```bash
+  pnpm worker:daemon --drain          # process the current backlog once and exit
+  pnpm worker:daemon --once           # smoke-test a single job
+  pnpm worker:daemon                  # long-running: drain, then poll (default --loop)
+  pnpm worker:daemon --dry-run-status # report readiness only; claims nothing
+  ```
+
+  Tuning: `--max-ticks=<n>` caps total ticks, `--idle-sleep-ms=<ms>` sets the poll
+  interval when idle (default 1000), `--lease-ms=<ms>` sets the per-claim lease.
+- **Smoke-test before advertising processing.** `pnpm worker:daemon --dry-run-status`
+  exits `0` only when the queue *and* storage are both configured (drainable) and
+  `2` otherwise — wire it into a health check. It claims no job and processes nothing.
+- **It refuses to fake work.** With no drainable queue + storage the daemon exits `2`
+  (not configured); a processor with no runner (OCR, or `deep` compression with no
+  native engine) fails the job honestly (`not_implemented`) — it never fabricates a
+  completion. Only lossless compression completes today without extra engines.
+- **Logs are content-free.** The daemon prints structured JSON with a run mode, tick
+  counters, an opaque job id/attempt, and an error *code* only — never a filename,
+  byte count, object key, URL, option value, or secret. Ship stdout to your log sink
+  as-is.
+- **Shut it down cleanly.** SIGINT/SIGTERM lets the in-flight tick finish and the
+  loop exit; a second signal forces an immediate stop. Run several replicas safely —
+  the broker's atomic claim (RPOP/ZREM) guarantees no two workers run the same job.
+- **Still operator-owned:** lifecycle-enforced bucket deletion, malware scanning in
+  the `scanning` phase, and native `deep`/OCR runners remain your responsibility; the
+  daemon changes none of those honesty boundaries.

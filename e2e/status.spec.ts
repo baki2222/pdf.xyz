@@ -38,8 +38,10 @@ test.describe("system status page", () => {
     // not configured in this build — so the page names exactly what a real
     // deployment still needs (object storage, job queue, processor).
     await expect(page.getByText("Production pipeline")).toBeVisible();
-    await expect(page.getByText("Object storage")).toBeVisible();
-    await expect(page.getByText("Job queue")).toBeVisible();
+    await expect(
+      page.getByText("Object storage", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Job queue", { exact: true })).toBeVisible();
     await expect(
       page.getByText("Not configured", { exact: true }).first(),
     ).toBeVisible();

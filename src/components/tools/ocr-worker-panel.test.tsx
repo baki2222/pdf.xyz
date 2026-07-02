@@ -4,6 +4,7 @@ import { getToolBySlug } from "@/lib/tools";
 import { OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
+import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -27,6 +28,7 @@ const DISABLED: WorkerStatus = {
       "OCR needs a secure worker with a native OCR engine, which isn't enabled in this environment — nothing is uploaded and no text is produced here.",
   },
   providers: getProviderReadiness("disabled"),
+  daemon: resolveDaemonReadiness({}),
 };
 
 const AVAILABLE: WorkerStatus = {
@@ -42,6 +44,7 @@ const AVAILABLE: WorkerStatus = {
     detail: "OCR runs on ocrmypdf on an encrypted, auto-deleting secure worker.",
   },
   providers: getProviderReadiness("remote-configured"),
+  daemon: resolveDaemonReadiness({}),
 };
 
 function stubFetch(status: WorkerStatus) {

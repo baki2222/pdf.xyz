@@ -28,7 +28,8 @@ Phase 6 added the **contract layer** for those workers. Phase 7 adds the first r
 | Queue claim/lease/heartbeat (`ClaimableQueue`) | Implemented in `src/lib/workers/queue/` |
 | S3/R2-compatible storage provider (production) | Implemented in `src/lib/workers/storage/s3*.ts` (opt-in via `PDFXYZ_STORAGE_PROVIDER=s3`) |
 | Redis/Upstash queue provider (production) | Implemented in `src/lib/workers/queue/redis*.ts` (opt-in via `PDFXYZ_QUEUE_PROVIDER=redis`) |
-| Worker daemon that drains the queue (processor) | Planned, not enabled |
+| Worker-side S3/R2 executor storage (byte I/O) | Implemented in `src/lib/workers/executor/s3-storage.ts` |
+| Worker daemon runner (drains queue → executor → storage) | Implemented in `src/lib/workers/daemon/` + `scripts/worker-daemon.ts` (out-of-band; run via `pnpm worker:daemon`) |
 
 The API route handlers stay thin: they validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then **delegate to the worker adapter** selected for the current environment. By default the adapter answers honestly that no backend is configured; nothing is ever faked.
 
@@ -184,11 +185,12 @@ Data model, all keys under the sanitized prefix: `…:job:{id}`, `…:spec:{id}`
 becomes a broker key), `…:ready` (LIST), `…:active` (ZSET). No client ever supplies
 a Redis key, stream name, or broker id.
 
-**Honest limits — what Phase 15 does NOT do.** This build ships **no worker daemon**
-that drains the queue. So when a queue is configured, `POST /api/jobs` records a
-**`queued`** job (only when storage is *also* ready, since inputs live in object
-storage) and returns `202 Accepted` — and that job stays `queued` until a worker is
-deployed to run `drain()`. `getJob` honestly returns `queued`; nothing is ever
+**Honest limits — what Phase 15 does NOT do.** Phase 15 itself ships no worker, and
+the web app never drains the queue (Phase 16 adds an **out-of-band** daemon for that,
+below — the app runtime still never runs it). So when a queue is configured,
+`POST /api/jobs` records a **`queued`** job (only when storage is *also* ready, since
+inputs live in object storage) and returns `202 Accepted` — and that job stays
+`queued` until a worker daemon is deployed and running against the queue. `getJob` honestly returns `queued`; nothing is ever
 reported `completed` unless a real processor wrote artifacts. `/api/worker/status`
 says so: with a queue configured but no worker, `providers.queue.ready` is `true`
 while `providers.processor.ready` is `false` and its detail states jobs will queue
@@ -197,6 +199,48 @@ read→write window on state transitions is last-writer-wins guarded by the stat
 machine; a production hardening step would move those to a Lua/`WATCH` critical
 section. See DEPLOYMENT.md for how to configure it and OBSERVABILITY.md for what to
 watch.
+
+## Worker daemon runner (Phase 16)
+
+Phase 16 makes the production worker process **real**: an out-of-band daemon
+(`src/lib/workers/daemon/` + `scripts/worker-daemon.ts`) that drains the Phase 15
+queue, reads/writes bytes through Phase 14 storage, and dispatches the Phase 13
+processor registry. It is **opt-in and never started from the web app** — importing
+the app spins up no worker; only `pnpm worker:daemon` does.
+
+**What it wires.** `resolveWorkerRuntime(env)` builds a drainable `ClaimableQueue`
+(the real Redis broker via the existing factory), a worker-side `ExecutorStorage`,
+and a processor registry (with a live native-engine probe, so compression lossless is
+always available while deep/OCR light up only with a real engine/runner), then
+constructs `createWorkerExecutor(...)`. It returns an executor **only** when the queue
+is drainable *and* storage is configured; otherwise it reports honestly why not, and
+the CLI exits `2` (not configured) instead of pretending to process.
+
+**Worker-side S3 storage** (`src/lib/workers/executor/s3-storage.ts`). The app-server
+provider only *mints signed targets*; the deployed worker moves bytes itself with
+genuine SigV4-signed GET/PUT/DELETE. A missing input object (S3 `404`) is an honest
+`null` → terminal `not_found`; a transient failure throws so the job's lease expires
+for at-least-once redelivery instead of a false "gone". Each artifact embeds a real
+signed, expiring download URL (the client uses it verbatim), and object keys derive
+only from opaque ids — shared with the app provider (`storage/s3-keys.ts`) so the
+worker's artifact key always matches the app's download key. Known limit: the upload
+contract does not persist the client filename, so outputs use a content-type-derived
+name until a later phase threads it through object metadata or the job spec.
+
+**Run modes.** `pnpm worker:daemon [--once | --drain | --loop | --dry-run-status]`,
+plus `--max-ticks`, `--idle-sleep-ms`, `--lease-ms`. `--once` runs a single job
+(smoke test), `--drain` clears the backlog and exits, `--loop` (default) polls
+forever, sleeping when idle, and `--dry-run-status` reports readiness and claims
+nothing. A SIGINT/SIGTERM drains the current tick and exits cleanly. Logging is
+**content-free structured JSON** — run mode, tick counters, an opaque job id/attempt,
+and an error *code* only; never a filename, byte, object key, URL, option value, or
+secret.
+
+Still honest about limits: OCR and deep compression remain engine-dependent (the
+daemon changes nothing there), and whether a daemon is actually deployed and running
+is **out-of-band** — `/api/worker/status` reports `daemon.drainable` (queue + storage
+configured, so a worker *could* drain here) but never claims a worker is live, which
+the app cannot observe.
 
 ## Processor registry & worker executor (Phase 13)
 
@@ -232,9 +276,9 @@ loop**, not a daemon: importing it starts no timer, thread, or background servic
 One tick — `runOnce()` — claims the next job, reads its inputs, dispatches the
 processor, writes artifacts, and drives the job to a terminal state; `drain()`
 runs ticks until the queue is idle. It is unit-tested deterministically with a
-fake clock and in-memory queue/storage. A production worker process (or a
-script-only dev driver) is what would call `drain()` on an interval — the app
-runtime never does.
+fake clock and in-memory queue/storage. The Phase 16 daemon runner
+(`scripts/worker-daemon.ts`) is what calls `runOnce()`/`drain()` out-of-band — the
+app runtime never does.
 
 Guarantees the executor upholds:
 
@@ -511,3 +555,5 @@ A worker-backed tool is production-ready only when it has:
 **Phase 14 progress toward this:** the **storage adapter** is now real — a configured S3/R2/MinIO backend mints genuine signed upload/download URLs and executes signed deletes (direct-to-storage upload + signed output download, two of the checklist items above).
 
 **Phase 15 progress toward this:** the **queue adapter** is now real — a configured Redis/Upstash broker gives genuine queue-backed job creation, status polling, cancel/expire, and idempotency, plus the worker-claim surface (claim/lease/heartbeat/retry/dead-letter) a daemon would call. Upload-session creation, direct-to-storage upload, queue-backed job creation, status polling, and signed output download are therefore all covered by shipped adapters. Remaining for production: a sandboxed **worker daemon** that actually runs `drain()` on an interval (nothing drains the queue yet, so a configured deployment holds jobs `queued`), lifecycle-enforced deletion policies on the bucket, malware scanning in the scan phase, native `deep`/OCR runners behind the processor contract, and a hardening pass to move the queue's read→write state transitions into a Lua/`WATCH` critical section.
+
+**Phase 16 progress toward this:** the **worker daemon runner** is now real — an out-of-band CLI (`pnpm worker:daemon`, `src/lib/workers/daemon/`) that wires the real queue + a worker-side S3/R2 `ExecutorStorage` (genuine signed byte I/O) + the processor registry into `createWorkerExecutor(...)` and runs `runOnce()`/`drain()` with `--once`/`--drain`/`--loop`/`--dry-run-status` modes, cooperative shutdown, and content-free logging. A deployment can now genuinely drain a configured queue and complete real (lossless-compression) jobs. What remains is operational, not architectural: **deploy** this daemon in sandboxed worker infrastructure (the app still never runs it) with lifecycle-enforced bucket deletion and malware scanning in the scan phase; wire native `deep`/OCR runners behind the processor contract (still honestly `not_implemented` without them); thread the original input filename through object metadata / the job spec (worker outputs currently use a content-type-derived name); and move the queue's read→write transitions into a Lua/`WATCH` critical section.

@@ -172,3 +172,29 @@ describe("buildWorkerStatus — S3 storage readiness (independent of queue/proce
     expect(providers.storage.provider).toBe("disabled");
   });
 });
+
+describe("buildWorkerStatus — worker daemon readiness (Phase 16)", () => {
+  const redisEnv: Record<string, string> = {
+    PDFXYZ_QUEUE_PROVIDER: "redis",
+    PDFXYZ_REDIS_REST_URL: "https://redis.example.com",
+    PDFXYZ_REDIS_REST_TOKEN: "redis-rest-token-1234",
+  };
+
+  it("reports the daemon not drainable and never in-process by default", () => {
+    const { daemon } = buildWorkerStatus("disabled", undefined, undefined, noEnv);
+    expect(daemon.drainable).toBe(false);
+    expect(daemon.runsInThisProcess).toBe(false);
+  });
+
+  it("reports the daemon drainable only when queue AND storage are configured", () => {
+    const { daemon } = buildWorkerStatus("disabled", undefined, undefined, {
+      ...s3Env,
+      ...redisEnv,
+    });
+    expect(daemon).toMatchObject({ drainable: true, runsInThisProcess: false });
+    // Storage alone is not enough to drain.
+    expect(
+      buildWorkerStatus("disabled", undefined, undefined, s3Env).daemon.drainable,
+    ).toBe(false);
+  });
+});

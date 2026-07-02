@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
+import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -22,6 +23,7 @@ const DISABLED_STATUS: WorkerStatus = {
     detail: "OCR is unavailable in this environment.",
   },
   providers: getProviderReadiness("disabled"),
+  daemon: resolveDaemonReadiness({}),
 };
 
 const LOCAL_TOOLS: LocalToolRef[] = [

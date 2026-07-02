@@ -34,6 +34,7 @@ versus planned — no fake processing.
 | Deep compression worker (Ghostscript/qpdf/mutool) — real, runnable via `PDFXYZ_WORKER_MODE=local-dev` | 🧪 Local-dev |
 | OCR foundation: options/capability contract, honest OCR tool page + `/status` row, browser job client (no processor yet) | ✅ Live (foundation) |
 | Production storage + queue providers: S3/R2-compatible signed upload/download/delete storage, Redis/Upstash-compatible durable queue, per-provider `/status` readiness, honest `DELETE /api/jobs/:id` | ✅ Live (provider foundations) |
+| Out-of-band worker daemon runner: `pnpm worker:daemon` drains the queue → executor → worker-side S3/R2 byte I/O, with `--once`/`--drain`/`--dry-run-status` modes, content-free logs, and a `daemon` `/status` readiness | ✅ Live (runner foundation) |
 | Secure-worker tools: Office ⇄ PDF, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign, + the OCR **processor** | 🔜 Planned (production) |
 | AI tools: chat, summarize, translate, extract | 🔜 Planned |
 
@@ -94,6 +95,7 @@ tool honestly says deep compression is unavailable and the API records a
 | `pnpm dev` | Start the dev server |
 | `pnpm build` | Production build |
 | `pnpm start` | Serve the production build |
+| `pnpm worker:daemon` | Run the out-of-band secure-worker daemon (`--once` / `--drain` / `--dry-run-status`) — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
 | `pnpm typecheck` | `tsc --noEmit` (strict) |
 | `pnpm lint` | ESLint (flat config, `eslint-config-next`) |
 | `pnpm test` | Unit tests (Vitest, run once) |

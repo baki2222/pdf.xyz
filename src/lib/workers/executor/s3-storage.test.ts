@@ -1,0 +1,204 @@
+// @vitest-environment node
+import { describe, expect, it } from "vitest";
+import { parseS3Config, type S3StorageConfig } from "../storage/s3-config";
+import { createS3Storage } from "../storage/s3";
+import {
+  createS3ExecutorStorage,
+  filenameForContentType,
+  type S3ObjectFetch,
+  type S3ObjectResponse,
+} from "./s3-storage";
+
+const NOW = Date.UTC(2026, 0, 2, 3, 4, 5);
+const now = () => NOW;
+
+const S3_SECRET = "s3-secret-value-1234567890";
+
+/** Build a valid config through the real parser (never a real credential). */
+function config(): S3StorageConfig {
+  const parsed = parseS3Config({
+    PDFXYZ_STORAGE_PROVIDER: "s3",
+    PDFXYZ_S3_ENDPOINT: "https://s3.example.com",
+    PDFXYZ_S3_REGION: "auto",
+    PDFXYZ_S3_BUCKET: "pdfxyz-store",
+    PDFXYZ_S3_ACCESS_KEY_ID: "AKIAEXAMPLE123",
+    PDFXYZ_S3_SECRET_ACCESS_KEY: S3_SECRET,
+  });
+  if (!parsed.ok) throw new Error("fixture config should parse");
+  return parsed.config;
+}
+
+interface ScriptedResponse {
+  status: number;
+  contentType?: string;
+  bytes?: Uint8Array;
+}
+
+interface RecordedCall {
+  url: string;
+  method: string;
+  body?: Uint8Array;
+  headers?: Record<string, string>;
+}
+
+/** A fake object transport that replays scripted responses and records calls. */
+function fakeFetch(script: ScriptedResponse[]): {
+  fn: S3ObjectFetch;
+  calls: RecordedCall[];
+} {
+  const calls: RecordedCall[] = [];
+  let i = 0;
+  const fn: S3ObjectFetch = async (url, init) => {
+    calls.push({
+      url,
+      method: init.method,
+      ...(init.body ? { body: init.body } : {}),
+      ...(init.headers ? { headers: init.headers } : {}),
+    });
+    const res = script[Math.min(i, script.length - 1)] ?? { status: 200 };
+    i += 1;
+    const response: S3ObjectResponse = {
+      ok: res.status >= 200 && res.status < 300,
+      status: res.status,
+      headers: {
+        get: (name) =>
+          name.toLowerCase() === "content-type" ? (res.contentType ?? null) : null,
+      },
+      arrayBuffer: async () =>
+        (res.bytes ?? new Uint8Array()).slice().buffer as ArrayBuffer,
+    };
+    return response;
+  };
+  return { fn, calls };
+}
+
+/** A throwing transport, to prove best-effort deletes never propagate. */
+const throwingFetch: S3ObjectFetch = async () => {
+  throw new Error("network down");
+};
+
+describe("filenameForContentType", () => {
+  it("names a PDF and falls back to a neutral name otherwise", () => {
+    expect(filenameForContentType("application/pdf")).toBe("document.pdf");
+    expect(filenameForContentType("application/pdf; charset=binary")).toBe("document.pdf");
+    expect(filenameForContentType("image/png")).toBe("input");
+  });
+});
+
+describe("createS3ExecutorStorage — readInput", () => {
+  const fileId = "f_abcdefghij0123456789";
+
+  it("reads real bytes over a signed GET and derives a content-type-safe name", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const { fn, calls } = fakeFetch([{ status: 200, contentType: "application/pdf", bytes }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+
+    const file = await storage.readInput(fileId);
+    expect(file).toEqual({
+      fileId,
+      filename: "document.pdf",
+      contentType: "application/pdf",
+      bytes,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe("GET");
+    // Signed, and targets the input object's private key — never the raw secret.
+    expect(calls[0]!.url).toContain("/inputs/f_abcdefghij0123456789");
+    expect(calls[0]!.url).toContain("X-Amz-Signature=");
+    expect(calls[0]!.url).not.toContain(S3_SECRET);
+  });
+
+  it("returns null for a genuinely missing object (404)", async () => {
+    const { fn } = fakeFetch([{ status: 404 }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+    expect(await storage.readInput(fileId)).toBeNull();
+  });
+
+  it("throws on a transient failure so the job is retried, not lost", async () => {
+    const { fn } = fakeFetch([{ status: 503 }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+    await expect(storage.readInput(fileId)).rejects.toThrow();
+  });
+
+  it("rejects a malformed file id without touching storage", async () => {
+    const { fn, calls } = fakeFetch([{ status: 200 }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+    expect(await storage.readInput("../etc/passwd")).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("createS3ExecutorStorage — writeArtifact", () => {
+  const input = {
+    jobId: "job_abcdefghij012345",
+    filename: "report-compressed.pdf",
+    contentType: "application/pdf",
+    bytes: new Uint8Array([9, 8, 7, 6]),
+  };
+
+  it("PUTs real bytes and returns a signed, expiring download record", async () => {
+    const { fn, calls } = fakeFetch([{ status: 200 }]);
+    const cfg = config();
+    const storage = createS3ExecutorStorage(cfg, { now, fetchImpl: fn });
+
+    const artifact = await storage.writeArtifact(input);
+    expect(artifact.artifactId).toMatch(/^art_[A-Za-z0-9_-]{10,64}$/);
+    expect(artifact.bytes).toBe(4);
+    expect(artifact.filename).toBe("report-compressed.pdf");
+    expect(artifact.url).toContain("X-Amz-Signature=");
+    expect(artifact.url).toContain(`/artifacts/${artifact.artifactId}`);
+    // expiresAt matches the signed download TTL exactly (nothing re-mints it).
+    expect(artifact.expiresAt).toBe(
+      new Date(NOW + cfg.downloadTtlSeconds * 1000).toISOString(),
+    );
+
+    // The PUT carried the real bytes and the declared content-type.
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put).toBeDefined();
+    expect(put!.body).toEqual(input.bytes);
+    expect(put!.headers?.["content-type"]).toBe("application/pdf");
+    expect(put!.url).not.toContain(S3_SECRET);
+  });
+
+  it("throws when the artifact PUT is rejected (job not completed)", async () => {
+    const { fn } = fakeFetch([{ status: 500 }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+    await expect(storage.writeArtifact(input)).rejects.toThrow();
+  });
+
+  it("writes to the exact key the app-server download provider later signs (no drift)", async () => {
+    const { fn } = fakeFetch([{ status: 200 }]);
+    const cfg = config();
+    const storage = createS3ExecutorStorage(cfg, { now, fetchImpl: fn });
+    const artifact = await storage.writeArtifact(input);
+
+    const provider = createS3Storage(cfg, { now });
+    const download = await provider.reserveDownload({
+      artifactId: artifact.artifactId,
+      filename: artifact.filename,
+      contentType: artifact.contentType,
+    });
+    expect(download.ok).toBe(true);
+    if (download.ok) {
+      expect(new URL(download.value.target.url).pathname).toBe(
+        new URL(artifact.url).pathname,
+      );
+    }
+  });
+});
+
+describe("createS3ExecutorStorage — deletes are best-effort and idempotent", () => {
+  it("issues signed DELETEs and never throws, even when storage is unreachable", async () => {
+    const { fn, calls } = fakeFetch([{ status: 204 }, { status: 204 }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+    await storage.deleteInput("f_abcdefghij0123456789");
+    await storage.deleteArtifact("art_abcdefghij0123456789");
+    expect(calls.map((c) => c.method)).toEqual(["DELETE", "DELETE"]);
+
+    const failing = createS3ExecutorStorage(config(), { now, fetchImpl: throwingFetch });
+    await expect(failing.deleteInput("f_abcdefghij0123456789")).resolves.toBeUndefined();
+    await expect(
+      failing.deleteArtifact("art_abcdefghij0123456789"),
+    ).resolves.toBeUndefined();
+  });
+});
