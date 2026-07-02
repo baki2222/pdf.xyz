@@ -1,8 +1,13 @@
 "use client";
 
+// Thumbnails are pre-rendered PNG blobs (object URLs); next/image adds no value
+// for already-rasterized, ephemeral bitmaps, so a plain <img> is intentional.
+/* eslint-disable @next/next/no-img-element */
+
 import type { ReactNode } from "react";
 import { CheckSquare, Square } from "lucide-react";
 import type { Rotation } from "@/lib/pdf/types";
+import type { Thumbnail } from "@/lib/pdf/render-utils";
 import { cn } from "@/lib/utils";
 
 /** Faux page lines to give tiles the feel of a real document thumbnail. */
@@ -30,6 +35,8 @@ function SheetLines() {
 export function PageTile({
   label,
   rotation = 0,
+  thumbnail,
+  loading = false,
   selectable = false,
   selected = false,
   onSelect,
@@ -46,6 +53,10 @@ export function PageTile({
 }: {
   label: ReactNode;
   rotation?: Rotation;
+  /** Rendered page preview; when absent, a placeholder sheet is shown. */
+  thumbnail?: Thumbnail | null;
+  /** Animate the placeholder while a preview is still rendering. */
+  loading?: boolean;
   selectable?: boolean;
   selected?: boolean;
   onSelect?: () => void;
@@ -109,13 +120,26 @@ export function PageTile({
         </span>
       )}
 
-      <div className="grid aspect-square w-full place-items-center">
-        <div
-          className="relative aspect-[1/1.414] h-[78%] overflow-hidden rounded-[3px] bg-gradient-to-br from-white/95 to-slate-200/85 shadow-md shadow-black/40 ring-1 ring-black/5 transition-transform duration-300"
-          style={{ transform: `rotate(${rotation}deg)` }}
-        >
-          <SheetLines />
-        </div>
+      <div className="grid aspect-square w-full place-items-center overflow-hidden">
+        {thumbnail ? (
+          <img
+            src={thumbnail.url}
+            alt=""
+            draggable={false}
+            className="max-h-[80%] max-w-[80%] rounded-[2px] bg-white object-contain shadow-md shadow-black/40 ring-1 ring-black/5 transition-transform duration-300"
+            style={{ transform: `rotate(${rotation}deg)` }}
+          />
+        ) : (
+          <div
+            className={cn(
+              "relative aspect-[1/1.414] h-[78%] overflow-hidden rounded-[3px] bg-gradient-to-br from-white/95 to-slate-200/85 shadow-md shadow-black/40 ring-1 ring-black/5 transition-transform duration-300",
+              loading && "animate-pulse",
+            )}
+            style={{ transform: `rotate(${rotation}deg)` }}
+          >
+            <SheetLines />
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-1.5">

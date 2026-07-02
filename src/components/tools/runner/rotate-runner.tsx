@@ -9,13 +9,15 @@ import {
   RotateCw,
 } from "lucide-react";
 import { normalizeAngle, organizePages } from "@/lib/pdf/engine";
-import { baseName, downloadBytes } from "@/lib/pdf/browser";
+import { downloadBytes } from "@/lib/pdf/browser";
+import { outputName } from "@/lib/pdf/files";
 import type { Rotation } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
 import {
   ChipButton,
   ErrorNote,
+  PreviewStatus,
   ResultPanel,
   RunButton,
   RunnerSection,
@@ -23,6 +25,7 @@ import {
 } from "./runner-kit";
 import { PageTile, TileAction } from "./page-tile";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
 
 export function RotateRunner() {
@@ -45,6 +48,7 @@ function RotateEditor({
     () => new Set(pdf.rotations.map((_, i) => i)),
   );
   const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { thumbs, rendered, status } = usePdfThumbnails(pdf.bytes, pdf.pageCount);
 
   const changedCount = useMemo(
     () =>
@@ -93,7 +97,7 @@ function RotateEditor({
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result, `${baseName(pdf.file.name)}-rotated.pdf`)
+            downloadBytes(result, outputName(pdf.file.name, "rotated"))
           }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
@@ -147,12 +151,16 @@ function RotateEditor({
         </div>
       </RunnerSection>
 
-      <div className="grid max-h-[58vh] grid-cols-3 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+      <PreviewStatus rendered={rendered} total={pdf.pageCount} status={status} />
+
+      <div className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
         {rotations.map((rotation, i) => (
           <PageTile
             key={i}
             label={`Page ${i + 1}`}
             rotation={rotation}
+            thumbnail={thumbs[i]}
+            loading={status === "rendering"}
             selectable
             selected={selected.has(i)}
             onSelect={() => toggle(i)}

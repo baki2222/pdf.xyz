@@ -127,12 +127,12 @@ export const tools: Tool[] = [
   {
     slug: "compress-pdf",
     name: "Compress PDF",
-    tagline: "Shrink file size while keeping quality.",
+    tagline: "Analyze size and optimize losslessly.",
     description:
-      "Reduce PDF file size with smart image downsampling and stream optimization, with quality presets.",
+      "See exactly what's inflating your PDF and losslessly repack it in your browser. Deep image downsampling runs on a secure, auto-deleting worker.",
     category: "optimize",
     icon: "compress",
-    processing: "server",
+    processing: "hybrid",
     badge: "popular",
     featured: true,
     accept: ["PDF"],
@@ -140,9 +140,9 @@ export const tools: Tool[] = [
     keywords: ["compress pdf", "reduce size", "shrink pdf", "optimize size"],
     related: ["optimize-web", "grayscale-pdf", "repair-pdf"],
     how: [
-      "Upload your PDF.",
-      "Pick a compression level (screen, ebook, or print).",
-      "Download a smaller PDF processed on an auto-deleting worker.",
+      "Add your PDF — it's analyzed privately, right in your browser.",
+      "Review the size breakdown and download a lossless-optimized copy.",
+      "For image-heavy files, deep compression runs on a secure worker (coming soon).",
     ],
   },
   {

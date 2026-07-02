@@ -6,6 +6,7 @@ import { SplitRunner } from "./split-runner";
 import { RotateRunner } from "./rotate-runner";
 import { OrganizeRunner } from "./organize-runner";
 import { PageSelectRunner } from "./page-select-runner";
+import { CompressRunner } from "./compress-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -26,6 +27,8 @@ export function ToolRunner({ kind }: { kind: RunnerKind }) {
       return <PageSelectRunner mode="delete" />;
     case "organize":
       return <OrganizeRunner />;
+    case "compress":
+      return <CompressRunner />;
     default:
       return null;
   }

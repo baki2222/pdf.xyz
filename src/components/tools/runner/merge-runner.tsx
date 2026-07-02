@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+// Cover thumbnails are pre-rendered PNG blobs (object URLs); see page-tile.tsx.
+/* eslint-disable @next/next/no-img-element */
+
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -13,6 +16,9 @@ import {
 } from "lucide-react";
 import { getPageCount, mergePdfs } from "@/lib/pdf/engine";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
+import { mergedOutputName, partitionPdfFiles } from "@/lib/pdf/files";
+import { renderFirstPage } from "@/lib/pdf/render";
+import type { Thumbnail } from "@/lib/pdf/render-utils";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -33,10 +39,15 @@ interface MergeItem {
   size: number;
   bytes: Uint8Array;
   pageCount: number;
+  /** First-page preview; `null` until (or unless) it renders. */
+  cover: Thumbnail | null;
 }
 
-function isPdf(file: File): boolean {
-  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+/** Summarize why some dropped files couldn't be added, for one clear message. */
+function rejectionMessage(rejected: { reason: string }[]): string | null {
+  if (rejected.length === 0) return null;
+  if (rejected.length === 1) return rejected[0]!.reason;
+  return `${rejected.length} files skipped — only PDFs under 100 MB can be merged.`;
 }
 
 export function MergeRunner() {
@@ -45,30 +56,53 @@ export function MergeRunner() {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const idRef = useRef(0);
+  const mounted = useRef(true);
+  // Every cover object URL we create, so we can revoke them on unmount.
+  const coverUrls = useRef<Set<string>>(new Set());
   const { busy, error, result, run, reset, setError } =
     useAsyncRun<Uint8Array>();
 
+  useEffect(() => {
+    mounted.current = true;
+    const urls = coverUrls.current;
+    return () => {
+      mounted.current = false;
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
+    };
+  }, []);
+
+  const attachCover = useCallback((id: string, bytes: Uint8Array) => {
+    renderFirstPage(bytes, { targetWidth: 96 })
+      .then((cover) => {
+        if (!cover) return;
+        if (!mounted.current) {
+          URL.revokeObjectURL(cover.url);
+          return;
+        }
+        coverUrls.current.add(cover.url);
+        setItems((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, cover } : item)),
+        );
+      })
+      .catch(() => {});
+  }, []);
+
   const addFiles = useCallback(
     async (files: File[]) => {
-      const pdfs = files.filter(isPdf);
-      const rejected = files.length - pdfs.length;
-      if (rejected > 0) {
-        setError(
-          `${rejected} file${rejected === 1 ? "" : "s"} skipped — only PDFs can be merged.`,
-        );
-      } else {
-        setError(null);
-      }
-      setLoading((n) => n + pdfs.length);
-      for (const file of pdfs) {
+      const { accepted, rejected } = partitionPdfFiles(files);
+      setError(rejectionMessage(rejected));
+      setLoading((n) => n + accepted.length);
+      for (const file of accepted) {
         try {
           const bytes = await readFileBytes(file);
           const pageCount = await getPageCount(bytes);
           const id = `f${idRef.current++}`;
           setItems((prev) => [
             ...prev,
-            { id, name: file.name, size: file.size, bytes, pageCount },
+            { id, name: file.name, size: file.size, bytes, pageCount, cover: null },
           ]);
+          attachCover(id, bytes);
         } catch (err) {
           setError(errorMessage(err));
         } finally {
@@ -76,15 +110,27 @@ export function MergeRunner() {
         }
       }
     },
-    [setError],
+    [setError, attachCover],
   );
+
+  const revokeCover = (item: MergeItem | undefined) => {
+    if (item?.cover) {
+      URL.revokeObjectURL(item.cover.url);
+      coverUrls.current.delete(item.cover.url);
+    }
+  };
 
   const move = (from: number, to: number) =>
     setItems((prev) => reorder(prev, from, to));
   const removeAt = (index: number) =>
-    setItems((prev) => prev.filter((_, i) => i !== index));
+    setItems((prev) => {
+      revokeCover(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
 
   const startOver = () => {
+    for (const url of coverUrls.current) URL.revokeObjectURL(url);
+    coverUrls.current.clear();
     reset();
     setItems([]);
     setDragIndex(null);
@@ -104,7 +150,9 @@ export function MergeRunner() {
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result, "merged.pdf")}
+          onClick={() =>
+            downloadBytes(result, mergedOutputName(items.map((i) => i.name)))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -171,7 +219,18 @@ export function MergeRunner() {
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white/5 text-xs font-semibold tabular-nums text-slate-400">
                 {index + 1}
               </span>
-              <FileText className="size-4 shrink-0 text-violet-300" aria-hidden />
+              <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md bg-white/5 ring-1 ring-white/10">
+                {item.cover ? (
+                  <img
+                    src={item.cover.url}
+                    alt=""
+                    draggable={false}
+                    className="max-h-full max-w-full object-contain"
+                  />
+                ) : (
+                  <FileText className="size-4 text-violet-300" aria-hidden />
+                )}
+              </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-slate-200">
                   {item.name}

@@ -12,13 +12,15 @@ import {
   Trash2,
 } from "lucide-react";
 import { normalizeAngle, organizePages } from "@/lib/pdf/engine";
-import { baseName, downloadBytes } from "@/lib/pdf/browser";
+import { downloadBytes } from "@/lib/pdf/browser";
+import { outputName } from "@/lib/pdf/files";
 import type { Rotation } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
 import {
   ChipButton,
   ErrorNote,
+  PreviewStatus,
   ResultPanel,
   RunButton,
   RunnerSection,
@@ -27,6 +29,7 @@ import {
 } from "./runner-kit";
 import { PageTile, TileAction } from "./page-tile";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
 
 interface OrganizeItem {
@@ -64,6 +67,7 @@ function OrganizeEditor({
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const uidRef = useRef(pdf.pageCount);
   const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { thumbs, rendered, status } = usePdfThumbnails(pdf.bytes, pdf.pageCount);
 
   const move = (from: number, to: number) =>
     setItems((prev) => reorder(prev, from, to));
@@ -118,7 +122,7 @@ function OrganizeEditor({
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result, `${baseName(pdf.file.name)}-organized.pdf`)
+            downloadBytes(result, outputName(pdf.file.name, "organized"))
           }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
@@ -153,12 +157,16 @@ function OrganizeEditor({
         </div>
       </RunnerSection>
 
+      <PreviewStatus rendered={rendered} total={pdf.pageCount} status={status} />
+
       <div className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {items.map((item, i) => (
           <PageTile
             key={item.uid}
             label={`Page ${item.sourceIndex + 1}`}
             rotation={item.rotation}
+            thumbnail={thumbs[item.sourceIndex]}
+            loading={status === "rendering"}
             cornerBadge={i + 1}
             draggable
             onDragStart={() => setDragIndex(i)}

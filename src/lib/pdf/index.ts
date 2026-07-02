@@ -8,3 +8,6 @@ export * from "./types";
 export * from "./ranges";
 export * from "./engine";
 export * from "./registry";
+export * from "./files";
+export * from "./analyze";
+export * from "./render-utils";

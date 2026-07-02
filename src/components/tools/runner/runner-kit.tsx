@@ -319,6 +319,34 @@ export function ChipButton({
   );
 }
 
+/** Compact status line for progressive thumbnail rendering. */
+export function PreviewStatus({
+  rendered,
+  total,
+  status,
+}: {
+  rendered: number;
+  total: number;
+  status: "idle" | "rendering" | "done" | "error";
+}) {
+  if (status === "rendering" && rendered < total) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+        <Spinner className="size-3" />
+        Rendering previews… {rendered}/{total}
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span className="text-xs text-slate-500">
+        Live previews unavailable — showing placeholders.
+      </span>
+    );
+  }
+  return null;
+}
+
 /** Section wrapper giving each runner a consistent titled block. */
 export function RunnerSection({
   title,

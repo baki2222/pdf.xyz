@@ -7,14 +7,13 @@ import type { NamedBytes } from "./types";
  * so server components never pull DOM APIs into their bundle.
  */
 
+// Re-export the pure naming helpers so existing call sites can keep importing
+// `baseName` from here; the canonical definitions live in "./files".
+export { baseName, outputName, mergedOutputName } from "./files";
+
 /** Read a File into a Uint8Array. */
 export async function readFileBytes(file: File): Promise<Uint8Array> {
   return new Uint8Array(await file.arrayBuffer());
-}
-
-/** Strip a trailing file extension, e.g. "report.final.pdf" -> "report.final". */
-export function baseName(name: string): string {
-  return name.replace(/\.[^./\\]+$/, "");
 }
 
 /**

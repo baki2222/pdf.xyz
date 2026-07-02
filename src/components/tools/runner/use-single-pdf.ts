@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { getPageRotations } from "@/lib/pdf/engine";
 import { readFileBytes } from "@/lib/pdf/browser";
+import { validatePdfFile } from "@/lib/pdf/files";
 import type { Rotation } from "@/lib/pdf/types";
 import { errorMessage } from "./runner-kit";
 
@@ -24,6 +25,12 @@ export function useSinglePdf() {
   const [error, setError] = useState<string | null>(null);
 
   const open = useCallback(async (file: File) => {
+    const check = validatePdfFile(file);
+    if (!check.ok) {
+      setError(check.reason ?? "That file can't be used here.");
+      setPdf(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

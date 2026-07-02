@@ -10,13 +10,8 @@ import {
   rangesPerPage,
 } from "@/lib/pdf/ranges";
 import type { NamedBytes, SplitPart } from "@/lib/pdf/types";
-import {
-  baseName,
-  downloadBlob,
-  downloadBytes,
-  totalBytes,
-  zipFiles,
-} from "@/lib/pdf/browser";
+import { downloadBlob, downloadBytes, totalBytes, zipFiles } from "@/lib/pdf/browser";
+import { baseName, outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -94,7 +89,7 @@ function SplitEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) 
     setZipping(true);
     try {
       const zip = await zipFiles(files);
-      downloadBlob(zip, `${baseName(pdf.file.name)}-split.zip`);
+      downloadBlob(zip, outputName(pdf.file.name, "split", "zip"));
     } finally {
       setZipping(false);
     }

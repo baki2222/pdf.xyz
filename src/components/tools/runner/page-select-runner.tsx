@@ -9,12 +9,14 @@ import {
 } from "lucide-react";
 import { deletePages, extractPages } from "@/lib/pdf/engine";
 import { parsePageList } from "@/lib/pdf/ranges";
-import { baseName, downloadBytes } from "@/lib/pdf/browser";
+import { downloadBytes } from "@/lib/pdf/browser";
+import { outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
 import {
   ChipButton,
   ErrorNote,
+  PreviewStatus,
   ResultPanel,
   RunButton,
   RunnerSection,
@@ -23,6 +25,7 @@ import {
 } from "./runner-kit";
 import { PageTile } from "./page-tile";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
+import { usePdfThumbnails } from "./use-pdf-thumbnails";
 import type { LoadedPdf } from "./use-single-pdf";
 
 type Mode = "extract" | "delete";
@@ -33,7 +36,8 @@ interface ModeConfig {
   busyLabel: string;
   helper: (selected: number) => string;
   emptyHint: string;
-  outputName: (base: string) => string;
+  /** Suffix appended to the source name for the download, e.g. "extracted". */
+  outputSuffix: string;
   resultTitle: string;
   resultSummary: (selected: number, total: number) => string;
   /** Delete can't remove every page, so it disables when all are selected. */
@@ -50,7 +54,7 @@ const CONFIG: Record<Mode, ModeConfig> = {
         ? "Select the pages to pull into a new PDF."
         : `${n} page${n === 1 ? "" : "s"} will be exported.`,
     emptyHint: "One PDF · pick the pages to keep",
-    outputName: (base) => `${base}-extracted.pdf`,
+    outputSuffix: "extracted",
     resultTitle: "Pages extracted",
     resultSummary: (n) => `${n} page${n === 1 ? "" : "s"} exported to a new PDF`,
     disallowSelectAll: false,
@@ -64,7 +68,7 @@ const CONFIG: Record<Mode, ModeConfig> = {
         ? "Select the pages to remove."
         : `${n} page${n === 1 ? "" : "s"} will be removed.`,
     emptyHint: "One PDF · pick the pages to remove",
-    outputName: (base) => `${base}-pages-removed.pdf`,
+    outputSuffix: "pages-removed",
     resultTitle: "Pages removed",
     resultSummary: (n, total) =>
       `${n} removed · ${total - n} page${total - n === 1 ? "" : "s"} remaining`,
@@ -96,6 +100,7 @@ function PageSelectEditor({
   const [rangeInput, setRangeInput] = useState("");
   const [rangeError, setRangeError] = useState<string | null>(null);
   const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { thumbs, rendered, status } = usePdfThumbnails(pdf.bytes, pdf.pageCount);
 
   const selectedList = useMemo(
     () => [...selected].sort((a, b) => a - b),
@@ -149,7 +154,7 @@ function PageSelectEditor({
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result, config.outputName(baseName(pdf.file.name)))
+            downloadBytes(result, outputName(pdf.file.name, config.outputSuffix))
           }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
@@ -200,12 +205,16 @@ function PageSelectEditor({
 
       {rangeError && <ErrorNote message={rangeError} />}
 
-      <div className="grid max-h-[58vh] grid-cols-3 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+      <PreviewStatus rendered={rendered} total={pdf.pageCount} status={status} />
+
+      <div className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
         {pdf.rotations.map((rotation, i) => (
           <PageTile
             key={i}
             label={`Page ${i + 1}`}
             rotation={rotation}
+            thumbnail={thumbs[i]}
+            loading={status === "rendering"}
             selectable
             selected={selected.has(i)}
             onSelect={() => toggle(i)}
