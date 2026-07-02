@@ -16,6 +16,11 @@ import {
   type CompressionTool,
   type ToolAvailability,
 } from "./compression/engine";
+import {
+  buildOcrCapability,
+  type OcrCapability,
+  type OcrEngineAvailability,
+} from "./ocr";
 
 /** What the worker can do for the Compress tool in this environment, right now. */
 export interface CompressCapability {
@@ -40,6 +45,8 @@ export interface WorkerStatus {
   /** One-line, client-safe explanation of the current capability. */
   detail: string;
   compress: CompressCapability;
+  /** What the worker can do for the OCR tool right now (its own honest detail). */
+  ocr: OcrCapability;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -51,12 +58,17 @@ const NO_COMPRESS: CompressCapability = {
 /**
  * Derive the client-facing status from the resolved mode and (for local-dev)
  * the probed native tool availability. Never reads the environment or a secret;
- * callers pass in exactly what was detected.
+ * callers pass in exactly what was detected. `ocrEngines` is threaded through to
+ * {@link buildOcrCapability}; the status route passes none, so OCR reports as
+ * unavailable in every environment this build runs in (see `./ocr.ts`).
  */
 export function buildWorkerStatus(
   mode: WorkerMode,
   tools?: ToolAvailability,
+  ocrEngines?: OcrEngineAvailability,
 ): WorkerStatus {
+  const ocr = buildOcrCapability(mode, ocrEngines);
+
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
     const deep = engines.length > 0;
@@ -68,6 +80,7 @@ export function buildWorkerStatus(
         ? `Local-dev worker enabled. Deep image compression runs on ${engines[0]}, on this machine — files are not sent to any third party.`
         : "Local-dev worker enabled, but no native engine (Ghostscript, qpdf, or mutool) is installed, so deep image compression can't run here. Install one to enable it.",
       compress: { lossless: true, deep, engines },
+      ocr,
     };
   }
 
@@ -79,6 +92,7 @@ export function buildWorkerStatus(
       detail:
         "A worker backend is configured, but this build ships no processing pipeline yet.",
       compress: { ...NO_COMPRESS },
+      ocr,
     };
   }
 
@@ -89,5 +103,6 @@ export function buildWorkerStatus(
     detail:
       "No secure worker is configured in this environment. Deep image compression runs on an encrypted, auto-deleting worker when enabled.",
     compress: { ...NO_COMPRESS },
+    ocr,
   };
 }

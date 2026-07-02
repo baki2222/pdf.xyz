@@ -6,10 +6,12 @@ test.describe("secure-worker tool preview", () => {
     page,
   }) => {
     const guard = attachConsoleGuard(page);
-    await page.goto("/tools/ocr-pdf");
+    // `repair-pdf` is a generic secure-worker tool that renders the shared
+    // WorkerPreview (OCR has its own dedicated panel — see ocr-tool.spec.ts).
+    await page.goto("/tools/repair-pdf");
 
     await expect(
-      page.getByRole("heading", { level: 1, name: "OCR PDF" }),
+      page.getByRole("heading", { level: 1, name: "Repair PDF" }),
     ).toBeVisible();
 
     // The preview — not the in-browser runner, and not a fake uploader.

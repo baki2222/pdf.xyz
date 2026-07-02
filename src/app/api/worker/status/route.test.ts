@@ -22,6 +22,10 @@ describe("GET /api/worker/status", () => {
     expect(body.mode).toBe("disabled");
     expect(body.enabled).toBe(false);
     expect(body.compress).toEqual({ lossless: false, deep: false, engines: [] });
+    // OCR is never probed by the route, so it is honestly unavailable.
+    expect(body.ocr.available).toBe(false);
+    expect(body.ocr.engine).toBeNull();
+    expect(body.ocr.languages).toEqual([]);
   });
 
   it("reports remote-configured when backend vars are present", async () => {
@@ -43,5 +47,7 @@ describe("GET /api/worker/status", () => {
     // Deep reflects a real PATH probe on this host — a boolean either way.
     expect(typeof body.compress.deep).toBe("boolean");
     expect(Array.isArray(body.compress.engines)).toBe(true);
+    // The local-dev worker ships no OCR processor, so OCR stays unavailable.
+    expect(body.ocr.available).toBe(false);
   });
 });

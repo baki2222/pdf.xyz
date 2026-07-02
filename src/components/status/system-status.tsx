@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Cpu, Loader2, MonitorSmartphone } from "lucide-react";
+import { Cpu, Loader2, MonitorSmartphone, ScanText } from "lucide-react";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { track } from "@/lib/telemetry/track";
 import {
@@ -136,7 +136,28 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
           )}
 
           {phase === "ready" && status && (
-            <p className="text-sm leading-relaxed text-slate-400">{status.detail}</p>
+            <div className="flex flex-col gap-3">
+              <p className="text-sm leading-relaxed text-slate-400">
+                {status.detail}
+              </p>
+              {/* Per-capability honesty: OCR is called out explicitly so the page
+                  never implies a searchable-PDF pipeline that isn't wired up. */}
+              <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300">
+                    <ScanText className="size-3.5 text-slate-400" aria-hidden />
+                    OCR
+                  </span>
+                  <StatusBadge
+                    tone={status.ocr.available ? "ok" : "muted"}
+                    label={status.ocr.available ? "Available" : "Not enabled"}
+                  />
+                </div>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  {status.ocr.detail}
+                </p>
+              </div>
+            </div>
           )}
         </StatusCard>
       </div>

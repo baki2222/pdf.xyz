@@ -89,6 +89,15 @@ overview): Office ⇄ PDF conversions, OCR, repair, web-optimize, PDF/A,
 compare, high-quality compression, irreversible redaction, fillable forms, and
 e-signature workflows.
 
+**OCR** has a dedicated, honest secure-worker page (`/tools/ocr-pdf`) and a full
+request/capability contract (`src/lib/jobs/ocr.ts`, `src/lib/workers/ocr.ts`): it
+validates recognition options (languages, output mode, skip-text), reports its
+capability **presence-only**, and mounts an uploader **only** when a worker
+genuinely offers OCR — which no environment does yet. No scan is uploaded, and no
+searchable PDF or recognized text is ever fabricated, until a real OCR processor
+is deployed. Inputs would be wiped right after recognition and outputs auto-delete
+on their TTL, exactly like every other job (`DEFAULT_RETENTION`).
+
 **Planned AI tools:** chat with PDF, summarize, translate, extract tables/data.
 
 When workers ship they will follow the plan in
@@ -106,7 +115,7 @@ The boundary to future server-side processing is defined as typed contracts in
 | `POST /api/uploads` | Create a short-lived, single-use upload session. |
 | `POST /api/jobs` | Create a processing job from uploaded files or a URL. |
 | `GET /api/jobs/:id` | Read typed job status and download readiness. |
-| `GET /api/worker/status` | Presence-only capability probe (mode + compression profiles); no secrets. |
+| `GET /api/worker/status` | Presence-only capability probe (mode + per-tool capability — compression profiles and OCR); no secrets. |
 
 **No fake processing.** With no worker backend configured, these route handlers
 validate every request against the contract and then answer honestly with

@@ -43,6 +43,15 @@ preview, and production.
   environment (Production / Preview / Development). Server-only secrets must
   **not** be prefixed `NEXT_PUBLIC_` (that prefix exposes a value to the
   browser). Keep worker/AI credentials server-side only.
+- **OCR (and every secure-worker tool) is disabled by default.** `/tools/ocr-pdf`
+  reads `GET /api/worker/status` and honestly reports OCR unavailable until a real
+  OCR processor (OCRmyPDF/Tesseract or a managed provider) is deployed behind the
+  worker adapter contract; no scan is uploaded and no text is fabricated until
+  then. When that processor lands, its endpoint/credentials are **server-side
+  configuration behind the adapter — never `NEXT_PUBLIC_`** — and the status
+  endpoint starts reporting `ocr.available` from the worker's advertised
+  capability (presence-only, names not values). See
+  [`docs/WORKER_ARCHITECTURE.md`](../docs/WORKER_ARCHITECTURE.md).
 
 ### Optional: client telemetry toggles (off by default)
 

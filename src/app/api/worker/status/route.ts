@@ -33,5 +33,10 @@ export async function GET(): Promise<Response> {
     tools = probeCompressionTools(resolveOnPath);
   }
 
+  // OCR is intentionally NOT probed: this build ships no OCR pipeline in any
+  // mode (the local-dev worker only compresses), so passing no OCR engines makes
+  // `buildWorkerStatus` report OCR honestly unavailable everywhere. When a real
+  // OCR processor is wired behind the adapter, probe it here (presence-only),
+  // exactly like compression, and pass the result as the third argument.
   return respond(ok(buildWorkerStatus(mode, tools)));
 }

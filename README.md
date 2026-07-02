@@ -32,7 +32,8 @@ versus planned — no fake processing.
 | Client resilience & observability: error/not-found/loading boundaries, reusable error boundary, privacy-safe error + Web Vitals telemetry (inert unless an endpoint is set) | ✅ Live |
 | Secure-worker contract + adapter, presence-only status probe, honest Compress UI integration | ✅ Live |
 | Deep compression worker (Ghostscript/qpdf/mutool) — real, runnable via `PDFXYZ_WORKER_MODE=local-dev` | 🧪 Local-dev |
-| Secure-worker tools: Office ⇄ PDF, OCR, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign | 🔜 Planned (production) |
+| OCR foundation: options/capability contract, honest OCR tool page + `/status` row, browser job client (no processor yet) | ✅ Live (foundation) |
+| Secure-worker tools: Office ⇄ PDF, repair, PDF/A, compare, deep compression, irreversible redaction, e-sign, + the OCR **processor** | 🔜 Planned (production) |
 | AI tools: chat, summarize, translate, extract | 🔜 Planned |
 
 Every tool page states exactly where it runs (in-browser / secure worker /

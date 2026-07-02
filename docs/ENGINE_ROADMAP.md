@@ -167,8 +167,9 @@ AI features must be explicitly opt-in and should display model/data handling cle
   "local-dev only" and "no native engine installed").
 - ⏳ Remaining for production: direct-to-storage uploads, queue-backed execution,
   signed downloads, lifecycle-enforced deletion, an explicit signed "delete now",
-  and a native `deep` processor deployed behind the same adapter contract; plus
-  OCR as the next capability.
+  and a native `deep` processor deployed behind the same adapter contract. OCR is
+  next: its contract, capability mapping, UX, and browser client shipped in
+  **Phase 11** (below); only the native processor remains.
 
 ### Phase 8 — account and workspace
 
@@ -242,6 +243,35 @@ what is (and isn't) wired.
   catalog / jobs / registry graph stays out of the client bundle
   (`summary.ts` vs. `presenter.ts`); added `aria-live` status regions for
   hand-off and batch outcomes.
+
+### Phase 11 — OCR secure-worker foundation (shipped)
+
+The next secure-worker capability, built **honestly** end-to-end without a native
+processor yet. No mode ships OCR, so it is reported unavailable everywhere with a
+mode-specific reason — no fake searchable PDFs or invented text.
+
+- **OCR options contract** (`src/lib/jobs/ocr.ts`): a pure, unit-tested
+  `parseOcrOptions` validating recognition languages (curated ISO 639-2/T
+  allowlist, 1–4, de-duplicated), output mode (`searchable-pdf` / `text` /
+  `both`), and `skipTextPages`; plus `OcrResultMeta` / `OcrPageResult` typing what
+  a real processor returns.
+- **Presence-only OCR capability** (`src/lib/workers/ocr.ts`): `buildOcrCapability`
+  extends `WorkerStatus` with an `ocr` field carrying its own honest `detail`. The
+  status route never probes an OCR engine, so `ocr.available` is `false` in every
+  environment; the `engines`-driven and `probeOcrEngines` paths are ready and
+  tested for the day a real engine is wired.
+- **Premium OCR tool page** (`src/components/tools/ocr-worker-panel.tsx`): an
+  OCR-specific secure-worker flow with live capability check, real recognition
+  settings validated by the shared contract, the full upload→scan→recognize→
+  download→delete pipeline, and **no uploader** unless OCR is honestly available.
+  A contract-complete browser client (`src/lib/workers/ocr-client.ts`) drives the
+  real documented job flow when it is.
+- **Honest status surface**: the `/status` page shows an explicit OCR capability
+  row read live from the endpoint, and the OCR page reuses the Phase 10
+  `worker_status_checked` telemetry event (mode + enabled only).
+- ⏳ Remaining for production: an OCRmyPDF/Tesseract (or managed) processor behind
+  the adapter contract, with language packs, per-page confidence, and the same
+  storage/queue/deletion guarantees as every other worker.
 
 ## Definition of production-ready per tool
 

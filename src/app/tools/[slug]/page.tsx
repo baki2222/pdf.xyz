@@ -25,6 +25,7 @@ import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { WorkerPreview } from "@/components/tools/worker-preview";
+import { OcrWorkerPanel } from "@/components/tools/ocr-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -263,6 +264,12 @@ export default async function ToolPage({
                     />
                   </div>
                 </div>
+              ) : tool.slug === "ocr-pdf" ? (
+                /* OCR: a premium, OCR-specific secure-worker flow (honest, live
+                   capability check, real job path when a worker is available). */
+                <ErrorBoundary boundary="ocr-worker-panel">
+                  <OcrWorkerPanel tool={tool} />
+                </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */
                 <WorkerPreview tool={tool} />

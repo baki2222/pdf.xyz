@@ -22,8 +22,9 @@ test.describe("system status page", () => {
       page.getByRole("heading", { name: /secure worker/i }),
     ).toBeVisible();
 
-    // The in-browser card is always available and never uploads.
-    await expect(page.getByText("Available")).toBeVisible();
+    // The in-browser card is always available and never uploads. Exact match:
+    // the OCR capability row honestly says OCR is "unavailable" nearby.
+    await expect(page.getByText("Available", { exact: true })).toBeVisible();
 
     // The worker half is read live from /api/worker/status. In the production
     // build the e2e suite runs, the worker is honestly disabled — so the fetch

@@ -22,6 +22,16 @@ describe("buildWorkerStatus", () => {
     expect(status.detail).toMatch(/no secure worker/i);
   });
 
+  it("reports OCR as unavailable with an honest reason in every mode", () => {
+    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+      const status = buildWorkerStatus(mode);
+      expect(status.ocr.available).toBe(false);
+      expect(status.ocr.engine).toBeNull();
+      expect(status.ocr.languages).toEqual([]);
+      expect(status.ocr.detail.length).toBeGreaterThan(0);
+    }
+  });
+
   it("reports remote-configured as not-enabled (no pipeline shipped)", () => {
     const status = buildWorkerStatus("remote-configured");
     expect(status.enabled).toBe(false);
@@ -38,6 +48,8 @@ describe("buildWorkerStatus", () => {
     expect(status.compress.deep).toBe(false);
     expect(status.compress.engines).toEqual([]);
     expect(status.detail).toMatch(/no native engine/i);
+    // OCR is not part of the local-dev worker, so it stays unavailable.
+    expect(status.ocr.available).toBe(false);
   });
 
   it("reports deep on with the installed engines in preference order", () => {

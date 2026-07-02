@@ -18,6 +18,11 @@ Phase 6 added the **contract layer** for those workers. Phase 7 adds the first r
 | Local-dev compression worker | Implemented in `src/lib/workers/local-dev.ts` (opt-in via `PDFXYZ_WORKER_MODE=local-dev`) |
 | Worker status endpoint (presence-only) | Implemented in `src/app/api/worker/status/route.ts` + `src/lib/workers/status.ts` |
 | Compress UI secure-worker integration | Implemented in `src/components/tools/runner/compress-runner.tsx` + `src/lib/workers/client.ts` |
+| OCR job contract (options + result metadata) | Implemented in `src/lib/jobs/ocr.ts` |
+| OCR capability mapping (presence-only) | Implemented in `src/lib/workers/ocr.ts` + `status.ts` |
+| OCR tool-page secure-worker panel | Implemented in `src/components/tools/ocr-worker-panel.tsx` |
+| OCR browser job client (contract-complete) | Implemented in `src/lib/workers/ocr-client.ts` |
+| OCR native processor (searchable PDF / text) | Planned, not enabled |
 | Production processors / queues / storage | Planned, not enabled |
 
 The API route handlers stay thin: they validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then **delegate to the worker adapter** selected for the current environment. By default the adapter answers honestly that no backend is configured; nothing is ever faked.
@@ -56,6 +61,34 @@ The Compress tool page (`compress-runner.tsx`) always runs the on-device lossles
 - **`local-dev` without a native engine**: explains that no engine (Ghostscript/qpdf/mutool) is installed, so deep compression can't run here — without offering a button that would only fail.
 
 To try it locally: run `PDFXYZ_WORKER_MODE=local-dev pnpm dev`, open `/tools/compress-pdf`, and add a PDF. With no native engine installed the page honestly says deep compression is unavailable (and a `deep` job via the API fails as `not_implemented`); a `{ "profile": "lossless" }` job via the API completes with a real, smaller PDF and a working download URL. Install Ghostscript/qpdf/mutool to enable the deep path and the in-page run button.
+
+## OCR secure-worker foundation (Phase 11)
+
+OCR is a **secure-worker-only** capability: turning a scan into a searchable PDF or a text sidecar needs a native OCR engine (OCRmyPDF/Tesseract) or a managed provider — the browser cannot do it honestly. Phase 11 builds the full contract, capability, UI, and testing foundation for OCR **without faking it**. No mode ships an OCR processing pipeline yet (the local-dev worker only compresses), so OCR reports as **unavailable in every environment this build runs in**, with a mode-specific reason. Nothing fabricates recognized text or a searchable PDF.
+
+### OCR options contract (`src/lib/jobs/ocr.ts`)
+
+`parseOcrOptions()` is the OCR analogue of `parseCompressionOptions`: a pure, dependency-free validator for the free-form `options` bag of an `ocr-pdf` job. It is what the future worker calls before touching a file, and what the tool UI runs so the on-screen summary always matches what would be submitted.
+
+| Option | Rules |
+| --- | --- |
+| `languages` | A single code or an array of [ISO 639-2/T](https://en.wikipedia.org/wiki/ISO_639-2) codes from a curated allowlist (`eng`, `spa`, `fra`, `deu`, …). 1–4 entries, de-duplicated. An unknown code is **rejected**, never dropped. Defaults to `["eng"]`. |
+| `outputMode` | `searchable-pdf` (invisible selectable text layer under the scan), `text` (a `.txt` sidecar), or `both`. Defaults to `searchable-pdf`. |
+| `skipTextPages` | Boolean; skip pages that already carry a text layer (OCRmyPDF `--skip-text`) instead of re-recognizing them. Defaults to `false`. |
+
+A completed OCR job's shape is typed by `OcrResultMeta` / `OcrPageResult` (engine, languages, pages processed/skipped, characters recognized, mean confidence, which artifacts were produced). These describe what a real processor fills in — this module never estimates or fakes them.
+
+### OCR capability (`src/lib/workers/ocr.ts`)
+
+`buildOcrCapability(mode, engines?)` derives the client-safe `WorkerStatus.ocr` — `{ available, engine, languages, detail }` — from the resolved mode and the OCR engines a worker advertises (presence only, never a value). The status route **deliberately passes no OCR engines**, because no OCR pipeline ships, so `available` is `false` everywhere with an honest, mode-specific `detail`. The `engines`-driven branch (and `probeOcrEngines`) exist so the capability flips on correctly — and is unit-tested — the moment a real OCR processor is wired behind the adapter contract.
+
+### OCR tool page (`src/components/tools/ocr-worker-panel.tsx`)
+
+`/tools/ocr-pdf` renders a premium, OCR-specific secure-worker panel instead of the generic preview. It reads the live `/api/worker/status` endpoint (emitting the Phase 10 `worker_status_checked` event — mode + enabled only), lets the user configure a real request (languages, output, skip-text) validated by the shared `parseOcrOptions`, and shows the exact pipeline — encrypted upload → scan → isolated recognition → download → auto-delete. When OCR is unavailable it says so plainly and **mounts no uploader**; only when the endpoint honestly reports OCR available does it mount a file picker and run the documented flow via `runWorkerOcr` (`src/lib/workers/ocr-client.ts`), surfacing only real downloaded output or an honest failure.
+
+### Future OCR processor requirements
+
+A production OCR processor, deployed behind the same adapter contract, must: run **OCRmyPDF/Tesseract or a managed OCR provider** in a sandboxed, no-egress job; ship the language packs advertised by the capability; produce a searchable PDF (invisible text layer) and/or a text sidecar per `outputMode`; honor `skipTextPages`; and return `OcrResultMeta` from actual recognition. Inputs are wiped right after processing and outputs auto-delete on their TTL, exactly like every other job.
 
 ## Contract endpoints
 
@@ -98,10 +131,12 @@ File-input example:
 {
   "tool": "ocr-pdf",
   "inputs": ["f_1234567890"],
-  "options": { "language": "eng" },
+  "options": { "languages": ["eng"], "outputMode": "searchable-pdf" },
   "idempotencyKey": "ocr:scan:1"
 }
 ```
+
+OCR `options` are validated by `parseOcrOptions` (`src/lib/jobs/ocr.ts`); see "OCR secure-worker foundation" above for the full rules.
 
 URL-input example:
 
@@ -120,7 +155,7 @@ Returns typed job status once a real backend exists. Stub behavior is explicit a
 
 ### `GET /api/worker/status`
 
-Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines } }`. It never reads or returns a secret — `engines` lists installed native binaries by *name* only. `no-store`; reflects live host state. See "Discovering worker availability from the client" above.
+Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only. The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`. `no-store`; reflects live host state. See "Discovering worker availability from the client" above.
 
 ### Local-dev transport (dev only)
 
@@ -258,7 +293,7 @@ Secure-worker and AI tool pages render a contract preview instead of a fake uplo
 - retention window
 - “not yet enabled” status
 
-Live in-browser tools do not call these endpoints.
+`/tools/ocr-pdf` goes further with a dedicated, OCR-specific panel (`ocr-worker-panel.tsx`): the same honest pipeline and retention, plus real recognition settings (languages, output mode, skip-text) validated by the shared contract, a live capability check, and an uploader that appears **only** if the status endpoint reports OCR available. Live in-browser tools do not call these endpoints.
 
 ## Definition of done for first real worker
 

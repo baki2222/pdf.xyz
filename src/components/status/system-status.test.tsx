@@ -14,6 +14,12 @@ const DISABLED_STATUS: WorkerStatus = {
   localDevOnly: false,
   detail: "No secure worker is configured in this environment.",
   compress: { lossless: false, deep: false, engines: [] },
+  ocr: {
+    available: false,
+    engine: null,
+    languages: [],
+    detail: "OCR is unavailable in this environment.",
+  },
 };
 
 const LOCAL_TOOLS: LocalToolRef[] = [
@@ -42,6 +48,16 @@ describe("SystemStatus", () => {
     expect(screen.getByText("Split PDF")).toBeInTheDocument();
     expect(screen.getByText(/2 tools run/i)).toBeInTheDocument();
     expect(screen.getByText("Available")).toBeInTheDocument();
+  });
+
+  it("shows an honest OCR capability row read from the live status", async () => {
+    mockFetchOnce(async () => ({ ok: true, json: async () => DISABLED_STATUS }));
+    render(<SystemStatus localTools={LOCAL_TOOLS} />);
+
+    expect(await screen.findByText("OCR")).toBeInTheDocument();
+    expect(screen.getByText(DISABLED_STATUS.ocr.detail)).toBeInTheDocument();
+    // Disabled OCR shows its own "Not enabled" badge alongside the worker one.
+    expect(screen.getAllByText("Not enabled").length).toBeGreaterThanOrEqual(2);
   });
 
   it("reads worker status and emits a privacy-safe worker_status_checked event", async () => {

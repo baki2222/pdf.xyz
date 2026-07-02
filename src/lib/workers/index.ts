@@ -13,4 +13,5 @@ export * from "./mode";
 export * from "./types";
 export * from "./adapter";
 export * from "./status";
+export * from "./ocr";
 export * from "./compression/engine";
