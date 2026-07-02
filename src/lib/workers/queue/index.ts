@@ -9,6 +9,7 @@
 
 export * from "./types";
 export * from "./state";
+export * from "./claim";
 export { mapQueueFailure } from "./errors";
 export { createNotConfiguredQueue } from "./not-configured";
 export { createLocalDevQueue, type LocalDevQueueDeps } from "./local-dev";

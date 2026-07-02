@@ -23,7 +23,10 @@ Phase 6 added the **contract layer** for those workers. Phase 7 adds the first r
 | OCR tool-page secure-worker panel | Implemented in `src/components/tools/ocr-worker-panel.tsx` |
 | OCR browser job client (contract-complete) | Implemented in `src/lib/workers/ocr-client.ts` |
 | OCR native processor (searchable PDF / text) | Planned, not enabled |
-| Production processors / queues / storage | Planned, not enabled |
+| Processor registry + contract | Implemented in `src/lib/workers/processor/` |
+| Worker executor loop (claim → process → complete) | Implemented in `src/lib/workers/executor/` |
+| Queue claim/lease/heartbeat (`ClaimableQueue`) | Implemented in `src/lib/workers/queue/` |
+| Production storage/queue/processor adapters | Planned, not enabled |
 
 The API route handlers stay thin: they validate shape, limits, MIME types, safe URL inputs, and tool eligibility, then **delegate to the worker adapter** selected for the current environment. By default the adapter answers honestly that no backend is configured; nothing is ever faked.
 
@@ -99,7 +102,7 @@ worker adapter:
 | --- | --- | --- | --- |
 | Object storage | `src/lib/workers/storage/` | signed upload slots, signed artifact downloads, delete-now receipts, retention metadata | disabled/remote-unimplemented returns typed failure |
 | Queue | `src/lib/workers/queue/` | enqueue, idempotency, status, cancel, expire, job state transitions | disabled/remote-unimplemented returns typed failure |
-| Processor | `src/lib/workers/*` engines | compression/OCR execution after a worker claims a job | local-dev only; production worker loop not shipped |
+| Processor | `src/lib/workers/processor/` + `executor/` | processor registry + the execution loop that claims a job, reads inputs, dispatches a processor, writes artifacts, and drives status | local-dev in-process + a unit-tested executor foundation; production adapters not shipped |
 
 No client supplies object keys or filesystem paths. Opaque ids (`f_…`, `job_…`,
 `art_…`) are minted server-side; production providers must map them to private
@@ -107,6 +110,90 @@ bucket keys internally. All download/upload URLs in the contract are signed and
 expiring. `DELETE /api/jobs/:id` is the delete-now/cancel seam: it returns an
 honest not-configured error with no backend, and local-dev cancels cancelable jobs
 or expires completed jobs while removing artifact references.
+
+## Processor registry & worker executor (Phase 13)
+
+Phase 13 adds the **execution foundation**: the compute seam is now a typed
+processor contract behind a registry, and there is a real, unit-tested loop that
+claims a queued job and runs it. Neither adds a credential, a background service,
+or any fake processing.
+
+### Processor registry (`src/lib/workers/processor/`)
+
+A {@link Processor} is the third provider contract (alongside storage and queue):
+`supports(tool)`, `capability()` (presence-only readiness), and
+`process(input) → { artifacts } | { error }`. It is pure and node-free — native
+dependencies are injected — so it is reused unchanged by the synchronous local-dev
+adapter and the async executor, and unit-tested without a binary.
+
+- **Compression** (`compression.ts`) wraps the existing engine behind the
+  contract; lossless is always available, deep still fails honestly with
+  `not_implemented` when no native engine is installed. The local-dev adapter now
+  dispatches through this exact processor, so the adapter and the executor cannot
+  drift in how work runs or how failures are classified.
+- **OCR** (`ocr.ts`) validates a request and then honestly returns
+  `not_implemented` — this build ships **no OCR runner**. The native runner is an
+  injected seam, so the capability flips on (and is unit-tested) the moment a real
+  OCRmyPDF/Tesseract runner is wired; nothing fabricates recognized text.
+- `ProcessorRegistry` maps a tool slug to its processor; a duplicate registration
+  is a wiring error, not silent last-writer-wins.
+
+### Worker executor (`src/lib/workers/executor/`)
+
+`createWorkerExecutor({ queue, storage, registry })` is a **pure, dependency-injected
+loop**, not a daemon: importing it starts no timer, thread, or background service.
+One tick — `runOnce()` — claims the next job, reads its inputs, dispatches the
+processor, writes artifacts, and drives the job to a terminal state; `drain()`
+runs ticks until the queue is idle. It is unit-tested deterministically with a
+fake clock and in-memory queue/storage. A production worker process (or a
+script-only dev driver) is what would call `drain()` on an interval — the app
+runtime never does.
+
+Guarantees the executor upholds:
+
+- **Honesty.** A job is `completed` only after real artifact bytes were written;
+  every failure carries a typed `JobError`; an unroutable tool or a missing input
+  fails honestly rather than producing a dummy file.
+- **Retryable vs terminal.** A processor failure marked `retryable` is requeued
+  (up to `maxAttempts`) rather than killed; a non-retryable failure is terminal.
+- **Cancellation.** A job canceled while queued is never processed; a job canceled
+  while running does not get resurrected into `completed` — the executor detects
+  the conflict and **cleans up any artifacts it already wrote**.
+- **Retention.** Inputs are wiped once a job reaches a terminal state; a retryable
+  requeue is *not* terminal, so its inputs survive for the retry.
+- **Privacy.** The optional structured log receives only opaque ids, the tool
+  slug, an attempt number, and an error *code* — never bytes, filenames, object
+  keys, temp paths, or option values.
+
+### Storage seams: worker I/O vs app-server ops
+
+The executor reads inputs and writes artifacts through its own
+{@link ExecutorStorage} seam (`readInput`/`writeArtifact`/`deleteInput`/`deleteArtifact`).
+This is deliberately distinct from the app-server `StorageProvider`
+(reserve/delete only, never streams bytes): in production the **worker** touches
+the encrypted bucket directly, while the **app server** never does. Modeling them
+as two seams keeps the app-server contract clean and gives the executor exactly
+the byte I/O it needs.
+
+### Queue evolution: `ClaimableQueue`
+
+`ClaimableQueue extends QueueProvider` with `submit` (record a queued job plus its
+inputs/options), `claim` (atomically pick the oldest queued job — or redeliver one
+whose lease expired — and lease it), `heartbeat`, `advance`, `complete`, and
+`fail` (terminal or requeue). This is **backward-compatible by construction**: the
+base `QueueProvider` and every app-server route that uses it are untouched; only a
+broker a worker drains implements the richer interface. The state machine
+(`state.ts`) gains explicit **redelivery** edges (`scanning/processing → queued`)
+so an at-least-once queue's behavior is modeled honestly rather than hidden.
+Lease + attempt bookkeeping lives beside the job record, never on the
+client-facing `Job`.
+
+### Remote mode is still honest
+
+`remote-configured` ships **no** executor: `/api/worker/status` reports
+`processor.executor.mode: "not-implemented"`, and no job is claimed or dispatched.
+Wiring a real broker/storage/worker behind these contracts is the remaining
+production step — see the checklist in [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 ## Contract endpoints
 
@@ -177,7 +264,7 @@ The honest delete-now / cancel control — the user's "stop and delete my data" 
 
 ### `GET /api/worker/status`
 
-Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail }, providers: { storage, queue, processor } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only, and each `providers` entry reports only its `ready`/`configured` readiness plus a client-safe `detail` (never a bucket, queue, key, path, or variable name). The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`; provider readiness is derived from the resolved mode so a partially configured deployment cannot be fingerprinted from the client. `no-store`; reflects live host state. See "Discovering worker availability from the client" and "Provider seams" above.
+Presence-only capability probe for the client. Returns `{ mode, enabled, localDevOnly, detail, compress: { lossless, deep, engines }, ocr: { available, engine, languages, detail }, providers: { storage, queue, processor } }`. It never reads or returns a secret — `engines` and `ocr.engine` list native binaries by *name* only, and each `providers` entry reports only its `ready`/`configured` readiness plus a client-safe `detail` (never a bucket, queue, key, path, or variable name). The `providers.processor` entry additionally carries `executor: { mode, ready, detail }` (Phase 13) — a presence-only view of the execution loop (`in-process` / `not-implemented` / `none`), never naming a broker or worker URL. The route never probes an OCR engine (no OCR pipeline ships), so `ocr.available` is `false` in every environment with an honest, mode-specific `ocr.detail`; provider readiness is derived from the resolved mode so a partially configured deployment cannot be fingerprinted from the client. `no-store`; reflects live host state. See "Discovering worker availability from the client" and "Provider seams" above.
 
 ### Local-dev transport (dev only)
 
@@ -330,4 +417,6 @@ A worker-backed tool is production-ready only when it has:
 - Tests for validation, job states, and one happy-path processor.
 - Security review for input validation, egress, file handling, and logging.
 
-**Phase 7 progress toward this:** the local-dev worker already covers upload-session creation, upload transport, job creation, status polling, output download, post-job input wipe + retention/expiry, a presence-only client capability probe, an honest Compress UI integration, and tests for validation + job states + transport routes + a real happy-path processor (lossless) end-to-end through the route handlers. Remaining for production: direct-to-object-storage upload, a real queue, signed URLs, lifecycle-enforced deletion, an explicit signed "delete now", and a native `deep` processor behind the same adapter contract.
+**Phase 7 progress toward this:** the local-dev worker already covers upload-session creation, upload transport, job creation, status polling, output download, post-job input wipe + retention/expiry, a presence-only client capability probe, an honest Compress UI integration, and tests for validation + job states + transport routes + a real happy-path processor (lossless) end-to-end through the route handlers.
+
+**Phase 13 progress toward this:** the compute seam is now a typed **processor registry** and a real, unit-tested **executor loop** (claim → read inputs → dispatch processor → write artifacts → complete/fail), with a backward-compatible `ClaimableQueue` (claim/lease/heartbeat/redelivery) and a worker-side `ExecutorStorage` seam. It proves queue-backed job state progression (`queued → scanning → processing → completed/failed`), retryable-vs-terminal failure handling, cancellation while queued/running, and artifact cleanup on failure — deterministically, with no daemon in the app runtime. Remaining for production: real storage/queue/worker *adapters* behind these contracts (S3/R2/GCS, SQS/PubSub/Redis, a sandboxed worker process that runs `drain()` on an interval), signed URLs, lifecycle-enforced deletion, an explicit signed "delete now", malware scanning in the scan phase, and native `deep`/OCR runners behind the processor contract.

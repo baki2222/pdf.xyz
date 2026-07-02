@@ -34,17 +34,15 @@ import {
   getToolCapability,
   notImplemented,
   type Job,
-  type JobError,
+  type JobArtifact,
   type UploadSlot,
 } from "@/lib/jobs";
-import { outputName } from "@/lib/pdf/files";
 import {
   parseCompressionOptions,
-  runCompression,
   type CompressionDeps,
-  type CompressionRun,
 } from "./compression/engine";
 import { nativeCompressionDeps } from "./compression/native";
+import { createProcessorRegistry } from "./processor";
 import {
   devWorkerStore,
   newArtifactId,
@@ -57,7 +55,6 @@ import { createLocalDevQueue, deletionTarget, mapQueueFailure } from "./queue";
 import { adapterError, adapterOk, type WorkerAdapter } from "./types";
 
 const MINUTE_MS = 60_000;
-const OUTPUT_CONTENT_TYPE = "application/pdf";
 
 /** Tools the local worker can honestly process today. */
 export const LOCAL_DEV_SUPPORTED_TOOLS: ReadonlySet<string> = new Set([
@@ -70,35 +67,6 @@ export interface LocalDevDeps {
   /** Compression dependencies; defaults to a live PATH probe + native runner. */
   compressionDeps?: CompressionDeps;
   now?: () => number;
-}
-
-type CompressionFailure = Extract<CompressionRun, { ok: false }>;
-
-/** Map an honest engine failure to a typed, client-safe job error. */
-function toJobError(run: CompressionFailure): JobError {
-  switch (run.kind) {
-    case "unsupported":
-      return {
-        code: "not_implemented",
-        message: `${run.message} Install one of: ${run.requires.join(
-          ", ",
-        )}. See docs/WORKER_ARCHITECTURE.md.`,
-        retryable: false,
-      };
-    case "invalid_pdf":
-      return {
-        code: "unprocessable_entity",
-        message: run.message,
-        retryable: false,
-      };
-    case "failed":
-    default:
-      return {
-        code: "internal_error",
-        message: run.message,
-        retryable: true,
-      };
-  }
 }
 
 export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
@@ -164,9 +132,11 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
         if (existing.ok && existing.value) return adapterOk(existing.value, 200);
       }
 
+      // Early request-shape validation so bad options are a 4xx rejection
+      // (no job created), not a failed job. The processor re-validates the raw
+      // bag defensively; here we only care that it is well-formed.
       const optionsResult = parseCompressionOptions(request.options ?? {});
       if (!optionsResult.ok) return adapterError(optionsResult.error);
-      const options = optionsResult.value;
 
       const fileId = request.inputs[0];
       if (request.inputs.length !== 1 || fileId === undefined) {
@@ -205,11 +175,26 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
         );
       }
 
-      const run = await runCompression(
-        slot.bytes,
-        options,
-        resolveCompressionDeps(),
-      );
+      // Dispatch through the shared processor registry — the exact processor the
+      // async executor runs — so the synchronous adapter and the executor cannot
+      // drift in how compression is executed or how failures are classified.
+      const registry = createProcessorRegistry({
+        compression: resolveCompressionDeps(),
+      });
+      const processor = registry.resolve(request.tool);
+      if (!processor) return adapterError(notImplemented());
+      const result = await processor.process({
+        tool: request.tool,
+        options: request.options ?? {},
+        inputs: [
+          {
+            fileId,
+            filename: slot.filename,
+            contentType: slot.contentType,
+            bytes: slot.bytes,
+          },
+        ],
+      });
       // Inputs are wiped as soon as processing finishes — success or failure —
       // via the storage provider's delete-now, matching the retention contract.
       await storage.deleteNow("input", fileId);
@@ -227,42 +212,40 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       } as const;
 
       let job: Job;
-      if (run.ok) {
-        const artifactId = newArtifactId();
-        const filename = outputName(slot.filename, "compressed");
-        store.putArtifact({
-          artifactId,
-          jobId,
-          filename,
-          contentType: OUTPUT_CONTENT_TYPE,
-          bytes: run.output,
-        });
-        // Mint the (signed, in production) download target through the storage
-        // provider — the same seam a real bucket client implements.
-        const download = await storage.reserveDownload({
-          artifactId,
-          filename,
-          contentType: OUTPUT_CONTENT_TYPE,
-        });
-        if (!download.ok) return adapterError(mapStorageFailure(download.error));
-        job = {
-          ...base,
-          status: "completed",
-          progress: 100,
-          artifacts: [
-            {
-              artifactId,
-              filename,
-              contentType: OUTPUT_CONTENT_TYPE,
-              bytes: run.output.byteLength,
-              url: download.value.target.url,
-              expiresAt: base.expiresAt,
-            },
-          ],
-        };
+      if (result.ok) {
+        const artifacts: JobArtifact[] = [];
+        for (const produced of result.artifacts) {
+          const artifactId = newArtifactId();
+          store.putArtifact({
+            artifactId,
+            jobId,
+            filename: produced.filename,
+            contentType: produced.contentType,
+            bytes: produced.bytes,
+          });
+          // Mint the (signed, in production) download target through the storage
+          // provider — the same seam a real bucket client implements.
+          const download = await storage.reserveDownload({
+            artifactId,
+            filename: produced.filename,
+            contentType: produced.contentType,
+          });
+          if (!download.ok) {
+            return adapterError(mapStorageFailure(download.error));
+          }
+          artifacts.push({
+            artifactId,
+            filename: produced.filename,
+            contentType: produced.contentType,
+            bytes: produced.bytes.byteLength,
+            url: download.value.target.url,
+            expiresAt: base.expiresAt,
+          });
+        }
+        job = { ...base, status: "completed", progress: 100, artifacts };
       } else {
         // Honest failure: a real job record with a typed error and NO artifact.
-        job = { ...base, status: "failed", progress: 0, error: toJobError(run) };
+        job = { ...base, status: "failed", progress: 0, error: result.error };
       }
 
       const enqueued = await queue.enqueue(job, request.idempotencyKey);

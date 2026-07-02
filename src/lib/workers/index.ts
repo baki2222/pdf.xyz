@@ -16,3 +16,5 @@ export * from "./providers";
 export * from "./status";
 export * from "./ocr";
 export * from "./compression/engine";
+export * from "./processor";
+export * from "./executor";

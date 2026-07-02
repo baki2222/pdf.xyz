@@ -23,6 +23,26 @@ import {
 import { createNotConfiguredQueue } from "./queue/not-configured";
 import { LOCAL_DEV_QUEUE_CAPABILITY, type QueueCapability } from "./queue/types";
 
+/**
+ * The execution loop that claims queued jobs and dispatches a processor.
+ * Presence-only: it says *how* jobs are executed in this environment, never
+ * naming a broker, worker URL, or any variable.
+ */
+export interface ExecutorReadiness {
+  /**
+   * - `in-process`: the local-dev worker runs jobs synchronously in this process
+   *   (and the async claim/execute loop foundation is available for a broker).
+   * - `not-implemented`: a worker service is configured but this build ships no
+   *   execution loop, so no job is dispatched.
+   * - `none`: no execution loop is configured.
+   */
+  mode: "in-process" | "not-implemented" | "none";
+  /** True only when a processor can be dispatched for a job now. */
+  ready: boolean;
+  /** One-line, client-safe explanation. Never names a variable or a value. */
+  detail: string;
+}
+
 /** The processor/worker service: the compute that runs a job's transformation. */
 export interface ProcessorStatus {
   /** True only when a job can actually be processed now. */
@@ -31,6 +51,8 @@ export interface ProcessorStatus {
   configured: boolean;
   /** One-line, client-safe explanation. Never names a variable or a value. */
   detail: string;
+  /** Presence-only readiness of the worker-execution loop (Phase 13). */
+  executor: ExecutorReadiness;
 }
 
 /** Presence-only readiness of every provider behind the worker adapter. */
@@ -49,6 +71,27 @@ const PROCESSOR_DETAIL: Record<WorkerMode, string> = {
     "No processor is configured. Secure-worker tools (OCR, conversions, repair, deep compression) cannot run in this environment.",
 };
 
+const EXECUTOR_READINESS: Record<WorkerMode, ExecutorReadiness> = {
+  "local-dev": {
+    mode: "in-process",
+    ready: true,
+    detail:
+      "Jobs run in-process on this machine; the async claim/execute loop foundation is available to drive a production broker.",
+  },
+  "remote-configured": {
+    mode: "not-implemented",
+    ready: false,
+    detail:
+      "A worker service is configured, but this build ships no execution loop, so no job is claimed or dispatched yet.",
+  },
+  disabled: {
+    mode: "none",
+    ready: false,
+    detail:
+      "No execution loop is configured; no job is claimed or dispatched in this environment.",
+  },
+};
+
 /**
  * Derive the client-facing readiness of all three providers from the resolved
  * mode. Pure and deterministic; the status route passes the result straight into
@@ -63,6 +106,7 @@ export function getProviderReadiness(mode: WorkerMode): WorkerProviders {
         ready: true,
         configured: false,
         detail: PROCESSOR_DETAIL["local-dev"],
+        executor: EXECUTOR_READINESS["local-dev"],
       },
     };
   }
@@ -75,6 +119,7 @@ export function getProviderReadiness(mode: WorkerMode): WorkerProviders {
       ready: false,
       configured: mode === "remote-configured",
       detail: PROCESSOR_DETAIL[mode],
+      executor: EXECUTOR_READINESS[mode],
     },
   };
 }

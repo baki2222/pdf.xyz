@@ -305,6 +305,40 @@ queue provider (SQS/PubSub/Redis/etc.), worker claim/execution loops, object
 lifecycle policies, and signed authenticated delete requests in front of the
 same contracts.
 
+### Phase 13 — worker executor foundation (shipped)
+
+The compute seam behind the adapter is now a typed **processor registry** plus a
+real, unit-tested **execution loop** — the missing "worker claim/execution loop"
+from Phase 12 — without adding any credential, background service, or fake
+processing.
+
+- **Processor registry & contract** (`src/lib/workers/processor/`): a pure,
+  node-free `Processor` interface (`supports` / `capability` / `process`) with a
+  registry that routes a tool slug to its processor. Compression and OCR are both
+  registered behind it; the local-dev adapter dispatches through the *same*
+  compression processor the executor runs, so the sync and async paths can't
+  drift. OCR validates honestly and returns `not_implemented` (no runner ships);
+  it flips on the moment a real OCRmyPDF/Tesseract runner is injected.
+- **Worker executor** (`src/lib/workers/executor/`): `createWorkerExecutor(...)` is
+  a dependency-injected loop, **not a daemon** — it starts no timer or thread.
+  `runOnce()` claims a job, reads inputs via an `ExecutorStorage` seam, dispatches
+  the processor, writes artifacts, and drives the job to a terminal state;
+  `drain()` runs until idle. Deterministically unit-tested for success, terminal
+  failure, retryable requeue-then-succeed, retry exhaustion, cancellation while
+  queued and while running, missing inputs, and artifact cleanup on cancel.
+- **`ClaimableQueue`** (`src/lib/workers/queue/`): a backward-compatible extension
+  of the queue contract adding `submit`/`claim`/`heartbeat`/`advance`/`complete`/
+  `fail`, lease + attempt bookkeeping, and explicit redelivery edges in the state
+  machine — the base `QueueProvider` and its routes are untouched.
+- **Status**: `/api/worker/status` now reports `providers.processor.executor`
+  (presence-only: `in-process` / `not-implemented` / `none`), never naming a
+  broker or worker URL.
+
+⏳ Remaining for production: real storage/queue/worker *adapters* behind these
+contracts (a sandboxed worker process running `drain()` on an interval), signed
+URLs, lifecycle-enforced deletion, malware scanning in the scan phase, and native
+`deep`/OCR runners behind the processor contract.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

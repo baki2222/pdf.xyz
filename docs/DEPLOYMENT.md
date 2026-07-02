@@ -136,3 +136,30 @@ curl -sI https://pdf.xyz/opengraph-image | grep -i content-type
 ## Phase 12 worker provider checklist
 
 Production worker rollout now requires concrete providers for object storage and queueing behind the typed contracts in `src/lib/workers/storage/` and `src/lib/workers/queue/`. Configure private encrypted storage, lifecycle deletion, signed upload/download URL TTLs, a broker-backed queue, idempotency storage, and an authenticated delete-now path before enabling remote processing. Until those adapters exist, remote-configured mode must continue returning typed not-implemented/not-configured responses rather than minting dummy URLs or jobs.
+
+## Phase 13 worker executor checklist
+
+Phase 13 adds the **execution foundation** — a processor registry and an executor
+loop (`src/lib/workers/processor/` + `src/lib/workers/executor/`) — but ships **no
+long-running worker in the app runtime**. Importing the executor starts nothing;
+it must be *driven*. Before enabling remote processing:
+
+- **Run the executor out-of-band.** Deploy a **separate, sandboxed worker
+  process** (not a Vercel serverless function on the request path) that constructs
+  `createWorkerExecutor({ queue, storage, registry })` against the real broker +
+  bucket adapters and calls `drain()` on an interval or on queue notifications.
+  The Next.js app must never spawn it.
+- **Implement the adapters, not the loop.** The loop is done; wire real
+  `ClaimableQueue`, `ExecutorStorage`, and processor runners (native `deep`
+  compression, OCRmyPDF/Tesseract) behind the existing contracts. Native runners
+  use fixed argv arrays and fixed temp paths — no user-supplied paths, no shell
+  string interpolation.
+- **Tune lease & retries.** Set `leaseMs` above the worst-case job duration and
+  heartbeat long jobs, so a slow job is not redelivered under a healthy worker;
+  set `maxAttempts` so only genuinely transient (`retryable`) failures retry.
+- **Scan for real.** The executor's `scanning` phase is a state today; a
+  production worker must run malware/soundness scanning there before processing.
+- **Keep it presence-only.** `/api/worker/status` exposes
+  `providers.processor.executor` (mode/ready/detail) — confirm no broker name,
+  worker URL, key, or variable ever appears there. `remote-configured` must keep
+  reporting `executor.mode: "not-implemented"` until the worker is live.

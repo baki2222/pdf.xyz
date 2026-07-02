@@ -97,6 +97,20 @@ describe("buildWorkerStatus — provider readiness", () => {
     expect(providers.queue.cancel).toBe(true);
   });
 
+  it("reports executor readiness per mode (presence-only)", () => {
+    expect(buildWorkerStatus("local-dev", noTools).providers.processor.executor)
+      .toMatchObject({ mode: "in-process", ready: true });
+    expect(buildWorkerStatus("remote-configured").providers.processor.executor)
+      .toMatchObject({ mode: "not-implemented", ready: false });
+    expect(buildWorkerStatus("disabled").providers.processor.executor)
+      .toMatchObject({ mode: "none", ready: false });
+    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+      const { executor } = buildWorkerStatus(mode).providers.processor;
+      expect(executor.detail.length).toBeGreaterThan(0);
+      expect(executor.detail).not.toMatch(/PDFXYZ_/);
+    }
+  });
+
   it("never leaks a variable name in any provider detail", () => {
     for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
       const { providers } = buildWorkerStatus(mode);

@@ -20,13 +20,17 @@ import { isTerminalStatus } from "@/lib/jobs";
 
 /**
  * Legal next states for each status. An empty list means the status is terminal
- * for the active lifecycle. `completed → expired` is the one retention-driven
- * edge (an already-terminal status that still auto-deletes its outputs).
+ * for the active lifecycle. Two non-forward edges are modeled explicitly:
+ *  - `completed → expired` is the retention edge (outputs auto-delete); and
+ *  - `scanning/processing → queued` is **redelivery** — a broker returning an
+ *    un-acked job to the queue when its lease expires or the executor requeues a
+ *    retryable failure. A real queue redelivers; the state machine says so rather
+ *    than hiding it behind a side channel.
  */
 export const QUEUE_TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
   queued: ["scanning", "processing", "failed", "canceled"],
-  scanning: ["processing", "failed", "canceled"],
-  processing: ["completed", "failed", "canceled"],
+  scanning: ["processing", "failed", "canceled", "queued"],
+  processing: ["completed", "failed", "canceled", "queued"],
   completed: ["expired"],
   failed: [],
   expired: [],
@@ -49,6 +53,16 @@ export function canCancel(status: JobStatus): boolean {
 /** True when a completed job's outputs can be expired (retention delete-now). */
 export function canExpire(status: JobStatus): boolean {
   return status === "completed";
+}
+
+/**
+ * True when a job is in an active (claimed/running) state that a queue may
+ * redeliver to `queued` — either because its lease expired or because a
+ * retryable failure requeued it. Terminal and already-queued jobs are never
+ * redelivered.
+ */
+export function canRedeliver(status: JobStatus): boolean {
+  return status === "scanning" || status === "processing";
 }
 
 /**

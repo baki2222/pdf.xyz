@@ -1,0 +1,102 @@
+/**
+ * The typed contract for a secure-worker **processor** — the compute that runs a
+ * single job's transformation after the executor has claimed it and read its
+ * inputs. This is the third provider seam (alongside storage and queue), and it
+ * is pure data + a tiny interface: no Next.js, no network, no Node built-ins, so
+ * the same shape is reused by the in-process local-dev worker and any future
+ * production worker, and is unit-testable in isolation.
+ *
+ * Honesty rules mirror the rest of the worker layer:
+ *  - `process()` returns real artifact bytes on success and a typed {@link JobError}
+ *    on failure — never a fabricated "completed" output. A processor that cannot
+ *    run a request (no native engine, unknown tool) fails honestly.
+ *  - `capability()` is presence-only: it says whether the processor can run right
+ *    now and why, never naming a path, version, key, or secret value.
+ */
+
+import type { JobError } from "@/lib/jobs";
+
+/**
+ * One input file handed to a processor: the opaque id, the naming metadata the
+ * processor needs to name its outputs, and the raw bytes the executor already
+ * read from storage. A production worker reads these from the encrypted bucket;
+ * the local-dev executor reads them from the in-process store.
+ */
+export interface ProcessorInputFile {
+  fileId: string;
+  filename: string;
+  contentType: string;
+  bytes: Uint8Array;
+}
+
+/** A validated processing request: the tool, its raw option bag, and input files. */
+export interface ProcessorInput {
+  tool: string;
+  /** Raw options; each processor validates its own bag defensively. */
+  options: Record<string, unknown>;
+  inputs: ProcessorInputFile[];
+}
+
+/**
+ * A produced output, before it is persisted and given a signed download URL.
+ * The processor returns bytes + naming only; turning it into a downloadable
+ * {@link import("@/lib/jobs").JobArtifact} (storing it, minting a signed URL) is
+ * the orchestrator's job, not the processor's.
+ */
+export interface ProcessorArtifact {
+  filename: string;
+  contentType: string;
+  bytes: Uint8Array;
+}
+
+/**
+ * Content-free, serializable metrics a processor may attach to a success (engine
+ * name, byte sizes, ratios). Never carries document contents, filenames of
+ * inputs, keys, or paths — safe to log and return.
+ */
+export type ProcessorMeta = Record<string, string | number | boolean>;
+
+/** The outcome of a processor run: real artifacts, or a typed, honest failure. */
+export type ProcessorResult =
+  | { ok: true; artifacts: ProcessorArtifact[]; meta?: ProcessorMeta }
+  | { ok: false; error: JobError };
+
+/** The honest, client-safe capability/status of a processor in this environment. */
+export interface ProcessorCapability {
+  /** Stable processor id (e.g. "compression", "ocr"). */
+  id: string;
+  /** Tool slugs this processor owns. */
+  tools: readonly string[];
+  /** True only when the processor can run at least one supported request now. */
+  ready: boolean;
+  /** One-line, client-safe explanation. Never a path, version, key, or value. */
+  detail: string;
+}
+
+/**
+ * A secure-worker processor. `supports` routes a request to a processor;
+ * `capability` reports its honest readiness; `process` does the actual transform.
+ * The `options` argument of `supports` is reserved for future capability gating
+ * (a processor that only handles some option combinations); today's processors
+ * route by tool alone.
+ */
+export interface Processor {
+  readonly id: string;
+  readonly tools: readonly string[];
+  supports(tool: string, options?: Record<string, unknown>): boolean;
+  capability(): ProcessorCapability;
+  process(input: ProcessorInput): Promise<ProcessorResult>;
+}
+
+/** Build a successful processor result. */
+export function processorOk(
+  artifacts: ProcessorArtifact[],
+  meta?: ProcessorMeta,
+): ProcessorResult {
+  return { ok: true, artifacts, ...(meta ? { meta } : {}) };
+}
+
+/** Build a failed processor result from a typed, client-safe job error. */
+export function processorFail(error: JobError): ProcessorResult {
+  return { ok: false, error };
+}

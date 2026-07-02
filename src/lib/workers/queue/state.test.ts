@@ -4,6 +4,7 @@ import {
   QUEUE_TRANSITIONS,
   canCancel,
   canExpire,
+  canRedeliver,
   canTransition,
   deletionTarget,
 } from "./state";
@@ -41,6 +42,28 @@ describe("queue state machine", () => {
   it("never lets a job skip processing straight to completed", () => {
     expect(canTransition("queued", "completed")).toBe(false);
     expect(canTransition("scanning", "completed")).toBe(false);
+  });
+
+  it("allows redelivery of an active job back to queued", () => {
+    // Lease expiry / retryable requeue returns an un-acked job to the queue.
+    expect(canTransition("scanning", "queued")).toBe(true);
+    expect(canTransition("processing", "queued")).toBe(true);
+    expect(canRedeliver("scanning")).toBe(true);
+    expect(canRedeliver("processing")).toBe(true);
+    // A fresh queued job or any terminal job is never redelivered.
+    for (const status of [
+      "queued",
+      "completed",
+      "failed",
+      "expired",
+      "canceled",
+    ] as JobStatus[]) {
+      expect(canRedeliver(status)).toBe(false);
+    }
+    // Redelivery never resurrects a terminal job.
+    expect(canTransition("completed", "queued")).toBe(false);
+    expect(canTransition("failed", "queued")).toBe(false);
+    expect(canTransition("canceled", "queued")).toBe(false);
   });
 
   it("treats failed/expired/canceled as dead ends", () => {

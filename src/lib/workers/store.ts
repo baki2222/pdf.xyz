@@ -61,6 +61,23 @@ export interface StoredArtifact {
   expiresAt: number;
 }
 
+/**
+ * The executor-facing spec of a queued job: the inputs to read and the raw
+ * options to run. Held separately from the client-facing {@link Job} record (which
+ * never exposes inputs) and dropped once the job reaches a terminal state.
+ */
+export interface StoredJobSpec {
+  inputs: string[];
+  options: Record<string, unknown>;
+}
+
+/** A worker's lease on a claimed job: the deadline plus the attempt count. */
+export interface StoredLease {
+  leaseExpiresAt: number;
+  /** How many times this job has been claimed (redelivery/retry increments it). */
+  attempts: number;
+}
+
 /** Why a byte upload to a slot was rejected. */
 export type PutBytesError = "not_found" | "size_mismatch" | "too_large";
 
@@ -69,6 +86,8 @@ export class DevWorkerStore {
   private jobs = new Map<string, Job>();
   private artifacts = new Map<string, StoredArtifact>();
   private idempotency = new Map<string, string>();
+  private specs = new Map<string, StoredJobSpec>();
+  private leases = new Map<string, StoredLease>();
 
   /** Injectable clock keeps expiry deterministic under test. */
   constructor(private readonly now: () => number = () => Date.now()) {}
@@ -163,6 +182,50 @@ export class DevWorkerStore {
     return this.getJob(jobId);
   }
 
+  /**
+   * All live (non-expired) jobs, dropping any that have passed their window.
+   * The queue provider uses this to find the next claimable job; it never leaks
+   * outside the Node-runtime worker code.
+   */
+  liveJobs(): Job[] {
+    const live: Job[] = [];
+    for (const jobId of [...this.jobs.keys()]) {
+      const job = this.getJob(jobId); // drops it lazily if expired
+      if (job) live.push(job);
+    }
+    return live;
+  }
+
+  /** Record the executor-facing spec (inputs + options) for a queued job. */
+  putSpec(jobId: string, spec: StoredJobSpec): void {
+    this.specs.set(jobId, spec);
+  }
+
+  /** The spec for a job, if one is still recorded. */
+  getSpec(jobId: string): StoredJobSpec | undefined {
+    return this.specs.get(jobId);
+  }
+
+  /** Drop a job's spec (called when it reaches a terminal state). Idempotent. */
+  deleteSpec(jobId: string): void {
+    this.specs.delete(jobId);
+  }
+
+  /** Read a job's current lease, if it is (or was) claimed. */
+  getLease(jobId: string): StoredLease | undefined {
+    return this.leases.get(jobId);
+  }
+
+  /** Record/refresh a job's lease (claim, heartbeat, redelivery). */
+  setLease(jobId: string, lease: StoredLease): void {
+    this.leases.set(jobId, lease);
+  }
+
+  /** Drop a job's lease (terminal transition). Idempotent. */
+  deleteLease(jobId: string): void {
+    this.leases.delete(jobId);
+  }
+
   putArtifact(artifact: Omit<StoredArtifact, "expiresAt">): StoredArtifact {
     const stored: StoredArtifact = {
       ...artifact,
@@ -199,6 +262,8 @@ export class DevWorkerStore {
     this.jobs.clear();
     this.artifacts.clear();
     this.idempotency.clear();
+    this.specs.clear();
+    this.leases.clear();
   }
 }
 

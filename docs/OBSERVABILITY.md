@@ -208,4 +208,27 @@ and are shared with the tool runners.
 
 ## Worker provider status fields
 
-`/api/worker/status` includes presence-only readiness for `storage`, `queue`, and `processor`. These fields are safe to expose: they report provider class/capability and readiness, never variable names, secret values, bucket names, queue names, object keys, file names, or paths. Telemetry should record only coarse mode/readiness booleans if these fields are wired into events.
+`/api/worker/status` includes presence-only readiness for `storage`, `queue`, and `processor`. These fields are safe to expose: they report provider class/capability and readiness, never variable names, secret values, bucket names, queue names, object keys, file names, or paths. Telemetry should record only coarse mode/readiness booleans if these fields are wired into events. The `processor.executor` field (Phase 13) is the same shape of promise: it reports the execution-loop mode (`in-process` / `not-implemented` / `none`) and a client-safe detail, never a broker name or worker URL.
+
+## Worker executor logs (Phase 13)
+
+The worker executor (`src/lib/workers/executor/`) accepts an optional structured
+log sink — `log(event)` — that is **content-free by construction**, the operational
+counterpart of the product-analytics rule above. Each `ExecutorLogEvent` carries
+only:
+
+- `event` — a fixed enum (`claimed`, `scanning`, `processing`, `completed`,
+  `failed`, `requeued`, `canceled`, `no_processor`, `input_missing`);
+- `jobId` — an opaque, server-minted id (`job_…`);
+- `tool` — the public tool slug;
+- `attempt` — the delivery attempt number;
+- `errorCode?` — a coarse, typed error *code* (never a message with detail).
+
+It **never** receives file bytes, a file **name**, an object key, a temp path, an
+option value, or document text — the same invariant the product-analytics and
+telemetry seams enforce. A production worker driving `drain()` can forward these
+events straight to a structured-log/metrics pipeline (queue depth from `claimed`
+vs terminal counts, failure rate by `tool` + `errorCode`, redelivery rate from
+`requeued`) without any additional scrubbing. The `WORKER_ARCHITECTURE.md`
+"Observability" plan (structured logs keyed by `jobId`, metrics, tracing per job)
+is exactly what these events feed.

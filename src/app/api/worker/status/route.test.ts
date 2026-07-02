@@ -31,6 +31,9 @@ describe("GET /api/worker/status", () => {
     expect(body.providers.storage.ready).toBe(false);
     expect(body.providers.queue.ready).toBe(false);
     expect(body.providers.processor.ready).toBe(false);
+    // Executor readiness is presence-only and honestly "none" when disabled.
+    expect(body.providers.processor.executor.mode).toBe("none");
+    expect(body.providers.processor.executor.ready).toBe(false);
     expect(JSON.stringify(body)).not.toContain("PDFXYZ_");
   });
 
