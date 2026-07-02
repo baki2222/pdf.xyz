@@ -111,6 +111,17 @@ jobs:
       - name: Worker image deterministic OCR recognition proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-proof
 
+      # Deterministic OCRmyPDF searchable-PDF proof (Phase 27): the PDF→PDF counterpart
+      # of the recognition proof above. It generates a tiny IMAGE-ONLY PDF (Ghostscript's
+      # pdfimage device — a raster page, no text layer), confirms pdftotext extracts NO
+      # selectable text from it, runs OCRmyPDF to add a text layer, and then confirms
+      # pdftotext extracts the sentinel from the OUTPUT PDF — proving image-only became
+      # genuinely searchable. It uses NO user document, cloud service, secret, queue,
+      # store, or scanner; its output is presence-only and content-free (no path or
+      # recognized text), and it always cleans up its temp dir.
+      - name: Worker image OCRmyPDF searchable-PDF proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:ocrmypdf-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)
@@ -125,16 +136,18 @@ jobs:
           fi
           echo "worker readiness honestly reported not-configured (exit 2)"
 
-      # Separation, proven at the image level (not just in the Dockerfile text):
-      # the worker image DOES ship the native deep-compression AND OCR engines.
-      - name: Worker image ships the native deep-compression + OCR engines
-        run: docker run --rm pdfxyz-worker:ci sh -c 'command -v gs && command -v qpdf && command -v mutool && command -v tesseract && command -v ocrmypdf'
+      # Separation, proven at the image level (not just in the Dockerfile text): the
+      # worker image DOES ship the native deep-compression AND OCR engines, plus the
+      # proof-only `pdftotext` (poppler-utils) the searchable-PDF proof needs.
+      - name: Worker image ships the native deep-compression + OCR engines (and pdftotext)
+        run: docker run --rm pdfxyz-worker:ci sh -c 'command -v gs && command -v qpdf && command -v mutool && command -v tesseract && command -v ocrmypdf && command -v pdftotext'
 
-      # …and the web image ships NONE of them — the web app never does worker work.
-      - name: Web image ships no native engines (web ↔ worker separation)
+      # …and the web image ships NONE of them — the web app never does worker work, and
+      # never carries the OCR engines or the proof-only pdftotext tool.
+      - name: Web image ships no native engines or proof tools (web ↔ worker separation)
         run: |
-          if docker run --rm pdfxyz-web:ci sh -c 'command -v gs || command -v qpdf || command -v mutool || command -v tesseract || command -v ocrmypdf'; then
-            echo "::error::web image unexpectedly contains a native PDF/OCR engine"
+          if docker run --rm pdfxyz-web:ci sh -c 'command -v gs || command -v qpdf || command -v mutool || command -v tesseract || command -v ocrmypdf || command -v pdftotext'; then
+            echo "::error::web image unexpectedly contains a native PDF/OCR engine or proof tool"
             exit 1
           fi
-          echo "web image ships no native engines, as designed"
+          echo "web image ships no native engines or proof tools, as designed"

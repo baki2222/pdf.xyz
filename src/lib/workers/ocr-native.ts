@@ -375,8 +375,6 @@ export function createNativeOcrRunner(
 
       const base = ocrOutputBase(input.filename);
       const artifacts: ProcessorArtifact[] = [];
-      let pdfBytes: Uint8Array | null = null;
-      let txtBytes: Uint8Array | null = null;
 
       if (wantPdf) {
         const pdf = await fs.readFile(pdfOut);
@@ -387,11 +385,10 @@ export function createNativeOcrRunner(
         ) {
           throw new Error("OCR produced no usable PDF output.");
         }
-        pdfBytes = pdf instanceof Uint8Array ? pdf : new Uint8Array(pdf);
         artifacts.push({
           filename: `${base}-ocr.pdf`,
           contentType: PDF_CONTENT_TYPE,
-          bytes: pdfBytes,
+          bytes: pdf instanceof Uint8Array ? pdf : new Uint8Array(pdf),
         });
       }
 
@@ -400,11 +397,10 @@ export function createNativeOcrRunner(
         if (txt.byteLength === 0 || txt.byteLength > config.maxOutputBytes) {
           throw new Error("OCR produced no usable text output.");
         }
-        txtBytes = txt instanceof Uint8Array ? txt : new Uint8Array(txt);
         artifacts.push({
           filename: `${base}.txt`,
           contentType: TEXT_CONTENT_TYPE,
-          bytes: txtBytes,
+          bytes: txt instanceof Uint8Array ? txt : new Uint8Array(txt),
         });
       }
 
@@ -414,19 +410,26 @@ export function createNativeOcrRunner(
         throw new Error("OCR produced no output.");
       }
 
-      // Derive the bounded, content-free result metadata from the ACTUAL artifacts:
-      // the engine family, which artifact kinds were produced, the validated language
-      // set, and best-effort page/character COUNTS. `meanConfidence` is null — the
-      // native OCRmyPDF/Tesseract path exposes no safe document-level confidence, so we
-      // never invent one. No recognized text, filename, or path enters the metadata.
+      // Derive the bounded, content-free result metadata from the artifacts ACTUALLY
+      // produced, so the produced-kind flags and the counts can never drift from what the
+      // job returns. The searchable-PDF page count is measured from the produced
+      // searchable-PDF artifact's bytes, and the sidecar character count from the produced
+      // sidecar's bytes — never from a parallel bookkeeping variable, and never from the
+      // INPUT. `meanConfidence` is null — the native OCRmyPDF/Tesseract path exposes no
+      // safe document-level confidence, so we never invent one. No recognized text,
+      // filename, or path enters the metadata.
+      const searchablePdf =
+        artifacts.find((artifact) => artifact.contentType === PDF_CONTENT_TYPE) ?? null;
+      const textSidecar =
+        artifacts.find((artifact) => artifact.contentType === TEXT_CONTENT_TYPE) ?? null;
       const meta = buildOcrResultMeta({
         engine,
         languages: options.languages,
         outputMode: options.outputMode,
-        producedSearchablePdf: pdfBytes !== null,
-        producedTextSidecar: txtBytes !== null,
-        pageCount: pdfBytes ? await countPages(pdfBytes) : null,
-        textCharacters: txtBytes ? countTextCharacters(txtBytes) : null,
+        producedSearchablePdf: searchablePdf !== null,
+        producedTextSidecar: textSidecar !== null,
+        pageCount: searchablePdf ? await countPages(searchablePdf.bytes) : null,
+        textCharacters: textSidecar ? countTextCharacters(textSidecar.bytes) : null,
         meanConfidence: null,
       });
       return { artifacts, meta };

@@ -88,6 +88,11 @@ ENV NODE_ENV=production
 #     PDF / text sidecar), and `tesseract-ocr-eng` is the minimal English language
 #     data both engines need — installed EXPLICITLY because `--no-install-recommends`
 #     would otherwise skip the language pack and leave OCR with no traineddata.
+#   * Proof-only tooling — `poppler-utils` provides `pdftotext`, used ONLY by the
+#     deterministic OCRmyPDF searchable-PDF proof (`worker:ocrmypdf-proof`) to confirm
+#     the synthetic source PDF carries no selectable text and the OCRmyPDF output does
+#     (image-only → searchable). It is not on the OCR runtime path; it is packaged here
+#     so that proof can run inside the image, and it stays out of the `web` image.
 #
 # Installed here and ONLY here: the `web` target ships none of these. Provider and
 # OCR config is still read from the environment at run time, never baked into a layer.
@@ -99,6 +104,7 @@ RUN apt-get update \
       ocrmypdf \
       tesseract-ocr \
       tesseract-ocr-eng \
+      poppler-utils \
  && rm -rf /var/lib/apt/lists/*
 # Run as a non-root user.
 RUN groupadd --system --gid 1001 worker \

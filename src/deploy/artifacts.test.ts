@@ -82,6 +82,15 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(worker).toContain("tesseract-ocr-eng"); // minimal English language data
   });
 
+  it("the worker image installs the proof-only pdftotext tool (poppler-utils)", () => {
+    // Phase 27: the OCRmyPDF searchable-PDF proof uses `pdftotext` (poppler-utils) to
+    // confirm the synthetic source PDF has no selectable text and the OCRmyPDF output
+    // does — i.e. image-only became searchable. It is NOT on the OCR runtime path; it is
+    // packaged in the worker image ONLY so that proof can run inside the built image.
+    const worker = stageInstructions(stages, "worker");
+    expect(worker).toMatch(/apt-get install[\s\S]*poppler-utils/);
+  });
+
   it("the worker image runs the daemon and never the web server", () => {
     const worker = stageInstructions(stages, "worker");
     expect(worker).toContain("worker:daemon");
@@ -111,8 +120,9 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(web).toMatch(/CMD\s*\[\s*"pnpm",\s*"start"\s*\]/);
     expect(web).not.toContain("worker:daemon");
     expect(web).not.toContain("apt-get install");
-    // Neither the deep-compression engines NOR the OCR stack belong in the web image.
-    expect(web).not.toMatch(/ghostscript|qpdf|mupdf|ocrmypdf|tesseract/);
+    // Neither the deep-compression engines, the OCR stack, NOR the proof-only pdftotext
+    // tool (poppler-utils) belong in the web image.
+    expect(web).not.toMatch(/ghostscript|qpdf|mupdf|ocrmypdf|tesseract|poppler|pdftotext/);
   });
 });
 
@@ -330,6 +340,52 @@ describe("worker ENGINE PREFLIGHT script is present, wired, and opt-in gated", (
     expect(container).toMatch(/worker:engines/);
     expect(container).toContain("PDFXYZ_WORKER_REQUIRE_OCR");
     expect(container).toContain("PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE");
+  });
+
+  it("carries no committed secret", () => {
+    expect(script).not.toMatch(AWS_KEY);
+  });
+});
+
+describe("worker OCRmyPDF searchable-PDF PROOF script is present, wired, and image-only", () => {
+  // Static deployment-artifact half of the Phase 27 proof's contract; its full runtime
+  // plumbing (prerequisite-missing exit 2, enforced-check exit 3, temp cleanup, and no
+  // path/text leak) is exercised Docker-free with stub tools in
+  // `worker-ocrmypdf-proof.test.ts`.
+  const script = read("scripts/worker-ocrmypdf-proof.sh");
+  const pkg = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  const container = read(".github/workflows/container.yml");
+  const worker = stageInstructions(parseStages(read("Dockerfile")), "worker");
+
+  it("is a shell script wired as `worker:ocrmypdf-proof`", () => {
+    expect(script.startsWith("#!")).toBe(true);
+    expect(pkg.scripts?.["worker:ocrmypdf-proof"]).toBe("sh scripts/worker-ocrmypdf-proof.sh");
+  });
+
+  it("builds an IMAGE-ONLY PDF and OCRs it with OCRmyPDF by argv", () => {
+    // The source is an image-only PDF (Ghostscript pdfimage device — no text layer) so any
+    // extracted text is genuine OCR; OCRmyPDF is invoked by argv (no shell) with a sidecar
+    // and a plain-PDF output type, mirroring the native runner's option shape.
+    expect(script).toMatch(/-sDEVICE=pdfimage\d+/);
+    expect(script).toMatch(/\bocrmypdf\b[^\n]*--sidecar/);
+    expect(script).toContain("--output-type pdf");
+  });
+
+  it("proves searchability with pdftotext, and the worker image packages it (poppler-utils)", () => {
+    // The differential proof runs pdftotext on BOTH the input (image-only ⇒ no sentinel)
+    // and the output (searchable ⇒ the sentinel), so the worker image must package it —
+    // and it must NOT be on the OCR runtime path (it is proof-only tooling).
+    expect(script).toContain("pdftotext");
+    expect(worker).toContain("poppler-utils");
+  });
+
+  it("is exercised inside the built worker image by the container workflow, after the Tesseract proof", () => {
+    // CI runs the conversion proof INSIDE the built image; recognition (image→PDF) is
+    // established first, then this PDF→searchable-PDF conversion.
+    expect(container).toMatch(/docker run[\s\S]*?worker:ocrmypdf-proof/);
+    expect(container.indexOf("worker:ocr-proof")).toBeLessThan(
+      container.indexOf("worker:ocrmypdf-proof"),
+    );
   });
 
   it("carries no committed secret", () => {

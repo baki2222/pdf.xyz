@@ -67,6 +67,21 @@ describe("container CI builds both image targets and smokes the worker", () => {
     );
   });
 
+  it("runs the OCRmyPDF searchable-PDF proof inside the built worker image", () => {
+    // Phase 27: the PDF→searchable-PDF proof turns a synthetic IMAGE-ONLY PDF into a
+    // searchable one with the packaged OCRmyPDF and confirms searchability with pdftotext
+    // — run inside the built image, no user document, no cloud, no secret.
+    expect(container).toMatch(/docker run[\s\S]*?worker:ocrmypdf-proof/);
+  });
+
+  it("runs the OCRmyPDF conversion proof after the Tesseract recognition proof", () => {
+    // Recognition (image→PDF, `worker:ocr-proof`) is proven first; then the PDF→PDF
+    // conversion (`worker:ocrmypdf-proof`) — the two proofs build on each other in order.
+    expect(container.indexOf("worker:ocr-proof")).toBeLessThan(
+      container.indexOf("worker:ocrmypdf-proof"),
+    );
+  });
+
   it("proves web ↔ worker separation at the image level (engines only in the worker)", () => {
     // The worker image must ship the native deep-compression AND OCR engines; the web
     // image must ship none of them.
@@ -75,6 +90,8 @@ describe("container CI builds both image targets and smokes the worker", () => {
     expect(container).toMatch(/command -v mutool/);
     expect(container).toMatch(/command -v tesseract/);
     expect(container).toMatch(/command -v ocrmypdf/);
+    // …and the proof-only pdftotext tool ships in the worker image but not the web one.
+    expect(container).toMatch(/command -v pdftotext/);
   });
 
   it("never publishes an image (build-only, so it needs no registry secret)", () => {

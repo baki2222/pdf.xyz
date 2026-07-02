@@ -450,3 +450,83 @@ describe("countTextCharacters — a count only, never the text", () => {
     expect(countTextCharacters(huge)).toBeNull();
   });
 });
+
+describe("OCRmyPDF searchable-PDF metadata fidelity (Phase 27)", () => {
+  it("searchable-pdf mode: engine ocrmypdf, PDF-only artifact kind, page count from the produced PDF", async () => {
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      countPages: async () => 7,
+    });
+    const { artifacts, meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
+    // The only artifact kind is a searchable PDF, and the meta reflects exactly that.
+    expect(artifacts.map((a) => a.contentType)).toEqual(["application/pdf"]);
+    expect(meta.engine).toBe("ocrmypdf");
+    expect(meta.outputMode).toBe("searchable-pdf");
+    expect(meta.producedSearchablePdf).toBe(true);
+    expect(meta.producedTextSidecar).toBe(false);
+    expect(meta.pageCount).toBe(7);
+    // No sidecar ⇒ honestly null, never 0; the native backend exposes no confidence.
+    expect(meta.textCharacters).toBeNull();
+    expect(meta.meanConfidence).toBeNull();
+  });
+
+  it("measures the page count from the PRODUCED searchable PDF, never the input scan", async () => {
+    // The produced output PDF (VALID_PDF) and the input scan carry DIFFERENT bytes;
+    // capture what the page counter is handed and assert it is the produced output.
+    const seen: Uint8Array[] = [];
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      countPages: async (bytes) => {
+        seen.push(bytes);
+        return 3;
+      },
+    });
+    const { meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
+    expect(meta.pageCount).toBe(3);
+    expect(seen).toHaveLength(1);
+    // The counted bytes ARE the produced searchable PDF — not the 3-byte input scan.
+    expect(seen[0]).toEqual(VALID_PDF);
+    expect(seen[0]).not.toEqual(scan.bytes);
+  });
+
+  it("both mode: bounded sidecar character count with NO recognized text leaking into meta", async () => {
+    const recognized = "TOPSECRET recognized words that must never ride in metadata";
+    const sidecarBytes = new TextEncoder().encode(recognized);
+    const { fs } = fakeFs((file) => (file.endsWith(".txt") ? sidecarBytes : VALID_PDF));
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      countPages: async () => 4,
+    });
+    const { meta } = await runner({ options: BOTH, inputs: [scan] });
+    expect(meta.producedSearchablePdf).toBe(true);
+    expect(meta.producedTextSidecar).toBe(true);
+    expect(meta.pageCount).toBe(4);
+    // A COUNT ONLY — the sidecar's length, never its contents.
+    expect(meta.textCharacters).toBe(recognized.length);
+    expect(JSON.stringify(meta)).not.toContain("TOPSECRET");
+    expect(JSON.stringify(meta)).not.toContain("recognized words");
+  });
+
+  it("does not fabricate metadata when OCRmyPDF yields no usable searchable PDF (throws, no meta)", async () => {
+    // A missing/invalid searchable-PDF output is a failure: the runner throws and returns
+    // NO artifacts and NO metadata, so nothing downstream can imply a searchable PDF that
+    // was never produced — even though the page counter would gladly return a number.
+    const { fs, calls } = fakeFs((file) => (file.endsWith(".txt") ? TEXT_OUT : NOT_PDF));
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      countPages: async () => 9,
+    });
+    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow(/usable PDF/i);
+    expect(calls.rm).toHaveLength(1); // cleanup still runs; no fabricated success
+  });
+});
