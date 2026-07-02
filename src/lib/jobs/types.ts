@@ -17,6 +17,8 @@
  *    `expiresAt`, so auto-deletion is part of the contract, not an afterthought.
  */
 
+import type { JobResults } from "./results";
+
 /**
  * How a tool executes. This is the vocabulary the job/worker layer speaks in; it
  * maps 1:1 from the catalog's {@link ProcessingMode} via `capabilities.ts`.
@@ -193,6 +195,16 @@ export interface Job {
   progress: number;
   /** Present only when `status === "completed"`. */
   artifacts?: JobArtifact[];
+  /**
+   * Safe, bounded, content-free result metadata for tools that report it (today
+   * OCR). Present only on a completed job that produced described output, and
+   * dropped again when those outputs are deleted (cancel/expire), so it never
+   * outlives the artifacts it describes. Namespaced by tool family — a job only
+   * carries the block for the work it did. See {@link JobResults}; every write
+   * funnels through `sanitizeJobResults`, so this can never carry recognized text,
+   * a filename, key, path, URL, or secret.
+   */
+  results?: JobResults;
   /** Present only when `status === "failed"`. */
   error?: JobError;
   createdAt: string;

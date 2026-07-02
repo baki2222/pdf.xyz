@@ -113,6 +113,9 @@ describe("OCR backend — executor integration", () => {
     expect(job?.artifacts ?? []).toHaveLength(0);
     // No artifact URL was ever minted.
     expect(JSON.stringify(job)).not.toContain("/api/artifacts/");
+    // A job that never produced output carries NO result metadata — nothing to imply
+    // an OCR run happened.
+    expect(job?.results).toBeUndefined();
     // The input was wiped on the terminal failure.
     expect(store.getSlot(fileId)).toBeUndefined();
   });
@@ -139,6 +142,26 @@ describe("OCR backend — executor integration", () => {
     const txt = store.getArtifact(artifacts[1]!.artifactId);
     expect(pdf?.bytes).toEqual(OCR_PDF);
     expect(new TextDecoder().decode(txt!.bytes)).toContain(OCR_TEXT_SENTINEL);
+
+    // The completed job now carries the safe, structured OCR result metadata the
+    // status API returns verbatim: engine family, validated languages, produced
+    // artifact kinds, and page/character COUNTS — never the recognized text.
+    expect(job?.results?.ocr).toEqual({
+      engine: "ocrmypdf",
+      languages: ["eng", "spa"],
+      outputMode: "both",
+      producedSearchablePdf: true,
+      producedTextSidecar: true,
+      pageCount: 1,
+      textCharacters: OCR_TEXT.byteLength,
+      meanConfidence: null,
+    });
+    // The metadata carries no recognized text, no object key, and no signed URL —
+    // it is safe to persist and return to a client.
+    const resultsJson = JSON.stringify(job?.results);
+    expect(resultsJson).not.toContain(OCR_TEXT_SENTINEL);
+    expect(resultsJson).not.toContain("/api/artifacts/");
+    expect(resultsJson).not.toContain(artifacts[0]!.artifactId);
 
     // Input wiped after processing (retention).
     expect(store.getSlot(fileId)).toBeUndefined();
@@ -172,6 +195,8 @@ describe("OCR backend — executor integration", () => {
     const job = store.getJob("job_ocr_badopt0");
     expect(job?.error?.code).toBe("unprocessable_entity");
     expect(job?.artifacts ?? []).toHaveLength(0);
+    // A request rejected before the runner ran carries no result metadata.
+    expect(job?.results).toBeUndefined();
   });
 
   it("blocks an infected input BEFORE OCR runs (Phase 22 gate preserved)", async () => {
@@ -209,6 +234,9 @@ describe("OCR backend — executor integration", () => {
     const job = store.getJob("job_ocr_virus00");
     expect(job?.error?.code).toBe("malware_detected");
     expect(job?.artifacts ?? []).toHaveLength(0);
+    // A blocked input never produced output, so no result metadata is written — the
+    // record can never imply an OCR run that was actually stopped at the scan gate.
+    expect(job?.results).toBeUndefined();
     expect(seen).toContain("scan_blocked");
     expect(seen).not.toContain("processing");
     expect(store.getSlot(fileId)).toBeUndefined();

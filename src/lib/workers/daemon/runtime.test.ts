@@ -388,6 +388,18 @@ describe("worker daemon runtime — honesty end-to-end", () => {
     const job = store.getJob("job_ocr_ready0001");
     expect(job?.status).toBe("completed");
     expect(job?.artifacts?.[0]?.filename).toBe("scan-ocr.pdf");
+    // The full runtime wiring threads the runner's safe, structural OCR metadata all
+    // the way onto the completed job record (what the status API returns).
+    expect(job?.results?.ocr).toEqual({
+      engine: "ocrmypdf",
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      producedSearchablePdf: true,
+      producedTextSidecar: false,
+      pageCount: 1,
+      textCharacters: null,
+      meanConfidence: null,
+    });
     expect(store.getSlot(slot.fileId)).toBeUndefined();
   });
 });

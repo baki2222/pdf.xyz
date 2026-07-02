@@ -258,9 +258,48 @@ The honesty rules the builder enforces:
   sidecar reports `null` ("not measured") rather than paying unbounded cost.
 
 Metadata rides on the processor's success result (the same seam compression uses). It is
-safe to log, persist, or return — but note the executor does **not** currently thread it
-into the job record, so it is not yet surfaced to a client; wiring that through is future
-work, and the safety guarantees above are what make it safe to do so.
+safe to log, persist, or return; **Phase 26 threads it through to the client** (below).
+
+## Client-visible OCR metadata (Phase 26)
+
+A completed OCR job now carries its safe metadata on the **job record itself**, so the
+`GET /api/jobs/{id}` status API returns it and the OCR tool UI can show a structural
+recognition summary. The path is end-to-end and content-free:
+
+```
+native runner → OcrResultMeta                     (measured from the actual run)
+  → processor success  result.results.ocr         (structured, alongside the flat log meta)
+  → executor           queue.complete(…, results)  (threaded onto completion)
+  → queue provider     sanitizeJobResults(results) (re-bounded at the persistence boundary)
+  → Job.results.ocr                                (persisted; returned by /api/jobs/{id})
+  → OCR panel          "Recognition summary"       (pages · output · languages · characters)
+```
+
+- **Where it lives.** `Job.results` (`src/lib/jobs/results.ts`) is a namespaced,
+  optional container — today only `results.ocr: OcrResultMeta`. It is present **only** on a
+  completed job that produced the described output; a compression job never grows a
+  `results` block, and a failed / infected / not-enabled OCR job carries none (nothing to
+  imply a run that did not happen). When a completed job's outputs are deleted
+  (cancel / expire), `results` is dropped alongside `artifacts`, so metadata never outlives
+  the output it describes.
+- **The redaction boundary.** Every write funnels through `sanitizeJobResults`, which
+  re-runs the block through `buildOcrResultMeta` (re-bounding counts, filtering languages,
+  clamping the engine token) **and** collapses the engine to the closed client-facing
+  family set via `normalizeOcrEngineFamily`: the client ever sees only `ocrmypdf`,
+  `tesseract`, or `unknown` — never a path, a version, or a smuggled fragment. A block
+  whose `outputMode` is not a real contract value is dropped whole. So even a buggy or
+  hostile runner cannot land an unsafe value on a client-facing record.
+- **What the UI shows.** The panel's `OcrResultSummary` renders **structural facts only** —
+  page count, output kind, language names, and the sidecar **character count** — and never
+  any recognized text. Every row is optional: a value the backend could not determine is
+  omitted rather than shown as `0`/`—`.
+- **What stays artifact-only.** The recognized text itself lives **only** in the downloaded
+  artifact bytes (searchable PDF / text sidecar). It is never in `results`, the job record,
+  the status API, or any log — the client-visible metadata is a *description* of the output,
+  never a second copy of it.
+- **What remains out-of-band.** `meanConfidence` stays `null` (the native OCRmyPDF/Tesseract
+  backend exposes no safe document-level confidence, and we never invent one); production OCR
+  **quality** is still validated on a running worker, not in this repo.
 
 ## Observability
 
@@ -291,11 +330,11 @@ work, and the safety guarantees above are what make it safe to do so.
   unit-tested without a binary. What none of this establishes: production OCR **quality**,
   OCRmyPDF's PDF→searchable-PDF path, non-English language packs, or real user
   documents/traffic. Those remain out-of-band validation on a running worker.
-- **Result metadata is populated but not yet surfaced to clients.** The native runner now
-  measures a bounded `OcrResultMeta` (see *Result metadata* above) and the processor
-  attaches it to its success result, but the executor does not thread it into the job
-  record, so it is not returned to a client yet. Doing so is future work; the metadata's
-  content-free, bounded guarantees are what make it safe.
+- **Result metadata is now surfaced to clients (Phase 26).** The native runner measures a
+  bounded `OcrResultMeta`, and it is threaded end-to-end onto the completed job record
+  (`Job.results.ocr`) and returned by `GET /api/jobs/{id}`, re-bounded at the persistence
+  boundary (`sanitizeJobResults`) — see *Client-visible OCR metadata* above. The recognized
+  text itself remains **artifact-only**; only its structural description is client-visible.
 - **Retryable failures are coarse.** The `OcrRunner` seam is throw-based, so the
   processor treats any runner failure as a retryable `internal_error`; a *deterministic*
   failure (e.g. a corrupt input) therefore exhausts the attempt cap before failing

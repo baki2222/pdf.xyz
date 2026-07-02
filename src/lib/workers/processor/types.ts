@@ -14,7 +14,7 @@
  *    now and why, never naming a path, version, key, or secret value.
  */
 
-import type { JobError } from "@/lib/jobs";
+import type { JobError, JobResults } from "@/lib/jobs";
 
 /**
  * One input file handed to a processor: the opaque id, the naming metadata the
@@ -52,13 +52,30 @@ export interface ProcessorArtifact {
 /**
  * Content-free, serializable metrics a processor may attach to a success (engine
  * name, byte sizes, ratios). Never carries document contents, filenames of
- * inputs, keys, or paths — safe to log and return.
+ * inputs, keys, or paths — safe to log and return. This is the FLAT logging seam;
+ * the structured, client-facing metadata a completed job record carries is the
+ * separate {@link ProcessorResult.results} below.
  */
 export type ProcessorMeta = Record<string, string | number | boolean>;
 
-/** The outcome of a processor run: real artifacts, or a typed, honest failure. */
+/**
+ * The outcome of a processor run: real artifacts, or a typed, honest failure.
+ *
+ * A success may carry two orthogonal, content-free metadata channels:
+ *  - `meta`    — the FLAT {@link ProcessorMeta} for logging/observability;
+ *  - `results` — the STRUCTURED {@link JobResults} the executor threads onto the
+ *    completed job record and the job status API (today, OCR result metadata).
+ * Both are optional; a processor that reports neither simply omits them. The
+ * `results` block is re-bounded at the persistence boundary (`sanitizeJobResults`),
+ * so it can never carry recognized text, a filename, key, path, URL, or secret.
+ */
 export type ProcessorResult =
-  | { ok: true; artifacts: ProcessorArtifact[]; meta?: ProcessorMeta }
+  | {
+      ok: true;
+      artifacts: ProcessorArtifact[];
+      meta?: ProcessorMeta;
+      results?: JobResults;
+    }
   | { ok: false; error: JobError };
 
 /** The honest, client-safe capability/status of a processor in this environment. */
@@ -88,12 +105,22 @@ export interface Processor {
   process(input: ProcessorInput): Promise<ProcessorResult>;
 }
 
-/** Build a successful processor result. */
+/**
+ * Build a successful processor result. `meta` is the flat logging channel;
+ * `results` is the structured, client-facing metadata the executor persists onto
+ * the job record. Both are optional and omitted from the result when absent.
+ */
 export function processorOk(
   artifacts: ProcessorArtifact[],
   meta?: ProcessorMeta,
+  results?: JobResults,
 ): ProcessorResult {
-  return { ok: true, artifacts, ...(meta ? { meta } : {}) };
+  return {
+    ok: true,
+    artifacts,
+    ...(meta ? { meta } : {}),
+    ...(results ? { results } : {}),
+  };
 }
 
 /** Build a failed processor result from a typed, client-safe job error. */

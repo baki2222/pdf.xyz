@@ -113,6 +113,20 @@ describe("ocr processor — flips on when a real runner is wired", () => {
     });
     // A confidence the native backend never provides must not appear (never invented).
     expect(result.meta && "meanConfidence" in result.meta).toBe(false);
+
+    // It ALSO surfaces the STRUCTURED result block the executor threads onto the
+    // completed job record and the status API (`Job.results.ocr`) — the same facts,
+    // unflattened, with the validated language array intact.
+    expect(result.results?.ocr).toEqual({
+      engine: "ocrmypdf",
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      producedSearchablePdf: true,
+      producedTextSidecar: false,
+      pageCount: 4,
+      textCharacters: null,
+      meanConfidence: null,
+    });
   });
 
   it("stays not-ready when a runner is wired but no engine is present", () => {

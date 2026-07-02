@@ -34,6 +34,7 @@ import {
   getToolCapability,
   notImplemented,
   sanitizeDisplayFilename,
+  sanitizeJobResults,
   type Job,
   type JobArtifact,
   type UploadSlot,
@@ -250,7 +251,18 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
             expiresAt: base.expiresAt,
           });
         }
-        job = { ...base, status: "completed", progress: 100, artifacts };
+        // Thread any safe, structured result metadata the processor reported onto
+        // the completed record — identical to the async executor path, and through
+        // the same redaction boundary. Compression (the only tool this dev worker
+        // runs today) reports none, so its records honestly carry no `results`.
+        const safeResults = sanitizeJobResults(result.results);
+        job = {
+          ...base,
+          status: "completed",
+          progress: 100,
+          artifacts,
+          ...(safeResults ? { results: safeResults } : {}),
+        };
       } else {
         // Honest failure: a real job record with a typed error and NO artifact.
         job = { ...base, status: "failed", progress: 0, error: result.error };

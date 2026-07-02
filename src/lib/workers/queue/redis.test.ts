@@ -4,6 +4,7 @@ import {
   DEFAULT_RETENTION,
   type Job,
   type JobArtifact,
+  type JobResults,
   type JobStatus,
 } from "@/lib/jobs";
 import { createFakeRedis } from "./redis-fake";
@@ -219,6 +220,45 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
     expect((await q.claim({ leaseMs: 30_000 })).ok).toBe(true);
     const empty = await q.claim({ leaseMs: 30_000 });
     expect(empty.ok && empty.value).toBeNull();
+  });
+
+  it("persists sanitized OCR result metadata through the durable record (survives a status round-trip)", async () => {
+    const { q } = make();
+    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.claim({ leaseMs: 30_000 });
+    await q.advance("job_test000001", { status: "processing" });
+    // A runner reports a hostile engine/language alongside real facts; the boundary
+    // re-bounds it before it is JSON-serialized into the durable `…:job` record.
+    const done = await q.complete("job_test000001", [ARTIFACT], undefined, {
+      ocr: {
+        engine: "/opt/ocr/bin/ocrmypdf",
+        languages: ["eng", "spa", "not-a-lang"],
+        outputMode: "both",
+        producedSearchablePdf: true,
+        producedTextSidecar: true,
+        pageCount: 7,
+        textCharacters: 2_048,
+        meanConfidence: null,
+      } as unknown as JobResults["ocr"],
+    });
+    expect(done.ok && done.value.results?.ocr?.engine).toBe("unknown");
+
+    // Read it back through status: the value came from the serialized record, so the
+    // metadata genuinely survived persistence — safe, bounded, and content-free.
+    const status = await q.status("job_test000001");
+    expect(status.ok).toBe(true);
+    if (!status.ok) return;
+    expect(status.value.results?.ocr).toEqual({
+      engine: "unknown",
+      languages: ["eng", "spa"],
+      outputMode: "both",
+      producedSearchablePdf: true,
+      producedTextSidecar: true,
+      pageCount: 7,
+      textCharacters: 2_048,
+      meanConfidence: null,
+    });
+    expect(JSON.stringify(status.value.results)).not.toContain("/opt/");
   });
 
   it("rejects an illegal advance with a conflict", async () => {

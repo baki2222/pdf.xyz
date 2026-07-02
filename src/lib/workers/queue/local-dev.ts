@@ -11,8 +11,8 @@
  * illegal transition is a `conflict`.
  */
 
-import type { Job, JobArtifact, JobError } from "@/lib/jobs";
-import { isTerminalStatus } from "@/lib/jobs";
+import type { Job, JobArtifact, JobError, JobResults } from "@/lib/jobs";
+import { isTerminalStatus, sanitizeJobResults } from "@/lib/jobs";
 import { DevWorkerStore, devWorkerStore } from "../store";
 import { canCancel, canExpire, canRedeliver, canTransition } from "./state";
 import type {
@@ -52,8 +52,10 @@ export function createLocalDevQueue(
   const toTerminal = (job: Job, status: "canceled" | "expired"): Job => {
     const next: Job = { ...job, status, updatedAt: iso(now()) };
     // Outputs are being deleted alongside this transition, so the record must
-    // not keep advertising downloadable artifacts (keeps isDownloadReady honest).
+    // not keep advertising downloadable artifacts (keeps isDownloadReady honest),
+    // nor the result metadata that describes those now-deleted outputs.
     delete next.artifacts;
+    delete next.results;
     return next;
   };
 
@@ -222,7 +224,12 @@ export function createLocalDevQueue(
       return queueOk(next);
     },
 
-    async complete(jobId, artifacts: JobArtifact[], expectedAttempt) {
+    async complete(
+      jobId,
+      artifacts: JobArtifact[],
+      expectedAttempt,
+      results?: JobResults,
+    ) {
       const job = store.getJob(jobId);
       if (!job) return NOT_FOUND();
       if (staleLease(jobId, expectedAttempt)) {
@@ -237,11 +244,16 @@ export function createLocalDevQueue(
           `A ${job.status} job cannot be completed.`,
         );
       }
+      // Re-bound the structured result metadata at the persistence boundary, so the
+      // client-facing record can never carry an unsafe value regardless of caller;
+      // an empty/absent block leaves `results` off the record entirely.
+      const safeResults = sanitizeJobResults(results);
       const next: Job = {
         ...job,
         status: "completed",
         progress: 100,
         artifacts,
+        ...(safeResults ? { results: safeResults } : {}),
         updatedAt: iso(now()),
       };
       store.putJob(next);

@@ -269,6 +269,22 @@ export function describeOcrRequest(options: OcrOptions): string {
 }
 
 /**
+ * The closed set of OCR engine FAMILIES a completed job may name to a client. A
+ * client-facing engine is ALWAYS one of these families or {@link UNKNOWN_OCR_ENGINE}
+ * — never a path, a version, or a stray token — so the field can identify what ran
+ * without becoming a leak vector. It mirrors the worker layer's `OCR_ENGINES`
+ * (the engines a worker actually shells out to); extend both together when a new
+ * engine family genuinely ships.
+ */
+export const OCR_ENGINE_FAMILIES = ["ocrmypdf", "tesseract"] as const;
+export type OcrEngineFamily = (typeof OCR_ENGINE_FAMILIES)[number];
+
+/** The family reported when the engine is not one of the known {@link OCR_ENGINE_FAMILIES}. */
+export const UNKNOWN_OCR_ENGINE = "unknown";
+
+const OCR_ENGINE_FAMILY_SET: ReadonlySet<string> = new Set(OCR_ENGINE_FAMILIES);
+
+/**
  * Serializable, bounded metadata a COMPLETED OCR job attaches to its successful
  * result (populated by the secure worker's OCR processor from an ACTUAL run — see
  * `@/lib/workers/ocr-native`). Every field is either a hard fact of the run — which
@@ -346,6 +362,24 @@ function boundedCount(value: number | null | undefined, max: number): number | n
 function sanitizeOcrEngineName(engine: string): string {
   const token = engine.trim().toLowerCase().replace(/[^a-z0-9_+-]/g, "");
   return token.slice(0, 32) || "unknown";
+}
+
+/**
+ * Collapse an engine name to the closed client-facing family set: it is reported
+ * verbatim ONLY when it is EXACTLY a known {@link OCR_ENGINE_FAMILIES} member, and
+ * otherwise becomes {@link UNKNOWN_OCR_ENGINE}. Exact-match (not prefix/substring)
+ * so a versioned or decorated value — `ocrmypdf-16.4.0`, `ocrmypdfSECRET` — never
+ * launders a fragment through as a "known" family; it honestly reads `unknown`.
+ * Used at the client-facing persistence boundary (`sanitizeJobResults`), so the
+ * engine a client ever sees can only be `ocrmypdf`, `tesseract`, or `unknown`.
+ */
+export function normalizeOcrEngineFamily(
+  engine: string,
+): OcrEngineFamily | typeof UNKNOWN_OCR_ENGINE {
+  const token = sanitizeOcrEngineName(engine);
+  return OCR_ENGINE_FAMILY_SET.has(token)
+    ? (token as OcrEngineFamily)
+    : UNKNOWN_OCR_ENGINE;
 }
 
 /**

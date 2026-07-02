@@ -201,9 +201,17 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
         });
       }
       // Attach the bounded, content-free result metadata (engine family, produced
-      // artifact kinds, validated languages, page/character counts). It carries no
-      // recognized text, filename, or path — safe to log, persist, and return.
-      return processorOk(run.artifacts, ocrProcessorMeta(run.meta));
+      // artifact kinds, validated languages, page/character counts) on BOTH seams:
+      //  - `meta`    — flattened for the observability/log channel;
+      //  - `results` — the structured block the executor threads onto the completed
+      //    job record and the job status API (`Job.results.ocr`).
+      // Neither carries recognized text, a filename, or a path — safe to log,
+      // persist, and return. The structured block is re-bounded again at the
+      // persistence boundary (`sanitizeJobResults`), so a downstream reader always
+      // sees a schema-stable, safe value.
+      return processorOk(run.artifacts, ocrProcessorMeta(run.meta), {
+        ocr: run.meta,
+      });
     },
   };
 }

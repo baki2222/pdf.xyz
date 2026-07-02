@@ -11,7 +11,13 @@
  * deterministically. Node-free (types only) — see `./local-dev` for the impl.
  */
 
-import type { Job, JobArtifact, JobError, JobStatus } from "@/lib/jobs";
+import type {
+  Job,
+  JobArtifact,
+  JobError,
+  JobResults,
+  JobStatus,
+} from "@/lib/jobs";
 import type { QueueProvider, QueueResult } from "./types";
 
 /**
@@ -122,11 +128,19 @@ export interface ClaimableQueue extends QueueProvider {
     expectedAttempt?: AttemptFingerprint,
   ): Promise<QueueResult<Job>>;
 
-  /** Mark a claimed job `completed` with its produced artifacts. */
+  /**
+   * Mark a claimed job `completed` with its produced artifacts, and optionally the
+   * safe, structured {@link JobResults} the processor observed (e.g. OCR metadata).
+   * The results are re-bounded at this persistence boundary (`sanitizeJobResults`)
+   * before they land on the client-facing record, so a caller can never write an
+   * unsafe value onto a job; an omitted/empty block simply leaves `results` off the
+   * record. Optional and last so the pre-existing 3-arg callers are unchanged.
+   */
   complete(
     jobId: string,
     artifacts: JobArtifact[],
     expectedAttempt?: AttemptFingerprint,
+    results?: JobResults,
   ): Promise<QueueResult<Job>>;
 
   /** Fail a claimed job: terminal `failed`, or requeue it for another attempt. */

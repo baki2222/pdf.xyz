@@ -6,7 +6,9 @@ import {
   Cpu,
   Download,
   FileDown,
+  FileText,
   FileUp,
+  Hash,
   Languages,
   ScanText,
   ShieldCheck,
@@ -20,12 +22,14 @@ import {
   MAX_OCR_LANGUAGES,
   OCR_LANGUAGES,
   OCR_OUTPUT_MODES,
+  describeOcrLanguage,
   describeOcrRequest,
   ocrOutputsForMode,
   parseOcrOptions,
   type OcrLanguage,
   type OcrOptions,
   type OcrOutputMode,
+  type OcrResultMeta,
 } from "@/lib/jobs/ocr";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { runWorkerOcr, type OcrWorkerResult } from "@/lib/workers/ocr-client";
@@ -516,8 +520,82 @@ function OcrRunArea({
               </a>
             ))}
           </div>
+          {outcome.job.results?.ocr && (
+            <OcrResultSummary meta={outcome.job.results.ocr} />
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The honest, structural summary of a completed OCR run — the safe, content-free
+ * {@link OcrResultMeta} the worker attached to the job record (`Job.results.ocr`),
+ * surfaced from the job status API. It shows ONLY structural facts — how many
+ * pages, what was produced, which languages, and how many characters the text
+ * sidecar holds — and NEVER any recognized text. Every field is optional: a value
+ * the backend could not determine is simply omitted, so nothing is fabricated to
+ * fill a row. Renders nothing when there is no safe fact to show. Exported for a
+ * focused render test of the "structural only, graceful when missing" contract.
+ */
+export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
+  const rows: { icon: typeof FileUp; label: string; value: string }[] = [];
+
+  if (meta.pageCount !== null) {
+    rows.push({
+      icon: FileText,
+      label: meta.pageCount === 1 ? "Page" : "Pages",
+      value: meta.pageCount.toLocaleString(),
+    });
+  }
+  rows.push({
+    icon: FileDown,
+    label: "Output",
+    value:
+      OCR_OUTPUT_MODES.find((mode) => mode.id === meta.outputMode)?.label ??
+      meta.outputMode,
+  });
+  if (meta.languages.length > 0) {
+    rows.push({
+      icon: Languages,
+      label: meta.languages.length === 1 ? "Language" : "Languages",
+      value: meta.languages.map(describeOcrLanguage).join(", "),
+    });
+  }
+  if (meta.textCharacters !== null) {
+    rows.push({
+      icon: Hash,
+      label: "Text extracted",
+      value: `${meta.textCharacters.toLocaleString()} character${
+        meta.textCharacters === 1 ? "" : "s"
+      }`,
+    });
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-1 flex flex-col gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+      <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+        Recognition summary
+      </h4>
+      <dl className="divide-y divide-white/5">
+        {rows.map((row) => (
+          <div
+            key={row.label}
+            className="flex items-center justify-between gap-3 py-1.5"
+          >
+            <dt className="inline-flex items-center gap-2 text-xs text-slate-400">
+              <row.icon className="size-3.5 text-slate-500" aria-hidden />
+              {row.label}
+            </dt>
+            <dd className="text-right text-xs font-medium text-slate-200">
+              {row.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

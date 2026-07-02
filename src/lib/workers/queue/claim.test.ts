@@ -1,6 +1,14 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_RETENTION, type Job, type JobArtifact } from "@/lib/jobs";
+import {
+  DEFAULT_RETENTION,
+  OCR_MAX_REPORTED_PAGES,
+  buildOcrResultMeta,
+  type Job,
+  type JobArtifact,
+  type JobResults,
+  type OcrResultMeta,
+} from "@/lib/jobs";
 import { DevWorkerStore } from "../store";
 import { createLocalDevQueue } from "./local-dev";
 import type { ClaimableQueue } from "./claim";
@@ -121,6 +129,97 @@ describe("ClaimableQueue (local-dev)", () => {
     }
     expect(store.getLease("job_done000000")).toBeUndefined();
     expect(store.getSpec("job_done000000")).toBeUndefined();
+  });
+
+  it("persists sanitized OCR result metadata passed to complete", async () => {
+    await submit("job_ocrmeta000");
+    await queue.claim({ leaseMs: LEASE_MS });
+    await queue.advance("job_ocrmeta000", { status: "processing" });
+    const results: JobResults = {
+      ocr: buildOcrResultMeta({
+        engine: "ocrmypdf",
+        languages: ["eng", "spa"],
+        outputMode: "both",
+        producedSearchablePdf: true,
+        producedTextSidecar: true,
+        pageCount: 5,
+        textCharacters: 640,
+      }),
+    };
+    const done = await queue.complete("job_ocrmeta000", [artifact], undefined, results);
+    expect(done.ok).toBe(true);
+    if (done.ok) {
+      expect(done.value.results?.ocr).toMatchObject({
+        engine: "ocrmypdf",
+        languages: ["eng", "spa"],
+        outputMode: "both",
+        pageCount: 5,
+        textCharacters: 640,
+      });
+    }
+    // It lives on the persisted record the status API reads back.
+    expect(store.getJob("job_ocrmeta000")?.results?.ocr?.pageCount).toBe(5);
+  });
+
+  it("re-bounds hostile result metadata at the completion boundary", async () => {
+    await submit("job_ocrhostile");
+    await queue.claim({ leaseMs: LEASE_MS });
+    await queue.advance("job_ocrhostile", { status: "processing" });
+    // A runner tries to smuggle a path/secret + a bogus language + an absurd count.
+    const hostileOcr = {
+      engine: "/usr/bin/ocrmypdf /tmp/secret.pdf",
+      languages: ["eng", "not-a-lang"],
+      outputMode: "searchable-pdf",
+      producedSearchablePdf: true,
+      producedTextSidecar: false,
+      pageCount: 999_999_999_999,
+      textCharacters: null,
+      meanConfidence: null,
+    } as unknown as OcrResultMeta;
+    await queue.complete("job_ocrhostile", [artifact], undefined, {
+      ocr: hostileOcr,
+    });
+    const stored = store.getJob("job_ocrhostile");
+    const serialized = JSON.stringify(stored);
+    expect(serialized).not.toContain("/tmp/");
+    expect(serialized).not.toContain("secret");
+    expect(stored?.results?.ocr?.engine).toBe("unknown");
+    expect(stored?.results?.ocr?.languages).toEqual(["eng"]);
+    expect(stored?.results?.ocr?.pageCount).toBe(OCR_MAX_REPORTED_PAGES); // clamped
+  });
+
+  it("completes without a results field when no metadata is provided", async () => {
+    await submit("job_nometa0000");
+    await queue.claim({ leaseMs: LEASE_MS });
+    await queue.advance("job_nometa0000", { status: "processing" });
+    const done = await queue.complete("job_nometa0000", [artifact]);
+    expect(done.ok).toBe(true);
+    if (done.ok) expect("results" in done.value).toBe(false);
+    expect(store.getJob("job_nometa0000")?.results).toBeUndefined();
+  });
+
+  it("drops result metadata (and artifacts) when a completed job's outputs are expired", async () => {
+    await submit("job_ocrexpire0");
+    await queue.claim({ leaseMs: LEASE_MS });
+    await queue.advance("job_ocrexpire0", { status: "processing" });
+    await queue.complete("job_ocrexpire0", [artifact], undefined, {
+      ocr: buildOcrResultMeta({
+        engine: "ocrmypdf",
+        languages: ["eng"],
+        outputMode: "searchable-pdf",
+        producedSearchablePdf: true,
+        producedTextSidecar: false,
+        pageCount: 2,
+      }),
+    });
+    const expired = await queue.expire("job_ocrexpire0");
+    expect(expired.ok).toBe(true);
+    if (expired.ok) {
+      expect(expired.value.status).toBe("expired");
+      // Outputs are deleted — so is the metadata that described them.
+      expect(expired.value.results).toBeUndefined();
+      expect(expired.value.artifacts).toBeUndefined();
+    }
   });
 
   it("fails a claimed job terminally and forgets its execution state", async () => {

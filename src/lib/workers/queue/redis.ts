@@ -39,7 +39,8 @@
  */
 
 import { createHash } from "node:crypto";
-import type { Job, JobArtifact, JobError } from "@/lib/jobs";
+import type { Job, JobArtifact, JobError, JobResults } from "@/lib/jobs";
+import { sanitizeJobResults } from "@/lib/jobs";
 import {
   canCancel,
   canExpire,
@@ -233,8 +234,10 @@ export function createRedisQueue(
   const toTerminal = (job: Job, status: "canceled" | "expired"): Job => {
     const next: Job = { ...job, status, updatedAt: iso(now()) };
     // Outputs are being deleted alongside this transition, so the record must not
-    // keep advertising downloadable artifacts (keeps isDownloadReady honest).
+    // keep advertising downloadable artifacts (keeps isDownloadReady honest), nor
+    // the result metadata that describes those now-deleted outputs.
     delete next.artifacts;
+    delete next.results;
     return next;
   };
 
@@ -488,18 +491,28 @@ export function createRedisQueue(
       );
     },
 
-    async complete(jobId, artifacts: JobArtifact[], expectedAttempt) {
+    async complete(
+      jobId,
+      artifacts: JobArtifact[],
+      expectedAttempt,
+      results?: JobResults,
+    ) {
       const jobRes = await loadJob(jobId);
       if (!jobRes.ok) return jobRes;
       const job = jobRes.value;
       if (!canTransition(job.status, "completed")) {
         return queueFail("conflict", `A ${job.status} job cannot be completed.`);
       }
+      // Re-bound the structured result metadata before it is serialized into the
+      // durable job record, so the broker persists only a schema-stable, safe value
+      // regardless of caller; an empty/absent block leaves `results` off the record.
+      const safeResults = sanitizeJobResults(results);
       const next: Job = {
         ...job,
         status: "completed",
         progress: 100,
         artifacts,
+        ...(safeResults ? { results: safeResults } : {}),
         updatedAt: iso(now()),
       };
       const outcome = await runTransition(client, "finalize", keysFor(jobId), [

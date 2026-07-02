@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
-import { OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
+import { OCR_LANGUAGE_CODES, buildOcrResultMeta } from "@/lib/jobs/ocr";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
@@ -10,7 +10,7 @@ import {
   resetTelemetry,
   type RedactedEvent,
 } from "@/lib/telemetry/track";
-import { OcrWorkerPanel } from "./ocr-worker-panel";
+import { OcrWorkerPanel, OcrResultSummary } from "./ocr-worker-panel";
 
 const ocrTool = getToolBySlug("ocr-pdf")!;
 
@@ -144,5 +144,70 @@ describe("OcrWorkerPanel", () => {
     ).toBeInTheDocument();
     // Still no uploader when availability is unknown.
     expect(fileInput()).toBeNull();
+  });
+});
+
+describe("OcrResultSummary — safe, structural job metadata", () => {
+  it("shows only structural facts (pages, output, languages, characters), never text", () => {
+    const meta = buildOcrResultMeta({
+      engine: "ocrmypdf",
+      languages: ["eng", "spa"],
+      outputMode: "both",
+      producedSearchablePdf: true,
+      producedTextSidecar: true,
+      pageCount: 3,
+      textCharacters: 1_240,
+    });
+    const { container } = render(<OcrResultSummary meta={meta} />);
+
+    expect(screen.getByText("Recognition summary")).toBeInTheDocument();
+    expect(screen.getByText("Pages")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("Searchable PDF + text")).toBeInTheDocument();
+    expect(screen.getByText("Languages")).toBeInTheDocument();
+    expect(screen.getByText("English, Spanish")).toBeInTheDocument();
+    expect(screen.getByText("1,240 characters")).toBeInTheDocument();
+
+    // Structural only: the engine token and the raw language CODES are backend
+    // details that never appear in the user-facing summary, and no recognized text
+    // can be present because the metadata never carried any.
+    expect(container.textContent).not.toContain("ocrmypdf");
+    expect(container.textContent).not.toMatch(/\beng\b/);
+  });
+
+  it("omits a page count and character count that the backend could not determine", () => {
+    const meta = buildOcrResultMeta({
+      engine: "tesseract",
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      producedSearchablePdf: true,
+      producedTextSidecar: false,
+      pageCount: null,
+      textCharacters: null,
+    });
+    render(<OcrResultSummary meta={meta} />);
+
+    // No PDF page count and no sidecar → those rows are simply absent, not "0" or "—".
+    expect(screen.queryByText("Pages")).not.toBeInTheDocument();
+    expect(screen.queryByText(/characters/)).not.toBeInTheDocument();
+    // The always-known output kind still renders.
+    expect(screen.getByText("Output")).toBeInTheDocument();
+    expect(screen.getByText("Searchable PDF")).toBeInTheDocument();
+  });
+
+  it("uses singular labels for a one-page, one-language, one-character result", () => {
+    const meta = buildOcrResultMeta({
+      engine: "ocrmypdf",
+      languages: ["fra"],
+      outputMode: "text",
+      producedSearchablePdf: false,
+      producedTextSidecar: true,
+      pageCount: null,
+      textCharacters: 1,
+    });
+    render(<OcrResultSummary meta={meta} />);
+    expect(screen.getByText("Language")).toBeInTheDocument();
+    expect(screen.getByText("French")).toBeInTheDocument();
+    expect(screen.getByText("1 character")).toBeInTheDocument();
   });
 });

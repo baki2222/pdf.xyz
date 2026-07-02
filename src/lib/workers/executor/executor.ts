@@ -278,7 +278,11 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       return dispatchFailure(result.error, "failed");
     }
 
-    // Success: persist the real artifacts, then mark the job completed.
+    // Success: persist the real artifacts, then mark the job completed. Any safe,
+    // structured result metadata the processor observed (e.g. OCR page/character
+    // counts, engine family, languages) is threaded onto the completion so it lands
+    // on the job record and the status API. It is re-bounded at the queue's
+    // persistence boundary; a processor that reports none simply completes without.
     const artifacts: JobArtifact[] = [];
     for (const artifact of result.artifacts) {
       artifacts.push(
@@ -291,7 +295,12 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       );
     }
 
-    const completed = await queue.complete(job.jobId, artifacts, attempt);
+    const completed = await queue.complete(
+      job.jobId,
+      artifacts,
+      attempt,
+      result.results,
+    );
     if (!completed.ok) {
       // The job was canceled between processing and completion — clean up the
       // artifacts we just wrote so nothing outlives the cancellation.

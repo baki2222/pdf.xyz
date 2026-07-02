@@ -64,6 +64,10 @@ describe("local-dev worker — compression job flow", () => {
     expect(job.status).toBe("completed");
     expect(job.progress).toBe(100);
     expect(job.error).toBeUndefined();
+    // Compression reports no structured result metadata, so a compression job never
+    // grows a `results` block (and never an OCR one) — the Phase 26 threading is
+    // strictly opt-in per processor.
+    expect(job.results).toBeUndefined();
 
     const artifact = job.artifacts?.[0];
     expect(artifact).toBeDefined();

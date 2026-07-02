@@ -99,6 +99,18 @@ function completedJob(): Job {
         expiresAt: new Date(0).toISOString(),
       },
     ],
+    results: {
+      ocr: {
+        engine: "ocrmypdf",
+        languages: ["eng", "spa"],
+        outputMode: "both",
+        producedSearchablePdf: true,
+        producedTextSidecar: true,
+        pageCount: 3,
+        textCharacters: 128,
+        meanConfidence: null,
+      },
+    },
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
     expiresAt: new Date(0).toISOString(),
@@ -147,6 +159,16 @@ describe("runWorkerOcr", () => {
     expect(result.artifacts).toHaveLength(2);
     expect(result.artifacts[0]?.bytes).toEqual(PDF_OUT);
     expect(result.artifacts[1]?.bytes).toEqual(TXT_OUT);
+
+    // The completed job carries the safe, structured OCR result metadata (from the
+    // status API) so the UI can render a structural summary — pages, languages,
+    // output kind, character count — never any recognized text.
+    expect(result.job.results?.ocr).toMatchObject({
+      outputMode: "both",
+      languages: ["eng", "spa"],
+      pageCount: 3,
+      textCharacters: 128,
+    });
 
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       "POST /api/uploads",
