@@ -98,7 +98,7 @@ tool honestly says deep compression is unavailable and the API records a
 | `pnpm start` | Serve the production build |
 | `pnpm worker:daemon` | Run the out-of-band secure-worker daemon (`--once` / `--drain` / `--dry-run-status` / `--check` / `--lifecycle-policy`) — see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
 | `pnpm worker:daemon:status` | Presence-only worker readiness probe (`--dry-run-status`); exits `0` drainable / `2` not configured. Used by the container health check |
-| `pnpm worker:smoke` | No-config honesty smoke: asserts the daemon refuses to fake work (exit `2`) and rejects bad flags (exit `1`) — no secrets or network |
+| `pnpm worker:smoke` | No-config honesty smoke: asserts the daemon refuses to fake work (exit `2`), rejects bad flags (exit `1`), reports clean guardrails (exit `0`), and fails fast on a dangerous config (exit `4`) — no secrets or network. Also run inside the built worker image in CI |
 | `pnpm typecheck` | `tsc --noEmit` (strict) |
 | `pnpm lint` | ESLint (flat config, `eslint-config-next`) |
 | `pnpm test` | Unit tests (Vitest, run once) |
@@ -173,10 +173,14 @@ docker build --target worker -t pdfxyz-worker:local .   # native engines + daemo
 docker build --target web    -t pdfxyz-web:local .       # site only, no engines
 ```
 
-The image build was **not exercised here** (no Docker daemon in this
-environment); its structure and the web ↔ worker separation are enforced by
-static tests (`src/deploy/`). See the worker container checklist in
-[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+The image build is **not exercised in this repo's environment** (no Docker daemon
+here); CI builds both targets and runs the worker no-config smoke inside the built
+worker image on GitHub Actions
+([`.github/workflows/container.yml`](.github/workflows/container.yml)), and the
+Dockerfile/compose/CI invariants are pinned by static tests (`src/deploy/`). For a
+full two-service production rollout — responsibilities, env by service, image
+promotion, smoke, and rollback — see the [**production runbook**](docs/RUNBOOK.md);
+the worker container checklist is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## License
 

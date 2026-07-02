@@ -164,8 +164,11 @@ HTTPS.
 ## 5. Preview → production workflow
 
 - **Pull requests** get an automatic **Preview Deployment** with a unique URL.
-  CI (`../.github/workflows/ci.yml`) runs typecheck, lint, unit tests, build, and
-  the Playwright smoke suite on every PR.
+  CI (`../.github/workflows/ci.yml`) runs typecheck, lint, unit tests, the worker
+  no-config honesty smoke, build, and the Playwright smoke suite on every PR. A
+  second workflow (`../.github/workflows/container.yml`) builds both the `web` and
+  `worker` image targets and runs the worker no-config smoke **inside** the built
+  worker image.
 - **`main`** is the production branch — merges deploy to `pdf.xyz`.
 - Branch model: feature work happens on `phase-*` branches (e.g.
   `phase-4-production-hardening`). Open a PR into `main`; **do not** deploy
@@ -387,11 +390,11 @@ docker build --target web    -t pdfxyz-web:local .        # Next.js site only
 
 ### Not exercised here / still out-of-band
 
-- The **Docker image build was not run** in this repository's environment (no
-  reachable Docker daemon). The Dockerfile structure, the web ↔ worker separation,
-  and the "no committed secrets" rule are enforced instead by static tests under
-  `src/deploy/`. Build and run the images in real worker infrastructure before
-  trusting them.
+- The **Docker image build is not run in this repository's local environment** (no
+  reachable Docker daemon). It **is** built in CI — see the Phase 20 section below —
+  and the Dockerfile structure, the web ↔ worker separation, and the "no committed
+  secrets" rule are also pinned by static tests under `src/deploy/`. Build and run
+  the images in real worker infrastructure before trusting them.
 - Still operator-owned and **not** provided by these artifacts: real secrets and a
   provisioned S3/R2 bucket + Redis/Upstash broker, the actual worker deployment
   (orchestrator/scheduler), lifecycle-enforced bucket deletion, malware scanning,
@@ -493,3 +496,29 @@ exit cleanly.
   apply to a `<bucket>` placeholder — never a real bucket, endpoint, or credential.
 - Filenames stay client-side/opaque end to end (Phase 18); object keys derive from
   opaque ids, never from a user-supplied name.
+
+## Phase 20 container CI + production runbook
+
+Phase 20 makes the container model a **first-class CI check** and adds an
+operational **runbook** for a real two-service rollout, without faking any
+infrastructure.
+
+- **Container CI** — [`.github/workflows/container.yml`](../.github/workflows/container.yml)
+  builds **both** the `web` and `worker` image targets on GitHub Actions and, inside
+  the built worker image, runs the no-config honesty smoke (`pnpm worker:smoke`),
+  asserts the readiness probe reports not-configured (exit `2`), and proves the
+  web ↔ worker split at the image level (native engines present in the worker image,
+  absent from the web image). It builds with `push: false` — images are validated,
+  never published — so the workflow needs **no** secret.
+- **Docker-free gate** — the JS CI job ([`ci.yml`](../.github/workflows/ci.yml)) now
+  also runs `pnpm worker:smoke`, so the daemon's honest exit-code contract (clean `0`,
+  not-configured `2`, usage error `1`, fail-fast guardrail `4`) gates every PR even
+  where Docker is unavailable.
+- **Static invariants** — [`src/deploy/artifacts.test.ts`](../src/deploy/artifacts.test.ts)
+  and [`src/deploy/ci-workflow.test.ts`](../src/deploy/ci-workflow.test.ts) pin the
+  Dockerfile/compose/workflow invariants (two independent targets, worker
+  `HEALTHCHECK` is the presence-only probe, both image targets built in CI, and **no
+  committed secret** in any artifact or workflow).
+- **Runbook** — the full production procedure (web vs worker responsibilities, env by
+  service with placeholders only, build/publish/promote-by-digest, smoke, and
+  rollback) is in [`RUNBOOK.md`](RUNBOOK.md).

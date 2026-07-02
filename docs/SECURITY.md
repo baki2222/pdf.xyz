@@ -216,6 +216,15 @@ today and tighten it deliberately rather than leave CSP off.
   fails the build if any artifact grows a real-looking secret or a `NEXT_PUBLIC_`
   provider value, and `src/deploy/import-boundary.test.ts` fails if a web bundle
   eagerly imports the Node-only daemon runtime or native-compression subprocess.
+- **Container CI proves this always-on, and needs no secret (Phase 20).** Both
+  GitHub Actions workflows build with `push: false` and reference **no** repository
+  secret — the [`container.yml`](../.github/workflows/container.yml) job proves the
+  web ↔ worker split and the worker's no-config refusal on **real built images**
+  without any credential, and [`ci.yml`](../.github/workflows/ci.yml) re-runs the
+  same honesty smoke Docker-free. `src/deploy/ci-workflow.test.ts` extends the
+  secret scan to **every** workflow file (no committed AWS key; any secret-ish env
+  must be a `${{ secrets.* }}` reference, never a literal), so a workflow can't grow
+  a committed secret unnoticed.
 
 ## Reporting a vulnerability
 

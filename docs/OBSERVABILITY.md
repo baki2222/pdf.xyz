@@ -262,9 +262,10 @@ and `compression_health` lines described above and then exits. So an orchestrato
 liveness/readiness gate is driven entirely by presence-only signals — never a secret,
 key, or value. `pnpm worker:daemon:status` is the identical probe as a package script,
 and `pnpm worker:smoke` is the offline, no-config honesty check (exit-code contract:
-`0`/`2`/`1`) suitable for CI. Alert on a worker that reports `2` when it is expected to
-be drainable, exactly as you would alert on `drainable: true` with a non-draining
-backlog.
+`0`/`1`/`2`/`4`) suitable for CI — the Phase 20 container workflow re-runs this same
+smoke **inside the built worker image**. Alert on a worker that reports `2` when it is
+expected to be drainable, exactly as you would alert on `drainable: true` with a
+non-draining backlog.
 
 ## Deployment readiness & guardrail events (Phase 19)
 

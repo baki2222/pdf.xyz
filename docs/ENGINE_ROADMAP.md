@@ -522,6 +522,41 @@ lifecycle policy to a live bucket (the tooling generates and validates it; the o
 applies it with the provider CLI — the app never calls the cloud), **malware scanning**,
 and the native `deep`/OCR runners.
 
+### Phase 20 — container CI + deployment-security gates (shipped)
+
+The container model and the worker's honesty contract are now **always-on CI
+checks**, so every PR proves the web/worker split and the no-config refusal without
+needing a single cloud secret.
+
+- **Container workflow** (`.github/workflows/container.yml`): a first-class CI job
+  that builds **both** Dockerfile targets on GitHub Actions (the real `docker build`
+  this repo's environment can't run), then, inside the built **worker** image with
+  nothing configured, runs `pnpm worker:smoke`, asserts the readiness probe reports
+  not-configured (exit `2`), and proves the split at the image level — the native
+  engines (`gs`/`qpdf`/`mutool`) exist in the worker image and are **absent** from
+  the web image. Images build with `push: false` (validated, never published), so the
+  workflow references **no** repository secret.
+- **Docker-free gate** (`.github/workflows/ci.yml`): the JS CI job also runs
+  `pnpm worker:smoke`, gating the daemon's full exit-code contract (clean `0`,
+  not-configured `2`, usage `1`, fail-fast guardrail `4`) on every PR even where
+  Docker is unavailable — so the honesty contract is proven twice, with and without a
+  container.
+- **Static invariants extended** (`src/deploy/`): `artifacts.test.ts` and the new
+  `ci-workflow.test.ts` pin the Dockerfile/compose/workflow shape — two independent
+  targets, the worker `HEALTHCHECK` is the presence-only `--dry-run-status` probe
+  while the default `CMD` drains, `.dockerignore` excludes every secret/test/build
+  artifact, the smoke covers exit `0/1/2/4` and never the bare loop, both workflows
+  build both targets and smoke the worker image, and **no** committed artifact or
+  workflow carries a real-looking secret or a `NEXT_PUBLIC_` provider value.
+- **Operator runbook** (`docs/RUNBOOK.md`): the durable two-service procedure —
+  responsibilities, env by service (placeholders only), build/publish/promote-by-
+  digest, the no-secret smoke procedure, and rollback.
+
+⏳ Unchanged and still out-of-band (deliberately not faked): the actual image
+**publish/promotion** to a registry (CI validates but never pushes), a provisioned
+S3/R2 bucket + Redis/Upstash broker and real secrets, **applying** a lifecycle
+policy to a live bucket, **malware scanning**, and the native `deep`/OCR runners.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:
