@@ -9,12 +9,28 @@ import { PricingSection } from "@/components/sections/pricing-section";
 import { FaqSection } from "@/components/sections/faq-section";
 import { CtaSection } from "@/components/sections/cta-section";
 import { buildMetadata } from "@/lib/seo";
+import { JsonLd } from "@/components/seo/json-ld";
+import {
+  faqPageSchema,
+  organizationSchema,
+  webApplicationSchema,
+  websiteSchema,
+} from "@/lib/structured-data";
+import { faqs } from "@/lib/faq";
 
 export const metadata: Metadata = buildMetadata({ path: "/" });
 
 export default function HomePage() {
   return (
     <>
+      <JsonLd
+        data={[
+          organizationSchema(),
+          websiteSchema(),
+          webApplicationSchema(),
+          faqPageSchema(faqs),
+        ]}
+      />
       <Hero />
       <StatsBand />
       <ToolShowcase />

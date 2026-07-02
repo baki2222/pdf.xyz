@@ -203,13 +203,18 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Standard reduced-motion reset: neutralize animations/transitions and any
+     movement while preserving final states, so nothing jumps or parallaxes. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
   html {
     scroll-behavior: auto;
-  }
-  .card-hover,
-  .animate-float-up {
-    transition: none;
-    animation: none;
   }
   .card-hover:hover {
     transform: none;

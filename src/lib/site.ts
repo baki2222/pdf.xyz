@@ -11,7 +11,8 @@ export const siteConfig = {
     "pdf.xyz is a modern, fast, privacy-first PDF platform. Merge, split, compress, convert, edit, sign, and use AI on your documents — most tools run entirely in your browser.",
   // Canonical production URL. Used as metadataBase for absolute OG/canonical URLs.
   url: "https://pdf.xyz",
-  ogImage: "/og",
+  // Generated at build time by src/app/opengraph-image.tsx.
+  ogImage: "/opengraph-image",
   locale: "en_US",
   creator: "pdf.xyz",
   keywords: [

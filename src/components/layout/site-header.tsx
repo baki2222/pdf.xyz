@@ -29,6 +29,7 @@ export function SiteHeader() {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={isActive(item.href) ? "page" : undefined}
               className={cn(
                 "rounded-full px-3.5 py-2 text-sm font-medium transition-colors",
                 isActive(item.href)
@@ -61,6 +62,7 @@ export function SiteHeader() {
           onClick={() => setOpen((v) => !v)}
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
+          aria-controls="mobile-menu"
           className="grid size-10 place-items-center rounded-xl border border-white/10 text-slate-200 transition hover:bg-white/5 md:hidden"
         >
           {open ? (
@@ -72,13 +74,17 @@ export function SiteHeader() {
       </Container>
 
       {open && (
-        <div className="border-t border-white/10 bg-ink/95 backdrop-blur-xl md:hidden">
+        <div
+          id="mobile-menu"
+          className="border-t border-white/10 bg-ink/95 backdrop-blur-xl md:hidden"
+        >
           <Container className="flex flex-col gap-1 py-4">
             {primaryNav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
                 onClick={() => setOpen(false)}
+                aria-current={isActive(item.href) ? "page" : undefined}
                 className="rounded-xl px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-white/5 hover:text-white"
               >
                 {item.label}

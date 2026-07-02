@@ -71,6 +71,9 @@ export function UploadZone({
         onDrop={onDrop}
         className={cn(
           "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
+          // The file input is visually hidden but focusable; surface its
+          // keyboard focus on the dropzone so it isn't an invisible tab stop.
+          "has-[:focus-visible]:border-violet-400/70 has-[:focus-visible]:bg-violet-500/10 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-400/50",
           dragging
             ? "border-violet-400/70 bg-violet-500/10"
             : "border-white/15 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]",

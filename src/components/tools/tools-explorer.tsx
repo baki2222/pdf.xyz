@@ -19,24 +19,28 @@ const counts = getCategoryCounts();
 
 export function ToolsExplorer({
   initialCategory = "all",
+  initialQuery = "",
 }: {
   initialCategory?: Filter;
+  initialQuery?: string;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState<Filter>(initialCategory);
 
-  // Keep the URL shareable (?category=…) without triggering a navigation.
+  // Keep the URL shareable (?category=…&q=…) without triggering a navigation.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (active === "all") params.delete("category");
     else params.set("category", active);
+    if (query.trim()) params.set("q", query.trim());
+    else params.delete("q");
     const qs = params.toString();
     window.history.replaceState(
       null,
       "",
       qs ? `${window.location.pathname}?${qs}` : window.location.pathname,
     );
-  }, [active]);
+  }, [active, query]);
 
   const results = useMemo(() => {
     const matched = query.trim() ? searchTools(query) : tools;
@@ -66,9 +70,9 @@ export function ToolsExplorer({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search 46 tools — merge, compress, sign…"
+            placeholder={`Search ${toolCount} tools — merge, compress, sign…`}
             aria-label="Search tools"
-            className="h-12 w-full rounded-full border border-white/10 bg-surface-2 pl-11 pr-11 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/50 focus:bg-white/[0.04]"
+            className="h-12 w-full rounded-full border border-white/10 bg-surface-2 pl-11 pr-11 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/50 focus:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-violet-400/50"
           />
           {query && (
             <button
@@ -90,7 +94,7 @@ export function ToolsExplorer({
 
       <div
         className="-mx-1 flex flex-wrap gap-2 px-1"
-        role="tablist"
+        role="group"
         aria-label="Filter by category"
       >
         {filters.map((filter) => {
@@ -99,8 +103,7 @@ export function ToolsExplorer({
             <button
               key={filter.id}
               type="button"
-              role="tab"
-              aria-selected={selected}
+              aria-pressed={selected}
               onClick={() => setActive(filter.id)}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",

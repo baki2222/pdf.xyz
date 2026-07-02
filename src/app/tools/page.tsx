@@ -24,21 +24,26 @@ function resolveCategory(value: string | undefined): ToolCategoryId | "all" {
 export default async function ToolsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ category?: string }>;
+  searchParams: Promise<{ category?: string; q?: string }>;
 }) {
-  const { category } = await searchParams;
+  const { category, q } = await searchParams;
   const initialCategory = resolveCategory(category);
+  const initialQuery = typeof q === "string" ? q : "";
 
   return (
     <div className="py-14 sm:py-20">
       <Container className="flex flex-col gap-12">
         <SectionHeading
+          as="h1"
           align="left"
           eyebrow="Tool catalog"
           title="Every PDF tool, one place"
           description={`All ${toolCount} tools, organized into ${categories.length} categories. Search, filter, and each tool tells you honestly whether it runs in your browser or on a secure worker.`}
         />
-        <ToolsExplorer initialCategory={initialCategory} />
+        <ToolsExplorer
+          initialCategory={initialCategory}
+          initialQuery={initialQuery}
+        />
       </Container>
     </div>
   );

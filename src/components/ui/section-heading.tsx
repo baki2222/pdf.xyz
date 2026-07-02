@@ -5,12 +5,15 @@ export function SectionHeading({
   title,
   description,
   align = "center",
+  as: Heading = "h2",
   className,
 }: {
   eyebrow?: string;
   title: React.ReactNode;
   description?: React.ReactNode;
   align?: "center" | "left";
+  /** Heading level. Defaults to h2; use h1 when this is the page's main title. */
+  as?: "h1" | "h2";
   className?: string;
 }) {
   return (
@@ -26,9 +29,9 @@ export function SectionHeading({
           {eyebrow}
         </span>
       )}
-      <h2 className="max-w-3xl text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
+      <Heading className="max-w-3xl text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
         {title}
-      </h2>
+      </Heading>
       {description && (
         <p
           className={cn(

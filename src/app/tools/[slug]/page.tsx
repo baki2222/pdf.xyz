@@ -25,6 +25,11 @@ import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { buildMetadata } from "@/lib/seo";
+import { JsonLd } from "@/components/seo/json-ld";
+import {
+  breadcrumbSchema,
+  toolApplicationSchema,
+} from "@/lib/structured-data";
 
 export function generateStaticParams() {
   return getAllToolSlugs().map((slug) => ({ slug }));
@@ -63,6 +68,14 @@ export default async function ToolPage({
   const steps = tool.how ?? [];
   const runnerKind = getRunnerKind(tool.slug);
 
+  const breadcrumbs = [
+    { name: "All tools", path: "/tools" },
+    ...(category
+      ? [{ name: category.name, path: `/tools?category=${category.id}` }]
+      : []),
+    { name: tool.name, path: `/tools/${tool.slug}` },
+  ];
+
   const formatChips = (
     <div className="flex flex-wrap items-center gap-2">
       <ProcessingBadge mode={tool.processing} variant="long" />
@@ -79,6 +92,9 @@ export default async function ToolPage({
 
   return (
     <div className="py-10 sm:py-14">
+      <JsonLd
+        data={[toolApplicationSchema(tool), breadcrumbSchema(breadcrumbs)]}
+      />
       <Container className="flex flex-col gap-10">
         <nav
           aria-label="Breadcrumb"
