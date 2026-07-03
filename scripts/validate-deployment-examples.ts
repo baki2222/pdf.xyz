@@ -50,6 +50,8 @@ const FILES = [
   `${DIR}/github-actions/release-gate-fixture.yml`,
   // Phase 47 — the release evidence artifact (archive the gate result + provenance + integrity digest).
   `${DIR}/github-actions/release-artifact-fixture.yml`,
+  // Phase 48 — the release evidence index / retention manifest (index + re-verify artifacts over time).
+  `${DIR}/github-actions/release-index-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -141,6 +143,13 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-artifact-fixture.yml`, /worker:release-artifact --verify=/, "release-artifact GitHub Actions fixture must verify the artifact integrity", findings);
   requireText(`${DIR}/github-actions/release-artifact-fixture.yml`, /test "\$code" -eq 4/, "release-artifact GitHub Actions fixture must assert the tamper (digest mismatch) exit code", findings);
   requireText(`${DIR}/github-actions/release-artifact-fixture.yml`, /test "\$code" -eq 1/, "release-artifact GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 48 — the release-index template must generate an artifact, index + validate it as a CI
+  // artifact, and pin the tamper-detection + usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-index-fixture.yml`, /worker:release-artifact --release-gate=.*--output=/, "release-index GitHub Actions fixture must archive an artifact first", findings);
+  requireText(`${DIR}/github-actions/release-index-fixture.yml`, /worker:release-index --artifact=.*--output=/, "release-index GitHub Actions fixture must build the index as a CI artifact", findings);
+  requireText(`${DIR}/github-actions/release-index-fixture.yml`, /test "\$code" -eq 4/, "release-index GitHub Actions fixture must assert the tamper (invalid) exit code", findings);
+  requireText(`${DIR}/github-actions/release-index-fixture.yml`, /test "\$code" -eq 1/, "release-index GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

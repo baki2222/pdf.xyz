@@ -110,6 +110,10 @@ import {
   RELEASE_ARTIFACT_VERDICTS,
   type ReleaseArtifactVerdict,
 } from "../release-artifact/types";
+import {
+  RELEASE_INDEX_VERDICTS,
+  type ReleaseIndexVerdict,
+} from "../release-index/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -413,6 +417,7 @@ export const METRIC_NAMES = [
   "worker_ops_bundle_total",
   "worker_release_gate_total",
   "worker_release_artifact_total",
+  "worker_release_index_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -593,6 +598,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_ARTIFACT_VERDICTS,
+    },
+  },
+  worker_release_index_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_INDEX_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -992,6 +1003,26 @@ export function releaseGateMetric(verdict: ReleaseGateVerdict): WorkerMetricSamp
 export function releaseArtifactMetric(verdict: ReleaseArtifactVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_artifact_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A built **release evidence index / retention manifest** (Phase 48) resolved to its archive-health
+ * `verdict` ({@link ReleaseIndexVerdict}: `ok`/`warn`/`unknown`/`invalid`). One bounded label so a
+ * release pipeline / dashboard can count retention reviews by the single decision an operator acts on
+ * — e.g. `worker_release_index_total{verdict="invalid"} > 0` catches a tampered artifact entering the
+ * archive, `{verdict="warn"} > 0` catches retention drift. This counts an offline RE-VERIFICATION +
+ * AGGREGATION that re-hashed each archived artifact's canonical body and folded the integrity +
+ * retention posture — NOT a cloud call, a deletion, a prune, a signature, or a claim about bucket
+ * bytes. The one label is a closed, redaction-stable enum — never a filename, path, object key,
+ * bucket, URL, endpoint, region, instant, size, digest, or document content.
+ */
+export function releaseIndexMetric(verdict: ReleaseIndexVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_index_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

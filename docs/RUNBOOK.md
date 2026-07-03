@@ -691,3 +691,28 @@ Verdict/exit ladder: `0` pass, `1` usage, `2` unknown, `3` warn, `4` fail. The a
 **An attached `--ops-bundle` is context only.** It reflects a runtime's live ops posture (possibly a different environment during an incident handoff), so it is archived for context and does **not** change the release verdict, which is about THIS build's promotion readiness.
 
 Like the gate, the artifact is local, offline, and read-only: no cloud call, no provider export/secret/bucket, no deletion/upload/mutation, and it does not perform the promotion. It is evidence AGGREGATION + INTEGRITY over content-free data — **not** signing, authentication, cloud validation, deletion proof, or deployment promotion. Run your changed-file secret/NUL scan separately (it records the gate result but does not diff the working tree). The CI example lives at `docs/examples/deployment/github-actions/release-artifact-fixture.yml`; example inputs live under `docs/examples/release-artifact/`.
+
+### Index release evidence artifacts over time: release-index (Phase 48)
+
+Once you archive `pdfxyz.release-artifact/1` records across a CI history, a release train, or an incident timeline, index them into one content-free **retention manifest** — the record a CI archive or an operator retention review keeps to answer "is the whole archive INTACT (does every digest still verify), how much history is retained, and is any of it over-retention or stale?"
+
+**`pnpm worker:release-index`** ingests many artifacts, re-verifies each one's integrity digest, and folds them into a stable manifest:
+
+```bash
+pnpm worker:release-index --artifact=a.json --artifact=b.json \
+  --max-artifacts=20 --max-age-days=90 --output=release-index.json --json   # build a manifest
+pnpm worker:release-index docs/examples/release-index/artifact-*.json --text # summarize an archive
+cat artifacts.json | pnpm worker:release-index --text                        # a JSON array on stdin
+```
+
+Verdict/exit ladder: `0` ok, `1` usage, `2` insufficient, `3` warn, `4` invalid. The manifest keys on ARCHIVE HEALTH — integrity first, then retention — not a re-judgement of each build's promotion readiness (the archived artifacts already carry that; the manifest tallies it as `verdictCounts`).
+
+| Exit | Verdict | What it means | Do |
+| --- | --- | --- | --- |
+| `0` | `ok` | ≥1 artifact indexed, every digest re-verified, within retention. | Archive the manifest as a CI/retention record. |
+| `1` | `usage` | The CLI was misused: a bad flag, a non-numeric/negative bound, or an unwritable output. | Fix the invocation; not an archive verdict. |
+| `2` | `unknown` | The archive is empty/insufficient (no usable artifact was ingested). | Point it at your archived artifacts; nothing to index. |
+| `3` | `warn` | A retention concern (over-count, over-age, stale) or a skipped non-artifact input. | Review + prune out of band; the index never prunes. |
+| `4` | `invalid` | An indexed artifact FAILED digest re-verification (tampered/corrupt). | **Investigate**; recover the untampered artifact from your CI archive, do not overwrite it. |
+
+**Content-free by construction.** Every ingested artifact is reduced to bounded enums, small counts, coarse age BUCKETS, and short hex digest PREFIXES: it carries no filename, path, object key, bucket, URL, raw ref, raw label (only a `semver`/`named`/`absent` **class**), commit URL, size, or byte, even from a hostile input, and no input path is ever echoed. Retention flags (`--max-artifacts`/`--max-age-days`) only FLAG over-retention/stale — the offline index never deletes, prunes, uploads, or mutates any artifact or object. It is local content-free indexing + digest verification — **not** storage retention enforcement, signing, authentication, cloud validation, or the promotion. The CI example lives at `docs/examples/deployment/github-actions/release-index-fixture.yml`; example inputs + a sample manifest live under `docs/examples/release-index/`.
