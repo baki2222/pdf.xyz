@@ -9,16 +9,20 @@
  * caveats — never a secret, path, object key, endpoint, variable name, or value.
  *
  * It is collected from the **web vantage**, so it is honest about what this process
- * cannot observe: whether a separate worker daemon is actually deployed and running
- * (`daemonObserved: false`), and a separate worker image's installed engines / OCR
- * runner (reported `unknown`). In `local-dev` mode the web app *is* the in-process
- * worker, so it performs the same live PATH probe the status route does (lazily
- * importing the Node-only native layer) and its engine proof reflects the real host.
+ * cannot observe *by itself*: a separate worker image's installed engines / OCR
+ * runner (reported `unknown`). For daemon liveness it reads the Phase 30 heartbeat
+ * from the shared broker when that feature is enabled and configured: a recent beat
+ * makes `daemonObserved` true, a stale/absent one keeps it false (a warn), and with
+ * the feature off it stays the honest "confirm a worker out-of-band" residual — the
+ * read is a disabled no-op with no network. In `local-dev` mode the web app *is* the
+ * in-process worker, so it performs the same live PATH probe the status route does
+ * (lazily importing the Node-only native layer) and its engine proof reflects the host.
  */
 
 import { ok } from "@/lib/jobs";
 import { resolveWorkerMode, type ToolAvailability } from "@/lib/workers";
 import { collectWebOperationsSnapshot } from "@/lib/workers/observability";
+import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
 import { respond } from "../../_lib/http";
 
 // Reflects live host + config state. Node runtime — the PATH probe uses Node built-ins,
@@ -41,5 +45,11 @@ export async function GET(): Promise<Response> {
     tools = probeNativeTools(process.env);
   }
 
-  return respond(ok(collectWebOperationsSnapshot(process.env, { tools })));
+  // Read cross-process daemon liveness from the shared broker (Phase 30). This is a
+  // disabled no-op — no network — unless `PDFXYZ_WORKER_HEARTBEAT` is enabled AND a
+  // broker is configured; a broker outage classifies as `unknown`, never a fabricated
+  // "observed". It never throws.
+  const daemonLiveness = await readWorkerHeartbeatLiveness(process.env);
+
+  return respond(ok(collectWebOperationsSnapshot(process.env, { tools, daemonLiveness })));
 }

@@ -920,6 +920,32 @@ projection of the same content-free snapshot.
 ⏳ Still out-of-band (unchanged): the metrics-backend timeseries and pager wiring; Phase 29
 adds only the human-readable projection of the already-shipped snapshot.
 
+### Phase 30 — optional worker heartbeat/liveness observation (shipped)
+
+Phase 30 closes the last web-vantage liveness gap without faking a daemon. When an
+operator explicitly enables `PDFXYZ_WORKER_HEARTBEAT` **and** the Redis/Upstash job-queue
+broker is configured, the out-of-band worker daemon publishes one bounded heartbeat record
+under the queue prefix. The web app reads that record through the same node-free broker
+transport and sets `daemonObserved:true` only while the beat is fresh.
+
+- **Provider seam** (`src/lib/workers/heartbeat/`): Redis-backed publisher/reader, disabled
+  no-op default, bounded interval parsing, TTL/freshness windows, and defensive schema
+  parsing. A missing backend or disabled flag performs no network call and returns the
+  honest disabled state.
+- **Content-free record**: fixed schema version, role enum, coarse mode enum, four boolean
+  capabilities, optional coarse `major.minor` release, and a publish timestamp used only to
+  derive a coarse age bucket. No host, PID, container id, endpoint, key, filename, path,
+  OCR text, scanner signature, job id, or secret can be stored or surfaced.
+- **Operations snapshot integration**: `daemon.state` is `observed` / `stale` / `unknown` /
+  `disabled`; `daemonObserved` is true only for `observed`. Stale/unknown liveness yields
+  `investigate-worker-liveness`; disabled keeps the previous “confirm out-of-band” posture.
+- **Daemon integration**: real run modes publish at a bounded cadence and swallow heartbeat
+  backend failures so liveness outages cannot corrupt jobs or crash processing.
+
+⏳ Still out-of-band (deliberately not faked): provisioning the Redis broker, deploying the
+worker, connecting a real process supervisor/alerts, and proving job success from a beat. A
+heartbeat proves only that a daemon recently wrote the content-free liveness record.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

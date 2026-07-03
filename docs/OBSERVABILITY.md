@@ -164,9 +164,11 @@ that summarizes **what runs where in this environment**:
 - **Secure worker** — read **live** from `/api/worker/status`. Shows the honest
   detail for the current mode (`disabled` / `remote-configured` / `local-dev`).
   A fetch failure is a recoverable error (with a retry), never a dead end.
-- **Worker operations** (Phase 29) — the operator counterpart to the capability
-  summary, read **live** from `/api/worker/operations`. See
-  [the operations dashboard](#the-operations-dashboard-phase-29) below.
+- **Heartbeat liveness (Phase 30)** — if `PDFXYZ_WORKER_HEARTBEAT` is explicitly
+  enabled and the Redis/Upstash queue broker is configured, the daemon publishes a
+  bounded heartbeat record and `/api/worker/operations` can report
+  `daemonObserved:true` while that beat is fresh. Disabled remains neutral; stale or
+  absent beats are warnings, not fabricated “alive” states.
 - **What runs where** — a static explainer of the four capabilities
   (`in-browser`, `hybrid`, `secure-worker`, `ai`) and whether each uploads files.
 
@@ -221,10 +223,11 @@ SLO health classes and a single next action. It lives in
 - the **lifecycle verification** rung and the **engine/OCR proof** tri-states (honestly
   `unknown` from the web);
 - a **last-worker-loop** card when the snapshot is worker-vantage (absent from the web);
-- an always-present **daemon-observability caveat**. From the web app,
-  `daemonObserved` is always `false`; the dashboard states in plain language that this
-  means *“this app cannot observe a separate worker process,”* **not** *“the worker is
-  down,”* and directs operators to the daemon’s own logs and the process supervisor.
+- **Daemon honesty** — without Phase 30 heartbeat configured, the web-vantage
+  `daemonObserved` remains `false`; with heartbeat configured, it becomes `true` only for a
+  fresh provider-backed beat. The dashboard states plainly that disabled/stale/absent
+  heartbeat states mean liveness is not confirmed, while a fresh heartbeat proves only a
+  recent daemon write — not job success.
 
 Two honesty rules make the UI safe to point at any environment: it renders **only from
 the bounded enums** (health classes, the recommended-action enum, subsystem ids, proof

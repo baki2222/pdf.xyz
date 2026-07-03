@@ -32,9 +32,13 @@
  *    small integer count, or generic prose. It never carries — and has nowhere to put
  *    — a variable name, secret, value, path, object key, endpoint, signed URL, bucket
  *    name, filename, recognized OCR text, or scanner signature.
- *  - **No fake liveness.** `daemonObserved` is `false` from the web (the app never
- *    becomes the daemon), so the snapshot can never imply a worker is deployed and
- *    running when that is unknowable from here.
+ *  - **No fake liveness.** `daemonObserved` is `true` from the worker vantage (a
+ *    worker demonstrably runs there) and, from the web, ONLY when a recent
+ *    liveness heartbeat is visible (Phase 30 — an out-of-band daemon publishes a
+ *    bounded heartbeat to the shared broker, and this snapshot folds in the
+ *    classified {@link HeartbeatLiveness}). A stale or absent heartbeat never
+ *    upgrades to observed, and with the feature disabled the web keeps its honest
+ *    "confirm a worker out-of-band" residual — it never implies a worker is down.
  */
 
 import type { WorkerMode } from "../mode";
@@ -57,6 +61,22 @@ import {
   type OperationalFacet,
   type WorkerDeploymentReadiness,
 } from "../deploy";
+import type {
+  DaemonLivenessState,
+  HeartbeatAgeBucket,
+  HeartbeatLiveness,
+  HeartbeatMode,
+  HeartbeatSource,
+} from "../heartbeat/types";
+
+// Re-export the bounded liveness enums the snapshot surfaces, so the UI (and any
+// consumer) can import them alongside the snapshot types from this barrel.
+export type {
+  DaemonLivenessState,
+  HeartbeatAgeBucket,
+  HeartbeatMode,
+  HeartbeatSource,
+} from "../heartbeat/types";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -125,6 +145,7 @@ export type RecommendedAction =
   | "verify-lifecycle" // a backstop is declared but not asserted validated
   | "reconcile-lifecycle-drift" // an observed config shows the backstop does not hold
   | "investigate-loop-errors" // the last daemon loop hit queue/transient errors
+  | "investigate-worker-liveness" // liveness observation is on, but no fresh heartbeat is visible
   | "confirm-worker-deployment"; // web vantage: everything observable is green, but a
 // separate worker daemon must be deployed and its liveness cannot be seen from here
 
@@ -163,6 +184,25 @@ export interface SnapshotLoopOutcome {
   readonly health: HealthClass;
 }
 
+/**
+ * The classified worker **liveness** the snapshot surfaces (Phase 30) — the
+ * content-free projection of a {@link HeartbeatLiveness}. Every field is a bounded
+ * enum, a coarse age bucket, or a client-safe detail line (the UI re-authors all
+ * copy). It never carries an endpoint, key, worker id, or timestamp.
+ */
+export interface SnapshotDaemonLiveness {
+  /** observed / stale / unknown / disabled. */
+  readonly state: DaemonLivenessState;
+  /** Where the liveness came from: the shared broker, the worker itself, or none. */
+  readonly source: HeartbeatSource;
+  /** Coarse age bucket of the last heartbeat, or `null` when none is visible. */
+  readonly lastSeen: HeartbeatAgeBucket | null;
+  /** Coarse mode from the last heartbeat, or `null` when none is visible. */
+  readonly mode: HeartbeatMode | null;
+  /** One-line, content-free explanation. */
+  readonly detail: string;
+}
+
 /** The full, content-free worker operations snapshot. */
 export interface WorkerOperationsSnapshot {
   readonly version: typeof OPERATIONS_SNAPSHOT_VERSION;
@@ -172,11 +212,18 @@ export interface WorkerOperationsSnapshot {
   /** True only when queue AND storage are configured (a worker CAN run here). */
   readonly drainable: boolean;
   /**
-   * Whether this snapshot can observe an actual worker process. `false` from the web
-   * (the app never becomes the daemon), so the snapshot never implies a deployed,
-   * running worker. `true` from the worker vantage (a worker demonstrably runs here).
+   * Whether this snapshot can observe an actual worker process. `true` from the
+   * worker vantage (a worker demonstrably runs here) and, from the web, ONLY when a
+   * recent liveness heartbeat is visible (Phase 30) — never on stale/absent evidence.
+   * `false` otherwise, so the snapshot never implies a deployed, running worker it
+   * cannot see. Equivalent to `daemon.state === "observed"`.
    */
   readonly daemonObserved: boolean;
+  /**
+   * The classified worker liveness (Phase 30): observed / stale / unknown / disabled,
+   * with a coarse last-seen bucket and the safe source category. Content-free.
+   */
+  readonly daemon: SnapshotDaemonLiveness;
   /** The overall SLO health class. */
   readonly health: HealthClass;
   /** One-line, content-free summary of the overall health + recommended action. */
@@ -218,6 +265,14 @@ export interface OperationsSnapshotInput {
   readonly lifecycleVerification?: LifecycleVerificationInput;
   /** The last in-process daemon loop outcome, when a run completed. Omit ⇒ `null`. */
   readonly lastLoop?: DaemonRunSummary;
+  /**
+   * Classified cross-process worker liveness from a heartbeat reader (Phase 30).
+   * Only meaningful on the `web` vantage: when present and `observed`, `daemonObserved`
+   * becomes `true`; when `stale`/`unknown`, the verdict becomes a `warn`. Omit (or
+   * `disabled`) ⇒ the honest web residual (`confirm-worker-deployment`). Ignored on
+   * the worker vantage, which observes its own liveness directly.
+   */
+  readonly daemonLiveness?: HeartbeatLiveness;
 }
 
 /** Fixed, content-free message for each recommended action. */
@@ -245,6 +300,8 @@ export const RECOMMENDED_ACTION_DETAIL: Record<RecommendedAction, string> = {
     "A verified observed configuration shows the retention backstop does not hold as generated, so objects can outlive the privacy ceiling. Reconcile the drift.",
   "investigate-loop-errors":
     "The last worker loop hit queue or transient errors. Check broker reachability and the executor logs; retryable failures are left for redelivery.",
+  "investigate-worker-liveness":
+    "Worker liveness observation is enabled, but no recent heartbeat is visible (it is stale or absent). Confirm a worker daemon is deployed and beating; check its logs and your process supervisor.",
   "confirm-worker-deployment":
     "Everything this app can observe is healthy, but a worker daemon runs out-of-band and its liveness cannot be seen from here. Confirm a worker is deployed and draining.",
 };
@@ -434,12 +491,61 @@ function resolveLifecycleVerification(
 }
 
 /**
+ * Resolve the surfaced {@link SnapshotDaemonLiveness} for a vantage. The worker
+ * vantage observes its own liveness directly (`observed`/`self`). The web vantage
+ * folds in the classified heartbeat reader result; with none supplied or a disabled
+ * seam, it is the honest, neutral `disabled` (absence says nothing here).
+ */
+function resolveDaemonLiveness(
+  vantage: SnapshotVantage,
+  liveness: HeartbeatLiveness | undefined,
+): SnapshotDaemonLiveness {
+  if (vantage === "worker") {
+    return {
+      state: "observed",
+      source: "self",
+      lastSeen: null,
+      mode: null,
+      detail:
+        "This snapshot was collected on the worker process itself, so its liveness is directly observed.",
+    };
+  }
+  if (!liveness || liveness.state === "disabled") {
+    return {
+      state: "disabled",
+      source: liveness?.source ?? "none",
+      lastSeen: null,
+      mode: null,
+      detail:
+        "Cross-process worker liveness observation is not enabled here, so an absent heartbeat says nothing; confirm a worker out-of-band.",
+    };
+  }
+  // Author the detail here rather than passing the reader's through — defense in
+  // depth, so the surfaced field is snapshot-authored copy even if a reader ever
+  // returned an unexpected string. Only observed/stale/unknown reach this point.
+  const detail =
+    liveness.state === "observed"
+      ? "A worker daemon published a liveness heartbeat within the freshness window, so a worker is observably running and draining out-of-band."
+      : liveness.state === "stale"
+        ? "A worker heartbeat is present but older than the freshness window; the worker may have stopped or lost connectivity. Confirm it out-of-band."
+        : "Liveness observation is enabled, but no recent heartbeat is visible; a worker may not be deployed or beating. Confirm it out-of-band.";
+  return {
+    state: liveness.state,
+    source: liveness.source,
+    lastSeen: liveness.lastSeen,
+    mode: liveness.mode,
+    detail,
+  };
+}
+
+/**
  * Derive the single overall health + recommended action from the resolved inputs.
  * The order is a strict priority: the worst, most-actionable issue wins, so a snapshot
  * always points at exactly one next step. Startup blockers (guardrail errors, an
  * unrunnable environment) rank above caveats (an unverified backstop, a lossless-only
  * engine), which rank above the honest web-vantage residual ("confirm a worker is
- * deployed"). On the worker vantage a fully-green stack resolves to `none`.
+ * deployed", or — when liveness observation is on — the observed/stale verdict). On
+ * the worker vantage a fully-green stack resolves to `none`.
  */
 function deriveVerdict(
   input: OperationsSnapshotInput,
@@ -505,12 +611,24 @@ function deriveVerdict(
     return { health: "warn", action: "verify-lifecycle" };
   }
 
-  // 9. Everything observable is green. From the web, the honest residual is that a
-  // worker must be deployed out-of-band and its liveness is not observable here.
-  if (vantage === "web") {
-    return { health: "ok", action: "confirm-worker-deployment" };
+  // 9. Everything observable is green. On the worker vantage that is `none`.
+  if (vantage !== "web") {
+    return { health: "ok", action: "none" };
   }
-  return { health: "ok", action: "none" };
+  // From the web, the residual depends on liveness observation (Phase 30):
+  const liveness = input.daemonLiveness;
+  //  - a fresh heartbeat is visible ⇒ we can SEE a live worker ⇒ nothing to confirm;
+  if (liveness?.state === "observed") {
+    return { health: "ok", action: "none" };
+  }
+  //  - observation is ON but the heartbeat is stale/absent ⇒ it should be beating but
+  //    isn't — a real, actionable warning (not merely the unobservable residual);
+  if (liveness && (liveness.state === "stale" || liveness.state === "unknown")) {
+    return { health: "warn", action: "investigate-worker-liveness" };
+  }
+  //  - observation is off/not configured ⇒ the honest residual: a worker must be
+  //    deployed out-of-band and its liveness is not observable here.
+  return { health: "ok", action: "confirm-worker-deployment" };
 }
 
 /** Fixed, content-free one-line summary for the overall health. */
@@ -532,6 +650,7 @@ export function buildWorkerOperationsSnapshot(
   const lifecycleVerification = resolveLifecycleVerification(input.lifecycleVerification);
   const subsystems = buildSubsystems(input, lifecycleVerification);
   const { health, action } = deriveVerdict(input, lifecycleVerification);
+  const daemon = resolveDaemonLiveness(input.vantage, input.daemonLiveness);
 
   const engineState = facetOf(input.deployment, "engine")?.state;
   const ocrState = facetOf(input.deployment, "ocr")?.state;
@@ -556,8 +675,10 @@ export function buildWorkerOperationsSnapshot(
     vantage: input.vantage,
     mode: input.readiness.mode,
     drainable: input.readiness.drainable,
-    // The web app is never the draining daemon; only the worker vantage observes one.
-    daemonObserved: input.vantage === "worker",
+    // Observed on the worker vantage (a worker runs here) or, from the web, only when
+    // a recent heartbeat is visible (Phase 30) — never on stale/absent evidence.
+    daemonObserved: daemon.state === "observed",
+    daemon,
     health,
     detail: `${HEALTH_SUMMARY[health]}. ${RECOMMENDED_ACTION_DETAIL[action]}`,
     recommendedAction: action,
@@ -594,11 +715,14 @@ export function engineHealthFromTools(
  * engine availability — is only meaningful in `local-dev` (where the web app *is* the
  * in-process worker, so its own PATH probe is honest); in every other mode `tools` is
  * omitted, so the engine/OCR proofs are honestly `unknown` (a separate worker image
- * cannot be probed from here). `daemonObserved` is always `false`. `env` is injectable.
+ * cannot be probed from here). `daemonObserved` is `false` unless a recent liveness
+ * heartbeat is supplied via `opts.daemonLiveness` (Phase 30 — the route reads it from
+ * the shared broker when the feature is enabled); with none, the web keeps its honest
+ * "confirm a worker out-of-band" residual. `env` is injectable.
  */
 export function collectWebOperationsSnapshot(
   env: EnvSource = process.env,
-  opts: { tools?: ToolAvailability } = {},
+  opts: { tools?: ToolAvailability; daemonLiveness?: HeartbeatLiveness } = {},
 ): WorkerOperationsSnapshot {
   const readiness = resolveDaemonReadiness(env);
   const engine = engineHealthFromTools(opts.tools);
@@ -613,6 +737,7 @@ export function collectWebOperationsSnapshot(
     readiness,
     deployment,
     guardrails,
+    ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
     // No `ocrEnabled`: the web can't observe the worker's OCR, so OCR stays `unknown`.
   });
 }

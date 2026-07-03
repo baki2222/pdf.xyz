@@ -22,12 +22,19 @@ const DRAINABLE_ENV = {
 function makeSnapshot(
   overrides: Partial<WorkerOperationsSnapshot> = {},
 ): WorkerOperationsSnapshot {
-  return {
+  const base: WorkerOperationsSnapshot = {
     version: 1,
     vantage: "web",
     mode: "disabled",
     drainable: false,
     daemonObserved: false,
+    daemon: {
+      state: "disabled",
+      source: "none",
+      lastSeen: null,
+      mode: null,
+      detail: "server-detail-should-not-render",
+    },
     health: "unknown",
     detail: "server-detail-should-not-render",
     recommendedAction: "confirm-worker-deployment",
@@ -41,8 +48,23 @@ function makeSnapshot(
       detail: "server-detail-should-not-render",
     },
     lastLoop: null,
-    ...overrides,
   };
+  const merged = { ...base, ...overrides };
+  // Keep the daemon liveness coherent with `daemonObserved` when a fixture doesn't set
+  // one explicitly — real snapshots satisfy `daemonObserved ⟺ daemon.state === "observed"`
+  // (worker vantage observes itself via `self`; a fresh web beat via `queue-broker`).
+  const daemon: WorkerOperationsSnapshot["daemon"] =
+    overrides.daemon ??
+    (merged.daemonObserved
+      ? {
+          state: "observed",
+          source: merged.vantage === "worker" ? "self" : "queue-broker",
+          lastSeen: merged.vantage === "worker" ? null : "under-30s",
+          mode: merged.vantage === "worker" ? null : "loop",
+          detail: "server-detail-should-not-render",
+        }
+      : base.daemon);
+  return { ...merged, daemon };
 }
 
 describe("normalizeSnapshot", () => {
@@ -205,7 +227,7 @@ describe("OperationsSnapshotView — honest end-to-end states", () => {
     expect(screen.getByText("Last worker loop")).toBeInTheDocument();
     // On the worker vantage the caveat flips to the positive, observed message.
     expect(
-      screen.getByText(/worker process is observable/i),
+      screen.getAllByText("Fresh heartbeat")[0],
     ).toBeInTheDocument();
     // Bounded integer counters render (Failed=1, Errors=2).
     expect(screen.getByText("Errors")).toBeInTheDocument();
@@ -230,7 +252,7 @@ describe("OperationsSnapshotView — healthy / unknown / disabled states", () =>
     expect(screen.getByText("No action required")).toBeInTheDocument();
     expect(screen.getAllByText("Healthy").length).toBeGreaterThanOrEqual(1);
     // Worker vantage flips the caveat to the positive, observed message.
-    expect(screen.getByText(/worker process is observable/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Fresh heartbeat")[0]).toBeInTheDocument();
   });
 
   it("renders an unknown-health snapshot as grey (never green) and falls back to generic action copy", () => {
@@ -345,5 +367,111 @@ describe("OperationsSnapshotView — privacy", () => {
     expect(screen.getByText("Object storage")).toBeInTheDocument();
     // The unknown subsystem id is dropped entirely.
     expect(within(container).queryByText("EVILLABEL")).toBeNull();
+  });
+});
+
+describe("OperationsSnapshotView — daemon liveness (Phase 30)", () => {
+  it("renders an observed web heartbeat: worker is observable, source shown, no action", () => {
+    render(
+      <OperationsSnapshotView
+        snapshot={makeSnapshot({
+          drainable: true,
+          daemonObserved: true,
+          health: "ok",
+          recommendedAction: "none",
+          daemon: {
+            state: "observed",
+            source: "queue-broker",
+            lastSeen: "under-30s",
+            mode: "loop",
+            detail: "server-detail-should-not-render",
+          },
+        })}
+      />,
+    );
+    expect(screen.getAllByText("Fresh heartbeat")[0]).toBeInTheDocument();
+    expect(screen.getByText("Fresh heartbeat")).toBeInTheDocument();
+    expect(screen.getByText("Queue broker")).toBeInTheDocument();
+    expect(screen.getByText("No action required")).toBeInTheDocument();
+  });
+
+  it("renders a stale web heartbeat: an actionable warning that is not 'down'", () => {
+    render(
+      <OperationsSnapshotView
+        snapshot={makeSnapshot({
+          drainable: true,
+          daemonObserved: false,
+          health: "warn",
+          recommendedAction: "investigate-worker-liveness",
+          daemon: {
+            state: "stale",
+            source: "queue-broker",
+            lastSeen: "under-2m",
+            mode: "loop",
+            detail: "server-detail-should-not-render",
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/gone stale/i)).toBeInTheDocument();
+    expect(screen.getByText("Investigate worker liveness")).toBeInTheDocument();
+    expect(screen.getByText("Stale heartbeat")).toBeInTheDocument();
+    // A stale beat must never read as an observed, live worker.
+    expect(screen.queryByText(/worker process is observable/i)).toBeNull();
+  });
+
+  it("renders an unknown web heartbeat (enabled, no beat) as a no-fresh-heartbeat warning", () => {
+    render(
+      <OperationsSnapshotView
+        snapshot={makeSnapshot({
+          drainable: true,
+          daemonObserved: false,
+          health: "warn",
+          recommendedAction: "investigate-worker-liveness",
+          daemon: {
+            state: "unknown",
+            source: "queue-broker",
+            lastSeen: null,
+            mode: null,
+            detail: "server-detail-should-not-render",
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/no recent worker heartbeat/i)).toBeInTheDocument();
+    expect(screen.getByText("No fresh heartbeat")).toBeInTheDocument();
+    expect(screen.queryByText(/worker process is observable/i)).toBeNull();
+  });
+
+  it("coerces a hostile heartbeat payload to the honest disabled caveat, leaking nothing", () => {
+    const hostile = makeSnapshot({
+      daemonObserved: false,
+      daemon: {
+        // Injected junk in every field — normalization must coerce it all away.
+        state: "pwned" as unknown as "disabled",
+        source: "https://evil.example.com:6379" as unknown as "none",
+        lastSeen: "yesterday" as unknown as null,
+        mode: "rm -rf /" as unknown as null,
+        detail: "s3://secret-bucket/leak.pdf TOKEN_SECRET_VALUE",
+      },
+    });
+    const { container } = render(<OperationsSnapshotView snapshot={hostile} />);
+    const text = container.textContent ?? "";
+    for (const forbidden of [
+      "evil.example.com",
+      ":6379",
+      "https://",
+      "s3://",
+      "secret-bucket",
+      "leak.pdf",
+      "TOKEN_SECRET_VALUE",
+      "rm -rf",
+      "pwned",
+      "yesterday",
+    ]) {
+      expect(text).not.toContain(forbidden);
+    }
+    // An unrecognized state coerces to the honest disabled caveat.
+    expect(screen.getByText(/can.?t see a running worker/i)).toBeInTheDocument();
   });
 });

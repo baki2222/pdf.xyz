@@ -51,6 +51,10 @@ import type {
   RecommendedAction,
   SnapshotLoopOutcome,
   SnapshotSubsystemId,
+  DaemonLivenessState,
+  HeartbeatAgeBucket,
+  HeartbeatMode,
+  HeartbeatSource,
   WorkerOperationsSnapshot,
 } from "@/lib/workers/observability";
 import { cn } from "@/lib/utils";
@@ -85,6 +89,13 @@ export interface SafeLoop {
   readonly errors: number;
 }
 
+export interface SafeDaemonLiveness {
+  readonly state: DaemonLivenessState;
+  readonly source: HeartbeatSource;
+  readonly lastSeen: HeartbeatAgeBucket | null;
+  readonly mode: HeartbeatMode | null;
+}
+
 /**
  * The fully-sanitized projection the dashboard renders. Every field is a bounded
  * enum, a boolean, a clamped integer, or `null` — there is nowhere to put a string
@@ -97,6 +108,7 @@ export interface SafeOperationsView {
   readonly mode: WorkerMode | null;
   readonly drainable: boolean;
   readonly daemonObserved: boolean;
+  readonly daemon: SafeDaemonLiveness;
   readonly health: HealthClass;
   readonly recommendedAction: RecommendedAction | null;
   readonly subsystems: SafeSubsystem[];
@@ -149,6 +161,58 @@ const MODE_LABEL: Record<WorkerMode, string> = {
   disabled: "Disabled",
   "remote-configured": "Remote configured",
   "local-dev": "Local-dev",
+};
+
+const DAEMON_LIVENESS_META: Record<
+  DaemonLivenessState,
+  { tone: StatusTone; label: string; detail: string }
+> = {
+  observed: {
+    tone: "ok",
+    label: "Fresh heartbeat",
+    detail:
+      "A daemon published a fresh content-free heartbeat through the configured provider.",
+  },
+  stale: {
+    tone: "warn",
+    label: "Stale heartbeat",
+    detail:
+      "A heartbeat exists but is older than the freshness window. Confirm the worker process and broker connectivity.",
+  },
+  unknown: {
+    tone: "warn",
+    label: "No fresh heartbeat",
+    detail:
+      "Heartbeat observation is enabled, but no fresh daemon beat is visible from the web vantage.",
+  },
+  disabled: {
+    tone: "muted",
+    label: "Observation disabled",
+    detail:
+      "No heartbeat provider is enabled here, so the web app still cannot observe a separate worker daemon.",
+  },
+};
+
+const HEARTBEAT_SOURCE_LABEL: Record<HeartbeatSource, string> = {
+  "queue-broker": "Queue broker",
+  self: "Worker process",
+  none: "None",
+};
+
+const HEARTBEAT_AGE_LABEL: Record<HeartbeatAgeBucket, string> = {
+  "under-30s": "Under 30s",
+  "under-2m": "Under 2m",
+  "under-10m": "Under 10m",
+  "over-10m": "Over 10m",
+};
+
+const HEARTBEAT_MODE_LABEL: Record<HeartbeatMode, string> = {
+  starting: "Starting",
+  loop: "Looping",
+  drain: "Draining",
+  once: "Single tick",
+  check: "Checking",
+  "dry-run": "Dry run",
 };
 
 const SUBSYSTEM_META: Record<
@@ -291,6 +355,11 @@ const RECOMMENDED_ACTION_COPY: Record<
     detail:
       "The last worker loop hit queue or transient errors. Check broker reachability and the executor logs; retryable failures are left for redelivery.",
   },
+  "investigate-worker-liveness": {
+    title: "Investigate worker liveness",
+    detail:
+      "Liveness observation is enabled, but no fresh daemon heartbeat is visible. Check the worker process, broker reachability, and heartbeat configuration before trusting remote processing.",
+  },
   "confirm-worker-deployment": {
     title: "Confirm a worker is deployed",
     detail:
@@ -412,6 +481,7 @@ export function normalizeSnapshot(raw: unknown): SafeOperationsView {
   }
 
   const proofsSrc = isObject(src.proofs) ? src.proofs : {};
+  const daemonSrc = isObject(src.daemon) ? src.daemon : {};
   const lifecycleSrc = isObject(src.lifecycleVerification)
     ? src.lifecycleVerification
     : {};
@@ -439,6 +509,12 @@ export function normalizeSnapshot(raw: unknown): SafeOperationsView {
     mode: asEnumOrNull(src.mode, MODE_LABEL),
     drainable: src.drainable === true,
     daemonObserved: src.daemonObserved === true,
+    daemon: {
+      state: asEnum(daemonSrc.state, DAEMON_LIVENESS_META, "disabled"),
+      source: asEnum(daemonSrc.source, HEARTBEAT_SOURCE_LABEL, "none"),
+      lastSeen: asEnumOrNull(daemonSrc.lastSeen, HEARTBEAT_AGE_LABEL),
+      mode: asEnumOrNull(daemonSrc.mode, HEARTBEAT_MODE_LABEL),
+    },
     health: asEnum(src.health, HEALTH_META, "unknown"),
     recommendedAction: asEnumOrNull(src.recommendedAction, RECOMMENDED_ACTION_COPY),
     subsystems,
@@ -590,27 +666,62 @@ const CALLOUT_TONE: Record<StatusTone, string> = {
 };
 
 /**
- * The load-bearing honesty caveat. The web app can never observe a separate worker
- * process, so `daemonObserved` is always `false` here — and that must NOT read as
- * "the worker is down". This card says exactly what it means and where to look
- * instead (the daemon's own logs / the process supervisor).
+ * The load-bearing honesty caveat, now liveness-aware (Phase 30). It renders one of
+ * four honest states, keyed off the classified `daemon.state`, and NEVER over-claims:
+ *  - `observed` — a worker is genuinely visible (the worker vantage observes itself;
+ *    from the web a fresh heartbeat proves a daemon is running out-of-band);
+ *  - `stale`/`unknown` — observation is enabled but no fresh beat is visible: a real,
+ *    actionable warning that still does not assert the worker is down;
+ *  - `disabled` — the honest web residual: liveness observation is off, so an absent
+ *    heartbeat says nothing (it does NOT mean the worker is down).
+ * Every word is authored here; no server string reaches the DOM.
  */
 export function DaemonObservabilityCaveat({
-  daemonObserved,
+  daemon,
 }: {
-  daemonObserved: boolean;
+  daemon: SafeDaemonLiveness;
 }) {
-  if (daemonObserved) {
+  // Observed: a worker is genuinely visible.
+  if (daemon.state === "observed") {
     return (
       <div className="flex items-start gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.06] p-4 text-sm text-emerald-100">
         <Cpu className="mt-0.5 size-4 shrink-0 text-emerald-300" aria-hidden />
         <p className="leading-relaxed">
-          A worker process is observable from this vantage — these figures include
-          its real host probes and last-loop counters.
+          {daemon.source === "self"
+            ? "A worker process is observable from this vantage — these figures include its real host probes and last-loop counters."
+            : "A worker process is observable: a daemon published a fresh, content-free liveness heartbeat, so this app can see a live worker draining out-of-band. A recent beat proves the daemon is running — it does not by itself prove every job succeeds."}
         </p>
       </div>
     );
   }
+  // Stale / no fresh beat, but observation IS enabled — a real, actionable warning.
+  if (daemon.state === "stale" || daemon.state === "unknown") {
+    return (
+      <div
+        className="flex items-start gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4 text-sm text-amber-100"
+        role="note"
+      >
+        <Cpu className="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden />
+        <div className="flex flex-col gap-1">
+          <p className="font-semibold text-amber-50">
+            {daemon.state === "stale"
+              ? "A worker heartbeat has gone stale"
+              : "No recent worker heartbeat"}
+          </p>
+          <p className="leading-relaxed text-amber-100/90">
+            Worker liveness observation is enabled, but{" "}
+            {daemon.state === "stale"
+              ? "the last heartbeat is older than the freshness window"
+              : "no recent heartbeat is visible"}
+            , so the worker may have stopped or isn&apos;t beating. This does{" "}
+            <span className="font-medium">not</span> by itself confirm the worker is
+            down — check the daemon&apos;s own logs and your process supervisor.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  // Disabled: the honest web residual (proven copy — the app never becomes the daemon).
   return (
     <div
       className="flex items-start gap-3 rounded-2xl border border-blue-400/25 bg-blue-400/[0.06] p-4 text-sm text-blue-100"
@@ -622,8 +733,9 @@ export function DaemonObservabilityCaveat({
           This dashboard can&apos;t see a running worker
         </p>
         <p className="leading-relaxed text-blue-100/90">
-          <span className="font-medium">daemonObserved is false</span> because this
-          is the web vantage: the app never becomes the worker daemon.{" "}
+          <span className="font-medium">daemonObserved is false</span> because liveness
+          observation is not enabled here (this is the web vantage; the app never
+          becomes the worker daemon).{" "}
           <span className="font-medium">False here means &ldquo;this app cannot
           observe a separate worker process&rdquo;</span> — it does{" "}
           <span className="font-medium">not</span> mean the worker is down. To confirm
@@ -632,6 +744,32 @@ export function DaemonObservabilityCaveat({
         </p>
       </div>
     </div>
+  );
+}
+
+export function DaemonLivenessCard({ daemon }: { daemon: SafeDaemonLiveness }) {
+  const meta = DAEMON_LIVENESS_META[daemon.state];
+  return (
+    <StatusCard
+      title="Worker liveness heartbeat"
+      icon={Cpu}
+      badge={<StatusBadge tone={meta.tone} label={meta.label} />}
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-sm leading-relaxed text-slate-400">{meta.detail}</p>
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          <FactPill label="Source" value={HEARTBEAT_SOURCE_LABEL[daemon.source]} />
+          <FactPill
+            label="Last seen"
+            value={daemon.lastSeen ? HEARTBEAT_AGE_LABEL[daemon.lastSeen] : "No beat"}
+          />
+          <FactPill
+            label="Mode"
+            value={daemon.mode ? HEARTBEAT_MODE_LABEL[daemon.mode] : "Unknown"}
+          />
+        </div>
+      </div>
+    </StatusCard>
   );
 }
 
@@ -846,9 +984,10 @@ export function OperationsSnapshotView({
       {header}
       <OperationsHealthCard view={view} />
       <RecommendedActionCallout view={view} />
-      <DaemonObservabilityCaveat daemonObserved={view.daemonObserved} />
+      <DaemonObservabilityCaveat daemon={view.daemon} />
       <SubsystemGrid subsystems={view.subsystems} />
       <div className="grid gap-4 sm:grid-cols-2">
+        <DaemonLivenessCard daemon={view.daemon} />
         <LifecycleVerificationCard verdict={view.lifecycleVerification.verdict} />
         <ProofsCard proofs={view.proofs} vantage={view.vantage} />
       </div>

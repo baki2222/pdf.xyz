@@ -38,8 +38,16 @@ import {
   DAEMON_USAGE,
   type DaemonArgs,
   type DaemonLogEvent,
+  type DaemonMode,
   type DaemonRunSummary,
 } from "@/lib/workers/daemon";
+import {
+  coarseRelease,
+  createHeartbeatPublisher,
+  type HeartbeatMode,
+  type HeartbeatPublisher,
+} from "@/lib/workers/heartbeat";
+import { queueSupportsAtomicTransitions } from "@/lib/workers/queue/redis-config";
 import {
   collectRuntimeOperationsSnapshot,
   createWorkerMetricsCollector,
@@ -77,6 +85,48 @@ const EXIT_GUARDRAIL = 4;
 function emit(line: Record<string, unknown>): void {
   // This CLI's stdout IS its structured log; console is the intended sink.
   process.stdout.write(`${JSON.stringify({ ts: new Date().toISOString(), ...line })}\n`);
+}
+
+/** Map a run mode to the coarse heartbeat mode it publishes. */
+function heartbeatModeFor(mode: DaemonMode): HeartbeatMode {
+  switch (mode) {
+    case "loop":
+      return "loop";
+    case "drain":
+      return "drain";
+    case "once":
+      return "once";
+    case "check":
+      return "check";
+    case "dry-run-status":
+      return "dry-run";
+    default:
+      // lifecycle-policy/lifecycle-verify are handled before a runtime is built, so
+      // they never publish a heartbeat; this fallback is unreachable in practice.
+      return "starting";
+  }
+}
+
+/**
+ * Build the liveness heartbeat publisher (Phase 30) from the resolved runtime. It is
+ * a disabled no-op unless `PDFXYZ_WORKER_HEARTBEAT` is enabled AND a compatible
+ * broker is configured, so it publishes nothing in a no-config or backend-less
+ * environment. The capability summary it beats is derived from the SAME probed
+ * runtime health the readiness readout uses, so the two can never disagree. Every
+ * field is a bounded enum/boolean — never a host, path, key, or value.
+ */
+function buildHeartbeatPublisher(runtime: WorkerRuntime, mode: DaemonMode): HeartbeatPublisher {
+  const release = coarseRelease(process.env.npm_package_version);
+  return createHeartbeatPublisher(process.env, {
+    mode: heartbeatModeFor(mode),
+    capabilities: {
+      deepCompression: runtime.compression.deep,
+      ocr: runtime.ocr.ready,
+      malwareScan: runtime.scanner.active,
+      atomicQueue: queueSupportsAtomicTransitions(process.env),
+    },
+    ...(release !== undefined ? { release } : {}),
+  });
 }
 
 /** Report presence-only readiness + processor capabilities. Content-free. */
@@ -431,6 +481,13 @@ async function main(): Promise<number> {
   // `reportObservability` folds the readiness gauges into the collector just before it
   // snapshots (in every mode that emits), so there is no separate recording step here.
 
+  // The liveness heartbeat publisher (Phase 30): a disabled no-op unless explicitly
+  // enabled AND a compatible broker is configured. Its capability is content-free, so
+  // it is safe to log verbatim; a beat is published in the readiness modes below and,
+  // for a run, once at start and per iteration by the daemon loop.
+  const heartbeat = buildHeartbeatPublisher(runtime, args.mode);
+  emit({ src: "daemon", event: "heartbeat_capability", ...heartbeat.capability });
+
   // `--check`: evaluate deployment guardrails only. Exit 0 when clean, 4 when a
   // dangerous/invalid configuration is found. Never claims a job.
   if (args.mode === "check") {
@@ -438,6 +495,8 @@ async function main(): Promise<number> {
     reportDeployment(runtime);
     reportGuardrails(runtime.guardrails);
     reportObservability(metrics, runtime);
+    // A readiness beat (mode: check) — a no-op unless liveness is enabled + configured.
+    emit({ src: "daemon", event: "heartbeat", ...(await heartbeat.beat()) });
     return runtime.guardrails.ok ? EXIT_OK : EXIT_GUARDRAIL;
   }
 
@@ -449,6 +508,8 @@ async function main(): Promise<number> {
     reportDeployment(runtime);
     reportGuardrails(runtime.guardrails);
     reportObservability(metrics, runtime);
+    // A readiness beat (mode: dry-run) — a no-op unless liveness is enabled + configured.
+    emit({ src: "daemon", event: "heartbeat", ...(await heartbeat.beat()) });
     if (!runtime.guardrails.ok) return EXIT_GUARDRAIL;
     return runtime.readiness.drainable ? EXIT_OK : EXIT_NOT_CONFIGURED;
   }
@@ -493,6 +554,12 @@ async function main(): Promise<number> {
     log: (event: DaemonLogEvent) => emit({ src: "daemon", ...event }),
     shouldStop: () => stopping,
     metrics: metrics.sink,
+    // Publish liveness once at start and per poll iteration; the publisher self-
+    // throttles to the configured cadence and swallows outages, so this never
+    // disrupts draining. A disabled publisher makes this a cheap no-op.
+    heartbeat: async () => {
+      await heartbeat.beat();
+    },
   });
 
   const summary = await daemon.run({

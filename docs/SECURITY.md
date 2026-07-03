@@ -190,6 +190,28 @@ keys, filenames, signed URLs, command paths, env values, OCR text, scanner signa
 job/user ids. From the web vantage, `daemonObserved:false` and worker-image proof fields
 may be `unknown`; this is an honesty boundary, not a hidden green check.
 
+## Worker liveness heartbeat (Phase 30)
+
+The optional cross-process liveness heartbeat keeps that honesty boundary intact even as
+it lets the web vantage *observe* a running worker. It is doubly gated — off unless
+`PDFXYZ_WORKER_HEARTBEAT` is explicitly enabled **and** the Redis/Upstash job-queue broker
+is configured — and adds no new hosted dependency (it reuses the broker under the same
+sanitized key prefix, a single `…:heartbeat:secure-worker` key with no worker id).
+
+The published record is bounded by construction and validated on read: a schema version, a
+fixed `role`/`mode` enum, a coarse `major.minor` release, four capability booleans, and a
+single publish timestamp used **only** to derive a coarse age bucket — never surfaced raw.
+It never carries — and the parser drops anything that is not — a hostname, PID, container
+id, IP, port, path, Redis/object key, endpoint, signed URL, filename, OCR text, scanner
+signature, secret, or any high-cardinality label. The reader classifies liveness as
+`observed` / `stale` / `unknown` / `disabled`; a dead daemon cannot refresh its own
+timestamp and the broker key's TTL sweeps it, so `daemonObserved` can never outlive the
+worker by more than one freshness window, and a stale/absent/disabled beat never upgrades
+to observed. `/api/worker/operations` maps the result to a coarse state, last-seen bucket,
+and safe source *category* (`queue-broker`/`self`/`none`); the dashboard re-authors every
+word from bounded enums and never renders a stored field. A heartbeat outage is swallowed
+(publish → `unavailable`, read → `unknown`) so it can never corrupt a job or fake liveness.
+
 ## HTTP security headers
 
 Set for every response in [`next.config.mjs`](../next.config.mjs) and asserted by

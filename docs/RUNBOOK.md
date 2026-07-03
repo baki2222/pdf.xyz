@@ -76,6 +76,7 @@ this section is the by-service summary.
 | `PDFXYZ_MALWARE_SCANNER` (`clamav://host[:port]` or `clamav+unix:///path`), `PDFXYZ_CLAMAV_TIMEOUT_MS` / `PDFXYZ_CLAMAV_MAX_BYTES` | Optional | Enable the optional ClamAV/clamd malware-scan gate (streams inputs over INSTREAM, blocks infected before processing). Unset ⇒ inactive no-op (nothing scanned, never *reported* as scanned); `disabled`/`off` turns it off explicitly. Run clamd as a sidecar. Set `PDFXYZ_WORKER_REQUIRE_SCAN` to make `--check` refuse to run (exit `4`) unless a usable endpoint is configured. |
 | `PDFXYZ_OCR` (`on`/`off`), `PDFXYZ_OCR_ENGINE` (`ocrmypdf`/`tesseract`), `PDFXYZ_OCR_*_BIN`, `PDFXYZ_OCR_TIMEOUT_MS` / `_MAX_INPUT_BYTES` / `_MAX_OUTPUT_BYTES` / `_TMPDIR` | Optional | Enable the optional OCR backend (Phase 23). **Unset ⇒ disabled** — `ocr-pdf` fails honestly as `not_implemented`. `PDFXYZ_OCR=on` is necessary but not sufficient: install **OCRmyPDF** (preferred; PDF→searchable PDF+text) or **Tesseract** (images) and the language packs you advertise on the worker image. Values are never logged. See [`OCR_BACKEND.md`](./OCR_BACKEND.md). |
 | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE` / `_REQUIRE_DEEP_ENGINE` / `_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC`, `PDFXYZ_WORKER_REQUIRE_SCAN`, `PDFXYZ_WORKER_REQUIRE_OCR` | Optional (recommended in prod) | Opt-in guardrails: turn a dangerous or half-configured deployment into a fail-fast (exit `4`) instead of a silent fallback. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (implied by strict) requires a queue that guarantees atomic, race-safe transitions; `PDFXYZ_WORKER_REQUIRE_SCAN` (opt-in, **not** implied by strict) requires an active scanner; `PDFXYZ_WORKER_REQUIRE_OCR` (opt-in, **not** implied by strict) requires a ready OCR engine. See §4. |
+| `PDFXYZ_WORKER_HEARTBEAT`, `PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS` | Optional | Phase 30 liveness observation. When explicitly enabled and the Redis/Upstash queue broker is configured, the daemon publishes a bounded heartbeat to the broker; the web operations dashboard reports `daemonObserved:true` only while that beat is fresh. Disabled/stale/absent beats never fake liveness. |
 
 Provider config is read from the **environment at run time** and is never baked
 into an image layer, never logged, and never returned by `/api/worker/status`
@@ -234,13 +235,16 @@ out in plain language. Use `curl`/`jq` for scripting and alerts; use `/status` f
 
 Interpretation:
 
-- Web-vantage `daemonObserved:false` is expected; the web app cannot see a separate worker
-  process. Use worker logs/process supervision for actual daemon liveness. The `/status`
-  dashboard states this explicitly so `daemonObserved:false` is never misread as "worker down".
+- Web-vantage `daemonObserved:false` is expected when heartbeat observation is disabled;
+  the dashboard states this explicitly so it is never misread as "worker down". When
+  `PDFXYZ_WORKER_HEARTBEAT` is enabled with the Redis queue broker, a fresh beat flips
+  `daemonObserved:true`; stale or absent beats produce `investigate-worker-liveness`.
+
 - `recommendedAction` is the first safe next step. `configure-providers`,
-  `fix-guardrail`, `reconcile-lifecycle-drift`, and `investigate-loop-errors` are
-  operator-action states; `confirm-worker-deployment` means config looks good from the web
-  but the daemon must be checked out-of-band.
+  `fix-guardrail`, `reconcile-lifecycle-drift`, `investigate-worker-liveness`, and
+  `investigate-loop-errors` are operator-action states; `confirm-worker-deployment`
+  means config looks good from the web but heartbeat observation is disabled, so the
+  daemon must be checked out-of-band.
 - SLO entries are computed from content-free metric samples. Missing observations are
   `unknown`; latency is bucketed (`≤2.5s`, `≤10s`, …), never exact per-document timing.
 

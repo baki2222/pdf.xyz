@@ -206,3 +206,78 @@ describe("createWorkerDaemon — content-free logging", () => {
     }
   });
 });
+
+describe("createWorkerDaemon — heartbeat (Phase 30)", () => {
+  it("beats once at start in `once` mode", async () => {
+    const { executor } = scriptedExecutor([tick("completed", { jobId: "job_a", attempt: 1 })]);
+    let beats = 0;
+    const summary = await createWorkerDaemon({
+      executor,
+      heartbeat: () => {
+        beats += 1;
+      },
+    }).run({ mode: "once" });
+    expect(beats).toBe(1); // the start beat only; `once` runs a single tick
+    expect(summary).toMatchObject({ mode: "once", ticks: 1, completed: 1 });
+  });
+
+  it("beats at start and before each poll iteration in `drain`", async () => {
+    const { executor } = scriptedExecutor([
+      tick("completed", { jobId: "job_a", attempt: 1 }),
+      tick("idle"),
+    ]);
+    let beats = 0;
+    const summary = await createWorkerDaemon({
+      executor,
+      heartbeat: () => {
+        beats += 1;
+      },
+    }).run({ mode: "drain" });
+    // 1 start beat + 1 per iteration (completed → productive, then idle → drained).
+    expect(beats).toBe(3);
+    expect(summary).toMatchObject({ ticks: 2, completed: 1, idle: 1, reason: "drained" });
+  });
+
+  it("swallows a throwing heartbeat so a beat outage never disrupts draining", async () => {
+    const { executor, calls } = scriptedExecutor([tick("completed", { jobId: "j", attempt: 1 })]);
+    const summary = await createWorkerDaemon({
+      executor,
+      heartbeat: () => {
+        throw new Error("SECRET broker down /tmp/x");
+      },
+    }).run({ mode: "once" });
+    // The run completes normally; the heartbeat throw is contained (and its message,
+    // which could carry a secret/path, never surfaces).
+    expect(calls()).toBe(1);
+    expect(summary).toMatchObject({ ticks: 1, completed: 1, reason: "once" });
+  });
+
+  it("tolerates an async heartbeat that rejects, per iteration, without corrupting the run", async () => {
+    const { executor } = scriptedExecutor([
+      tick("completed", { jobId: "j", attempt: 1 }),
+      tick("idle"),
+    ]);
+    let beats = 0;
+    const summary = await createWorkerDaemon({
+      executor,
+      heartbeat: async () => {
+        beats += 1;
+        throw new Error("SECRET async outage");
+      },
+    }).run({ mode: "drain" });
+    expect(beats).toBe(3);
+    expect(summary).toMatchObject({ completed: 1, idle: 1, reason: "drained" });
+  });
+
+  it("leaves the content-free log unchanged when no heartbeat hook is wired", async () => {
+    const { executor } = scriptedExecutor([tick("idle")]);
+    const events: DaemonLogEvent[] = [];
+    const summary = await createWorkerDaemon({
+      executor,
+      log: (e) => events.push(e),
+    }).run({ mode: "drain" });
+    // The heartbeat adds NO log events; the loop is byte-for-byte unchanged.
+    expect(events.map((e) => e.event)).toEqual(["start", "tick", "stop"]);
+    expect(summary.reason).toBe("drained");
+  });
+});

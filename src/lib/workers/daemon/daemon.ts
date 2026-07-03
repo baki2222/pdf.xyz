@@ -82,6 +82,15 @@ export interface WorkerDaemonDeps {
    * sample per run. Absent (the default) ⇒ nothing is emitted; the loop is unchanged.
    */
   metrics?: WorkerMetricSink;
+  /**
+   * Optional liveness heartbeat (Phase 30), invoked once at start and before each
+   * poll iteration in `drain`/`loop` (and once at the start of `once`). The publisher
+   * it wraps is self-throttling, so a hot loop still beats only on the configured
+   * cadence; the loop additionally swallows any throw, so a heartbeat outage can never
+   * disrupt draining or corrupt a job. Absent (the default) ⇒ nothing is published and
+   * the loop is byte-for-byte unchanged.
+   */
+  heartbeat?: () => void | Promise<void>;
 }
 
 /** Map a tick outcome to the bounded queue-claim result it implies. */
@@ -129,6 +138,23 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
   const sleep = deps.sleep ?? defaultSleep;
   const shouldStop = deps.shouldStop ?? (() => false);
   const metrics = deps.metrics;
+  const heartbeat = deps.heartbeat;
+
+  /**
+   * Publish a liveness heartbeat, if wired, swallowing any failure. A heartbeat
+   * outage (broker blip) must NEVER disrupt draining or leave a job half-processed,
+   * so this is strictly best-effort — exactly like the executor's own transient
+   * containment. The wrapped publisher self-throttles, so calling this every tick is
+   * cheap (a timestamp compare) and touches the broker only on the cadence.
+   */
+  const beat = async (): Promise<void> => {
+    if (!heartbeat) return;
+    try {
+      await heartbeat();
+    } catch {
+      // Intentionally ignored: liveness is observability, never a correctness gate.
+    }
+  };
 
   /**
    * Run one executor tick, containing any throw as an `error` outcome. A thrown
@@ -212,6 +238,10 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
     };
 
     log({ event: "start", mode });
+    // An initial beat announces liveness the moment a run begins, before the first
+    // claim — so even a `once`/`drain` that finds an idle queue still reports a live
+    // worker. Subsequent beats happen per iteration below (self-throttled).
+    await beat();
 
     if (mode === "once") {
       if (shouldStop()) return finish("stopped");
@@ -222,6 +252,7 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
     for (;;) {
       if (shouldStop()) return finish("stopped");
       if (cap !== undefined && summary.ticks >= cap) return finish("max_ticks");
+      await beat();
 
       const tick = await safeTick();
       record(tick);

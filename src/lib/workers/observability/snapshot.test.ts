@@ -3,12 +3,30 @@ import { describe, expect, it } from "vitest";
 import { resolveDaemonReadiness } from "../daemon/readiness";
 import { resolveDeploymentReadiness } from "../deploy";
 import { LIFECYCLE_ENV } from "../lifecycle";
+import type { HeartbeatLiveness } from "../heartbeat";
 import {
   collectRuntimeOperationsSnapshot,
   collectWebOperationsSnapshot,
   engineHealthFromTools,
   type RuntimeSnapshotSource,
 } from "./index";
+
+/** Build a content-free {@link HeartbeatLiveness} fixture for a given state. */
+function liveness(
+  state: HeartbeatLiveness["state"],
+  extra: Partial<HeartbeatLiveness> = {},
+): HeartbeatLiveness {
+  return {
+    state,
+    observed: state === "observed",
+    source: state === "disabled" ? "none" : "queue-broker",
+    lastSeen: null,
+    mode: null,
+    capabilities: null,
+    detail: "content-free-liveness-detail",
+    ...extra,
+  };
+}
 
 const DRAINABLE_ENV = {
   PDFXYZ_STORAGE_PROVIDER: "s3",
@@ -120,5 +138,103 @@ describe("worker operations snapshot", () => {
     expect(
       engineHealthFromTools({ ghostscript: true, qpdf: false, mutool: false }),
     ).toEqual({ lossless: true, deep: true, engines: ["ghostscript"] });
+  });
+});
+
+describe("worker operations snapshot — daemon liveness (Phase 30)", () => {
+  // A fully-green web env: drainable + a validated lifecycle backstop, so the verdict
+  // reaches the liveness residual (step 9) rather than an earlier caveat.
+  const GREEN_ENV = {
+    ...DRAINABLE_ENV,
+    [LIFECYCLE_ENV.provider]: "aws-s3",
+    [LIFECYCLE_ENV.validated]: "true",
+  };
+
+  it("marks daemonObserved true and clears the residual on a fresh heartbeat", () => {
+    const snap = collectWebOperationsSnapshot(GREEN_ENV, {
+      daemonLiveness: liveness("observed", { observed: true, lastSeen: "under-30s", mode: "loop" }),
+    });
+    expect(snap.daemonObserved).toBe(true);
+    expect(snap.health).toBe("ok");
+    expect(snap.recommendedAction).toBe("none");
+    expect(snap.daemon).toMatchObject({
+      state: "observed",
+      source: "queue-broker",
+      lastSeen: "under-30s",
+      mode: "loop",
+    });
+  });
+
+  it("treats a stale heartbeat as an actionable warning, never observed", () => {
+    const snap = collectWebOperationsSnapshot(GREEN_ENV, {
+      daemonLiveness: liveness("stale", { lastSeen: "under-2m", mode: "loop" }),
+    });
+    expect(snap.daemonObserved).toBe(false);
+    expect(snap.health).toBe("warn");
+    expect(snap.recommendedAction).toBe("investigate-worker-liveness");
+    expect(snap.daemon.state).toBe("stale");
+  });
+
+  it("treats an unknown (enabled, no beat) heartbeat as an actionable warning", () => {
+    const snap = collectWebOperationsSnapshot(GREEN_ENV, {
+      daemonLiveness: liveness("unknown"),
+    });
+    expect(snap.daemonObserved).toBe(false);
+    expect(snap.recommendedAction).toBe("investigate-worker-liveness");
+    expect(snap.daemon.state).toBe("unknown");
+  });
+
+  it("keeps the honest 'confirm a worker' residual when observation is disabled", () => {
+    const snap = collectWebOperationsSnapshot(GREEN_ENV, {
+      daemonLiveness: liveness("disabled"),
+    });
+    expect(snap.daemonObserved).toBe(false);
+    expect(snap.recommendedAction).toBe("confirm-worker-deployment");
+    expect(snap.daemon.state).toBe("disabled");
+  });
+
+  it("defaults to the disabled residual when no liveness is supplied", () => {
+    const snap = collectWebOperationsSnapshot(GREEN_ENV);
+    expect(snap.daemonObserved).toBe(false);
+    expect(snap.daemon.state).toBe("disabled");
+    expect(snap.recommendedAction).toBe("confirm-worker-deployment");
+  });
+
+  it("observes its own liveness on the worker vantage (source self)", () => {
+    const readiness = resolveDaemonReadiness(GREEN_ENV);
+    const deployment = resolveDeploymentReadiness(readiness, GREEN_ENV, {
+      engine: { lossless: true, deep: true, engines: ["ghostscript"] },
+    });
+    const runtime: RuntimeSnapshotSource = {
+      readiness,
+      deployment,
+      ocr: { enabled: false },
+      guardrails: { ok: true, strict: false, violations: [] },
+    };
+    const snap = collectRuntimeOperationsSnapshot(runtime);
+    expect(snap.daemonObserved).toBe(true);
+    expect(snap.daemon).toMatchObject({ state: "observed", source: "self" });
+  });
+
+  it("never lets a hostile heartbeat detail carry an identifier into the snapshot", () => {
+    // The snapshot authors its own daemon.detail, so even a hostile reader detail is
+    // discarded rather than surfaced.
+    const snap = collectWebOperationsSnapshot(GREEN_ENV, {
+      daemonLiveness: liveness("observed", {
+        observed: true,
+        detail: "https://redis.example.com:6379 s3://secret-bucket/leak.pdf AKIASECRET",
+      }),
+    });
+    const json = JSON.stringify(snap.daemon);
+    for (const forbidden of [
+      "redis.example.com",
+      ":6379",
+      "s3://",
+      "secret-bucket",
+      "leak.pdf",
+      "AKIASECRET",
+    ]) {
+      expect(json).not.toContain(forbidden);
+    }
   });
 });
