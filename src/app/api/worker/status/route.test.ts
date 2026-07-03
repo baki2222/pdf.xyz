@@ -4,10 +4,17 @@ import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { WORKER_MODE_ENV } from "@/lib/workers";
 import { S3_ENV } from "@/lib/workers/storage/s3-config";
 import { REDIS_QUEUE_ENV } from "@/lib/workers/queue/redis-config";
+import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
+import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
 import { GET } from "./route";
 
 const s3Vars = Object.values(S3_ENV);
 const redisVars = Object.values(REDIS_QUEUE_ENV);
+
+/** Next always passes the request to a route handler; unit calls supply a bare one. */
+function statusReq(): Request {
+  return new Request("http://localhost/api/worker/status");
+}
 
 function clearEnv() {
   for (const name of REQUIRED_WORKER_ENV) delete process.env[name];
@@ -36,7 +43,7 @@ afterEach(clearEnv);
 
 describe("GET /api/worker/status", () => {
   it("reports disabled with no capability by default", async () => {
-    const res = await GET();
+    const res = await GET(statusReq());
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("content-type")).toContain("application/json");
@@ -61,7 +68,7 @@ describe("GET /api/worker/status", () => {
 
   it("reports remote-configured when backend vars are present", async () => {
     for (const name of REQUIRED_WORKER_ENV) process.env[name] = "set";
-    const res = await GET();
+    const res = await GET(statusReq());
     const body = await res.json();
     expect(body.mode).toBe("remote-configured");
     expect(body.enabled).toBe(false);
@@ -69,7 +76,7 @@ describe("GET /api/worker/status", () => {
 
   it("reports storage ready — separately from queue/processor — when S3 is configured", async () => {
     configureS3();
-    const res = await GET();
+    const res = await GET(statusReq());
     const body = await res.json();
     // Only storage is wired: it reports ready while queue/processor do not.
     expect(body.providers.storage.ready).toBe(true);
@@ -93,7 +100,7 @@ describe("GET /api/worker/status", () => {
 
   it("reports the queue ready — presence-only — when Redis is configured", async () => {
     configureRedis();
-    const res = await GET();
+    const res = await GET(statusReq());
     const body = await res.json();
     // The queue reports ready and configured, independently of storage/processor.
     expect(body.providers.queue.ready).toBe(true);
@@ -118,7 +125,7 @@ describe("GET /api/worker/status", () => {
 
   it("reports local-dev as enabled with real lossless when opted in", async () => {
     process.env[WORKER_MODE_ENV] = "local-dev";
-    const res = await GET();
+    const res = await GET(statusReq());
     const body = await res.json();
     expect(body.mode).toBe("local-dev");
     expect(body.enabled).toBe(true);
@@ -129,5 +136,42 @@ describe("GET /api/worker/status", () => {
     expect(Array.isArray(body.compress.engines)).toBe(true);
     // The local-dev worker ships no OCR processor, so OCR stays unavailable.
     expect(body.ocr.available).toBe(false);
+  });
+});
+
+describe("GET /api/worker/status — abuse guard", () => {
+  beforeEach(() => {
+    resetRateLimitGuardForTests();
+    process.env[RATE_LIMIT_ENV.provider] = "local-memory";
+  });
+  afterEach(() => {
+    resetRateLimitGuardForTests();
+    delete process.env[RATE_LIMIT_ENV.provider];
+    delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+  });
+
+  it("still serves the normal probe when a request is passed, never echoing identity", async () => {
+    // Trust the forwarding header so the address is actually read (and hashed);
+    // it must still never appear in the response body.
+    process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    const res = await GET(
+      new Request("http://localhost/api/worker/status", {
+        headers: { "x-forwarded-for": "203.0.113.77" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = JSON.stringify(await res.json());
+    expect(body).not.toContain("203.0.113.77");
+  });
+
+  it("returns 429 with Retry-After once the probe budget is spent", async () => {
+    const policy = policyFor("worker.status");
+    const bare = new Request("http://localhost/api/worker/status");
+    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("worker.status", bare);
+
+    const denied = await GET(bare);
+    expect(denied.status).toBe(429);
+    expect((await denied.json()).error.code).toBe("rate_limited");
+    expect(Number(denied.headers.get("retry-after"))).toBeGreaterThan(0);
   });
 });

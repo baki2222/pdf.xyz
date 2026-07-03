@@ -623,3 +623,31 @@ key prefix, object key, filename, or payload. Operationally, alert on:
   atomic script execution);
 - elevated requeue/redelivery counts (workers are losing leases or timing out);
 - dead-letter growth after the configured max attempts.
+
+## Abuse guard rate-limit signals (Phase 33)
+
+The public-API abuse guard (`src/lib/ratelimit`) **emits no product-analytics
+event of its own** — a server-side limiter has no business calling the client
+telemetry reporter. Instead it produces a **content-free decision** an operator can
+fold into ordinary server logs or an edge metric without any redaction step. Every
+field on a `RateLimitDecision` is a fixed enum, a stable policy id, or an integer
+derived purely from the policy window + clock:
+
+| Dimension          | Values                                                              |
+| ------------------ | ------------------------------------------------------------------- |
+| `action`           | the guarded route capability (e.g. `jobs.create`)                   |
+| `policyId`         | the stable policy label that fired                                  |
+| `provider`         | `disabled` \| `local-memory` \| `remote` \| `remote-unimplemented`  |
+| `enforced`         | boolean — `false` for every fail-open / not-configured allow        |
+| `allowed`          | boolean                                                             |
+| `retryAfterBucket` | coarse wait bucket (`none`/`<10s`/`10-60s`/`1-5m`/`5-15m`/`15m+`)    |
+
+None of these is an IP, user agent, filename, token, object key, job id, env value,
+or request body — the same no-leak posture as `/api/worker/status` and
+`/api/worker/operations`. On deny the same values back the `Retry-After` and
+`RateLimit-*` response headers. Operationally, if you log the decision, alert on a
+sustained rise in denied (`allowed: false`) decisions per `action`/`policyId`, and
+treat a jump in `enforced: false` **while a provider is configured** as a limiter
+outage (the guard is failing open — see docs/SECURITY.md). The guard itself keeps no
+counters beyond the live in-memory windows and exposes no metrics endpoint; the
+timeseries backend remains bring-your-own.

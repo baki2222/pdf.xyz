@@ -11,7 +11,8 @@
 
 import { parseCreateJobRequest } from "@/lib/jobs";
 import { getWorkerAdapter } from "@/lib/workers";
-import { readJsonBody, respond } from "../_lib/http";
+import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { readJsonBody, respond, respondRateLimited } from "../_lib/http";
 
 // Never statically cached: a request-scoped, no-store endpoint. Node runtime —
 // the local-dev adapter uses Node built-ins (lazily imported only in that mode).
@@ -19,6 +20,12 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: Request): Promise<Response> {
+  // Abuse guard first, before reading the body: throttle a flood before doing any
+  // work. A no-op unless a limiter is configured (see @/lib/ratelimit); the honest
+  // not-configured semantics below are otherwise untouched.
+  const limit = await enforceRateLimit("jobs.create", request);
+  if (!limit.allowed) return respondRateLimited(limit);
+
   const body = await readJsonBody(request);
   if (!body.ok) return respond(body.error);
 

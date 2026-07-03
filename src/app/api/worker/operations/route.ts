@@ -26,14 +26,21 @@ import {
   evaluateOperationsAlerts,
 } from "@/lib/workers/observability";
 import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
-import { respond } from "../../_lib/http";
+import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { respond, respondRateLimited } from "../../_lib/http";
 
 // Reflects live host + config state. Node runtime — the PATH probe uses Node built-ins,
 // lazily imported only in local-dev mode (every other mode reads config only).
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
+  // Guard the ops/SLO scrape first. The check is content-free and, with no limiter
+  // configured (the default), short-circuits before reading any header — the
+  // snapshot below stays lightweight and never exposes request identity.
+  const limit = await enforceRateLimit("worker.operations", request);
+  if (!limit.allowed) return respondRateLimited(limit);
+
   const mode = resolveWorkerMode();
 
   let tools: ToolAvailability | undefined;

@@ -852,20 +852,84 @@ Each job runs in an isolated temporary directory/container. Recommended processo
 - Signed, expiring download URLs.
 - Idempotency keys for retry-safe job creation.
 
-### 6. Rate limits
+### 6. Rate limits & the abuse guard
 
-Abuse limits are part of the contract (`RATE_LIMITS` in `src/lib/jobs/types.ts`)
-and are enforced at the edge/gateway, not in application code:
+Abuse limits are part of the contract (`RATE_LIMITS` in `src/lib/jobs/types.ts`).
+The **primary** enforcement point is, and remains, the edge/gateway (CDN / WAF /
+API gateway) in front of the app — that is the only layer that can enforce a
+global budget across every instance. The published per-client budgets:
 
 - Upload sessions: **60 / hour / client**.
 - Job creation: **60 / hour / client**.
 - Status polling: **120 / minute / client** (polling is expected; keep it cheap).
 
-A client is keyed by API token when present, otherwise by IP + coarse
-fingerprint. Exceeding a limit returns `429 rate_limited` with a `Retry-After`
-header. Per-tool concurrency is additionally capped by the queue (section 3).
-Static file limits (`JOB_LIMITS`) — 100 MB/file, 500 MB/session, 20 files —
-are validated before any byte is uploaded.
+Exceeding a limit returns `429 rate_limited` with a `Retry-After` header plus the
+standard `RateLimit-*` trio (`RateLimit-Limit` = the policy budget,
+`RateLimit-Remaining` = `0` on a deny, `RateLimit-Reset` = the same delta-seconds).
+Every header value derives only from the policy and the clock — never the caller —
+so a well-behaved client can self-throttle without any identifying detail crossing
+the wire. Per-tool concurrency is additionally capped by the queue (section 3).
+Static file limits (`JOB_LIMITS`) — 100 MB/file, 500 MB/session, 20 files — are
+validated before any byte is uploaded.
+
+#### In-app abuse guard (Phase 33, `src/lib/ratelimit`)
+
+The app also ships a small, honest **in-app abuse guard** as defense-in-depth
+behind the edge. It is a thin seam with typed per-action policies for every
+public API route (`uploads.create`, `jobs.create`, `jobs.status`, `jobs.delete`,
+`artifacts.fetch`, `worker.status`, `worker.operations`), a pluggable provider,
+and a **content-free** decision output.
+
+**It is disabled by default and fails open.** With no provider configured the
+guard allows every request and reports `enforced: false`, so the default build,
+the e2e suite, and every local-first browser tool behave exactly as before — the
+honest "not configured" posture of the rest of the codebase. It is selected with
+`PDFXYZ_RATE_LIMIT_PROVIDER`:
+
+| Value | Behavior |
+| --- | --- |
+| unset / `disabled` | No enforcement. Every request allowed, `enforced: false`. |
+| `local-memory` | The per-process in-memory limiter. Real, but **not distributed** (see caveat). |
+| `redis` / `remote` / `edge` / `waf` / … | Selects a remote backend. If a deployment has registered one via `registerRateLimitProvider` (see below), the guard delegates to it and reports `provider: "remote"`, `enforced: true`. This build registers **none** by default, so the selection resolves to `remote-unimplemented` and **skips honestly** (allow, `enforced: false`) — it never fakes distributed enforcement. |
+
+The remote backend is a **registration seam**, not a shipped client. A deployment
+implements the async `RateLimitProvider` interface (`src/lib/ratelimit/provider.ts`)
+over a real shared store (e.g. a Redis/Upstash-compatible client) and calls
+`registerRateLimitProvider(...)` once from a Next.js `instrumentation.ts`
+`register()` boot hook — no route or guard change needed. The backend is handed
+the same opaque, salted-hash bucket token the in-memory limiter uses (never a raw
+identity) and returns only a bounded verdict, so it is held to the identical
+content-free, no-leak invariant. If it throws (e.g. the store is unreachable) the
+guard fails **open** (allow, `enforced: false`), so a limiter outage can never take
+the API down.
+
+> **⚠️ Honest boundary — read before a high-traffic launch.** The `local-memory`
+> limiter keeps its counters in a single process's heap. Behind N app instances
+> each limits independently, so the effective budget is up to **N×** the
+> configured number, and a restart resets every window. It is genuinely useful in
+> dev/test and as a coarse single-instance backstop, but it is **not** a
+> production distributed rate limiter. **Wire a real edge/WAF/rate-limit provider
+> before a high-traffic launch** and treat the in-app guard as a secondary layer,
+> not the control. To make the in-app guard itself distributed, register a shared-store
+> backend via `registerRateLimitProvider` (the `remote` provider seam above).
+
+**Client attribution is private and opt-in.** A limiter must bucket by some
+client identity. The guard derives one only from the proxy forwarding header
+(`x-forwarded-for` / `x-real-ip`) and only when `PDFXYZ_RATE_LIMIT_TRUST_PROXY`
+is truthy — because that header is client-spoofable unless a trusted edge
+overwrites it. Off (the default), every request keys into **one shared bucket**
+(a coarse global throttle) rather than an attacker's rotating fake address. When
+on, the address is immediately **salted-hashed** (per-process random salt) and
+used only as an in-memory map key; the raw address is never retained, logged,
+returned, or placed in a decision.
+
+**The decision is content-free.** A `RateLimitDecision` carries only: `allowed`,
+the `action`, the stable `policyId`, the `provider`, the `enforced` flag, an exact
+`retryAfterSeconds` (derived purely from the window + clock), and a coarse
+`retryAfterBucket`. It never carries an IP, user agent, filename, token, object
+key, job id, env value, or request body — the same no-leak posture as
+`/api/worker/status` and `/api/worker/operations`, which stay lightweight and
+never expose request identity.
 
 ### 7. Observability
 

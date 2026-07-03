@@ -989,6 +989,28 @@ provisioning, real secrets, DNS/TLS, broker/storage credentials, scanner signatu
 operations, and any hosted pager/timeseries backend. The examples show where those pieces
 plug in; they do not provision or fake them.
 
+### Phase 33 — public-API abuse guard + rate limiting (shipped)
+
+Phase 33 adds an honest, provider-neutral **abuse guard** (`src/lib/ratelimit`) in front
+of every public API route: typed per-action policies (`uploads.create`, `jobs.create`,
+`jobs.status`, `jobs.delete`, `artifacts.fetch`, `worker.status`, `worker.operations`),
+a privacy-safe salted-hash client key that never retains a raw address, and a
+**content-free** decision. On deny it returns `429 rate_limited` with `Retry-After` +
+`RateLimit-*` headers whose values derive only from the policy and clock. It is **off by
+default and fails open** (`PDFXYZ_RATE_LIMIT_PROVIDER` unset ⇒ every request allowed,
+`enforced: false`), so the default build, e2e, and local-first tools are byte-for-byte
+unchanged. `local-memory` enables a real but per-process limiter; a **registration seam**
+(`registerRateLimitProvider`, wired from a Next.js `instrumentation.ts` boot hook) lets a
+deployment plug a Redis/edge-backed distributed provider (`provider: "remote"`) without
+touching a route. Offline tests (fakes only) pin the limiter math, policies, route
+allow/429 paths, the provider seam, and the no-leak contract under hostile
+headers/paths/bodies.
+
+⏳ Still out-of-band: the **distributed** limiter itself — this build ships no Redis/edge
+client, so a remote provider selection skips honestly (`remote-unimplemented`) until a
+deployment registers one. `local-memory` is a single-instance backstop, not a global
+budget; the edge/WAF/CDN rate-limit rule remains the primary, operator-owned control.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

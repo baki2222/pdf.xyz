@@ -9,17 +9,42 @@
 
 import { apiError, type ApiError, type ApiResult, type ParseResult } from "@/lib/jobs";
 import { JOB_LIMITS } from "@/lib/jobs";
+import {
+  rateLimitErrorResult,
+  rateLimitHeaders,
+  type RateLimitDecision,
+} from "@/lib/ratelimit";
 
-/** Serialize an ApiResult to a JSON Response with privacy-safe caching headers. */
-export function respond(result: ApiResult<unknown>): Response {
+/**
+ * Serialize an ApiResult to a JSON Response with privacy-safe caching headers.
+ * `extraHeaders` is merged last for the rare response that needs one (e.g. a
+ * `Retry-After` on a 429); it never overrides the no-store cache posture in a way
+ * that could leak job metadata.
+ */
+export function respond(
+  result: ApiResult<unknown>,
+  extraHeaders?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(result.body), {
     status: result.status,
     headers: {
       "content-type": "application/json; charset=utf-8",
       // Job metadata is never cacheable; also blocks shared-cache leakage.
       "cache-control": "no-store",
+      ...(extraHeaders ?? {}),
     },
   });
+}
+
+/**
+ * The one place a route turns a denied rate-limit decision into a `429`: a typed,
+ * content-free `rate_limited` JSON body plus the standard `Retry-After` and
+ * `RateLimit-*` headers. Every header value is derived from the policy and the
+ * decision's retry-after — never the caller — so nothing here can leak who was
+ * limited.
+ */
+export function respondRateLimited(decision: RateLimitDecision): Response {
+  return respond(rateLimitErrorResult(decision), rateLimitHeaders(decision));
 }
 
 function errorResult(

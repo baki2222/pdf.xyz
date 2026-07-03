@@ -12,15 +12,19 @@ import { apiError, workerNotConfigured } from "@/lib/jobs";
 import { isLocalDevWorker } from "@/lib/workers";
 import { devWorkerStore, isValidArtifactId } from "@/lib/workers/store";
 import { sanitizeSegment } from "@/lib/pdf/files";
-import { respond } from "../../../_lib/http";
+import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { respond, respondRateLimited } from "../../../_lib/http";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ artifactId: string }> },
 ): Promise<Response> {
+  const limit = await enforceRateLimit("artifacts.fetch", request);
+  if (!limit.allowed) return respondRateLimited(limit);
+
   if (!isLocalDevWorker()) return respond(workerNotConfigured());
 
   const { artifactId } = await context.params;

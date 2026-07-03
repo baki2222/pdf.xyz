@@ -64,6 +64,7 @@ this section is the by-service summary.
 | `PDFXYZ_STORAGE_PROVIDER` + `PDFXYZ_S3_*` | Optional | Wire the same server-only S3/R2 vars to mint signed URLs and record jobs. Recording a job is **not** processing it. |
 | `PDFXYZ_QUEUE_PROVIDER` + `PDFXYZ_REDIS_REST_*` | Optional | Wire the queue so `POST /api/jobs` records a `queued` job (202). It stays queued until a worker drains it. |
 | `NEXT_PUBLIC_TELEMETRY_ENDPOINT` / `NEXT_PUBLIC_TELEMETRY_SAMPLE_RATE` | Optional | Client telemetry, **off** unless set. `NEXT_PUBLIC_` is correct here — it is public by nature, never a secret. |
+| `PDFXYZ_RATE_LIMIT_PROVIDER` / `PDFXYZ_RATE_LIMIT_TRUST_PROXY` | Optional | Phase 33 in-app abuse guard, **off** unless a provider is set. `local-memory` = per-process limiter (**not distributed**; wire a real edge/WAF before high traffic); a remote name skips honestly (`remote-unimplemented`). Server-only; never `NEXT_PUBLIC_`. Deny ⇒ `429` + `Retry-After`, content-free. |
 
 ### worker service
 
@@ -323,6 +324,15 @@ remote processing production-ready:
 - **Provisioned infrastructure.** A real private, encrypted S3/R2 **bucket** and a
   private Redis/Upstash **broker** are not created here. Provision them out-of-band
   with public access disabled, scoped tokens, and encryption at rest/in transit.
+- **Distributed rate limiting — in-app guard ships (Phase 33), the edge is operator-owned.**
+  The app carries an honest in-app abuse guard (`src/lib/ratelimit`): per-action
+  policies, `429 rate_limited` + `Retry-After` on deny, content-free decisions,
+  off by default. Its `local-memory` provider is **per-process only** — behind N
+  instances the budget is N× and a restart resets windows — so it is
+  defense-in-depth, **not** a global limiter. Provision a real **edge/WAF/CDN
+  rate-limit rule** (or a shared-store provider) in front of the app before a
+  high-traffic launch; the guard's `remote-unimplemented` seam marks where a real
+  shared-store client would be wired.
 - **Lifecycle-enforced deletion — generate + verify ship, applying is operator-owned.**
   The daemon can **generate** a retention policy
   (`pnpm worker:daemon --lifecycle-policy --provider=aws-s3|cloudflare-r2|minio|generic`)

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LIFECYCLE_ENV } from "@/lib/workers/lifecycle";
 import {
   buildHeartbeat,
@@ -7,15 +7,22 @@ import {
   type WorkerHeartbeat,
 } from "@/lib/workers/heartbeat";
 import type { WorkerOperationsSnapshot } from "@/lib/workers/observability";
+import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
+import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
 import { GET } from "./route";
 
 async function json(res: Response): Promise<unknown> {
   return res.json();
 }
 
+/** Next always passes the request to a route handler; unit calls supply a bare one. */
+function opsReq(): Request {
+  return new Request("http://localhost/api/worker/operations");
+}
+
 describe("GET /api/worker/operations", () => {
   it("returns a content-free web-vantage operations snapshot in no-config mode", async () => {
-    const body = await json(await GET());
+    const body = await json(await GET(opsReq()));
     expect(body).toMatchObject({
       version: 1,
       vantage: "web",
@@ -40,7 +47,7 @@ describe("GET /api/worker/operations", () => {
       process.env.PDFXYZ_REDIS_REST_URL = "https://redis.example.com";
       process.env.PDFXYZ_REDIS_REST_TOKEN = "redis-secret";
 
-      const body = await json(await GET());
+      const body = await json(await GET(opsReq()));
       expect(body).toMatchObject({
         vantage: "web",
         daemonObserved: false,
@@ -99,7 +106,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
         at: Date.now(),
       }),
     );
-    const body = (await json(await GET())) as WorkerOperationsSnapshot;
+    const body = (await json(await GET(opsReq()))) as WorkerOperationsSnapshot;
     expect(body.daemonObserved).toBe(true);
     expect(body.daemon.state).toBe("observed");
     expect(body.daemon.source).toBe("queue-broker");
@@ -119,7 +126,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window
       }),
     );
-    const body = (await json(await GET())) as WorkerOperationsSnapshot;
+    const body = (await json(await GET(opsReq()))) as WorkerOperationsSnapshot;
     expect(body.daemonObserved).toBe(false);
     expect(body.daemon.state).toBe("stale");
     expect(body.recommendedAction).toBe("investigate-worker-liveness");
@@ -128,7 +135,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
   it("classifies an absent heartbeat as unknown (a warning), not observed", async () => {
     Object.assign(process.env, GREEN_HEARTBEAT_ENV);
     stubBrokerHeartbeat(null);
-    const body = (await json(await GET())) as WorkerOperationsSnapshot;
+    const body = (await json(await GET(opsReq()))) as WorkerOperationsSnapshot;
     expect(body.daemonObserved).toBe(false);
     expect(body.daemon.state).toBe("unknown");
     expect(body.recommendedAction).toBe("investigate-worker-liveness");
@@ -141,7 +148,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
       fetched = true;
       throw new Error("the disabled reader must not fetch");
     }) as unknown as typeof fetch;
-    const body = (await json(await GET())) as WorkerOperationsSnapshot;
+    const body = (await json(await GET(opsReq()))) as WorkerOperationsSnapshot;
     expect(fetched).toBe(false);
     expect(body.daemonObserved).toBe(false);
     expect(body.daemon.state).toBe("disabled");
@@ -152,7 +159,7 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
   const ALERT_SEVERITIES = ["ok", "warn", "critical", "unknown"];
 
   it("attaches a content-free alert report keyed on a bounded severity", async () => {
-    const body = (await json(await GET())) as { alerts?: Record<string, unknown> };
+    const body = (await json(await GET(opsReq()))) as { alerts?: Record<string, unknown> };
     expect(body.alerts).toBeDefined();
     const report = body.alerts!;
     expect(ALERT_SEVERITIES).toContain(report.severity);
@@ -166,7 +173,7 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
   });
 
   it("the no-config posture is critical (no worker can run) and leaks nothing", async () => {
-    const body = (await json(await GET())) as { alerts?: { severity?: string } };
+    const body = (await json(await GET(opsReq()))) as { alerts?: { severity?: string } };
     // No queue/storage in the base env ⇒ not drainable ⇒ a monitor would page.
     expect(body.alerts?.severity).toBe("critical");
     const text = JSON.stringify(body);
@@ -213,11 +220,48 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
           };
         },
       })) as unknown as typeof fetch;
-      const body = (await json(await GET())) as { alerts?: { severity?: string } };
+      const body = (await json(await GET(opsReq()))) as { alerts?: { severity?: string } };
       expect(body.alerts?.severity).toBe("ok");
     } finally {
       process.env = old;
       globalThis.fetch = oldFetch;
     }
+  });
+});
+
+describe("GET /api/worker/operations — abuse guard", () => {
+  beforeEach(() => {
+    resetRateLimitGuardForTests();
+    process.env[RATE_LIMIT_ENV.provider] = "local-memory";
+  });
+  afterEach(() => {
+    resetRateLimitGuardForTests();
+    delete process.env[RATE_LIMIT_ENV.provider];
+    delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+  });
+
+  it("still serves the content-free snapshot when a request is passed, without exposing identity", async () => {
+    process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    const res = await GET(
+      new Request("http://localhost/api/worker/operations", {
+        headers: { "x-forwarded-for": "203.0.113.88" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as WorkerOperationsSnapshot;
+    // The ops snapshot is unchanged (still web-vantage) and never carries the caller.
+    expect(body.vantage).toBe("web");
+    expect(JSON.stringify(body)).not.toContain("203.0.113.88");
+  });
+
+  it("returns a lightweight 429 (no snapshot work) once the scrape budget is spent", async () => {
+    const policy = policyFor("worker.operations");
+    const bare = new Request("http://localhost/api/worker/operations");
+    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("worker.operations", bare);
+
+    const denied = await GET(bare);
+    expect(denied.status).toBe(429);
+    expect((await denied.json()).error.code).toBe("rate_limited");
+    expect(Number(denied.headers.get("retry-after"))).toBeGreaterThan(0);
   });
 });

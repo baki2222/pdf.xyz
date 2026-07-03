@@ -16,14 +16,21 @@ import {
   resolveWorkerMode,
   type ToolAvailability,
 } from "@/lib/workers";
-import { respond } from "../../_lib/http";
+import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { respond, respondRateLimited } from "../../_lib/http";
 
 // Reflects live host state (an engine can be installed at any time). Node runtime
 // — the PATH probe uses Node built-ins, lazily imported only in local-dev mode.
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
+  // Guard the presence probe first. The decision is content-free and, with no
+  // limiter configured (the default), the check short-circuits before reading any
+  // header — so this stays lightweight and never exposes request identity.
+  const limit = await enforceRateLimit("worker.status", request);
+  if (!limit.allowed) return respondRateLimited(limit);
+
   const mode = resolveWorkerMode();
 
   let tools: ToolAvailability | undefined;

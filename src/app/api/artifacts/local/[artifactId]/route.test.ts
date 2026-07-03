@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { WORKER_MODE_ENV } from "@/lib/workers";
 import { devWorkerStore, newArtifactId, newJobId } from "@/lib/workers/store";
+import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
+import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
 import { GET } from "./route";
 
 function get(artifactId: string): Promise<Response> {
@@ -76,5 +78,30 @@ describe("GET /api/artifacts/local/[artifactId]", () => {
       "report-compressed.pdf",
     );
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+  });
+});
+
+describe("GET /api/artifacts/local/[artifactId] — abuse guard", () => {
+  beforeEach(() => {
+    resetRateLimitGuardForTests();
+    process.env[RATE_LIMIT_ENV.provider] = "local-memory";
+  });
+  afterEach(() => {
+    resetRateLimitGuardForTests();
+    delete process.env[RATE_LIMIT_ENV.provider];
+  });
+
+  it("throttles downloads with a 429 before any store work, even outside local-dev", async () => {
+    disableWorker();
+    process.env[RATE_LIMIT_ENV.provider] = "local-memory";
+    const policy = policyFor("artifacts.fetch");
+    const bare = new Request("http://localhost/api/artifacts/local/x");
+    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("artifacts.fetch", bare);
+
+    // The guard runs first, so a flood is answered 429 (not the 503 not-configured).
+    const denied = await get(newArtifactId());
+    expect(denied.status).toBe(429);
+    expect((await denied.json()).error.code).toBe("rate_limited");
+    expect(Number(denied.headers.get("retry-after"))).toBeGreaterThan(0);
   });
 });

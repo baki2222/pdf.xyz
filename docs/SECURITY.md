@@ -146,7 +146,8 @@ is on, so the production build is unaffected. The full design is in
   non-http(s) schemes are blocked — defense-in-depth against SSRF, with the
   worker's egress policy as the real enforcement.
 - Rate limits (`RATE_LIMITS`) are published in the contract and enforced at the
-  gateway.
+  gateway. Phase 33 adds an in-app **abuse guard** (`src/lib/ratelimit`) as
+  defense-in-depth behind that gateway — see **Abuse guard & rate limiting** below.
 
 **Privacy by default.** Every job carries a `RetentionPolicy`: inputs are wiped
 right after processing and outputs auto-delete within the retention window
@@ -244,6 +245,39 @@ privacy posture as the app: placeholder-only secrets, no real provider endpoints
 and no scheduler command that hides `worker:ops-check` failures with `|| true`. The
 Kubernetes Secret manifest is intentionally `secret.example.yaml`; replace it through your
 secret manager or out-of-band deploy tooling, never by committing real values.
+
+## Abuse guard & rate limiting (Phase 33)
+
+The public API ships an in-app **abuse guard** (`src/lib/ratelimit`) with typed
+per-action policies for every route (`uploads.create`, `jobs.create`,
+`jobs.status`, `jobs.delete`, `artifacts.fetch`, `worker.status`,
+`worker.operations`). On deny it returns `429 rate_limited` with `Retry-After` and
+standard `RateLimit-*` headers (all derived from the policy + clock, never the
+caller). It is **defense-in-depth behind the edge, not the primary control.**
+
+- **Off by default, fail-open.** With no provider configured the guard allows
+  every request (`enforced: false`); the default build and every local-first
+  browser tool are unaffected. It is opt-in via `PDFXYZ_RATE_LIMIT_PROVIDER`
+  (`local-memory` for the per-process limiter; a remote name like `redis`/`edge`
+  resolves to `remote-unimplemented` and **skips honestly** because this build
+  registers no backend — it never fabricates distributed enforcement). A
+  deployment can make the guard genuinely distributed by implementing the async
+  `RateLimitProvider` seam (`src/lib/ratelimit/provider.ts`) and calling
+  `registerRateLimitProvider` once from a boot hook; the backend is held to the
+  same content-free, no-leak invariant and the guard fails open if it errors.
+- **Honest boundary.** The `local-memory` limiter is per-process and **not
+  distributed**: behind N instances the effective budget is up to N×, and a
+  restart resets windows. Wire a real edge/WAF/rate-limit provider before a
+  high-traffic launch. See [`WORKER_ARCHITECTURE.md` §6](WORKER_ARCHITECTURE.md).
+- **Content-free by construction.** A decision carries only `allowed`, the
+  action, the stable `policyId`, the `provider`, an `enforced` flag, and an exact
+  + coarse-bucketed retry-after — **never** an IP, user agent, filename, token,
+  object key, job id, env value, or request body. Client attribution is opt-in
+  (`PDFXYZ_RATE_LIMIT_TRUST_PROXY`, off by default because the forwarding header
+  is spoofable outside a trusted edge) and, when on, the address is **salted-hashed**
+  and used only as an in-memory bucket key — never retained or surfaced. The
+  `worker.status`/`worker.operations` endpoints stay lightweight and never expose
+  request identity in any mode.
 
 ## HTTP security headers
 

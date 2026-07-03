@@ -115,6 +115,32 @@ job and returns `202`, and it stays queued. Deploy the Phase 16 worker daemon
 (`pnpm worker:daemon`, see its checklist below) to drain the queue before
 advertising that jobs complete.
 
+### Optional: public-API abuse guard (off by default)
+
+The in-app abuse guard (`src/lib/ratelimit`, Phase 33) is **disabled unless you
+select a provider**. With nothing set every request is allowed and the guard
+reports `enforced: false` — identical to pre-Phase-33 behavior. Set these only in
+server-side environments; do **not** use `NEXT_PUBLIC_`.
+
+| Variable | Effect |
+| --- | --- |
+| `PDFXYZ_RATE_LIMIT_PROVIDER` | Selects the backend. Unset/`disabled` ⇒ no enforcement. `local-memory` ⇒ the per-process in-memory limiter (**not distributed** — see caveat). A remote name (`redis`/`remote`/`edge`/`waf`) ⇒ `remote`/`enforced` **only if** a deployment registered a backend via `registerRateLimitProvider` (a `RateLimitProvider` implemented over a shared store, wired from a Next.js `instrumentation.ts` boot hook); otherwise `remote-unimplemented`: selected but no backend registered, so it **skips honestly** and never fakes distributed enforcement. |
+| `PDFXYZ_RATE_LIMIT_TRUST_PROXY` | Truthy ⇒ attribute requests to a client via the `x-forwarded-for`/`x-real-ip` header (salted-hashed, never retained). Off by default because that header is spoofable unless a trusted edge overwrites it; off ⇒ one shared bucket (a coarse global throttle). Enable **only** behind a proxy/CDN you trust to set it. |
+
+Notes specific to this feature:
+
+- **⚠️ `local-memory` is not production distributed enforcement.** Its counters
+  live in one process's heap, so behind N instances the effective budget is up to
+  N× and a restart resets windows. It is a dev/test limiter and a coarse
+  single-instance backstop — **wire a real edge/WAF/rate-limit provider before a
+  high-traffic launch** and keep the in-app guard as defense-in-depth. The
+  `remote-unimplemented` seam marks where a real provider client would be added.
+- **Enabling the guard cannot break local-first tools.** The client-only tools
+  never call the API, and the guard fails open on any internal error.
+- **On deny it returns `429 rate_limited` + `Retry-After`**, with a content-free
+  body that never names the caller. See [`SECURITY.md`](SECURITY.md) and
+  [`WORKER_ARCHITECTURE.md` §6](WORKER_ARCHITECTURE.md).
+
 ### Optional: client telemetry toggles (off by default)
 
 Client error + Web-Vitals telemetry is **inert unless you point it at an ingest

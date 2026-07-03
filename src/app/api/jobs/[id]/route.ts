@@ -10,7 +10,8 @@
 
 import { apiError, isValidJobId } from "@/lib/jobs";
 import { getWorkerAdapter } from "@/lib/workers";
-import { respond } from "../../_lib/http";
+import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { respond, respondRateLimited } from "../../_lib/http";
 
 // Status is never cached: it always reflects the live job state. Node runtime —
 // the local-dev adapter uses Node built-ins (lazily imported only in that mode).
@@ -18,9 +19,12 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  const limit = await enforceRateLimit("jobs.status", request);
+  if (!limit.allowed) return respondRateLimited(limit);
+
   const { id } = await context.params;
 
   if (!isValidJobId(id)) {
@@ -48,9 +52,12 @@ export async function GET(
  * and remove their artifacts.
  */
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  const limit = await enforceRateLimit("jobs.delete", request);
+  if (!limit.allowed) return respondRateLimited(limit);
+
   const { id } = await context.params;
 
   if (!isValidJobId(id)) {
