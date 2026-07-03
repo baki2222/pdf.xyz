@@ -58,6 +58,12 @@ import {
   type ArtifactRetrievalOutcome,
   type RetrievalStorageProvider,
 } from "../artifacts/access";
+import {
+  ARTIFACT_DELIVERY_OUTCOMES,
+  ARTIFACT_DELIVERY_REASONS,
+  type ArtifactDeliveryOutcome,
+  type ArtifactDeliveryReason,
+} from "../artifacts/delivery";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -344,6 +350,7 @@ export const METRIC_NAMES = [
   "worker_soundness_total",
   "worker_artifact_manifest_total",
   "worker_artifact_retrieval_total",
+  "worker_artifact_delivery_total",
   "worker_storage_ops_total",
   "worker_queue_depth",
   "worker_queue_age_seconds",
@@ -434,6 +441,15 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     labels: {
       outcome: ARTIFACT_RETRIEVAL_OUTCOMES,
       reason: ARTIFACT_ACCESS_REASONS,
+      kind: ARTIFACT_OUTPUT_KINDS,
+      provider: RETRIEVAL_STORAGE_PROVIDERS,
+    },
+  },
+  worker_artifact_delivery_total: {
+    kind: "counter",
+    labels: {
+      outcome: ARTIFACT_DELIVERY_OUTCOMES,
+      reason: ARTIFACT_DELIVERY_REASONS,
       kind: ARTIFACT_OUTPUT_KINDS,
       provider: RETRIEVAL_STORAGE_PROVIDERS,
     },
@@ -625,6 +641,32 @@ export function artifactRetrievalMetric(
 ): WorkerMetricSample {
   return {
     metric: "worker_artifact_retrieval_total",
+    kind: "counter",
+    labels: { outcome, reason, kind, provider },
+    value: 1,
+  };
+}
+
+/**
+ * The client-facing artifact-download **delivery** boundary reached `outcome`
+ * (`delivered`/`denied`) for the bounded `reason` on an output of `kind`, from the
+ * bounded storage `provider`. This is the SECOND gate over a download: it fires only
+ * after the access layer (`artifactRetrievalMetric`) has already granted the handle,
+ * and it measures whether the bytes were then safely delivered — e.g. `delivered`/`ok`
+ * for a served body, `denied`/`size_mismatch` when the length could not be verified
+ * against the stored bytes, `denied`/`oversize` past the delivery ceiling, or
+ * `denied`/`stream_error` for an unexpected serve failure. All four labels are closed
+ * enums — never a filename, object key, bucket name, handle, signed URL, byte range,
+ * size, or document content.
+ */
+export function artifactDeliveryMetric(
+  outcome: ArtifactDeliveryOutcome,
+  reason: ArtifactDeliveryReason,
+  kind: ArtifactOutputKind,
+  provider: RetrievalStorageProvider,
+): WorkerMetricSample {
+  return {
+    metric: "worker_artifact_delivery_total",
     kind: "counter",
     labels: { outcome, reason, kind, provider },
     value: 1,

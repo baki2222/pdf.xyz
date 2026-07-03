@@ -80,6 +80,14 @@ export type S3ArtifactRead =
       readonly bytes: Uint8Array;
       readonly contentType: string;
       readonly manifest: ArtifactManifest | null;
+      /**
+       * The length the bucket DECLARED in the object's `Content-Length` response
+       * header, parsed to a bounded byte count, or `null` when absent/malformed. The
+       * delivery layer cross-checks it against the actual bytes before emitting a
+       * `Content-Length` — so a truncated / over-declared object is refused, never
+       * streamed under a header that lies about its size.
+       */
+      readonly reportedLength: number | null;
     }
   | { readonly status: "not-found" }
   | { readonly status: "unavailable" };
@@ -91,6 +99,21 @@ export interface S3ArtifactReader {
 
 const defaultFetch: S3ArtifactFetch = (url, init) =>
   fetch(url, { method: init.method }) as unknown as Promise<S3ArtifactObjectResponse>;
+
+/**
+ * Parse a raw `Content-Length` response header into a bounded, non-negative integer
+ * byte count, or `null` when absent or not a plain base-10 integer. Never throws; the
+ * value is only ever used as a cross-check against the actual bytes, so a malformed
+ * header simply means "provider declared no usable length" (the delivery layer then
+ * verifies against the actual bytes alone).
+ */
+function parseContentLength(raw: string | null): number | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return Number.isSafeInteger(value) ? value : null;
+}
 
 /**
  * Build the S3 artifact reader from a validated config. The config holds the signing
@@ -156,7 +179,10 @@ export function createS3ArtifactReader(
       const manifest = decodeArtifactManifestMetadata(
         res.headers.get(ARTIFACT_MANIFEST_METADATA_HEADER),
       );
-      return { status: "ok", bytes, contentType, manifest };
+      // Capture the bucket's declared length for the delivery layer to verify against
+      // the actual bytes (never emitted verbatim; only cross-checked).
+      const reportedLength = parseContentLength(res.headers.get("content-length"));
+      return { status: "ok", bytes, contentType, manifest, reportedLength };
     },
   };
 }
@@ -185,6 +211,9 @@ export function createStorageArtifactBackend(
           contentType: read.contentType,
           byteLength: read.bytes.byteLength,
           bytes: read.bytes,
+          // The bucket's declared length, for the delivery layer to verify before it
+          // emits a `Content-Length` (a mismatch fails closed, never streams a lie).
+          reportedLength: read.reportedLength,
           manifest: read.manifest,
           jobCompleted: true,
           // No server-side job→artifact record for a bucket object, so no `jobId`: the

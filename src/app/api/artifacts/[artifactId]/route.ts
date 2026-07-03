@@ -13,8 +13,11 @@
  * denies `storage_unavailable` (503) before any read — preserving the honest no-config
  * posture. A missing object is `not_found` (404); a manifest that fails re-validation is
  * refused; a transient bucket failure is a retryable `service_unavailable` (503), never a
- * false not-found. This boundary has NO authentication or authorization: possession of the
- * unguessable opaque handle is the capability. See docs/WORKER_ARCHITECTURE.md.
+ * false not-found. The shared Phase 40 delivery gate then verifies the bytes before they
+ * stream (length consistency, delivery ceiling, `Accept-Ranges: none`) and answers `HEAD`
+ * with the verified headers and no body. This boundary has NO authentication or
+ * authorization: possession of the unguessable opaque handle is the capability. See
+ * docs/WORKER_ARCHITECTURE.md.
  */
 
 import { storageArtifactBackend } from "@/lib/workers/artifacts/retrieval-storage";
@@ -25,7 +28,7 @@ import { serveArtifactRetrieval } from "../_lib/serve";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(
+async function handle(
   request: Request,
   context: { params: Promise<{ artifactId: string }> },
 ): Promise<Response> {
@@ -34,4 +37,20 @@ export async function GET(
 
   const { artifactId } = await context.params;
   return serveArtifactRetrieval(storageArtifactBackend(), request, artifactId);
+}
+
+/** Stream a storage-backed artifact's bytes with safe, verified delivery headers. */
+export function GET(
+  request: Request,
+  context: { params: Promise<{ artifactId: string }> },
+): Promise<Response> {
+  return handle(request, context);
+}
+
+/** `HEAD`: the same access + delivery decision, returning verified headers with no body. */
+export function HEAD(
+  request: Request,
+  context: { params: Promise<{ artifactId: string }> },
+): Promise<Response> {
+  return handle(request, context);
 }

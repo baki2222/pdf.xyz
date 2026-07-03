@@ -21,12 +21,22 @@ import {
   type ArtifactRetrievalReceipt,
 } from "@/lib/workers/artifacts/retrieval-receipt";
 import {
+  resetArtifactDeliverySink,
+  setArtifactDeliverySink,
+} from "@/lib/workers/artifacts/delivery-metrics";
+import {
+  resetArtifactDeliveryObserverForTests,
+  setArtifactDeliveryObserver,
+  type ArtifactDeliveryReceipt,
+} from "@/lib/workers/artifacts/delivery-receipt";
+import {
   createWorkerMetricsCollector,
   seriesFor,
 } from "@/lib/workers/observability/collector";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
 import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
-import { GET } from "./route";
+import { GET, HEAD } from "./route";
+import * as routeModule from "./route";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const HANDLE = "art_abcdefghij0123456789";
@@ -70,7 +80,12 @@ function pdfManifest(byteCount: number, over: Partial<ArtifactManifest> = {}): A
 
 function liveResult(
   bytes: Uint8Array,
-  over: Partial<{ contentType: string; manifest: ArtifactManifest | null; jobCompleted: boolean }> = {},
+  over: Partial<{
+    contentType: string;
+    manifest: ArtifactManifest | null;
+    jobCompleted: boolean;
+    reportedLength: number | null;
+  }> = {},
 ): ArtifactRetrievalResult {
   return {
     kind: "live",
@@ -78,6 +93,7 @@ function liveResult(
       contentType: over.contentType ?? "application/pdf",
       byteLength: bytes.byteLength,
       bytes,
+      reportedLength: over.reportedLength ?? null,
       manifest: over.manifest === undefined ? pdfManifest(bytes.byteLength) : over.manifest,
       jobCompleted: over.jobCompleted ?? true,
     },
@@ -93,15 +109,25 @@ function useBackend(result: ArtifactRetrievalResult, ready = true): void {
   setArtifactRetrievalBackendForTests(backend);
 }
 
+/** A HEAD request through the storage-backed route. */
+function head(id: string = HANDLE, query = ""): Promise<Response> {
+  return HEAD(new Request(`http://localhost/api/artifacts/${id}${query}`, { method: "HEAD" }), {
+    params: Promise.resolve({ artifactId: id }),
+  });
+}
+
 beforeEach(() => {
   clearStorageEnv();
   resetArtifactRetrievalBackendForTests();
   resetArtifactRetrievalSink();
+  resetArtifactDeliverySink();
 });
 afterEach(() => {
   resetArtifactRetrievalBackendForTests();
   resetArtifactRetrievalSink();
   resetArtifactRetrievalObserverForTests();
+  resetArtifactDeliverySink();
+  resetArtifactDeliveryObserverForTests();
   clearStorageEnv();
 });
 
@@ -170,6 +196,155 @@ describe("GET /api/artifacts/[artifactId] — storage-backed retrieval", () => {
     expect(res.status).toBe(503);
     // Distinct from worker_not_configured: storage IS configured, it just hiccupped.
     expect((await res.json()).error.code).toBe("service_unavailable");
+  });
+});
+
+describe("GET|HEAD /api/artifacts/[artifactId] — delivery hardening", () => {
+  it("advertises Accept-Ranges: none on a served GET", async () => {
+    useBackend(liveResult(enc("%PDF ranges")));
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("accept-ranges")).toBe("none");
+  });
+
+  it("ignores a Range request and returns the whole file 200 (no 206/partial)", async () => {
+    const bytes = enc("%PDF-1.7 whole file body");
+    useBackend(liveResult(bytes));
+    const res = await GET(
+      new Request(`http://localhost/api/artifacts/${HANDLE}`, { headers: { range: "bytes=0-3" } }),
+      { params: Promise.resolve({ artifactId: HANDLE }) },
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("accept-ranges")).toBe("none");
+    expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("answers HEAD with the verified headers and an empty body", async () => {
+    const bytes = enc("%PDF-1.7 head body");
+    useBackend(liveResult(bytes));
+    const res = await head();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/pdf");
+    expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="compressed.pdf"');
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("accept-ranges")).toBe("none");
+    // HEAD carries no body.
+    expect((await res.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  it("refuses a provider Content-Length that conflicts with the actual bytes (503)", async () => {
+    const bytes = enc("%PDF twenty-ish bytes");
+    // The bucket declared a larger length than it streamed — fail closed, never a lie.
+    useBackend(liveResult(bytes, { reportedLength: bytes.byteLength + 500 }));
+    const res = await get();
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe("service_unavailable");
+  });
+
+  it("delivers normally when the provider Content-Length matches the bytes", async () => {
+    const bytes = enc("%PDF matched length");
+    useBackend(liveResult(bytes, { reportedLength: bytes.byteLength }));
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
+  });
+
+  it("emits a bounded delivered metric on a served download and a denied one on size_mismatch", async () => {
+    const collector = createWorkerMetricsCollector();
+    setArtifactDeliverySink(collector.sink);
+
+    useBackend(liveResult(enc("%PDF delivered")));
+    await get();
+    const delivered = seriesFor(collector.snapshot(), "worker_artifact_delivery_total", {
+      outcome: "delivered",
+      reason: "ok",
+      kind: "pdf",
+      provider: "remote-configured",
+    });
+    expect(delivered).toHaveLength(1);
+    // Closed, low-cardinality label set.
+    expect(Object.keys(delivered[0]!.labels).sort()).toEqual([
+      "kind",
+      "outcome",
+      "provider",
+      "reason",
+    ]);
+
+    const bytes = enc("%PDF mismatch");
+    useBackend(liveResult(bytes, { reportedLength: bytes.byteLength + 9 }));
+    await get();
+    const denied = seriesFor(collector.snapshot(), "worker_artifact_delivery_total", {
+      outcome: "denied",
+      reason: "size_mismatch",
+      kind: "pdf",
+      provider: "remote-configured",
+    });
+    expect(denied).toHaveLength(1);
+  });
+
+  it("maps an unexpected backend throw to a safe, content-free 503 (delivery stream_error)", async () => {
+    const collector = createWorkerMetricsCollector();
+    setArtifactDeliverySink(collector.sink);
+    // A backend that throws mid-fetch must never surface a framework 500 with a stack.
+    setArtifactRetrievalBackendForTests({
+      capability: () => ({ provider: "remote-configured", ready: true }),
+      fetch: async () => {
+        throw new Error("s3://pdfxyz-secret-bucket/artifacts/art_x boom X-Amz-Signature=deadbeef");
+      },
+    });
+    const res = await get();
+    expect(res.status).toBe(503);
+    const body = JSON.stringify(await res.json());
+    expect(JSON.parse(body).error.code).toBe("service_unavailable");
+    // The thrown error's contents never reach the client.
+    for (const secret of ["pdfxyz-secret-bucket", "X-Amz-Signature", "art_x", "boom", "s3://"]) {
+      expect(body).not.toContain(secret);
+    }
+    const streamError = seriesFor(collector.snapshot(), "worker_artifact_delivery_total", {
+      outcome: "denied",
+      reason: "stream_error",
+      provider: "remote-configured",
+    });
+    expect(streamError).toHaveLength(1);
+  });
+
+  it("emits a content-free delivery receipt recording the method/range, never the handle", async () => {
+    const receipts: ArtifactDeliveryReceipt[] = [];
+    setArtifactDeliveryObserver((r) => receipts.push(r));
+
+    useBackend(liveResult(enc("%PDF receipt get")));
+    await get();
+    await head(HANDLE);
+
+    expect(receipts).toHaveLength(2);
+    expect(receipts[0]).toMatchObject({
+      category: "delivery",
+      outcome: "delivered",
+      reason: "ok",
+      provider: "remote-configured",
+      method: "GET",
+      range: "none",
+    });
+    expect(receipts[1]).toMatchObject({ method: "HEAD", outcome: "delivered" });
+    for (const r of receipts) expect(JSON.stringify(r)).not.toContain(HANDLE);
+  });
+});
+
+describe("GET|HEAD /api/artifacts/[artifactId] — method surface", () => {
+  it("wires only GET and HEAD, so any other verb falls through to the framework's content-free 405", () => {
+    const mod = routeModule as unknown as Record<string, unknown>;
+    expect(typeof mod.GET).toBe("function");
+    expect(typeof mod.HEAD).toBe("function");
+    // No mutating/other verb (nor OPTIONS) is handled here: a POST/PUT/PATCH/DELETE gets Next's
+    // stable, body-less framework 405 and OPTIONS is auto-answered 204 — the delivery boundary
+    // never serves bytes for an unsupported method. Pins the "unsupported methods are refused"
+    // contract so a future handler can't silently start serving one.
+    for (const verb of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+      expect(mod[verb], `${verb} must not be handled by the download route`).toBeUndefined();
+    }
   });
 });
 

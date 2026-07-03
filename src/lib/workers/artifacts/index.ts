@@ -24,6 +24,7 @@ export * from "./gate";
 export * from "./receipt";
 export * from "./access";
 export * from "./retrieval";
+export * from "./delivery";
 
 type EnvSource = Record<string, string | undefined>;
 

@@ -43,6 +43,14 @@ export interface RetrievedArtifact {
   readonly byteLength: number;
   /** The bytes to stream. `byteLength` MUST equal `bytes.byteLength`. */
   readonly bytes: Uint8Array;
+  /**
+   * OPTIONAL length the UPSTREAM provider declared for the object (e.g. an object
+   * store's `Content-Length` response header), for the delivery layer to cross-check
+   * against the actual bytes before emitting a `Content-Length` header. Absent/`null`
+   * when the source reports no separate provider length (the in-process developer
+   * store). A content-free byte COUNT, never a size the client did not already receive.
+   */
+  readonly reportedLength?: number | null;
   /** The content-free provenance manifest recorded at publish, or `null` if none. */
   readonly manifest: ArtifactManifest | null;
   /** Whether the owning job is in a completed/downloadable state. */
@@ -88,6 +96,12 @@ export interface ArtifactRetrievalBackend {
 export interface RetrievalDecision {
   readonly decision: ArtifactAccessDecision;
   readonly bytes?: Uint8Array;
+  /**
+   * The upstream-provider-declared length carried through on a served decision (or
+   * `null` when the source reports none), for the delivery layer to cross-check the
+   * emitted `Content-Length` against. Absent on a denial (no bytes are served).
+   */
+  readonly reportedLength?: number | null;
 }
 
 /**
@@ -155,5 +169,7 @@ export function decideRetrieval(
     policy,
   );
 
-  return decision.ok ? { decision, bytes: artifact.bytes } : { decision };
+  return decision.ok
+    ? { decision, bytes: artifact.bytes, reportedLength: artifact.reportedLength ?? null }
+    : { decision };
 }

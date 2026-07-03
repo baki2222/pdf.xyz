@@ -58,7 +58,12 @@ interface Scripted {
   contentType?: string;
   bytes?: Uint8Array;
   manifestMeta?: string;
+  /** Value for the object's `Content-Length` response header (a string as a bucket sends it). */
+  contentLength?: string;
+  /** Throw at the `fetch` call itself — a PRE-stream failure (DNS/reset before a response). */
   throws?: boolean;
+  /** Return a 200 response whose `arrayBuffer()` then rejects — a mid-read STREAM failure. */
+  throwsBody?: boolean;
 }
 
 function fakeFetch(script: Scripted[]): { fn: S3ArtifactFetch; calls: string[] } {
@@ -77,10 +82,16 @@ function fakeFetch(script: Scripted[]): { fn: S3ArtifactFetch; calls: string[] }
           const key = name.toLowerCase();
           if (key === "content-type") return res.contentType ?? null;
           if (key === ARTIFACT_MANIFEST_METADATA_HEADER) return res.manifestMeta ?? null;
+          if (key === "content-length") return res.contentLength ?? null;
           return null;
         },
       },
-      arrayBuffer: async () => (res.bytes ?? new Uint8Array()).slice().buffer as ArrayBuffer,
+      arrayBuffer: async () => {
+        // A body read that fails mid-stream (the 200 headers arrived, then the connection
+        // dropped) — the reader must treat it as transient, never a truncated/false success.
+        if (res.throwsBody) throw new Error("connection reset mid-body");
+        return (res.bytes ?? new Uint8Array()).slice().buffer as ArrayBuffer;
+      },
     };
     return response;
   };
@@ -122,6 +133,33 @@ describe("createS3ArtifactReader", () => {
     if (read.status === "ok") expect(read.manifest).toBeNull();
   });
 
+  it("captures the bucket's Content-Length header as reportedLength", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const { fn } = fakeFetch([
+      { status: 200, contentType: "application/pdf", bytes, contentLength: "4" },
+    ]);
+    const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
+    const read = await reader.readArtifact(ARTIFACT_ID);
+    expect(read.status).toBe("ok");
+    if (read.status === "ok") expect(read.reportedLength).toBe(4);
+  });
+
+  it("yields a null reportedLength when Content-Length is absent or malformed", async () => {
+    const absent = createS3ArtifactReader(config(), {
+      now,
+      fetchImpl: fakeFetch([{ status: 200, bytes: new Uint8Array([1]) }]).fn,
+    });
+    const readA = await absent.readArtifact(ARTIFACT_ID);
+    if (readA.status === "ok") expect(readA.reportedLength).toBeNull();
+
+    const malformed = createS3ArtifactReader(config(), {
+      now,
+      fetchImpl: fakeFetch([{ status: 200, bytes: new Uint8Array([1]), contentLength: "not-a-number" }]).fn,
+    });
+    const readB = await malformed.readArtifact(ARTIFACT_ID);
+    if (readB.status === "ok") expect(readB.reportedLength).toBeNull();
+  });
+
   it("maps a 404 to not-found", async () => {
     const { fn } = fakeFetch([{ status: 404 }]);
     const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
@@ -133,6 +171,19 @@ describe("createS3ArtifactReader", () => {
     expect((await server.readArtifact(ARTIFACT_ID)).status).toBe("unavailable");
     const netw = createS3ArtifactReader(config(), { now, fetchImpl: fakeFetch([{ status: 0, throws: true }]).fn });
     expect((await netw.readArtifact(ARTIFACT_ID)).status).toBe("unavailable");
+  });
+
+  it("maps a STREAM-read failure (200 headers, then arrayBuffer rejects) to unavailable", async () => {
+    // The distinct second failure mode: the response status was fine, but reading the body
+    // failed mid-stream. The reader must NOT surface a partial/false-ok — it is transient.
+    const { fn } = fakeFetch([
+      { status: 200, contentType: "application/pdf", throwsBody: true },
+    ]);
+    const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
+    expect((await reader.readArtifact(ARTIFACT_ID)).status).toBe("unavailable");
+    // And it composes through the backend seam to the transient retrieval lifecycle (→ 503).
+    const backend = createStorageArtifactBackend(reader, { provider: "remote-configured", ready: true });
+    expect((await backend.fetch(ARTIFACT_ID)).kind).toBe("unavailable");
   });
 
   it("rejects a malformed artifact id without touching storage", async () => {
@@ -158,7 +209,15 @@ describe("createStorageArtifactBackend — lifecycle mapping", () => {
   it("maps a read ok to a live artifact (job completed, no owning-job binding)", async () => {
     const bytes = new Uint8Array([1, 2, 3]);
     const backend = createStorageArtifactBackend(
-      { readArtifact: async () => ({ status: "ok", bytes, contentType: "application/pdf", manifest: manifest(3) }) },
+      {
+        readArtifact: async () => ({
+          status: "ok",
+          bytes,
+          contentType: "application/pdf",
+          manifest: manifest(3),
+          reportedLength: 3,
+        }),
+      },
       cap,
     );
     const result = await backend.fetch(ARTIFACT_ID);
@@ -167,6 +226,8 @@ describe("createStorageArtifactBackend — lifecycle mapping", () => {
       expect(result.artifact.jobCompleted).toBe(true);
       expect(result.artifact.jobId).toBeUndefined();
       expect(result.artifact.byteLength).toBe(3);
+      // The bucket's declared length is carried through for the delivery layer to verify.
+      expect(result.artifact.reportedLength).toBe(3);
     }
   });
 

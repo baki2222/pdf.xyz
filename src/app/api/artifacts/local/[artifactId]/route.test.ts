@@ -18,18 +18,35 @@ import {
   type ArtifactRetrievalReceipt,
 } from "@/lib/workers/artifacts/retrieval-receipt";
 import {
+  resetArtifactDeliverySink,
+  setArtifactDeliverySink,
+} from "@/lib/workers/artifacts/delivery-metrics";
+import {
+  resetArtifactDeliveryObserverForTests,
+  setArtifactDeliveryObserver,
+  type ArtifactDeliveryReceipt,
+} from "@/lib/workers/artifacts/delivery-receipt";
+import {
   createWorkerMetricsCollector,
   seriesFor,
 } from "@/lib/workers/observability/collector";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
 import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
-import { GET } from "./route";
+import { GET, HEAD } from "./route";
+import * as routeModule from "./route";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
 function get(artifactId: string): Promise<Response> {
   return GET(
     new Request(`http://localhost/api/artifacts/local/${artifactId}`),
+    { params: Promise.resolve({ artifactId }) },
+  );
+}
+
+function head(artifactId: string): Promise<Response> {
+  return HEAD(
+    new Request(`http://localhost/api/artifacts/local/${artifactId}`, { method: "HEAD" }),
     { params: Promise.resolve({ artifactId }) },
   );
 }
@@ -89,10 +106,13 @@ function seed(
 beforeEach(() => {
   devWorkerStore.reset();
   resetArtifactRetrievalSink();
+  resetArtifactDeliverySink();
 });
 afterEach(() => {
   disableWorker();
   resetArtifactRetrievalSink();
+  resetArtifactDeliverySink();
+  resetArtifactDeliveryObserverForTests();
 });
 
 describe("GET /api/artifacts/local/[artifactId]", () => {
@@ -252,6 +272,113 @@ describe("GET /api/artifacts/local/[artifactId]", () => {
     const res = await get(artifactId);
     expect(res.status).toBe(409);
     expect((await res.json()).error.code).toBe("conflict");
+  });
+});
+
+describe("GET|HEAD /api/artifacts/local/[artifactId] — delivery hardening", () => {
+  beforeEach(enableLocalDev);
+
+  it("advertises Accept-Ranges: none on a served GET", async () => {
+    const { artifactId } = seed(enc("%PDF ranges"));
+    const res = await get(artifactId);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("accept-ranges")).toBe("none");
+  });
+
+  it("ignores a Range request and returns the whole file 200 (no 206/partial)", async () => {
+    const bytes = enc("%PDF-1.7 whole local file");
+    const { artifactId } = seed(bytes);
+    const res = await GET(
+      new Request(`http://localhost/api/artifacts/local/${artifactId}`, {
+        headers: { range: "bytes=0-3" },
+      }),
+      { params: Promise.resolve({ artifactId }) },
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("accept-ranges")).toBe("none");
+    expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("answers HEAD with the verified generated headers and an empty body", async () => {
+    const bytes = enc("%PDF-1.7 head body");
+    const { artifactId } = seed(bytes, { filename: "My Secret Report.pdf" });
+    const res = await head(artifactId);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/pdf");
+    expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
+    // Still the GENERATED name on HEAD — never the stored/user name.
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="compressed.pdf"');
+    expect(res.headers.get("content-disposition")).not.toContain("Secret");
+    expect(res.headers.get("accept-ranges")).toBe("none");
+    expect((await res.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  it("emits a bounded delivered metric (local-dev provider) for a served download", async () => {
+    const collector = createWorkerMetricsCollector();
+    setArtifactDeliverySink(collector.sink);
+    const { artifactId } = seed(enc("%PDF metric"));
+    await get(artifactId);
+
+    const delivered = seriesFor(collector.snapshot(), "worker_artifact_delivery_total", {
+      outcome: "delivered",
+      reason: "ok",
+      kind: "pdf",
+      provider: "local-dev",
+    });
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.value).toBe(1);
+  });
+
+  it("emits a content-free delivery receipt recording GET/HEAD method, never the handle", async () => {
+    const receipts: ArtifactDeliveryReceipt[] = [];
+    setArtifactDeliveryObserver((r) => receipts.push(r));
+    const { artifactId } = seed(enc("%PDF receipt"));
+    await get(artifactId); // delivered via GET
+    await head(artifactId); // delivered via HEAD
+
+    expect(receipts).toHaveLength(2);
+    expect(receipts[0]).toMatchObject({
+      category: "delivery",
+      outcome: "delivered",
+      reason: "ok",
+      kind: "pdf",
+      provider: "local-dev",
+      method: "GET",
+      range: "none",
+    });
+    expect(receipts[1]).toMatchObject({ method: "HEAD", outcome: "delivered" });
+    for (const r of receipts) {
+      expect(Object.keys(r).sort()).toEqual(
+        [
+          "category",
+          "kind",
+          "method",
+          "outcome",
+          "policyId",
+          "policyVersion",
+          "provider",
+          "range",
+          "reason",
+        ].sort(),
+      );
+      expect(JSON.stringify(r)).not.toContain(artifactId);
+    }
+  });
+});
+
+describe("GET|HEAD /api/artifacts/local/[artifactId] — method surface", () => {
+  it("wires only GET and HEAD, so any other verb falls through to the framework's content-free 405", () => {
+    const mod = routeModule as unknown as Record<string, unknown>;
+    expect(typeof mod.GET).toBe("function");
+    expect(typeof mod.HEAD).toBe("function");
+    // No mutating/other verb (nor OPTIONS) is handled here: a POST/PUT/PATCH/DELETE gets Next's
+    // stable, body-less framework 405 and OPTIONS is auto-answered 204 — the delivery boundary
+    // never serves bytes for an unsupported method. Pins the "unsupported methods are refused"
+    // contract so a future handler can't silently start serving one.
+    for (const verb of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+      expect(mod[verb], `${verb} must not be handled by the download route`).toBeUndefined();
+    }
   });
 });
 
