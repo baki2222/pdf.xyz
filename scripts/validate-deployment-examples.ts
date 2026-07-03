@@ -48,6 +48,8 @@ const FILES = [
   `${DIR}/github-actions/ops-bundle-fixture.yml`,
   // Phase 46 — the release readiness gate (run the safe checks, fold exit codes into PASS/WARN/FAIL).
   `${DIR}/github-actions/release-gate-fixture.yml`,
+  // Phase 47 — the release evidence artifact (archive the gate result + provenance + integrity digest).
+  `${DIR}/github-actions/release-artifact-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -131,6 +133,14 @@ function main(): number {
   // Phase 46 — the release-gate template must run the actual gate and pin its documented exits.
   requireText(`${DIR}/github-actions/release-gate-fixture.yml`, /worker:release-gate/, "release-gate GitHub Actions fixture must run worker:release-gate", findings);
   requireText(`${DIR}/github-actions/release-gate-fixture.yml`, /test "\$code" -eq 1/, "release-gate GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 47 — the release-artifact template must run the gate, archive + verify the artifact, and
+  // pin the tamper-detection + usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-artifact-fixture.yml`, /worker:release-gate/, "release-artifact GitHub Actions fixture must run the gate first", findings);
+  requireText(`${DIR}/github-actions/release-artifact-fixture.yml`, /worker:release-artifact --release-gate=.*--output=/, "release-artifact GitHub Actions fixture must archive the gate result to a file", findings);
+  requireText(`${DIR}/github-actions/release-artifact-fixture.yml`, /worker:release-artifact --verify=/, "release-artifact GitHub Actions fixture must verify the artifact integrity", findings);
+  requireText(`${DIR}/github-actions/release-artifact-fixture.yml`, /test "\$code" -eq 4/, "release-artifact GitHub Actions fixture must assert the tamper (digest mismatch) exit code", findings);
+  requireText(`${DIR}/github-actions/release-artifact-fixture.yml`, /test "\$code" -eq 1/, "release-artifact GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

@@ -1,0 +1,131 @@
+{
+  "schema": "pdfxyz.ops-bundle/1",
+  "policyId": "pdfxyz-worker-ops-evidence-bundle",
+  "policyVersion": 1,
+  "generatedAt": "2026-07-03T00:00:00.000Z",
+  "rollup": {
+    "severity": "critical",
+    "exitCode": 4,
+    "ok": false,
+    "detail": "At least one composed signal is critical; a worker cannot run correctly here."
+  },
+  "sections": {
+    "operations": {
+      "source": "ops-check",
+      "severity": "critical",
+      "health": "warn",
+      "vantage": "worker",
+      "drainable": true,
+      "daemonObserved": true,
+      "action": "reconcile-lifecycle-drift",
+      "actionDetail": "A verified observed configuration shows the retention backstop does not hold as generated, so objects can outlive the privacy ceiling. Reconcile the drift.",
+      "liveness": {
+        "state": "observed",
+        "source": "self",
+        "lastSeen": null,
+        "severity": "ok",
+        "reason": "liveness-observed",
+        "action": "monitor"
+      },
+      "subsystems": [
+        {
+          "id": "drainability",
+          "health": "ok"
+        },
+        {
+          "id": "storage",
+          "health": "ok"
+        },
+        {
+          "id": "queue",
+          "health": "ok"
+        },
+        {
+          "id": "compression-engine",
+          "health": "ok"
+        },
+        {
+          "id": "malware-scan",
+          "health": "ok"
+        },
+        {
+          "id": "lifecycle",
+          "health": "ok"
+        },
+        {
+          "id": "lifecycle-verification",
+          "health": "warn"
+        },
+        {
+          "id": "guardrails",
+          "health": "ok"
+        },
+        {
+          "id": "cleanup-evidence",
+          "health": "unknown"
+        }
+      ],
+      "proofs": {
+        "compressionDeep": "available",
+        "ocr": "unavailable"
+      },
+      "alerts": [
+        {
+          "source": "lifecycle_drift",
+          "severity": "critical",
+          "reason": "slo-breach",
+          "action": "reconcile-lifecycle-drift"
+        },
+        {
+          "source": "lifecycle-verification",
+          "severity": "warn",
+          "reason": "lifecycle-drift",
+          "action": "reconcile-lifecycle-drift"
+        }
+      ],
+      "summary": "Operations are critical: a worker cannot run correctly here."
+    },
+    "slo": {
+      "source": "ops-check",
+      "worst": "breach",
+      "evaluated": 1,
+      "total": 12,
+      "issues": [
+        {
+          "id": "lifecycle_drift",
+          "status": "breach"
+        }
+      ],
+      "detail": "1 of 12 SLO indicators had enough data to judge; worst observed status is breach."
+    },
+    "cleanupEvidence": {
+      "source": "ops-check",
+      "state": "disabled",
+      "reason": "no_report_configured",
+      "provider": "unknown",
+      "freshness": "unknown",
+      "detail": "No content-free cleanup evidence report is configured (or the configured report reports no object storage), so there is nothing to monitor here."
+    },
+    "lifecycle": {
+      "source": "ops-check",
+      "verification": "warn",
+      "readiness": "ok",
+      "verdict": "drift",
+      "drift": true,
+      "detail": "The lifecycle verification subsystem reports drift: the observed retention policy is missing, weaker, or disabled versus the declared one. Reconcile it out-of-band."
+    },
+    "pipeline": {
+      "source": "not-configured",
+      "severity": null,
+      "arms": [],
+      "detail": "No cleanup-pipeline summary was supplied, so pipeline posture is not included. Point it at a content-free `pnpm worker:cleanup-pipeline --json` summary to include it."
+    }
+  },
+  "caveats": [
+    "This bundle AGGREGATES existing content-free operator signals; it is not itself a new proof.",
+    "It is not proof of byte deletion — cleanup evidence attests absence/expiry posture, not that a provider erased bytes.",
+    "It is not malware scanning, sanitization, authentication, or authorization of any request.",
+    "It does not validate cloud state — it made no network call and read no provider export, secret, bucket, or object.",
+    "Every value here is a bounded enum or app-authored prose; it carries no locator, identifier, timestamp, size, or byte."
+  ]
+}

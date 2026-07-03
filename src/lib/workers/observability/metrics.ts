@@ -106,6 +106,10 @@ import {
   RELEASE_GATE_VERDICTS,
   type ReleaseGateVerdict,
 } from "../release-gate/types";
+import {
+  RELEASE_ARTIFACT_VERDICTS,
+  type ReleaseArtifactVerdict,
+} from "../release-artifact/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -408,6 +412,7 @@ export const METRIC_NAMES = [
   "worker_cleanup_evidence_posture",
   "worker_ops_bundle_total",
   "worker_release_gate_total",
+  "worker_release_artifact_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -582,6 +587,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_GATE_VERDICTS,
+    },
+  },
+  worker_release_artifact_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_ARTIFACT_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -962,6 +973,25 @@ export function opsBundleMetric(severity: OpsBundleSeverity): WorkerMetricSample
 export function releaseGateMetric(verdict: ReleaseGateVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_gate_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A generated **release evidence artifact** (Phase 47) resolved to its archival `verdict`
+ * ({@link ReleaseArtifactVerdict}: `pass`/`warn`/`fail`/`unknown`). One bounded label so a release
+ * pipeline / dashboard can count artifacts by the single decision an operator archives (e.g.
+ * `worker_release_artifact_total{verdict="fail"} > 0`). This counts an offline AGGREGATION that
+ * archived the content-free release-gate result with bounded provenance and hashed the safe aggregate
+ * — NOT a cloud call, a deletion, a signature, a promotion, or a claim about bucket bytes. The one
+ * label is a closed, redaction-stable enum — never a filename, path, object key, bucket, URL,
+ * endpoint, region, instant, size, digest, or document content.
+ */
+export function releaseArtifactMetric(verdict: ReleaseArtifactVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_artifact_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

@@ -1,0 +1,106 @@
+{
+  "schema": "pdfxyz.ops-bundle/1",
+  "policyId": "pdfxyz-worker-ops-evidence-bundle",
+  "policyVersion": 1,
+  "generatedAt": "2026-07-03T00:00:00.000Z",
+  "rollup": {
+    "severity": "ok",
+    "exitCode": 0,
+    "ok": true,
+    "detail": "All composed operations signals are healthy."
+  },
+  "sections": {
+    "operations": {
+      "source": "ops-check",
+      "severity": "ok",
+      "health": "ok",
+      "vantage": "web",
+      "drainable": true,
+      "daemonObserved": true,
+      "action": "none",
+      "actionDetail": "Everything observable here is healthy; no action is required.",
+      "liveness": {
+        "state": "observed",
+        "source": "queue-broker",
+        "lastSeen": "under-30s",
+        "severity": "ok",
+        "reason": "liveness-observed",
+        "action": "monitor"
+      },
+      "subsystems": [
+        {
+          "id": "drainability",
+          "health": "ok"
+        },
+        {
+          "id": "storage",
+          "health": "ok"
+        },
+        {
+          "id": "queue",
+          "health": "ok"
+        },
+        {
+          "id": "compression-engine",
+          "health": "ok"
+        },
+        {
+          "id": "malware-scan",
+          "health": "ok"
+        },
+        {
+          "id": "lifecycle",
+          "health": "ok"
+        },
+        {
+          "id": "lifecycle-verification",
+          "health": "ok"
+        },
+        {
+          "id": "guardrails",
+          "health": "ok"
+        },
+        {
+          "id": "cleanup-evidence",
+          "health": "unknown"
+        }
+      ],
+      "proofs": {
+        "compressionDeep": "available",
+        "ocr": "unavailable"
+      },
+      "alerts": [],
+      "summary": "Operations are healthy: the worker is runnable and no recommended fix is outstanding."
+    },
+    "slo": null,
+    "cleanupEvidence": {
+      "source": "ops-check",
+      "state": "disabled",
+      "reason": "no_report_configured",
+      "provider": "unknown",
+      "freshness": "unknown",
+      "detail": "No content-free cleanup evidence report is configured (or the configured report reports no object storage), so there is nothing to monitor here."
+    },
+    "lifecycle": {
+      "source": "ops-check",
+      "verification": "ok",
+      "readiness": "ok",
+      "verdict": "verified",
+      "drift": false,
+      "detail": "The lifecycle verification subsystem reports the observed retention policy matches (or is stricter than) the declared one."
+    },
+    "pipeline": {
+      "source": "not-configured",
+      "severity": null,
+      "arms": [],
+      "detail": "No cleanup-pipeline summary was supplied, so pipeline posture is not included. Point it at a content-free `pnpm worker:cleanup-pipeline --json` summary to include it."
+    }
+  },
+  "caveats": [
+    "This bundle AGGREGATES existing content-free operator signals; it is not itself a new proof.",
+    "It is not proof of byte deletion — cleanup evidence attests absence/expiry posture, not that a provider erased bytes.",
+    "It is not malware scanning, sanitization, authentication, or authorization of any request.",
+    "It does not validate cloud state — it made no network call and read no provider export, secret, bucket, or object.",
+    "Every value here is a bounded enum or app-authored prose; it carries no locator, identifier, timestamp, size, or byte."
+  ]
+}

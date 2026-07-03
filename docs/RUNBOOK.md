@@ -659,3 +659,35 @@ Scope the run with `--only=<id,…>` or `--skip=<id,…>` over the bounded check
 **It is a pre-deploy EVIDENCE gate — a `pass` means only "the evidence gathered here shows no blocker."** It does **not** prove bytes were deleted, that a bucket's lifecycle policy is correct, or that live cloud validation, malware scanning, sanitization, or authentication/authorization are resolved — all out-of-band. And it does **not** scan the working tree for secrets or NUL bytes: its `deploy-examples` check secret-scans the *committed* deployment blueprints, but **uncommitted changes are not scanned** — run your changed-file secret/NUL scan separately before you promote.
 
 The gate is local, offline, and read-only: it does not call the cloud, read a provider export/secret/bucket, inspect object bytes, or delete/upload/mutate anything, and it does not perform the promotion. A `pass` verdict certifies only that the evidence gathered here shows no blocker — real cloud state (bucket lifecycle, object deletion, queue/broker health, CDN), legal retention, data migration, and provider quotas remain operator-owned and out-of-band. Do **not** attach raw provider exports or logs to a promotion record; attach the generated content-free report instead. The CI example lives at `docs/examples/deployment/github-actions/release-gate-fixture.yml`.
+
+### Archive a release evidence artifact: release-artifact (Phase 47)
+
+Once the gate has run, archive its result as a stable, tamper-evident, content-free **release evidence artifact** — the record a CI job, an incident handoff, or a deployment-approval workflow keeps to answer "what evidence did this build carry when it was promoted, and was that record altered?"
+
+**`pnpm worker:release-artifact`** archives the `worker:release-gate` result (run internally, or supplied via `--release-gate=<file>`) with bounded git/release provenance and an integrity digest:
+
+```
+pnpm worker:release-gate --json > gate.json                                      # pre-run the gate
+pnpm worker:release-artifact --release-gate=gate.json --label=v1.2.3 \
+  --output=release.json --json                                                   # archive it
+pnpm worker:release-artifact --verify=release.json                               # confirm integrity
+pnpm worker:release-artifact --text                                              # run the gate + summarize
+```
+
+Verdict/exit ladder: `0` pass, `1` usage, `2` unknown, `3` warn, `4` fail. The archived **gate verdict is primary** and carries straight through; the one signal the artifact adds is this build's working-tree cleanliness — a **dirty** tree escalates a clean `pass` to `warn` (the recorded commit then does not fully describe the built bytes) and never downgrades a `fail`/`unknown` (a missing gate result is a more honest signal than "ready with a caveat").
+
+| Exit | Verdict | What it means | Do |
+| --- | --- | --- | --- |
+| `0` | `pass` | The gate passed and provenance is clean. | Archive + promote — subject to the out-of-band caveats. |
+| `1` | `usage` | The CLI was misused: a bad flag, an invalid `--label`, or (in `--verify`) an unreadable/non-artifact file. | Fix the invocation; not a build verdict. |
+| `2` | `unknown` | The gate result was indeterminate/absent. | Re-run the gate; treat as a non-promotion, never a pass. |
+| `3` | `warn` | The gate warned, or the working tree is dirty. | Review; a warn is informational, not a hard block. |
+| `4` | `fail` | A blocking gate check failed, or (in `--verify`) the digest did **not** match. | **Block the promotion**, or investigate the altered artifact. |
+
+**Provenance is bounded, never raw.** The artifact records a cleanliness enum (`clean`/`dirty`/`unknown`), a ref **class** (`default`/`release`/`topic`/`detached`/`unknown` — never the raw branch name or remote URL), a validated abbreviated commit hash (a 7–40 char hex object id, capped to 12; anything else → `null`), and an optional operator `--label` (validated to `[A-Za-z0-9._-]{1,64}` and redaction-stable, else a `1` usage error). `--no-vcs` suppresses all git facts (records them `unknown`). The archived gate + any attached `--ops-bundle` summary are re-authored from bounded enums — a hostile input string is dropped.
+
+**The integrity digest is tamper-evidence, not a signature.** `integrity.digest` is a `sha256` over the **canonical** body (recursively key-sorted, minimally-separated JSON — the `pdfxyz-sorted-keys/1` scheme), so a verifier reproduces it from the archived body regardless of pretty-printing. `--verify=<file>` recomputes it offline and confirms it matches; a mismatch (exit `4`) means the archived body was altered. There is no signing key and no attested identity — it proves byte-stability, nothing more.
+
+**An attached `--ops-bundle` is context only.** It reflects a runtime's live ops posture (possibly a different environment during an incident handoff), so it is archived for context and does **not** change the release verdict, which is about THIS build's promotion readiness.
+
+Like the gate, the artifact is local, offline, and read-only: no cloud call, no provider export/secret/bucket, no deletion/upload/mutation, and it does not perform the promotion. It is evidence AGGREGATION + INTEGRITY over content-free data — **not** signing, authentication, cloud validation, deletion proof, or deployment promotion. Run your changed-file secret/NUL scan separately (it records the gate result but does not diff the working tree). The CI example lives at `docs/examples/deployment/github-actions/release-artifact-fixture.yml`; example inputs live under `docs/examples/release-artifact/`.
