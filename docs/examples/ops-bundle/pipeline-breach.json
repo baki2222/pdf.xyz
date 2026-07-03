@@ -1,0 +1,44 @@
+{
+  "tool": "worker-cleanup-pipeline",
+  "schema": "pdfxyz.cleanup-pipeline/1",
+  "dryRun": true,
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "severity": "breach",
+  "exitCode": 4,
+  "arms": [
+    {
+      "arm": "verify",
+      "code": 4,
+      "severity": "breach",
+      "projected": false
+    },
+    {
+      "arm": "sweep",
+      "code": 4,
+      "severity": "breach",
+      "projected": false
+    }
+  ],
+  "receipt": {
+    "category": "cleanup-pipeline",
+    "policyId": "pdfxyz-cleanup-evidence-pipeline",
+    "policyVersion": 1,
+    "at": "2026-01-01T00:00:00.000Z",
+    "severity": "breach",
+    "exitCode": 4,
+    "arms": [
+      {
+        "arm": "verify",
+        "code": 4,
+        "severity": "breach",
+        "projected": false
+      },
+      {
+        "arm": "sweep",
+        "code": 4,
+        "severity": "breach",
+        "projected": false
+      }
+    ]
+  }
+}

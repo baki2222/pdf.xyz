@@ -791,3 +791,9 @@ PDFXYZ_CLEANUP_RAW_EXPORT=docs/examples/cleanup-project/raw-unsafe-tombstoned.js
 ```
 
 Honesty boundary: these templates were statically validated and smoke-run against committed content-free fixtures here; they were not applied to a real Kubernetes cluster, cloud bucket, or pager. A `drift`/`breach` is a cleanup gap, not a disclosure (the Phase 41 retrieval boundary still denies the download) and not a claim about your bucket lifecycle policy's correctness (verify that with `worker:daemon --lifecycle-verify`). Producing the raw export and performing any deletion/CDN purge both remain operator-owned and out-of-band.
+
+## Phase 45 operations evidence bundle artifacts
+
+Phase 45 adds `pnpm worker:ops-bundle` and placeholder-only deployment examples for collecting a safe support/incident artifact. The bundle should run wherever `worker:ops-check` and the cleanup pipeline reports are already available; it does **not** need cloud credentials and must not be pointed at raw provider exports. Examples are under `docs/examples/deployment/kubernetes/ops-bundle-cronjob.yaml`, `docs/examples/deployment/scheduler/ops-bundle*`, and `docs/examples/deployment/github-actions/ops-bundle-fixture.yml`.
+
+Typical production wiring is: schedule `worker:ops-check --runtime --json`, optionally run `worker:cleanup-pipeline --json`, then compose them with `worker:ops-bundle --operations-file=<ops-summary> --pipeline=<cleanup-summary> --output=<bundle.json>`. Key automation on the bundle exit code (`0` ok, `1` usage/miswired, `2` unknown, `3` warning, `4` critical). The output file path is operator-owned and never appears in the bundle; choose a local location with normal log-retention controls. Validate the examples with `pnpm deploy:examples:check`.

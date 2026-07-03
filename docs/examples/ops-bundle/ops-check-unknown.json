@@ -1,0 +1,73 @@
+{
+  "schema": "pdfxyz.ops-check/1",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "source": "file",
+  "ok": false,
+  "severity": "unknown",
+  "exitCode": 2,
+  "action": "confirm-worker-deployment",
+  "actionDetail": "Everything this app can observe is healthy, but a worker daemon runs out-of-band and its liveness cannot be seen from here. Confirm a worker is deployed and draining.",
+  "summary": "UNKNOWN — worker health could not be determined from this evidence. Next action: confirm-worker-deployment.",
+  "liveness": {
+    "state": "disabled",
+    "detail": "Cross-process worker liveness observation is not enabled here, so an absent heartbeat says nothing; confirm a worker is deployed and draining out-of-band.",
+    "severity": "ok",
+    "reason": "liveness-disabled",
+    "action": "confirm-worker-deployment",
+    "source": "none",
+    "lastSeen": null
+  },
+  "snapshot": {
+    "vantage": "web",
+    "health": "unknown",
+    "drainable": false,
+    "daemonObserved": false,
+    "subsystems": [
+      {
+        "id": "storage",
+        "health": "unknown"
+      },
+      {
+        "id": "queue",
+        "health": "unknown"
+      },
+      {
+        "id": "compression-engine",
+        "health": "unknown"
+      },
+      {
+        "id": "ocr",
+        "health": "unknown"
+      },
+      {
+        "id": "malware-scan",
+        "health": "unknown"
+      },
+      {
+        "id": "lifecycle",
+        "health": "unknown"
+      },
+      {
+        "id": "guardrails",
+        "health": "unknown"
+      },
+      {
+        "id": "cleanup-evidence",
+        "health": "unknown"
+      }
+    ],
+    "proofs": {
+      "compressionDeep": "unknown",
+      "ocr": "unknown"
+    },
+    "cleanupEvidence": {
+      "state": "disabled",
+      "reason": "no_report_configured",
+      "provider": "unknown",
+      "freshness": "unknown"
+    },
+    "lastLoop": null
+  },
+  "slo": null,
+  "alerts": []
+}

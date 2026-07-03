@@ -1,0 +1,24 @@
+# pdf.xyz secure-worker ops-bundle — systemd timer EXAMPLE.
+#
+# Drives pdfxyz-ops-bundle.service on a fixed cadence. Install both under
+# /etc/systemd/system/ and enable the TIMER (not the service):
+#   systemctl daemon-reload && systemctl enable --now pdfxyz-ops-bundle.timer
+#   systemctl list-timers pdfxyz-ops-bundle.timer   # confirm the next run
+#
+# This is a TEMPLATE — tune the cadence to your incident-handoff budget. The bundle is a heavier
+# composite than the ops-check heartbeat, so a looser cadence is fine; keep ops-check tighter.
+[Unit]
+Description=Assemble the pdf.xyz secure-worker operations evidence bundle on a schedule
+Documentation=file:/opt/pdfxyz/docs/RUNBOOK.md
+
+[Timer]
+# First run shortly after boot, then every 15 minutes while active.
+OnBootSec=3min
+OnUnitActiveSec=15min
+AccuracySec=30s
+# Catch up one missed run after downtime instead of silently skipping the window.
+Persistent=true
+Unit=pdfxyz-ops-bundle.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,106 @@
+{
+  "schema": "pdfxyz.ops-check/1",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "source": "file",
+  "ok": false,
+  "severity": "critical",
+  "exitCode": 4,
+  "action": "reconcile-lifecycle-drift",
+  "actionDetail": "A verified observed configuration shows the retention backstop does not hold as generated, so objects can outlive the privacy ceiling. Reconcile the drift.",
+  "summary": "CRITICAL — a worker cannot run correctly here. Next action: reconcile-lifecycle-drift.",
+  "liveness": {
+    "state": "observed",
+    "detail": "A worker daemon published a liveness heartbeat within the freshness window, so a worker is observably running and draining.",
+    "severity": "ok",
+    "reason": "liveness-observed",
+    "action": "monitor",
+    "source": "self",
+    "lastSeen": null
+  },
+  "snapshot": {
+    "vantage": "worker",
+    "health": "warn",
+    "drainable": true,
+    "daemonObserved": true,
+    "subsystems": [
+      {
+        "id": "drainability",
+        "health": "ok"
+      },
+      {
+        "id": "storage",
+        "health": "ok"
+      },
+      {
+        "id": "queue",
+        "health": "ok"
+      },
+      {
+        "id": "compression-engine",
+        "health": "ok"
+      },
+      {
+        "id": "malware-scan",
+        "health": "ok"
+      },
+      {
+        "id": "lifecycle",
+        "health": "ok"
+      },
+      {
+        "id": "lifecycle-verification",
+        "health": "warn"
+      },
+      {
+        "id": "guardrails",
+        "health": "ok"
+      },
+      {
+        "id": "cleanup-evidence",
+        "health": "unknown"
+      }
+    ],
+    "proofs": {
+      "compressionDeep": "available",
+      "ocr": "unavailable"
+    },
+    "cleanupEvidence": {
+      "state": "disabled",
+      "reason": "no_report_configured",
+      "provider": "unknown",
+      "freshness": "unknown"
+    },
+    "lastLoop": null
+  },
+  "slo": {
+    "worst": "breach",
+    "evaluated": 1,
+    "total": 12,
+    "issues": [
+      {
+        "id": "lifecycle_drift",
+        "status": "breach",
+        "observed": "2 drifted rule(s)",
+        "threshold": "verified, 0 drifted rules"
+      }
+    ]
+  },
+  "alerts": [
+    {
+      "source": "lifecycle_drift",
+      "severity": "critical",
+      "reason": "slo-breach",
+      "action": "reconcile-lifecycle-drift",
+      "detail": "Retention/lifecycle backstop verification: drift means objects could outlive the privacy ceiling.",
+      "observed": "2 drifted rule(s)",
+      "threshold": "verified, 0 drifted rules"
+    },
+    {
+      "source": "lifecycle-verification",
+      "severity": "warn",
+      "reason": "lifecycle-drift",
+      "action": "reconcile-lifecycle-drift",
+      "detail": "A verified observed configuration shows the retention backstop does not hold as generated, so objects can outlive the privacy ceiling. Reconcile the drift."
+    }
+  ]
+}

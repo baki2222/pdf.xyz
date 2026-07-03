@@ -612,3 +612,21 @@ fabricates freshness. The full loop: **schedule the pipeline (or the individual 
 a content-free report → the monitor reads it → the dashboard shows posture.**
 
 None of these tools proves byte deletion on its own, claims bucket lifecycle policy correctness, or performs deletion/CDN purge — all still operator-owned and out of band.
+
+### Package a safe incident artifact: operations evidence bundle (Phase 45)
+
+When a worker incident needs a ticket attachment or handoff artifact, use `pnpm worker:ops-bundle` instead of pasting raw logs, paths, bucket listings, or provider exports. It packages the existing **content-free** operations healthcheck plus an optional cleanup pipeline summary into one `pdfxyz.ops-bundle/1` JSON/text artifact:
+
+```sh
+# One-line runtime handoff; the bundle writes JSON to stdout and exits with the composite severity.
+pnpm worker:ops-check --runtime --json | pnpm worker:ops-bundle --json
+
+# Persist a content-free support artifact. The destination path is never embedded in the bundle.
+pnpm worker:ops-bundle \
+  --operations-file=/var/lib/pdfxyz/ops-check.json \
+  --pipeline=/var/lib/pdfxyz/cleanup-pipeline.json \
+  --output=/var/lib/pdfxyz/ops-bundle.json \
+  --pretty
+```
+
+Exit ladder: `0` ok, `1` usage/miswired aggregation, `2` unknown/incomplete evidence, `3` warning/degraded or drift, `4` critical/breach. The bundle is an aggregator only: it does not call the cloud, inspect buckets, read object bytes, or delete anything. It reconstructs from bounded enums/counts and drops unsafe strings, so do **not** attach raw provider exports or logs to a ticket; attach the generated bundle instead. Runnable examples live under `docs/examples/ops-bundle/` and `docs/examples/deployment/*ops-bundle*`.

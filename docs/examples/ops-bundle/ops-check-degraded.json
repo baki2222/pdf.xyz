@@ -1,0 +1,81 @@
+{
+  "schema": "pdfxyz.ops-check/1",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "source": "file",
+  "ok": false,
+  "severity": "warn",
+  "exitCode": 3,
+  "action": "investigate-worker-liveness",
+  "actionDetail": "Worker liveness observation is enabled, but no recent heartbeat is visible (it is stale or absent). Confirm a worker daemon is deployed and beating; check its logs and your process supervisor.",
+  "summary": "WARNING — a recommended fix is outstanding. Next action: investigate-worker-liveness.",
+  "liveness": {
+    "state": "stale",
+    "detail": "A worker heartbeat is present but older than the freshness window; the worker may have stopped or lost connectivity. Confirm it and check its logs / process supervisor.",
+    "severity": "warn",
+    "reason": "liveness-stale",
+    "action": "investigate-worker-liveness",
+    "source": "queue-broker",
+    "lastSeen": "over-10m"
+  },
+  "snapshot": {
+    "vantage": "web",
+    "health": "warn",
+    "drainable": true,
+    "daemonObserved": false,
+    "subsystems": [
+      {
+        "id": "drainability",
+        "health": "ok"
+      },
+      {
+        "id": "storage",
+        "health": "ok"
+      },
+      {
+        "id": "queue",
+        "health": "ok"
+      },
+      {
+        "id": "compression-engine",
+        "health": "ok"
+      },
+      {
+        "id": "malware-scan",
+        "health": "ok"
+      },
+      {
+        "id": "lifecycle",
+        "health": "ok"
+      },
+      {
+        "id": "guardrails",
+        "health": "ok"
+      },
+      {
+        "id": "cleanup-evidence",
+        "health": "unknown"
+      }
+    ],
+    "proofs": {
+      "compressionDeep": "unknown",
+      "ocr": "unknown"
+    },
+    "cleanupEvidence": {
+      "state": "disabled",
+      "reason": "no_report_configured",
+      "provider": "unknown",
+      "freshness": "unknown"
+    },
+    "lastLoop": null
+  },
+  "slo": null,
+  "alerts": [
+    {
+      "source": "liveness",
+      "severity": "warn",
+      "reason": "liveness-stale",
+      "action": "investigate-worker-liveness",
+      "detail": "A worker heartbeat is present but older than the freshness window; the worker may have stopped or lost connectivity. Confirm it and check its logs / process supervisor."
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+name: pdf.xyz ops-bundle fixture gate
+
+# Composes the committed content-free example summaries through `pnpm worker:ops-bundle` and
+# pins the documented composite exit ladder, then collects the rendered bundle as a CI artifact
+# (the incident-handoff use case). Everything here is content-free: bounded enums + authored
+# prose only — no locator, key, bucket, URL, secret, or byte. This is a TEMPLATE.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docs/examples/ops-bundle/**"
+      - "src/lib/workers/ops-bundle/**"
+      - "src/lib/workers/observability/alerts.ts"
+      - ".github/workflows/**"
+
+jobs:
+  ops-bundle-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Healthy ops-check result composes to exit 0
+        run: pnpm -s worker:ops-bundle --ops-check=docs/examples/ops-bundle/ops-check-healthy.json --json
+      - name: A pipeline breach dominates the rollup (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:ops-bundle --ops-check=docs/examples/ops-bundle/ops-check-healthy.json --pipeline=docs/examples/ops-bundle/pipeline-breach.json --json
+          code=$?
+          test "$code" -eq 4
+      - name: A degraded ops-check result composes to exit 3
+        run: |
+          set +e
+          pnpm -s worker:ops-bundle --ops-check=docs/examples/ops-bundle/ops-check-degraded.json --json
+          code=$?
+          test "$code" -eq 3
+      - name: Collect the rendered bundle as a CI artifact
+        run: |
+          set +e
+          pnpm -s worker:ops-bundle --ops-check=docs/examples/ops-bundle/ops-check-critical.json --output=ops-bundle.json --json
+          code=$?
+          # The bundle exit code is the composite posture; the artifact is written regardless.
+          test "$code" -eq 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ops-bundle
+          path: ops-bundle.json

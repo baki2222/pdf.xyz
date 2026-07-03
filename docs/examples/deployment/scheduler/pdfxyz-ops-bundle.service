@@ -1,0 +1,37 @@
+# pdf.xyz secure-worker ops-bundle — systemd oneshot service EXAMPLE.
+#
+# Paired with pdfxyz-ops-bundle.timer. Install both under /etc/systemd/system/ and:
+#   systemctl daemon-reload && systemctl enable --now pdfxyz-ops-bundle.timer
+#
+# This is a TEMPLATE — adapt User/WorkingDirectory/paths to your host. It runs the inert
+# notifier wrapper, which assembles the operations evidence bundle (worker:ops-check piped into
+# worker:ops-bundle), persists the content-free artifact, and maps its documented composite exit
+# code (0 ok · 1 usage · 2 unknown · 3 warn · 4 critical) to an action.
+[Unit]
+Description=pdf.xyz secure-worker operations evidence bundle (one-shot)
+Documentation=file:/opt/pdfxyz/docs/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run as an unprivileged operator user, never root.
+User=pdfxyz
+Group=pdfxyz
+WorkingDirectory=/opt/pdfxyz
+# --runtime on the worker host (real engine/OCR/scanner probes + heartbeat); use
+# --web on a separate monitor host that cannot see the worker image.
+Environment=PDFXYZ_OPSBUNDLE_SOURCE=--runtime
+# Where to persist the content-free bundle artifact for a ticket/handoff (a local path only):
+Environment=PDFXYZ_OPSBUNDLE_OUTPUT=/var/lib/pdfxyz/ops-bundle.json
+# Optional: compose a content-free cleanup-pipeline summary you generate out-of-band (NOT a raw
+# export). Empty ⇒ the pipeline section is honestly "not-configured".
+# Environment=PDFXYZ_OPSBUNDLE_PIPELINE_REPORT=/var/lib/pdfxyz/cleanup-pipeline.json
+# Inert unless you wire a webhook out-of-band (empty ⇒ nothing is posted):
+# Environment=PDFXYZ_OPSBUNDLE_WEBHOOK_URL=https://REPLACE-ME.example-webhook.invalid/hook
+ExecStart=/opt/pdfxyz/deploy/scheduler/ops-bundle-notify.sh
+# Content-free and hardened: the aggregator makes no cloud call and forwards only a bounded verdict.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

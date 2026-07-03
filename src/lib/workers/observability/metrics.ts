@@ -98,6 +98,10 @@ import {
   type CleanupEvidenceReason,
   type CleanupEvidenceState,
 } from "../cleanup-evidence/types";
+import {
+  OPS_BUNDLE_SEVERITIES,
+  type OpsBundleSeverity,
+} from "../ops-bundle/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -398,6 +402,7 @@ export const METRIC_NAMES = [
   "worker_cleanup_projection_total",
   "worker_cleanup_pipeline_total",
   "worker_cleanup_evidence_posture",
+  "worker_ops_bundle_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -560,6 +565,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
       state: CLEANUP_EVIDENCE_STATES,
       reason: CLEANUP_EVIDENCE_REASONS,
       provider: CLEANUP_EVIDENCE_PROVIDERS,
+    },
+  },
+  worker_ops_bundle_total: {
+    kind: "counter",
+    labels: {
+      severity: OPS_BUNDLE_SEVERITIES,
     },
   },
   worker_job_terminal_total: {
@@ -906,6 +917,24 @@ export function cleanupEvidencePostureMetric(
     metric: "worker_cleanup_evidence_posture",
     kind: "gauge",
     labels: { state, reason, provider },
+    value: 1,
+  };
+}
+
+/**
+ * A generated **operations evidence bundle** (Phase 45) resolved to its composite `severity`
+ * ({@link OpsBundleSeverity}: `ok`/`usage`/`unknown`/`warn`/`critical`). One bounded label so a
+ * scheduled monitor can count bundle outcomes by the single verdict an on-call operator acts on.
+ * This counts a COMPOSITION of an operator's own content-free ops-check + cleanup-pipeline
+ * summaries — NOT a cloud call, a deletion, or a claim about bucket bytes. The one label is a
+ * closed, redaction-stable enum — never a filename, path, object key, bucket, URL, endpoint,
+ * region, instant, size, or document content.
+ */
+export function opsBundleMetric(severity: OpsBundleSeverity): WorkerMetricSample {
+  return {
+    metric: "worker_ops_bundle_total",
+    kind: "counter",
+    labels: { severity },
     value: 1,
   };
 }

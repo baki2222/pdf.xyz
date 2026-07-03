@@ -1,0 +1,77 @@
+{
+  "schema": "pdfxyz.ops-check/1",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "source": "file",
+  "ok": true,
+  "severity": "ok",
+  "exitCode": 0,
+  "action": "none",
+  "actionDetail": "Everything observable here is healthy; no action is required.",
+  "summary": "OK — everything observable here is healthy. Next action: none.",
+  "liveness": {
+    "state": "observed",
+    "detail": "A worker daemon published a liveness heartbeat within the freshness window, so a worker is observably running and draining.",
+    "severity": "ok",
+    "reason": "liveness-observed",
+    "action": "monitor",
+    "source": "queue-broker",
+    "lastSeen": "under-30s"
+  },
+  "snapshot": {
+    "vantage": "web",
+    "health": "ok",
+    "drainable": true,
+    "daemonObserved": true,
+    "subsystems": [
+      {
+        "id": "drainability",
+        "health": "ok"
+      },
+      {
+        "id": "storage",
+        "health": "ok"
+      },
+      {
+        "id": "queue",
+        "health": "ok"
+      },
+      {
+        "id": "compression-engine",
+        "health": "ok"
+      },
+      {
+        "id": "malware-scan",
+        "health": "ok"
+      },
+      {
+        "id": "lifecycle",
+        "health": "ok"
+      },
+      {
+        "id": "lifecycle-verification",
+        "health": "ok"
+      },
+      {
+        "id": "guardrails",
+        "health": "ok"
+      },
+      {
+        "id": "cleanup-evidence",
+        "health": "unknown"
+      }
+    ],
+    "proofs": {
+      "compressionDeep": "available",
+      "ocr": "unavailable"
+    },
+    "cleanupEvidence": {
+      "state": "disabled",
+      "reason": "no_report_configured",
+      "provider": "unknown",
+      "freshness": "unknown"
+    },
+    "lastLoop": null
+  },
+  "slo": null,
+  "alerts": []
+}

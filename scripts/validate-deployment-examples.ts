@@ -39,6 +39,13 @@ const FILES = [
   // Phase 44 — the one-command cleanup evidence pipeline (project + verify + sweep, rolled up).
   `${DIR}/cleanup/cleanup-pipeline-notify.sh`,
   `${DIR}/github-actions/cleanup-pipeline-fixture.yml`,
+  // Phase 45 — the operations evidence bundle (compose ops-check + cleanup-pipeline into one artifact).
+  `${DIR}/scheduler/ops-bundle-notify.sh`,
+  `${DIR}/scheduler/ops-bundle.cron`,
+  `${DIR}/scheduler/pdfxyz-ops-bundle.service`,
+  `${DIR}/scheduler/pdfxyz-ops-bundle.timer`,
+  `${DIR}/kubernetes/ops-bundle-cronjob.yaml`,
+  `${DIR}/github-actions/ops-bundle-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -108,6 +115,16 @@ function main(): number {
   requireText(`${DIR}/cleanup/cleanup-pipeline-notify.sh`, /exit "\$code"/, "pipeline notifier must re-raise the composite exit code (fail closed)", findings);
   requireText(`${DIR}/github-actions/cleanup-pipeline-fixture.yml`, /worker:cleanup-pipeline --file=.*raw-unsafe-tombstoned\.json/, "pipeline GitHub Actions fixture must run the composite over a fixture", findings);
   requireText(`${DIR}/github-actions/cleanup-pipeline-fixture.yml`, /test "\$code" -eq 4/, "pipeline GitHub Actions fixture must assert the breach exit code", findings);
+
+  // Phase 45 — the ops-bundle templates must run the actual aggregator and pin its exit codes.
+  requireText(`${DIR}/kubernetes/ops-bundle-cronjob.yaml`, /kind:\s*CronJob/, "missing ops-bundle Kubernetes CronJob", findings);
+  requireText(`${DIR}/kubernetes/ops-bundle-cronjob.yaml`, /worker:ops-bundle["\s]/, "ops-bundle CronJob must run worker:ops-bundle", findings);
+  requireText(`${DIR}/scheduler/ops-bundle-notify.sh`, /worker:ops-bundle/, "ops-bundle notifier must run worker:ops-bundle", findings);
+  requireText(`${DIR}/scheduler/ops-bundle-notify.sh`, /exit "\$code"/, "ops-bundle notifier must re-raise the composite exit code (fail closed)", findings);
+  requireText(`${DIR}/scheduler/pdfxyz-ops-bundle.service`, /ExecStart=.*ops-bundle-notify\.sh/, "ops-bundle systemd service must run the notifier", findings);
+  requireText(`${DIR}/scheduler/pdfxyz-ops-bundle.timer`, /Persistent=true/, "ops-bundle timer should catch up missed runs", findings);
+  requireText(`${DIR}/github-actions/ops-bundle-fixture.yml`, /worker:ops-bundle --ops-check=.*healthy\.json/, "ops-bundle GitHub Actions fixture must run the aggregator over a fixture", findings);
+  requireText(`${DIR}/github-actions/ops-bundle-fixture.yml`, /test "\$code" -eq 4/, "ops-bundle GitHub Actions fixture must assert the breach exit code", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

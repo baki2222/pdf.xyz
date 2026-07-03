@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pdfxyz-ops-bundle
+  namespace: pdfxyz
+  labels:
+    app.kubernetes.io/name: pdfxyz
+    app.kubernetes.io/component: ops-bundle
+spec:
+  # A heavier composite than the ops-check heartbeat — every 15 minutes is plenty for a handoff.
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 6
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: pdfxyz
+            app.kubernetes.io/component: ops-bundle
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: ops-bundle
+              image: ghcr.io/REPLACE-ME/pdfxyz-worker:REPLACE_TAG
+              imagePullPolicy: IfNotPresent
+              # Assemble the bundle: pipe the content-free ops-check result straight into the
+              # aggregator. A POSIX pipeline exits with the last command's status, so the Job's
+              # exit code is the bundle's composite posture (0 ok / 2 unknown / 3 warn / 4 critical).
+              command:
+                ["sh", "-c", "pnpm -s worker:ops-check --runtime --json | pnpm -s worker:ops-bundle --json"]
+              envFrom:
+                - configMapRef:
+                    name: pdfxyz-config
+                - secretRef:
+                    name: pdfxyz-worker-secrets
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
