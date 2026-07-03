@@ -147,6 +147,11 @@ function reportReadiness(runtime: WorkerRuntime): void {
   // operator has disabled it. Content-free — a mode enum + prose only, never a
   // filename, size, variable name, or value.
   emit({ src: "daemon", event: "soundness_health", ...runtime.soundness });
+  // The artifact-manifest gate's presence-only capability (Phase 37): `active: true`
+  // when the bounded structural provenance check is enabled (the default), `false`
+  // when an operator has disabled it. Content-free — a mode enum + prose only, never a
+  // filename, size, variable name, or value.
+  emit({ src: "daemon", event: "artifact_health", ...runtime.artifact });
   // The OCR backend's presence-only health (Phase 23): `enabled` (opted into via
   // config) fused with `ready` (a real engine is installed here), so an operator can
   // tell `disabled`/`not-configured` from `unavailable` (opted in, engine missing)

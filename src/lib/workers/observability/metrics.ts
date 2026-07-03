@@ -42,6 +42,14 @@ import {
   type SoundnessReason,
   type SoundnessVerdict,
 } from "../soundness/types";
+import {
+  ARTIFACT_OUTPUT_KINDS,
+  ARTIFACT_REASONS,
+  ARTIFACT_VERDICTS,
+  type ArtifactOutputKind,
+  type ArtifactReason,
+  type ArtifactVerdict,
+} from "../artifacts/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -99,6 +107,7 @@ export const FAILURE_CLASSES = [
   "none",
   "blocked", // malware_detected / scan_invalid — blocked before processing
   "unsound", // unsound_input — the file-soundness preflight rejected it before processing
+  "artifact", // artifact_invalid — the artifact-manifest gate rejected the output before publication
   "scan_unavailable", // the scan could not complete (retryable, then exhausted)
   "input_missing", // an input object was gone (not_found)
   "unsupported", // no processor / not_implemented for the tool
@@ -325,6 +334,7 @@ export const METRIC_NAMES = [
   "worker_processor_latency_seconds",
   "worker_scan_total",
   "worker_soundness_total",
+  "worker_artifact_manifest_total",
   "worker_storage_ops_total",
   "worker_queue_depth",
   "worker_queue_age_seconds",
@@ -400,6 +410,15 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
   worker_soundness_total: {
     kind: "counter",
     labels: { verdict: SOUNDNESS_VERDICTS, reason: SOUNDNESS_REASONS },
+  },
+  worker_artifact_manifest_total: {
+    kind: "counter",
+    labels: {
+      verdict: ARTIFACT_VERDICTS,
+      reason: ARTIFACT_REASONS,
+      kind: ARTIFACT_OUTPUT_KINDS,
+      processor: PROCESSOR_KINDS,
+    },
   },
   worker_storage_ops_total: {
     kind: "counter",
@@ -549,6 +568,26 @@ export function soundnessMetric(
   };
 }
 
+/**
+ * The artifact-manifest gate reached `verdict` for the bounded `reason` on one
+ * produced output of `kind` from the `processor` family (e.g. `valid`/`ok` for a
+ * published output, `invalid`/`empty_artifact` for a rejected one). All four labels
+ * are closed enums — never a filename, object key, size, or document content.
+ */
+export function artifactManifestMetric(
+  verdict: ArtifactVerdict,
+  reason: ArtifactReason,
+  kind: ArtifactOutputKind,
+  processor: ProcessorKind,
+): WorkerMetricSample {
+  return {
+    metric: "worker_artifact_manifest_total",
+    kind: "counter",
+    labels: { verdict, reason, kind, processor },
+    value: 1,
+  };
+}
+
 /** A worker-side storage `op` resolved to `result`. */
 export function storageMetric(
   op: StorageOp,
@@ -657,6 +696,8 @@ export function failureClassForCode(code: string | undefined): FailureClass {
       return "blocked";
     case "unsound_input":
       return "unsound";
+    case "artifact_invalid":
+      return "artifact";
     case "scan_unavailable":
       return "scan_unavailable";
     case "not_found":

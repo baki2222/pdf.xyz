@@ -77,6 +77,15 @@ export interface ExecutorTick {
  *    `unsound_input` error code, so the input never reaches ClamAV/OCR/compression.
  *    Content-free: the specific reason rides the metric, never a log line,
  *    filename, or byte.
+ *
+ * The artifact-manifest gate (Phase 37) adds two more, emitted only when a gate is
+ * wired and enabled, AFTER the processor succeeds and BEFORE any bytes are persisted:
+ *  - `artifact_ok`       — every produced output passed the bounded provenance check;
+ *  - `artifact_rejected` — an output failed the check (e.g. empty, an unrecognized
+ *    kind, a mistyped/unproducible content-type, or a retention-less job); the job is
+ *    failed before any artifact is written with an `artifact_invalid` error code, so
+ *    no client artifact is ever minted. Content-free: the specific reason rides the
+ *    metric, never a log line, filename, or byte.
  */
 export interface ExecutorLogEvent {
   event:
@@ -87,6 +96,8 @@ export interface ExecutorLogEvent {
     | "soundness_ok"
     | "soundness_blocked"
     | "processing"
+    | "artifact_ok"
+    | "artifact_rejected"
     | "completed"
     | "failed"
     | "requeued"

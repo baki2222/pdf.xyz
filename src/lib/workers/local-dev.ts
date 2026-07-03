@@ -47,7 +47,15 @@ import { nativeCompressionDeps } from "./compression/native";
 import { createProcessorRegistry } from "./processor";
 import { processorFail } from "./processor/types";
 import { resolveWorkerSoundness, type SoundnessGate } from "./soundness";
-import { UNSOUND_INPUT_ERROR } from "./executor/executor";
+import {
+  resolveWorkerArtifactManifest,
+  type ArtifactManifestGate,
+} from "./artifacts";
+import {
+  MALFORMED_ARTIFACT_ERROR,
+  UNSOUND_INPUT_ERROR,
+} from "./executor/executor";
+import { processorKindForId } from "./observability/metrics";
 import {
   devWorkerStore,
   newArtifactId,
@@ -77,6 +85,13 @@ export interface LocalDevDeps {
    * does before the processor. Tests inject a disabled/custom gate to steer it.
    */
   soundness?: SoundnessGate;
+  /**
+   * The artifact-manifest / provenance gate (Phase 37). Defaults to the env-resolved
+   * gate (enabled), so this synchronous dev path validates a produced output through
+   * the SAME bounded structural check the async executor runs before it is stored or a
+   * download minted. Tests inject a disabled/custom gate to steer it.
+   */
+  artifactManifest?: ArtifactManifestGate;
   now?: () => number;
 }
 
@@ -89,6 +104,10 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
   // The same gate the async executor runs, so the dev path cannot drift on which
   // inputs are structurally sound. Enabled by default; injectable for tests.
   const soundness = deps.soundness ?? resolveWorkerSoundness();
+  // The same artifact-manifest / provenance gate the async executor runs, so the dev
+  // path cannot publish an output the executor would reject before storing it.
+  // Enabled by default; injectable for tests.
+  const artifactManifest = deps.artifactManifest ?? resolveWorkerArtifactManifest();
 
   // Storage and queue share the one store instance, exactly as a production
   // adapter would share one bucket + one queue behind the same contracts.
@@ -246,8 +265,23 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
         retention: DEFAULT_RETENTION,
       } as const;
 
+      // Artifact-manifest / provenance gate (Phase 37): the SAME bounded structural
+      // validation the async executor runs, over the produced outputs and BEFORE any
+      // artifact is stored or a download minted. An `invalid` verdict makes the job
+      // fail honestly (typed, content-free error, NO artifact); `valid`/`skipped`
+      // proceeds to publish. Compression (the only tool this dev worker runs today)
+      // produces a valid PDF, so the default path is unaffected.
+      const publishOk =
+        result.ok &&
+        artifactManifest.validate({
+          tool: request.tool,
+          processor: processorKindForId(processor.id),
+          retention: DEFAULT_RETENTION,
+          artifacts: result.artifacts,
+        }).verdict !== "invalid";
+
       let job: Job;
-      if (result.ok) {
+      if (result.ok && publishOk) {
         const artifacts: JobArtifact[] = [];
         for (const produced of result.artifacts) {
           const artifactId = newArtifactId();
@@ -290,8 +324,11 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
           ...(safeResults ? { results: safeResults } : {}),
         };
       } else {
-        // Honest failure: a real job record with a typed error and NO artifact.
-        job = { ...base, status: "failed", progress: 0, error: result.error };
+        // Honest failure: a real job record with a typed error and NO artifact. A
+        // processor failure carries its own error; a manifest rejection of an
+        // otherwise-successful run carries the fixed, content-free artifact error.
+        const error = result.ok ? MALFORMED_ARTIFACT_ERROR : result.error;
+        job = { ...base, status: "failed", progress: 0, error };
       }
 
       const enqueued = await queue.enqueue(job, request.idempotencyKey);

@@ -24,6 +24,12 @@
  *    an unsupported family, or a PDF-expected input with no `%PDF-` envelope) is
  *    blocked BEFORE the scanner and any processing when a soundness gate is wired —
  *    a cheap bounded preflight, never a claim that the document is valid or safe;
+ *  - a produced output is validated by a bounded artifact-manifest/provenance gate
+ *    (when wired) AFTER the transform succeeds and BEFORE any bytes are persisted or a
+ *    download is minted, so a malformed or ambiguous output (empty, an unrecognized
+ *    kind, a mistyped or unproducible content-type, a retention-less job) fails the
+ *    job honestly with no client artifact — structural metadata validation only,
+ *    never a content-security, OCR-correctness, or lifecycle-deletion claim;
  *  - inputs are wiped once a job reaches a terminal state (a retryable requeue is
  *    *not* terminal, so its inputs survive for the retry);
  *  - the log callback only ever receives opaque ids, the tool slug, an attempt
@@ -38,7 +44,10 @@ import type { ProcessorRegistry } from "../processor/registry";
 import type { MalwareScanner } from "../scanner/types";
 import type { SoundnessGate } from "../soundness/types";
 import { buildSoundnessReceipt, type SoundnessReceipt } from "../soundness/receipt";
+import type { ArtifactManifestGate } from "../artifacts/types";
+import { buildArtifactReceipt, type ArtifactReceipt } from "../artifacts/receipt";
 import {
+  artifactManifestMetric,
   deadLetterMetric,
   failureClassForCode,
   jobTerminalMetric,
@@ -87,6 +96,28 @@ export interface ExecutorDeps {
    * or content. Absent ⇒ no receipt is built and the clock is not read for one.
    */
   onSoundnessReceipt?: (receipt: SoundnessReceipt) => void;
+  /**
+   * The artifact-manifest / provenance gate (Phase 37). Absent ⇒ no manifest step
+   * runs and every produced output is published as before (byte-for-byte unchanged,
+   * as every pre-Phase-37 caller). When present it runs a bounded structural
+   * validation on the outputs a processor produced, AFTER the transform succeeds and
+   * BEFORE any bytes are persisted or a downloadable artifact is minted: an `invalid`
+   * verdict fails the job terminally (no artifact is ever written or exposed), a
+   * `valid` verdict proceeds to publication, and a `skipped` verdict (the gate is
+   * disabled) proceeds without claiming the outputs were validated. It is structural
+   * metadata validation only — NOT malware scanning, sanitization, OCR-correctness,
+   * or a lifecycle-deletion guarantee.
+   */
+  artifactManifest?: ArtifactManifestGate;
+  /**
+   * Optional content-free ARTIFACT-REJECTION RECEIPT sink (Phase 37). When present, a
+   * receipt is emitted for each job whose outputs the manifest gate rejects — a
+   * bounded reason enum, the stable policy id/version, the processor family, a coarse
+   * size bucket + output count, and a timestamp. It retains NO bytes (the rejected
+   * outputs are never persisted) and carries no filename, key, path, URL, or content.
+   * Absent ⇒ no receipt is built and the clock is not read for one.
+   */
+  onArtifactReceipt?: (receipt: ArtifactReceipt) => void;
   /** Lease each claimed job for this long (ms). */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -179,6 +210,38 @@ export const UNSOUND_INPUT_ERROR: JobError = {
   retryable: false,
 };
 
+/**
+ * Terminal, non-retryable failure when the artifact-manifest gate rejects a
+ * processor's outputs (Phase 37): e.g. an output was empty, an unrecognized/mistyped
+ * kind, over a ceiling, or the job resolved no retention class. Non-retryable because
+ * the same processor produces the same outputs every time, so the gate fails closed
+ * and blocks BEFORE any bytes are persisted or exposed — no client artifact is ever
+ * written. The message is fixed and content-free; the specific reason rides the
+ * metric only and never names the output, its size, or its contents.
+ */
+export const MALFORMED_ARTIFACT_ERROR: JobError = {
+  code: "artifact_invalid",
+  message:
+    "The processed output did not pass a basic integrity check and was not published. No output was produced.",
+  retryable: false,
+};
+
+/**
+ * Sum the byte lengths of a produced output set for a coarse size BUCKET on a
+ * content-free artifact receipt. A structural total only — bucketed by the receipt
+ * builder and then discarded, never persisted or surfaced. Total; never throws.
+ */
+function totalArtifactBytes(
+  artifacts: readonly { readonly bytes: { readonly length?: number } }[],
+): number {
+  let total = 0;
+  for (const produced of artifacts) {
+    const n = produced.bytes?.length;
+    if (typeof n === "number" && Number.isFinite(n) && n > 0) total += n;
+  }
+  return total;
+}
+
 export interface WorkerExecutor {
   /** Claim and run at most one job; returns what happened this tick. */
   runOnce(): Promise<ExecutorTick>;
@@ -191,8 +254,16 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_DRAIN_CAP = 1000;
 
 export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
-  const { queue, storage, registry, scanner, soundness, onSoundnessReceipt } =
-    deps;
+  const {
+    queue,
+    storage,
+    registry,
+    scanner,
+    soundness,
+    onSoundnessReceipt,
+    artifactManifest,
+    onArtifactReceipt,
+  } = deps;
   const leaseMs = deps.leaseMs ?? DEFAULT_LEASE_MS;
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const log = deps.log ?? (() => {});
@@ -444,6 +515,96 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       return tick;
     }
 
+    // Artifact-manifest / provenance gate (Phase 37). Runs only when a gate is wired,
+    // AFTER the transform succeeded and BEFORE any bytes are persisted or a
+    // downloadable artifact is minted, over the outputs the processor produced. A
+    // bounded structural validation: an `invalid` verdict fails the job terminally
+    // here, so a malformed/ambiguous output is never written to storage or exposed to
+    // the client. It is structural metadata validation only — not scanning,
+    // sanitization, OCR-correctness, or a lifecycle guarantee.
+    // Tracks whether a manifest was actually GENERATED for a published set, so a
+    // late cancellation (below) can honestly emit a `cleaned` receipt only when there
+    // is a manifest to drop — never for a disabled/absent gate.
+    let manifestGenerated = false;
+    if (artifactManifest) {
+      const validation = artifactManifest.validate({
+        tool: job.tool,
+        processor: kind,
+        retention: job.retention,
+        artifacts: result.artifacts,
+      });
+      // Record the per-output verdict/reason/kind (never the filename or contents).
+      for (const check of validation.checks) {
+        emit(
+          artifactManifestMetric(
+            check.verdict,
+            check.reason,
+            check.manifest.outputKind,
+            kind,
+          ),
+        );
+      }
+      if (validation.verdict === "invalid") {
+        // A set-level reject (no_artifacts / too_many_artifacts) carries no per-output
+        // check, so emit one bounded metric for it too, with an `unknown` kind.
+        if (validation.checks.length === 0) {
+          emit(
+            artifactManifestMetric("invalid", validation.reason, "unknown", kind),
+          );
+        }
+        // Emit a content-free REJECTED receipt (opt-in sink) before failing. It
+        // retains NO bytes — the outputs are never persisted — and carries only
+        // bounded enums, a coarse size bucket, and a count. The clock is read only
+        // here, only when a sink is wired.
+        if (onArtifactReceipt) {
+          onArtifactReceipt(
+            buildArtifactReceipt({
+              category: "rejected",
+              reason: validation.reason,
+              processor: kind,
+              totalBytes: totalArtifactBytes(result.artifacts),
+              artifactCount: result.artifacts.length,
+              at: new Date(now()).toISOString(),
+            }),
+          );
+        }
+        // Blocked: terminal and non-retryable (the same output is produced every
+        // time), inputs wiped, NO artifact written. `validation.detail` is
+        // deliberately NOT propagated — the client error is fixed and content-free.
+        // The single `artifact_rejected` log line is emitted by dispatchFailure's
+        // terminal branch (with the error code), exactly as the soundness/scanner
+        // gates log their block — so it is never double-logged here.
+        const tick = await dispatchFailure(
+          MALFORMED_ARTIFACT_ERROR,
+          "artifact_rejected",
+        );
+        emit(processorMetric(kind, processorOutcomeFromTick(tick.outcome)));
+        return tick;
+      }
+      if (validation.verdict === "valid") {
+        // Every output passed the bounded provenance check. Emit a content-free
+        // GENERATED receipt (opt-in sink): the honest provenance record of what was
+        // about to be published. It retains no bytes — the artifacts live only as the
+        // downloadable outputs written just below. The clock is read only when a sink
+        // is wired.
+        log({ event: "artifact_ok", ...base });
+        manifestGenerated = true;
+        if (onArtifactReceipt) {
+          onArtifactReceipt(
+            buildArtifactReceipt({
+              category: "generated",
+              reason: "ok",
+              processor: kind,
+              totalBytes: totalArtifactBytes(result.artifacts),
+              artifactCount: result.artifacts.length,
+              at: new Date(now()).toISOString(),
+            }),
+          );
+        }
+      }
+      // "skipped": the gate is disabled; publish WITHOUT claiming the outputs were validated.
+    }
+
     // Success: persist the real artifacts, then mark the job completed. Any safe,
     // structured result metadata the processor observed (e.g. OCR page/character
     // counts, engine family, languages) is threaded onto the completion so it lands
@@ -472,6 +633,22 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       // artifacts we just wrote so nothing outlives the cancellation.
       for (const artifact of artifacts) {
         await storage.deleteArtifact(artifact.artifactId);
+      }
+      // If a manifest was generated for this now-deleted set, emit a content-free
+      // CLEANED receipt (opt-in sink): the manifest state is dropped WITH the outputs,
+      // so no provenance record outlives the artifacts it described. Gated on
+      // `manifestGenerated` so a disabled/absent gate never claims a phantom cleanup.
+      if (manifestGenerated && onArtifactReceipt) {
+        onArtifactReceipt(
+          buildArtifactReceipt({
+            category: "cleaned",
+            reason: "ok",
+            processor: kind,
+            totalBytes: totalArtifactBytes(result.artifacts),
+            artifactCount: result.artifacts.length,
+            at: new Date(now()).toISOString(),
+          }),
+        );
       }
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });

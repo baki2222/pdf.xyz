@@ -60,6 +60,11 @@ import {
   type SoundnessGate,
 } from "../soundness";
 import {
+  resolveWorkerArtifactManifest,
+  type ArtifactManifestCapability,
+  type ArtifactManifestGate,
+} from "../artifacts";
+import {
   DEEP_COMPRESSION_TOOLS,
   type CompressionDeps,
   type CompressionTool,
@@ -167,6 +172,13 @@ export interface WorkerRuntime {
    */
   soundness: SoundnessCapability;
   /**
+   * Presence-only capability of the wired artifact-manifest gate (Phase 37). The gate
+   * ships ENABLED by default (a bounded structural provenance check that needs no
+   * backend and makes no security claim), so `active: true` unless an operator
+   * disables it. Reported even when the runtime is not drainable. Content-free.
+   */
+  artifact: ArtifactManifestCapability;
+  /**
    * Presence-only OCR health (Phase 23): whether OCR is opted into (config) and
    * whether a real engine + runner are wired here (runtime). Reported even when the
    * runtime is not drainable, so a smoke check can distinguish `disabled` /
@@ -235,6 +247,13 @@ export interface WorkerRuntimeDeps {
    * {@link resolveWorkerSoundness} (enabled by default). Threaded into the executor.
    */
   soundness?: SoundnessGate;
+  /**
+   * Override the artifact-manifest / provenance gate (Phase 37). Tests inject a
+   * disabled or custom-policy gate; the shipped runtime resolves it from the
+   * environment via {@link resolveWorkerArtifactManifest} (enabled by default).
+   * Threaded into the executor so a malformed output fails the job before publication.
+   */
+  artifactManifest?: ArtifactManifestGate;
   /** Override the compression deps (tests avoid probing the host PATH / shelling out). */
   compression?: CompressionDeps;
   /**
@@ -366,6 +385,15 @@ export function resolveWorkerRuntime(
   const soundness = deps.soundness ?? resolveWorkerSoundness(env);
   const soundnessCapability = soundness.capability();
 
+  // Wire the artifact-manifest / provenance gate (Phase 37). Like soundness it needs
+  // no backend and makes no security claim (structural metadata validation only), so
+  // it ships ENABLED by default; an operator can disable it or tune the knobs via env.
+  // A test can inject a gate. Its presence-only capability is reported even when the
+  // runtime is not drainable.
+  const artifactManifest =
+    deps.artifactManifest ?? resolveWorkerArtifactManifest(env);
+  const artifactCapability = artifactManifest.capability();
+
   const queue = deps.queue ?? createQueueProvider(env, deps.queueDeps);
   const storage =
     deps.storage !== undefined
@@ -387,6 +415,7 @@ export function resolveWorkerRuntime(
       registry,
       scanner,
       soundness,
+      artifactManifest,
       ...(deps.leaseMs !== undefined ? { leaseMs: deps.leaseMs } : {}),
       ...(deps.maxAttempts !== undefined ? { maxAttempts: deps.maxAttempts } : {}),
       ...(deps.log ? { log: deps.log } : {}),
@@ -400,6 +429,7 @@ export function resolveWorkerRuntime(
       guardrails,
       scanner: scannerCapability,
       soundness: soundnessCapability,
+      artifact: artifactCapability,
       ocr,
       processors,
       executor,
@@ -419,6 +449,7 @@ export function resolveWorkerRuntime(
     guardrails,
     scanner: scannerCapability,
     soundness: soundnessCapability,
+    artifact: artifactCapability,
     ocr,
     processors,
     blocked,

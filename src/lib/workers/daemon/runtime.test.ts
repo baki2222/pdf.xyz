@@ -119,6 +119,29 @@ describe("resolveWorkerRuntime — malware-scan gate", () => {
   });
 });
 
+describe("resolveWorkerRuntime — artifact-manifest gate (Phase 37)", () => {
+  it("reports an ENABLED gate by default, even when not drainable", () => {
+    const runtime = resolveWorkerRuntime({}, { compression: noEngines });
+    expect(runtime.executor).toBeUndefined(); // not drainable (no engine)
+    expect(runtime.artifact.active).toBe(true); // …but the capability is still reported
+    expect(runtime.artifact.mode).toBe("enabled");
+    expect(runtime.artifact.policyId).toBe("pdfxyz-worker-artifact-manifest");
+    expect(runtime.artifact.policyVersion).toBe(1);
+  });
+
+  it("reports a DISABLED gate when an operator turns it off, leaking nothing", () => {
+    const runtime = resolveWorkerRuntime(
+      { PDFXYZ_WORKER_ARTIFACT_MANIFEST: "off" },
+      { compression: noEngines },
+    );
+    expect(runtime.artifact.active).toBe(false);
+    expect(runtime.artifact.mode).toBe("disabled");
+    const serialized = JSON.stringify(runtime.artifact);
+    expect(serialized).not.toContain("PDFXYZ_");
+    expect(serialized).not.toMatch(/\/|=/); // no path/value in the content-free detail
+  });
+});
+
 describe("deriveCompressionHealth", () => {
   it("is lossless-only when no native engine is present", () => {
     const health = deriveCompressionHealth({
