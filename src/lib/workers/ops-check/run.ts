@@ -133,7 +133,7 @@ function usageError(
 
 /**
  * Read + validate an ingested snapshot (stdin/file). A read failure or a validation
- * failure becomes a content-free usage error (exit 64) — never a crash, and never an
+ * failure becomes a content-free usage error (exit 1) — never a crash, and never an
  * echo of the offending input. On success, SLOs are computed locally from any supplied
  * (already-sanitized) metric series, so no ingested SLO verdict is ever trusted.
  */
