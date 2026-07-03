@@ -1006,10 +1006,40 @@ touching a route. Offline tests (fakes only) pin the limiter math, policies, rou
 allow/429 paths, the provider seam, and the no-leak contract under hostile
 headers/paths/bodies.
 
-⏳ Still out-of-band: the **distributed** limiter itself — this build ships no Redis/edge
-client, so a remote provider selection skips honestly (`remote-unimplemented`) until a
-deployment registers one. `local-memory` is a single-instance backstop, not a global
-budget; the edge/WAF/CDN rate-limit rule remains the primary, operator-owned control.
+✅ Phase 34 below closes the distributed-provider gap. `local-memory` remains a
+single-instance backstop, not a global budget; the edge/WAF/CDN rate-limit rule remains
+the first operator-owned control for high-traffic launches.
+
+### Phase 34 — distributed Redis-compatible rate-limit provider (shipped)
+
+Phase 34 implements the Phase 33 provider seam with a real optional Redis/Upstash-REST
+backend, while preserving the same content-free response contract and no-config honesty.
+
+- **Distributed provider** (`src/lib/ratelimit/redis.ts`): an atomic fixed-window `EVAL`
+  script performs `INCR` + first-hit `PEXPIRE` + `PTTL` in one operation, avoiding
+  race-prone get-then-set increments. Keys are bounded by TTL and include only the
+  application prefix, a fixed `rl` namespace, policy id, window id, and the salted opaque
+  client bucket token — never raw IPs, headers, filenames, URLs, object keys, env values,
+  user payloads, or secrets.
+- **Web-safe configuration** (`src/lib/ratelimit/redis-config.ts`, `src/instrumentation.ts`):
+  `PDFXYZ_RATE_LIMIT_PROVIDER=redis|upstash|remote` plus
+  `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` auto-registers
+  the provider at boot. These names are deliberately distinct from the worker queue's
+  `PDFXYZ_REDIS_REST_*` credentials, so the public web pod does not need worker-only
+  queue/heartbeat secrets. Missing config resolves to `remote-unimplemented` and skips
+  honestly; default builds still do no network work.
+- **Failure semantics**: provider errors degrade by `PDFXYZ_RATE_LIMIT_FAIL_MODE` — `open`
+  (default) allows with `enforced:false`; `closed` returns the same bounded `429` contract.
+  Route responses and telemetry expose only provider/status enums, decisions, policy ids,
+  and retry buckets.
+- **Tests**: fake Redis clients pin the exact script shape, TTL/window reset behavior,
+  concurrent increment semantics, fail-open/fail-closed paths, instrumentation registration,
+  route-level distributed `429`, and the no-leak contract. No test requires a real Redis,
+  S3, ClamAV, OCR engine, Docker daemon, or external service.
+
+⏳ Still out-of-band: production tuning, traffic-specific budgets, and the upstream
+edge/WAF/CDN policy. The Redis provider is application-layer distributed enforcement; it
+is not a substitute for perimeter abuse controls.
 
 ## Definition of production-ready per tool
 

@@ -258,17 +258,28 @@ caller). It is **defense-in-depth behind the edge, not the primary control.**
 - **Off by default, fail-open.** With no provider configured the guard allows
   every request (`enforced: false`); the default build and every local-first
   browser tool are unaffected. It is opt-in via `PDFXYZ_RATE_LIMIT_PROVIDER`
-  (`local-memory` for the per-process limiter; a remote name like `redis`/`edge`
-  resolves to `remote-unimplemented` and **skips honestly** because this build
-  registers no backend — it never fabricates distributed enforcement). A
-  deployment can make the guard genuinely distributed by implementing the async
-  `RateLimitProvider` seam (`src/lib/ratelimit/provider.ts`) and calling
-  `registerRateLimitProvider` once from a boot hook; the backend is held to the
-  same content-free, no-leak invariant and the guard fails open if it errors.
+  (`local-memory` for the per-process limiter; a remote name like `redis`/`upstash`
+  activates the shipped distributed provider below when a store is configured, or
+  **skips honestly** as `remote-unimplemented` when it is not — it never fabricates
+  distributed enforcement).
+- **Distributed enforcement ships (Phase 34).** A real `RateLimitProvider` backed by
+  a Redis/Upstash-REST store (`src/lib/ratelimit/redis.ts`) is auto-registered at boot
+  (`src/instrumentation.ts`) when a remote provider is selected AND the store is wired.
+  Each check is a single **atomic** server-side Lua `EVAL` (fixed-window `INCR` +
+  first-hit `PEXPIRE` + `PTTL`) — never a race-prone get-then-set — so every web replica
+  shares one budget. It runs on the **web tier** and reads its own web-safe credentials
+  (`PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `..._TOKEN`), deliberately distinct from the
+  worker-only `PDFXYZ_REDIS_REST_*` so the public web pod never carries a worker secret.
+  The backend is handed only the opaque salted-hash bucket token (never a raw identity),
+  keys the store under `{prefix}:ratelimit:…`, and is held to the same content-free,
+  no-leak invariant. On a store error it degrades per `PDFXYZ_RATE_LIMIT_FAIL_MODE`:
+  `open` (default) allows unenforced so an outage never downs the API; `closed` denies
+  (`429`). It **never fabricates an allow** from an errored backend.
 - **Honest boundary.** The `local-memory` limiter is per-process and **not
   distributed**: behind N instances the effective budget is up to N×, and a
-  restart resets windows. Wire a real edge/WAF/rate-limit provider before a
-  high-traffic launch. See [`WORKER_ARCHITECTURE.md` §6](WORKER_ARCHITECTURE.md).
+  restart resets windows. Enable the distributed `redis`/`upstash` provider (or a real
+  edge/WAF rule) before a high-traffic launch. See
+  [`WORKER_ARCHITECTURE.md` §6](WORKER_ARCHITECTURE.md).
 - **Content-free by construction.** A decision carries only `allowed`, the
   action, the stable `policyId`, the `provider`, an `enforced` flag, and an exact
   + coarse-bucketed retry-after — **never** an IP, user agent, filename, token,

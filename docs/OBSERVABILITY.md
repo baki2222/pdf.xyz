@@ -651,3 +651,39 @@ treat a jump in `enforced: false` **while a provider is configured** as a limite
 outage (the guard is failing open — see docs/SECURITY.md). The guard itself keeps no
 counters beyond the live in-memory windows and exposes no metrics endpoint; the
 timeseries backend remains bring-your-own.
+
+### Distributed provider status (Phase 34)
+
+The shipped distributed provider (`src/lib/ratelimit/redis.ts`) adds a **content-free
+status taxonomy** for confirming that cross-instance enforcement is actually running.
+`resolveRateLimitStatus()` (and `statusForDecision()` for the runtime case) reports one
+of five bounded codes — diagnostics name environment **variables** only, never a value
+or endpoint:
+
+| Status code | Meaning | Enforcing? |
+| --- | --- | --- |
+| `disabled` | No provider selected (the default). | no |
+| `local-memory` | Per-process dev limiter — real, not distributed. | yes (per process) |
+| `remote-missing-config` | Remote selected, but no valid store / no provider registered — skips honestly. | no |
+| `remote-configured` | Remote selected, store valid, provider registered — distributed enforcement. | yes (distributed) |
+| `remote-error-fail-open` | Configured, but the last request came back unenforced — the store is erroring and the guard is failing **open**. | no (alert!) |
+
+Confirming and monitoring, without any secret ever crossing the wire:
+
+- **At boot**, `src/instrumentation.ts` logs one content-free line — e.g.
+  `[pdf.xyz] rate-limit provider: remote-configured` — only when a provider is selected
+  (a default deployment stays silent). Scrape it to confirm the resolved status.
+- **In a runbook one-liner**, print the resolved status without contacting the store:
+  ```sh
+  node -e "import('@/lib/ratelimit').then(m => console.log(m.resolveRateLimitStatus().code))"
+  ```
+- **End-to-end**, hammer a cheap guarded endpoint past its budget and watch for `429`s
+  with a `Retry-After` header (proves enforcement is live across the instances a load
+  balancer fans out to):
+  ```sh
+  for i in $(seq 1 200); do curl -s -o /dev/null -w "%{http_code}\n" \
+    https://<your-host>/api/worker/status; done | sort | uniq -c
+  ```
+- **Alert** on a sustained `remote-error-fail-open` (fail-open: not enforcing) or, when
+  `PDFXYZ_RATE_LIMIT_FAIL_MODE=closed`, on a `429` spike on the guarded actions (a
+  fail-closed store outage sheds load as denials rather than surfacing as fail-open).

@@ -113,6 +113,55 @@ const TOKEN_RE = /^[\x21-\x7e]{8,1024}$/;
 // nested separator; traversal and whitespace are not.
 const PREFIX_RE = /^[A-Za-z0-9:_-]{1,64}$/;
 
+/**
+ * Validate a Redis REST **token** for shape only (never against the live service).
+ * Exported so every consumer of a Redis/Upstash-REST credential — the job queue AND
+ * the distributed rate-limit store (`@/lib/ratelimit`) — validates the bearer token
+ * with the *same* rule; the security-relevant "is this a plausible token" check can
+ * never drift laxer in a second copy. The value is only tested, never logged/returned.
+ */
+export function isValidRedisRestToken(value: string): boolean {
+  return TOKEN_RE.test(value);
+}
+
+/**
+ * Normalize + validate a Redis REST URL to a **bare origin** (no path/query/fragment
+ * or embedded credentials), so a typo can never redirect commands or smuggle a token
+ * into a URL. Exported so the rate-limit store validates its endpoint identically to
+ * the queue; the caller appends `/pipeline` etc. itself.
+ */
+export function parseRedisRestOrigin(
+  raw: string,
+): { ok: true; baseUrl: string } | { ok: false } {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { ok: false };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false };
+  if (url.username || url.password || url.search || url.hash) return { ok: false };
+  if (url.pathname !== "" && url.pathname !== "/") return { ok: false };
+  if (!url.host) return { ok: false };
+  return { ok: true, baseUrl: `${url.protocol}//${url.host}` };
+}
+
+/**
+ * Sanitize a Redis key **prefix** (strip surrounding colons; reject traversal or
+ * illegal chars), applying `fallback` when unset/blank. Exported so the queue and the
+ * rate-limit store namespace keys under the identical conservative rule.
+ */
+export function sanitizeRedisKeyPrefix(
+  raw: string | undefined,
+  fallback: string,
+): { ok: true; value: string } | { ok: false } {
+  if (raw === undefined) return { ok: true, value: fallback };
+  const trimmed = raw.replace(/^:+/, "").replace(/:+$/, "");
+  if (trimmed === "") return { ok: true, value: fallback };
+  if (trimmed.includes("..") || !PREFIX_RE.test(trimmed)) return { ok: false };
+  return { ok: true, value: trimmed };
+}
+
 /** Parse a positive-integer setting within `[min, max]`; unset ⇒ default. */
 function parseBoundedInt(
   raw: string | undefined,
@@ -125,37 +174,6 @@ function parseBoundedInt(
   const n = Number(raw);
   if (!Number.isInteger(n) || n < min || n > max) return { ok: false };
   return { ok: true, value: n };
-}
-
-/** Normalize + validate the REST URL to a bare origin (no path/query/creds). */
-function parseBaseUrl(
-  raw: string,
-): { ok: true; baseUrl: string } | { ok: false } {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return { ok: false };
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false };
-  // The REST endpoint is an origin: reject an embedded path, query, fragment, or
-  // credentials so a typo can't silently redirect commands (or leak the token in
-  // a URL) somewhere unexpected. The client appends `/pipeline` etc. itself.
-  if (url.username || url.password || url.search || url.hash) return { ok: false };
-  if (url.pathname !== "" && url.pathname !== "/") return { ok: false };
-  if (!url.host) return { ok: false };
-  return { ok: true, baseUrl: `${url.protocol}//${url.host}` };
-}
-
-/** Strip surrounding colons and reject traversal/illegal chars in a prefix. */
-function parseKeyPrefix(
-  raw: string | undefined,
-): { ok: true; value: string } | { ok: false } {
-  if (raw === undefined) return { ok: true, value: DEFAULT_QUEUE_PREFIX };
-  const trimmed = raw.replace(/^:+/, "").replace(/:+$/, "");
-  if (trimmed === "") return { ok: true, value: DEFAULT_QUEUE_PREFIX };
-  if (trimmed.includes("..") || !PREFIX_RE.test(trimmed)) return { ok: false };
-  return { ok: true, value: trimmed };
 }
 
 /**
@@ -181,7 +199,7 @@ export function parseRedisQueueConfig(
   if (!urlRaw) {
     miss(REDIS_QUEUE_ENV.restUrl, "Set the Redis REST endpoint origin (https URL).");
   } else {
-    const parsed = parseBaseUrl(urlRaw);
+    const parsed = parseRedisRestOrigin(urlRaw);
     if (!parsed.ok) {
       miss(REDIS_QUEUE_ENV.restUrl, "Must be an http(s) origin with no path or query.");
     } else {
@@ -191,12 +209,15 @@ export function parseRedisQueueConfig(
 
   const token = read(env, REDIS_QUEUE_ENV.restToken);
   if (!token) miss(REDIS_QUEUE_ENV.restToken, "Set the Redis REST token.");
-  else if (!TOKEN_RE.test(token)) {
+  else if (!isValidRedisRestToken(token)) {
     miss(REDIS_QUEUE_ENV.restToken, "Malformed REST token.");
   }
 
   // Optional, bounded.
-  const prefix = parseKeyPrefix(read(env, REDIS_QUEUE_ENV.keyPrefix));
+  const prefix = sanitizeRedisKeyPrefix(
+    read(env, REDIS_QUEUE_ENV.keyPrefix),
+    DEFAULT_QUEUE_PREFIX,
+  );
   if (!prefix.ok) {
     miss(REDIS_QUEUE_ENV.keyPrefix, "Malformed key prefix (no `..`, use [A-Za-z0-9:_-]).");
   }

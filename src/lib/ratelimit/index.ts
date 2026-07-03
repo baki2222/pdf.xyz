@@ -19,3 +19,11 @@ export * from "./memory";
 export * from "./config";
 export * from "./response";
 export * from "./provider";
+// Phase 34 — the distributed provider, its store config, the boot-time selector, and
+// the honest status helpers. All node-free (they compose only the node-free REST
+// transport + config parsers), so they are safe on this barrel; the node-only guard
+// and identity leaves remain out (imported directly by the nodejs route handlers).
+export * from "./redis-config";
+export * from "./redis";
+export * from "./factory";
+export * from "./status";

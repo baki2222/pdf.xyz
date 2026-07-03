@@ -910,8 +910,63 @@ the API down.
 > dev/test and as a coarse single-instance backstop, but it is **not** a
 > production distributed rate limiter. **Wire a real edge/WAF/rate-limit provider
 > before a high-traffic launch** and treat the in-app guard as a secondary layer,
-> not the control. To make the in-app guard itself distributed, register a shared-store
-> backend via `registerRateLimitProvider` (the `remote` provider seam above).
+> not the control. To make the in-app guard itself distributed, configure the
+> shipped Redis/Upstash backend (Phase 34, below) — no code change needed.
+
+#### Distributed enforcement (Phase 34, `src/lib/ratelimit/redis.ts`)
+
+Phase 34 fills the `remote` seam with a **shipped, production-grade distributed
+provider** backed by the same node-free Redis/Upstash-REST transport the job queue
+and the liveness heartbeat use (`createRedisClient`). Once configured it is
+registered automatically from `src/instrumentation.ts` `register()` at server boot —
+no route, guard, or code change — and the guard begins reporting `provider: "remote"`,
+`enforced: true`: every web replica increments the **same** window counter, so a
+policy's budget is shared across the fleet instead of multiplied by the replica count.
+
+- **Atomic fixed-window, never a race-prone get-then-set.** Each check is ONE
+  server-side Lua script (`EVAL`): `INCR` the window key, stamp the window TTL exactly
+  once on the counter's creation (`PEXPIRE` when `count == 1`), then read the remaining
+  TTL (`PTTL`) for the retry-after. Redis runs a script to completion with no
+  interleaving, so two replicas incrementing at the same instant can never both read a
+  stale count. As with the queue's `redis-scripts.ts`, the Upstash REST transport is
+  stateless (each command is an independent HTTP request), so `EVAL` — not
+  `WATCH`/`MULTI` — is the primitive that yields a genuine atomic increment over HTTP.
+  The script body is a **constant**: the store key travels in `KEYS[1]` and the window
+  in `ARGV[1]`; no policy id, key, or token is ever interpolated into the program text.
+  Windows self-expire via the TTL, so the store never accumulates limiter keys.
+
+- **Its own web-safe credentials — the web tier never gets a worker secret.** The
+  guard runs on the **public web tier** (it is called by the API route handlers), so
+  it reads its store from `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` /
+  `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` (and optional `PDFXYZ_RATE_LIMIT_KEY_PREFIX`).
+  These are deliberately **distinct** from the queue's worker-only `PDFXYZ_REDIS_REST_*`,
+  which — by a load-bearing deployment invariant (`deployment-blueprint.test.ts`) — must
+  never land on the public web pod. You MAY point them at the same managed instance (same
+  values, web-safe names); the limiter namespaces its keys under `{prefix}:ratelimit:…`
+  so they never collide with queue keys. The credential *validation* is not duplicated:
+  the URL-origin, token, and key-prefix checks are the exact shared primitives the queue
+  config exports (`parseRedisRestOrigin`, `isValidRedisRestToken`, `sanitizeRedisKeyPrefix`).
+
+- **Same opaque token, same no-leak invariant.** The provider is handed the same
+  salted-hash bucket token the in-memory limiter uses (never a raw IP), composes it into
+  a store key, and uses that key ONLY as a Redis key — never logged, returned, or placed
+  in a decision. The token is captured in the client closure for the auth header and
+  likewise never surfaced.
+
+- **Fail-open by default, or opt-in fail-closed.** A genuine over-limit always returns
+  a deliberate deny. On a store *error* (unreachable, non-2xx, command error, malformed
+  reply) the provider degrades per `PDFXYZ_RATE_LIMIT_FAIL_MODE`: `open` (the default)
+  **throws**, so the guard fails **open** (allow, `enforced: false`) — a limiter-store
+  outage can never take the API down; `closed` returns a deliberate deny, so the guard
+  answers `429` and sheds load rather than serve unthrottled while the store is down. It
+  **never fabricates an allow** from an errored backend, and never fabricates enforcement.
+
+- **Honest status, names only.** `resolveRateLimitStatus()` distinguishes five states —
+  `disabled`, `local-memory`, `remote-missing-config` (remote selected but no valid store
+  / no provider registered — skips honestly), `remote-configured` (valid store + provider
+  registered — enforcing), and the runtime `remote-error-fail-open` (configured but the
+  last request came back unenforced — the store is erroring and the guard is failing
+  open). Diagnostics name environment **variables** only, never a value or endpoint.
 
 **Client attribution is private and opt-in.** A limiter must bucket by some
 client identity. The guard derives one only from the proxy forwarding header

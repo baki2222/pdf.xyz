@@ -124,22 +124,35 @@ server-side environments; do **not** use `NEXT_PUBLIC_`.
 
 | Variable | Effect |
 | --- | --- |
-| `PDFXYZ_RATE_LIMIT_PROVIDER` | Selects the backend. Unset/`disabled` ⇒ no enforcement. `local-memory` ⇒ the per-process in-memory limiter (**not distributed** — see caveat). A remote name (`redis`/`remote`/`edge`/`waf`) ⇒ `remote`/`enforced` **only if** a deployment registered a backend via `registerRateLimitProvider` (a `RateLimitProvider` implemented over a shared store, wired from a Next.js `instrumentation.ts` boot hook); otherwise `remote-unimplemented`: selected but no backend registered, so it **skips honestly** and never fakes distributed enforcement. |
+| `PDFXYZ_RATE_LIMIT_PROVIDER` | Selects the backend. Unset/`disabled` ⇒ no enforcement. `local-memory` ⇒ the per-process in-memory limiter (**not distributed** — see caveat). A remote name (`redis`/`upstash`/`remote`/…) ⇒ the shipped **distributed** provider (Phase 34) when a valid store is configured below — it is auto-registered at boot (`src/instrumentation.ts`) and the guard reports `provider: "remote"`, `enforced: true`. With a remote name selected but **no** valid store, it resolves to `remote-unimplemented` and **skips honestly** (never fakes distributed enforcement). |
+| `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` | Bare `https` origin of the distributed limiter store (Redis/Upstash-REST). **Web-tier** credential — deliberately distinct from the worker-only `PDFXYZ_REDIS_REST_URL`, so the public web pod never carries a worker secret. May point at the same managed instance as the queue. |
+| `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` | Bearer token for that store. Read only to build the auth header; never logged, returned, or surfaced. Server-only; never `NEXT_PUBLIC_`. |
+| `PDFXYZ_RATE_LIMIT_KEY_PREFIX` | Optional key namespace (default `pdfxyz`); limiter keys live under `{prefix}:ratelimit:…`, never colliding with queue keys. |
+| `PDFXYZ_RATE_LIMIT_FAIL_MODE` | How the guard degrades when the store errors: `open` (default) ⇒ allow, unenforced (a store outage never takes the API down); `closed` ⇒ deliberate `429` (shed load rather than serve unthrottled). |
 | `PDFXYZ_RATE_LIMIT_TRUST_PROXY` | Truthy ⇒ attribute requests to a client via the `x-forwarded-for`/`x-real-ip` header (salted-hashed, never retained). Off by default because that header is spoofable unless a trusted edge overwrites it; off ⇒ one shared bucket (a coarse global throttle). Enable **only** behind a proxy/CDN you trust to set it. |
 
 Notes specific to this feature:
 
+- **Distributed enforcement runs on the WEB tier.** The guard is called by the public
+  API route handlers, so the store credentials go on the **web** deployment (a small
+  web-tier secret + the `PDFXYZ_RATE_LIMIT_*` vars above), NOT the worker. They are
+  separate variable names from the queue's worker-only `PDFXYZ_REDIS_REST_*` precisely
+  so the public web pod never inherits a worker secret (a load-bearing invariant — see
+  `deployment-blueprint.test.ts`). You may set the same *values* under these web-safe
+  *names* to reuse one managed instance. The committed k8s/compose examples ship with
+  rate limiting **off**; the k8s README shows the exact web-tier secret + env snippet to
+  turn it on.
 - **⚠️ `local-memory` is not production distributed enforcement.** Its counters
   live in one process's heap, so behind N instances the effective budget is up to
   N× and a restart resets windows. It is a dev/test limiter and a coarse
-  single-instance backstop — **wire a real edge/WAF/rate-limit provider before a
-  high-traffic launch** and keep the in-app guard as defense-in-depth. The
-  `remote-unimplemented` seam marks where a real provider client would be added.
+  single-instance backstop — enable the distributed `redis`/`upstash` provider (or a
+  real edge/WAF rule) before a high-traffic launch and keep the in-app guard as
+  defense-in-depth.
 - **Enabling the guard cannot break local-first tools.** The client-only tools
-  never call the API, and the guard fails open on any internal error.
+  never call the API, and the guard fails open (by default) on any internal error.
 - **On deny it returns `429 rate_limited` + `Retry-After`**, with a content-free
-  body that never names the caller. See [`SECURITY.md`](SECURITY.md) and
-  [`WORKER_ARCHITECTURE.md` §6](WORKER_ARCHITECTURE.md).
+  body that never names the caller. See [`SECURITY.md`](SECURITY.md),
+  [`OBSERVABILITY.md`](OBSERVABILITY.md), and [`WORKER_ARCHITECTURE.md` §6](WORKER_ARCHITECTURE.md).
 
 ### Optional: client telemetry toggles (off by default)
 

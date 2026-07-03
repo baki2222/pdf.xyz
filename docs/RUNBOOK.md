@@ -64,7 +64,8 @@ this section is the by-service summary.
 | `PDFXYZ_STORAGE_PROVIDER` + `PDFXYZ_S3_*` | Optional | Wire the same server-only S3/R2 vars to mint signed URLs and record jobs. Recording a job is **not** processing it. |
 | `PDFXYZ_QUEUE_PROVIDER` + `PDFXYZ_REDIS_REST_*` | Optional | Wire the queue so `POST /api/jobs` records a `queued` job (202). It stays queued until a worker drains it. |
 | `NEXT_PUBLIC_TELEMETRY_ENDPOINT` / `NEXT_PUBLIC_TELEMETRY_SAMPLE_RATE` | Optional | Client telemetry, **off** unless set. `NEXT_PUBLIC_` is correct here — it is public by nature, never a secret. |
-| `PDFXYZ_RATE_LIMIT_PROVIDER` / `PDFXYZ_RATE_LIMIT_TRUST_PROXY` | Optional | Phase 33 in-app abuse guard, **off** unless a provider is set. `local-memory` = per-process limiter (**not distributed**; wire a real edge/WAF before high traffic); a remote name skips honestly (`remote-unimplemented`). Server-only; never `NEXT_PUBLIC_`. Deny ⇒ `429` + `Retry-After`, content-free. |
+| `PDFXYZ_RATE_LIMIT_PROVIDER` / `PDFXYZ_RATE_LIMIT_TRUST_PROXY` | Optional | In-app abuse guard, **off** unless a provider is set. `local-memory` = per-process limiter (**not distributed**). A remote name (`redis`/`upstash`) activates the shipped **distributed** provider (Phase 34) when the store below is wired, else skips honestly. Server-only; never `NEXT_PUBLIC_`. Deny ⇒ `429` + `Retry-After`, content-free. |
+| `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `..._TOKEN` / `..._KEY_PREFIX` / `..._FAIL_MODE` | Optional | **Web-tier** store for distributed rate limiting (Phase 34) — separate names from the worker-only `PDFXYZ_REDIS_REST_*` so no worker secret lands on the public web pod. May reuse the same instance. `FAIL_MODE`: `open` (default, store outage ⇒ allow) or `closed` (⇒ `429`). Server-only; never `NEXT_PUBLIC_`. |
 
 ### worker service
 
@@ -324,15 +325,20 @@ remote processing production-ready:
 - **Provisioned infrastructure.** A real private, encrypted S3/R2 **bucket** and a
   private Redis/Upstash **broker** are not created here. Provision them out-of-band
   with public access disabled, scoped tokens, and encryption at rest/in transit.
-- **Distributed rate limiting — in-app guard ships (Phase 33), the edge is operator-owned.**
-  The app carries an honest in-app abuse guard (`src/lib/ratelimit`): per-action
-  policies, `429 rate_limited` + `Retry-After` on deny, content-free decisions,
-  off by default. Its `local-memory` provider is **per-process only** — behind N
-  instances the budget is N× and a restart resets windows — so it is
-  defense-in-depth, **not** a global limiter. Provision a real **edge/WAF/CDN
-  rate-limit rule** (or a shared-store provider) in front of the app before a
-  high-traffic launch; the guard's `remote-unimplemented` seam marks where a real
-  shared-store client would be wired.
+- **Distributed rate limiting — in-app guard + shipped distributed provider (Phase 34);
+  the edge is still operator-owned.** The app carries an honest in-app abuse guard
+  (`src/lib/ratelimit`): per-action policies, `429 rate_limited` + `Retry-After` on deny,
+  content-free decisions, off by default. Its `local-memory` provider is **per-process
+  only** (behind N instances the budget is N×; a restart resets windows). Phase 34 ships
+  a real **distributed** provider backed by a Redis/Upstash-REST store with an atomic
+  fixed-window `EVAL`: set `PDFXYZ_RATE_LIMIT_PROVIDER=redis` and the web-tier store
+  (`PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `..._TOKEN`) and it auto-registers at boot, so a
+  policy's budget is shared across the fleet. It is still **defense-in-depth**: a real
+  **edge/WAF/CDN rate-limit rule** in front of the app remains the first line before a
+  high-traffic launch. Confirm status via the boot log or `resolveRateLimitStatus()`
+  (see [OBSERVABILITY.md](OBSERVABILITY.md)); a `remote-error-fail-open` status means the
+  store is unreachable and the guard is failing open (not enforcing) — investigate the
+  store, not the app.
 - **Lifecycle-enforced deletion — generate + verify ship, applying is operator-owned.**
   The daemon can **generate** a retention policy
   (`pnpm worker:daemon --lifecycle-policy --provider=aws-s3|cloudflare-r2|minio|generic`)
