@@ -27,6 +27,16 @@ export interface ProcessorInputFile {
   filename: string;
   contentType: string;
   bytes: Uint8Array;
+  /**
+   * The byte count the upload contract DECLARED for this input, when the worker-side
+   * storage recovered one (the local-dev store carries it from the reservation; an
+   * S3 deployment supplies it only if the object metadata records a declared size).
+   * Optional and content-free — a coarse number, never surfaced. The file-soundness
+   * gate (Phase 36) uses it to prove the fetched byte count still matches the
+   * declared size (`size_mismatch`); processors ignore it. Absent ⇒ that
+   * consistency check is skipped for this input.
+   */
+  declaredBytes?: number;
 }
 
 /** A validated processing request: the tool, its raw option bag, and input files. */

@@ -142,6 +142,11 @@ function reportReadiness(runtime: WorkerRuntime): void {
   // no-op (`active: false`), distinguishing `disabled` / `not-configured` /
   // `unavailable`. Content-free — no variable name, endpoint, host, port, or value.
   emit({ src: "daemon", event: "scanner_health", ...runtime.scanner });
+  // The file-soundness gate's presence-only capability (Phase 36): `active: true`
+  // when the bounded structural preflight is enabled (the default), `false` when an
+  // operator has disabled it. Content-free — a mode enum + prose only, never a
+  // filename, size, variable name, or value.
+  emit({ src: "daemon", event: "soundness_health", ...runtime.soundness });
   // The OCR backend's presence-only health (Phase 23): `enabled` (opted into via
   // config) fused with `ready` (a real engine is installed here), so an operator can
   // tell `disabled`/`not-configured` from `unavailable` (opted in, engine missing)

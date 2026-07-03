@@ -45,6 +45,9 @@ import {
 } from "./compression/engine";
 import { nativeCompressionDeps } from "./compression/native";
 import { createProcessorRegistry } from "./processor";
+import { processorFail } from "./processor/types";
+import { resolveWorkerSoundness, type SoundnessGate } from "./soundness";
+import { UNSOUND_INPUT_ERROR } from "./executor/executor";
 import {
   devWorkerStore,
   newArtifactId,
@@ -68,6 +71,12 @@ export interface LocalDevDeps {
   store?: DevWorkerStore;
   /** Compression dependencies; defaults to a live PATH probe + native runner. */
   compressionDeps?: CompressionDeps;
+  /**
+   * The file-soundness gate (Phase 36). Defaults to the env-resolved gate (enabled),
+   * so this synchronous dev path runs the SAME bounded preflight the async executor
+   * does before the processor. Tests inject a disabled/custom gate to steer it.
+   */
+  soundness?: SoundnessGate;
   now?: () => number;
 }
 
@@ -77,6 +86,9 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
   const injectedCompression = deps.compressionDeps;
   const resolveCompressionDeps = (): CompressionDeps =>
     injectedCompression ?? nativeCompressionDeps();
+  // The same gate the async executor runs, so the dev path cannot drift on which
+  // inputs are structurally sound. Enabled by default; injectable for tests.
+  const soundness = deps.soundness ?? resolveWorkerSoundness();
 
   // Storage and queue share the one store instance, exactly as a production
   // adapter would share one bucket + one queue behind the same contracts.
@@ -192,19 +204,33 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       const displayName = sanitizeDisplayFilename(
         request.inputNames?.[0] ?? slot.filename,
       );
-      const result = await processor.process({
+      const inputFile = {
+        fileId,
+        filename: displayName,
+        contentType: slot.contentType,
+        bytes: slot.bytes,
+        // Carry the reservation's declared size so the gate can verify it (the store
+        // already enforced the match on upload; this is a defense-in-depth re-check).
+        declaredBytes: slot.declaredBytes,
+      };
+      // File-soundness gate: the SAME bounded preflight the async executor runs,
+      // BEFORE the processor. An `unsound` verdict short-circuits to a typed,
+      // content-free `unsound_input` failure (no engine run, no artifact); a
+      // `sound`/`skipped` verdict proceeds to the real processor. The specific
+      // reason is deliberately not surfaced to the client.
+      const soundnessResult = soundness.check({
         tool: request.tool,
-        options: request.options ?? {},
-        inputs: [
-          {
-            fileId,
-            filename: displayName,
-            contentType: slot.contentType,
-            bytes: slot.bytes,
-          },
-        ],
+        inputs: [inputFile],
       });
-      // Inputs are wiped as soon as processing finishes — success or failure —
+      const result =
+        soundnessResult.verdict === "unsound"
+          ? processorFail(UNSOUND_INPUT_ERROR)
+          : await processor.process({
+              tool: request.tool,
+              options: request.options ?? {},
+              inputs: [inputFile],
+            });
+      // Inputs are wiped as soon as the gate/processor finishes — success or failure —
       // via the storage provider's delete-now, matching the retention contract.
       await storage.deleteNow("input", fileId);
 

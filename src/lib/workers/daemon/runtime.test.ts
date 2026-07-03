@@ -14,6 +14,18 @@ import { deriveCompressionHealth, resolveWorkerRuntime } from "./runtime";
 
 const noEngines = { tools: { ghostscript: false, qpdf: false, mutool: false } };
 
+/**
+ * A structurally-sound minimal PDF envelope (`%PDF-` header + `%%EOF` trailer) used
+ * as the input for compress/OCR jobs. The runtime wires the Phase 36 file-soundness
+ * gate (enabled by default), so an input must carry a PDF envelope to reach the
+ * processor; these tests exercise processor/scanner behavior, not the gate, so a
+ * valid envelope keeps them focused. The dedicated gate rejection is proven in the
+ * executor and soundness suites.
+ */
+const MINIMAL_PDF = new TextEncoder().encode(
+  `%PDF-1.7\n${"0".repeat(64)}\n%%EOF\n`,
+);
+
 /** A minimal ClaimableQueue stub — only the guard-relevant methods are real. */
 const fakeClaimable = {
   claim: async () => ({ ok: true as const, value: null }),
@@ -256,9 +268,9 @@ describe("worker daemon runtime — honesty end-to-end", () => {
       sessionId: "sess_x",
       filename: "scan.pdf",
       contentType: "application/pdf",
-      declaredBytes: 3,
+      declaredBytes: MINIMAL_PDF.byteLength,
     });
-    store.putBytes(slot.fileId, new Uint8Array([1, 2, 3]));
+    store.putBytes(slot.fileId, MINIMAL_PDF);
     await queue.submit({
       job: queuedJob("job_ocr0000000001", "ocr-pdf"),
       inputs: [slot.fileId],
@@ -295,9 +307,9 @@ describe("worker daemon runtime — honesty end-to-end", () => {
       sessionId: "sess_x",
       filename: "upload.pdf",
       contentType: "application/pdf",
-      declaredBytes: 3,
+      declaredBytes: MINIMAL_PDF.byteLength,
     });
-    store.putBytes(slot.fileId, new Uint8Array([1, 2, 3]));
+    store.putBytes(slot.fileId, MINIMAL_PDF);
     await queue.submit({
       job: queuedJob("job_infected00001", "compress-pdf"),
       inputs: [slot.fileId],
@@ -339,9 +351,9 @@ describe("worker daemon runtime — honesty end-to-end", () => {
       sessionId: "sess_x",
       filename: "scan.pdf",
       contentType: "application/pdf",
-      declaredBytes: 3,
+      declaredBytes: MINIMAL_PDF.byteLength,
     });
-    store.putBytes(slot.fileId, new Uint8Array([1, 2, 3]));
+    store.putBytes(slot.fileId, MINIMAL_PDF);
     await queue.submit({
       job: queuedJob("job_ocr_ready0001", "ocr-pdf"),
       inputs: [slot.fileId],

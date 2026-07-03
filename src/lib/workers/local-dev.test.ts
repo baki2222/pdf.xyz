@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { createLocalDevAdapter } from "./local-dev";
+import { disabledSoundnessGate } from "./soundness";
 import { DevWorkerStore } from "./store";
 import type { CompressionDeps } from "./compression/engine";
 import type { WorkerAdapter } from "./types";
@@ -238,7 +239,7 @@ describe("local-dev worker — compression job flow", () => {
     if (!created.ok) expect(created.error.body.error.code).toBe("invalid_request");
   });
 
-  it("records a failed job for bytes that are not a valid PDF", async () => {
+  it("records a failed job for bytes that are not a valid PDF (soundness gate blocks it)", async () => {
     const adapter = makeAdapter();
     const session = await adapter.createUploadSession({
       tool: "compress-pdf",
@@ -256,6 +257,42 @@ describe("local-dev worker — compression job flow", () => {
     });
     expect(created.ok).toBe(true);
     if (created.ok) {
+      // The Phase 36 file-soundness gate now catches junk BEFORE the engine runs, so
+      // the honest failure is `unsound_input` rather than the engine's own
+      // `unprocessable_entity`. Either way: a real failed job, no artifact.
+      expect(created.value.status).toBe("failed");
+      expect(created.value.error?.code).toBe("unsound_input");
+      expect(created.value.artifacts ?? []).toHaveLength(0);
+    }
+    // The rejected input was wiped (delete-now), matching the retention contract.
+    expect(store.getSlot(slot.fileId)).toBeUndefined();
+  });
+
+  it("a disabled soundness gate lets junk reach the engine (the gate, not the engine, is the blocker)", async () => {
+    const adapter = createLocalDevAdapter({
+      store,
+      compressionDeps: noEngines,
+      soundness: disabledSoundnessGate(),
+    });
+    const session = await adapter.createUploadSession({
+      tool: "compress-pdf",
+      files: [{ filename: "junk.pdf", contentType: "application/pdf", bytes: 4 }],
+    });
+    if (!session.ok) throw new Error("no session");
+    const slot = session.value.slots[0];
+    if (!slot) throw new Error("no slot");
+    store.putBytes(slot.fileId, new Uint8Array([1, 2, 3, 4]));
+
+    const created = await adapter.createJob({
+      tool: "compress-pdf",
+      inputs: [slot.fileId],
+      options: { profile: "lossless" },
+    });
+    expect(created.ok).toBe(true);
+    if (created.ok) {
+      // With the gate disabled the input reaches the compression engine, which fails
+      // honestly on non-PDF bytes with its OWN error — proving the earlier
+      // `unsound_input` came from the gate, not the engine.
       expect(created.value.status).toBe("failed");
       expect(created.value.error?.code).toBe("unprocessable_entity");
     }

@@ -28,6 +28,8 @@ describe("local-dev executor storage", () => {
       filename: "in.pdf",
       contentType: "application/pdf",
       bytes: new Uint8Array([1, 2, 3]),
+      // The reservation's declared byte count rides along for the soundness gate.
+      declaredBytes: 3,
     });
   });
 

@@ -36,6 +36,12 @@ import { redactText } from "@/lib/telemetry/redact";
 import type { DaemonRunMode, DaemonStopReason } from "../daemon/daemon";
 import type { ExecutorOutcome } from "../executor/types";
 import type { MalwareScanVerdict } from "../scanner/types";
+import {
+  SOUNDNESS_REASONS,
+  SOUNDNESS_VERDICTS,
+  type SoundnessReason,
+  type SoundnessVerdict,
+} from "../soundness/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -92,6 +98,7 @@ export type TerminalOutcome = (typeof TERMINAL_OUTCOMES)[number];
 export const FAILURE_CLASSES = [
   "none",
   "blocked", // malware_detected / scan_invalid — blocked before processing
+  "unsound", // unsound_input — the file-soundness preflight rejected it before processing
   "scan_unavailable", // the scan could not complete (retryable, then exhausted)
   "input_missing", // an input object was gone (not_found)
   "unsupported", // no processor / not_implemented for the tool
@@ -317,6 +324,7 @@ export const METRIC_NAMES = [
   "worker_processor_total",
   "worker_processor_latency_seconds",
   "worker_scan_total",
+  "worker_soundness_total",
   "worker_storage_ops_total",
   "worker_queue_depth",
   "worker_queue_age_seconds",
@@ -388,6 +396,10 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
   worker_scan_total: {
     kind: "counter",
     labels: { verdict: SCAN_VERDICTS, scanned: BOOL_LABELS },
+  },
+  worker_soundness_total: {
+    kind: "counter",
+    labels: { verdict: SOUNDNESS_VERDICTS, reason: SOUNDNESS_REASONS },
   },
   worker_storage_ops_total: {
     kind: "counter",
@@ -520,6 +532,23 @@ export function scanMetric(
   };
 }
 
+/**
+ * The file-soundness gate reached `verdict` for the bounded `reason` (e.g. `ok` for
+ * a pass, `pdf_header_missing` for a reject, `not_checked` when disabled). Both
+ * labels are closed enums — never a filename, size, or document content.
+ */
+export function soundnessMetric(
+  verdict: SoundnessVerdict,
+  reason: SoundnessReason,
+): WorkerMetricSample {
+  return {
+    metric: "worker_soundness_total",
+    kind: "counter",
+    labels: { verdict, reason },
+    value: 1,
+  };
+}
+
 /** A worker-side storage `op` resolved to `result`. */
 export function storageMetric(
   op: StorageOp,
@@ -626,6 +655,8 @@ export function failureClassForCode(code: string | undefined): FailureClass {
     case "malware_detected":
     case "scan_invalid":
       return "blocked";
+    case "unsound_input":
+      return "unsound";
     case "scan_unavailable":
       return "scan_unavailable";
     case "not_found":

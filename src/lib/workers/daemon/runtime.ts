@@ -55,6 +55,11 @@ import type {
 } from "../scanner";
 import { resolveWorkerScanner } from "../scanner/node";
 import {
+  resolveWorkerSoundness,
+  type SoundnessCapability,
+  type SoundnessGate,
+} from "../soundness";
+import {
   DEEP_COMPRESSION_TOOLS,
   type CompressionDeps,
   type CompressionTool,
@@ -155,6 +160,13 @@ export interface WorkerRuntime {
    */
   scanner: MalwareScanCapability;
   /**
+   * Presence-only capability of the wired file-soundness gate (Phase 36). The gate
+   * ships ENABLED by default (a bounded structural preflight that needs no backend
+   * and makes no security claim), so `active: true` unless an operator disables it.
+   * Reported even when the runtime is not drainable. Content-free — never a value.
+   */
+  soundness: SoundnessCapability;
+  /**
    * Presence-only OCR health (Phase 23): whether OCR is opted into (config) and
    * whether a real engine + runner are wired here (runtime). Reported even when the
    * runtime is not drainable, so a smoke check can distinguish `disabled` /
@@ -217,6 +229,12 @@ export interface WorkerRuntimeDeps {
    * shipped runtime uses the real Node socket transport.
    */
   scannerTransport?: ClamavTransport;
+  /**
+   * Override the file-soundness gate. Tests inject a disabled or custom-policy gate;
+   * the shipped runtime resolves it from the environment via
+   * {@link resolveWorkerSoundness} (enabled by default). Threaded into the executor.
+   */
+  soundness?: SoundnessGate;
   /** Override the compression deps (tests avoid probing the host PATH / shelling out). */
   compression?: CompressionDeps;
   /**
@@ -341,6 +359,13 @@ export function resolveWorkerRuntime(
   });
   const scannerCapability = scanner.capability();
 
+  // Wire the file-soundness gate (Phase 36). Unlike the scanner it needs no backend
+  // and makes no security claim, so it ships ENABLED by default; an operator can
+  // disable it or tune the knobs via env. A test can inject a gate. Its presence-only
+  // capability is reported even when the runtime is not drainable.
+  const soundness = deps.soundness ?? resolveWorkerSoundness(env);
+  const soundnessCapability = soundness.capability();
+
   const queue = deps.queue ?? createQueueProvider(env, deps.queueDeps);
   const storage =
     deps.storage !== undefined
@@ -361,6 +386,7 @@ export function resolveWorkerRuntime(
       storage: executorStorage,
       registry,
       scanner,
+      soundness,
       ...(deps.leaseMs !== undefined ? { leaseMs: deps.leaseMs } : {}),
       ...(deps.maxAttempts !== undefined ? { maxAttempts: deps.maxAttempts } : {}),
       ...(deps.log ? { log: deps.log } : {}),
@@ -373,6 +399,7 @@ export function resolveWorkerRuntime(
       deployment,
       guardrails,
       scanner: scannerCapability,
+      soundness: soundnessCapability,
       ocr,
       processors,
       executor,
@@ -391,6 +418,7 @@ export function resolveWorkerRuntime(
     deployment,
     guardrails,
     scanner: scannerCapability,
+    soundness: soundnessCapability,
     ocr,
     processors,
     blocked,

@@ -38,6 +38,10 @@ export function createLocalDevExecutorStorage(
         filename: slot.filename,
         contentType: slot.contentType,
         bytes: slot.bytes,
+        // Carry the reservation's declared byte count so the file-soundness gate can
+        // prove the fetched bytes still match it. In local-dev the store enforces the
+        // match on write, so this is a defense-in-depth re-verification at read.
+        declaredBytes: slot.declaredBytes,
       };
     },
 

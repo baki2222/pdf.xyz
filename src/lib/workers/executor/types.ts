@@ -66,6 +66,17 @@ export interface ExecutorTick {
  *    or one it cannot scan → `scan_invalid`); the job is failed before processing.
  * A scan that could not complete reuses `requeued`/`failed` with a `scan_unavailable`
  * error code, so no new event is needed for it.
+ *
+ * The file-soundness gate (Phase 36) adds two more, emitted only when a gate is
+ * wired and enabled, immediately after the storage read and BEFORE the scanner and
+ * `processing`:
+ *  - `soundness_ok`      — the bounded structural preflight passed;
+ *  - `soundness_blocked` — an input failed the preflight (e.g. empty, a size
+ *    mismatch, an unsupported family, or a PDF-expected input with no `%PDF-`
+ *    envelope); the job is failed before scanning and processing with an
+ *    `unsound_input` error code, so the input never reaches ClamAV/OCR/compression.
+ *    Content-free: the specific reason rides the metric, never a log line,
+ *    filename, or byte.
  */
 export interface ExecutorLogEvent {
   event:
@@ -73,6 +84,8 @@ export interface ExecutorLogEvent {
     | "scanning"
     | "scan_clean"
     | "scan_blocked"
+    | "soundness_ok"
+    | "soundness_blocked"
     | "processing"
     | "completed"
     | "failed"

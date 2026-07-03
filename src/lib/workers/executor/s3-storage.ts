@@ -181,6 +181,13 @@ export function createS3ExecutorStorage(
         filename: recovered ?? filenameForContentType(contentType),
         contentType,
         bytes,
+        // `declaredBytes` is intentionally left unset here: the object's own
+        // Content-Length equals the fetched size (a tautology, not the DECLARED
+        // size), so it would give the soundness gate no signal. Carrying the upload
+        // reservation's declared size as signed object metadata (mirroring the
+        // filename header) is a forward-compatible extension; until it exists the
+        // gate's `size_mismatch` check is simply inactive on S3 (every other
+        // soundness check still applies). See docs/WORKER_ARCHITECTURE.md.
       };
     },
 

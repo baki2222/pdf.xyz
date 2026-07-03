@@ -1052,3 +1052,9 @@ A worker-backed tool is production-ready only when it has:
 Before an upload session is reserved or a job spec reaches the queue, the web API evaluates a typed intake policy (`src/lib/uploads/intake`). This boundary catches low-cost contradictions early: file-count caps, declared bytes, hostile filenames, supported upload families, MIME/extension coherence, and optional local-dev PDF envelope bytes. The queue still receives only validated opaque file IDs and tool specs; worker-side malware scanning, lifecycle deletion, processor validation, and PDF soundness checks remain separate stages and are never implied by an intake pass.
 
 All intake rejections are content-free and stable (`invalid_upload_request`, `unsupported_file_type`, `too_many_files`, `file_too_large`, `request_too_large`, `malformed_pdf`). They are safe for logs/metrics because they carry only policy numbers, positional indices, and coarse enum reasons.
+
+## File soundness and quarantine (Phase 36)
+
+Worker execution now has an explicit soundness preflight between storage retrieval and scanner/processor work. `resolveWorkerSoundness()` builds a bounded policy from `PDFXYZ_WORKER_SOUNDNESS*` names; `checkSoundness()` evaluates retrieved bytes + declared metadata; `createSoundnessReceipt()` emits a content-free quarantine receipt when the gate blocks an input. The executor fails the job with the `unsound` class before any processor runs, preserving lifecycle cleanup and avoiding partial artifacts.
+
+The gate is deliberately shallow: it validates envelope/metadata consistency, not security. Passing it only means the input cleared a bounded preflight. It does not prove malware-free content, PDF validity, sanitization, or recognisable text quality.

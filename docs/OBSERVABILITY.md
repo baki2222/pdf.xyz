@@ -691,3 +691,7 @@ Confirming and monitoring, without any secret ever crossing the wire:
 ## Upload intake metrics and alerts
 
 Phase 35 intake rejections are safe to count by stable code (`invalid_upload_request`, `unsupported_file_type`, `too_many_files`, `file_too_large`, `request_too_large`, `malformed_pdf`) and optional positional index/limit buckets. Do not attach filenames, object keys, signed URLs, request bodies, content bytes, scanner signatures, or raw client identity. A spike in `file_too_large` or `request_too_large` usually indicates client-side declaration drift or a limit change; a spike in `malformed_pdf` means optional envelope sniffing is rejecting files and does not prove malware or sanitization outcomes.
+
+## Worker soundness metrics
+
+Phase 36 adds content-free soundness signals. Count `worker_soundness_total` by low-cardinality verdict/reason/check-size buckets only; never attach filenames, object keys, signed URLs, job IDs, scanner signatures, byte samples, or document text. `unsound` is an executor failure class that indicates the worker preflight blocked processor execution. Alert on sustained `unsound` spikes by reason, especially `size_mismatch` (metadata/storage drift) and `malformed_pdf` (clients sending non-PDF bytes to PDF tools), but avoid claiming malware or sanitization outcomes from this metric.

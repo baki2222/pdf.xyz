@@ -20,6 +20,10 @@
  *    artifact is ever produced for it, and the scan gate never reports an input as
  *    scanned unless a real scanner inspected it (the shipped default scans nothing
  *    and blocks nothing);
+ *  - a structurally-unsound or contract-mismatched input (empty, a size mismatch,
+ *    an unsupported family, or a PDF-expected input with no `%PDF-` envelope) is
+ *    blocked BEFORE the scanner and any processing when a soundness gate is wired —
+ *    a cheap bounded preflight, never a claim that the document is valid or safe;
  *  - inputs are wiped once a job reaches a terminal state (a retryable requeue is
  *    *not* terminal, so its inputs survive for the retry);
  *  - the log callback only ever receives opaque ids, the tool slug, an attempt
@@ -32,6 +36,8 @@ import type { ClaimableQueue } from "../queue/claim";
 import type { ProcessorInputFile } from "../processor/types";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { MalwareScanner } from "../scanner/types";
+import type { SoundnessGate } from "../soundness/types";
+import { buildSoundnessReceipt, type SoundnessReceipt } from "../soundness/receipt";
 import {
   deadLetterMetric,
   failureClassForCode,
@@ -42,6 +48,7 @@ import {
   redeliveryMetric,
   retryMetric,
   scanMetric,
+  soundnessMetric,
   type ProcessorOutcome,
   type WorkerMetricSample,
 } from "../observability/metrics";
@@ -60,6 +67,26 @@ export interface ExecutorDeps {
    * a `skipped` verdict proceeds without claiming the input was scanned.
    */
   scanner?: MalwareScanner;
+  /**
+   * The file-soundness gate (Phase 36). Absent ⇒ no soundness step runs and inputs
+   * proceed unchecked (byte-for-byte unchanged, as every pre-Phase-36 caller). When
+   * present it runs a bounded structural + metadata-consistency preflight on the
+   * already-read inputs immediately after the storage read and BEFORE the scanner and
+   * any processor; an `unsound` verdict blocks the job terminally (no artifact, and
+   * the input never reaches ClamAV/OCR/compression), a `sound` verdict proceeds, and
+   * a `skipped` verdict (the gate is disabled) proceeds without claiming the inputs
+   * were checked. It is NOT malware scanning, sanitization, or a validity guarantee.
+   */
+  soundness?: SoundnessGate;
+  /**
+   * Optional content-free QUARANTINE RECEIPT sink (Phase 36). When present, a receipt
+   * is emitted for each input the soundness gate terminally rejects — a bounded reason
+   * enum, the stable policy id/version, a coarse size bucket + input count, the
+   * processor family, and a timestamp. It retains NO bytes (the rejected input is
+   * wiped by the same terminal disposition) and carries no filename, key, path, URL,
+   * or content. Absent ⇒ no receipt is built and the clock is not read for one.
+   */
+  onSoundnessReceipt?: (receipt: SoundnessReceipt) => void;
   /** Lease each claimed job for this long (ms). */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -75,9 +102,11 @@ export interface ExecutorDeps {
    */
   metrics?: WorkerMetricSink;
   /**
-   * Injected clock used ONLY to measure processor latency for metrics, read only when
-   * `metrics` is present. Defaults to `Date.now`; tests inject a fake to make the
-   * latency bucket deterministic. It never influences orchestration logic.
+   * Injected clock used ONLY to measure processor latency for metrics (read when
+   * `metrics` is present) and to stamp a quarantine receipt (read when
+   * `onSoundnessReceipt` is present and the gate rejects an input). Defaults to
+   * `Date.now`; tests inject a fake to make the latency bucket and receipt timestamp
+   * deterministic. It never influences orchestration logic.
    */
   now?: () => number;
 }
@@ -135,6 +164,21 @@ export const SCAN_INVALID_ERROR: JobError = {
   retryable: false,
 };
 
+/**
+ * Terminal, non-retryable failure when the file-soundness gate rejects an input
+ * (Phase 36): e.g. it is empty, or a PDF-expected input carries no `%PDF-` envelope.
+ * Non-retryable because the same bytes fail the same bounded check every time, so
+ * the gate fails closed and blocks BEFORE processing — no artifact is produced. The
+ * message is fixed and content-free; the specific reason rides the metric only and
+ * never names the file, its size, or its contents.
+ */
+export const UNSOUND_INPUT_ERROR: JobError = {
+  code: "unsound_input",
+  message:
+    "This file did not pass a basic soundness check and was not processed. No output was produced.",
+  retryable: false,
+};
+
 export interface WorkerExecutor {
   /** Claim and run at most one job; returns what happened this tick. */
   runOnce(): Promise<ExecutorTick>;
@@ -147,7 +191,8 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_DRAIN_CAP = 1000;
 
 export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
-  const { queue, storage, registry, scanner } = deps;
+  const { queue, storage, registry, scanner, soundness, onSoundnessReceipt } =
+    deps;
   const leaseMs = deps.leaseMs ?? DEFAULT_LEASE_MS;
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const log = deps.log ?? (() => {});
@@ -271,12 +316,58 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     }
 
     // Cancellation can arrive while the job is queued or being claimed; stop
-    // before doing any real work (including the scan) and wipe the inputs.
+    // before doing any real work (including the soundness gate and the scan) and
+    // wipe the inputs.
     if (await isCanceled(job.jobId)) {
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });
       emit(jobTerminalMetric("canceled"));
       return { outcome: "canceled", jobId: job.jobId, attempt };
+    }
+
+    // File-soundness gate. Runs only when a gate is wired, immediately after the
+    // storage read and BEFORE the scanner and any processor, over the SAME
+    // already-read inputs (no re-read, at most a bounded byte window per file). A
+    // cheap deterministic structural + metadata-consistency preflight: an `unsound`
+    // verdict fails the job terminally here, so a mismatched/unsafe input never
+    // reaches ClamAV, OCR, or compression and no artifact is produced. It is a
+    // preflight only, never malware scanning, sanitization, or a validity guarantee.
+    if (soundness) {
+      const result = soundness.check({ tool: job.tool, inputs: files });
+      // Record the bounded verdict + reason (never the file, size, or contents).
+      emit(soundnessMetric(result.verdict, result.reason));
+      if (result.verdict === "unsound") {
+        // Emit a content-free quarantine receipt (opt-in sink) before failing. It
+        // retains NO bytes — the input is wiped by the terminal disposition below —
+        // and carries only bounded enums, a coarse size bucket, and a count. The
+        // clock is read only here, only when a sink is wired.
+        if (onSoundnessReceipt) {
+          const totalBytes = files.reduce(
+            (sum, file) => sum + file.bytes.length,
+            0,
+          );
+          onSoundnessReceipt(
+            buildSoundnessReceipt({
+              verdict: result.verdict,
+              reason: result.reason,
+              processor: processorKindForId(processor.id),
+              totalBytes,
+              inputCount: files.length,
+              at: new Date(now()).toISOString(),
+            }),
+          );
+        }
+        // Blocked: terminal and non-retryable (the same bytes fail identically),
+        // inputs wiped, no artifact. `result.detail` is deliberately NOT propagated —
+        // the client error is a fixed, content-free message.
+        return dispatchFailure(UNSOUND_INPUT_ERROR, "soundness_blocked");
+      }
+      if (result.verdict === "sound") {
+        // The bounded preflight passed. Its ABSENCE before `processing` honestly
+        // signals a `skipped` (unchecked, gate-disabled) path.
+        log({ event: "soundness_ok", ...base });
+      }
+      // "skipped": the gate is disabled; proceed WITHOUT claiming the input was checked.
     }
 
     // Malware-scan gate. It runs only when a scanner is wired; with none, the

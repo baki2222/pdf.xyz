@@ -208,3 +208,5 @@ the worker container checklist is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 ## License
 
 Proprietary — © pdf.xyz. All rights reserved.
+
+| Worker file-soundness quarantine gate (Phase 36): after the worker retrieves bytes but before malware scanning and processors, `src/lib/workers/soundness` runs a bounded structural + metadata-consistency preflight. It rejects empty inputs, too many inputs, optional size ceilings, declared-size mismatches, unsupported/mismatched families, and PDF-expected bytes missing `%PDF-` (plus optional `%%EOF`). Rejections produce a content-free quarantine receipt and `unsound` failure class; no processor runs, no artifacts/text are produced, and logs/metrics carry only stable reason codes and buckets. This is **not** malware scanning, sanitization, repair, OCR validation, or proof that a PDF is safe/valid. | ✅ Live (worker preflight, content-free quarantine) |

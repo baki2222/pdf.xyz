@@ -406,3 +406,7 @@ checklists) · [`WORKER_ARCHITECTURE.md`](WORKER_ARCHITECTURE.md) (worker intern
 ## Upload intake guardrail responses
 
 If clients receive `invalid_upload_request`, `unsupported_file_type`, `too_many_files`, `file_too_large`, `request_too_large`, or `malformed_pdf`, the request was rejected at the upload-intake boundary before object storage or queue work. These errors are intentionally content-free: they use positional fields and policy limits, never filenames, object keys, signed URLs, body values, or bytes. Check whether the client is declaring correct MIME/size metadata and whether any server-only `PDFXYZ_UPLOAD_*` overrides are stricter than expected. `malformed_pdf` only appears when bounded PDF envelope sniffing is opted in; it is not a malware or sanitization verdict.
+
+## Worker soundness rejections
+
+If worker logs/metrics show `worker_soundness_total{verdict="unsound"}` or jobs fail with the `unsound` class, inspect the bounded reason code: `empty`, `missing_input`, `too_many_inputs`, `file_too_large`, `size_mismatch`, `unsupported_family`, `metadata_mismatch`, `malformed_pdf`, or `policy_unavailable`. These reasons are intentionally content-free; do not try to correlate them with filenames or object keys in logs. Common operator actions: verify upload metadata preservation, confirm the client is sending PDFs for PDF-only tools, and review any `PDFXYZ_WORKER_SOUNDNESS_*` overrides. `malformed_pdf` means the bounded envelope check failed; it is not a malware verdict.

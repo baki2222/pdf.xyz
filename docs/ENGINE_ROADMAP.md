@@ -1057,3 +1057,7 @@ A tool is production-ready only when it has:
 ## Phase 35 — upload intake guardrails
 
 Status: shipped. The secure-worker upload boundary now rejects obvious bad intake before storage/queue work while preserving browser-local tools and no-config honesty. The layer is intentionally not a PDF parser, malware scanner, or content sanitizer; deeper validation remains on the worker roadmap and must run under worker resource limits. Future production phases can add richer per-tool intake policies and worker-side file soundness scoring without changing the stable content-free error envelope introduced here.
+
+## Phase 36 — worker file-soundness quarantine
+
+Status: shipped. The worker now performs a bounded soundness/quarantine preflight before scanner and processor stages. This closes the gap between Phase 35 declaration-time intake and actual retrieved bytes, while keeping claims honest: soundness is not scanning, sanitization, repair, or deep validation. Future phases can add richer worker-side PDF soundness scoring and sandboxed parsers, but those must remain separately reported from this shallow preflight.
