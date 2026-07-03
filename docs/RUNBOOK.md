@@ -716,3 +716,30 @@ Verdict/exit ladder: `0` ok, `1` usage, `2` insufficient, `3` warn, `4` invalid.
 | `4` | `invalid` | An indexed artifact FAILED digest re-verification (tampered/corrupt). | **Investigate**; recover the untampered artifact from your CI archive, do not overwrite it. |
 
 **Content-free by construction.** Every ingested artifact is reduced to bounded enums, small counts, coarse age BUCKETS, and short hex digest PREFIXES: it carries no filename, path, object key, bucket, URL, raw ref, raw label (only a `semver`/`named`/`absent` **class**), commit URL, size, or byte, even from a hostile input, and no input path is ever echoed. Retention flags (`--max-artifacts`/`--max-age-days`) only FLAG over-retention/stale — the offline index never deletes, prunes, uploads, or mutates any artifact or object. It is local content-free indexing + digest verification — **not** storage retention enforcement, signing, authentication, cloud validation, or the promotion. The CI example lives at `docs/examples/deployment/github-actions/release-index-fixture.yml`; example inputs + a sample manifest live under `docs/examples/release-index/`.
+
+### Gate a release archive on explicit policy: release-policy (Phase 49)
+
+Once you build a `pdfxyz.release-index/1` manifest, you rarely eyeball it by hand in CI — you assert a **policy** over it and fail closed. `worker:release-policy` answers one question: **"Is this release evidence archive acceptable under our explicit release policy?"** It evaluates a small, explicit set of bounded operator thresholds and routes on the shared ladder.
+
+**`pnpm worker:release-policy`** evaluates a release-index (or an in-process index of raw artifacts) against the policy flags:
+
+```bash
+# Gate a pre-built index (the CI flow: release-index → release-policy)
+pnpm worker:release-policy --index=release-index.json \
+  --require-clean --require-latest-ok --max-invalid=0 --max-fail=0 --min-artifacts=1 --max-age-bucket=7-30d --max-warn=2 --json
+# Strongest mode: index raw artifacts in-process (re-hashing every digest), then gate
+pnpm worker:release-policy --artifact=a.json --artifact=b.json --require-clean --min-artifacts=2
+cat release-index.json | pnpm worker:release-policy --require-clean --text   # a release-index on stdin
+```
+
+Verdict/exit ladder: `0` pass, `1` usage, `2` unknown, `3` warn, `4` fail. Policy assertions come in two severities — **blocking** (`--require-clean`, `--require-latest-ok`, `--max-invalid=N`, `--max-fail=N`, `--min-artifacts=N`, `--max-artifacts=N`, `--max-age-bucket=<bucket>`) escalate to `fail`; **warning-only** (`--max-warn=N`, `--max-skipped=N`, `--forbid-over-retention`) escalate at most to `warn`. An unset flag asserts nothing.
+
+| Exit | Verdict | What it means | Do |
+| --- | --- | --- | --- |
+| `0` | `pass` | A valid, consistent, untampered, non-empty index met every configured assertion. | Proceed; wire your real promotion/approval after it. |
+| `1` | `usage` | The CLI was misused: a bad flag, a bad bound/bucket, both `--index` and `--artifact`, or an unwritable output. | Fix the invocation; not a policy verdict. |
+| `2` | `unknown` | No readable release-index was provided, or the archive is empty (zero indexed artifacts). | Treat as a setup error, never a pass; point it at your archived index/artifacts. |
+| `3` | `warn` | A warning-only assertion was violated (a non-blocking concern). | Review the `violations` + remediation; decide whether to proceed. |
+| `4` | `fail` | A blocking assertion was violated, OR the index is malformed / internally inconsistent / reports a tampered artifact. | **Do not promote**; resolve the named violation. Recover an untampered index from your CI archive if invalid. |
+
+**Fail closed on a tampered index.** In `--index` mode the policy TRUSTS the index's self-reported bounded counts, but it re-checks the manifest against ITSELF: it recomputes the archive-health verdict from the index's own counts (via the same `worker:release-index` rollup) and rejects an index whose counts or rollup are inconsistent (`invalid-index` → `fail`), and it rejects a valid index that honestly reports a tampered artifact inside (`index-tampered` → `fail`) — regardless of which flags were set. To re-hash the artifacts themselves, use `--artifact` mode, which builds the index in-process and re-verifies every digest. **Content-free by construction.** The ingested index is reduced to bounded enums, small counts, and coarse age buckets; the result carries no filename, path, object key, bucket, URL, raw ref, raw label, commit URL, size, or byte, even from a hostile input, and no input path is ever echoed. It is local bounded policy evaluation over content-free evidence — **not** signing, authentication, cloud validation, storage retention enforcement, or the promotion; a `pass` authorizes nothing on its own. The CI workflow example lives at `docs/examples/deployment/github-actions/release-policy-fixture.yml`; example index fixtures live under `docs/examples/release-policy/`.

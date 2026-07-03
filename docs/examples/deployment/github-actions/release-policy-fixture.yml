@@ -1,0 +1,80 @@
+name: pdf.xyz worker release evidence policy
+
+# Runs the offline RELEASE EVIDENCE POLICY gate (Phase 49) as a pre-deploy / release job: it runs the
+# release gate, archives its result as a release evidence artifact (Phase 47), INDEXES that artifact
+# into a content-free retention manifest (Phase 48), then EVALUATES an explicit bounded policy over the
+# index and FAILS CLOSED. It makes NO cloud call, needs NO credentials, reads NO secret, and
+# deletes/prunes/promotes NOTHING — every step is offline and deterministic (the offline gate +
+# committed content-free fixtures). This is a TEMPLATE.
+#
+# The policy is bounded EVALUATION over content-free evidence, NOT signing, auth, cloud validation,
+# storage retention ENFORCEMENT, or deployment promotion: a passing gate authorizes nothing on its own.
+# Run your changed-file no-secret / no-NUL scan separately, and wire your real promotion after it.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/lib/workers/release-policy/**"
+      - "scripts/worker-release-policy.ts"
+      - ".github/workflows/**"
+
+jobs:
+  release-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 1) Run the release gate and capture its content-free result.
+      - name: Run the release gate
+        run: pnpm -s worker:release-gate --json > gate.json || true
+
+      # 2) Archive the gate result as a release evidence artifact (Phase 47), with a release label.
+      - name: Archive the release evidence artifact
+        run: pnpm -s worker:release-artifact --release-gate=gate.json --label=ci-example --output=release-artifact.json --json
+
+      # 3) INDEX the archived artifact(s) into a content-free retention manifest (Phase 48). A single
+      #    clean artifact (its digest re-verifies) resolves the index to archive-health `ok`, whatever
+      #    the archived build's own verdict — the policy asserts over that manifest next.
+      - name: Build the release evidence index
+        run: pnpm -s worker:release-index --artifact=release-artifact.json --output=release-index.json --json
+
+      # 4) EVALUATE the policy over the index. A clean, non-empty archive under a satisfied policy passes
+      #    (exit 0). Emit the content-free policy result as a CI artifact / release record.
+      - name: Evaluate the release policy (accept)
+        run: pnpm -s worker:release-policy --index=release-index.json --require-clean --min-artifacts=1 --output=release-policy.json --json
+
+      # 5) A BLOCKING policy violation MUST fail closed (exit 4) — here, requiring more artifacts than the
+      #    archive holds. Proves the gate blocks a non-conforming archive.
+      - name: A blocking policy violation fails closed (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-policy --index=release-index.json --min-artifacts=99 >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 6) A misused CLI fails closed to the distinct usage band (exit 1) — never a silent pass.
+      - name: A non-numeric bound fails closed (exit 1)
+        run: |
+          set +e
+          pnpm -s worker:release-policy --index=release-index.json --max-fail=not-a-number >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 1
+
+      # 7) Publish the policy result as a CI artifact / release record.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-policy
+          path: release-policy.json
+
+      - name: Release-policy module unit + CLI smoke tests (no-leak + fail-closed)
+        run: pnpm exec vitest run src/lib/workers/release-policy

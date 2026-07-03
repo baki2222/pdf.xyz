@@ -18,6 +18,7 @@
     "worker:release-gate": "tsx scripts/worker-release-gate.ts",
     "worker:release-artifact": "tsx scripts/worker-release-artifact.ts",
     "worker:release-index": "tsx scripts/worker-release-index.ts",
+    "worker:release-policy": "tsx scripts/worker-release-policy.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",

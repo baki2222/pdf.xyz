@@ -114,6 +114,10 @@ import {
   RELEASE_INDEX_VERDICTS,
   type ReleaseIndexVerdict,
 } from "../release-index/types";
+import {
+  RELEASE_POLICY_VERDICTS,
+  type ReleasePolicyVerdict,
+} from "../release-policy/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -418,6 +422,7 @@ export const METRIC_NAMES = [
   "worker_release_gate_total",
   "worker_release_artifact_total",
   "worker_release_index_total",
+  "worker_release_policy_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -604,6 +609,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_INDEX_VERDICTS,
+    },
+  },
+  worker_release_policy_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_POLICY_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1023,6 +1034,27 @@ export function releaseArtifactMetric(verdict: ReleaseArtifactVerdict): WorkerMe
 export function releaseIndexMetric(verdict: ReleaseIndexVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_index_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A **release evidence policy** evaluation (Phase 49) resolved to its acceptability `verdict`
+ * ({@link ReleasePolicyVerdict}: `pass`/`warn`/`unknown`/`fail`). One bounded label so a release
+ * pipeline / dashboard can count policy gates by the single decision an operator acts on — e.g.
+ * `worker_release_policy_total{verdict="fail"} > 0` catches an archive that violated a blocking policy
+ * threshold or a tampered index, `{verdict="unknown"} > 0` catches a missing/empty archive at the gate.
+ * This counts an offline EVALUATION that checked bounded operator thresholds against a content-free
+ * `pdfxyz.release-index/1` manifest (re-checking its internal consistency) — NOT a cloud call, a
+ * deletion, a signature, a promotion, or a claim about bucket bytes. The one label is a closed,
+ * redaction-stable enum — never a filename, path, object key, bucket, URL, endpoint, region, instant,
+ * size, digest, or document content.
+ */
+export function releasePolicyMetric(verdict: ReleasePolicyVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_policy_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

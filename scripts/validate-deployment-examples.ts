@@ -52,6 +52,8 @@ const FILES = [
   `${DIR}/github-actions/release-artifact-fixture.yml`,
   // Phase 48 — the release evidence index / retention manifest (index + re-verify artifacts over time).
   `${DIR}/github-actions/release-index-fixture.yml`,
+  // Phase 49 — the release evidence policy gate (assert bounded operator thresholds; fail closed).
+  `${DIR}/github-actions/release-policy-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -150,6 +152,14 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-index-fixture.yml`, /worker:release-index --artifact=.*--output=/, "release-index GitHub Actions fixture must build the index as a CI artifact", findings);
   requireText(`${DIR}/github-actions/release-index-fixture.yml`, /test "\$code" -eq 4/, "release-index GitHub Actions fixture must assert the tamper (invalid) exit code", findings);
   requireText(`${DIR}/github-actions/release-index-fixture.yml`, /test "\$code" -eq 1/, "release-index GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 49 — the release-policy template must archive an artifact, index it, evaluate the policy over
+  // the index, and pin the blocking-violation + usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-policy-fixture.yml`, /worker:release-artifact --release-gate=.*--output=/, "release-policy GitHub Actions fixture must archive an artifact first", findings);
+  requireText(`${DIR}/github-actions/release-policy-fixture.yml`, /worker:release-index --artifact=.*--output=/, "release-policy GitHub Actions fixture must build the index first", findings);
+  requireText(`${DIR}/github-actions/release-policy-fixture.yml`, /worker:release-policy --index=/, "release-policy GitHub Actions fixture must evaluate the policy over the index", findings);
+  requireText(`${DIR}/github-actions/release-policy-fixture.yml`, /test "\$code" -eq 4/, "release-policy GitHub Actions fixture must assert the blocking-violation exit code", findings);
+  requireText(`${DIR}/github-actions/release-policy-fixture.yml`, /test "\$code" -eq 1/, "release-policy GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);
