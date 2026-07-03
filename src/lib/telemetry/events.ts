@@ -21,6 +21,10 @@
 import type { ToolCapability } from "@/lib/jobs/types";
 import type { WorkerMode } from "@/lib/workers/mode";
 import type { HandoffMode } from "@/lib/handoff/capability";
+import type {
+  HealthClass,
+  RecommendedAction,
+} from "@/lib/workers/observability";
 import {
   countBucket,
   sizeBucket,
@@ -92,6 +96,20 @@ export type ProductEvent =
       enabled: boolean;
     }
   | {
+      /**
+       * The operations dashboard read the honest worker-operations snapshot.
+       * Every field is a bounded enum or boolean — the overall SLO health class,
+       * the single recommended action, and the two honesty booleans — never a
+       * secret, endpoint, path, object key, or count that could identify work.
+       */
+      name: "worker_operations_checked";
+      mode: WorkerMode;
+      health: HealthClass;
+      recommendedAction: RecommendedAction;
+      drainable: boolean;
+      daemonObserved: boolean;
+    }
+  | {
       /** The browser exercised the secure-worker job contract; here's the outcome. */
       name: "worker_contract_hit";
       capability: ToolCapability;
@@ -107,6 +125,7 @@ export const EVENT_NAMES = [
   "tool_failed",
   "workspace_handoff_created",
   "worker_status_checked",
+  "worker_operations_checked",
   "worker_contract_hit",
 ] as const;
 

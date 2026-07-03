@@ -8,7 +8,7 @@ import {
 } from "./events";
 
 describe("event name allowlist", () => {
-  it("includes exactly the five named product events plus completion/failure", () => {
+  it("includes exactly the known named product events", () => {
     expect([...EVENT_NAMES].sort()).toEqual(
       [
         "tool_viewed",
@@ -16,6 +16,7 @@ describe("event name allowlist", () => {
         "tool_failed",
         "workspace_handoff_created",
         "worker_status_checked",
+        "worker_operations_checked",
         "worker_contract_hit",
       ].sort(),
     );

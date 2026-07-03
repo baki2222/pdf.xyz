@@ -13,6 +13,7 @@ import {
   SystemStatus,
   type LocalToolRef,
 } from "@/components/status/system-status";
+import { WorkerOperationsDashboard } from "@/components/status/operations-dashboard";
 import { AvailabilityGlyph } from "@/components/status/status-ui";
 
 export const metadata: Metadata = buildMetadata({
@@ -58,6 +59,14 @@ export default function StatusPage() {
         </div>
 
         <SystemStatus localTools={localTools} />
+
+        <div className="h-px w-full bg-white/10" role="presentation" />
+
+        {/* The operator counterpart to the capability summary above: the same worker
+            stack, projected into SLO health classes and a single next action. */}
+        <WorkerOperationsDashboard />
+
+        <div className="h-px w-full bg-white/10" role="presentation" />
 
         <section className="flex flex-col gap-4">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">

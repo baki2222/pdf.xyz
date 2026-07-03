@@ -227,10 +227,16 @@ pnpm worker:daemon --dry-run-status   # emits readiness + operations + metrics +
 pnpm worker:daemon --check            # emits guardrails + operations + metrics + slo
 ```
 
+The same snapshot is rendered for humans as the **operator dashboard** on the `/status`
+page (Phase 29) — overall health, the single recommended action, a subsystem grid,
+lifecycle-verification + engine-proof cards, and the daemon-observability caveat spelled
+out in plain language. Use `curl`/`jq` for scripting and alerts; use `/status` for triage.
+
 Interpretation:
 
 - Web-vantage `daemonObserved:false` is expected; the web app cannot see a separate worker
-  process. Use worker logs/process supervision for actual daemon liveness.
+  process. Use worker logs/process supervision for actual daemon liveness. The `/status`
+  dashboard states this explicitly so `daemonObserved:false` is never misread as "worker down".
 - `recommendedAction` is the first safe next step. `configure-providers`,
   `fix-guardrail`, `reconcile-lifecycle-drift`, and `investigate-loop-errors` are
   operator-action states; `confirm-worker-deployment` means config looks good from the web

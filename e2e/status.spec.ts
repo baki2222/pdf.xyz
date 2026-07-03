@@ -36,12 +36,16 @@ test.describe("system status page", () => {
 
     // The production pipeline is broken out provider-by-provider, each honestly
     // not configured in this build — so the page names exactly what a real
-    // deployment still needs (object storage, job queue, processor).
+    // deployment still needs (object storage, job queue, processor). These labels
+    // also appear in the operations dashboard's subsystem grid below, so scope to
+    // the first (the capability summary's) occurrence.
     await expect(page.getByText("Production pipeline")).toBeVisible();
     await expect(
-      page.getByText("Object storage", { exact: true }),
+      page.getByText("Object storage", { exact: true }).first(),
     ).toBeVisible();
-    await expect(page.getByText("Job queue", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Job queue", { exact: true }).first(),
+    ).toBeVisible();
     await expect(
       page.getByText("Not configured", { exact: true }).first(),
     ).toBeVisible();
@@ -60,6 +64,59 @@ test.describe("system status page", () => {
       .first()
       .getAttribute("content");
     expect(robots ?? "").not.toContain("noindex");
+
+    expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+    expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+  });
+
+  test("surfaces the worker operations snapshot honestly in no-config mode", async ({
+    page,
+  }) => {
+    const guard = attachConsoleGuard(page);
+    const res = await page.goto("/status");
+    expect(res?.status()).toBe(200);
+
+    // The operator dashboard section renders.
+    await expect(
+      page.getByRole("heading", { name: /worker operations/i }),
+    ).toBeVisible();
+
+    // Read live from /api/worker/operations. In the production build the e2e suite
+    // runs, no worker is configured, so the snapshot resolves out of the "Reading…"
+    // state into the honest blocked verdict + single recommended action. This also
+    // proves the client fetch (and its worker_operations_checked event) worked.
+    await expect(
+      page.getByText("Configure the queue and storage"),
+    ).toBeVisible();
+    await expect(page.getByText("Blocked", { exact: true }).first()).toBeVisible();
+
+    // The load-bearing honesty caveat: the web vantage can never observe a running
+    // worker, and that must NOT read as "the worker is down". The page says so
+    // explicitly and points operators at the daemon logs / process supervisor.
+    await expect(
+      page.getByText(/can.?t see a running worker/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/cannot observe a separate worker process/i),
+    ).toBeVisible();
+    await expect(page.getByText(/process supervisor/i)).toBeVisible();
+
+    // The bounded subsystem grid and honest engine proofs render.
+    await expect(page.getByText("Drainability")).toBeVisible();
+    await expect(page.getByText("Deployment guardrails")).toBeVisible();
+    await expect(
+      page.getByText("Unknown from here").first(),
+    ).toBeVisible();
+
+    // Honesty: the operations region is content-free — even scoped to that section,
+    // no endpoint, object key, or secret string appears (there is none to leak).
+    const opsText =
+      (await page
+        .locator('section[aria-labelledby="worker-operations-heading"]')
+        .textContent()) ?? "";
+    for (const forbidden of ["s3://", "://", "redis", "SECRET", "AKIA"]) {
+      expect(opsText).not.toContain(forbidden);
+    }
 
     expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
     expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);

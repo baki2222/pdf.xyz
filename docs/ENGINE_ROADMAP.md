@@ -888,9 +888,37 @@ into bounded health classes and coarse metrics.
   `/api/worker/status`; it is dynamic, node-runtime, and web-vantage honest. It does not
   return provider values or imply a separate worker is alive.
 
-⏳ Still out-of-band (deliberately not faked): a real metrics backend/dashboard, alerts
-wired to a pager, cross-process daemon heartbeats visible to the web app, real production
-traffic SLO windows, and Docker/image execution on this host.
+⏳ Still out-of-band (deliberately not faked): a real metrics backend (a timeseries store +
+alerting pipeline), alerts wired to a pager, cross-process daemon heartbeats visible to the
+web app, real production traffic SLO windows, and Docker/image execution on this host.
+
+### Phase 29 — status operations dashboard for secure-worker health (shipped)
+
+Phase 29 makes the Phase 28 operations snapshot legible to a human operator: the `/status`
+page now renders `/api/worker/operations` as a premium **operator dashboard** beneath the
+existing user-facing capability summary. No new backend and no new data — it is a safe
+projection of the same content-free snapshot.
+
+- **Dashboard UI** (`src/components/status/operations-dashboard.tsx` — the live-fetching
+  shell; `operations-ui.tsx` — the RSC-safe presentational body): an overall health card
+  (`ok`/`warn`/`blocked`/`unknown`), the single `recommendedAction` callout, a per-subsystem
+  grid, lifecycle-verification + engine/OCR proof cards, a worker-vantage-only last-loop
+  card, and an always-present daemon-observability caveat. Loading/error/retry are graceful;
+  a fetch failure never dead-ends and is worded so it never reads as "the worker is down".
+- **Safe client parsing** (`normalizeSnapshot`, the single choke point): narrows the
+  response to bounded enums, booleans, and clamped integers, then maps them to
+  **client-authored** copy. Unknown enum values degrade to a safe fallback and unknown
+  subsystem ids are dropped, so an injected endpoint, object key, filename, signed URL,
+  recognized text, port, path, or secret in any server field has nowhere to surface. Reading
+  the snapshot emits a privacy-safe `worker_operations_checked` event (bounded enums only).
+- **Honest boundaries**: from the web vantage `daemonObserved` stays `false` and the
+  engine/OCR proofs stay `unknown`; the dashboard says so in plain language and points
+  operators at the daemon's own logs / process supervisor. The dashboard shows health
+  *posture*, not timeseries — live SLO **rates** (success %, p95 latency, dead-letter rate
+  over a traffic window) still require the out-of-band metrics backend above.
+
+⏳ Still out-of-band (unchanged): the metrics-backend timeseries and pager wiring; Phase 29
+adds only the human-readable projection of the already-shipped snapshot.
 
 ## Definition of production-ready per tool
 

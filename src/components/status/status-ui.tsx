@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
  *  Operational status badge
  * ------------------------------------------------------------------ */
 
-export type StatusTone = "ok" | "warn" | "info" | "muted";
+export type StatusTone = "ok" | "warn" | "danger" | "info" | "muted";
 
 const TONE_STYLES: Record<StatusTone, { pill: string; dot: string }> = {
   ok: {
@@ -33,6 +33,12 @@ const TONE_STYLES: Record<StatusTone, { pill: string; dot: string }> = {
   warn: {
     pill: "border-amber-400/30 bg-amber-400/10 text-amber-200",
     dot: "bg-amber-400",
+  },
+  // A hard, blocking failure (e.g. an operations `blocked` health class). Distinct
+  // from `warn` so a pager can tell "fix eventually" from "cannot run at all".
+  danger: {
+    pill: "border-red-400/30 bg-red-400/10 text-red-200",
+    dot: "bg-red-400",
   },
   info: {
     pill: "border-blue-400/30 bg-blue-400/10 text-blue-200",

@@ -46,6 +46,7 @@ a free-form string. The events today:
 | `tool_failed`                | `toolSlug`, `capability`, `reason` (coarse category)          |
 | `workspace_handoff_created`  | `toolSlug`, `mode`, `fileCount`                               |
 | `worker_status_checked`      | `mode`, `enabled`                                             |
+| `worker_operations_checked`  | `mode`, `health` (SLO class), `recommendedAction`, `drainable`, `daemonObserved` |
 | `worker_contract_hit`        | `capability`, `ok`, `code?` (contract/job error code)         |
 
 Every field is one of: a **public route slug**, a **fixed enum**, a **boolean**,
@@ -163,11 +164,16 @@ that summarizes **what runs where in this environment**:
 - **Secure worker** — read **live** from `/api/worker/status`. Shows the honest
   detail for the current mode (`disabled` / `remote-configured` / `local-dev`).
   A fetch failure is a recoverable error (with a retry), never a dead end.
+- **Worker operations** (Phase 29) — the operator counterpart to the capability
+  summary, read **live** from `/api/worker/operations`. See
+  [the operations dashboard](#the-operations-dashboard-phase-29) below.
 - **What runs where** — a static explainer of the four capabilities
   (`in-browser`, `hybrid`, `secure-worker`, `ai`) and whether each uploads files.
 
-Reading the endpoint emits a `worker_status_checked` event (mode + enabled flag
-only). The reusable UI primitives (`StatusBadge`, `RecoverableError`,
+Reading the endpoints emits a `worker_status_checked` event (mode + enabled flag)
+and a `worker_operations_checked` event (mode + overall health class + recommended
+action + `drainable`/`daemonObserved` booleans) — bounded enums only, never a count
+or identifier. The reusable UI primitives (`StatusBadge`, `RecoverableError`,
 `AssuranceNote`) live in
 [`src/components/status/status-ui.tsx`](../src/components/status/status-ui.tsx)
 and are shared with the tool runners.
@@ -197,6 +203,50 @@ endpoint:
 - SLO reports are pure calculations over a metric snapshot. Missing observations return
   `unknown`; latency percentiles are bucket upper bounds (for example `≤2.5s`), not
   invented exact timings.
+
+### The operations dashboard (Phase 29)
+
+The `/status` page renders the `/api/worker/operations` snapshot as an operator-facing
+dashboard beneath the user capability summary — the same worker stack, projected into
+SLO health classes and a single next action. It lives in
+[`src/components/status/operations-dashboard.tsx`](../src/components/status/operations-dashboard.tsx)
+(the live-fetching shell) and
+[`src/components/status/operations-ui.tsx`](../src/components/status/operations-ui.tsx)
+(the presentational body), and shows:
+
+- an **overall health card** (the `ok`/`warn`/`blocked`/`unknown` class a pager reads,
+  plus the vantage, mode, and drainability facts);
+- the single **recommended next action** callout;
+- a **subsystem grid** using the bounded health classes;
+- the **lifecycle verification** rung and the **engine/OCR proof** tri-states (honestly
+  `unknown` from the web);
+- a **last-worker-loop** card when the snapshot is worker-vantage (absent from the web);
+- an always-present **daemon-observability caveat**. From the web app,
+  `daemonObserved` is always `false`; the dashboard states in plain language that this
+  means *“this app cannot observe a separate worker process,”* **not** *“the worker is
+  down,”* and directs operators to the daemon’s own logs and the process supervisor.
+
+Two honesty rules make the UI safe to point at any environment: it renders **only from
+the bounded enums** (health classes, the recommended-action enum, subsystem ids, proof
+tri-states, the lifecycle verdict) mapped to **client-authored copy** — never a
+server-provided free-form string — so a malformed or hostile response cannot surface an
+endpoint, object key, filename, or secret; and a fetch failure is a recoverable error
+with a retry that explicitly does **not** claim a worker is down. Loading/error/retry
+states are graceful, and the user-facing capability summary above is never blocked by
+the operations fetch.
+
+**Interpreting the states.** `ok` (green) means everything observable from this vantage is
+healthy; `warn` (amber) means a recommended fix is outstanding but a worker can still run;
+`blocked` (red) means a worker cannot run correctly here until the recommended action is
+taken; `unknown` (grey) means *not observable from this vantage / not declared* — it is
+never a green default and never implies failure. A `disabled` worker mode resolves to the
+same honest `blocked` "configure the queue and storage" verdict — nothing is faked. The
+dashboard reports **health posture, not timeseries**: live SLO **rates** (job success rate,
+p95/p99 latency, retry/dead-letter/scanner-unavailable rates over a traffic window) come
+from the worker's in-memory metrics collector and its `slo`/`metrics` JSON lines, and
+surfacing them anywhere other than the daemon's own logs still requires the
+**bring-your-own metrics backend** described above — the web `/status` page never
+fabricates them.
 
 Suggested alerts:
 
