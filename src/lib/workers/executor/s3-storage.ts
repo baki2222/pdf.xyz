@@ -56,6 +56,10 @@ import {
   ARTIFACT_MANIFEST_METADATA_HEADER,
   encodeArtifactManifestMetadata,
 } from "../storage/s3-manifest-metadata";
+import {
+  ARTIFACT_LIFECYCLE_METADATA_HEADER,
+  encodeArtifactLifecycleMetadata,
+} from "../storage/s3-lifecycle-metadata";
 import { presignS3Url } from "../storage/s3-signer";
 import type { StorageObjectKind } from "../storage/types";
 import type { ExecutorStorage, WriteArtifactInput } from "./types";
@@ -204,18 +208,31 @@ export function createS3ExecutorStorage(
       const artifactId = newArtifactId();
       const key = buildObjectKey(config, "artifact", artifactId);
 
+      // The artifact's retention / lifecycle-deletion window, resolved ONCE so the value the
+      // object stores as lifecycle metadata and the value the client is told (`expiresAt`) are
+      // byte-identical. Not a signed-link TTL — this is when the artifact stops being
+      // downloadable, matching the local path.
+      const expiresAtMs = now() + DEFAULT_RETENTION.outputTtlMinutes * MINUTE_MS;
+
       // PUT the real bytes. Sign + echo the content-type so the stored object is
       // typed correctly, plus a `Content-Disposition: attachment` carrying the safe
       // output name (defense-in-depth for any direct object access), plus — when the
       // gate produced one — the content-free provenance manifest as SIGNED object
       // metadata, so the storage-backed retrieval boundary can re-validate provenance
-      // on download without a side table. Signing every header locks the stored values
-      // to what the worker declared: the client cannot tamper them on the PUT, and no
-      // control/CRLF can be injected (the header builders sanitize their inputs).
+      // on download without a side table, plus the content-free lifecycle evidence (the
+      // retention window) as SIGNED metadata, so retrieval can deny a logically-expired
+      // object before the bucket lifecycle rule physically reaps it. Signing every header
+      // locks the stored values to what the worker declared: the client cannot tamper them
+      // on the PUT, and no control/CRLF can be injected (the header builders sanitize their
+      // inputs; the manifest/lifecycle codecs emit ASCII-only tokens).
       const disposition = contentDispositionAttachment(input.filename);
       const putHeaders: Record<string, string> = {
         "content-type": input.contentType,
         [CONTENT_DISPOSITION_HEADER]: disposition,
+        [ARTIFACT_LIFECYCLE_METADATA_HEADER]: encodeArtifactLifecycleMetadata({
+          expiresAtMs,
+          deleted: false,
+        }),
         ...(input.manifest
           ? {
               [ARTIFACT_MANIFEST_METADATA_HEADER]: encodeArtifactManifestMetadata(
@@ -239,11 +256,8 @@ export function createS3ExecutorStorage(
       // The client-facing download URL is this app's OPAQUE retrieval route — never a
       // signed object-store URL. The route reads the bytes from the bucket server-side
       // and streams them through the guarded access boundary, so nothing about the
-      // bucket/key/signature is ever exposed. `expiresAt` is the artifact's retention /
-      // lifecycle-deletion window (matching the local path), not a signed-link TTL.
-      const expiresAt = new Date(
-        now() + DEFAULT_RETENTION.outputTtlMinutes * MINUTE_MS,
-      ).toISOString();
+      // bucket/key/signature is ever exposed.
+      const expiresAt = new Date(expiresAtMs).toISOString();
       return {
         artifactId,
         filename: input.filename,

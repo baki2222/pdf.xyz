@@ -273,7 +273,18 @@ server-side S3 variables are valid. Before using it for production traffic:
 
 - Create a private, encrypted bucket with public listing/access disabled.
 - Configure lifecycle deletion for input and artifact prefixes as a backstop; the
-  app's TTLs are not a substitute for bucket lifecycle rules.
+  app's TTLs are not a substitute for bucket lifecycle rules. As of **Phase 41** the
+  storage-backed download route additionally enforces the artifact retention window
+  **at retrieval time**: the worker signs the window as content-free object metadata
+  (`x-amz-meta-artifact-lifecycle`, no new env config — it reuses the existing
+  artifact TTL) and the app denies a logically-expired object `410 Gone` **before**
+  streaming a byte, even in the gap between its deadline and the bucket rule reaping
+  it. This is app-level access denial, **not** a deletion guarantee and **not** a
+  substitute for the bucket lifecycle rule — configure the bucket rule anyway (it is
+  the actual deletion backstop; watch `worker_artifact_expiry_total{state="expired"}`
+  for drift, i.e. the bucket still serving objects past their window). Legacy objects
+  written before Phase 41 carry no lifecycle metadata (`state="unknown"`) and are
+  served honestly, relying on the bucket rule alone until they age out.
 - Add a bucket **CORS policy** for the direct-transfer paths: the browser still
   uploads bytes **directly** against a signed `PUT`, so allow the app's exact
   origin(s) for `PUT` (uploads), permit the `content-type` request header, and

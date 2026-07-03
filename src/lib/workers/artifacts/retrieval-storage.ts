@@ -13,12 +13,27 @@
  * as content-free object metadata (`./s3-manifest-metadata` ← the worker signs it on the
  * PUT), so provenance can be re-validated on download without a side table.
  *
+ * Lifecycle enforcement (Phase 41): a bucket cannot itself tell a live object from an
+ * expired-but-not-yet-reaped one — both answer a GET `200`. So the worker signs the artifact's
+ * retention window (and, where a deployment records one, a deletion tombstone) as content-free
+ * object metadata (`../storage/s3-lifecycle-metadata`), and on the `200` this reader decodes
+ * that evidence and evaluates it against its clock ({@link evaluateArtifactLifecycle}) BEFORE
+ * reading the body — so a logically-expired or tombstoned object is denied `410 Gone` even in
+ * the window before the bucket lifecycle rule physically reaps it, and its bytes are never even
+ * buffered. Absent/unknown evidence (a legacy object, or storage that strips user-metadata) is
+ * served honestly — never reported as deleted — with the bucket lifecycle rule as the eventual
+ * backstop (surfacing as an honest `404`/`absent`). This app-level denial is distinct from, and
+ * additional to, both that bucket backstop and any active delete-now the executor performs.
+ *
  * Failure taxonomy (mapped to the retrieval lifecycle, all content-free):
- *  - a genuine `404` → `absent` (a bucket does not tombstone, so an expired/deleted/never-
- *    existed object is honestly indistinguishable here — the honest 404 semantic);
+ *  - a genuine `404` → `absent` (an object actively deleted, reaped by the lifecycle backstop,
+ *    or never-existed — honestly indistinguishable, the honest 404 semantic);
+ *  - metadata evidence of a passed retention window → `expired`; of a tombstone → `deleted`
+ *    (both `410 Gone`, denied before the body is read);
  *  - a transient error (5xx, network, malformed body) → `unavailable` (retryable `503`,
  *    NEVER a false `not_found`);
- *  - a well-formed `200` → `live` with the fetched bytes, content-type, and decoded manifest.
+ *  - a well-formed `200` with live/absent lifecycle evidence → `live` with the fetched bytes,
+ *    content-type, and decoded manifest.
  *
  * Node-only: it pulls the `node:crypto` signer, so it is constructed by the storage-backed
  * download route (and its tests), never a client bundle. `env` and the object transport are
@@ -35,7 +50,14 @@ import {
   ARTIFACT_MANIFEST_METADATA_HEADER,
   decodeArtifactManifestMetadata,
 } from "../storage/s3-manifest-metadata";
+import {
+  ARTIFACT_LIFECYCLE_METADATA_HEADER,
+  decodeArtifactLifecycleMetadata,
+} from "../storage/s3-lifecycle-metadata";
 import { presignS3Url } from "../storage/s3-signer";
+import { evaluateArtifactLifecycle, type StorageArtifactLifecycle } from "./lifecycle";
+import { recordArtifactExpiry } from "./expiry-metrics";
+import { emitArtifactExpiryReceipt } from "./expiry-receipt";
 import type { ArtifactManifest } from "./types";
 import type { RetrievalStorageCapability } from "./access";
 import type { ArtifactRetrievalBackend, ArtifactRetrievalResult } from "./retrieval";
@@ -73,7 +95,13 @@ export interface S3ArtifactReaderDeps {
   fetchImpl?: S3ArtifactFetch;
 }
 
-/** The typed outcome of reading one artifact object from the bucket. */
+/**
+ * The typed outcome of reading one artifact object from the bucket. `expired`/`deleted` are
+ * lifecycle denials resolved from the object's signed lifecycle metadata BEFORE its body is
+ * read (so the bytes of a gone artifact are never buffered); `not-found` is a genuine bucket
+ * `404`; `unavailable` is a transient failure. An `ok` read only ever carries a live/absent-
+ * evidence object.
+ */
 export type S3ArtifactRead =
   | {
       readonly status: "ok";
@@ -88,7 +116,18 @@ export type S3ArtifactRead =
        * streamed under a header that lies about its size.
        */
       readonly reportedLength: number | null;
+      /**
+       * The resolved lifecycle state for this SERVED read — always `live` (evidence
+       * records a window that has not passed) or `unknown` (the present object carries no
+       * usable lifecycle evidence). `expired`/`deleted` never reach an `ok` read (they
+       * short-circuit above), so they are excluded here. Carried ONLY so the backend can
+       * emit the bounded lifecycle observation distinguishing "served fresh" from "served
+       * with no evidence" (the missing-metadata drift signal); it never gates delivery.
+       */
+      readonly lifecycleState: Extract<StorageArtifactLifecycle, "live" | "unknown">;
     }
+  | { readonly status: "expired" }
+  | { readonly status: "deleted" }
   | { readonly status: "not-found" }
   | { readonly status: "unavailable" };
 
@@ -166,6 +205,20 @@ export function createS3ArtifactReader(
       // Any other non-2xx is transient (throttling, 5xx): retry, never a false not-found.
       if (!res.ok) return { status: "unavailable" };
 
+      // Lifecycle enforcement — resolved from the object's SIGNED lifecycle metadata (present
+      // in the response headers before the body) and this reader's clock. A logically-expired
+      // or tombstoned object is denied here, BEFORE its bytes are read, so a gone artifact's
+      // body is never buffered. Absent/malformed evidence evaluates to `unknown` → served (the
+      // bucket lifecycle rule remains the eventual backstop); never an overclaimed deletion.
+      const lifecycle = evaluateArtifactLifecycle(
+        decodeArtifactLifecycleMetadata(
+          res.headers.get(ARTIFACT_LIFECYCLE_METADATA_HEADER),
+        ),
+        now(),
+      );
+      if (lifecycle === "expired") return { status: "expired" };
+      if (lifecycle === "deleted") return { status: "deleted" };
+
       let bytes: Uint8Array;
       try {
         bytes = new Uint8Array(await res.arrayBuffer());
@@ -182,16 +235,48 @@ export function createS3ArtifactReader(
       // Capture the bucket's declared length for the delivery layer to verify against
       // the actual bytes (never emitted verbatim; only cross-checked).
       const reportedLength = parseContentLength(res.headers.get("content-length"));
-      return { status: "ok", bytes, contentType, manifest, reportedLength };
+      // `lifecycle` is narrowed to `live` | `unknown` here (expired/deleted returned above);
+      // carry it so the backend can distinguish "served fresh" from "served with no evidence".
+      return { status: "ok", bytes, contentType, manifest, reportedLength, lifecycleState: lifecycle };
     },
   };
+}
+
+/**
+ * Fold a read outcome to the bounded {@link StorageArtifactLifecycle} state to OBSERVE, or
+ * `null` when there is nothing present to evaluate (a genuine `404`/`absent`, or a transient
+ * failure). An `ok` read carries the resolved `live`/`unknown` state; `expired`/`deleted` map
+ * to themselves. This is the single source for the lifecycle/expiry metric + drift receipt.
+ */
+function lifecycleStateToObserve(
+  read: S3ArtifactRead,
+): StorageArtifactLifecycle | null {
+  switch (read.status) {
+    case "ok":
+      return read.lifecycleState; // "live" | "unknown"
+    case "expired":
+      return "expired";
+    case "deleted":
+      return "deleted";
+    default:
+      return null; // not-found / unavailable — no present object to evaluate
+  }
 }
 
 /**
  * Wrap a server-side artifact reader into an {@link ArtifactRetrievalBackend}. A read maps
  * to the retrieval lifecycle: `ok` → `live` (an object exists only for a completed job, so
  * `jobCompleted` is true and there is no server-side `?job=` record to bind against);
- * `not-found` → `absent`; `unavailable` → the transient outcome.
+ * `expired`/`deleted` → the matching lifecycle denial (`410 Gone`, resolved from the object's
+ * lifecycle metadata before its body was read); `not-found` → `absent`; `unavailable` → the
+ * transient outcome.
+ *
+ * For every read that touched a PRESENT object (served, expired, or tombstoned) it also emits
+ * one bounded, content-free lifecycle/expiry observation — a metric + drift receipt carrying
+ * only the resolved state and the storage provider. An `expired`/`deleted` observation IS the
+ * "present after the app retention window / tombstoned" drift signal; `unknown` is the
+ * missing-lifecycle-metadata signal. Observability never gates the outcome and a throwing sink
+ * can never break a download (the emitters swallow their own errors).
  */
 export function createStorageArtifactBackend(
   reader: S3ArtifactReader,
@@ -203,6 +288,24 @@ export function createStorageArtifactBackend(
     },
     async fetch(artifactId: string): Promise<ArtifactRetrievalResult> {
       const read = await reader.readArtifact(artifactId);
+
+      // Observe the resolved lifecycle state for any read that saw a present object. This is
+      // the ONLY place the served-fresh (`live`) vs no-evidence (`unknown`) distinction still
+      // exists — by the time a result reaches the shared serve layer both are `kind: "live"`.
+      // Best-effort: observability must NEVER turn a valid download into a failure, so a
+      // throwing collector sink is swallowed here (the receipt observer already self-guards).
+      const observed = lifecycleStateToObserve(read);
+      if (observed !== null) {
+        try {
+          recordArtifactExpiry(observed, capability.provider);
+          emitArtifactExpiryReceipt({ state: observed, provider: capability.provider });
+        } catch {
+          // A misbehaving metrics collector can never break the download.
+        }
+      }
+
+      if (read.status === "expired") return { kind: "expired" };
+      if (read.status === "deleted") return { kind: "deleted" };
       if (read.status === "not-found") return { kind: "absent" };
       if (read.status === "unavailable") return { kind: "unavailable" };
       return {

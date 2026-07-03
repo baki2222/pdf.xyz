@@ -64,6 +64,10 @@ import {
   type ArtifactDeliveryOutcome,
   type ArtifactDeliveryReason,
 } from "../artifacts/delivery";
+import {
+  ARTIFACT_LIFECYCLE_STATES,
+  type StorageArtifactLifecycle,
+} from "../artifacts/lifecycle";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -351,6 +355,7 @@ export const METRIC_NAMES = [
   "worker_artifact_manifest_total",
   "worker_artifact_retrieval_total",
   "worker_artifact_delivery_total",
+  "worker_artifact_expiry_total",
   "worker_storage_ops_total",
   "worker_queue_depth",
   "worker_queue_age_seconds",
@@ -451,6 +456,13 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
       outcome: ARTIFACT_DELIVERY_OUTCOMES,
       reason: ARTIFACT_DELIVERY_REASONS,
       kind: ARTIFACT_OUTPUT_KINDS,
+      provider: RETRIEVAL_STORAGE_PROVIDERS,
+    },
+  },
+  worker_artifact_expiry_total: {
+    kind: "counter",
+    labels: {
+      state: ARTIFACT_LIFECYCLE_STATES,
       provider: RETRIEVAL_STORAGE_PROVIDERS,
     },
   },
@@ -669,6 +681,34 @@ export function artifactDeliveryMetric(
     metric: "worker_artifact_delivery_total",
     kind: "counter",
     labels: { outcome, reason, kind, provider },
+    value: 1,
+  };
+}
+
+/**
+ * The storage-backed retrieval boundary evaluated a present object's retention/lifecycle
+ * evidence to a bounded {@link StorageArtifactLifecycle} `state`: `live` (evidence records a
+ * window that has not passed → served as before), `expired` (the recorded retention window
+ * has passed while the object is STILL present in the bucket — the "present after app
+ * retention expiry" DRIFT signal, denied 410), `deleted` (an explicit tombstone → denied
+ * 410), or `unknown` (the present object carries no usable lifecycle evidence — a legacy
+ * object or metadata-stripping storage — so expiry is NOT claimed and the manifest/intrinsic
+ * decision governs). `provider` is the bounded storage backend. This is emitted ONLY on a
+ * present-object read (a 404/transient read has nothing to evaluate), so `expired`/`deleted`
+ * here is by construction lifecycle DRIFT: the bucket still served an object the app no
+ * longer considers downloadable. Both labels are closed enums — never a filename, object
+ * key, bucket name, handle, signed URL, expiry instant, size, or document content; it is
+ * NEITHER proof the bytes were deleted NOR a claim about the bucket lifecycle policy's
+ * correctness (which the app cannot verify from inside the process).
+ */
+export function artifactExpiryMetric(
+  state: StorageArtifactLifecycle,
+  provider: RetrievalStorageProvider,
+): WorkerMetricSample {
+  return {
+    metric: "worker_artifact_expiry_total",
+    kind: "counter",
+    labels: { state, provider },
     value: 1,
   };
 }

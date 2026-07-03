@@ -12,6 +12,10 @@ import {
   decodeArtifactManifestMetadata,
 } from "../storage/s3-manifest-metadata";
 import {
+  ARTIFACT_LIFECYCLE_METADATA_HEADER,
+  decodeArtifactLifecycleMetadata,
+} from "../storage/s3-lifecycle-metadata";
+import {
   createS3ExecutorStorage,
   filenameForContentType,
   type S3ObjectFetch,
@@ -248,6 +252,29 @@ describe("createS3ExecutorStorage — writeArtifact", () => {
     expect(new URL(put.url).searchParams.get("X-Amz-SignedHeaders")).toContain(
       ARTIFACT_MANIFEST_METADATA_HEADER,
     );
+  });
+
+  it("stamps SIGNED lifecycle evidence carrying the SAME retention window as expiresAt", async () => {
+    const { fn, calls } = fakeFetch([{ status: 200 }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+
+    const artifact = await storage.writeArtifact(input);
+    const put = calls.find((c) => c.method === "PUT")!;
+    const stamped = put.headers?.[ARTIFACT_LIFECYCLE_METADATA_HEADER];
+    expect(stamped).toBeDefined();
+    // The stored evidence re-validates to the retention window, byte-identical to the
+    // expiresAt the client is told, with no tombstone (active deletion is a bucket DELETE).
+    const decoded = decodeArtifactLifecycleMetadata(stamped);
+    expect(decoded).toEqual({
+      expiresAtMs: Date.parse(artifact.expiresAt),
+      deleted: false,
+    });
+    // It is a SIGNED header, so the client cannot tamper it on its PUT.
+    expect(new URL(put.url).searchParams.get("X-Amz-SignedHeaders")).toContain(
+      ARTIFACT_LIFECYCLE_METADATA_HEADER,
+    );
+    // Lifecycle evidence rides EVERY artifact, independent of whether a manifest was recorded.
+    expect(stamped).not.toContain(S3_SECRET);
   });
 
   it("omits the manifest header entirely when no manifest was recorded", async () => {

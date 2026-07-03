@@ -23,6 +23,7 @@ export * from "./manifest";
 export * from "./gate";
 export * from "./receipt";
 export * from "./access";
+export * from "./lifecycle";
 export * from "./retrieval";
 export * from "./delivery";
 
