@@ -390,7 +390,8 @@ export const NOT_CONFIGURED_PIPELINE: OpsBundlePipelineSection = {
   detail: PIPELINE_NOT_CONFIGURED_DETAIL,
 };
 
-function unreadablePipeline(): OpsBundlePipelineSection {
+/** The bounded pipeline section for a supplied-but-unreadable optional input (never echoed). */
+export function unreadablePipeline(): OpsBundlePipelineSection {
   return { source: "unreadable", severity: null, arms: [], detail: PIPELINE_UNREADABLE_DETAIL };
 }
 
