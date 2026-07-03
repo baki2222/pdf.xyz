@@ -1,0 +1,21 @@
+{
+  "artifacts": [
+    {
+      "deleted": true,
+      "expiresAtMs": 1000,
+      "manifest": "valid",
+      "provider": "remote-configured",
+      "kind": "pdf",
+      "ageMs": 5184000000,
+      "sizeBytes": 2097152
+    },
+    {
+      "expiresAtMs": 1000,
+      "manifest": "valid",
+      "provider": "remote-configured",
+      "kind": "archive",
+      "ageMs": 2592000000,
+      "sizeBytes": 10485760
+    }
+  ]
+}

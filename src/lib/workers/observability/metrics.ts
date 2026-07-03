@@ -68,6 +68,16 @@ import {
   ARTIFACT_LIFECYCLE_STATES,
   type StorageArtifactLifecycle,
 } from "../artifacts/lifecycle";
+import {
+  CLEANUP_VERIFICATION_VERDICTS,
+  type CleanupVerdict,
+} from "../cleanup/types";
+import {
+  CLEANUP_CATEGORIES,
+  CLEANUP_SEVERITIES,
+  type CleanupCategory,
+  type CleanupSeverity,
+} from "../artifacts/cleanup/taxonomy";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -363,6 +373,8 @@ export const METRIC_NAMES = [
   "worker_engine_capability",
   "worker_lifecycle_verification_total",
   "worker_lifecycle_drift_rules",
+  "worker_cleanup_verification_total",
+  "worker_artifact_cleanup_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -491,6 +503,20 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     labels: { verdict: LIFECYCLE_VERDICTS },
   },
   worker_lifecycle_drift_rules: { kind: "gauge", labels: {} },
+  worker_cleanup_verification_total: {
+    kind: "counter",
+    labels: {
+      verdict: CLEANUP_VERIFICATION_VERDICTS,
+      provider: RETRIEVAL_STORAGE_PROVIDERS,
+    },
+  },
+  worker_artifact_cleanup_total: {
+    kind: "counter",
+    labels: {
+      category: CLEANUP_CATEGORIES,
+      severity: CLEANUP_SEVERITIES,
+    },
+  },
   worker_job_terminal_total: {
     kind: "counter",
     labels: { outcome: TERMINAL_OUTCOMES, failure_class: FAILURE_CLASSES },
@@ -710,6 +736,59 @@ export function artifactExpiryMetric(
     kind: "counter",
     labels: { state, provider },
     value: 1,
+  };
+}
+
+/**
+ * The outcome of a storage-artifact **cleanup verification** run (Phase 42), folded to a
+ * bounded {@link CleanupVerdict}: `verified` (every should-be-gone artifact is confirmed absent
+ * from object storage — active delete-now and/or the bucket lifecycle backstop), `drift` (an
+ * artifact is still present past its retention window + reap grace — the backstop has not
+ * removed it), `unknown` (cleanup could not be proven: present-but-denied awaiting reap, no
+ * evidence, or nothing to verify), `unavailable` (a probe could not complete), or
+ * `not-configured` (no object-storage backend is wired). `provider` is the bounded storage
+ * backend. This counts a VERIFICATION verdict, NOT a claim the bytes were deleted: an
+ * app-level retrieval denial (Phase 41) and a proven object absence are different facts, and
+ * only the latter yields `verified`. Both labels are closed enums — never a filename, object
+ * key, bucket name, handle, signed URL, expiry instant, size, or document content.
+ */
+export function cleanupVerificationMetric(
+  verdict: CleanupVerdict,
+  provider: RetrievalStorageProvider,
+): WorkerMetricSample {
+  return {
+    metric: "worker_cleanup_verification_total",
+    kind: "counter",
+    labels: { verdict, provider },
+    value: 1,
+  };
+}
+
+/**
+ * One present storage object fell into a bounded cleanup {@link CleanupCategory} at the
+ * given {@link CleanupSeverity} during a Phase 42 dry-run SWEEP of an offline inventory —
+ * the per-category complement to the run-level {@link cleanupVerificationMetric}. `value`
+ * is the COUNT of objects in that category (the derivation emits one sample per non-empty
+ * category, and the collector sums them into a "total objects observed in category" counter).
+ * `severity` is redundant with `category` (a fixed map) but carried so a dashboard can roll
+ * up by severity without re-deriving it. This is a SWEEP finding, NOT a deletion — the tool
+ * never removes anything. Both labels are closed enums — never a filename, object key,
+ * bucket name, handle, signed URL, expiry instant, size, or document content.
+ */
+export function artifactCleanupMetric(
+  category: CleanupCategory,
+  severity: CleanupSeverity,
+  count = 1,
+): WorkerMetricSample {
+  const value =
+    typeof count === "number" && Number.isFinite(count) && count >= 0
+      ? Math.floor(count)
+      : 0;
+  return {
+    metric: "worker_artifact_cleanup_total",
+    kind: "counter",
+    labels: { category, severity },
+    value,
   };
 }
 

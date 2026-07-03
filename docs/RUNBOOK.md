@@ -223,6 +223,46 @@ an ingested snapshot's strings are re-authored, never echoed), so it is safe to 
 to any cron/monitor log. Runnable fixtures for each verdict live in
 [`docs/examples/observability/healthcheck/`](../docs/examples/observability/healthcheck/).
 
+**g. Storage-artifact cleanup verification** — prove that artifacts which should be
+gone are actually **deleted from object storage**, not just retrieval-denied. Four
+distinct facts the platform keeps separate, easiest to hardest to confirm:
+
+| Fact | What enforces it | How you confirm it |
+| --- | --- | --- |
+| **Retrieval-time denial** | Phase 41: the download route denies an expired/tombstoned artifact `410 Gone` before serving a byte | already automatic; a `worker_artifact_expiry_total{state}` drift receipt surfaces `expired`/`deleted` |
+| **Active app deletion** | the executor's delete-now on terminal job paths (Phase 25) | evidence with `activeDelete:true` on an absent object → `absent-active` |
+| **Bucket lifecycle backstop** | your bucket's own retention rule reaping objects | `pnpm worker:daemon --lifecycle-verify` confirms the *rules*; an absent object with no delete receipt → `absent-backstop` confirms a *reap* |
+| **Cleanup verification** | Phase 42: `pnpm worker:cleanup-check` | the command below |
+
+The app **never calls the cloud**, so you export the evidence out-of-band with your
+own credentials — a content-free per-object summary — and pipe it in:
+
+```bash
+# Build a content-free evidence doc: for each artifact the app expected to be gone,
+# record ONLY presence + the coarse retention facts (never a key, bucket, URL, or byte).
+# e.g. HEAD each object and project into:
+#   [ { "presence":"absent", "activeDelete":true },        # deleted-now → absent-active
+#     { "presence":"absent" },                              # reaped by lifecycle → absent-backstop
+#     { "presence":"present", "expiresAtMs":1700000000000 } # still present → denied or drift
+#   ]
+cat cleanup-evidence.json | pnpm worker:cleanup-check --stdin
+# 0 verified (all should-be-gone confirmed absent) · 1 usage/malformed · 2 unknown
+# (not-configured, no evidence, present-but-denied awaiting reap, or a probe failed) ·
+# 3 drift (an object is still present past its retention window + --grace-hours, default 48)
+
+# Wire drift into your monitor (exit 3 = an object outlived its window + grace):
+*/30 * * * * cd /app && export-cleanup-evidence | pnpm -s worker:cleanup-check --stdin; \
+  c=$?; [ "$c" -eq 3 ] && notify "storage cleanup drift"
+```
+
+Honesty you can rely on: it verifies, it **never deletes** (removal stays your job,
+out of band); **absence is the only proof of cleanup**, so a present-but-denied object
+is reported as *pending* (`unknown`), never fabricated into "deleted"; a deployment
+with no storage wired reports an honest `not-configured` (exit `2`), never a fake pass.
+The output is content-free (bounded verdict + small counts + authored prose; every
+field of your evidence document except the four understood keys is dropped, so a stray
+object key or bucket name can never be echoed), safe for any cron/monitor log.
+
 Deploy checklist:
 
 - [ ] Worker image passes `pnpm worker:smoke` (honest-refusal contract).
@@ -254,6 +294,11 @@ Deploy checklist:
 - [ ] `pnpm worker:ops-check` exits `0` against a healthy stack (or the honest `2`
       unknown when a worker cannot be observed); it is wired into your cron/uptime
       monitor or supervisor with an alert on a non-zero, non-`1` exit (Phase 31).
+- [ ] `pnpm worker:cleanup-check` exits `0` (`not-configured`, honest `2`, in a
+      deliberately empty environment). With storage wired, a periodic run over exported
+      cleanup evidence returns `verified` (or the honest `unknown` while reap is pending),
+      and `drift` (exit `3`) is alerted — objects still present past their retention
+      window + grace mean the bucket lifecycle backstop is not reaping (Phase 42).
 
 **g. Worker operations/SLO snapshot** — use this for dashboards and runbook triage:
 
@@ -464,3 +509,23 @@ Read `worker_artifact_expiry_total{state,provider}` (default-off sink) as a **dr
 | `state=live`, normal | Objects served within their window — the healthy path | None |
 
 Out of band and **not** covered here: proof of byte deletion, bucket lifecycle policy correctness (the app never inspects the bucket), legal-hold/retention compliance, audit-log export, private-bucket access policy, and CDN cache purge (a `410` from this app does not purge an edge-cached copy — configure short/again `Cache-Control: private, no-store` is already set, but a CDN in front must honor it or purge independently).
+
+## Storage-artifact cleanup: two offline operator lenses (Phase 42)
+
+Phase 42 adds two content-free, offline operator tools. Both re-derive lifecycle through the SAME Phase 41 `evaluateArtifactLifecycle`, both are dry-run (they read no bytes and NEVER delete — actual object deletion stays operator-owned and out of band), and both are fake-testable (no real S3). They answer **different** questions:
+
+- **`pnpm worker:cleanup-check` — the absence VERIFIER.** Given content-free evidence for a set of should-be-gone objects (`{ presence, expiresAtMs?, deleted?, activeDelete? }`, exported out-of-band), it proves whether each is actually **absent** (and by which mechanism — active delete-now vs the bucket lifecycle backstop) versus only retrieval-denied, folding to one verdict (`verified`/`drift`/`unknown`/`unavailable`/`not-configured`). Use it to confirm cleanup actually happened. See the smoke procedure above.
+- **`pnpm worker:artifact-cleanup` — the inventory SWEEPER.** Given an offline inventory of PRESENT object metadata (a projection of `aws s3api list-objects-v2` + `head-object`), it categorizes each present object and emits an optional dry-run cleanup **plan** (counts + actions only). Use it to find what present objects should be swept.
+
+Triage the sweeper's verdict (exit `0` clean / `2` unknown / `3` cleanup-recommended / `4` invalid·breached; `1` = bad input):
+
+| Category (severity) | What it means | Operator action |
+| --- | --- | --- |
+| `expired-but-present` (drift, exit 3) | An object is past its retention window yet still present — a sweep candidate. The app already denies its download `410` (Phase 41); the bucket has not reaped it | Confirm the bucket lifecycle rule is applied and reaping; you MAY remove these out-of-band with your own credentials. Cross-check with `worker:cleanup-check` to see whether it is normal reap latency or true drift |
+| `deleted-but-present` (breach, exit 4) | A tombstoned object's bytes are still present — the strongest cleanup gap | Remove the object out-of-band; investigate why the tombstone did not take effect at the storage layer |
+| `missing-lifecycle` / `missing-manifest` / `storage-unavailable` (unknown, exit 2) | Not enough evidence to decide (no lifecycle metadata, no valid manifest, or no backend configured) | Investigate before acting: confirm the worker stamps `x-amz-meta-artifact-lifecycle`/`-manifest`, and that the projection recorded the fields |
+| `unsupported-kind` (unknown, exit 2) | An object whose content-type maps to no recognized output kind | Review whether it is a foreign/legacy object before removing it |
+| `invalid-record` (breach, exit 4) | The inventory contained a structurally invalid record — it cannot be trusted as a clean bill of health | Fix the projection pipeline and re-run |
+| `ok` (exit 0) | Live, with a valid manifest, a recognized kind, and a configured backend | None |
+
+Neither tool proves byte deletion on its own, claims bucket lifecycle policy correctness, or performs deletion/CDN purge — all still operator-owned and out of band.

@@ -1,0 +1,22 @@
+{
+  "artifacts": [
+    {
+      "lifecycle": "live",
+      "manifest": "valid",
+      "provider": "remote-configured",
+      "kind": "pdf",
+      "processor": "compress",
+      "ageMs": 600000,
+      "sizeBytes": 524288
+    },
+    {
+      "expiresAtMs": 99999999999999,
+      "manifest": "valid",
+      "provider": "remote-configured",
+      "kind": "text-sidecar",
+      "processor": "ocr",
+      "ageMs": 300000,
+      "sizeBytes": 4096
+    }
+  ]
+}

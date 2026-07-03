@@ -11,6 +11,7 @@ import type { OperationalFacet } from "../deploy/readiness";
 import type { ExecutorStorage } from "../executor/types";
 import type { ProcessorInputFile } from "../processor/types";
 import {
+  deriveArtifactCleanupMetrics,
   deriveEngineCapabilityMetrics,
   deriveLifecycleMetrics,
   deriveReadinessMetrics,
@@ -18,6 +19,7 @@ import {
 } from "./derive";
 import { instrumentExecutorStorage } from "./instrument";
 import type { WorkerMetricSample } from "./metrics";
+import { evaluateArtifactInventory } from "../artifacts/cleanup/evaluate";
 
 const facet = (id: OperationalFacet["id"], state: OperationalFacet["state"]): OperationalFacet => ({
   id,
@@ -47,6 +49,26 @@ describe("derivations", () => {
     const samples = deriveLifecycleMetrics({ verdict: "drift", driftedRules: 3 });
     expect(samples.find((s) => s.metric === "worker_lifecycle_verification_total")?.labels).toEqual({ verdict: "drift" });
     expect(samples.find((s) => s.metric === "worker_lifecycle_drift_rules")?.value).toBe(3);
+  });
+
+  it("deriveArtifactCleanupMetrics emits one per-category counter with its count as value", () => {
+    const now = 1_700_000_000_000;
+    const report = evaluateArtifactInventory(
+      {
+        records: [
+          { declaredLifecycle: "live", expiresAtMs: null, deleted: false, manifest: "valid", provider: "remote-configured", kind: "pdf", processor: "compress", age: "1-24h", size: "64kb-1mb", wellFormed: true },
+          { declaredLifecycle: null, expiresAtMs: 1000, deleted: false, manifest: "valid", provider: "remote-configured", kind: "pdf", processor: "compress", age: "over-30d", size: "1-10mb", wellFormed: true },
+        ],
+      },
+      now,
+    );
+    const samples = deriveArtifactCleanupMetrics(report);
+    // One sample per NON-empty category (ok + expired-but-present); zeros are omitted.
+    expect(samples).toHaveLength(2);
+    for (const s of samples) expect(s.metric).toBe("worker_artifact_cleanup_total");
+    const expired = samples.find((s) => s.labels.category === "expired-but-present");
+    expect(expired).toMatchObject({ labels: { category: "expired-but-present", severity: "drift" }, value: 1 });
+    expect(samples.find((s) => s.labels.category === "ok")?.labels.severity).toBe("ok");
   });
 
   it("deriveRuntimeMetrics folds facets + engine capabilities from a runtime shape", () => {

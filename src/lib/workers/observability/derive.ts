@@ -16,6 +16,7 @@
 
 import type { OperationalFacet } from "../deploy/readiness";
 import {
+  artifactCleanupMetric,
   engineCapabilityMetric,
   lifecycleDriftMetric,
   lifecycleVerificationMetric,
@@ -23,6 +24,11 @@ import {
   type LifecycleMetricVerdict,
   type WorkerMetricSample,
 } from "./metrics";
+import {
+  CLEANUP_CATEGORIES,
+  CLEANUP_SEVERITY_BY_CATEGORY,
+} from "../artifacts/cleanup/taxonomy";
+import type { ArtifactCleanupReport } from "../artifacts/cleanup/evaluate";
 
 /**
  * One `worker_readiness{facet,state}` gauge per deployment facet. The facet ids and
@@ -113,4 +119,25 @@ export function deriveLifecycleMetrics(
     lifecycleVerificationMetric(input.verdict),
     lifecycleDriftMetric(input.driftedRules ?? 0),
   ];
+}
+
+/**
+ * The per-category `worker_artifact_cleanup_total{category,severity}` counters for a
+ * completed Phase 42 dry-run SWEEP: one sample per NON-EMPTY category, its value the
+ * count of present objects in that category. Emitting only non-empty categories keeps a
+ * clean run from writing a wall of zero series; the collector sums the counts into
+ * running "objects observed in category" counters. Content-free by construction — the
+ * report it reads carries only bounded category counts, never an object identity.
+ */
+export function deriveArtifactCleanupMetrics(
+  report: ArtifactCleanupReport,
+): WorkerMetricSample[] {
+  return CLEANUP_CATEGORIES.filter((category) => report.categories[category] > 0).map(
+    (category) =>
+      artifactCleanupMetric(
+        category,
+        CLEANUP_SEVERITY_BY_CATEGORY[category],
+        report.categories[category],
+      ),
+  );
 }

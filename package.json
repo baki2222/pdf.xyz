@@ -10,6 +10,8 @@
     "worker:daemon": "tsx scripts/worker-daemon.ts",
     "worker:daemon:status": "tsx scripts/worker-daemon.ts --dry-run-status",
     "worker:ops-check": "tsx scripts/worker-ops-check.ts",
+    "worker:cleanup-check": "tsx scripts/worker-cleanup-check.ts",
+    "worker:artifact-cleanup": "tsx scripts/worker-artifact-cleanup.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",
