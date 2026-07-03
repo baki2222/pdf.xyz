@@ -1,0 +1,90 @@
+name: pdf.xyz worker release evidence CI bundle
+
+# Runs the WHOLE offline release-evidence chain (Phase 46-50) as a pre-deploy / release job and folds it
+# into ONE content-free CI bundle: it runs the release gate, archives its result as a release evidence
+# artifact (Phase 47), INDEXES that artifact into a retention manifest (Phase 48), EVALUATES a bounded
+# policy over the index (Phase 49), then BUNDLES all four stage outputs (Phase 50) — re-verifying their
+# internal + cross-stage consistency — and FAILS CLOSED. It makes NO cloud call, needs NO credentials,
+# reads NO secret, and deletes/prunes/promotes NOTHING — every step is offline and deterministic (the
+# offline gate + committed content-free fixtures). This is a TEMPLATE.
+#
+# The bundle is content-free BUNDLING + consistency checking over evidence, NOT signing, auth, cloud
+# validation, storage retention ENFORCEMENT, or deployment promotion: a passing bundle authorizes nothing
+# on its own. Run your changed-file no-secret / no-NUL scan separately, and wire your real promotion after.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/lib/workers/release-ci-bundle/**"
+      - "scripts/worker-release-ci-bundle.ts"
+      - ".github/workflows/**"
+
+jobs:
+  release-ci-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 1) Run the release gate and capture its content-free result.
+      - name: Run the release gate
+        run: pnpm -s worker:release-gate --json > gate.json || true
+
+      # 2) Archive the gate result as a release evidence artifact (Phase 47), with a release label.
+      - name: Archive the release evidence artifact
+        run: pnpm -s worker:release-artifact --release-gate=gate.json --label=ci-example --output=artifact.json --json
+
+      # 3) INDEX the archived artifact into a content-free retention manifest (Phase 48).
+      - name: Build the release evidence index
+        run: pnpm -s worker:release-index --artifact=artifact.json --output=index.json --json
+
+      # 4) EVALUATE a bounded policy over the index (Phase 49).
+      - name: Evaluate the release policy
+        run: pnpm -s worker:release-policy --index=index.json --require-clean --min-artifacts=1 --output=policy.json --json
+
+      # 5) BUNDLE all four stage outputs (Phase 50). The bundle re-verifies each stage against itself AND
+      #    the cross-stage links (the artifact re-hashes, the artifact is in the index, the policy was
+      #    evaluated over that index). A coherent chain passes (exit 0); emit the bundle as a CI artifact.
+      - name: Compose the release CI bundle (accept)
+        run: |
+          pnpm -s worker:release-ci-bundle \
+            --release-gate=gate.json --release-artifact=artifact.json \
+            --release-index=index.json --release-policy=policy.json \
+            --output=release-ci-bundle.json --json
+
+      # 6) A cross-stage INCONSISTENCY MUST fail closed (exit 4) — here, a committed policy evaluated over a
+      #    DIFFERENT index than the one bundled. Proves the bundle blocks mismatched / tampered evidence.
+      - name: A cross-stage inconsistency fails closed (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-ci-bundle \
+            --release-index=docs/examples/release-ci-bundle/index-pass.json \
+            --release-policy=docs/examples/release-ci-bundle/policy-mismatch.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 7) A misused CLI fails closed to the distinct usage band (exit 1) — never a silent pass.
+      - name: No stage supplied fails closed (exit 1)
+        run: |
+          set +e
+          pnpm -s worker:release-ci-bundle --json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 1 || { echo "expected 1, got $code"; exit 1; }
+
+      # 8) Publish the bundle as a CI artifact / release handoff record.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-ci-bundle
+          path: release-ci-bundle.json
+
+      - name: Release-ci-bundle module unit + CLI smoke tests (no-leak + fail-closed)
+        run: pnpm exec vitest run src/lib/workers/release-ci-bundle

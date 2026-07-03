@@ -1,0 +1,30 @@
+{
+  "schema": "pdfxyz.worker-release-gate/1",
+  "policyId": "pdfxyz-worker-release-readiness-gate",
+  "policyVersion": 1,
+  "generatedAt": "2026-07-03T00:00:00.000Z",
+  "rollup": {
+    "verdict": "pass",
+    "exitCode": 0,
+    "ready": true,
+    "worst": "pass",
+    "blockers": [],
+    "includedChecks": 5,
+    "passedChecks": 5,
+    "skippedChecks": 6,
+    "detail": "READY to promote: every included release-readiness check passed on this build/host."
+  },
+  "checks": [],
+  "receipt": {
+    "category": "worker-release-gate",
+    "policyId": "pdfxyz-worker-release-readiness-gate",
+    "policyVersion": 1,
+    "at": "2026-07-03T00:00:00.000Z",
+    "verdict": "pass",
+    "exitCode": 0,
+    "includedChecks": 5,
+    "passedChecks": 5
+  },
+  "guidance": [],
+  "caveats": []
+}

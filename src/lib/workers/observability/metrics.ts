@@ -118,6 +118,10 @@ import {
   RELEASE_POLICY_VERDICTS,
   type ReleasePolicyVerdict,
 } from "../release-policy/types";
+import {
+  RELEASE_CI_BUNDLE_VERDICTS,
+  type ReleaseCiBundleVerdict,
+} from "../release-ci-bundle/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -423,6 +427,7 @@ export const METRIC_NAMES = [
   "worker_release_artifact_total",
   "worker_release_index_total",
   "worker_release_policy_total",
+  "worker_release_ci_bundle_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -615,6 +620,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_POLICY_VERDICTS,
+    },
+  },
+  worker_release_ci_bundle_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_CI_BUNDLE_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1055,6 +1066,27 @@ export function releaseIndexMetric(verdict: ReleaseIndexVerdict): WorkerMetricSa
 export function releasePolicyMetric(verdict: ReleasePolicyVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_policy_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release evidence CI bundle** (Phase 50) resolved to its coherence `verdict`
+ * ({@link ReleaseCiBundleVerdict}: `pass`/`warn`/`unknown`/`fail`). One bounded label so a release
+ * pipeline / dashboard can count bundles by the single decision an operator acts on — e.g.
+ * `worker_release_ci_bundle_total{verdict="fail"} > 0` catches a chain that failed or whose stages
+ * DISAGREE (a cross-stage inconsistency / tamper), `{verdict="unknown"} > 0` catches an unreadable /
+ * decision-less chain at the handoff. This counts an offline COMPOSITION that ingested the content-free
+ * release-gate/artifact/index/policy stage outputs, re-verified their internal + cross-stage
+ * consistency, and folded them — NOT a cloud call, a deletion, a signature, a promotion, or a claim
+ * about bucket bytes. The one label is a closed, redaction-stable enum — never a filename, path, object
+ * key, bucket, URL, endpoint, region, instant, size, digest, or document content.
+ */
+export function releaseCiBundleMetric(verdict: ReleaseCiBundleVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_ci_bundle_total",
     kind: "counter",
     labels: { verdict },
     value: 1,
