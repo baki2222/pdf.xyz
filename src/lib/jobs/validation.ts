@@ -45,8 +45,16 @@ export function isValidFileId(id: string): boolean {
 
 // ─────────────────────────────── MIME allowlist ──────────────────────────────
 
-/** Accepted MIME types per catalog input format token. Inputs only. */
-const MIME_BY_FORMAT: Record<string, readonly string[]> = {
+/**
+ * Accepted MIME types per catalog input format token. Inputs only.
+ *
+ * Exported so the coarse upload-intake family allowlist (`@/lib/uploads/intake`)
+ * can prove — via a drift-guard test — that every MIME this exact-match validator
+ * accepts is also recognized by the earlier, tool-agnostic intake gate. The two
+ * layers stay deliberately distinct (intake is coarse + configurable; this is the
+ * precise per-tool contract), but intake can never be *laxer* on known types.
+ */
+export const MIME_BY_FORMAT: Record<string, readonly string[]> = {
   PDF: ["application/pdf"],
   DOC: ["application/msword"],
   DOCX: [

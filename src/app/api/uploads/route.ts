@@ -12,6 +12,7 @@
 import { parseCreateUploadSessionRequest } from "@/lib/jobs";
 import { getWorkerAdapter } from "@/lib/workers";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { evaluateUploadDescriptors, intakeErrorResult } from "@/lib/uploads/intake";
 import { readJsonBody, respond, respondRateLimited } from "../_lib/http";
 
 // Never statically cached: a request-scoped, no-store endpoint. Node runtime —
@@ -28,6 +29,15 @@ export async function POST(request: Request): Promise<Response> {
 
   const body = await readJsonBody(request);
   if (!body.ok) return respond(body.error);
+
+  // Upload-intake guardrails: reject out-of-contract size/type/count/shape early
+  // with a stable code (file_too_large, unsupported_file_type, too_many_files, …),
+  // before the typed validator and any storage/queue work. Deterministic order:
+  // abuse guard → this gate → tool validation. A throttled flood never reaches
+  // here; for the dimensions this layer owns its code wins, and it is only ever
+  // stricter than the validator, never laxer. See docs/SECURITY.md.
+  const intake = evaluateUploadDescriptors(body.value);
+  if (!intake.ok) return respond(intakeErrorResult(intake.rejection));
 
   const parsed = parseCreateUploadSessionRequest(body.value);
   if (!parsed.ok) return respond(parsed.error);

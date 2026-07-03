@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
+import { JOB_LIMITS, REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
 import { resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
 import { POST } from "./route";
@@ -68,6 +68,17 @@ describe("POST /api/jobs", () => {
       post({ tool: "webpage-to-pdf", options: { url: "http://127.0.0.1/admin" } }),
     );
     expect(res.status).toBe(422);
+  });
+
+  it("rejects too many job inputs before worker adapter resolution", async () => {
+    const inputs = Array.from({ length: JOB_LIMITS.maxInputFiles + 1 }, (_, i) =>
+      `f_${String(i).padStart(10, "0")}`,
+    );
+    const res = await POST(post({ tool: "ocr-pdf", inputs }));
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error.code).toBe("too_many_files");
+    expect(JSON.stringify(json)).not.toContain(inputs[0]);
   });
 });
 

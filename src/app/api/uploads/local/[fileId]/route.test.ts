@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JOB_LIMITS, REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { WORKER_MODE_ENV } from "@/lib/workers";
 import { devWorkerStore } from "@/lib/workers/store";
+import { UPLOAD_INTAKE_ENV } from "@/lib/uploads/intake";
 import { PUT } from "./route";
 
 function put(
@@ -97,5 +98,44 @@ describe("PUT /api/uploads/local/[fileId]", () => {
     expect(devWorkerStore.getSlot(fileId)?.bytes).toEqual(
       new Uint8Array([1, 2, 3, 4]),
     );
+  });
+});
+
+describe("PUT /api/uploads/local/[fileId] — PDF intake sniff (opt-in)", () => {
+  const validPdf = new TextEncoder().encode(
+    "%PDF-1.4\n1 0 obj\n<< >>\nendobj\ntrailer\n%%EOF\n",
+  );
+
+  afterEach(() => {
+    delete process.env[UPLOAD_INTAKE_ENV.requirePdfMagic];
+    delete process.env[UPLOAD_INTAKE_ENV.requirePdfEof];
+  });
+
+  it("accepts a real PDF when the magic + eof knobs are on", async () => {
+    enableLocalDev();
+    process.env[UPLOAD_INTAKE_ENV.requirePdfMagic] = "1";
+    process.env[UPLOAD_INTAKE_ENV.requirePdfEof] = "1";
+    const fileId = reserve(validPdf.byteLength);
+    const res = await put(fileId, validPdf);
+    expect(res.status).toBe(200);
+    expect(devWorkerStore.getSlot(fileId)?.bytes).toEqual(validPdf);
+  });
+
+  it("rejects a size-matching non-PDF with 422 (malformed_pdf) and wipes the bytes", async () => {
+    enableLocalDev();
+    process.env[UPLOAD_INTAKE_ENV.requirePdfMagic] = "1";
+    const fileId = reserve(4);
+    const res = await put(fileId, new Uint8Array([1, 2, 3, 4]));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.code).toBe("malformed_pdf");
+    // The malformed bytes never linger: the slot was wiped on rejection.
+    expect(devWorkerStore.getSlot(fileId)).toBeUndefined();
+  });
+
+  it("still accepts a size-matching non-PDF when the knobs are off (default)", async () => {
+    enableLocalDev();
+    const fileId = reserve(4);
+    const res = await put(fileId, new Uint8Array([1, 2, 3, 4]));
+    expect(res.status).toBe(200);
   });
 });

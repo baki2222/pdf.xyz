@@ -731,3 +731,9 @@ timeseries store, and the notifier/pager. See
 [`OBSERVABILITY.md`](OBSERVABILITY.md#operator-healthcheck--alert-evaluation-phase-31) and
 the runnable fixtures in
 [`docs/examples/observability/healthcheck/`](examples/observability/healthcheck/).
+
+## Upload intake guardrails
+
+Phase 35 adds a server-side intake policy in front of secure-worker upload and job routes. Leave the defaults unless you have measured production capacity: they inherit `JOB_LIMITS` and reject over-size declarations, unsupported file families, MIME/extension mismatches, hostile filenames, and too many job inputs before storage/queue work. Optional PDF envelope checks can be enabled with `PDFXYZ_UPLOAD_REQUIRE_PDF_MAGIC=true` and/or `PDFXYZ_UPLOAD_REQUIRE_PDF_EOF=true`; these checks scan only bounded leading/trailing windows and are not a substitute for worker malware scanning or PDF soundness processing.
+
+Relevant server-only env names: `PDFXYZ_UPLOAD_MAX_FILE_BYTES`, `PDFXYZ_UPLOAD_MAX_REQUEST_BYTES`, `PDFXYZ_UPLOAD_MAX_FILES`, `PDFXYZ_UPLOAD_MAX_FILENAME_LENGTH`, `PDFXYZ_UPLOAD_REQUIRE_PDF_MAGIC`, `PDFXYZ_UPLOAD_REQUIRE_PDF_EOF`, `PDFXYZ_UPLOAD_PDF_HEADER_SCAN_BYTES`, `PDFXYZ_UPLOAD_PDF_TRAILER_SCAN_BYTES`. Never expose these as `NEXT_PUBLIC_*`.

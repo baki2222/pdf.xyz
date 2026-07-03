@@ -21,7 +21,20 @@ export type ApiErrorCode =
   | "not_found"
   | "method_not_allowed"
   | "rate_limited"
-  | "internal_error";
+  | "internal_error"
+  // ── Upload-intake guardrails (Phase 35) ──────────────────────────────────
+  // A small, deterministic validation layer at the public upload boundary,
+  // enforced BEFORE any storage/queue work. Deliberately distinct from the
+  // tool-level contract validation (which produces `invalid_request` /
+  // `unprocessable_entity`) and from worker-side malware/soundness scanning, so
+  // an operator can reason about — and tune — each layer independently. See
+  // `@/lib/uploads/intake` and docs/SECURITY.md → "Upload intake guardrails".
+  | "invalid_upload_request" // 400 — malformed upload request shape or filename bound
+  | "unsupported_file_type" // 415 — declared type is not an accepted upload family
+  | "too_many_files" // 422 — more files than the per-request cap
+  | "file_too_large" // 413 — one declared file over the per-file byte cap
+  | "request_too_large" // 413 — declared combined upload size over the request cap
+  | "malformed_pdf"; // 422 — bytes fail the bounded %PDF-/%%EOF structural sniff
 
 /** Field-level detail for validation failures. */
 export interface FieldError {
@@ -71,6 +84,13 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   method_not_allowed: 405,
   rate_limited: 429,
   internal_error: 500,
+  // Upload-intake guardrails (Phase 35).
+  invalid_upload_request: 400,
+  unsupported_file_type: 415,
+  too_many_files: 422,
+  file_too_large: 413,
+  request_too_large: 413,
+  malformed_pdf: 422,
 };
 
 /** Build a typed error result with the correct HTTP status for `code`. */

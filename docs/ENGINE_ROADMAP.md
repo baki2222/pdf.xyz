@@ -1053,3 +1053,7 @@ A tool is production-ready only when it has:
 - Tests for core transformation logic.
 - Accessibility checks for interactive controls.
 - Honest limitations documented in UI or docs.
+
+## Phase 35 — upload intake guardrails
+
+Status: shipped. The secure-worker upload boundary now rejects obvious bad intake before storage/queue work while preserving browser-local tools and no-config honesty. The layer is intentionally not a PDF parser, malware scanner, or content sanitizer; deeper validation remains on the worker roadmap and must run under worker resource limits. Future production phases can add richer per-tool intake policies and worker-side file soundness scoring without changing the stable content-free error envelope introduced here.

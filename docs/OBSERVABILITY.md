@@ -687,3 +687,7 @@ Confirming and monitoring, without any secret ever crossing the wire:
 - **Alert** on a sustained `remote-error-fail-open` (fail-open: not enforcing) or, when
   `PDFXYZ_RATE_LIMIT_FAIL_MODE=closed`, on a `429` spike on the guarded actions (a
   fail-closed store outage sheds load as denials rather than surfacing as fail-open).
+
+## Upload intake metrics and alerts
+
+Phase 35 intake rejections are safe to count by stable code (`invalid_upload_request`, `unsupported_file_type`, `too_many_files`, `file_too_large`, `request_too_large`, `malformed_pdf`) and optional positional index/limit buckets. Do not attach filenames, object keys, signed URLs, request bodies, content bytes, scanner signatures, or raw client identity. A spike in `file_too_large` or `request_too_large` usually indicates client-side declaration drift or a limit change; a spike in `malformed_pdf` means optional envelope sniffing is rejecting files and does not prove malware or sanitization outcomes.

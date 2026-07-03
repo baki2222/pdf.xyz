@@ -18,6 +18,7 @@ import {
 } from "@/lib/jobs";
 import { isLocalDevWorker } from "@/lib/workers";
 import { devWorkerStore } from "@/lib/workers/store";
+import { evaluateUploadedBytes, intakeErrorResult } from "@/lib/uploads/intake";
 import { respond } from "../../../_lib/http";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,20 @@ export async function PUT(
         return respond(
           apiError("not_found", "No such upload slot (it may have expired)."),
         );
+    }
+  }
+
+  // Upload-intake structural sniff (opt-in): once the bytes match the declared
+  // size, verify a PDF actually carries its %PDF- header / %%EOF trailer within
+  // bounded windows. Content-free and O(window); off by default, so the default
+  // local-dev flow is unchanged. If it fails, the bytes are wiped immediately so a
+  // malformed upload never lingers in the slot. See docs/SECURITY.md.
+  const slot = devWorkerStore.getSlot(fileId);
+  if (slot) {
+    const intake = evaluateUploadedBytes(bytes, { contentType: slot.contentType });
+    if (!intake.ok) {
+      devWorkerStore.deleteSlot(fileId);
+      return respond(intakeErrorResult(intake.rejection));
     }
   }
 

@@ -23,6 +23,12 @@ describe("apiError", () => {
       method_not_allowed: 405,
       rate_limited: 429,
       internal_error: 500,
+      invalid_upload_request: 400,
+      unsupported_file_type: 415,
+      too_many_files: 422,
+      file_too_large: 413,
+      request_too_large: 413,
+      malformed_pdf: 422,
     };
     for (const [code, status] of Object.entries(expected)) {
       const result = apiError(code as ApiErrorCode, "msg");

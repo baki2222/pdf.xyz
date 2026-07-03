@@ -12,6 +12,7 @@
 import { parseCreateJobRequest } from "@/lib/jobs";
 import { getWorkerAdapter } from "@/lib/workers";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
 import { readJsonBody, respond, respondRateLimited } from "../_lib/http";
 
 // Never statically cached: a request-scoped, no-store endpoint. Node runtime —
@@ -28,6 +29,13 @@ export async function POST(request: Request): Promise<Response> {
 
   const body = await readJsonBody(request);
   if (!body.ok) return respond(body.error);
+
+  // Upload-intake guardrail on the one dimension a job carries: how many uploaded
+  // inputs it references. The same configurable per-request file cap governs both
+  // an upload session and the job that consumes it. Sizes/types were validated at
+  // upload time; here inputs are opaque ids, so only the count is (re)checked.
+  const intake = evaluateJobInputCount(body.value);
+  if (!intake.ok) return respond(intakeErrorResult(intake.rejection));
 
   const parsed = parseCreateJobRequest(body.value);
   if (!parsed.ok) return respond(parsed.error);
