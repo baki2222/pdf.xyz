@@ -98,7 +98,8 @@ export interface RetrievalStorageCapability {
 export const ARTIFACT_ACCESS_REASONS = [
   "ok", // served: the handle maps to a completed, valid, downloadable output
   "malformed_handle", // the presented handle is not a syntactically valid opaque id
-  "storage_unavailable", // the storage backend cannot serve downloads here (→ 503)
+  "storage_unavailable", // the storage backend cannot serve downloads here (not configured → 503)
+  "storage_error", // storage IS configured but the read failed transiently — retry later (→ 503)
   "policy_unavailable", // the guardrail could not resolve a usable policy — fails closed (→ 503)
   "not_found", // no artifact for this handle (unknown or reaped)
   "deleted", // the artifact was explicitly deleted before its window elapsed (→ 410)
@@ -215,6 +216,8 @@ export const ARTIFACT_ACCESS_DETAIL: Record<ArtifactAccessDenyReason, string> = 
   malformed_handle: "The artifact handle is malformed.",
   storage_unavailable:
     "The artifact storage backend is not available to serve downloads in this environment.",
+  storage_error:
+    "The artifact storage backend could not be reached to serve this download. Please try again.",
   policy_unavailable:
     "The artifact-retrieval guardrail could not resolve a usable policy, so it failed closed.",
   not_found: "No such artifact (it may have expired).",
@@ -238,6 +241,9 @@ export const ARTIFACT_ACCESS_DETAIL: Record<ArtifactAccessDenyReason, string> = 
  *  - a caller's own FALSE job-binding assertion (`job_mismatch`) → `403 forbidden` (an
  *    integrity cross-check the caller opted into, NOT access control);
  *  - infrastructure/fail-closed (`storage_unavailable`/`policy_unavailable`) → `503`;
+ *  - a configured backend that hiccupped transiently (`storage_error`) → `503`
+ *    `service_unavailable` — a distinct, retryable code (NOT `worker_not_configured`),
+ *    so a well-behaved client learns the difference between "no backend" and "try again";
  *  - everything else — an unknown handle and every structural/provenance refusal
  *    (`not_found`/`missing_manifest`/`not_ready`/`invalid_manifest`/`unsupported_kind`/
  *    `empty_artifact`) — keeps its existing code; the precise internal reason lives only
@@ -246,6 +252,7 @@ export const ARTIFACT_ACCESS_DETAIL: Record<ArtifactAccessDenyReason, string> = 
 const CODE_BY_REASON: Record<ArtifactAccessDenyReason, ApiErrorCode> = {
   malformed_handle: "invalid_request",
   storage_unavailable: "worker_not_configured",
+  storage_error: "service_unavailable",
   policy_unavailable: "worker_not_configured",
   not_found: "not_found",
   deleted: "gone",
@@ -501,4 +508,16 @@ function served(
 /** Build a denied decision with its fixed, content-free detail. */
 function denied(reason: ArtifactAccessDenyReason): ArtifactAccessDecision {
   return { ok: false, reason, detail: ARTIFACT_ACCESS_DETAIL[reason] };
+}
+
+/**
+ * Public builder for a denied decision — the retrieval orchestrator uses it for the
+ * reasons that arise BEFORE the pure descriptor exists (e.g. a transient
+ * `storage_error` from the object read), so every denial, wherever it originates,
+ * carries the same fixed, content-free `{ reason, detail }` shape as {@link decideArtifactAccess}.
+ */
+export function deniedArtifactAccess(
+  reason: ArtifactAccessDenyReason,
+): ArtifactAccessDecision {
+  return denied(reason);
 }

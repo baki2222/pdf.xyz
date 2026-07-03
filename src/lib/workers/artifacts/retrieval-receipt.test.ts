@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_POLICY_ID, ARTIFACT_POLICY_VERSION } from "./policy";
 import { ARTIFACT_OUTPUT_KINDS } from "./types";
-import { ARTIFACT_ACCESS_REASONS } from "./access";
+import { ARTIFACT_ACCESS_REASONS, RETRIEVAL_STORAGE_PROVIDERS } from "./access";
 import {
   buildArtifactRetrievalReceipt,
   emitArtifactRetrievalReceipt,
@@ -23,6 +23,7 @@ describe("buildArtifactRetrievalReceipt", () => {
       buildArtifactRetrievalReceipt({
         reason: "ok",
         kind: "pdf",
+        provider: "local-dev",
         at: "2026-07-03T00:00:00.000Z",
       }),
     ).toEqual({
@@ -30,32 +31,56 @@ describe("buildArtifactRetrievalReceipt", () => {
       outcome: "served",
       reason: "ok",
       kind: "pdf",
+      provider: "local-dev",
       policyId: ARTIFACT_POLICY_ID,
       policyVersion: ARTIFACT_POLICY_VERSION,
       at: "2026-07-03T00:00:00.000Z",
     });
   });
 
+  it("carries the bounded storage provider (local vs remote) verbatim", () => {
+    for (const provider of RETRIEVAL_STORAGE_PROVIDERS) {
+      expect(
+        buildArtifactRetrievalReceipt({ reason: "ok", kind: "pdf", provider }).provider,
+      ).toBe(provider);
+    }
+  });
+
   it("folds every denial reason to `denied` and omits an absent timestamp", () => {
     for (const reason of ARTIFACT_ACCESS_REASONS) {
       if (reason === "ok") continue;
-      const r = buildArtifactRetrievalReceipt({ reason, kind: "unknown" });
+      const r = buildArtifactRetrievalReceipt({
+        reason,
+        kind: "unknown",
+        provider: "remote-configured",
+      });
       expect(r.outcome).toBe("denied");
       expect(r.reason).toBe(reason);
       expect("at" in r).toBe(false);
     }
   });
 
-  it("is content-free for every reason × kind — only bounded keys, no free text", () => {
-    const keys = ["category", "kind", "outcome", "policyId", "policyVersion", "reason"];
+  it("is content-free for every reason × kind × provider — only bounded keys, no free text", () => {
+    const keys = [
+      "category",
+      "kind",
+      "outcome",
+      "provider",
+      "policyId",
+      "policyVersion",
+      "reason",
+    ];
     for (const reason of ARTIFACT_ACCESS_REASONS) {
       for (const kind of ARTIFACT_OUTPUT_KINDS) {
-        const r = buildArtifactRetrievalReceipt({ reason, kind });
-        expect(Object.keys(r).sort()).toEqual([...keys].sort());
-        // Bounded enums only — nothing that could carry an id, key, name, or byte.
-        expect(ARTIFACT_ACCESS_REASONS).toContain(r.reason);
-        expect(ARTIFACT_OUTPUT_KINDS).toContain(r.kind);
-        expect(["served", "denied"]).toContain(r.outcome);
+        for (const provider of RETRIEVAL_STORAGE_PROVIDERS) {
+          const r = buildArtifactRetrievalReceipt({ reason, kind, provider });
+          expect(Object.keys(r).sort()).toEqual([...keys].sort());
+          // Bounded enums only — nothing that could carry an id, key, name, or byte.
+          expect(ARTIFACT_ACCESS_REASONS).toContain(r.reason);
+          expect(ARTIFACT_OUTPUT_KINDS).toContain(r.kind);
+          expect(RETRIEVAL_STORAGE_PROVIDERS).toContain(r.provider);
+          expect(["served", "denied"]).toContain(r.outcome);
+        }
       }
     }
   });
@@ -65,14 +90,22 @@ describe("retrieval-receipt observer", () => {
   it("emits to a registered observer and returns the receipt", () => {
     const spy = vi.fn();
     setArtifactRetrievalObserver(spy);
-    const r = emitArtifactRetrievalReceipt({ reason: "expired", kind: "unknown" });
+    const r = emitArtifactRetrievalReceipt({
+      reason: "expired",
+      kind: "unknown",
+      provider: "remote-configured",
+    });
     expect(spy).toHaveBeenCalledOnce();
     expect(spy).toHaveBeenCalledWith(r);
     expect(r.outcome).toBe("denied");
   });
 
   it("is a no-op (but still returns the receipt) with no observer registered", () => {
-    const r = emitArtifactRetrievalReceipt({ reason: "ok", kind: "pdf" });
+    const r = emitArtifactRetrievalReceipt({
+      reason: "ok",
+      kind: "pdf",
+      provider: "local-dev",
+    });
     expect(r.outcome).toBe("served");
   });
 
@@ -81,7 +114,7 @@ describe("retrieval-receipt observer", () => {
       throw new Error("sink is down");
     });
     expect(() =>
-      emitArtifactRetrievalReceipt({ reason: "ok", kind: "pdf" }),
+      emitArtifactRetrievalReceipt({ reason: "ok", kind: "pdf", provider: "local-dev" }),
     ).not.toThrow();
   });
 });

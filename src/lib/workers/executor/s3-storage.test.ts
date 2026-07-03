@@ -1,7 +1,16 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { DEFAULT_RETENTION } from "@/lib/jobs";
+import {
+  ARTIFACT_POLICY_ID,
+  ARTIFACT_POLICY_VERSION,
+  type ArtifactManifest,
+} from "../artifacts";
 import { parseS3Config, type S3StorageConfig } from "../storage/s3-config";
-import { createS3Storage } from "../storage/s3";
+import {
+  ARTIFACT_MANIFEST_METADATA_HEADER,
+  decodeArtifactManifestMetadata,
+} from "../storage/s3-manifest-metadata";
 import {
   createS3ExecutorStorage,
   filenameForContentType,
@@ -179,62 +188,84 @@ describe("createS3ExecutorStorage — writeArtifact", () => {
     bytes: new Uint8Array([9, 8, 7, 6]),
   };
 
-  it("PUTs real bytes and returns a signed, expiring download record", async () => {
+  /** A valid, content-free PDF provenance manifest matching `input`. */
+  const manifest: ArtifactManifest = {
+    outputKind: "pdf",
+    contentType: "application/pdf",
+    byteCount: input.bytes.byteLength,
+    retentionClass: "short",
+    toolSlug: "compress-pdf",
+    processor: "compress",
+    policyId: ARTIFACT_POLICY_ID,
+    policyVersion: ARTIFACT_POLICY_VERSION,
+  };
+
+  it("PUTs real bytes and returns an OPAQUE download route, never a signed URL", async () => {
     const { fn, calls } = fakeFetch([{ status: 200 }]);
-    const cfg = config();
-    const storage = createS3ExecutorStorage(cfg, { now, fetchImpl: fn });
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
 
     const artifact = await storage.writeArtifact(input);
     expect(artifact.artifactId).toMatch(/^art_[A-Za-z0-9_-]{10,64}$/);
     expect(artifact.bytes).toBe(4);
     expect(artifact.filename).toBe("report-compressed.pdf");
-    expect(artifact.url).toContain("X-Amz-Signature=");
-    expect(artifact.url).toContain(`/artifacts/${artifact.artifactId}`);
-    // expiresAt matches the signed download TTL exactly (nothing re-mints it).
+    // The client-facing URL is this app's opaque retrieval route — no bucket host, key,
+    // or signature ever reaches the client.
+    expect(artifact.url).toBe(`/api/artifacts/${artifact.artifactId}`);
+    expect(artifact.url).not.toContain("X-Amz-Signature=");
+    expect(artifact.url).not.toContain(S3_SECRET);
+    // expiresAt is the artifact retention / lifecycle-deletion window (not a link TTL).
     expect(artifact.expiresAt).toBe(
-      new Date(NOW + cfg.downloadTtlSeconds * 1000).toISOString(),
+      new Date(NOW + DEFAULT_RETENTION.outputTtlMinutes * 60_000).toISOString(),
     );
 
-    // The PUT carried the real bytes, the declared content-type, and a safe
-    // Content-Disposition so a direct signed-URL download saves under the name.
+    // The PUT carried the real bytes to the canonical opaque-id key, the declared
+    // content-type, and a safe, signed Content-Disposition.
     const put = calls.find((c) => c.method === "PUT");
     expect(put).toBeDefined();
     expect(put!.body).toEqual(input.bytes);
+    expect(new URL(put!.url).pathname).toContain(`/artifacts/${artifact.artifactId}`);
     expect(put!.headers?.["content-type"]).toBe("application/pdf");
     expect(put!.headers?.["content-disposition"]).toBe(
       "attachment; filename=\"report-compressed.pdf\"; filename*=UTF-8''report-compressed.pdf",
     );
-    // Content-Disposition is a signed header, so the client can't alter it.
     expect(new URL(put!.url).searchParams.get("X-Amz-SignedHeaders")).toContain(
       "content-disposition",
     );
     expect(put!.url).not.toContain(S3_SECRET);
   });
 
+  it("stamps the content-free manifest as SIGNED object metadata (round-trips)", async () => {
+    const { fn, calls } = fakeFetch([{ status: 200 }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+
+    await storage.writeArtifact({ ...input, manifest });
+    const put = calls.find((c) => c.method === "PUT")!;
+    const stamped = put.headers?.[ARTIFACT_MANIFEST_METADATA_HEADER];
+    expect(stamped).toBeDefined();
+    // The stored value re-validates back to the exact content-free manifest.
+    expect(decodeArtifactManifestMetadata(stamped)).toEqual(manifest);
+    // It is a SIGNED header, so the client cannot tamper it on its PUT.
+    expect(new URL(put.url).searchParams.get("X-Amz-SignedHeaders")).toContain(
+      ARTIFACT_MANIFEST_METADATA_HEADER,
+    );
+  });
+
+  it("omits the manifest header entirely when no manifest was recorded", async () => {
+    const { fn, calls } = fakeFetch([{ status: 200 }]);
+    const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
+
+    await storage.writeArtifact(input); // no manifest
+    const put = calls.find((c) => c.method === "PUT")!;
+    expect(put.headers?.[ARTIFACT_MANIFEST_METADATA_HEADER]).toBeUndefined();
+    expect(new URL(put.url).searchParams.get("X-Amz-SignedHeaders")).not.toContain(
+      ARTIFACT_MANIFEST_METADATA_HEADER,
+    );
+  });
+
   it("throws when the artifact PUT is rejected (job not completed)", async () => {
     const { fn } = fakeFetch([{ status: 500 }]);
     const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
     await expect(storage.writeArtifact(input)).rejects.toThrow();
-  });
-
-  it("writes to the exact key the app-server download provider later signs (no drift)", async () => {
-    const { fn } = fakeFetch([{ status: 200 }]);
-    const cfg = config();
-    const storage = createS3ExecutorStorage(cfg, { now, fetchImpl: fn });
-    const artifact = await storage.writeArtifact(input);
-
-    const provider = createS3Storage(cfg, { now });
-    const download = await provider.reserveDownload({
-      artifactId: artifact.artifactId,
-      filename: artifact.filename,
-      contentType: artifact.contentType,
-    });
-    expect(download.ok).toBe(true);
-    if (download.ok) {
-      expect(new URL(download.value.target.url).pathname).toBe(
-        new URL(artifact.url).pathname,
-      );
-    }
   });
 });
 

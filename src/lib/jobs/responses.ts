@@ -21,6 +21,7 @@ export type ApiErrorCode =
   | "not_found"
   | "method_not_allowed"
   | "rate_limited"
+  | "service_unavailable"
   | "internal_error"
   // ── Upload-intake guardrails (Phase 35) ──────────────────────────────────
   // A small, deterministic validation layer at the public upload boundary,
@@ -90,6 +91,9 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   not_found: 404,
   method_not_allowed: 405,
   rate_limited: 429,
+  // A configured upstream (e.g. object storage) was reached but failed transiently;
+  // the request is retryable. Distinct from `worker_not_configured` (no backend at all).
+  service_unavailable: 503,
   internal_error: 500,
   // Upload-intake guardrails (Phase 35).
   invalid_upload_request: 400,

@@ -274,13 +274,20 @@ server-side S3 variables are valid. Before using it for production traffic:
 - Create a private, encrypted bucket with public listing/access disabled.
 - Configure lifecycle deletion for input and artifact prefixes as a backstop; the
   app's TTLs are not a substitute for bucket lifecycle rules.
-- Add a bucket **CORS policy** so the browser can transfer bytes directly against
-  the signed URLs: allow the app's exact origin(s) for `PUT` (uploads), `GET`
-  (downloads), and `DELETE` (delete-now), permit the `content-type` request
-  header, and expose `ETag`. A valid signature is still blocked by the browser
-  without this — the app server intentionally never proxies the bytes.
-- Keep upload/download TTLs short (defaults: 15 minutes) and verify clocks are in
-  sync for SigV4 signing.
+- Add a bucket **CORS policy** for the direct-transfer paths: the browser still
+  uploads bytes **directly** against a signed `PUT`, so allow the app's exact
+  origin(s) for `PUT` (uploads), permit the `content-type` request header, and
+  expose `ETag`; a valid signature is otherwise blocked by the browser. As of
+  **Phase 39, artifact _downloads_ are proxied through the app** — the opaque route
+  `GET /api/artifacts/:artifactId` reads the object server-side and streams it, so
+  the browser never touches a signed download URL and bucket CORS for `GET` is not
+  required for the app's own downloads (still allow `GET`/`DELETE` for any
+  out-of-band tooling and delete-now). Downloads therefore flow through the app
+  server by design (no signed link ever reaches the client); size app egress
+  accordingly.
+- Keep upload TTLs short (default: 15 minutes) and verify clocks are in sync for
+  SigV4 signing. The server-side download GET is signed for a short internal window
+  (~5 min) and never leaves the server; artifact `expiresAt` is the retention window.
 - Use a narrow IAM/R2 token that can only put/get/delete under the configured
   prefix.
 - Confirm `/api/worker/status` reports storage ready without exposing bucket,

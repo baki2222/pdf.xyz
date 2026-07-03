@@ -9,8 +9,9 @@
  *
  * Like every receipt in the worker layer it is emitted through an OPTIONAL, operator-wired
  * observer that DEFAULTS to none (no console noise, no I/O). It carries only a bounded
- * outcome, a bounded reason enum, the bounded output kind, the stable policy id/version,
- * and an optional ISO timestamp — never a handle, filename, object key, signed URL,
+ * outcome, a bounded reason enum, the bounded output kind, the bounded storage provider
+ * (local-dev vs remote-configured vs not-configured), the stable policy id/version, and an
+ * optional ISO timestamp — never a handle, filename, object key, bucket name, signed URL,
  * job/user id, path, size, or byte. So a receipt is safe to log or forward verbatim.
  * See docs/OBSERVABILITY.md and docs/SECURITY.md.
  */
@@ -20,6 +21,7 @@ import {
   retrievalOutcomeFor,
   type ArtifactAccessReason,
   type ArtifactRetrievalOutcome,
+  type RetrievalStorageProvider,
 } from "./access";
 import type { ArtifactOutputKind } from "./types";
 
@@ -37,6 +39,13 @@ export interface ArtifactRetrievalReceipt {
   readonly reason: ArtifactAccessReason;
   /** The served output kind, or `unknown` for a denial (never a filename/key). */
   readonly kind: ArtifactOutputKind;
+  /**
+   * The bounded storage backend that decided this attempt: `local-dev` (the in-process
+   * developer store) vs `remote-configured` (a configured object bucket, read
+   * server-side) vs `not-configured` (no backend could serve). A closed enum — never a
+   * bucket name, endpoint, region, key, or URL.
+   */
+  readonly provider: RetrievalStorageProvider;
   /** Stable policy identity — the id and schema version the boundary enforced. */
   readonly policyId: string;
   readonly policyVersion: number;
@@ -50,6 +59,8 @@ export interface ArtifactRetrievalReceiptInput {
   readonly reason: ArtifactAccessReason;
   /** The served output kind, or `unknown` for a denial. */
   readonly kind: ArtifactOutputKind;
+  /** The bounded storage backend the decision came from (local vs remote vs none). */
+  readonly provider: RetrievalStorageProvider;
   /** Optional ISO-8601 timestamp. Omitted from the receipt when absent. */
   readonly at?: string;
 }
@@ -68,6 +79,7 @@ export function buildArtifactRetrievalReceipt(
     outcome: retrievalOutcomeFor(input.reason),
     reason: input.reason,
     kind: input.kind,
+    provider: input.provider,
     policyId: ARTIFACT_POLICY_ID,
     policyVersion: ARTIFACT_POLICY_VERSION,
     ...(input.at ? { at: input.at } : {}),

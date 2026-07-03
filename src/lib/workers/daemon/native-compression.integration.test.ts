@@ -211,8 +211,11 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     expect(artifact).toBeDefined();
     // Legacy object with no filename metadata → safe content-type-derived name.
     expect(artifact!.filename).toBe("document-compressed.pdf");
-    // A real, signed, expiring download URL the client fetches verbatim.
-    expect(artifact!.url).toContain("X-Amz-Signature=");
+    // The client-facing URL is this app's OPAQUE retrieval route — never a signed
+    // object-store URL (the route reads the bytes from the bucket server-side and
+    // streams them through the guarded access boundary).
+    expect(artifact!.url).toBe(`/api/artifacts/${artifact!.artifactId}`);
+    expect(artifact!.url).not.toContain("X-Amz-Signature=");
     expect(artifact!.url).not.toContain(S3_SECRET);
 
     // The artifact bytes REALLY landed in the bucket and are a valid PDF.

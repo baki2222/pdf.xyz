@@ -53,8 +53,10 @@ import {
 import {
   ARTIFACT_ACCESS_REASONS,
   ARTIFACT_RETRIEVAL_OUTCOMES,
+  RETRIEVAL_STORAGE_PROVIDERS,
   type ArtifactAccessReason,
   type ArtifactRetrievalOutcome,
+  type RetrievalStorageProvider,
 } from "../artifacts/access";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
@@ -433,6 +435,7 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
       outcome: ARTIFACT_RETRIEVAL_OUTCOMES,
       reason: ARTIFACT_ACCESS_REASONS,
       kind: ARTIFACT_OUTPUT_KINDS,
+      provider: RETRIEVAL_STORAGE_PROVIDERS,
     },
   },
   worker_storage_ops_total: {
@@ -605,20 +608,25 @@ export function artifactManifestMetric(
 
 /**
  * The client-facing artifact-retrieval boundary reached `outcome` (`served`/`denied`)
- * for the bounded `reason` on an output of `kind` (e.g. `served`/`ok` for a download,
- * `denied`/`expired` or `denied`/`invalid_manifest` for a refused one; `unknown` kind
- * when no valid manifest resolved). All three labels are closed enums — never a
- * filename, object key, handle, signed URL, size, or document content.
+ * for the bounded `reason` on an output of `kind`, served from the bounded storage
+ * `provider` (`local-dev` in-process store vs a `remote-configured` object bucket, or
+ * `not-configured` when no backend can serve). E.g. `served`/`ok`/`local-dev` for a
+ * developer download, `denied`/`storage_error`/`remote-configured` for a transient
+ * bucket failure, `denied`/`not_found`/`remote-configured` for a missing object;
+ * `unknown` kind when no valid manifest resolved. All four labels are closed enums —
+ * never a filename, object key, bucket name, handle, signed URL, size, or document
+ * content.
  */
 export function artifactRetrievalMetric(
   outcome: ArtifactRetrievalOutcome,
   reason: ArtifactAccessReason,
   kind: ArtifactOutputKind,
+  provider: RetrievalStorageProvider,
 ): WorkerMetricSample {
   return {
     metric: "worker_artifact_retrieval_total",
     kind: "counter",
-    labels: { outcome, reason, kind },
+    labels: { outcome, reason, kind, provider },
     value: 1,
   };
 }

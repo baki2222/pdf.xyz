@@ -19,9 +19,12 @@ export interface WriteArtifactInput {
   bytes: Uint8Array;
   /**
    * The content-free provenance {@link ArtifactManifest} the manifest gate generated
-   * for this output, when a gate ran. A byte-store (local-dev) records it alongside the
-   * artifact so the retrieval boundary can re-validate provenance; a bucket provider
-   * that streams opaque bytes ignores it. Absent when the gate was disabled.
+   * for this output, when a gate ran, so the retrieval boundary can re-validate provenance
+   * on download. A byte-store (local-dev) records it alongside the artifact; a bucket
+   * provider stamps it as signed object metadata ({@link ARTIFACT_MANIFEST_METADATA_HEADER})
+   * and recovers it on the server-side read. Absent when the gate was disabled (retrieval
+   * then honestly takes its manifest-less intrinsic path). Content-free by construction, so
+   * carrying it as object metadata leaks nothing.
    */
   manifest?: ArtifactManifest;
 }

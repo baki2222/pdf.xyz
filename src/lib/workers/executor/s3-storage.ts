@@ -14,9 +14,14 @@
  *    network error) THROWS, so the executor's tick errors out and the job's lease
  *    simply expires for at-least-once redelivery, rather than being wrongly
  *    reported as permanently gone.
- *  - The user-facing download URL embedded in each {@link JobArtifact} is a real,
- *    signed, expiring GET; nothing re-mints it downstream (the client fetches it
- *    verbatim), so `expiresAt` is set to exactly when that signed link dies.
+ *  - The user-facing download URL embedded in each {@link JobArtifact} is this app's
+ *    OPAQUE retrieval route (`/api/artifacts/:id`), never a signed object-store URL: the
+ *    route reads the bytes from the bucket server-side and streams them through the guarded
+ *    access boundary, so nothing about the bucket, key, endpoint, or signature ever reaches
+ *    the client. `expiresAt` is the artifact's retention / lifecycle-deletion window (the
+ *    object is reaped by the bucket lifecycle then), the same figure the local path reports.
+ *    The content-free provenance manifest (Phase 37) rides the object as SIGNED metadata
+ *    ({@link ARTIFACT_MANIFEST_METADATA_HEADER}) so retrieval can re-validate it on download.
  *  - Object keys derive only from opaque ids via the shared {@link buildObjectKey}
  *    (never a client filename), and nothing here logs, returns, or serializes a
  *    key, URL, credential, or byte.
@@ -36,7 +41,7 @@
  * daemon runtime (and its tests), never through the eager worker barrel.
  */
 
-import type { JobArtifact } from "@/lib/jobs";
+import { DEFAULT_RETENTION, type JobArtifact } from "@/lib/jobs";
 import { newArtifactId } from "../ids";
 import type { ProcessorInputFile } from "../processor/types";
 import type { S3StorageConfig } from "../storage/s3-config";
@@ -47,11 +52,15 @@ import {
   contentDispositionAttachment,
   decodeFilenameMetadata,
 } from "../storage/s3-metadata";
+import {
+  ARTIFACT_MANIFEST_METADATA_HEADER,
+  encodeArtifactManifestMetadata,
+} from "../storage/s3-manifest-metadata";
 import { presignS3Url } from "../storage/s3-signer";
 import type { StorageObjectKind } from "../storage/types";
 import type { ExecutorStorage, WriteArtifactInput } from "./types";
 
-const SECOND_MS = 1000;
+const MINUTE_MS = 60_000;
 // A worker-side GET/PUT/DELETE is executed immediately; a small signed window
 // covers clock skew without leaving a long-lived signed link lying around.
 const WORKER_OP_TTL_SECONDS = 300;
@@ -196,14 +205,24 @@ export function createS3ExecutorStorage(
       const key = buildObjectKey(config, "artifact", artifactId);
 
       // PUT the real bytes. Sign + echo the content-type so the stored object is
-      // typed correctly, plus a `Content-Disposition: attachment` carrying the
-      // safe output name so a *direct* signed-URL download saves under that name
-      // (the object KEY stays opaque-id only). The name is sanitized in the header
-      // builder, so no control/CRLF can be injected.
+      // typed correctly, plus a `Content-Disposition: attachment` carrying the safe
+      // output name (defense-in-depth for any direct object access), plus — when the
+      // gate produced one — the content-free provenance manifest as SIGNED object
+      // metadata, so the storage-backed retrieval boundary can re-validate provenance
+      // on download without a side table. Signing every header locks the stored values
+      // to what the worker declared: the client cannot tamper them on the PUT, and no
+      // control/CRLF can be injected (the header builders sanitize their inputs).
       const disposition = contentDispositionAttachment(input.filename);
       const putHeaders: Record<string, string> = {
         "content-type": input.contentType,
         [CONTENT_DISPOSITION_HEADER]: disposition,
+        ...(input.manifest
+          ? {
+              [ARTIFACT_MANIFEST_METADATA_HEADER]: encodeArtifactManifestMetadata(
+                input.manifest,
+              ),
+            }
+          : {}),
       };
       const putUrl = sign("PUT", key, WORKER_OP_TTL_SECONDS, putHeaders);
       const res = await fetchImpl(putUrl, {
@@ -217,18 +236,20 @@ export function createS3ExecutorStorage(
         throw new Error(`Object storage rejected the artifact write (${res.status}).`);
       }
 
-      // Embed a real, signed, expiring download GET — the client fetches this URL
-      // verbatim (nothing re-mints it), so `expiresAt` is exactly when it dies.
-      const downloadUrl = sign("GET", key, config.downloadTtlSeconds);
+      // The client-facing download URL is this app's OPAQUE retrieval route — never a
+      // signed object-store URL. The route reads the bytes from the bucket server-side
+      // and streams them through the guarded access boundary, so nothing about the
+      // bucket/key/signature is ever exposed. `expiresAt` is the artifact's retention /
+      // lifecycle-deletion window (matching the local path), not a signed-link TTL.
       const expiresAt = new Date(
-        now() + config.downloadTtlSeconds * SECOND_MS,
+        now() + DEFAULT_RETENTION.outputTtlMinutes * MINUTE_MS,
       ).toISOString();
       return {
         artifactId,
         filename: input.filename,
         contentType: input.contentType,
         bytes: input.bytes.byteLength,
-        url: downloadUrl,
+        url: `/api/artifacts/${artifactId}`,
         expiresAt,
       };
     },

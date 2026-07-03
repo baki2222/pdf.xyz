@@ -338,8 +338,15 @@ describe("GET /api/artifacts/local/[artifactId] — retrieval observability", ()
       reason: "not_found",
     });
     expect(denied).toHaveLength(1);
-    // The label set is closed — only outcome/reason/kind, all bounded enums.
-    expect(Object.keys(denied[0]!.labels).sort()).toEqual(["kind", "outcome", "reason"]);
+    // The label set is closed — only outcome/reason/kind/provider, all bounded enums.
+    expect(Object.keys(denied[0]!.labels).sort()).toEqual([
+      "kind",
+      "outcome",
+      "provider",
+      "reason",
+    ]);
+    // The local route always reports the in-process developer store as the provider.
+    expect(denied[0]!.labels.provider).toBe("local-dev");
   });
 });
 
@@ -361,6 +368,7 @@ describe("GET /api/artifacts/local/[artifactId] — retrieval receipts", () => {
       outcome: "served",
       reason: "ok",
       kind: "pdf",
+      provider: "local-dev",
       policyId: ARTIFACT_POLICY_ID,
       policyVersion: ARTIFACT_POLICY_VERSION,
     });
@@ -368,7 +376,7 @@ describe("GET /api/artifacts/local/[artifactId] — retrieval receipts", () => {
     for (const r of receipts) {
       // Closed key set; no handle, filename, key, path, or byte.
       expect(Object.keys(r).sort()).toEqual(
-        ["category", "kind", "outcome", "policyId", "policyVersion", "reason"].sort(),
+        ["category", "kind", "outcome", "policyId", "policyVersion", "provider", "reason"].sort(),
       );
       expect(JSON.stringify(r)).not.toContain(artifactId);
     }

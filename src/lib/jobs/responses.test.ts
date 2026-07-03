@@ -22,6 +22,7 @@ describe("apiError", () => {
       not_found: 404,
       method_not_allowed: 405,
       rate_limited: 429,
+      service_unavailable: 503,
       internal_error: 500,
       invalid_upload_request: 400,
       unsupported_file_type: 415,
