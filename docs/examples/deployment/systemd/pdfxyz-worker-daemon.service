@@ -1,0 +1,37 @@
+# pdf.xyz secure-worker daemon — systemd service EXAMPLE.
+#
+# Copy to /etc/systemd/system/pdfxyz-worker-daemon.service, adapt User/Group/paths,
+# place real provider env values in /etc/pdfxyz/worker.env out-of-band, then:
+#   systemctl daemon-reload && systemctl enable --now pdfxyz-worker-daemon.service
+#
+# This is a TEMPLATE. It was not installed or run in this environment.
+[Unit]
+Description=pdf.xyz secure-worker daemon
+Documentation=file:/opt/pdfxyz/docs/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pdfxyz
+Group=pdfxyz
+WorkingDirectory=/opt/pdfxyz
+Environment=NODE_ENV=production
+# Contains only server-side PDFXYZ_* provider values. Never commit the real file.
+EnvironmentFile=/etc/pdfxyz/worker.env
+ExecStart=/usr/bin/env pnpm -s worker:daemon
+ExecReload=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=10s
+TimeoutStopSec=90s
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp /var/tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

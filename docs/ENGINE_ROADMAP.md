@@ -974,6 +974,21 @@ process supervisor / CI gate runs.
 scheduler that runs the check, and the notifier/pager that reacts to its exit code.
 ops-check is local evaluation — it stores no history and pages no one.
 
+### Phase 32 — deployment blueprints + ops-check scheduler templates (shipped)
+
+Phase 32 packages the worker/observability stack into validated, provider-neutral
+deployment templates under [`docs/examples/deployment`](examples/deployment): Docker
+Compose, systemd worker + ops-check timer units, Kubernetes web/worker/CronJob manifests,
+and a GitHub Actions fixture gate for `worker:ops-check`. A dependency-free validator
+(`pnpm deploy:examples:check`) plus static tests assert that examples are placeholder-only,
+content-free, do not expose worker secrets to the web tier, and do not mask healthcheck
+failures.
+
+⏳ Still out-of-band: real Docker/Kubernetes execution in this environment, cloud
+provisioning, real secrets, DNS/TLS, broker/storage credentials, scanner signature
+operations, and any hosted pager/timeseries backend. The examples show where those pieces
+plug in; they do not provision or fake them.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

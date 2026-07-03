@@ -144,7 +144,19 @@ track(handoffCreatedEvent({ toolSlug, mode, fileCount: files.length }));
 
 ---
 
-## Live status surface
+## Phase 32 scheduler templates
+
+Phase 32 packages the Phase 31 healthcheck into deployable scheduler examples under
+[`docs/examples/deployment`](examples/deployment): cron/systemd wrappers, a Kubernetes
+CronJob, and a GitHub Actions fixture gate. Every template uses the documented
+`worker:ops-check` exit ladder (`0` ok, `1` usage, `2` unknown, `3` warning, `4`
+critical) and preserves the alerting rule: page/notify on `2`–`4`, fix the monitor on
+`1`. The examples are inert until an operator wires a real notifier or cluster alert.
+
+Run `pnpm deploy:examples:check` to validate that the templates remain placeholder-only,
+content-free, and free of committed endpoints/secrets.
+
+## Worker status surfaces
 
 ### `GET /api/worker/status`
 

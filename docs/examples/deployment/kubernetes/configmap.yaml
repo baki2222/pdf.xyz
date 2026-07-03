@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pdfxyz-config
+  namespace: pdfxyz
+  labels:
+    app.kubernetes.io/name: pdfxyz
+data:
+  NODE_ENV: production
+  PDFXYZ_STORAGE_PROVIDER: s3
+  PDFXYZ_QUEUE_PROVIDER: redis
+  PDFXYZ_NATIVE_COMPRESSION: auto
+  PDFXYZ_WORKER_HEARTBEAT: "true"
+  PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS: "15"
+  PDFXYZ_OPSCHECK_SOURCE: --runtime

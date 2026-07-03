@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pdfxyz-ops-check
+  namespace: pdfxyz
+  labels:
+    app.kubernetes.io/name: pdfxyz
+    app.kubernetes.io/component: ops-check
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 6
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: pdfxyz
+            app.kubernetes.io/component: ops-check
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: ops-check
+              image: ghcr.io/REPLACE-ME/pdfxyz-worker:REPLACE_TAG
+              imagePullPolicy: IfNotPresent
+              command: ["pnpm", "-s", "worker:ops-check", "--runtime", "--json"]
+              envFrom:
+                - configMapRef:
+                    name: pdfxyz-config
+                - secretRef:
+                    name: pdfxyz-worker-secrets
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]

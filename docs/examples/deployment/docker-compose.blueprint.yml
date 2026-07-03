@@ -1,0 +1,179 @@
+# pdf.xyz — full-topology deployment BLUEPRINT (web + secure-worker + broker + scanner).
+#
+# This is a DOCUMENTED EXAMPLE, not a provisioned stack. It was NOT run in this
+# environment (no reachable Docker daemon). It extends the minimal two-service
+# `docker-compose.worker.yml` at the repo root with a self-hostable Redis-compatible
+# broker and an optional ClamAV scanner, so an operator can see how every seam wires
+# up. Adapt it; do not treat it as production. See docs/DEPLOYMENT.md (Phase 32).
+#
+# Secrets policy — load-bearing:
+#   * Only placeholder env NAMES appear here; NO values are committed.
+#   * `${VAR}` interpolates from your shell or a git-ignored `--env-file` (copy
+#     `.env.blueprint.example`). Unset provider variables stay empty, and the daemon
+#     then honestly reports "not configured" (exit 2) rather than faking work.
+#   * All provider variables are server-side only — never NEXT_PUBLIC_*.
+#
+# Public surface: ONLY `web` publishes a port. The worker, broker, redis, and clamav
+# speak on the internal `edge` network and are never exposed to the host or internet.
+#
+# Profiles keep the optional pieces honest and off by default:
+#   * `local-broker` — a self-hosted Upstash-REST-compatible broker (`redis` + `broker`)
+#                      for LOCAL development only. In production DROP this profile and
+#                      point PDFXYZ_REDIS_REST_URL at a managed Redis-REST endpoint.
+#   * `scanner`      — an optional ClamAV daemon the worker streams inputs to.
+#
+#   # local dev, everything self-hosted:
+#   docker compose -f docs/examples/deployment/docker-compose.blueprint.yml \
+#     --env-file docs/examples/deployment/.env.blueprint.example \
+#     --profile local-broker --profile scanner up --build
+#
+#   # production shape, managed broker/storage provisioned out-of-band:
+#   docker compose -f docs/examples/deployment/docker-compose.blueprint.yml \
+#     --env-file .env up --build web worker
+
+name: pdfxyz-blueprint
+
+networks:
+  # One private network. Nothing here is published except `web` (below).
+  edge:
+    driver: bridge
+
+services:
+  # --------------------------------------------------------------------------- #
+  # web — the public Next.js site. Serves users. Needs NO worker/provider secrets
+  # and never drains a queue. This is the ONLY service that publishes a port.
+  # --------------------------------------------------------------------------- #
+  web:
+    build:
+      context: ../../..
+      target: web
+    networks:
+      - edge
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
+    # Content-free liveness: fetch the homepage over loopback. Processes no user
+    # document; it only confirms the HTTP server answers.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 1m
+      timeout: 10s
+      retries: 3
+
+  # --------------------------------------------------------------------------- #
+  # worker — the out-of-band secure-worker daemon. Drains the queue and completes
+  # jobs. Publishes NO port (it never serves HTTP). All provider config is read
+  # from the environment at run time, never baked into the image.
+  # --------------------------------------------------------------------------- #
+  worker:
+    build:
+      context: ../../..
+      target: worker
+    networks:
+      - edge
+    environment:
+      # Object storage (S3/R2-compatible). See .env.blueprint.example for the shapes.
+      PDFXYZ_STORAGE_PROVIDER: ${PDFXYZ_STORAGE_PROVIDER:-}
+      PDFXYZ_S3_ENDPOINT: ${PDFXYZ_S3_ENDPOINT:-}
+      PDFXYZ_S3_REGION: ${PDFXYZ_S3_REGION:-}
+      PDFXYZ_S3_BUCKET: ${PDFXYZ_S3_BUCKET:-}
+      PDFXYZ_S3_ACCESS_KEY_ID: ${PDFXYZ_S3_ACCESS_KEY_ID:-}
+      PDFXYZ_S3_SECRET_ACCESS_KEY: ${PDFXYZ_S3_SECRET_ACCESS_KEY:-}
+      # Job queue (Redis/Upstash REST-compatible). With `--profile local-broker` your
+      # env-file points PDFXYZ_REDIS_REST_URL at the in-network `broker` (http://broker:80)
+      # and shares PDFXYZ_REDIS_REST_TOKEN with it; in production this is a managed endpoint.
+      PDFXYZ_QUEUE_PROVIDER: ${PDFXYZ_QUEUE_PROVIDER:-}
+      PDFXYZ_REDIS_REST_URL: ${PDFXYZ_REDIS_REST_URL:-}
+      PDFXYZ_REDIS_REST_TOKEN: ${PDFXYZ_REDIS_REST_TOKEN:-}
+      # Optional malware scanner (ClamAV/clamd over INSTREAM). With `--profile scanner`
+      # your env-file sets PDFXYZ_MALWARE_SCANNER=clamav://clamav:3310. Unset ⇒ off.
+      PDFXYZ_MALWARE_SCANNER: ${PDFXYZ_MALWARE_SCANNER:-}
+      # Optional worker liveness heartbeat (Phase 30; OFF unless explicitly enabled and a
+      # broker is configured). /api/worker/operations reports daemonObserved=true only on a
+      # fresh beat — never a fabricated one.
+      PDFXYZ_WORKER_HEARTBEAT: ${PDFXYZ_WORKER_HEARTBEAT:-}
+      PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS: ${PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS:-}
+      # Native deep compression (optional; lossless repack always works). auto | off.
+      PDFXYZ_NATIVE_COMPRESSION: ${PDFXYZ_NATIVE_COMPRESSION:-auto}
+    # Long-running drain-then-poll. For a one-shot backlog drain, override with:
+    #   command: ["pnpm", "worker:daemon", "--drain"]
+    restart: unless-stopped
+    # Presence-only readiness probe (exit 0 = drainable, 2 = not configured). Claims no
+    # job and processes nothing — a content-free health signal, not a processing mode.
+    healthcheck:
+      test: ["CMD", "pnpm", "worker:daemon", "--dry-run-status"]
+      interval: 1m
+      timeout: 30s
+      start_period: 20s
+      retries: 3
+
+  # --------------------------------------------------------------------------- #
+  # redis — LOCAL-ONLY backing datastore for the self-hosted broker below.
+  # Profile `local-broker`. Ephemeral, internal, unpublished. NOT for production —
+  # in production use a managed Redis-REST provider and drop this profile.
+  # --------------------------------------------------------------------------- #
+  redis:
+    profiles:
+      - local-broker
+    image: redis:7-alpine
+    networks:
+      - edge
+    # No `ports:` — reachable only by `broker` on the internal network.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # --------------------------------------------------------------------------- #
+  # broker — LOCAL-ONLY Upstash-REST-compatible front for `redis`. Profile
+  # `local-broker`. The worker's queue client speaks the Redis REST dialect (HTTP +
+  # bearer token), NOT raw RESP, so a bare redis container is not enough on its own;
+  # this shim exposes the REST API the client expects. Internal, unpublished.
+  # Pin a digest and use a managed endpoint in production instead of this shim.
+  # --------------------------------------------------------------------------- #
+  broker:
+    profiles:
+      - local-broker
+    image: hiett/serverless-redis-http:latest
+    networks:
+      - edge
+    # No `ports:` — the worker reaches it in-network at http://broker:80.
+    environment:
+      SRH_MODE: env
+      # Must equal PDFXYZ_REDIS_REST_TOKEN so the worker's bearer token authenticates.
+      SRH_TOKEN: ${PDFXYZ_REDIS_REST_TOKEN:-}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------- #
+  # clamav — OPTIONAL malware scanner. Profile `scanner`. The worker streams each
+  # input to clamd over INSTREAM (TCP 3310) and blocks on a verdict. Internal,
+  # unpublished. When enabled, set PDFXYZ_MALWARE_SCANNER=clamav://clamav:3310.
+  # --------------------------------------------------------------------------- #
+  clamav:
+    profiles:
+      - scanner
+    image: clamav/clamav:latest
+    networks:
+      - edge
+    # No `ports:` — reachable only by `worker` on the internal network.
+    restart: unless-stopped
+    # Content-free readiness: the image's own clamd PING check. Scans no user document.
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 1m
+      timeout: 30s
+      start_period: 2m
+      retries: 5

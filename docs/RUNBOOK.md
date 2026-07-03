@@ -283,6 +283,19 @@ Interpretation:
 
 ---
 
+## Phase 32: deployment blueprint + scheduled ops-check
+
+Use [`docs/examples/deployment`](examples/deployment) as the deployment starting point:
+
+1. Pick a topology: Docker Compose blueprint, Kubernetes manifests, or systemd on a worker host.
+2. Copy the placeholder env/Secret template and inject real S3/R2, Redis-REST, OCR/scanner, and heartbeat values out-of-band. Never commit the real file.
+3. Run the worker daemon (`pnpm worker:daemon`) as a separate private process/container; do not put it in the web request path.
+4. Enable Phase 30 heartbeat only when the Redis-REST broker is configured, so `/api/worker/operations` can observe a fresh daemon beat.
+5. Schedule `pnpm worker:ops-check` from cron/systemd/Kubernetes CronJob or CI. Alert on exit `2`, `3`, or `4`; treat exit `1` as “the check is misconfigured,” not a worker incident.
+6. Validate the static templates before adapting them: `pnpm deploy:examples:check`.
+
+The blueprints are intentionally provider-neutral and secret-free. They do not provision cloud resources, deploy Docker/Kubernetes here, configure DNS/TLS, update ClamAV signatures, or page anyone; those remain operator-owned.
+
 ## 5. Rollback
 
 - **Web (Vercel):** **Deployments → ⋯ → Promote** the previous good deployment —

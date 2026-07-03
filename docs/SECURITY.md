@@ -235,6 +235,16 @@ the same bounded object; the dashboard maps its codes to client-authored copy an
 stored string. This is honest **local evaluation** — it stores no history and pages no one,
 so it introduces no new hosted dependency or egress.
 
+## Deployment blueprint safety (Phase 32)
+
+The deployment examples in [`docs/examples/deployment`](examples/deployment) are validated
+as text, not executed infrastructure. The static validator and tests enforce the same
+privacy posture as the app: placeholder-only secrets, no real provider endpoints, no
+`NEXT_PUBLIC_*` secret-like variables, no worker provider secrets in the web deployment,
+and no scheduler command that hides `worker:ops-check` failures with `|| true`. The
+Kubernetes Secret manifest is intentionally `secret.example.yaml`; replace it through your
+secret manager or out-of-band deploy tooling, never by committing real values.
+
 ## HTTP security headers
 
 Set for every response in [`next.config.mjs`](../next.config.mjs) and asserted by

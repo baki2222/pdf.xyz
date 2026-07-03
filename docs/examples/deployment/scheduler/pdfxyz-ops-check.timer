@@ -1,0 +1,23 @@
+# pdf.xyz secure-worker ops-check — systemd timer EXAMPLE.
+#
+# Drives pdfxyz-ops-check.service on a fixed cadence. Install both under
+# /etc/systemd/system/ and enable the TIMER (not the service):
+#   systemctl daemon-reload && systemctl enable --now pdfxyz-ops-check.timer
+#   systemctl list-timers pdfxyz-ops-check.timer   # confirm the next run
+#
+# This is a TEMPLATE — tune the cadence to your alerting budget.
+[Unit]
+Description=Run the pdf.xyz secure-worker ops-check on a schedule
+Documentation=file:/opt/pdfxyz/docs/RUNBOOK.md
+
+[Timer]
+# First run shortly after boot, then every 5 minutes while active.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+# Catch up one missed run after downtime instead of silently skipping the window.
+Persistent=true
+Unit=pdfxyz-ops-check.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,31 @@
+# pdf.xyz secure-worker ops-check — systemd oneshot service EXAMPLE.
+#
+# Paired with pdfxyz-ops-check.timer. Install both under /etc/systemd/system/ and:
+#   systemctl daemon-reload && systemctl enable --now pdfxyz-ops-check.timer
+#
+# This is a TEMPLATE — adapt User/WorkingDirectory/paths to your host. It runs the
+# inert notifier wrapper, which invokes `pnpm worker:ops-check` and maps its documented
+# exit code (0 ok · 1 usage · 2 unknown · 3 warn · 4 critical) to an action.
+[Unit]
+Description=pdf.xyz secure-worker operations healthcheck (one-shot)
+Documentation=file:/opt/pdfxyz/docs/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run as an unprivileged operator user, never root.
+User=pdfxyz
+Group=pdfxyz
+WorkingDirectory=/opt/pdfxyz
+# --runtime on the worker host (real engine/OCR/scanner probes + heartbeat); use
+# --web on a separate monitor host that cannot see the worker image.
+Environment=PDFXYZ_OPSCHECK_SOURCE=--runtime
+# Inert unless you wire a webhook out-of-band (empty ⇒ nothing is posted):
+# Environment=PDFXYZ_OPSCHECK_WEBHOOK_URL=https://REPLACE-ME.example-webhook.invalid/hook
+ExecStart=/opt/pdfxyz/deploy/scheduler/ops-check-notify.sh
+# Content-free and hardened: the check claims no job and forwards only a bounded verdict.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

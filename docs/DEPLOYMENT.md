@@ -203,6 +203,24 @@ curl -sI https://pdf.xyz/opengraph-image | grep -i content-type
       enabled and Redis configured, `daemonObserved:true` requires a fresh heartbeat.
       Use worker-side daemon logs for actual processing details.
 
+## Phase 32 deployment blueprints and scheduler examples
+
+Phase 32 adds copy-and-adapt deployment templates under [`docs/examples/deployment`](examples/deployment):
+
+- Docker Compose full-topology blueprint: public `web`, private `worker`, optional local Redis-REST broker shim, optional ClamAV scanner, and placeholder-only env file.
+- systemd examples: `pdfxyz-worker-daemon.service` for the long-running worker plus `pdfxyz-ops-check.service`/`.timer` for scheduled health evaluation.
+- Kubernetes examples: namespace, ConfigMap, placeholder Secret, web Deployment/Service, worker Deployment, and `worker:ops-check` CronJob.
+- GitHub Actions fixture gate: runs `worker:ops-check --file` against committed content-free fixtures without real credentials.
+
+Validate templates locally with:
+
+```bash
+pnpm deploy:examples:check
+pnpm test src/deploy/deployment-blueprint.test.ts src/deploy/scheduler-templates.test.ts
+```
+
+Honesty boundary: these examples were statically validated here; they were not applied to a real Docker daemon, Kubernetes cluster, cloud bucket, broker, DNS/TLS, or pager. Replace placeholders and provision secrets/infrastructure out-of-band before using them.
+
 ## Phase 12 worker provider checklist
 
 Production worker rollout now requires concrete providers for object storage and queueing behind the typed contracts in `src/lib/workers/storage/` and `src/lib/workers/queue/`. Configure private encrypted storage, lifecycle deletion, signed upload/download URL TTLs, a broker-backed queue, idempotency storage, and an authenticated delete-now path before enabling remote processing. Until those adapters exist, remote-configured mode must continue returning typed not-implemented/not-configured responses rather than minting dummy URLs or jobs.

@@ -1,0 +1,22 @@
+# pdf.xyz secure-worker ops-check — cron EXAMPLE (copy to /etc/cron.d/pdfxyz-ops-check).
+#
+# Runs the operator healthcheck on a schedule and lets the inert notifier wrapper map
+# its documented exit code to an action. This is a TEMPLATE — adapt paths/user/cadence
+# to your host; it is not a provisioned job. See docs/RUNBOOK.md (Phase 32).
+#
+# Exit ladder (worker:ops-check): 0 ok · 1 usage(the CHECK is misconfigured, never a
+# worker page) · 2 unknown · 3 warn · 4 critical. The wrapper re-raises 2/3/4 and
+# swallows 1, so cron's MAILTO mails you only on a genuine worker incident.
+#
+# `/etc/cron.d` rows carry a user field (run as an unprivileged operator, never root).
+# For a per-user crontab (`crontab -e`) drop the `pdfxyz` user column.
+#
+# Mail non-empty output to your operator address (a real MTA/relay is out-of-band):
+MAILTO=REPLACE-ME-operator@example.invalid
+
+# m h dom mon dow  user    command
+*/5 * * * *        pdfxyz  /opt/pdfxyz/deploy/scheduler/ops-check-notify.sh
+
+# Prefer to inline it instead of the wrapper? Then encode the SAME semantics yourself —
+# alert on exit >= 2, and treat 1 as "the check itself is broken", e.g.:
+# */5 * * * * pdfxyz cd /opt/pdfxyz && pnpm -s worker:ops-check --web --json; c=$?; [ "$c" -ge 2 ] && your-notifier "ops-check exit $c"

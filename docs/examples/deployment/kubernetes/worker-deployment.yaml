@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pdfxyz-worker
+  namespace: pdfxyz
+  labels:
+    app.kubernetes.io/name: pdfxyz
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pdfxyz
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pdfxyz
+        app.kubernetes.io/component: worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/REPLACE-ME/pdfxyz-worker:REPLACE_TAG
+          imagePullPolicy: IfNotPresent
+          command: ["pnpm", "-s", "worker:daemon"]
+          envFrom:
+            - configMapRef:
+                name: pdfxyz-config
+            - secretRef:
+                name: pdfxyz-worker-secrets
+          readinessProbe:
+            exec:
+              command: ["pnpm", "-s", "worker:daemon", "--dry-run-status"]
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]

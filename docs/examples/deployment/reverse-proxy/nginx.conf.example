@@ -1,0 +1,38 @@
+# pdf.xyz — provider-neutral TLS-terminating reverse proxy EXAMPLE (nginx).
+#
+# Fronts the `web` service ONLY. The secure-worker, broker, redis, and clamav have no
+# published ports and speak only on the internal container network — they are NEVER
+# placed behind a public proxy. This is a TEMPLATE: replace server_name + certificate
+# paths out-of-band. No real domain, IP, or certificate is committed.
+
+# Terminates TLS and forwards to the in-network web service.
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name REPLACE-ME.example.invalid;
+
+    # Provision real certificates out-of-band (ACME/your CA); these are placeholders.
+    ssl_certificate     /etc/ssl/REPLACE-ME/fullchain.pem;
+    ssl_certificate_key /etc/ssl/REPLACE-ME/privkey.pem;
+
+    # Only needed if you proxy uploads THROUGH the web tier; the browser-direct-to-object
+    # -storage path needs none. Keep it modest to bound request bodies.
+    client_max_body_size 25m;
+
+    location / {
+        # `web` is the compose service name on the internal network — not a public host.
+        proxy_pass http://web:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP         $remote_addr;
+    }
+}
+
+# Redirect plaintext to HTTPS.
+server {
+    listen 80;
+    server_name REPLACE-ME.example.invalid;
+    return 308 https://$host$request_uri;
+}
