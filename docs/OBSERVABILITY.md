@@ -277,6 +277,103 @@ test (`observability/examples.test.ts`) pins every example to the metric schema 
 metric, label, and SLO id it references must be on the allowlist — and asserts it stays
 content-free, so an example can never drift from the code.
 
+## Operator healthcheck & alert evaluation (Phase 31)
+
+The snapshot + SLO layers above answer "is the stack healthy?" as *data*. Phase 31 adds
+the piece that turns that data into a **decision a monitor keys on**, with no metrics
+backend and no pager: a pure alert policy (`src/lib/workers/observability/alerts.ts`) and
+a CLI over it (`pnpm worker:ops-check`, `scripts/worker-ops-check.ts`).
+
+### What it does
+
+`evaluateOperationsAlerts(snapshot, sloReport?)` maps a content-free
+`WorkerOperationsSnapshot` — plus, when a metric window is available, an `SloReport` —
+onto bounded **severities**, **reasons**, and **actions**:
+
+- **severity** — `ok` / `warn` / `critical` / `unknown` (the coarse projection of the
+  finer snapshot `HealthClass` and SLO `SloStatus`; a blocker or an SLO breach is
+  `critical`, `unknown` never over-pages);
+- **reason** — a fixed enum (`not-drainable`, `scanner-unavailable`, `lifecycle-drift`,
+  `liveness-stale`, `slo-breach`, …), so a rule can match on the reason, not free text;
+- **action** — a fixed enum with fixed, content-free copy authored in code
+  (`install-ocr-engine`, `investigate-backlog`, `reconcile-lifecycle-drift`, …).
+
+Honesty rules carry straight through from the snapshot: a stale/absent heartbeat is
+actionable **only** when liveness observation is enabled (a `disabled` seam stays a
+neutral "confirm a worker out-of-band"), and an `unknown` overall class surfaces as
+`unknown` (never a flattering `ok`).
+
+### The command
+
+```sh
+pnpm worker:ops-check                # on the worker host: full runtime evidence + heartbeat
+pnpm worker:ops-check --web          # on a monitor host: config-only web-vantage + heartbeat
+curl -s "$APP/api/worker/operations" | pnpm worker:ops-check --stdin   # evaluate a scraped snapshot
+pnpm worker:ops-check --file=snapshot.json --prometheus                # gauges for a scrape
+```
+
+Sources are mutually exclusive (`--runtime` default, `--web`, `--stdin`, `--file=<path>`);
+formats are `--json` (default), `--prometheus`, `--text`. An ingested snapshot may be a
+bare snapshot, the `GET /api/worker/operations` body, or `{ operations, metrics }` (a
+`metrics` series enables the full SLO indicators; a bare snapshot evaluates the
+config/liveness posture only).
+
+### Exit codes (the monitor contract)
+
+Higher is worse; `1` is a distinct "the check itself was misused" band, so a
+misconfigured monitor is never mistaken for a (un)healthy worker. **These are the
+ops-check codes and differ from the daemon's** (`worker:daemon`, documented in the
+runbook).
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | OK — everything observable is healthy |
+| `1` | usage — a bad flag, or unreadable/malformed input |
+| `2` | UNKNOWN — worker health could not be determined (no data) |
+| `3` | WARNING — a recommended fix is outstanding (a worker can still run) |
+| `4` | CRITICAL — a worker cannot run correctly, or an SLO breached |
+
+### Safe output contract
+
+The JSON result (`schema: "pdfxyz.ops-check/1"`) is content-free **by construction**:
+every field is a bounded enum, a boolean, a small integer count, or prose authored by the
+alert policy / SLO helpers. On the ingest path the parser (`ops-check/ingest.ts`) is the
+trust boundary — it validates each field against a bounded allowlist and **re-authors all
+prose from the app's own maps**, so a hand-crafted snapshot carrying a filename, object
+key, endpoint, or secret in a `detail` field can never reach the output; the offending
+string is simply dropped. It never contacts a cloud service unless the existing heartbeat
+seam is configured (the same disabled-by-default broker read the route uses).
+
+### Wiring it to a monitor
+
+It is **local evaluation, not a pager**. Point your scheduler + notifier at the exit code:
+
+- **cron** — `*/5 * * * * cd /app && pnpm -s worker:ops-check --web || notify "$?"`;
+- **uptime / healthcheck service** — run the container's `worker:ops-check` and alert on a
+  non-zero, non-1 exit;
+- **process supervisor** — a periodic liveness probe;
+- **CI gate** — `pnpm worker:ops-check --file=fixture.json` to assert a posture in tests;
+- **Prometheus** — `--prometheus` emits `pdfxyz_ops_check_severity` and per-subsystem
+  gauges (all bounded-enum labels) alongside the existing metric series.
+
+Runnable, content-free fixtures (healthy → ok, stale heartbeat → warn, lifecycle drift →
+critical, scanner spike → critical, no-config dev → unknown) live in
+[`docs/examples/observability/healthcheck/`](examples/observability/healthcheck/) and are
+pinned by `ops-check/examples.test.ts`.
+
+### On `/status` and the route
+
+`GET /api/worker/operations` now attaches the same content-free `alerts` report, and the
+`/status` operations dashboard renders it as an **Alert posture** callout (severity +
+contributing reasons, mapped to client-authored copy — never a server string). It is the
+verdict a monitor would report, shown in the UI.
+
+### Still out-of-band
+
+This does not store history, draw a timeseries, or notify anyone. A hosted metrics
+backend and a real pager remain your infrastructure's job — ops-check only produces the
+bounded verdict + exit code they consume.
+
 ## Production readiness checklist (observability)
 
 - [ ] **Product analytics is inert by default.** With no sink configured,

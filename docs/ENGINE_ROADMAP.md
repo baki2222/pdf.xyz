@@ -946,6 +946,34 @@ transport and sets `daemonObserved:true` only while the beat is fresh.
 worker, connecting a real process supervisor/alerts, and proving job success from a beat. A
 heartbeat proves only that a daemon recently wrote the content-free liveness record.
 
+### Phase 31 — operator healthcheck + alert evaluation (shipped)
+
+Phase 31 turns the content-free operations evidence (snapshot + SLO metrics + heartbeat)
+into a **decision a monitor keys on**, with no metrics backend and no pager. A pure alert
+policy plus a CLI over it (`pnpm worker:ops-check`) evaluate the same evidence the daemon
+already reports and exit with a documented code — the piece a cron job / uptime monitor /
+process supervisor / CI gate runs.
+
+- **Alert policy** (`src/lib/workers/observability/alerts.ts`): `evaluateOperationsAlerts`
+  maps a `WorkerOperationsSnapshot` (+ optional `SloReport`) onto bounded severities
+  (`ok`/`warn`/`critical`/`unknown`), reasons, and actions — all fixed enums with fixed,
+  content-free copy authored in code. A stale/absent heartbeat is actionable only when
+  observation is enabled; `unknown` never over-pages.
+- **CLI** (`src/lib/workers/ops-check/`, `scripts/worker-ops-check.ts`): sources
+  `--runtime` / `--web` / `--stdin` / `--file`; formats `--json` / `--prometheus` /
+  `--text`; a paranoid ingest path that re-authors a monitor-supplied snapshot so no
+  injected filename/key/secret survives. Exit codes `0` ok / `1` usage / `2` unknown /
+  `3` warn / `4` critical (distinct from the daemon's).
+- **Route + `/status` integration**: the same content-free alert report is attached to
+  `GET /api/worker/operations` and rendered as an **Alert posture** callout, mapped from
+  bounded enums to client-authored copy.
+- **Examples**: runnable, content-free fixtures for each verdict under
+  `docs/examples/observability/healthcheck/`, pinned by `ops-check/examples.test.ts`.
+
+⏳ Still out-of-band (deliberately not faked): a hosted timeseries/metrics backend, the
+scheduler that runs the check, and the notifier/pager that reacts to its exit code.
+ops-check is local evaluation — it stores no history and pages no one.
+
 ## Definition of production-ready per tool
 
 A tool is production-ready only when it has:

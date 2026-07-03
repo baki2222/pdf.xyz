@@ -59,6 +59,7 @@ import type {
 } from "@/lib/workers/observability";
 import { cn } from "@/lib/utils";
 import { StatusBadge, StatusCard, type StatusTone } from "./status-ui";
+import { AlertPostureCallout } from "./alert-posture";
 
 /* ------------------------------------------------------------------ *
  *  Safe, normalized view model (the privacy choke point)
@@ -984,6 +985,7 @@ export function OperationsSnapshotView({
       {header}
       <OperationsHealthCard view={view} />
       <RecommendedActionCallout view={view} />
+      <AlertPostureCallout snapshot={snapshot} />
       <DaemonObservabilityCaveat daemon={view.daemon} />
       <SubsystemGrid subsystems={view.subsystems} />
       <div className="grid gap-4 sm:grid-cols-2">

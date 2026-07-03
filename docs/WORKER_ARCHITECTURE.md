@@ -129,7 +129,7 @@ worker adapter:
 | Object storage | `src/lib/workers/storage/` | signed upload slots, signed artifact downloads, delete-now receipts, retention metadata | **S3/R2-compatible provider shipped** when explicitly configured; disabled/remote-unimplemented otherwise returns typed failure |
 | Queue | `src/lib/workers/queue/` | enqueue, idempotency, status, cancel, expire, job state transitions, claim/lease/heartbeat | **Redis/Upstash-compatible provider shipped** when explicitly configured; disabled/remote-unimplemented otherwise returns typed failure |
 | Processor | `src/lib/workers/processor/` + `executor/` | processor registry + the execution loop that claims a job, reads inputs, dispatches a processor, and drives status | local-dev in-process + a unit-tested executor/daemon foundation; production worker image/daemon artifacts are shipped but deployment remains operator-owned |
-| Operations observability | `src/lib/workers/observability/`, `src/lib/workers/heartbeat/`, `/api/worker/operations`, `src/components/status/operations-*.tsx` | content-free health/SLO snapshot, bounded metrics, optional provider-backed daemon heartbeat, one recommended next action, operator dashboard on `/status` | **Phase 28 shipped** the snapshot/metrics; **Phase 29 shipped** the `/status` operator dashboard; **Phase 30 shipped** optional Redis-backed worker heartbeat liveness. Web vantage reports `daemonObserved:true` only for a fresh heartbeat; disabled/stale/absent states never fake liveness and render client-authored copy only. |
+| Operations observability | `src/lib/workers/observability/`, `src/lib/workers/heartbeat/`, `src/lib/workers/ops-check/`, `/api/worker/operations`, `src/components/status/operations-*.tsx` | content-free health/SLO snapshot, bounded metrics, optional provider-backed daemon heartbeat, one recommended next action, operator dashboard on `/status`, and an offline alert-evaluation CLI | **Phase 28 shipped** the snapshot/metrics; **Phase 29 shipped** the `/status` operator dashboard; **Phase 30 shipped** optional Redis-backed worker heartbeat liveness; **Phase 31 shipped** the `pnpm worker:ops-check` operator healthcheck — a pure alert policy over the snapshot (+ optional SLO window) that a cron/monitor/supervisor keys on, with a documented exit code and the same content-free posture attached to `/api/worker/operations` and rendered on `/status`. Web vantage reports `daemonObserved:true` only for a fresh heartbeat; disabled/stale/absent states never fake liveness and render client-authored copy only. |
 
 No client supplies object keys or filesystem paths. Opaque ids (`f_…`, `job_…`,
 `art_…`) are minted server-side; production providers must map them to private
@@ -769,6 +769,39 @@ violation `message` names no variable or value (offending names live in a separa
 `fields` array used only for diagnostics, never printed by the CLI).
 
 See the operator runbook in [`DEPLOYMENT.md`](DEPLOYMENT.md) for the exact commands.
+
+## Operator healthcheck & alert evaluation (Phase 31)
+
+Phase 31 closes the loop from "we emit content-free health data" to "a monitor can act
+on it" — **without** a metrics backend or a pager. It has two pure, node-free halves and
+a thin CLI shell, mirroring the daemon's own structure:
+
+- **Alert policy** (`src/lib/workers/observability/alerts.ts`). `evaluateOperationsAlerts`
+  maps a `WorkerOperationsSnapshot` (+ an optional `SloReport`) onto bounded
+  **severities** (`ok`/`warn`/`critical`/`unknown`), **reasons**, and **actions**, all
+  fixed enums with fixed, content-free copy authored in code. It re-uses the snapshot's
+  own single `recommendedAction` as the report headline and fans the subsystems + SLO
+  indicators + heartbeat verdict out into individual alerts, worst-first. It adds nothing
+  that is not a bounded enum, so it never echoes a snapshot string.
+- **CLI library** (`src/lib/workers/ops-check/`). `args.ts` parses flags; `collect.ts`
+  composes the daemon's own runtime evidence (with heartbeat-driven, never self-asserted
+  liveness — the honest `collectOperatorProbeSnapshot` web-liveness vantage); `ingest.ts`
+  is the trust boundary that validates + **re-authors** a monitor-supplied snapshot (a
+  bare snapshot, the `GET /api/worker/operations` body, or `{ operations, metrics }`),
+  dropping any unrecognized field so an injected filename/key/secret can never survive;
+  `render.ts` emits the stable `OpsCheckResult` (`schema: "pdfxyz.ops-check/1"`) as JSON,
+  Prometheus gauges, or text; `run.ts` is the orchestrator over injected seams.
+- **Node entry** (`scripts/worker-ops-check.ts`, `pnpm worker:ops-check`). A thin shell
+  that reads argv/env, resolves the runtime, reads stdin/files, writes the output, and
+  exits — with no untested behavior of its own (like `worker-daemon.ts`). Never imported
+  by the web app.
+
+Exit codes are the monitor contract — `0` ok, `1` usage/malformed, `2` unknown/no-data,
+`3` warn, `4` critical — and are **distinct from the daemon's**. The same alert report is
+attached to `GET /api/worker/operations` and rendered as the **Alert posture** callout on
+`/status` (from bounded enums → client-authored copy, never a server string). What stays
+out-of-band: a hosted timeseries store, the scheduler that runs the check, and the pager
+that reacts to it. See [`OBSERVABILITY.md`](OBSERVABILITY.md#operator-healthcheck--alert-evaluation-phase-31).
 
 ## Production worker plan
 

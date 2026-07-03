@@ -1,0 +1,25 @@
+{
+  "operations": {
+    "version": 1,
+    "vantage": "web",
+    "mode": "remote-configured",
+    "drainable": true,
+    "daemonObserved": true,
+    "daemon": { "state": "observed", "source": "queue-broker", "lastSeen": "under-30s", "mode": "loop" },
+    "health": "ok",
+    "recommendedAction": "none",
+    "subsystems": [
+      { "id": "drainability", "health": "ok" },
+      { "id": "storage", "health": "ok" },
+      { "id": "queue", "health": "ok" },
+      { "id": "compression-engine", "health": "ok" },
+      { "id": "malware-scan", "health": "ok" },
+      { "id": "lifecycle", "health": "ok" },
+      { "id": "lifecycle-verification", "health": "ok" },
+      { "id": "guardrails", "health": "ok" }
+    ],
+    "proofs": { "compressionDeep": "available", "ocr": "unavailable" },
+    "lifecycleVerification": { "verdict": "verified", "health": "ok" },
+    "lastLoop": null
+  }
+}

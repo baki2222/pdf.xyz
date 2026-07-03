@@ -1,0 +1,41 @@
+{
+  "operations": {
+    "version": 1,
+    "vantage": "worker",
+    "mode": "remote-configured",
+    "drainable": true,
+    "daemonObserved": true,
+    "daemon": { "state": "observed", "source": "self", "lastSeen": null, "mode": "drain" },
+    "health": "warn",
+    "recommendedAction": "fix-scanner",
+    "subsystems": [
+      { "id": "drainability", "health": "ok" },
+      { "id": "storage", "health": "ok" },
+      { "id": "queue", "health": "ok" },
+      { "id": "compression-engine", "health": "ok" },
+      { "id": "malware-scan", "health": "warn" },
+      { "id": "lifecycle", "health": "ok" },
+      { "id": "guardrails", "health": "ok" }
+    ],
+    "proofs": { "compressionDeep": "available", "ocr": "unavailable" },
+    "lifecycleVerification": { "verdict": "unknown", "health": "unknown" },
+    "lastLoop": {
+      "mode": "drain",
+      "reason": "drained",
+      "ticks": 12,
+      "completed": 3,
+      "failed": 0,
+      "requeued": 9,
+      "canceled": 0,
+      "idle": 1,
+      "errors": 0,
+      "health": "warn"
+    }
+  },
+  "metrics": {
+    "series": [
+      { "metric": "worker_scan_total", "kind": "counter", "labels": { "verdict": "error", "scanned": "true" }, "value": 9 },
+      { "metric": "worker_scan_total", "kind": "counter", "labels": { "verdict": "clean", "scanned": "true" }, "value": 1 }
+    ]
+  }
+}

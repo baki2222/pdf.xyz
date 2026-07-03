@@ -29,3 +29,4 @@ export * from "./collector";
 export * from "./derive";
 export * from "./instrument";
 export * from "./slo";
+export * from "./alerts";

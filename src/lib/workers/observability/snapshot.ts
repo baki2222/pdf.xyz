@@ -306,8 +306,8 @@ export const RECOMMENDED_ACTION_DETAIL: Record<RecommendedAction, string> = {
     "Everything this app can observe is healthy, but a worker daemon runs out-of-band and its liveness cannot be seen from here. Confirm a worker is deployed and draining.",
 };
 
-/** Human labels for each subsystem. */
-const SUBSYSTEM_LABEL: Record<SnapshotSubsystemId, string> = {
+/** Human labels for each subsystem. Exported so the ingest path can re-author prose. */
+export const SUBSYSTEM_LABEL: Record<SnapshotSubsystemId, string> = {
   drainability: "Drainability",
   storage: "Object storage",
   queue: "Job queue",
@@ -631,8 +631,8 @@ function deriveVerdict(
   return { health: "ok", action: "confirm-worker-deployment" };
 }
 
-/** Fixed, content-free one-line summary for the overall health. */
-const HEALTH_SUMMARY: Record<HealthClass, string> = {
+/** Fixed, content-free one-line summary for the overall health. Exported for re-authoring. */
+export const HEALTH_SUMMARY: Record<HealthClass, string> = {
   ok: "Healthy",
   warn: "Degraded — a recommended fix is outstanding",
   blocked: "Blocked — a worker cannot run correctly here",
@@ -780,5 +780,40 @@ export function collectRuntimeOperationsSnapshot(
       ? { lifecycleVerification: extras.lifecycleVerification }
       : {}),
     ...(extras.lastLoop ? { lastLoop: extras.lastLoop } : {}),
+  });
+}
+
+/**
+ * Collect an **operator-probe** snapshot (Phase 31) — the vantage of a short-lived
+ * healthcheck process (`pnpm worker:ops-check`) that runs on (or beside) the worker
+ * image but is NOT the draining daemon. It combines the daemon's rich, real evidence
+ * (probed engine/OCR/scanner health, the composed deployment readiness, evaluated
+ * guardrails) with **heartbeat-driven liveness** — deliberately NOT self-asserted.
+ *
+ * This distinction is load-bearing for honesty: {@link collectRuntimeOperationsSnapshot}
+ * sets `vantage: "worker"` because the *daemon* legitimately IS a running worker, so
+ * `daemonObserved` is `true`. A healthcheck probe merely resolved configuration and
+ * probed the host — it must NOT claim a worker is draining just because it executed.
+ * So this stays the `web`-liveness vantage: `daemonObserved` is `true` ONLY when a
+ * recent Phase 30 heartbeat is visible; a stale/absent beat (with observation enabled)
+ * is an actionable `investigate-worker-liveness`, and a disabled seam is the neutral
+ * `confirm-worker-deployment` residual. The rich subsystem/proof/guardrail fields are
+ * unaffected — they reflect what the probe genuinely observed on this host.
+ *
+ * Pure: it only reads already-resolved structural runtime data plus a classified
+ * heartbeat liveness; the caller resolves the (Node-only) runtime and reads the
+ * (node-free) heartbeat, then hands both here.
+ */
+export function collectOperatorProbeSnapshot(
+  runtime: RuntimeSnapshotSource,
+  opts: { daemonLiveness?: HeartbeatLiveness } = {},
+): WorkerOperationsSnapshot {
+  return buildWorkerOperationsSnapshot({
+    vantage: "web",
+    readiness: runtime.readiness,
+    deployment: runtime.deployment,
+    ocrEnabled: runtime.ocr.enabled,
+    guardrails: runtime.guardrails,
+    ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
   });
 }

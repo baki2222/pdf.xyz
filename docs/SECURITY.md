@@ -212,6 +212,29 @@ and safe source *category* (`queue-broker`/`self`/`none`); the dashboard re-auth
 word from bounded enums and never renders a stored field. A heartbeat outage is swallowed
 (publish → `unavailable`, read → `unknown`) so it can never corrupt a job or fake liveness.
 
+## Operator healthcheck alert evaluation (Phase 31)
+
+`pnpm worker:ops-check` and its alert policy (`evaluateOperationsAlerts`) hold the same
+privacy boundary as the snapshot they read: every field they produce is a bounded enum
+(`AlertSeverity`, `AlertReason`, `AlertAction`, `AlertSource`), a boolean, a small integer
+count, or prose authored **in code** from those enums. The policy never copies a string out
+of the snapshot or SLO report, so an alert can never carry a filename, object key, endpoint,
+value, host, port, Redis key, OCR text, scanner signature, or secret — even if a hand-crafted
+snapshot were fed in.
+
+The ingest path (`src/lib/workers/ops-check/ingest.ts`) is the trust boundary for a
+monitor-supplied snapshot and is deliberately paranoid: it validates each load-bearing
+field against a bounded allowlist and **rebuilds** the snapshot from those enums with all
+prose re-authored, `daemonObserved` recomputed from the heartbeat state (never trusted from
+input), and counts clamped to safe integers. A field it does not recognize — including a
+`detail` string carrying a secret — is simply dropped, never echoed. The CLI never contacts
+a cloud service unless the existing (disabled-by-default) heartbeat seam is configured, and
+a bad flag or unreadable/malformed input is a distinct usage exit (`1`), never a crash and
+never a leak. The report attached to `/api/worker/operations` and rendered on `/status` is
+the same bounded object; the dashboard maps its codes to client-authored copy and renders no
+stored string. This is honest **local evaluation** — it stores no history and pages no one,
+so it introduces no new hosted dependency or egress.
+
 ## HTTP security headers
 
 Set for every response in [`next.config.mjs`](../next.config.mjs) and asserted by

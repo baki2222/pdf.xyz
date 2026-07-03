@@ -626,3 +626,51 @@ infrastructure.
 - **Runbook** — the full production procedure (web vs worker responsibilities, env by
   service with placeholders only, build/publish/promote-by-digest, smoke, and
   rollback) is in [`RUNBOOK.md`](RUNBOOK.md).
+
+## Phase 31 operator healthcheck (cron / uptime / supervisor wiring)
+
+`pnpm worker:ops-check` folds the readiness/deployment/guardrail/engine/scanner/lifecycle
+posture and the Phase 30 liveness heartbeat into a **single alert verdict + exit code** a
+monitor keys on. It claims no job, contacts no metrics backend, and pages no one — it is
+local evaluation. It reads a provider (the heartbeat broker) only through the existing
+disabled-by-default seam, so with nothing configured it makes no network call.
+
+**Sources** (pick one; default `--runtime`):
+
+```bash
+pnpm worker:ops-check                 # ON the worker host: real engine/OCR/scanner probes + heartbeat
+pnpm worker:ops-check --web           # on a monitor host: config-only web-vantage snapshot + heartbeat
+curl -s "$APP/api/worker/operations" | pnpm worker:ops-check --stdin   # evaluate a scraped snapshot
+pnpm worker:ops-check --file=snapshot.json            # evaluate a saved snapshot ({ operations, metrics })
+```
+
+**Formats:** `--json` (default, for a monitor to parse), `--prometheus` (scrapeable
+gauges: `pdfxyz_ops_check_severity` + per-subsystem, all bounded-enum labels), `--text`.
+
+**Exit codes** (distinct from the daemon's — here `2` = unknown/no-data, `4` = critical):
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | OK — healthy |
+| `1` | usage — bad flag / unreadable / malformed input |
+| `2` | UNKNOWN — health could not be determined (no data) |
+| `3` | WARNING — a recommended fix is outstanding |
+| `4` | CRITICAL — a worker cannot run correctly, or an SLO breached |
+
+**Wire it** — schedule it and alert on a non-zero, non-`1` exit (`1` means the *check*
+was misconfigured, not the worker):
+
+```bash
+# cron on a monitor host
+*/5 * * * * cd /app && pnpm -s worker:ops-check --web; c=$?; [ "$c" -ge 2 ] && your-notifier "ops-check exit $c"
+
+# systemd timer / supervisor: run `pnpm worker:ops-check`, treat exit >= 2 as an incident
+# CI gate: pnpm worker:ops-check --file=docs/examples/observability/healthcheck/healthy.json  (asserts 0)
+```
+
+The output is content-free by construction and never echoes an ingested string, so it is
+safe in any cron/monitor log. What stays operator-owned: the scheduler above, a hosted
+timeseries store, and the notifier/pager. See
+[`OBSERVABILITY.md`](OBSERVABILITY.md#operator-healthcheck--alert-evaluation-phase-31) and
+the runnable fixtures in
+[`docs/examples/observability/healthcheck/`](examples/observability/healthcheck/).

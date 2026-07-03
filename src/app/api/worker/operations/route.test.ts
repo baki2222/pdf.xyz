@@ -147,3 +147,77 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
     expect(body.daemon.state).toBe("disabled");
   });
 });
+
+describe("GET /api/worker/operations — attached alert posture (Phase 31)", () => {
+  const ALERT_SEVERITIES = ["ok", "warn", "critical", "unknown"];
+
+  it("attaches a content-free alert report keyed on a bounded severity", async () => {
+    const body = (await json(await GET())) as { alerts?: Record<string, unknown> };
+    expect(body.alerts).toBeDefined();
+    const report = body.alerts!;
+    expect(ALERT_SEVERITIES).toContain(report.severity);
+    expect(Array.isArray(report.alerts)).toBe(true);
+    // Every contributing alert carries only bounded enums for source/severity/reason.
+    for (const alert of report.alerts as Array<Record<string, unknown>>) {
+      expect(ALERT_SEVERITIES).toContain(alert.severity);
+      expect(typeof alert.reason).toBe("string");
+      expect(typeof alert.source).toBe("string");
+    }
+  });
+
+  it("the no-config posture is critical (no worker can run) and leaks nothing", async () => {
+    const body = (await json(await GET())) as { alerts?: { severity?: string } };
+    // No queue/storage in the base env ⇒ not drainable ⇒ a monitor would page.
+    expect(body.alerts?.severity).toBe("critical");
+    const text = JSON.stringify(body);
+    expect(text).not.toMatch(
+      /\/tmp|s3:\/\/|https?:\/\/|SECRET|object-key|invoice\.pdf|OCRPROOF/i,
+    );
+  });
+
+  it("a configured, heartbeat-enabled stack with a fresh beat reports an ok posture", async () => {
+    const old = { ...process.env };
+    const oldFetch = globalThis.fetch;
+    try {
+      Object.assign(process.env, {
+        PDFXYZ_STORAGE_PROVIDER: "s3",
+        PDFXYZ_S3_ENDPOINT: "https://s3.example.com",
+        PDFXYZ_S3_REGION: "auto",
+        PDFXYZ_S3_BUCKET: "private-bucket",
+        PDFXYZ_S3_ACCESS_KEY_ID: "AKIAEXAMPLE123",
+        PDFXYZ_S3_SECRET_ACCESS_KEY: "secret-value",
+        PDFXYZ_QUEUE_PROVIDER: "redis",
+        PDFXYZ_REDIS_REST_URL: "https://redis.example.com",
+        PDFXYZ_REDIS_REST_TOKEN: "redis-secret",
+        [LIFECYCLE_ENV.provider]: "aws-s3",
+        [LIFECYCLE_ENV.validated]: "true",
+        PDFXYZ_WORKER_HEARTBEAT: "enabled",
+      });
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            result: serializeHeartbeat(
+              buildHeartbeat({
+                mode: "loop",
+                capabilities: {
+                  deepCompression: true,
+                  ocr: false,
+                  malwareScan: false,
+                  atomicQueue: true,
+                },
+                at: Date.now(),
+              }),
+            ),
+          };
+        },
+      })) as unknown as typeof fetch;
+      const body = (await json(await GET())) as { alerts?: { severity?: string } };
+      expect(body.alerts?.severity).toBe("ok");
+    } finally {
+      process.env = old;
+      globalThis.fetch = oldFetch;
+    }
+  });
+});

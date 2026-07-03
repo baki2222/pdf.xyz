@@ -191,6 +191,36 @@ an out-of-bounds retention TTL, or a missing lifecycle backstop **fails fast**
 **e. Web** — verify security headers and share surfaces on the live URL (the
 `curl` checks in [`DEPLOYMENT.md`](DEPLOYMENT.md) §6).
 
+**f. Operator healthcheck** — one command that folds readiness, deployment,
+guardrails, engine/OCR/scanner health, the lifecycle backstop, and the Phase 30
+liveness heartbeat into a single alert verdict + exit code a monitor keys on:
+
+```bash
+pnpm worker:ops-check                 # on the worker host: full runtime evidence + heartbeat
+# 0 ok · 1 usage/malformed input · 2 unknown (no data) · 3 warn · 4 critical
+```
+
+This is the piece a **cron job, uptime monitor, or process supervisor** runs on a
+schedule. It never claims a job, contacts a metrics backend, or pages anyone — it is
+local evaluation with a documented exit code (see
+[`OBSERVABILITY.md`](OBSERVABILITY.md#operator-healthcheck--alert-evaluation-phase-31)).
+Its exit codes are **distinct from the daemon's** above (`worker:daemon`): here `2` is
+*unknown/no-data* and `4` is *critical*, matching the alert severity ladder. Wire it:
+
+```bash
+# cron on the worker host (or a monitor host with --web): alert on a non-zero,
+# non-1 exit (1 = the check itself was misconfigured, not a worker problem).
+*/5 * * * * cd /app && pnpm -s worker:ops-check --web; c=$?; [ "$c" -ge 2 ] && notify "worker ops-check exit $c"
+
+# or evaluate a snapshot a monitor already scraped from the endpoint:
+curl -s "$APP/api/worker/operations" | pnpm worker:ops-check --stdin --text
+```
+
+The output is content-free by construction (bounded enums + policy-authored prose;
+an ingested snapshot's strings are re-authored, never echoed), so it is safe to ship
+to any cron/monitor log. Runnable fixtures for each verdict live in
+[`docs/examples/observability/healthcheck/`](../docs/examples/observability/healthcheck/).
+
 Deploy checklist:
 
 - [ ] Worker image passes `pnpm worker:smoke` (honest-refusal contract).
@@ -219,8 +249,11 @@ Deploy checklist:
       daemon liveness (`daemonObserved:false`), safe recommended action, and no provider
       values. Confirm worker-side `operations`/`metrics`/`slo` JSON lines from the daemon
       logs for actual worker-vantage health (Phase 28).
+- [ ] `pnpm worker:ops-check` exits `0` against a healthy stack (or the honest `2`
+      unknown when a worker cannot be observed); it is wired into your cron/uptime
+      monitor or supervisor with an alert on a non-zero, non-`1` exit (Phase 31).
 
-**f. Worker operations/SLO snapshot** — use this for dashboards and runbook triage:
+**g. Worker operations/SLO snapshot** — use this for dashboards and runbook triage:
 
 ```bash
 curl -fsS https://<your-web-host>/api/worker/operations | jq .
@@ -324,6 +357,15 @@ remote processing production-ready:
 - **Image publish/promotion is not automated.** CI builds and validates the images
   but does not push them; wiring a registry and the promote-by-digest flow (§3) is
   operator-owned.
+- **Hosted metrics backend + pager — evaluation ships, the pipeline is operator-owned.**
+  The daemon emits content-free `metrics`/`slo` lines, and Phase 31's
+  `pnpm worker:ops-check` folds the operations snapshot (+ an optional metric window)
+  into a single alert verdict with a documented exit code. What stays operator-owned is
+  the **timeseries store** (Prometheus/OTel/hosted), the **scheduler** (cron / uptime
+  service / supervisor) that runs `ops-check`, and the **notifier** (email/chat/on-call
+  pager) that reacts to a non-zero exit. ops-check is local evaluation, not a pager: it
+  stores no history and pages no one — see
+  [`OBSERVABILITY.md`](OBSERVABILITY.md#operator-healthcheck--alert-evaluation-phase-31).
 
 ---
 

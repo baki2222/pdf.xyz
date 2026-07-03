@@ -1,0 +1,31 @@
+{
+  "operations": {
+    "version": 1,
+    "vantage": "worker",
+    "mode": "remote-configured",
+    "drainable": true,
+    "daemonObserved": true,
+    "daemon": { "state": "observed", "source": "self", "lastSeen": null, "mode": "check" },
+    "health": "warn",
+    "recommendedAction": "reconcile-lifecycle-drift",
+    "subsystems": [
+      { "id": "drainability", "health": "ok" },
+      { "id": "storage", "health": "ok" },
+      { "id": "queue", "health": "ok" },
+      { "id": "compression-engine", "health": "ok" },
+      { "id": "malware-scan", "health": "ok" },
+      { "id": "lifecycle", "health": "ok" },
+      { "id": "lifecycle-verification", "health": "warn" },
+      { "id": "guardrails", "health": "ok" }
+    ],
+    "proofs": { "compressionDeep": "available", "ocr": "unavailable" },
+    "lifecycleVerification": { "verdict": "drift", "health": "warn" },
+    "lastLoop": null
+  },
+  "metrics": {
+    "series": [
+      { "metric": "worker_lifecycle_verification_total", "kind": "counter", "labels": { "verdict": "drift" }, "value": 1 },
+      { "metric": "worker_lifecycle_drift_rules", "kind": "gauge", "labels": {}, "value": 2 }
+    ]
+  }
+}

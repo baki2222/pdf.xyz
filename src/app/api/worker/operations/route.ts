@@ -21,7 +21,10 @@
 
 import { ok } from "@/lib/jobs";
 import { resolveWorkerMode, type ToolAvailability } from "@/lib/workers";
-import { collectWebOperationsSnapshot } from "@/lib/workers/observability";
+import {
+  collectWebOperationsSnapshot,
+  evaluateOperationsAlerts,
+} from "@/lib/workers/observability";
 import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
 import { respond } from "../../_lib/http";
 
@@ -51,5 +54,13 @@ export async function GET(): Promise<Response> {
   // "observed". It never throws.
   const daemonLiveness = await readWorkerHeartbeatLiveness(process.env);
 
-  return respond(ok(collectWebOperationsSnapshot(process.env, { tools, daemonLiveness })));
+  const snapshot = collectWebOperationsSnapshot(process.env, { tools, daemonLiveness });
+  // Phase 31: attach the content-free alert posture (overall severity + the bounded
+  // reasons/actions of each contributing alert) the operator dashboard renders and any
+  // monitor scraping this endpoint keys on — the SAME verdict `pnpm worker:ops-check`
+  // produces from this snapshot. No SLO window is available from the web route (it runs
+  // no jobs), so this is the snapshot-derived posture only; the CLI folds in SLOs from a
+  // supplied metrics series. Every field is a bounded enum or policy-authored prose.
+  const alerts = evaluateOperationsAlerts(snapshot);
+  return respond(ok({ ...snapshot, alerts }));
 }
