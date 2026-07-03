@@ -379,3 +379,43 @@ describe("blueprint docs cross-references resolve", () => {
     }
   });
 });
+
+// --------------------------------------------------------------------------- //
+// Kubernetes web ↔ worker separation. The scheduler-templates suite pins most of
+// the k8s shape; this closes the one gap that a text-only grep of the web manifest
+// misses — the EFFECTIVE env a `envFrom` reference would inject. The public web pod
+// must inherit no worker secret and no worker-only engine/heartbeat/ops-check config.
+// --------------------------------------------------------------------------- //
+describe("kubernetes web pod receives no worker secret or worker-only engine env", () => {
+  const K8S = `${DIR}/kubernetes`;
+  const web = read(`${K8S}/web-deployment.yaml`);
+  const worker = read(`${K8S}/worker-deployment.yaml`);
+
+  it("the web Deployment mounts no worker secret and does not inherit the worker ConfigMap", () => {
+    // Strip comments so a comment that NAMES the rule (e.g. "does not mount pdfxyz-config")
+    // can't trip these checks — only real manifest keys count.
+    const webCode = web
+      .split("\n")
+      .map((l) => l.replace(/(^|\s)#.*$/, "$1"))
+      .join("\n");
+    expect(webCode).not.toContain("secretRef:"); // no provider secret on the public tier
+    // Mounting no ConfigMap/envFrom is what keeps the worker-only engine/heartbeat/
+    // ops-check knobs out of the web pod's EFFECTIVE environment; it uses inline env only.
+    expect(webCode).not.toContain("configMapRef:");
+    expect(webCode).not.toContain("envFrom:");
+    expect(webCode).not.toMatch(
+      /PDFXYZ_(S3|REDIS|MALWARE|CLAMAV|OCR|COMPRESSION|NATIVE_COMPRESSION|WORKER|OPSCHECK)/,
+    );
+  });
+
+  it("the web Deployment still serves the site over a ClusterIP Service on the web port", () => {
+    expect(web).toMatch(/kind:\s*Service/);
+    expect(web).toMatch(/containerPort:\s*3000/);
+  });
+
+  it("the worker Deployment takes the provider secret and exposes no public Service", () => {
+    expect(worker).toContain("secretRef:");
+    expect(worker).toMatch(/worker:daemon/);
+    expect(worker).not.toMatch(/kind:\s*Service/); // the worker is never publicly exposed
+  });
+});

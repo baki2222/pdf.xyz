@@ -25,9 +25,14 @@ spec:
           ports:
             - name: http
               containerPort: 3000
-          envFrom:
-            - configMapRef:
-                name: pdfxyz-config
+          # The public web pod takes NO worker secret and NO worker-only config: it does
+          # not mount `pdfxyz-config` (which carries engine/heartbeat/ops-check knobs) or
+          # `pdfxyz-worker-secrets`. It serves with nothing but NODE_ENV by default. Wire
+          # the SAME storage/queue vars here only if you also want the web tier to mint
+          # signed URLs / record jobs (see RUNBOOK §2) — provider selectors, never engines.
+          env:
+            - name: NODE_ENV
+              value: production
           readinessProbe:
             httpGet:
               path: /
