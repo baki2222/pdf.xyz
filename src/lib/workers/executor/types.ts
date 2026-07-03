@@ -9,6 +9,7 @@
 
 import type { JobArtifact, JobError } from "@/lib/jobs";
 import type { ProcessorInputFile } from "../processor/types";
+import type { ArtifactManifest } from "../artifacts/types";
 
 /** Input handed to {@link ExecutorStorage.writeArtifact}. */
 export interface WriteArtifactInput {
@@ -16,6 +17,13 @@ export interface WriteArtifactInput {
   filename: string;
   contentType: string;
   bytes: Uint8Array;
+  /**
+   * The content-free provenance {@link ArtifactManifest} the manifest gate generated
+   * for this output, when a gate ran. A byte-store (local-dev) records it alongside the
+   * artifact so the retrieval boundary can re-validate provenance; a bucket provider
+   * that streams opaque bytes ignores it. Absent when the gate was disabled.
+   */
+  manifest?: ArtifactManifest;
 }
 
 /**

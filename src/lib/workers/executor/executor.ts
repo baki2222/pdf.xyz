@@ -44,7 +44,7 @@ import type { ProcessorRegistry } from "../processor/registry";
 import type { MalwareScanner } from "../scanner/types";
 import type { SoundnessGate } from "../soundness/types";
 import { buildSoundnessReceipt, type SoundnessReceipt } from "../soundness/receipt";
-import type { ArtifactManifestGate } from "../artifacts/types";
+import type { ArtifactManifest, ArtifactManifestGate } from "../artifacts/types";
 import { buildArtifactReceipt, type ArtifactReceipt } from "../artifacts/receipt";
 import {
   artifactManifestMetric,
@@ -526,6 +526,11 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     // late cancellation (below) can honestly emit a `cleaned` receipt only when there
     // is a manifest to drop — never for a disabled/absent gate.
     let manifestGenerated = false;
+    // The per-output content-free manifests to record ALONGSIDE the published bytes, so
+    // the retrieval boundary can re-validate provenance. Populated only for a `valid`
+    // set (aligned with `result.artifacts` order); left undefined when the gate is
+    // absent/disabled, in which case the outputs are stored without a manifest.
+    let publishManifests: readonly ArtifactManifest[] | undefined;
     if (artifactManifest) {
       const validation = artifactManifest.validate({
         tool: job.tool,
@@ -589,6 +594,8 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
         // is wired.
         log({ event: "artifact_ok", ...base });
         manifestGenerated = true;
+        // Carry each output's content-free manifest to the write loop below.
+        publishManifests = validation.checks.map((check) => check.manifest);
         if (onArtifactReceipt) {
           onArtifactReceipt(
             buildArtifactReceipt({
@@ -611,13 +618,15 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     // on the job record and the status API. It is re-bounded at the queue's
     // persistence boundary; a processor that reports none simply completes without.
     const artifacts: JobArtifact[] = [];
-    for (const artifact of result.artifacts) {
+    for (const [index, artifact] of result.artifacts.entries()) {
+      const manifest = publishManifests?.[index];
       artifacts.push(
         await storage.writeArtifact({
           jobId: job.jobId,
           filename: artifact.filename,
           contentType: artifact.contentType,
           bytes: artifact.bytes,
+          ...(manifest ? { manifest } : {}),
         }),
       );
     }

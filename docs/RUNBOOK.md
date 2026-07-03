@@ -414,3 +414,22 @@ If worker logs/metrics show `worker_soundness_total{verdict="unsound"}` or jobs 
 ## Worker artifact-manifest rejections
 
 If worker logs/metrics show `worker_artifact_manifest_total{verdict="invalid"}` or jobs fail with the `artifact` class (client error `artifact_invalid`), the manifest gate blocked a processor's outputs *after* the transform but *before* publication — no artifact was stored or exposed. Inspect the bounded reason: `no_artifacts`, `too_many_artifacts`, `empty_artifact`, `oversize_artifact`, `unknown_output_kind`, `content_type_mismatch`, `unsupported_content_type`, `missing_retention_class`, `provenance_incomplete`, or `policy_unavailable`. These are content-free; do not correlate them with filenames or object keys. Common operator actions: a spike in `empty_artifact`/`no_artifacts` points at a degenerate processor run (check engine health); `content_type_mismatch`/`unsupported_content_type` points at a tool emitting the wrong output kind; `missing_retention_class` points at retention-policy drift; and `oversize_artifact` usually means a `PDFXYZ_WORKER_ARTIFACT_MAX_BYTES` ceiling is set tighter than real outputs. Review any `PDFXYZ_WORKER_ARTIFACT_*` overrides. This is a structural provenance check, not a malware, sanitization, or OCR-quality verdict.
+
+## Worker artifact-retrieval denials (Phase 38)
+
+The client-facing download boundary (`GET /api/artifacts/local/:artifactId`, local-dev only) runs the pure retrieval-access layer before streaming any bytes. When collection is wired, `worker_artifact_retrieval_total{outcome="denied"}` counts refused downloads by a content-free `reason`; the same reason drives the response code:
+
+| Reason | HTTP | What it means | Operator action |
+| --- | --- | --- | --- |
+| `malformed_handle` | 400 | The presented handle is not a valid opaque id | Client bug or probing; no server action |
+| `storage_unavailable` / `policy_unavailable` | 503 | The download backend cannot serve here, or the guardrail failed closed | Expected outside local-dev (this route is inert; real deployments serve signed URLs). A `policy_unavailable` spike is a defense-in-depth surprise — investigate |
+| `not_found` | 404 | No such artifact (unknown handle, or reaped past the tombstone horizon) | Expected once outputs auto-delete and their tombstones age out |
+| `expired` / `deleted` | 410 | The artifact provably existed and is now gone (retention window passed, or an explicit delete-now) | A spike of `expired` means clients retry too late; `deleted` follows a cancel/delete-now |
+| `job_mismatch` | 403 | A client's `?job=` integrity binding named a job that does not own the artifact | A client's own false claim; not an access-control breach (the boundary has no auth — the handle is the capability) |
+| `not_ready` | 409 | The owning job is not completed | Usually a client racing job completion |
+| `invalid_manifest` | 422 | A recorded provenance manifest failed re-validation against the stored bytes | Investigate a manifest/byte desync in the publish path; content-free, do not correlate with names/keys |
+| `unsupported_kind` | 415 | The output classifies to no recognized, downloadable kind | A producer emitting an unrecognized content-type |
+| `empty_artifact` | 422 | The stored output is zero bytes | Degenerate processor run |
+| `missing_manifest` | 404 | No manifest recorded and a strict-manifest posture is in force | Only if an operator both disabled the manifest gate and required a manifest at retrieval |
+
+Alongside the `worker_artifact_retrieval_total` counter, every decision (served or denied) also derives a content-free **retrieval receipt** (`src/lib/workers/artifacts/retrieval-receipt.ts`: `{ category, outcome, reason, kind, policyId, policyVersion }`) emitted through an injectable observer that defaults to none — wire it to an audit sink to keep a per-attempt trail. By default an output published *without* a manifest (the manifest gate was disabled) still downloads via intrinsic checks (recognized kind, non-empty, live) and is honestly **not** reported as provenance-validated. Every reason and receipt is content-free — never a handle, filename, object key, signed URL, or document byte. This is a bounded structural + lifecycle eligibility check, not authentication, authorization, malware scanning, sanitization, or a deletion proof; possession of the unguessable opaque handle is the capability, and `?job=` is an optional integrity cross-check, not access control.

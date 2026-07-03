@@ -53,6 +53,9 @@ export function createLocalDevExecutorStorage(
         filename: input.filename,
         contentType: input.contentType,
         bytes: input.bytes,
+        // Record the content-free provenance manifest (when the gate produced one) so
+        // the retrieval boundary can re-validate it. A production bucket ignores it.
+        ...(input.manifest ? { manifest: input.manifest } : {}),
       });
       const expiresAt = new Date(
         now() + DEFAULT_RETENTION.outputTtlMinutes * MINUTE_MS,

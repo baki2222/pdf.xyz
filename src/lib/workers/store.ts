@@ -12,9 +12,10 @@
  */
 
 import { DEFAULT_RETENTION, JOB_LIMITS, type Job } from "@/lib/jobs";
+import { isValidArtifactHandle } from "./artifacts/access";
+import type { ArtifactManifest } from "./artifacts/types";
 
 const MINUTE_MS = 60_000;
-const ARTIFACT_ID = /^art_[A-Za-z0-9_-]{10,64}$/;
 
 // Opaque-id minting lives in the node-only `./ids` leaf (no dependency on this
 // store), so the eager production adapter can mint ids without pulling the dev
@@ -24,9 +25,13 @@ import { newFileId, newJobId, newArtifactId, newSessionId } from "./ids";
 
 export { newFileId, newJobId, newArtifactId, newSessionId };
 
-/** True if `id` is a syntactically valid local artifact id. */
+/**
+ * True if `id` is a syntactically valid local artifact id. Delegates to the pure
+ * {@link isValidArtifactHandle} so the opaque-handle shape has one source of truth
+ * shared with the retrieval access layer.
+ */
 export function isValidArtifactId(id: string): boolean {
-  return ARTIFACT_ID.test(id);
+  return isValidArtifactHandle(id);
 }
 
 /** A reserved upload slot; `bytes` is set once the client uploads to it. */
@@ -48,7 +53,28 @@ export interface StoredArtifact {
   contentType: string;
   bytes: Uint8Array;
   expiresAt: number;
+  /**
+   * The content-free provenance {@link ArtifactManifest} the manifest gate generated
+   * for this output at publish (Phase 37). Recorded so the retrieval boundary can
+   * re-validate provenance without re-reading the bytes. Absent only when the manifest
+   * gate was disabled — in which case retrieval fails closed (`missing_manifest`).
+   */
+  manifest?: ArtifactManifest;
 }
+
+/**
+ * The store's lifecycle verdict for a presented artifact handle, mapped 1:1 to the
+ * retrieval access layer's {@link import("./artifacts/access").ArtifactLifecycle}:
+ *  - `absent`  — no entry, and no tombstone (unknown handle, or reaped past the horizon);
+ *  - `deleted` — explicitly deleted before its window elapsed (a bounded tombstone);
+ *  - `expired` — an entry existed but its retention window has passed (dropped here);
+ *  - `live`    — a non-expired entry, returned for eligibility evaluation.
+ */
+export type ArtifactRetrieval =
+  | { lifecycle: "absent" }
+  | { lifecycle: "deleted" }
+  | { lifecycle: "expired" }
+  | { lifecycle: "live"; artifact: StoredArtifact };
 
 /**
  * The executor-facing spec of a queued job: the inputs to read and the raw
@@ -79,9 +105,27 @@ export class DevWorkerStore {
   private idempotency = new Map<string, string>();
   private specs = new Map<string, StoredJobSpec>();
   private leases = new Map<string, StoredLease>();
+  /**
+   * Handles that were explicitly deleted before their retention window elapsed, so a
+   * later retrieval reports `deleted` (410 Gone) rather than a generic `absent` (404).
+   * BOUNDED: insertion-ordered with a hard cap, evicting the oldest — a long-lived dev
+   * process can never accumulate tombstones without limit. It holds only opaque handles
+   * (never bytes, names, or keys) and, like everything here, is lost on restart.
+   */
+  private tombstones = new Set<string>();
+  private static readonly MAX_TOMBSTONES = 4096;
 
   /** Injectable clock keeps expiry deterministic under test. */
   constructor(private readonly now: () => number = () => Date.now()) {}
+
+  /** Record a delete tombstone, evicting the oldest handle once the cap is reached. */
+  private rememberTombstone(artifactId: string): void {
+    if (this.tombstones.size >= DevWorkerStore.MAX_TOMBSTONES) {
+      const oldest = this.tombstones.values().next().value;
+      if (oldest !== undefined) this.tombstones.delete(oldest);
+    }
+    this.tombstones.add(artifactId);
+  }
 
   private expired(expiresAt: number): boolean {
     return this.now() >= expiresAt;
@@ -238,13 +282,40 @@ export class DevWorkerStore {
   }
 
   /**
+   * Look up an artifact for the retrieval boundary, reporting its lifecycle so the
+   * access layer can distinguish an unknown handle (`absent`) from a tombstoned one
+   * (`deleted`) from one whose retention window has passed (`expired`) from a live
+   * entry. Like {@link getArtifact}, it lazily drops an expired entry — but reports the
+   * `expired` verdict for THIS call, so the boundary can deny it honestly rather than as
+   * a generic not-found. An expired entry is NOT tombstoned (expiry ≠ explicit delete),
+   * so once its window has passed a later call sees `absent`.
+   */
+  retrieveArtifact(artifactId: string): ArtifactRetrieval {
+    const artifact = this.artifacts.get(artifactId);
+    if (!artifact) {
+      return this.tombstones.has(artifactId)
+        ? { lifecycle: "deleted" }
+        : { lifecycle: "absent" };
+    }
+    if (this.expired(artifact.expiresAt)) {
+      this.artifacts.delete(artifactId);
+      return { lifecycle: "expired" };
+    }
+    return { lifecycle: "live", artifact };
+  }
+
+  /**
    * Wipe an output artifact (and its bytes) immediately — the local-dev
    * stand-in for a signed "delete now" against object storage. Idempotent:
    * returns true if the artifact existed and was removed, false if it was
-   * already gone. Mirrors the contract's explicit delete-now guarantee.
+   * already gone. A successful delete leaves a bounded tombstone so a later
+   * retrieval reports `deleted` (410) rather than `absent` (404). Mirrors the
+   * contract's explicit delete-now guarantee.
    */
   deleteArtifact(artifactId: string): boolean {
-    return this.artifacts.delete(artifactId);
+    const existed = this.artifacts.delete(artifactId);
+    if (existed) this.rememberTombstone(artifactId);
+    return existed;
   }
 
   /** Clear everything — used to isolate tests. */
@@ -255,6 +326,7 @@ export class DevWorkerStore {
     this.idempotency.clear();
     this.specs.clear();
     this.leases.clear();
+    this.tombstones.clear();
   }
 }
 

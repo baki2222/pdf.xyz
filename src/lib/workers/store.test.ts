@@ -9,6 +9,25 @@ import {
   newJobId,
   newSessionId,
 } from "./store";
+import {
+  ARTIFACT_POLICY_ID,
+  ARTIFACT_POLICY_VERSION,
+  type ArtifactManifest,
+} from "./artifacts";
+
+/** A valid, content-free PDF provenance manifest for `bytes`-byte outputs. */
+function manifestFor(byteCount: number): ArtifactManifest {
+  return {
+    outputKind: "pdf",
+    contentType: "application/pdf",
+    byteCount,
+    retentionClass: "short",
+    toolSlug: "compress-pdf",
+    processor: "compress",
+    policyId: ARTIFACT_POLICY_ID,
+    policyVersion: ARTIFACT_POLICY_VERSION,
+  };
+}
 
 const MINUTE_MS = 60_000;
 
@@ -172,6 +191,68 @@ describe("DevWorkerStore — jobs, artifacts, idempotency", () => {
 
     clock += DEFAULT_RETENTION.outputTtlMinutes * MINUTE_MS;
     expect(store.getArtifact(stored.artifactId)).toBeUndefined();
+  });
+
+  it("retrieveArtifact reports live → expired → absent, carrying the manifest", () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const stored = store.putArtifact({
+      artifactId: newArtifactId(),
+      jobId: newJobId(),
+      filename: "out.pdf",
+      contentType: "application/pdf",
+      bytes,
+      manifest: manifestFor(bytes.byteLength),
+    });
+
+    const live = store.retrieveArtifact(stored.artifactId);
+    expect(live.lifecycle).toBe("live");
+    if (live.lifecycle === "live") {
+      expect(live.artifact.manifest?.outputKind).toBe("pdf");
+      expect(live.artifact.bytes.byteLength).toBe(3);
+    }
+
+    // At the retention window the entry reports `expired` for THIS call, then is gone.
+    clock += DEFAULT_RETENTION.outputTtlMinutes * MINUTE_MS;
+    expect(store.retrieveArtifact(stored.artifactId).lifecycle).toBe("expired");
+    expect(store.retrieveArtifact(stored.artifactId).lifecycle).toBe("absent");
+  });
+
+  it("retrieveArtifact reports absent for an unknown handle", () => {
+    expect(store.retrieveArtifact(newArtifactId()).lifecycle).toBe("absent");
+  });
+
+  it("retrieveArtifact reports `deleted` after an explicit delete, distinct from absent", () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const stored = store.putArtifact({
+      artifactId: newArtifactId(),
+      jobId: newJobId(),
+      filename: "out.pdf",
+      contentType: "application/pdf",
+      bytes,
+      manifest: manifestFor(bytes.byteLength),
+    });
+
+    expect(store.deleteArtifact(stored.artifactId)).toBe(true);
+    // A tombstone distinguishes an explicit delete-now (410 Gone) from a never-seen
+    // handle (404). An expired entry is NOT tombstoned (see the live→expired→absent test).
+    expect(store.retrieveArtifact(stored.artifactId).lifecycle).toBe("deleted");
+    // Idempotent: deleting an already-gone handle does not resurrect it or error.
+    expect(store.deleteArtifact(stored.artifactId)).toBe(false);
+    expect(store.retrieveArtifact(stored.artifactId).lifecycle).toBe("deleted");
+  });
+
+  it("reset clears delete tombstones too", () => {
+    const stored = store.putArtifact({
+      artifactId: newArtifactId(),
+      jobId: newJobId(),
+      filename: "out.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+      manifest: manifestFor(1),
+    });
+    store.deleteArtifact(stored.artifactId);
+    store.reset();
+    expect(store.retrieveArtifact(stored.artifactId).lifecycle).toBe("absent");
   });
 
   it("reset clears everything", () => {

@@ -158,6 +158,15 @@ describe("executor artifact-manifest gate — valid outputs publish", () => {
     expect(job?.status).toBe("completed");
     expect(job?.artifacts ?? []).toHaveLength(1);
     expect(h.logs.some((l) => l.event === "artifact_ok")).toBe(true);
+    // Phase 38: the published artifact carries its content-free provenance manifest in
+    // the store (threaded writeArtifact → putArtifact), so the retrieval boundary can
+    // re-validate it on download.
+    const retrieved = h.store.retrieveArtifact(job!.artifacts![0]!.artifactId);
+    expect(retrieved.lifecycle).toBe("live");
+    if (retrieved.lifecycle === "live") {
+      expect(retrieved.artifact.manifest?.outputKind).toBe("pdf");
+      expect(retrieved.artifact.manifest?.processor).toBe("compress");
+    }
     expect(manifestSamples(h.metrics).map((m) => m.labels)).toEqual([
       { verdict: "valid", reason: "ok", kind: "pdf", processor: "compress" },
     ]);

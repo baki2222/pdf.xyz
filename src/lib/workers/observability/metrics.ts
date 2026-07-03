@@ -50,6 +50,12 @@ import {
   type ArtifactReason,
   type ArtifactVerdict,
 } from "../artifacts/types";
+import {
+  ARTIFACT_ACCESS_REASONS,
+  ARTIFACT_RETRIEVAL_OUTCOMES,
+  type ArtifactAccessReason,
+  type ArtifactRetrievalOutcome,
+} from "../artifacts/access";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -335,6 +341,7 @@ export const METRIC_NAMES = [
   "worker_scan_total",
   "worker_soundness_total",
   "worker_artifact_manifest_total",
+  "worker_artifact_retrieval_total",
   "worker_storage_ops_total",
   "worker_queue_depth",
   "worker_queue_age_seconds",
@@ -418,6 +425,14 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
       reason: ARTIFACT_REASONS,
       kind: ARTIFACT_OUTPUT_KINDS,
       processor: PROCESSOR_KINDS,
+    },
+  },
+  worker_artifact_retrieval_total: {
+    kind: "counter",
+    labels: {
+      outcome: ARTIFACT_RETRIEVAL_OUTCOMES,
+      reason: ARTIFACT_ACCESS_REASONS,
+      kind: ARTIFACT_OUTPUT_KINDS,
     },
   },
   worker_storage_ops_total: {
@@ -584,6 +599,26 @@ export function artifactManifestMetric(
     metric: "worker_artifact_manifest_total",
     kind: "counter",
     labels: { verdict, reason, kind, processor },
+    value: 1,
+  };
+}
+
+/**
+ * The client-facing artifact-retrieval boundary reached `outcome` (`served`/`denied`)
+ * for the bounded `reason` on an output of `kind` (e.g. `served`/`ok` for a download,
+ * `denied`/`expired` or `denied`/`invalid_manifest` for a refused one; `unknown` kind
+ * when no valid manifest resolved). All three labels are closed enums — never a
+ * filename, object key, handle, signed URL, size, or document content.
+ */
+export function artifactRetrievalMetric(
+  outcome: ArtifactRetrievalOutcome,
+  reason: ArtifactAccessReason,
+  kind: ArtifactOutputKind,
+): WorkerMetricSample {
+  return {
+    metric: "worker_artifact_retrieval_total",
+    kind: "counter",
+    labels: { outcome, reason, kind },
     value: 1,
   };
 }

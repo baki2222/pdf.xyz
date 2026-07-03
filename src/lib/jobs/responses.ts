@@ -34,7 +34,14 @@ export type ApiErrorCode =
   | "too_many_files" // 422 — more files than the per-request cap
   | "file_too_large" // 413 — one declared file over the per-file byte cap
   | "request_too_large" // 413 — declared combined upload size over the request cap
-  | "malformed_pdf"; // 422 — bytes fail the bounded %PDF-/%%EOF structural sniff
+  | "malformed_pdf" // 422 — bytes fail the bounded %PDF-/%%EOF structural sniff
+  // ── Artifact-retrieval guardrails (Phase 38) ─────────────────────────────
+  // The download boundary's authorization/lifecycle denials, distinct from the
+  // structural/provenance ones (which reuse `not_found`/`conflict`/
+  // `unprocessable_entity`/`unsupported_media_type`). See `@/lib/workers/artifacts/access`
+  // and docs/SECURITY.md → "Artifact retrieval guardrails".
+  | "forbidden" // 403 — a presented capability/binding does not grant this artifact
+  | "gone"; // 410 — the artifact provably existed and is now gone (expired/deleted)
 
 /** Field-level detail for validation failures. */
 export interface FieldError {
@@ -91,6 +98,9 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   file_too_large: 413,
   request_too_large: 413,
   malformed_pdf: 422,
+  // Artifact-retrieval guardrails (Phase 38).
+  forbidden: 403,
+  gone: 410,
 };
 
 /** Build a typed error result with the correct HTTP status for `code`. */

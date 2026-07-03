@@ -22,6 +22,7 @@ export * from "./policy";
 export * from "./manifest";
 export * from "./gate";
 export * from "./receipt";
+export * from "./access";
 
 type EnvSource = Record<string, string | undefined>;
 

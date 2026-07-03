@@ -271,26 +271,32 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       // fail honestly (typed, content-free error, NO artifact); `valid`/`skipped`
       // proceeds to publish. Compression (the only tool this dev worker runs today)
       // produces a valid PDF, so the default path is unaffected.
-      const publishOk =
-        result.ok &&
-        artifactManifest.validate({
-          tool: request.tool,
-          processor: processorKindForId(processor.id),
-          retention: DEFAULT_RETENTION,
-          artifacts: result.artifacts,
-        }).verdict !== "invalid";
+      const validation = result.ok
+        ? artifactManifest.validate({
+            tool: request.tool,
+            processor: processorKindForId(processor.id),
+            retention: DEFAULT_RETENTION,
+            artifacts: result.artifacts,
+          })
+        : null;
+      const publishOk = validation !== null && validation.verdict !== "invalid";
 
       let job: Job;
       if (result.ok && publishOk) {
         const artifacts: JobArtifact[] = [];
-        for (const produced of result.artifacts) {
+        for (const [index, produced] of result.artifacts.entries()) {
           const artifactId = newArtifactId();
+          // Record the content-free provenance manifest (when the gate produced one)
+          // alongside the bytes, so the retrieval boundary can re-validate provenance
+          // on download. Empty for a `skipped` gate ⇒ stored without a manifest.
+          const manifest = validation?.checks[index]?.manifest;
           store.putArtifact({
             artifactId,
             jobId,
             filename: produced.filename,
             contentType: produced.contentType,
             bytes: produced.bytes,
+            ...(manifest ? { manifest } : {}),
           });
           // Mint the (signed, in production) download target through the storage
           // provider — the same seam a real bucket client implements.

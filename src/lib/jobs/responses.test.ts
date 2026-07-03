@@ -29,6 +29,8 @@ describe("apiError", () => {
       file_too_large: 413,
       request_too_large: 413,
       malformed_pdf: 422,
+      forbidden: 403,
+      gone: 410,
     };
     for (const [code, status] of Object.entries(expected)) {
       const result = apiError(code as ApiErrorCode, "msg");
