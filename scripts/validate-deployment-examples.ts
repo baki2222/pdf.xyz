@@ -46,6 +46,8 @@ const FILES = [
   `${DIR}/scheduler/pdfxyz-ops-bundle.timer`,
   `${DIR}/kubernetes/ops-bundle-cronjob.yaml`,
   `${DIR}/github-actions/ops-bundle-fixture.yml`,
+  // Phase 46 — the release readiness gate (run the safe checks, fold exit codes into PASS/WARN/FAIL).
+  `${DIR}/github-actions/release-gate-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -125,6 +127,10 @@ function main(): number {
   requireText(`${DIR}/scheduler/pdfxyz-ops-bundle.timer`, /Persistent=true/, "ops-bundle timer should catch up missed runs", findings);
   requireText(`${DIR}/github-actions/ops-bundle-fixture.yml`, /worker:ops-bundle --ops-check=.*healthy\.json/, "ops-bundle GitHub Actions fixture must run the aggregator over a fixture", findings);
   requireText(`${DIR}/github-actions/ops-bundle-fixture.yml`, /test "\$code" -eq 4/, "ops-bundle GitHub Actions fixture must assert the breach exit code", findings);
+
+  // Phase 46 — the release-gate template must run the actual gate and pin its documented exits.
+  requireText(`${DIR}/github-actions/release-gate-fixture.yml`, /worker:release-gate/, "release-gate GitHub Actions fixture must run worker:release-gate", findings);
+  requireText(`${DIR}/github-actions/release-gate-fixture.yml`, /test "\$code" -eq 1/, "release-gate GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

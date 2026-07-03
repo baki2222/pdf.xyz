@@ -1,0 +1,69 @@
+name: pdf.xyz worker release readiness gate
+
+# Runs the ONE-COMMAND, offline release readiness gate (Phase 46) as a pre-deploy job: it RUNS the
+# existing safe worker checks as subprocesses, reads ONLY each one's exit code, and folds them into
+# one PASS/WARN/FAIL verdict. It makes NO cloud call, needs NO credentials, reads NO secret, and
+# deletes NOTHING — every composed check is offline and deterministic (committed content-free
+# fixtures or a no-config environment). Gate the promotion on exit 0. This is a TEMPLATE.
+#
+# It is a PRE-DEPLOY EVIDENCE gate, not live cloud validation or deletion proof: a `pass` certifies
+# the evidence on THIS build, not real bucket lifecycle, byte deletion, or CDN state. Run your
+# changed-file no-secret / no-NUL scan separately (this gate does not diff the working tree).
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/lib/workers/release-gate/**"
+      - "scripts/worker-release-gate.ts"
+      - ".github/workflows/**"
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The whole gate must PASS (exit 0) on a clean build: every composed check meets its documented
+      # exit-code contract, so the build is promote-able from the evidence here.
+      - name: Full release gate passes (exit 0)
+        run: pnpm -s worker:release-gate --json
+
+      # A check whose EXPECTED exit is non-zero is a PASS when the subprocess exits with it: the
+      # cleanup pipeline fails closed (exit 4) on a present-but-tombstoned fixture, which is exactly
+      # what the gate wants to see, so the scoped gate still exits 0.
+      - name: Expected-non-zero check is a pass (exit 0)
+        run: |
+          set +e
+          pnpm -s worker:release-gate --only=cleanup-pipeline-breach --json >/dev/null
+          code=$?
+          test "$code" -eq 0 || { echo "expected 0, got $code"; exit 1; }
+
+      # A misused gate CLI fails closed to the distinct usage band (exit 1) — never a silent pass.
+      - name: An unknown scope id fails closed (exit 1)
+        run: |
+          set +e
+          pnpm -s worker:release-gate --only=not-a-real-check >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 1
+
+      # Collect the rendered report as a release record / CI artifact (the promotion-evidence use case).
+      - name: Write the release gate report as an artifact
+        if: always()
+        run: pnpm -s worker:release-gate --output=release-gate.json --json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-gate
+          path: release-gate.json
+
+      - name: Release-gate module unit + CLI smoke tests (no-leak contract + rollup ladder)
+        run: pnpm exec vitest run src/lib/workers/release-gate

@@ -15,6 +15,7 @@
     "worker:cleanup-project": "tsx scripts/worker-cleanup-project.ts",
     "worker:cleanup-pipeline": "tsx scripts/worker-cleanup-pipeline.ts",
     "worker:ops-bundle": "tsx scripts/worker-ops-bundle.ts",
+    "worker:release-gate": "tsx scripts/worker-release-gate.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",

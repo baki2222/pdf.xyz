@@ -102,6 +102,10 @@ import {
   OPS_BUNDLE_SEVERITIES,
   type OpsBundleSeverity,
 } from "../ops-bundle/types";
+import {
+  RELEASE_GATE_VERDICTS,
+  type ReleaseGateVerdict,
+} from "../release-gate/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -403,6 +407,7 @@ export const METRIC_NAMES = [
   "worker_cleanup_pipeline_total",
   "worker_cleanup_evidence_posture",
   "worker_ops_bundle_total",
+  "worker_release_gate_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -571,6 +576,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       severity: OPS_BUNDLE_SEVERITIES,
+    },
+  },
+  worker_release_gate_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_GATE_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -935,6 +946,24 @@ export function opsBundleMetric(severity: OpsBundleSeverity): WorkerMetricSample
     metric: "worker_ops_bundle_total",
     kind: "counter",
     labels: { severity },
+    value: 1,
+  };
+}
+
+/**
+ * A **release readiness gate** run (Phase 46) resolved to its promotion `verdict`
+ * ({@link ReleaseGateVerdict}: `pass`/`warn`/`fail`/`unknown`). One bounded label so a release
+ * pipeline / dashboard can count gate runs by the single decision an operator acts on (e.g.
+ * `worker_release_gate_total{verdict="fail"} > 0`). This counts an offline EVALUATION that RAN the
+ * existing content-free worker checks and folded their exit codes — NOT a cloud call, a deletion, a
+ * promotion, or a claim about bucket bytes. The one label is a closed, redaction-stable enum — never
+ * a filename, path, object key, bucket, URL, endpoint, region, instant, size, or document content.
+ */
+export function releaseGateMetric(verdict: ReleaseGateVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_gate_total",
+    kind: "counter",
+    labels: { verdict },
     value: 1,
   };
 }

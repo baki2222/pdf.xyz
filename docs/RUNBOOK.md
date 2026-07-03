@@ -630,3 +630,32 @@ pnpm worker:ops-bundle \
 ```
 
 Exit ladder: `0` ok, `1` usage/miswired aggregation, `2` unknown/incomplete evidence, `3` warning/degraded or drift, `4` critical/breach. The bundle is an aggregator only: it does not call the cloud, inspect buckets, read object bytes, or delete anything. It reconstructs from bounded enums/counts and drops unsafe strings, so do **not** attach raw provider exports or logs to a ticket; attach the generated bundle instead. Runnable examples live under `docs/examples/ops-bundle/` and `docs/examples/deployment/*ops-bundle*`.
+
+### Gate a worker build before promoting it: release readiness gate (Phase 46)
+
+Before promoting a worker build or declaring production readiness, run ONE local, offline, read-only release gate that fails **closed** — it never certifies a promotion it cannot verify.
+
+**`pnpm worker:release-gate`** is a single-host pre-deploy sweep with no setup — it RUNS the existing checks itself as subprocesses over committed fixtures and reads only their exit codes:
+
+```
+pnpm worker:release-gate --text          # run the whole catalog, fold to pass/warn/fail/unknown
+pnpm worker:release-gate --only=deploy-examples,worker-smoke --json
+```
+
+Verdict/exit ladder: `0` pass, `1` usage, `2` unknown, `3` warn (an advisory check flagged a concern), `4` fail (a blocking check failed). Its verdict vocabulary is `pass`/`warn`/`fail`/`unknown` — a fold of the checks it ran.
+
+`worker:release-gate` composes **11** bounded checks and reads ONLY each subprocess's exit code — never a byte of its stdout/stderr — so no filename, key, path, URL, or document content can reach the report; it is content-free **by construction**. A check PASSES when the subprocess exit matches the check's AUTHORED expected code, so several checks pass on a NON-ZERO exit precisely because they prove a fail-closed contract: `cleanup-pipeline-breach`, `ops-check-critical`, `ops-bundle-critical`, and `lifecycle-drift` expect `4`; `cleanup-pipeline-unknown` expects `2`; the rest — `deploy-examples`, `worker-smoke`, `worker-engines` (advisory), `ops-check-healthy`, `ops-bundle-healthy`, `lifecycle-verify` — expect `0`.
+
+| Exit | Verdict | What it means | Do |
+| --- | --- | --- | --- |
+| `0` | `pass` | Every included check's exit matched its authored expectation. | Promote — subject to the out-of-band caveats below. |
+| `1` | `usage` | The gate was misused: a bad flag, or an unknown `--skip`/`--only` check id. | Fix the invocation; do **not** read it as a build verdict. |
+| `2` | `unknown` | A check was indeterminate (spawn failure/timeout/internal fault), or no check was included. | Re-run; investigate the host. Treat as a non-promotion, never a pass. |
+| `3` | `warn` | An advisory check flagged a concern (e.g. `worker-engines` — advisory because the gate host may differ from the deployed worker image). | Review; a warn is informational, not a hard block. |
+| `4` | `fail` | A blocking check failed — its exit did not match its authored expectation. | **Block the promotion.** Re-run the named failing check on its own. |
+
+Scope the run with `--only=<id,…>` or `--skip=<id,…>` over the bounded check ids (`deploy-examples`, `worker-smoke`, `worker-engines`, `ops-check-healthy`, `ops-check-critical`, `ops-bundle-healthy`, `ops-bundle-critical`, `cleanup-pipeline-unknown`, `cleanup-pipeline-breach`, `lifecycle-verify`, `lifecycle-drift`); an unknown id is a `1` usage error. `--json` (default) / `--text` / `--pretty` pick the format and `--output=<path>` writes the report to a file (the path is never embedded in the report). Wire it into CI with `docs/examples/deployment/github-actions/release-gate-fixture.yml`, which runs the full gate, asserts exit `0`, demonstrates the expected-non-zero-is-pass contract, and uploads the JSON report as an artifact.
+
+**It is a pre-deploy EVIDENCE gate — a `pass` means only "the evidence gathered here shows no blocker."** It does **not** prove bytes were deleted, that a bucket's lifecycle policy is correct, or that live cloud validation, malware scanning, sanitization, or authentication/authorization are resolved — all out-of-band. And it does **not** scan the working tree for secrets or NUL bytes: its `deploy-examples` check secret-scans the *committed* deployment blueprints, but **uncommitted changes are not scanned** — run your changed-file secret/NUL scan separately before you promote.
+
+The gate is local, offline, and read-only: it does not call the cloud, read a provider export/secret/bucket, inspect object bytes, or delete/upload/mutate anything, and it does not perform the promotion. A `pass` verdict certifies only that the evidence gathered here shows no blocker — real cloud state (bucket lifecycle, object deletion, queue/broker health, CDN), legal retention, data migration, and provider quotas remain operator-owned and out-of-band. Do **not** attach raw provider exports or logs to a promotion record; attach the generated content-free report instead. The CI example lives at `docs/examples/deployment/github-actions/release-gate-fixture.yml`.
