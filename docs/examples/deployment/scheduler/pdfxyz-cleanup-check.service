@@ -1,0 +1,35 @@
+# pdf.xyz storage-artifact cleanup evidence check — systemd oneshot service EXAMPLE (Phase 43).
+#
+# Paired with pdfxyz-cleanup-check.timer. Install both under /etc/systemd/system/ and:
+#   systemctl daemon-reload && systemctl enable --now pdfxyz-cleanup-check.timer
+#
+# This is a TEMPLATE — adapt User/WorkingDirectory/paths to your host. It runs the inert
+# notifier wrapper, which PROJECTS a raw provider export you captured out-of-band into the
+# content-free Phase 42 shapes and runs the absence verifier + dry-run sweeper, mapping their
+# documented exit codes (0 ok · 1 usage · 2 unknown · 3 drift · 4 breach) to an action. It
+# makes NO cloud call and DELETES NOTHING.
+[Unit]
+Description=pdf.xyz storage-artifact cleanup evidence check (one-shot)
+Documentation=file:/opt/pdfxyz/docs/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run as an unprivileged operator user, never root.
+User=pdfxyz
+Group=pdfxyz
+WorkingDirectory=/opt/pdfxyz
+# The raw provider export your out-of-band, credentialed export job wrote (this check never
+# calls the cloud). Point it at wherever that job deposits the capture.
+Environment=PDFXYZ_CLEANUP_RAW_EXPORT=/var/lib/pdfxyz/cleanup/raw-export.json
+Environment=PDFXYZ_CLEANUP_GRACE_HOURS=48
+# Inert unless you wire a webhook out-of-band (empty ⇒ nothing is posted):
+# Environment=PDFXYZ_CLEANUP_WEBHOOK_URL=https://REPLACE-ME.example-webhook.invalid/hook
+ExecStart=/opt/pdfxyz/deploy/cleanup/cleanup-evidence-notify.sh
+# Content-free and hardened: the check projects/evaluates only a bounded verdict, never the
+# document, and it reads only the export file (no network egress needed for the evaluation).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

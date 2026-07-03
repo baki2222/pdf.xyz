@@ -1,0 +1,64 @@
+name: pdf.xyz cleanup evidence projection gate
+
+# Offline validation of the storage-artifact cleanup pipeline: it projects the committed raw
+# export fixtures into the content-free Phase 42 shapes and asserts each pins its documented
+# exit code, then proves a projected document pipes straight into the downstream verifier and
+# sweeper. It makes NO cloud call, needs NO credentials, and deletes NOTHING — every input is
+# a committed, content-free fixture.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docs/examples/cleanup-project/**"
+      - "src/lib/workers/cleanup/project/**"
+      - "src/lib/workers/cleanup/**"
+      - "src/lib/workers/artifacts/cleanup/**"
+      - ".github/workflows/**"
+
+jobs:
+  cleanup-evidence-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Evidence fixture projects successfully (exit 0)
+        run: pnpm -s worker:cleanup-project --target=evidence --file=docs/examples/cleanup-project/raw-evidence-projected.json --now=1700000000000 >/dev/null
+
+      - name: Inventory fixture projects successfully (exit 0)
+        run: pnpm -s worker:cleanup-project --target=inventory --file=docs/examples/cleanup-project/raw-inventory-projected.json --now=1700000000000 >/dev/null
+
+      - name: Metadata-thin listing is insufficient (exit 2)
+        run: |
+          set +e
+          pnpm -s worker:cleanup-project --target=inventory --file=docs/examples/cleanup-project/raw-insufficient-listing.json --now=1700000000000 >/dev/null
+          code=$?
+          test "$code" -eq 2
+
+      - name: Present-but-tombstoned export is unsafe (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:cleanup-project --target=inventory --file=docs/examples/cleanup-project/raw-unsafe-tombstoned.json --now=1700000000000 >/dev/null
+          code=$?
+          test "$code" -eq 4
+
+      - name: Projected evidence pipes into the absence verifier
+        run: |
+          pnpm -s worker:cleanup-project --target=evidence --file=docs/examples/cleanup-project/raw-evidence-projected.json --now=1700000000000 \
+            | pnpm -s worker:cleanup-check --stdin --json
+
+      - name: Projected inventory pipes into the dry-run sweeper
+        run: |
+          pnpm -s worker:cleanup-project --target=inventory --file=docs/examples/cleanup-project/raw-inventory-projected.json --now=1700000000000 \
+            | pnpm -s worker:artifact-cleanup --stdin --json
+
+      - name: Projection module unit tests (no-leak contract + verdict ladder)
+        run: pnpm exec vitest run src/lib/workers/cleanup/project

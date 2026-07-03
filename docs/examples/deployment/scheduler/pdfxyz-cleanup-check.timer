@@ -1,0 +1,24 @@
+# pdf.xyz storage-artifact cleanup evidence check — systemd timer EXAMPLE (Phase 43).
+#
+# Drives pdfxyz-cleanup-check.service on a fixed cadence. Install both under
+# /etc/systemd/system/ and enable the TIMER (not the service):
+#   systemctl daemon-reload && systemctl enable --now pdfxyz-cleanup-check.timer
+#   systemctl list-timers pdfxyz-cleanup-check.timer   # confirm the next run
+#
+# Cleanup drift moves on the scale of a bucket lifecycle sweep (often daily), so an hourly
+# cadence is plenty — tune it to your export freshness. This is a TEMPLATE.
+[Unit]
+Description=Run the pdf.xyz storage-artifact cleanup evidence check on a schedule
+Documentation=file:/opt/pdfxyz/docs/RUNBOOK.md
+
+[Timer]
+# First run shortly after boot, then hourly while active.
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+# Catch up one missed run after downtime instead of silently skipping the window.
+Persistent=true
+Unit=pdfxyz-cleanup-check.service
+
+[Install]
+WantedBy=timers.target

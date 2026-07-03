@@ -763,3 +763,31 @@ Phase 36 enables a worker-side file-soundness gate by default. Server/worker-onl
 ## Worker artifact-manifest configuration
 
 Phase 37 enables a worker-side artifact-manifest / provenance gate by default. Like soundness it runs **only inside the worker/daemon** (after a processor succeeds, before any bytes are persisted) and makes no security claim, so it needs no backend and ships on. Server/worker-only env names: `PDFXYZ_WORKER_ARTIFACT_MANIFEST` (master switch), `PDFXYZ_WORKER_ARTIFACT_MAX_COUNT`, `PDFXYZ_WORKER_ARTIFACT_MAX_BYTES` (per-output byte ceiling; `0`/unset ⇒ off), `PDFXYZ_WORKER_ARTIFACT_CHECK_CONTENT_TYPE`, and `PDFXYZ_WORKER_ARTIFACT_REQUIRE_RETENTION_CLASS`. Defaults are conservative: gate on, output-count capped, content-type and retention-class checks on, per-output byte ceiling opt-in. These are **worker-only** — deploy them with the same discipline as `PDFXYZ_WORKER_SOUNDNESS_*` and the worker-only queue/heartbeat secrets: never expose them as `NEXT_PUBLIC_*` and never let a shared `envFrom` leak them onto the public web pod (the web/worker env-separation invariant, see the rate-limit and heartbeat notes above). Setting `PDFXYZ_WORKER_ARTIFACT_MAX_BYTES` tighter than real outputs will reject legitimate jobs as `oversize_artifact`; leave it `0` unless you have measured output sizes. Treat the gate as structural provenance policy, not proof of sanitization or deletion.
+
+## Phase 43 storage-artifact cleanup pipeline scheduling
+
+Phase 43 adds copy-and-adapt scheduler templates for the offline storage-artifact cleanup pipeline under [`docs/examples/deployment/cleanup`](examples/deployment/cleanup). The pipeline has three offline stages, **none of which calls the cloud, needs credentials, or deletes anything**:
+
+1. **Project** — `pnpm worker:cleanup-project` reads a raw provider export you captured out-of-band (`aws s3api list-objects-v2` / `head-object`, or a normalized dump) and emits the two content-free Phase 42 shapes, dropping every object key/bucket/URL/endpoint/id/ETag/filename/user-metadata.
+2. **Verify** — `pnpm worker:cleanup-check` folds the projected **evidence** to prove whether should-be-gone artifacts are actually absent (deleted/reaped) or only retrieval-denied.
+3. **Sweep** — `pnpm worker:artifact-cleanup` evaluates the projected **inventory** and reports expired/tombstoned-but-present objects as a dry-run plan.
+
+Templates (all placeholder-only — no real bucket, key, URL, or secret):
+
+- `cleanup/cleanup-evidence-notify.sh` — inert wrapper that projects a mounted export, runs the verifier + dry-run sweeper, and re-raises the worst actionable exit code.
+- `kubernetes/cleanup-check-cronjob.yaml` — a `CronJob` that projects a ConfigMap-mounted raw export (the operator populates it out-of-band with their own credentials) and runs the verifier + sweeper, failing the Job on drift/breach.
+- `scheduler/pdfxyz-cleanup-check.service` + `.timer` and `scheduler/cleanup-check.cron` — systemd + cron wiring that run the wrapper hourly.
+- `github-actions/cleanup-evidence-fixture.yml` — a CI gate that projects the committed content-free fixtures and asserts each exit code, plus the end-to-end pipe into the Phase 42 tools.
+
+Key your monitor on the **exit code** (higher = worse; `1` is a distinct "the check itself was misused"): `cleanup-project` — `0` projected / `1` usage / `2` insufficient / `4` unsafe; `cleanup-check` — `0` verified / `1` usage / `2` unknown/not-configured / `3` drift; `artifact-cleanup` — `0` ok / `1` usage / `2` unknown / `3` drift / `4` breach. Alert on `>= 3` (drift/breach) and on any projection `unsafe`; treat `2` as a soft "not enough evidence / storage not wired". The full alerting table lives in [`docs/examples/deployment/cleanup/README.md`](examples/deployment/cleanup/README.md).
+
+Validate the templates locally with:
+
+```bash
+pnpm deploy:examples:check
+# Roll up a mounted export through project → verify → dry-run sweep (exit 4 on the unsafe fixture):
+PDFXYZ_CLEANUP_RAW_EXPORT=docs/examples/cleanup-project/raw-unsafe-tombstoned.json \
+  sh docs/examples/deployment/cleanup/cleanup-evidence-notify.sh
+```
+
+Honesty boundary: these templates were statically validated and smoke-run against committed content-free fixtures here; they were not applied to a real Kubernetes cluster, cloud bucket, or pager. A `drift`/`breach` is a cleanup gap, not a disclosure (the Phase 41 retrieval boundary still denies the download) and not a claim about your bucket lifecycle policy's correctness (verify that with `worker:daemon --lifecycle-verify`). Producing the raw export and performing any deletion/CDN purge both remain operator-owned and out-of-band.

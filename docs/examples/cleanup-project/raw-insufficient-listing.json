@@ -1,0 +1,10 @@
+{
+  "Contents": [
+    {
+      "Key": "EXAMPLE-bare-listing-entry-key-dropped",
+      "Size": 1000,
+      "LastModified": "2026-01-01T00:00:00.000Z",
+      "StorageClass": "EXAMPLE-storage-class-dropped"
+    }
+  ]
+}

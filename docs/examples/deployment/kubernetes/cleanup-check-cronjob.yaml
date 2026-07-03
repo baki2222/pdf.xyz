@@ -1,0 +1,83 @@
+# pdf.xyz storage-artifact cleanup pipeline — Kubernetes CronJob EXAMPLE (Phase 43/42).
+#
+# Projects a raw provider export an operator produced OUT-OF-BAND into the two content-free
+# Phase 42 shapes and runs the absence VERIFIER + dry-run SWEEPER against them. It makes NO
+# cloud call, needs NO storage credentials, and DELETES NOTHING — object deletion stays
+# operator-owned and out-of-band. The Job FAILS (non-zero) on drift/breach/unsafe so your
+# cluster's Job-failure alerting fires; see docs/examples/deployment/cleanup/README.md.
+#
+# The raw export is mounted read-only from a ConfigMap the operator populates out-of-band
+# (e.g. a separate, credentialed export Job runs `aws s3api list-objects-v2` / `head-object`
+# and writes the result — NEVER wire cloud credentials into this evaluation Job). This is a
+# TEMPLATE — replace the image, and provide the pdfxyz-cleanup-raw-export ConfigMap yourself.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pdfxyz-cleanup-check
+  namespace: pdfxyz
+  labels:
+    app.kubernetes.io/name: pdfxyz
+    app.kubernetes.io/component: cleanup-check
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 6
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: pdfxyz
+            app.kubernetes.io/component: cleanup-check
+        spec:
+          restartPolicy: Never
+          volumes:
+            # The raw provider export, produced OUT-OF-BAND by the operator's own credentialed
+            # export Job and surfaced here read-only. This evaluation Job never calls the cloud.
+            - name: evidence
+              configMap:
+                name: pdfxyz-cleanup-raw-export
+                optional: false
+          containers:
+            - name: cleanup-check
+              image: ghcr.io/REPLACE-ME/pdfxyz-worker:REPLACE_TAG
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: PDFXYZ_CLEANUP_RAW_EXPORT
+                  value: /evidence/raw-export.json
+                - name: PDFXYZ_CLEANUP_GRACE_HOURS
+                  value: "48"
+              # Project the mounted raw export → verify absence AND dry-run sweep inventory.
+              # Exit the Job with the WORST actionable code (2 unknown · 3 drift · 4 breach),
+              # and fail on it so cluster alerting surfaces a cleanup gap. Usage(1) from a
+              # misconfigured check is treated as unknown(2), never a silent success.
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -u
+                  raw="$PDFXYZ_CLEANUP_RAW_EXPORT"
+                  pnpm -s worker:cleanup-project --target=evidence --file="$raw" \
+                    | pnpm -s worker:cleanup-check --stdin --grace-hours="$PDFXYZ_CLEANUP_GRACE_HOURS" --json >/dev/null 2>&1
+                  v=$?
+                  pnpm -s worker:cleanup-project --target=inventory --file="$raw" \
+                    | pnpm -s worker:artifact-cleanup --stdin --json >/dev/null 2>&1
+                  s=$?
+                  worst=0
+                  for c in "$v" "$s"; do
+                    n="$c"; [ "$c" = "1" ] && n=2
+                    [ "$n" -gt "$worst" ] && worst="$n"
+                  done
+                  echo "pdfxyz cleanup-check: verify=$v sweep=$s worst=$worst" >&2
+                  exit "$worst"
+              volumeMounts:
+                - name: evidence
+                  mountPath: /evidence
+                  readOnly: true
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]

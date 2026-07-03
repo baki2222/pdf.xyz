@@ -529,3 +529,34 @@ Triage the sweeper's verdict (exit `0` clean / `2` unknown / `3` cleanup-recomme
 | `ok` (exit 0) | Live, with a valid manifest, a recognized kind, and a configured backend | None |
 
 Neither tool proves byte deletion on its own, claims bucket lifecycle policy correctness, or performs deletion/CDN purge — all still operator-owned and out of band.
+
+### Producing the inputs safely: `pnpm worker:cleanup-project` (Phase 43)
+
+Both tools above consume **content-free** documents. Do **not** hand-craft them from a raw
+bucket capture (that risks pasting an object key, bucket, or signed URL into a document that
+gets logged). Instead pipe your own out-of-band capture through the offline **projector**,
+which reads only a bounded allowlist and drops every locator/identifier before anything is
+written:
+
+```sh
+# Raw aws s3api head-object / list-objects-v2 capture (or a normalized dump) → INVENTORY → sweeper
+aws s3api list-objects-v2 --bucket "$B" --prefix artifacts/ > raw-export.json   # your creds, out of band
+pnpm worker:cleanup-project --target=inventory --file=raw-export.json | pnpm worker:artifact-cleanup --stdin --text
+
+# Raw probe capture → EVIDENCE → absence verifier
+pnpm worker:cleanup-project --target=evidence --file=raw-probe.json | pnpm worker:cleanup-check --stdin
+
+# --source=generic if your export already uses the bounded field names; default is aws-s3
+```
+
+The projector's own exit ladder is `0` projected / `1` usage / `2` insufficient (a metadata-thin
+export — capture lifecycle/manifest metadata and retry) / `4` unsafe (a present-but-tombstoned
+object, or a structurally invalid record — investigate that object). It embeds a content-free
+`receipt` (record counts + dropped-field counts by category + warnings by bounded reason) the
+downstream tool ignores, so you can save the piped document and audit what was dropped. It is a
+**redaction/normalization helper** — it makes no cloud call, needs no credentials, deletes
+nothing, and is **not** proof of deletion, malware scanning, or a cloud scanner. Content-free
+example raw exports (with `EXAMPLE-…` placeholder locators the projector strips) live in
+`docs/examples/cleanup-project/`.
+
+None of these three tools proves byte deletion on its own, claims bucket lifecycle policy correctness, or performs deletion/CDN purge — all still operator-owned and out of band.

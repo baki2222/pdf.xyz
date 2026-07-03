@@ -1,0 +1,16 @@
+{
+  "Contents": [
+    {
+      "httpStatusCode": 200,
+      "ContentType": "application/pdf",
+      "ContentLength": 2000000,
+      "expiresAtMs": 99999999999999,
+      "manifest": "valid",
+      "kind": "pdf",
+      "processor": "compress",
+      "Key": "EXAMPLE-object-key-dropped-by-projector",
+      "ETag": "EXAMPLE-etag-dropped",
+      "Owner": { "ID": "EXAMPLE-owner-id-dropped" }
+    }
+  ]
+}

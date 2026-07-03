@@ -1,0 +1,13 @@
+{
+  "objects": [
+    {
+      "httpStatusCode": 200,
+      "expiresAtMs": 1000,
+      "deleted": true,
+      "manifest": "valid",
+      "kind": "pdf",
+      "Key": "EXAMPLE-tombstoned-but-present-key-dropped",
+      "signedUrl": "EXAMPLE-presigned-url-dropped"
+    }
+  ]
+}

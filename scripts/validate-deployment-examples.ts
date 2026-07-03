@@ -28,6 +28,14 @@ const FILES = [
   `${DIR}/kubernetes/worker-deployment.yaml`,
   `${DIR}/kubernetes/ops-check-cronjob.yaml`,
   `${DIR}/github-actions/ops-check-fixture.yml`,
+  // Phase 43 — storage-artifact cleanup evidence pipeline (project → verify → dry-run sweep).
+  `${DIR}/cleanup/README.md`,
+  `${DIR}/cleanup/cleanup-evidence-notify.sh`,
+  `${DIR}/kubernetes/cleanup-check-cronjob.yaml`,
+  `${DIR}/scheduler/pdfxyz-cleanup-check.service`,
+  `${DIR}/scheduler/pdfxyz-cleanup-check.timer`,
+  `${DIR}/scheduler/cleanup-check.cron`,
+  `${DIR}/github-actions/cleanup-evidence-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -80,6 +88,16 @@ function main(): number {
   requireText(`${DIR}/systemd/pdfxyz-worker-daemon.service`, /ExecStart=.*worker:daemon/, "systemd worker service must run daemon", findings);
   requireText(`${DIR}/scheduler/pdfxyz-ops-check.timer`, /Persistent=true/, "ops-check timer should catch up missed runs", findings);
   requireText(`${DIR}/github-actions/ops-check-fixture.yml`, /worker:ops-check --file=.*healthy\.json/, "GitHub Actions fixture check missing", findings);
+
+  // Phase 43 — the cleanup pipeline templates must run the actual project/verify/sweep commands.
+  requireText(`${DIR}/kubernetes/cleanup-check-cronjob.yaml`, /kind:\s*CronJob/, "missing cleanup Kubernetes CronJob", findings);
+  requireText(`${DIR}/kubernetes/cleanup-check-cronjob.yaml`, /worker:cleanup-project --target=/, "cleanup CronJob must project the export", findings);
+  requireText(`${DIR}/kubernetes/cleanup-check-cronjob.yaml`, /worker:cleanup-check["\s]/, "cleanup CronJob must run worker:cleanup-check", findings);
+  requireText(`${DIR}/cleanup/cleanup-evidence-notify.sh`, /worker:cleanup-project/, "cleanup notifier must project the export", findings);
+  requireText(`${DIR}/cleanup/cleanup-evidence-notify.sh`, /worker:artifact-cleanup/, "cleanup notifier must run the dry-run sweeper", findings);
+  requireText(`${DIR}/scheduler/pdfxyz-cleanup-check.service`, /ExecStart=.*cleanup-evidence-notify\.sh/, "cleanup systemd service must run the notifier", findings);
+  requireText(`${DIR}/scheduler/pdfxyz-cleanup-check.timer`, /Persistent=true/, "cleanup timer should catch up missed runs", findings);
+  requireText(`${DIR}/github-actions/cleanup-evidence-fixture.yml`, /worker:cleanup-project --target=.*raw-.*\.json/, "cleanup GitHub Actions fixture check missing", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

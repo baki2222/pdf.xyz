@@ -1,0 +1,26 @@
+# pdf.xyz storage-artifact cleanup evidence check — cron EXAMPLE (Phase 43).
+# Copy to /etc/cron.d/pdfxyz-cleanup-check.
+#
+# Runs the inert notifier wrapper hourly: it PROJECTS a raw provider export you captured
+# out-of-band into the content-free Phase 42 shapes and runs the absence verifier + dry-run
+# sweeper, mapping their documented exit codes to an action. It makes NO cloud call and
+# DELETES NOTHING — object deletion is operator-owned and out-of-band. This is a TEMPLATE.
+#
+# Exit ladder rolled up by the wrapper: 0 ok · 2 unknown · 3 drift · 4 breach. Usage(1) from
+# a misconfigured check is folded to unknown(2), never a silent success. The wrapper re-raises
+# 2/3/4 so cron's MAILTO mails you on a genuine cleanup gap.
+#
+# `/etc/cron.d` rows carry a user field (run as an unprivileged operator, never root). For a
+# per-user crontab (`crontab -e`) drop the `pdfxyz` user column.
+#
+# Point the wrapper at your out-of-band export and mail non-empty output to your operator
+# address (a real MTA/relay is out-of-band):
+MAILTO=REPLACE-ME-operator@example.invalid
+PDFXYZ_CLEANUP_RAW_EXPORT=/var/lib/pdfxyz/cleanup/raw-export.json
+
+# m h dom mon dow  user    command
+17 * * * *         pdfxyz  /opt/pdfxyz/deploy/cleanup/cleanup-evidence-notify.sh
+
+# Prefer to inline it instead of the wrapper? Then encode the SAME semantics yourself — alert
+# on exit >= 2, and treat 1 as "the check itself is broken", e.g.:
+# 17 * * * * pdfxyz cd /opt/pdfxyz && pnpm -s worker:cleanup-project --target=evidence --file="$PDFXYZ_CLEANUP_RAW_EXPORT" | pnpm -s worker:cleanup-check --stdin --json; c=$?; [ "$c" -ge 2 ] && your-notifier "cleanup-check exit $c"

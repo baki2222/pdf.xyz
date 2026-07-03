@@ -1,0 +1,18 @@
+{
+  "objects": [
+    {
+      "httpStatusCode": 200,
+      "expiresAtMs": 99999999999999,
+      "Key": "EXAMPLE-present-object-key-dropped",
+      "x-amz-request-id": "EXAMPLE-request-id-dropped"
+    },
+    {
+      "Error": { "Code": "NoSuchKey" },
+      "Key": "EXAMPLE-absent-object-key-dropped"
+    },
+    {
+      "statusCode": 503,
+      "endpoint": "EXAMPLE-endpoint-dropped"
+    }
+  ]
+}

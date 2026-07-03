@@ -78,6 +78,12 @@ import {
   type CleanupCategory,
   type CleanupSeverity,
 } from "../artifacts/cleanup/taxonomy";
+import {
+  PROJECTION_TARGETS,
+  PROJECTION_VERDICTS,
+  type ProjectionTarget,
+  type ProjectionVerdict,
+} from "../cleanup/project/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -375,6 +381,7 @@ export const METRIC_NAMES = [
   "worker_lifecycle_drift_rules",
   "worker_cleanup_verification_total",
   "worker_artifact_cleanup_total",
+  "worker_cleanup_projection_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -515,6 +522,13 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     labels: {
       category: CLEANUP_CATEGORIES,
       severity: CLEANUP_SEVERITIES,
+    },
+  },
+  worker_cleanup_projection_total: {
+    kind: "counter",
+    labels: {
+      target: PROJECTION_TARGETS,
+      verdict: PROJECTION_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -789,6 +803,30 @@ export function artifactCleanupMetric(
     kind: "counter",
     labels: { category, severity },
     value,
+  };
+}
+
+/**
+ * One Phase 43 cleanup evidence PROJECTION run resolved to a bounded {@link ProjectionVerdict}
+ * for output `target`. `target` is the shape it projected into (`evidence` for the absence
+ * verifier, `inventory` for the dry-run sweeper); `verdict` is the aggregate outcome: `projected`
+ * (usable records emitted, no unsafe signal), `insufficient` (a metadata-thin export — not enough
+ * to project), or `unsafe` (a present-but-tombstoned object or a structurally invalid record).
+ * This counts a REDACTION/NORMALIZATION run, NOT a verification or a deletion — the projector only
+ * reshapes an operator's own out-of-band export, dropping every locator. It is the run-level
+ * complement to the per-run {@link ProjectionReceipt} (`../cleanup/project/receipt`). Both labels
+ * are closed enums — never a filename, object key, bucket name, handle, signed URL, endpoint,
+ * region, expiry instant, size, or document content.
+ */
+export function cleanupProjectionMetric(
+  target: ProjectionTarget,
+  verdict: ProjectionVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_cleanup_projection_total",
+    kind: "counter",
+    labels: { target, verdict },
+    value: 1,
   };
 }
 
