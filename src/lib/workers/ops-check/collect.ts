@@ -18,6 +18,9 @@ import {
 } from "../observability/collector";
 import { deriveRuntimeMetrics, type RuntimeMetricSource } from "../observability/derive";
 import { evaluateSlos, type SloReport } from "../observability/slo";
+import type { WorkerMetricSample } from "../observability/metrics";
+import { deriveCleanupEvidenceMetric } from "../cleanup-evidence/metrics";
+import type { CleanupEvidencePosture } from "../cleanup-evidence/types";
 import type { HeartbeatLiveness } from "../heartbeat/types";
 
 /**
@@ -39,10 +42,18 @@ export function evaluateRuntimeSlos(runtime: RuntimeMetricSource): SloReport {
   return evaluateSlos(runtimeMetricsSnapshot(runtime));
 }
 
-/** Fold a resolved runtime's point-in-time readiness posture into a metrics snapshot. */
-function runtimeMetricsSnapshot(runtime: RuntimeMetricSource): WorkerMetricsSnapshot {
+/**
+ * Fold a resolved runtime's point-in-time readiness posture into a metrics snapshot, plus any
+ * `extra` already-content-free samples (Phase 44 threads the cleanup evidence posture gauge in
+ * here so a `--prometheus` scrape carries `worker_cleanup_evidence_posture`).
+ */
+function runtimeMetricsSnapshot(
+  runtime: RuntimeMetricSource,
+  extra: readonly WorkerMetricSample[] = [],
+): WorkerMetricsSnapshot {
   const collector = createWorkerMetricsCollector();
   for (const sample of deriveRuntimeMetrics(runtime)) collector.record(sample);
+  for (const sample of extra) collector.record(sample);
   return collector.snapshot();
 }
 
@@ -64,10 +75,13 @@ export interface CollectedOperations {
 export function collectRuntimeOperations(
   runtime: OpsCheckRuntime,
   daemonLiveness: HeartbeatLiveness,
+  cleanupEvidence: CleanupEvidencePosture,
 ): CollectedOperations {
-  const metrics = runtimeMetricsSnapshot(runtime);
+  const metrics = runtimeMetricsSnapshot(runtime, [
+    deriveCleanupEvidenceMetric(cleanupEvidence),
+  ]);
   return {
-    snapshot: collectOperatorProbeSnapshot(runtime, { daemonLiveness }),
+    snapshot: collectOperatorProbeSnapshot(runtime, { daemonLiveness, cleanupEvidence }),
     slo: evaluateSlos(metrics),
     metrics,
   };

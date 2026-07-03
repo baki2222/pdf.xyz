@@ -105,6 +105,12 @@ function buildResult(
         compressionDeep: snapshot.proofs.compressionDeep,
         ocr: snapshot.proofs.ocr,
       },
+      cleanupEvidence: {
+        state: snapshot.cleanupEvidence.state,
+        reason: snapshot.cleanupEvidence.reason,
+        provider: snapshot.cleanupEvidence.provider,
+        freshness: snapshot.cleanupEvidence.freshness,
+      },
       lastLoop: snapshot.lastLoop,
     },
     slo: sloDigest(collected),

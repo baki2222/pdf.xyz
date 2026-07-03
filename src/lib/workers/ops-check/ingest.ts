@@ -27,6 +27,7 @@
  */
 
 import {
+  cleanupEvidenceHealth,
   HEALTH_SUMMARY,
   OPERATIONS_SNAPSHOT_VERSION,
   RECOMMENDED_ACTION_DETAIL,
@@ -42,6 +43,17 @@ import {
   type SnapshotVantage,
   type WorkerOperationsSnapshot,
 } from "../observability/snapshot";
+import {
+  CLEANUP_EVIDENCE_AGE_BUCKETS,
+  CLEANUP_EVIDENCE_DETAIL,
+  CLEANUP_EVIDENCE_FRESHNESS,
+  CLEANUP_EVIDENCE_PROVIDERS,
+  CLEANUP_EVIDENCE_REASONS,
+  CLEANUP_EVIDENCE_REPORT_KINDS,
+  CLEANUP_EVIDENCE_STATES,
+  DISABLED_CLEANUP_EVIDENCE_POSTURE,
+  type CleanupEvidencePosture,
+} from "../cleanup-evidence/types";
 import {
   createWorkerMetricsCollector,
   type WorkerMetricsSnapshot,
@@ -143,6 +155,7 @@ const SUBSYSTEM_IDS = [
   "malware-scan",
   "lifecycle",
   "lifecycle-verification",
+  "cleanup-evidence",
   "guardrails",
   "daemon-loop",
 ] as const satisfies readonly SnapshotSubsystemId[];
@@ -349,6 +362,27 @@ function normalizeProofs(raw: unknown): { compressionDeep: ProofAvailability; oc
   };
 }
 
+/**
+ * Rebuild a content-free {@link CleanupEvidencePosture} from an untrusted value (Phase 44). Each
+ * field is validated against its bounded enum and defaulted safely; the detail is RE-AUTHORED from
+ * {@link CLEANUP_EVIDENCE_DETAIL} by the resolved reason — never copied from the input — so a
+ * hand-crafted posture carrying a path, key, or secret in its `detail` cannot survive ingestion.
+ * A missing/garbage field yields the honest `disabled` default rather than a fabricated posture.
+ */
+function normalizeCleanupEvidence(raw: unknown): CleanupEvidencePosture {
+  if (!isObject(raw)) return DISABLED_CLEANUP_EVIDENCE_POSTURE;
+  const reason = oneOf(raw.reason, CLEANUP_EVIDENCE_REASONS) ?? "no_report_configured";
+  return {
+    state: oneOf(raw.state, CLEANUP_EVIDENCE_STATES) ?? "disabled",
+    reason,
+    provider: oneOf(raw.provider, CLEANUP_EVIDENCE_PROVIDERS) ?? "unknown",
+    freshness: oneOf(raw.freshness, CLEANUP_EVIDENCE_FRESHNESS) ?? "unknown",
+    age: oneOf(raw.age, CLEANUP_EVIDENCE_AGE_BUCKETS) ?? "unknown",
+    reportKind: oneOf(raw.reportKind, CLEANUP_EVIDENCE_REPORT_KINDS) ?? "none",
+    detail: CLEANUP_EVIDENCE_DETAIL[reason],
+  };
+}
+
 /* ------------------------------------------------------------------ *
  *  Snapshot + metrics ingestion
  * ------------------------------------------------------------------ */
@@ -380,8 +414,22 @@ export function normalizeOperationsSnapshot(
 
   if (!health || !action || !daemon) return { ok: false, issues };
 
-  const subsystems = normalizeSubsystems(raw.subsystems);
   const lifecycleVerification = normalizeLifecycleVerification(raw.lifecycleVerification);
+  const cleanupEvidence = normalizeCleanupEvidence(raw.cleanupEvidence);
+  // Derive the cleanup-evidence subsystem from the normalized posture (health from state) and
+  // ensure it is present regardless of what the input's `subsystems` array carried — so a
+  // monitor-supplied snapshot's alert severity / exit code always reflects cleanup evidence,
+  // even if the input omitted or forged the subsystem entry.
+  const cleanupEvidenceHealthClass = cleanupEvidenceHealth(cleanupEvidence.state);
+  const subsystems = normalizeSubsystems(raw.subsystems).filter(
+    (s) => s.id !== "cleanup-evidence",
+  );
+  subsystems.push({
+    id: "cleanup-evidence",
+    label: SUBSYSTEM_LABEL["cleanup-evidence"],
+    health: cleanupEvidenceHealthClass,
+    detail: subsystemDetail("cleanup-evidence", cleanupEvidenceHealthClass),
+  });
 
   const snapshot: WorkerOperationsSnapshot = {
     version: OPERATIONS_SNAPSHOT_VERSION,
@@ -398,6 +446,7 @@ export function normalizeOperationsSnapshot(
     subsystems,
     proofs: normalizeProofs(raw.proofs),
     lifecycleVerification,
+    cleanupEvidence,
     lastLoop: normalizeLastLoop(raw.lastLoop),
   };
   return { ok: true, snapshot };

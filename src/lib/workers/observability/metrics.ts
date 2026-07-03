@@ -84,6 +84,20 @@ import {
   type ProjectionTarget,
   type ProjectionVerdict,
 } from "../cleanup/project/types";
+import {
+  PIPELINE_ARMS,
+  PIPELINE_SEVERITIES,
+  type PipelineArm,
+  type PipelineSeverity,
+} from "../cleanup/pipeline/types";
+import {
+  CLEANUP_EVIDENCE_PROVIDERS,
+  CLEANUP_EVIDENCE_REASONS,
+  CLEANUP_EVIDENCE_STATES,
+  type CleanupEvidenceProvider,
+  type CleanupEvidenceReason,
+  type CleanupEvidenceState,
+} from "../cleanup-evidence/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -382,6 +396,8 @@ export const METRIC_NAMES = [
   "worker_cleanup_verification_total",
   "worker_artifact_cleanup_total",
   "worker_cleanup_projection_total",
+  "worker_cleanup_pipeline_total",
+  "worker_cleanup_evidence_posture",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -529,6 +545,21 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     labels: {
       target: PROJECTION_TARGETS,
       verdict: PROJECTION_VERDICTS,
+    },
+  },
+  worker_cleanup_pipeline_total: {
+    kind: "counter",
+    labels: {
+      arm: PIPELINE_ARMS,
+      severity: PIPELINE_SEVERITIES,
+    },
+  },
+  worker_cleanup_evidence_posture: {
+    kind: "gauge",
+    labels: {
+      state: CLEANUP_EVIDENCE_STATES,
+      reason: CLEANUP_EVIDENCE_REASONS,
+      provider: CLEANUP_EVIDENCE_PROVIDERS,
     },
   },
   worker_job_terminal_total: {
@@ -826,6 +857,55 @@ export function cleanupProjectionMetric(
     metric: "worker_cleanup_projection_total",
     kind: "counter",
     labels: { target, verdict },
+    value: 1,
+  };
+}
+
+/**
+ * One arm of a Phase 44 cleanup evidence PIPELINE run rolled up to a bounded
+ * {@link PipelineSeverity} for the bounded {@link PipelineArm}. `arm` is which lens the composite
+ * ran (`verify` = project → absence verifier, `sweep` = project → dry-run sweeper); `severity`
+ * is that arm's rolled outcome: `ok` (clean), `usage` (misused/unreadable-export — a non-zero
+ * fail-closed band), `unknown` (cleanup unproven), `drift` (present past retention + grace), or
+ * `breach` (a tombstoned-but-present object or an unsafe export). This is the run-level composite
+ * COMPLEMENT to the per-stage `worker_cleanup_projection_total` / `worker_cleanup_verification_total`
+ * counters the arms also emit as they run, and to the per-run {@link import("../cleanup/pipeline/types").PipelineReceipt}.
+ * It counts a COMPOSITE EVALUATION, NOT a deletion — the pipeline only reshapes + evaluates an
+ * operator's own out-of-band export. Both labels are closed enums — never a filename, object key,
+ * bucket name, handle, signed URL, endpoint, region, expiry instant, size, or document content.
+ */
+export function cleanupPipelineMetric(
+  arm: PipelineArm,
+  severity: PipelineSeverity,
+): WorkerMetricSample {
+  return {
+    metric: "worker_cleanup_pipeline_total",
+    kind: "counter",
+    labels: { arm, severity },
+    value: 1,
+  };
+}
+
+/**
+ * The resolved **cleanup evidence posture** a monitor read (Phase 44) — the run-level presence
+ * gauge for the ops surface's cleanup-evidence check. `state` is the bounded posture
+ * ({@link CleanupEvidenceState}: `disabled`/`healthy`/`stale`/`warning`/`critical`/`invalid`/…),
+ * `reason` the bounded reason it resolved ({@link CleanupEvidenceReason}), and `provider` the
+ * bounded storage backend the driving report concerned ({@link CleanupEvidenceProvider}). This
+ * reports whether cleanup evidence MONITORING is configured/fresh/healthy from an operator's own
+ * content-free report SUMMARY — NOT a cloud call, a deletion, or a claim about bucket bytes. All
+ * three labels are closed, redaction-stable enums — never a filename, path, object key, bucket,
+ * URL, endpoint, region, instant, size, or byte.
+ */
+export function cleanupEvidencePostureMetric(
+  state: CleanupEvidenceState,
+  reason: CleanupEvidenceReason,
+  provider: CleanupEvidenceProvider,
+): WorkerMetricSample {
+  return {
+    metric: "worker_cleanup_evidence_posture",
+    kind: "gauge",
+    labels: { state, reason, provider },
     value: 1,
   };
 }

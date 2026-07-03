@@ -47,6 +47,15 @@ function makeSnapshot(
       health: "unknown",
       detail: "server-detail-should-not-render",
     },
+    cleanupEvidence: {
+      state: "disabled",
+      reason: "no_report_configured",
+      provider: "unknown",
+      freshness: "unknown",
+      age: "unknown",
+      reportKind: "none",
+      detail: "server-detail-should-not-render",
+    },
     lastLoop: null,
   };
   const merged = { ...base, ...overrides };
@@ -473,5 +482,45 @@ describe("OperationsSnapshotView — daemon liveness (Phase 30)", () => {
     }
     // An unrecognized state coerces to the honest disabled caveat.
     expect(screen.getByText(/can.?t see a running worker/i)).toBeInTheDocument();
+  });
+});
+
+describe("OperationsSnapshotView — cleanup evidence card (Phase 44)", () => {
+  const cleanup = (
+    over: Partial<WorkerOperationsSnapshot["cleanupEvidence"]> = {},
+  ): WorkerOperationsSnapshot["cleanupEvidence"] => ({
+    state: "healthy",
+    reason: "cleanup_verified",
+    provider: "remote-configured",
+    freshness: "fresh",
+    age: "1-24h",
+    reportKind: "cleanup-check",
+    detail: "server-detail-should-not-render",
+    ...over,
+  });
+
+  it("renders the verified state with bounded fact pills", () => {
+    render(<OperationsSnapshotView snapshot={makeSnapshot({ cleanupEvidence: cleanup() })} />);
+    expect(screen.getByText("Cleanup evidence")).toBeInTheDocument();
+    expect(screen.getByText("Absence verifier")).toBeInTheDocument();
+    expect(screen.getByText("Object storage")).toBeInTheDocument();
+  });
+
+  it("renders 'Not monitored' with no fact pills when disabled", () => {
+    render(<OperationsSnapshotView snapshot={makeSnapshot()} />);
+    expect(screen.getByText("Not monitored")).toBeInTheDocument();
+    expect(screen.queryByText("Absence verifier")).not.toBeInTheDocument();
+  });
+
+  it("never renders a server-provided detail string", () => {
+    render(
+      <OperationsSnapshotView
+        snapshot={makeSnapshot({
+          cleanupEvidence: cleanup({ state: "critical", reason: "cleanup_breach", detail: "s3://leaky/secret.pdf" }),
+        })}
+      />,
+    );
+    expect(screen.queryByText(/leaky/)).not.toBeInTheDocument();
+    expect(screen.getByText("Breach")).toBeInTheDocument();
   });
 });

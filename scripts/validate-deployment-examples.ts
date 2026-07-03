@@ -36,6 +36,9 @@ const FILES = [
   `${DIR}/scheduler/pdfxyz-cleanup-check.timer`,
   `${DIR}/scheduler/cleanup-check.cron`,
   `${DIR}/github-actions/cleanup-evidence-fixture.yml`,
+  // Phase 44 — the one-command cleanup evidence pipeline (project + verify + sweep, rolled up).
+  `${DIR}/cleanup/cleanup-pipeline-notify.sh`,
+  `${DIR}/github-actions/cleanup-pipeline-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -98,6 +101,13 @@ function main(): number {
   requireText(`${DIR}/scheduler/pdfxyz-cleanup-check.service`, /ExecStart=.*cleanup-evidence-notify\.sh/, "cleanup systemd service must run the notifier", findings);
   requireText(`${DIR}/scheduler/pdfxyz-cleanup-check.timer`, /Persistent=true/, "cleanup timer should catch up missed runs", findings);
   requireText(`${DIR}/github-actions/cleanup-evidence-fixture.yml`, /worker:cleanup-project --target=.*raw-.*\.json/, "cleanup GitHub Actions fixture check missing", findings);
+
+  // Phase 44 — the one-command pipeline templates must run the actual composite command and pin
+  // its documented exit codes.
+  requireText(`${DIR}/cleanup/cleanup-pipeline-notify.sh`, /worker:cleanup-pipeline/, "pipeline notifier must run worker:cleanup-pipeline", findings);
+  requireText(`${DIR}/cleanup/cleanup-pipeline-notify.sh`, /exit "\$code"/, "pipeline notifier must re-raise the composite exit code (fail closed)", findings);
+  requireText(`${DIR}/github-actions/cleanup-pipeline-fixture.yml`, /worker:cleanup-pipeline --file=.*raw-unsafe-tombstoned\.json/, "pipeline GitHub Actions fixture must run the composite over a fixture", findings);
+  requireText(`${DIR}/github-actions/cleanup-pipeline-fixture.yml`, /test "\$code" -eq 4/, "pipeline GitHub Actions fixture must assert the breach exit code", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

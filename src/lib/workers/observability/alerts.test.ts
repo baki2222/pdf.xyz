@@ -9,7 +9,10 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  cleanupEvidenceHealth,
   OPERATIONS_SNAPSHOT_VERSION,
+  type CleanupEvidenceReason,
+  type CleanupEvidenceState,
   type DaemonLivenessState,
   type HealthClass,
   type RecommendedAction,
@@ -30,12 +33,16 @@ import {
   type AlertReason,
   type AlertSeverity,
 } from "./alerts";
+import {
+  DISABLED_CLEANUP_EVIDENCE_POSTURE,
+  type CleanupEvidencePosture,
+} from "../cleanup-evidence/types";
 
 /* ------------------------------------------------------------------ *
  *  Fixtures
  * ------------------------------------------------------------------ */
 
-const SECRET = "s3://leaky-bucket/secret-file.pdf?sig=deadbeef";
+const HOSTILE_LOCATOR_FIXTURE = "s3://leaky-bucket/secret-file.pdf?sig=deadbeef";
 
 interface SnapshotOverrides {
   health?: HealthClass;
@@ -43,6 +50,7 @@ interface SnapshotOverrides {
   daemonState?: DaemonLivenessState;
   drainable?: boolean;
   subsystems?: SnapshotSubsystem[];
+  cleanupEvidence?: CleanupEvidencePosture;
   poisonProse?: boolean;
 }
 
@@ -55,7 +63,7 @@ function makeSnapshot(o: SnapshotOverrides = {}): WorkerOperationsSnapshot {
   const health = o.health ?? "ok";
   const action = o.recommendedAction ?? "none";
   const state = o.daemonState ?? "disabled";
-  const prose = o.poisonProse ? SECRET : "content-free prose";
+  const prose = o.poisonProse ? HOSTILE_LOCATOR_FIXTURE : "content-free prose";
   return {
     version: OPERATIONS_SNAPSHOT_VERSION,
     vantage: "web",
@@ -76,6 +84,7 @@ function makeSnapshot(o: SnapshotOverrides = {}): WorkerOperationsSnapshot {
     subsystems: o.subsystems ?? [],
     proofs: { compressionDeep: "unknown", ocr: "unknown" },
     lifecycleVerification: { known: false, verdict: "unknown", health: "unknown", detail: prose },
+    cleanupEvidence: o.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE,
     lastLoop: null,
   };
 }
@@ -444,13 +453,99 @@ describe("no-leak sanitization", () => {
       poisoned,
       sloReport(sloEval("job_success_rate", "breach", "80.00%", "warn <99%")),
     );
-    expect(JSON.stringify(report)).not.toContain(SECRET);
+    expect(JSON.stringify(report)).not.toContain(HOSTILE_LOCATOR_FIXTURE);
     // And it still produced a meaningful, authored verdict.
     expect(report.severity).toBe("critical");
     expect(report.alerts.length).toBeGreaterThan(0);
     for (const alert of report.alerts) {
       expect(alert.detail.length).toBeGreaterThan(0);
-      expect(alert.detail).not.toContain(SECRET);
+      expect(alert.detail).not.toContain(HOSTILE_LOCATOR_FIXTURE);
     }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Cleanup evidence (Phase 44)
+ * ------------------------------------------------------------------ */
+
+/** Build the overrides for a cleanup-evidence posture + its derived subsystem. */
+function withCleanup(
+  state: CleanupEvidenceState,
+  reason: CleanupEvidenceReason,
+  poison = false,
+): SnapshotOverrides {
+  return {
+    cleanupEvidence: {
+      state,
+      reason,
+      provider: "remote-configured",
+      freshness: "fresh",
+      age: "1-24h",
+      reportKind: "cleanup-check",
+      detail: poison ? HOSTILE_LOCATOR_FIXTURE : "authored elsewhere",
+    },
+    subsystems: [sub("cleanup-evidence", cleanupEvidenceHealth(state))],
+  };
+}
+
+describe("cleanup evidence alerting", () => {
+  it("a healthy posture adds no alert and does not worsen the verdict", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("healthy", "cleanup_verified")));
+    expect(report.severity).toBe("ok");
+    expect(report.alerts.some((a) => a.source === "cleanup-evidence")).toBe(false);
+  });
+
+  it("disabled / not-configured / unknown stay neutral (no alert, no page)", () => {
+    for (const [state, reason] of [
+      ["disabled", "no_report_configured"],
+      ["not-configured", "no_report_configured"],
+      ["unknown", "cleanup_unknown"],
+    ] as Array<[CleanupEvidenceState, CleanupEvidenceReason]>) {
+      const report = evaluateOperationsAlerts(makeSnapshot(withCleanup(state, reason)));
+      expect(report.severity, state).toBe("ok");
+      expect(report.alerts.some((a) => a.source === "cleanup-evidence"), state).toBe(false);
+    }
+  });
+
+  it("a stale/missing report warns (exit 3) with refresh-cleanup-evidence", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("stale", "report_missing")));
+    expect(report.severity).toBe("warn");
+    expect(exitCodeForSeverity(report.severity)).toBe(OPS_CHECK_EXIT.WARN);
+    const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
+    expect(alert?.reason).toBe("cleanup-evidence-stale");
+    expect(alert?.action).toBe("refresh-cleanup-evidence");
+  });
+
+  it("a drift report warns with reconcile-cleanup", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("warning", "cleanup_drift")));
+    expect(report.severity).toBe("warn");
+    const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
+    expect(alert?.reason).toBe("cleanup-evidence-drift");
+    expect(alert?.action).toBe("reconcile-cleanup");
+  });
+
+  it("a breach is critical (exit 4) with reconcile-cleanup", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("critical", "cleanup_breach")));
+    expect(report.severity).toBe("critical");
+    expect(exitCodeForSeverity(report.severity)).toBe(OPS_CHECK_EXIT.CRITICAL);
+    const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
+    expect(alert?.reason).toBe("cleanup-evidence-breach");
+    expect(alert?.action).toBe("reconcile-cleanup");
+  });
+
+  it("an invalid/unreadable report is critical with refresh-cleanup-evidence", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("invalid", "report_unreadable")));
+    expect(report.severity).toBe("critical");
+    const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
+    expect(alert?.reason).toBe("cleanup-evidence-invalid");
+    expect(alert?.action).toBe("refresh-cleanup-evidence");
+  });
+
+  it("never echoes a poisoned posture detail into the alert output", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("critical", "cleanup_breach", true)));
+    expect(JSON.stringify(report)).not.toContain(HOSTILE_LOCATOR_FIXTURE);
+    const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
+    expect(alert?.detail.length).toBeGreaterThan(0);
+    expect(alert?.detail).not.toContain(HOSTILE_LOCATOR_FIXTURE);
   });
 });

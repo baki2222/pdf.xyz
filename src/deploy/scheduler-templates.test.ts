@@ -131,3 +131,38 @@ describe("GitHub Actions ops-check fixture gate", () => {
     expect(workflow).not.toMatch(/secrets\./i);
   });
 });
+
+describe("Phase 44 cleanup evidence pipeline examples", () => {
+  const notify = `${DIR}/cleanup/cleanup-pipeline-notify.sh`;
+  const fixture = `${DIR}/github-actions/cleanup-pipeline-fixture.yml`;
+
+  it("keeps the pipeline notifier and CI fixture tab-free and secret-free", () => {
+    for (const rel of [notify, fixture]) {
+      const text = read(rel);
+      noTabs(text);
+      expectNoSecrets(text);
+    }
+  });
+
+  it("the notifier runs the one composite command and re-raises its exit code (fail closed)", () => {
+    const text = read(notify);
+    expect(text).toContain("worker:cleanup-pipeline");
+    // It must NOT run `set -e` as a command (that would abort before the non-zero code can be
+    // read), but MUST re-raise. Anchor to a command line so the explanatory comment does not count.
+    expect(text).toMatch(/^set -u$/m);
+    expect(text).not.toMatch(/^\s*set -e/m);
+    expect(text).toContain('exit "$code"');
+    // A usage (1) is surfaced but explicitly not a cleanup incident; a breach (4) is critical.
+    expect(text).toMatch(/1\)\s*severity="usage"/);
+    expect(text).toMatch(/4\)\s*severity="breach"/);
+  });
+
+  it("the CI fixture pins the documented composite exit codes and needs no credentials", () => {
+    const text = read(fixture);
+    expect(text).toContain("worker:cleanup-pipeline --file=docs/examples/cleanup-project/raw-unsafe-tombstoned.json");
+    expect(text).toContain('test "$code" -eq 4'); // present-tombstoned → breach
+    expect(text).toContain('test "$code" -eq 2'); // no wired backend → unknown
+    expect(text).toContain('test "$code" -eq 1'); // malformed → usage, fail closed
+    expect(text).not.toMatch(/secrets\./i);
+  });
+});

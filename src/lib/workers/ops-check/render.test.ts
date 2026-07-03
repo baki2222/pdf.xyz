@@ -53,6 +53,12 @@ function makeResult(over: Partial<OpsCheckResult> = {}): OpsCheckResult {
         { id: "malware-scan", health: "warn" },
       ],
       proofs: { compressionDeep: "available", ocr: "unavailable" },
+      cleanupEvidence: {
+        state: "disabled",
+        reason: "no_report_configured",
+        provider: "unknown",
+        freshness: "unknown",
+      },
       lastLoop: null,
     },
     slo: null,
@@ -168,5 +174,45 @@ describe("renderOpsCheck dispatch", () => {
     expect(() => JSON.parse(renderOpsCheck(makeResult(), "json"))).not.toThrow();
     expect(renderOpsCheck(makeResult(), "prometheus")).toContain("pdfxyz_ops_check_severity");
     expect(renderOpsCheck(makeResult(), "text")).toContain("OK");
+  });
+});
+
+describe("cleanup evidence rendering (Phase 44)", () => {
+  const withCleanup = (
+    ce: OpsCheckResult["snapshot"]["cleanupEvidence"],
+  ): OpsCheckResult =>
+    makeResult({
+      snapshot: {
+        vantage: "web",
+        health: "ok",
+        drainable: true,
+        daemonObserved: true,
+        subsystems: [{ id: "cleanup-evidence", health: "warn" }],
+        proofs: { compressionDeep: "unknown", ocr: "unknown" },
+        cleanupEvidence: ce,
+        lastLoop: null,
+      },
+    });
+
+  it("JSON carries the bounded cleanup evidence digest", () => {
+    const ce = { state: "warning", reason: "cleanup_drift", provider: "remote-configured", freshness: "fresh" } as const;
+    const parsed = JSON.parse(renderOpsCheckJson(withCleanup(ce)));
+    expect(parsed.snapshot.cleanupEvidence).toEqual(ce);
+  });
+
+  it("Prometheus emits a bounded pdfxyz_ops_check_cleanup_evidence gauge", () => {
+    const out = renderOpsCheckPrometheus(
+      withCleanup({ state: "stale", reason: "report_stale", provider: "unknown", freshness: "stale" }),
+    );
+    expect(out).toContain(
+      'pdfxyz_ops_check_cleanup_evidence{state="stale",reason="report_stale",provider="unknown",freshness="stale"} 1',
+    );
+  });
+
+  it("text summarizes the cleanup evidence state", () => {
+    const out = renderOpsCheckText(
+      withCleanup({ state: "critical", reason: "cleanup_breach", provider: "unknown", freshness: "fresh" }),
+    );
+    expect(out).toContain("cleanup evidence: critical (cleanup_breach, fresh)");
   });
 });

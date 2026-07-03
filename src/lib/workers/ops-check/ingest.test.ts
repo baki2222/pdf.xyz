@@ -16,7 +16,7 @@ import {
 import { collectWebOperationsSnapshot } from "../observability/snapshot";
 import { engineCapabilityMetric } from "../observability/metrics";
 
-const SECRET = "s3://leaky-bucket/customer-tax-return.pdf?sig=deadbeef";
+const HOSTILE_LOCATOR_FIXTURE = "s3://leaky-bucket/customer-tax-return.pdf?sig=deadbeef";
 
 /** A minimal, valid operations snapshot object (as JSON would deserialize it). */
 function validSnapshot(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -51,7 +51,9 @@ describe("normalizeOperationsSnapshot — valid input", () => {
     expect(r.snapshot.daemon.source).toBe("queue-broker");
     expect(r.snapshot.daemon.lastSeen).toBe("under-30s");
     expect(r.snapshot.daemonObserved).toBe(true);
-    expect(r.snapshot.subsystems.map((s) => s.id)).toEqual(["storage", "queue"]);
+    // The cleanup-evidence subsystem is always surfaced (derived from the posture), so a
+    // monitor-supplied snapshot's exit code always reflects cleanup evidence (Phase 44).
+    expect(r.snapshot.subsystems.map((s) => s.id)).toEqual(["storage", "queue", "cleanup-evidence"]);
     expect(r.snapshot.proofs).toEqual({ compressionDeep: "available", ocr: "unavailable" });
     expect(r.snapshot.version).toBe(1);
   });
@@ -103,7 +105,7 @@ describe("normalizeOperationsSnapshot — valid input", () => {
     expect(r.snapshot.daemon.lastSeen).toBeNull();
     expect(r.snapshot.daemon.mode).toBeNull();
     expect(r.snapshot.proofs.compressionDeep).toBe("unknown"); // defaulted
-    expect(r.snapshot.subsystems.map((s) => s.id)).toEqual(["storage"]);
+    expect(r.snapshot.subsystems.map((s) => s.id)).toEqual(["storage", "cleanup-evidence"]);
     expect(r.snapshot.subsystems[0]?.health).toBe("warn");
   });
 
@@ -226,7 +228,7 @@ describe("normalizeMetrics — sanitization", () => {
 
   it("drops a content-bearing label value rather than aggregating it", () => {
     const snap = normalizeMetrics({
-      series: [{ metric: "worker_engine_capability", kind: "gauge", labels: { capability: SECRET, available: "true" }, value: 1 }],
+      series: [{ metric: "worker_engine_capability", kind: "gauge", labels: { capability: HOSTILE_LOCATOR_FIXTURE, available: "true" }, value: 1 }],
     });
     // The label value is not in the closed enum, so the sample is rejected entirely.
     expect(snap).toBeNull();
@@ -237,31 +239,87 @@ describe("no-leak sanitization — end to end", () => {
   it("never echoes any content-bearing string from an ingested snapshot", () => {
     const poisoned = validSnapshot({
       // Content-bearing prose in every string field a naive parser might echo.
-      detail: SECRET,
-      recommendedActionDetail: SECRET,
+      detail: HOSTILE_LOCATOR_FIXTURE,
+      recommendedActionDetail: HOSTILE_LOCATOR_FIXTURE,
       daemon: {
         state: "stale",
         source: "queue-broker",
         lastSeen: "over-10m",
         mode: "loop",
-        detail: SECRET,
+        detail: HOSTILE_LOCATOR_FIXTURE,
       },
       subsystems: [
-        { id: "storage", health: "warn", label: SECRET, detail: SECRET },
-        { id: "malware-scan", health: "warn", label: SECRET, detail: SECRET },
+        { id: "storage", health: "warn", label: HOSTILE_LOCATOR_FIXTURE, detail: HOSTILE_LOCATOR_FIXTURE },
+        { id: "malware-scan", health: "warn", label: HOSTILE_LOCATOR_FIXTURE, detail: HOSTILE_LOCATOR_FIXTURE },
       ],
-      lifecycleVerification: { verdict: "drift", health: "warn", detail: SECRET },
+      lifecycleVerification: { verdict: "drift", health: "warn", detail: HOSTILE_LOCATOR_FIXTURE },
       // A hostile extra field that must simply be ignored.
-      hostileExtra: SECRET,
+      hostileExtra: HOSTILE_LOCATOR_FIXTURE,
     });
     const r = parseIngestedOperations(JSON.stringify(poisoned));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const serialized = JSON.stringify(r.value.snapshot);
-    expect(serialized).not.toContain(SECRET);
+    expect(serialized).not.toContain(HOSTILE_LOCATOR_FIXTURE);
     expect(serialized).not.toContain("hostileExtra");
     // The validated enums still made it through.
     expect(r.value.snapshot.daemon.state).toBe("stale");
-    expect(r.value.snapshot.subsystems.map((s) => s.id)).toEqual(["storage", "malware-scan"]);
+    expect(r.value.snapshot.subsystems.map((s) => s.id)).toEqual(["storage", "malware-scan", "cleanup-evidence"]);
+  });
+});
+
+describe("normalizeOperationsSnapshot — cleanup evidence (Phase 44)", () => {
+  const cleanup = (over: Record<string, unknown> = {}) => ({
+    state: "warning",
+    reason: "cleanup_drift",
+    provider: "remote-configured",
+    freshness: "fresh",
+    age: "1-24h",
+    reportKind: "cleanup-check",
+    detail: "authored elsewhere",
+    ...over,
+  });
+
+  it("defaults to a disabled posture + an unknown subsystem when absent", () => {
+    const r = normalizeOperationsSnapshot(validSnapshot());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.snapshot.cleanupEvidence.state).toBe("disabled");
+    expect(r.snapshot.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("unknown");
+  });
+
+  it("rebuilds a supplied posture and derives the subsystem health from state", () => {
+    const r = normalizeOperationsSnapshot(validSnapshot({ cleanupEvidence: cleanup() }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.snapshot.cleanupEvidence.state).toBe("warning");
+    expect(r.snapshot.cleanupEvidence.reason).toBe("cleanup_drift");
+    expect(r.snapshot.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("warn");
+  });
+
+  it("re-authors the detail and drops a hostile provider / echoed field", () => {
+    const HOSTILE = "s3://leaky-bucket/secret.pdf";
+    const r = normalizeOperationsSnapshot(
+      validSnapshot({ cleanupEvidence: cleanup({ provider: HOSTILE, detail: HOSTILE, state: "critical", reason: "cleanup_breach" }) }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.snapshot.cleanupEvidence.detail).not.toContain(HOSTILE);
+    expect(r.snapshot.cleanupEvidence.provider).toBe("unknown");
+    expect(JSON.stringify(r.snapshot)).not.toContain("leaky");
+  });
+
+  it("derives the subsystem from the posture even if the input forged the subsystem entry", () => {
+    const r = normalizeOperationsSnapshot(
+      validSnapshot({
+        subsystems: [{ id: "cleanup-evidence", health: "ok" }],
+        cleanupEvidence: cleanup({ state: "critical", reason: "cleanup_breach" }),
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const subs = r.snapshot.subsystems.filter((s) => s.id === "cleanup-evidence");
+    expect(subs).toHaveLength(1);
+    expect(subs[0]?.health).toBe("blocked");
   });
 });

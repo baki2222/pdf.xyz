@@ -559,4 +559,56 @@ nothing, and is **not** proof of deletion, malware scanning, or a cloud scanner.
 example raw exports (with `EXAMPLE-…` placeholder locators the projector strips) live in
 `docs/examples/cleanup-project/`.
 
-None of these three tools proves byte deletion on its own, claims bucket lifecycle policy correctness, or performs deletion/CDN purge — all still operator-owned and out of band.
+### One command + a dashboard posture: cleanup evidence operations (Phase 44)
+
+Phase 44 makes the three tools above easier and safer to operate, in two complementary halves.
+
+**Run it as one command — `pnpm worker:cleanup-pipeline`.** Instead of wiring the project → verify
+and project → sweep pipes by hand, run the whole workflow as ONE fail-closed command. It reads a
+raw export once, projects it away, runs the absence verifier AND the dry-run sweeper internally,
+and rolls the two arms into a single composite exit code (the worst arm wins):
+
+```sh
+# Verify + sweep a raw export in one read-only pass; key your monitor on the exit code.
+pnpm worker:cleanup-pipeline --file=raw-export.json --grace-hours=48 --json
+# aws s3api list-objects-v2 --bucket "$B" | pnpm worker:cleanup-pipeline --stdin --source=aws-s3
+```
+
+| Exit | Composite state | What it means | Do |
+| --- | --- | --- | --- |
+| `0` | `ok` | Both arms clean: absence verified and the dry-run sweep found nothing. | Nothing. |
+| `1` | `usage` | The pipeline was misused (bad flag) or the export was unreadable/malformed. **Fail closed** — never a silent `0`. | Fix the wiring / capture; do **not** page as a cleanup incident. |
+| `2` | `unknown` | Cleanup could not be proven: a metadata-thin export, no storage wired here, or a probe was unavailable. | Soft warn. Confirm the capture and that storage is configured. |
+| `3` | `drift` | An artifact is present past its retention window + reap grace. | **Page.** The bucket lifecycle backstop has not reaped what the app no longer serves. |
+| `4` | `breach` | A present-but-tombstoned object, or a structurally unsafe export. | **Page urgently.** Bytes that should be gone remain; reconcile out-of-band. |
+
+`drift`/`breach` is a cleanup gap, **not** a disclosure — the Phase 41 retrieval boundary still
+denies the download `410`. The composite still makes no cloud call and deletes nothing. Schedule
+it with `docs/examples/deployment/cleanup/cleanup-pipeline-notify.sh` (maps the one exit code to a
+severity, re-raises it) or the `cleanup-pipeline-fixture.yml` CI gate.
+
+**Watch it on the dashboard — the cleanup evidence posture monitor.** The passive complement folds
+the report SUMMARIES a scheduled cleanup job already wrote into a single ops posture for `/status`
+and `worker:ops-check`. Point it at the summaries (monitoring is OFF until you do):
+
+```sh
+export PDFXYZ_CLEANUP_EVIDENCE_CHECK_REPORT=/var/lib/pdfxyz/cleanup-check.json   # pdfxyz.cleanup-check/1
+export PDFXYZ_CLEANUP_EVIDENCE_SWEEP_REPORT=/var/lib/pdfxyz/artifact-cleanup.json # pdfxyz.artifact-cleanup/1
+export PDFXYZ_CLEANUP_EVIDENCE_MAX_AGE_HOURS=26   # a report older than this is `stale` (default 26)
+```
+
+| Posture | What it means | Do |
+| --- | --- | --- |
+| `disabled` | No report path configured — monitoring is off (the honest default). | Nothing, or configure a path to enable it. |
+| `healthy` | A fresh report proves cleanup `verified` (or the sweep found nothing). | Nothing. |
+| `not-configured` | A fresh report declares no object storage — legitimately nothing to clean up. | Nothing. |
+| `stale` | The report is older than the freshness window, or none is present yet. | Confirm the generating job runs on schedule. |
+| `warning` | A fresh report shows `drift`. | Investigate the drifted object out-of-band. |
+| `critical` | A fresh report shows `breach`, OR the report is unreadable/malformed/a raw export (`invalid`). | **Page.** For `invalid`, re-point the monitor at a content-free summary — **never** a raw export. |
+| `unknown` | A fresh report is inconclusive (`unknown`/`unavailable`). | Neutral — re-run once evidence is available. |
+
+It reads no bytes, calls no cloud, and reads no secret; it refuses a raw export and never
+fabricates freshness. The full loop: **schedule the pipeline (or the individual tools) → it writes
+a content-free report → the monitor reads it → the dashboard shows posture.**
+
+None of these tools proves byte deletion on its own, claims bucket lifecycle policy correctness, or performs deletion/CDN purge — all still operator-owned and out of band.

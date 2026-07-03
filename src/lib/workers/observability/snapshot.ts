@@ -68,6 +68,11 @@ import type {
   HeartbeatMode,
   HeartbeatSource,
 } from "../heartbeat/types";
+import {
+  DISABLED_CLEANUP_EVIDENCE_POSTURE,
+  type CleanupEvidencePosture,
+  type CleanupEvidenceState,
+} from "../cleanup-evidence/types";
 
 // Re-export the bounded liveness enums the snapshot surfaces, so the UI (and any
 // consumer) can import them alongside the snapshot types from this barrel.
@@ -77,6 +82,18 @@ export type {
   HeartbeatMode,
   HeartbeatSource,
 } from "../heartbeat/types";
+
+// Re-export the cleanup evidence posture vocabulary (Phase 44) so a consumer — the ops-check
+// ingest path, the dashboard, a monitor — can import it alongside the snapshot types.
+export type {
+  CleanupEvidencePosture,
+  CleanupEvidenceState,
+  CleanupEvidenceReason,
+  CleanupEvidenceProvider,
+  CleanupEvidenceFreshness,
+  CleanupEvidenceAge,
+  CleanupEvidenceReportKind,
+} from "../cleanup-evidence/types";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -112,6 +129,7 @@ export type SnapshotSubsystemId =
   | "malware-scan"
   | "lifecycle"
   | "lifecycle-verification"
+  | "cleanup-evidence"
   | "guardrails"
   | "daemon-loop";
 
@@ -238,6 +256,15 @@ export interface WorkerOperationsSnapshot {
   readonly proofs: SnapshotProofs;
   /** The lifecycle verification rung (usually `unknown` unless a doc was supplied). */
   readonly lifecycleVerification: SnapshotLifecycleVerification;
+  /**
+   * The cleanup evidence posture (Phase 44) — whether cleanup-evidence MONITORING is configured
+   * and, if so, whether a fresh content-free cleanup-check / artifact-cleanup report SUMMARY shows
+   * cleanup is healthy / stale / drifting / breached. `disabled` by default (no report configured).
+   * It reads only an operator's own content-free report summary — never the cloud, never a bucket.
+   * This is distinct from retrieval-time expiry ENFORCEMENT (Phase 41) and the lifecycle backstop
+   * verifier; it monitors the OUTPUT of the Phase 42/43 cleanup tools.
+   */
+  readonly cleanupEvidence: CleanupEvidencePosture;
   /** The last in-process loop outcome, when a run just completed; else `null`. */
   readonly lastLoop: SnapshotLoopOutcome | null;
 }
@@ -263,6 +290,12 @@ export interface OperationsSnapshotInput {
   readonly guardrails?: GuardrailReport;
   /** A supplied lifecycle verification verdict (checked evidence). Omit ⇒ `unknown`. */
   readonly lifecycleVerification?: LifecycleVerificationInput;
+  /**
+   * A resolved cleanup evidence posture (Phase 44), read from the operator-configured content-free
+   * report summaries by the Node reader (`../cleanup-evidence/read`). Omit ⇒ the `disabled` default
+   * (monitoring off). Content-free; the builder folds it into the snapshot and a subsystem verbatim.
+   */
+  readonly cleanupEvidence?: CleanupEvidencePosture;
   /** The last in-process daemon loop outcome, when a run completed. Omit ⇒ `null`. */
   readonly lastLoop?: DaemonRunSummary;
   /**
@@ -316,6 +349,7 @@ export const SUBSYSTEM_LABEL: Record<SnapshotSubsystemId, string> = {
   "malware-scan": "Malware scanning",
   lifecycle: "Lifecycle backstop",
   "lifecycle-verification": "Lifecycle verification",
+  "cleanup-evidence": "Cleanup evidence",
   guardrails: "Deployment guardrails",
   "daemon-loop": "Daemon loop",
 };
@@ -371,10 +405,35 @@ function lifecycleHealth(state: WorkerDeploymentReadiness["lifecycle"]["state"])
   }
 }
 
+/**
+ * Map a {@link CleanupEvidenceState} to its SLO health class (Phase 44) — the projection the
+ * subsystem grid and the alert fold read. Neutral states (`disabled`/`not-configured`/`unknown`)
+ * are `unknown`, so an unmonitored, storage-less, or inconclusive posture never pages; a fresh
+ * healthy report is `ok`; a stale/missing report or a drift is `warn`; a breach or an
+ * invalid/refused report is `blocked` (critical). Exported so the ingest path reuses it verbatim.
+ */
+export function cleanupEvidenceHealth(state: CleanupEvidenceState): HealthClass {
+  switch (state) {
+    case "healthy":
+      return "ok";
+    case "stale":
+    case "warning":
+      return "warn";
+    case "critical":
+    case "invalid":
+      return "blocked";
+    case "disabled":
+    case "not-configured":
+    case "unknown":
+      return "unknown";
+  }
+}
+
 /** Build the per-subsystem SLO breakdown. Pure; reuses the facets' own prose. */
 function buildSubsystems(
   input: OperationsSnapshotInput,
   lifecycleVerification: SnapshotLifecycleVerification,
+  cleanupEvidence: CleanupEvidencePosture,
 ): SnapshotSubsystem[] {
   const { readiness, deployment } = input;
   const engineState = facetOf(deployment, "engine")?.state;
@@ -438,6 +497,7 @@ function buildSubsystems(
     ),
     sub("lifecycle", lifecycleHealth(deployment.lifecycle.state), deployment.lifecycle.detail),
     sub("lifecycle-verification", lifecycleVerification.health, lifecycleVerification.detail),
+    sub("cleanup-evidence", cleanupEvidenceHealth(cleanupEvidence.state), cleanupEvidence.detail),
     sub(
       "guardrails",
       guardrailHealth(input.guardrails),
@@ -648,7 +708,8 @@ export function buildWorkerOperationsSnapshot(
   input: OperationsSnapshotInput,
 ): WorkerOperationsSnapshot {
   const lifecycleVerification = resolveLifecycleVerification(input.lifecycleVerification);
-  const subsystems = buildSubsystems(input, lifecycleVerification);
+  const cleanupEvidence = input.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE;
+  const subsystems = buildSubsystems(input, lifecycleVerification, cleanupEvidence);
   const { health, action } = deriveVerdict(input, lifecycleVerification);
   const daemon = resolveDaemonLiveness(input.vantage, input.daemonLiveness);
 
@@ -689,6 +750,7 @@ export function buildWorkerOperationsSnapshot(
       ocr: ocrProof(ocrState),
     },
     lifecycleVerification,
+    cleanupEvidence,
     lastLoop,
   };
 }
@@ -722,7 +784,11 @@ export function engineHealthFromTools(
  */
 export function collectWebOperationsSnapshot(
   env: EnvSource = process.env,
-  opts: { tools?: ToolAvailability; daemonLiveness?: HeartbeatLiveness } = {},
+  opts: {
+    tools?: ToolAvailability;
+    daemonLiveness?: HeartbeatLiveness;
+    cleanupEvidence?: CleanupEvidencePosture;
+  } = {},
 ): WorkerOperationsSnapshot {
   const readiness = resolveDaemonReadiness(env);
   const engine = engineHealthFromTools(opts.tools);
@@ -738,6 +804,7 @@ export function collectWebOperationsSnapshot(
     deployment,
     guardrails,
     ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
+    ...(opts.cleanupEvidence ? { cleanupEvidence: opts.cleanupEvidence } : {}),
     // No `ocrEnabled`: the web can't observe the worker's OCR, so OCR stays `unknown`.
   });
 }
@@ -768,6 +835,7 @@ export function collectRuntimeOperationsSnapshot(
   extras: {
     lifecycleVerification?: LifecycleVerificationInput;
     lastLoop?: DaemonRunSummary;
+    cleanupEvidence?: CleanupEvidencePosture;
   } = {},
 ): WorkerOperationsSnapshot {
   return buildWorkerOperationsSnapshot({
@@ -780,6 +848,7 @@ export function collectRuntimeOperationsSnapshot(
       ? { lifecycleVerification: extras.lifecycleVerification }
       : {}),
     ...(extras.lastLoop ? { lastLoop: extras.lastLoop } : {}),
+    ...(extras.cleanupEvidence ? { cleanupEvidence: extras.cleanupEvidence } : {}),
   });
 }
 
@@ -806,7 +875,10 @@ export function collectRuntimeOperationsSnapshot(
  */
 export function collectOperatorProbeSnapshot(
   runtime: RuntimeSnapshotSource,
-  opts: { daemonLiveness?: HeartbeatLiveness } = {},
+  opts: {
+    daemonLiveness?: HeartbeatLiveness;
+    cleanupEvidence?: CleanupEvidencePosture;
+  } = {},
 ): WorkerOperationsSnapshot {
   return buildWorkerOperationsSnapshot({
     vantage: "web",
@@ -815,5 +887,6 @@ export function collectOperatorProbeSnapshot(
     ocrEnabled: runtime.ocr.enabled,
     guardrails: runtime.guardrails,
     ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
+    ...(opts.cleanupEvidence ? { cleanupEvidence: opts.cleanupEvidence } : {}),
   });
 }

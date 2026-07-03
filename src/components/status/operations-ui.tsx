@@ -40,6 +40,7 @@ import {
   ScanText,
   ServerCog,
   ShieldCheck,
+  Trash2,
   Workflow,
   Wrench,
   type LucideIcon,
@@ -56,6 +57,11 @@ import type {
   HeartbeatMode,
   HeartbeatSource,
   WorkerOperationsSnapshot,
+  CleanupEvidenceState,
+  CleanupEvidenceProvider,
+  CleanupEvidenceFreshness,
+  CleanupEvidenceAge,
+  CleanupEvidenceReportKind,
 } from "@/lib/workers/observability";
 import { cn } from "@/lib/utils";
 import { StatusBadge, StatusCard, type StatusTone } from "./status-ui";
@@ -97,6 +103,15 @@ export interface SafeDaemonLiveness {
   readonly mode: HeartbeatMode | null;
 }
 
+/** Cleanup evidence posture reduced to exactly the bounded enums the dashboard renders. */
+export interface SafeCleanupEvidence {
+  readonly state: CleanupEvidenceState;
+  readonly provider: CleanupEvidenceProvider;
+  readonly freshness: CleanupEvidenceFreshness;
+  readonly age: CleanupEvidenceAge;
+  readonly reportKind: CleanupEvidenceReportKind;
+}
+
 /**
  * The fully-sanitized projection the dashboard renders. Every field is a bounded
  * enum, a boolean, a clamped integer, or `null` — there is nowhere to put a string
@@ -115,6 +130,7 @@ export interface SafeOperationsView {
   readonly subsystems: SafeSubsystem[];
   readonly proofs: { compressionDeep: ProofAvailability; ocr: ProofAvailability };
   readonly lifecycleVerification: { verdict: Verdict; health: HealthClass };
+  readonly cleanupEvidence: SafeCleanupEvidence;
   readonly lastLoop: SafeLoop | null;
 }
 
@@ -265,6 +281,12 @@ const SUBSYSTEM_META: Record<
       "Checked evidence that the retention backstop is enforced as generated.",
     icon: ShieldCheck,
   },
+  "cleanup-evidence": {
+    label: "Cleanup evidence",
+    description:
+      "Whether a fresh content-free cleanup report shows storage-artifact cleanup is working — read from an operator's own report summary, never the cloud.",
+    icon: Trash2,
+  },
   guardrails: {
     label: "Deployment guardrails",
     description:
@@ -289,6 +311,7 @@ const SUBSYSTEM_ORDER: SnapshotSubsystemId[] = [
   "malware-scan",
   "lifecycle",
   "lifecycle-verification",
+  "cleanup-evidence",
   "guardrails",
   "daemon-loop",
 ];
@@ -408,6 +431,88 @@ const VERDICT_META: Record<
   },
 };
 
+/** Client-authored copy for each cleanup evidence state — the single source of truth. */
+const CLEANUP_EVIDENCE_META: Record<
+  CleanupEvidenceState,
+  { tone: StatusTone; label: string; detail: string }
+> = {
+  disabled: {
+    tone: "muted",
+    label: "Not monitored",
+    detail:
+      "Cleanup evidence monitoring isn't configured here. Point it at a content-free cleanup-check or artifact-cleanup report summary to watch cleanup posture.",
+  },
+  "not-configured": {
+    tone: "muted",
+    label: "No storage to clean",
+    detail:
+      "A cleanup report is configured, but it reports no object storage in this deployment, so there's nothing to clean up or monitor.",
+  },
+  healthy: {
+    tone: "ok",
+    label: "Verified",
+    detail:
+      "A fresh cleanup report shows storage-artifact cleanup is verified — every should-be-gone artifact is confirmed absent (or the dry-run sweep found nothing to reconcile).",
+  },
+  stale: {
+    tone: "warn",
+    label: "Stale / missing",
+    detail:
+      "The configured cleanup report is older than the freshness window, missing, or carries no usable timestamp, so there's no fresh proof of cleanup. Confirm the generating job runs on schedule.",
+  },
+  warning: {
+    tone: "warn",
+    label: "Drift",
+    detail:
+      "A fresh cleanup report shows drift: an artifact is still present past its retention window and reap grace, so the bucket lifecycle backstop hasn't removed it. Reconcile it out-of-band.",
+  },
+  critical: {
+    tone: "danger",
+    label: "Breach",
+    detail:
+      "A fresh cleanup report shows a breach: a positively should-be-gone artifact (a tombstoned-but-present object, or an invalid record) is present. Reconcile it out-of-band and confirm active deletion / the lifecycle backstop.",
+  },
+  unknown: {
+    tone: "muted",
+    label: "Inconclusive",
+    detail:
+      "A fresh cleanup report is inconclusive — cleanup couldn't be proven this run (present-but-denied awaiting reap, no evidence, or no storage backend).",
+  },
+  invalid: {
+    tone: "danger",
+    label: "Report invalid",
+    detail:
+      "The configured cleanup report is unreadable, malformed, or isn't a recognized content-free summary (or is a raw export pointed at by mistake). Point the monitor at a worker:cleanup-check or worker:artifact-cleanup JSON summary — never a raw export.",
+  },
+};
+
+const CLEANUP_EVIDENCE_PROVIDER_LABEL: Record<CleanupEvidenceProvider, string> = {
+  "local-dev": "Local-dev store",
+  "remote-configured": "Object storage",
+  "not-configured": "No storage",
+  unknown: "Unknown",
+};
+
+const CLEANUP_EVIDENCE_FRESHNESS_LABEL: Record<CleanupEvidenceFreshness, string> = {
+  fresh: "Fresh",
+  stale: "Stale",
+  unknown: "No timestamp",
+};
+
+const CLEANUP_EVIDENCE_AGE_LABEL: Record<CleanupEvidenceAge, string> = {
+  "under-1h": "Under 1h",
+  "1-24h": "Under 24h",
+  "1-7d": "1–7 days",
+  "over-7d": "Over 7 days",
+  unknown: "Unknown",
+};
+
+const CLEANUP_EVIDENCE_REPORT_KIND_LABEL: Record<CleanupEvidenceReportKind, string> = {
+  "cleanup-check": "Absence verifier",
+  "artifact-cleanup": "Dry-run sweeper",
+  none: "None",
+};
+
 const LOOP_MODE_LABEL: Record<LoopMode, string> = {
   once: "Single tick",
   drain: "Drain",
@@ -486,6 +591,7 @@ export function normalizeSnapshot(raw: unknown): SafeOperationsView {
   const lifecycleSrc = isObject(src.lifecycleVerification)
     ? src.lifecycleVerification
     : {};
+  const cleanupSrc = isObject(src.cleanupEvidence) ? src.cleanupEvidence : {};
 
   let lastLoop: SafeLoop | null = null;
   if (isObject(src.lastLoop)) {
@@ -526,6 +632,17 @@ export function normalizeSnapshot(raw: unknown): SafeOperationsView {
     lifecycleVerification: {
       verdict: asEnum(lifecycleSrc.verdict, VERDICT_META, "unknown"),
       health: asEnum(lifecycleSrc.health, HEALTH_META, "unknown"),
+    },
+    cleanupEvidence: {
+      state: asEnum(cleanupSrc.state, CLEANUP_EVIDENCE_META, "disabled"),
+      provider: asEnum(cleanupSrc.provider, CLEANUP_EVIDENCE_PROVIDER_LABEL, "unknown"),
+      freshness: asEnum(cleanupSrc.freshness, CLEANUP_EVIDENCE_FRESHNESS_LABEL, "unknown"),
+      age: asEnum(cleanupSrc.age, CLEANUP_EVIDENCE_AGE_LABEL, "unknown"),
+      reportKind: asEnum(
+        cleanupSrc.reportKind,
+        CLEANUP_EVIDENCE_REPORT_KIND_LABEL,
+        "none",
+      ),
     },
     lastLoop,
   };
@@ -836,6 +953,47 @@ export function LifecycleVerificationCard({
   );
 }
 
+/**
+ * The cleanup evidence posture card (Phase 44) — whether a fresh, content-free cleanup report
+ * summary shows storage-artifact cleanup is working. Reads ONLY bounded enums mapped to copy
+ * authored here; the monitor never contacts the cloud, and this never renders a path, object key,
+ * or provider string beyond the bounded provider enum. `Not monitored` (the default) is honest,
+ * not a failure. Distinct from the lifecycle backstop verifier and retrieval-time expiry: this
+ * monitors the OUTPUT of the Phase 42/43 cleanup tools.
+ */
+export function CleanupEvidenceCard({ cleanup }: { cleanup: SafeCleanupEvidence }) {
+  const meta = CLEANUP_EVIDENCE_META[cleanup.state];
+  const monitored = cleanup.state !== "disabled";
+  return (
+    <StatusCard
+      title="Cleanup evidence"
+      icon={Trash2}
+      badge={<StatusBadge tone={meta.tone} label={meta.label} />}
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-sm leading-relaxed text-slate-400">{meta.detail}</p>
+        {monitored && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            <FactPill
+              label="Report"
+              value={CLEANUP_EVIDENCE_REPORT_KIND_LABEL[cleanup.reportKind]}
+            />
+            <FactPill
+              label="Provider"
+              value={CLEANUP_EVIDENCE_PROVIDER_LABEL[cleanup.provider]}
+            />
+            <FactPill
+              label="Freshness"
+              value={CLEANUP_EVIDENCE_FRESHNESS_LABEL[cleanup.freshness]}
+            />
+            <FactPill label="Age" value={CLEANUP_EVIDENCE_AGE_LABEL[cleanup.age]} />
+          </div>
+        )}
+      </div>
+    </StatusCard>
+  );
+}
+
 /** A proof tri-state row (available / unavailable / unknown). */
 function ProofRow({
   icon: Icon,
@@ -991,6 +1149,7 @@ export function OperationsSnapshotView({
       <div className="grid gap-4 sm:grid-cols-2">
         <DaemonLivenessCard daemon={view.daemon} />
         <LifecycleVerificationCard verdict={view.lifecycleVerification.verdict} />
+        <CleanupEvidenceCard cleanup={view.cleanupEvidence} />
         <ProofsCard proofs={view.proofs} vantage={view.vantage} />
       </div>
       {view.lastLoop && <LoopOutcomeCard loop={view.lastLoop} />}

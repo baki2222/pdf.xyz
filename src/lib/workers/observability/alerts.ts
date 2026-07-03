@@ -87,6 +87,10 @@ export const ALERT_REASONS = [
   "lifecycle-undeclared",
   "lifecycle-unverified",
   "lifecycle-drift",
+  "cleanup-evidence-stale",
+  "cleanup-evidence-drift",
+  "cleanup-evidence-breach",
+  "cleanup-evidence-invalid",
   "loop-errors",
   "liveness-observed",
   "liveness-stale",
@@ -124,6 +128,8 @@ export const ALERT_ACTIONS = [
   "investigate-failures", // job-success / dead-letter SLO warn/breach
   "investigate-latency", // p95/p99 latency SLO warn/breach
   "investigate-retries", // retry-rate SLO warn/breach
+  "reconcile-cleanup", // cleanup evidence report shows drift/breach
+  "refresh-cleanup-evidence", // cleanup evidence report is stale/missing/unreadable/malformed
   "monitor", // informational; nothing to fix, keep observing
 ] as const;
 export type AlertAction = (typeof ALERT_ACTIONS)[number];
@@ -147,6 +153,10 @@ const EXTRA_ACTION_DETAIL: Record<
     "Processor wall-clock latency is above the SLO at p95/p99. Check for an overloaded worker, a slow native engine, or oversized inputs; consider more workers or a lower concurrency ceiling.",
   "investigate-retries":
     "The requeue rate is above the SLO, so attempts are bouncing back to the queue. Check for a flapping dependency (storage/scanner/broker) or transient processor errors.",
+  "reconcile-cleanup":
+    "A cleanup evidence report shows drift or a breach: an artifact is still present past its retention window + reap grace, or a positively should-be-gone object remains. Reconcile it out-of-band and confirm active deletion and the bucket lifecycle backstop are removing objects. This is a monitoring signal from an operator's own content-free report — never a claim the app deleted bytes.",
+  "refresh-cleanup-evidence":
+    "The configured cleanup evidence report is stale, missing, unreadable, or not a recognized content-free summary. Confirm the generating job (worker:cleanup-check / worker:artifact-cleanup) is running on schedule and that the monitor points at its JSON summary — never a raw provider export.",
   monitor:
     "No fix is required right now; this is informational. Keep the monitor in place so a change is caught.",
 };
@@ -340,6 +350,23 @@ function subsystemReasonAction(
       };
     case "lifecycle-verification":
       return { reason: "lifecycle-drift", action: "reconcile-lifecycle-drift" };
+    case "cleanup-evidence": {
+      // Read the posture's precise state to disambiguate the four alerting cases (only
+      // reachable on a warn/blocked health): a concrete drift/breach reconciles; a stale
+      // or invalid/refused report is refreshed. The state is a bounded enum, so nothing
+      // report-specific reaches the alert.
+      const state = snapshot.cleanupEvidence.state;
+      if (state === "critical") {
+        return { reason: "cleanup-evidence-breach", action: "reconcile-cleanup" };
+      }
+      if (state === "warning") {
+        return { reason: "cleanup-evidence-drift", action: "reconcile-cleanup" };
+      }
+      if (state === "invalid") {
+        return { reason: "cleanup-evidence-invalid", action: "refresh-cleanup-evidence" };
+      }
+      return { reason: "cleanup-evidence-stale", action: "refresh-cleanup-evidence" };
+    }
     case "guardrails":
       return blocked
         ? { reason: "guardrail-error", action: "fix-guardrail" }

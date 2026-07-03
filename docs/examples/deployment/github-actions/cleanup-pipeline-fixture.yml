@@ -1,0 +1,61 @@
+name: pdf.xyz cleanup evidence pipeline gate
+
+# Offline validation of the ONE-COMMAND storage-artifact cleanup pipeline (Phase 44): it runs
+# `worker:cleanup-pipeline` over the committed raw export fixtures and asserts each pins its
+# documented COMPOSITE exit code (the worst of the verify + sweep arms). It makes NO cloud call,
+# needs NO credentials, and deletes NOTHING — every input is a committed, content-free fixture and
+# no object storage is wired in CI, so absence cannot be proven (the honest `unknown` band).
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docs/examples/cleanup-project/**"
+      - "src/lib/workers/cleanup/pipeline/**"
+      - "scripts/worker-cleanup-pipeline.ts"
+      - ".github/workflows/**"
+
+jobs:
+  cleanup-pipeline-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # A present-but-tombstoned object is the dominant unsafe signal → composite breach (exit 4),
+      # regardless of whether storage is wired.
+      - name: Present-but-tombstoned export is a composite breach (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:cleanup-pipeline --file=docs/examples/cleanup-project/raw-unsafe-tombstoned.json --now=1700000000000 >/dev/null
+          code=$?
+          test "$code" -eq 4
+
+      # With no storage backend configured in CI, absence cannot be proven and the dry-run sweep is
+      # clean → the honest "not enough evidence" band (exit 2), never a false 0.
+      - name: Clean fixtures are unknown without a wired backend (exit 2)
+        run: |
+          set +e
+          for f in raw-inventory-projected raw-evidence-projected raw-insufficient-listing; do
+            pnpm -s worker:cleanup-pipeline --file="docs/examples/cleanup-project/$f.json" --now=1700000000000 >/dev/null
+            code=$?
+            test "$code" -eq 2 || { echo "expected 2 for $f, got $code"; exit 1; }
+          done
+
+      # A malformed export fails closed to the usage band (exit 1) — never a silent clean pass.
+      - name: A malformed export fails closed (exit 1)
+        run: |
+          set +e
+          printf '{ not json' | pnpm -s worker:cleanup-pipeline --stdin >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 1
+
+      - name: Pipeline module unit + CLI smoke tests (no-leak contract + rollup ladder)
+        run: pnpm exec vitest run src/lib/workers/cleanup/pipeline

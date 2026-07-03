@@ -45,6 +45,7 @@ import { OPS_CHECK_EXIT } from "@/lib/workers/observability";
 import { resolveWorkerRuntime } from "@/lib/workers/daemon/runtime";
 import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
 import { collectWebOperationsSnapshot } from "@/lib/workers/observability";
+import { readCleanupEvidencePosture } from "@/lib/workers/cleanup-evidence/read";
 import { resolveWorkerMode, type ToolAvailability } from "@/lib/workers";
 import { readFileSync, statSync } from "node:fs";
 
@@ -61,12 +62,16 @@ const MAX_INPUT_BYTES = 1_048_576; // 1 MiB
 async function collectLive(source: "runtime" | "web"): Promise<CollectedOperations> {
   const env = process.env;
   const daemonLiveness = await readWorkerHeartbeatLiveness(env);
+  // Read the cleanup evidence posture from the operator-configured content-free report
+  // summaries (Phase 44). A pure no-op returning the `disabled` posture unless a report
+  // path is configured; never contacts the cloud, never throws, never leaks a path.
+  const cleanupEvidence = readCleanupEvidencePosture(env);
 
   if (source === "runtime") {
     // The same wiring the daemon uses: real provider config + a live native-engine
     // probe. Logs nothing; the executor is built but never ticked (no job is claimed).
     const runtime = resolveWorkerRuntime(env);
-    return collectRuntimeOperations(runtime, daemonLiveness);
+    return collectRuntimeOperations(runtime, daemonLiveness, cleanupEvidence);
   }
 
   // `web`: no host probe except in local-dev, where the web app is the in-process
@@ -79,6 +84,7 @@ async function collectLive(source: "runtime" | "web"): Promise<CollectedOperatio
   const snapshot = collectWebOperationsSnapshot(env, {
     ...(tools ? { tools } : {}),
     daemonLiveness,
+    cleanupEvidence,
   });
   return { snapshot, slo: null, metrics: null };
 }

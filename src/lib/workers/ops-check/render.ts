@@ -29,6 +29,10 @@ import type {
   SnapshotLoopOutcome,
   SnapshotSubsystemId,
   SnapshotVantage,
+  CleanupEvidenceState,
+  CleanupEvidenceReason,
+  CleanupEvidenceProvider,
+  CleanupEvidenceFreshness,
 } from "../observability/snapshot";
 import type { SloId, SloStatus } from "../observability/slo";
 import type { HeartbeatAgeBucket, HeartbeatSource } from "../heartbeat/types";
@@ -42,6 +46,14 @@ export interface OpsCheckLiveness extends LivenessAlert {
   readonly lastSeen: HeartbeatAgeBucket | null;
 }
 
+/** The cleanup evidence posture, reduced to its bounded load-bearing enums (Phase 44). */
+export interface OpsCheckCleanupEvidenceDigest {
+  readonly state: CleanupEvidenceState;
+  readonly reason: CleanupEvidenceReason;
+  readonly provider: CleanupEvidenceProvider;
+  readonly freshness: CleanupEvidenceFreshness;
+}
+
 /** A content-free digest of the operations snapshot (enums / booleans / counts only). */
 export interface OpsCheckSnapshotDigest {
   readonly vantage: SnapshotVantage;
@@ -50,6 +62,8 @@ export interface OpsCheckSnapshotDigest {
   readonly daemonObserved: boolean;
   readonly subsystems: { readonly id: SnapshotSubsystemId; readonly health: HealthClass }[];
   readonly proofs: { readonly compressionDeep: ProofAvailability; readonly ocr: ProofAvailability };
+  /** The cleanup evidence posture (Phase 44) — bounded enums only. */
+  readonly cleanupEvidence: OpsCheckCleanupEvidenceDigest;
   readonly lastLoop: SnapshotLoopOutcome | null;
 }
 
@@ -144,6 +158,24 @@ function healthCode(health: HealthClass): number {
   }
 }
 
+/** Project a cleanup evidence state onto the same numeric ladder (0 ok … 3 unknown). */
+function cleanupEvidenceCode(state: CleanupEvidenceState): number {
+  switch (state) {
+    case "healthy":
+    case "disabled":
+    case "not-configured":
+      return 0;
+    case "stale":
+    case "warning":
+      return 1;
+    case "critical":
+    case "invalid":
+      return 2;
+    case "unknown":
+      return 3;
+  }
+}
+
 /** Escape a Prometheus label value (bounded enums rarely need it; defensive). */
 function escapeLabel(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -195,6 +227,14 @@ export function renderOpsCheckPrometheus(
       line("pdfxyz_ops_check_subsystem", { subsystem: sub.id, health: sub.health }, healthCode(sub.health)),
     );
   }
+  const ce = outcome.snapshot.cleanupEvidence;
+  lines.push(
+    line(
+      "pdfxyz_ops_check_cleanup_evidence",
+      { state: ce.state, reason: ce.reason, provider: ce.provider, freshness: ce.freshness },
+      cleanupEvidenceCode(ce.state),
+    ),
+  );
   // Reuse the shipped metric-series renderer for any series behind the SLOs.
   const series = metrics ? renderPrometheus(metrics) : "";
   if (series) lines.push(series);
@@ -213,6 +253,9 @@ export function renderOpsCheckText(outcome: OpsCheckOutcome): string {
   const lines: string[] = [];
   lines.push(`${outcome.summary}`);
   lines.push(`  source: ${outcome.source}  vantage: ${outcome.snapshot.vantage}  liveness: ${outcome.liveness.state}`);
+  lines.push(
+    `  cleanup evidence: ${outcome.snapshot.cleanupEvidence.state} (${outcome.snapshot.cleanupEvidence.reason}, ${outcome.snapshot.cleanupEvidence.freshness})`,
+  );
   lines.push(`  action: ${outcome.action} — ${outcome.actionDetail}`);
   for (const alert of outcome.alerts) {
     const suffix = alert.observed ? ` (${alert.observed} vs ${alert.threshold})` : "";

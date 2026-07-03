@@ -13,6 +13,7 @@
     "worker:cleanup-check": "tsx scripts/worker-cleanup-check.ts",
     "worker:artifact-cleanup": "tsx scripts/worker-artifact-cleanup.ts",
     "worker:cleanup-project": "tsx scripts/worker-cleanup-project.ts",
+    "worker:cleanup-pipeline": "tsx scripts/worker-cleanup-pipeline.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",

@@ -8,6 +8,7 @@ import {
   collectRuntimeOperationsSnapshot,
   collectWebOperationsSnapshot,
   engineHealthFromTools,
+  type CleanupEvidencePosture,
   type RuntimeSnapshotSource,
 } from "./index";
 
@@ -236,5 +237,58 @@ describe("worker operations snapshot — daemon liveness (Phase 30)", () => {
     ]) {
       expect(json).not.toContain(forbidden);
     }
+  });
+});
+
+describe("worker operations snapshot — cleanup evidence (Phase 44)", () => {
+  const posture = (
+    state: CleanupEvidencePosture["state"],
+    over: Partial<CleanupEvidencePosture> = {},
+  ): CleanupEvidencePosture => ({
+    state,
+    reason: "cleanup_verified",
+    provider: "remote-configured",
+    freshness: "fresh",
+    age: "1-24h",
+    reportKind: "cleanup-check",
+    detail: "authored elsewhere",
+    ...over,
+  });
+
+  it("defaults to a disabled posture + an unknown cleanup-evidence subsystem", () => {
+    const snap = collectWebOperationsSnapshot({});
+    expect(snap.cleanupEvidence.state).toBe("disabled");
+    expect(snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("unknown");
+  });
+
+  it("derives the subsystem health from the supplied posture state", () => {
+    const matrix: Array<[CleanupEvidencePosture["state"], string]> = [
+      ["healthy", "ok"],
+      ["stale", "warn"],
+      ["warning", "warn"],
+      ["critical", "blocked"],
+      ["invalid", "blocked"],
+      ["unknown", "unknown"],
+      ["not-configured", "unknown"],
+    ];
+    for (const [state, health] of matrix) {
+      const snap = collectWebOperationsSnapshot({}, { cleanupEvidence: posture(state) });
+      expect(snap.cleanupEvidence.state, state).toBe(state);
+      expect(snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health, state).toBe(health);
+    }
+  });
+
+  it("carries the posture on the worker vantage too", () => {
+    const runtime: RuntimeSnapshotSource = {
+      readiness: resolveDaemonReadiness(DRAINABLE_ENV),
+      deployment: resolveDeploymentReadiness(resolveDaemonReadiness(DRAINABLE_ENV), DRAINABLE_ENV, {}),
+      ocr: { enabled: false },
+      guardrails: { ok: true, strict: false, violations: [] },
+    };
+    const snap = collectRuntimeOperationsSnapshot(runtime, {
+      cleanupEvidence: posture("warning", { reason: "cleanup_drift" }),
+    });
+    expect(snap.cleanupEvidence.reason).toBe("cleanup_drift");
+    expect(snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("warn");
   });
 });

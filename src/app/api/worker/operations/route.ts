@@ -26,6 +26,7 @@ import {
   evaluateOperationsAlerts,
 } from "@/lib/workers/observability";
 import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
+import { readCleanupEvidencePosture } from "@/lib/workers/cleanup-evidence/read";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
 import { respond, respondRateLimited } from "../../_lib/http";
 
@@ -61,7 +62,16 @@ export async function GET(request: Request): Promise<Response> {
   // "observed". It never throws.
   const daemonLiveness = await readWorkerHeartbeatLiveness(process.env);
 
-  const snapshot = collectWebOperationsSnapshot(process.env, { tools, daemonLiveness });
+  // Phase 44: read the cleanup evidence posture from the operator-configured content-free report
+  // summaries. A pure no-op returning the `disabled` posture unless a report path is configured
+  // (the default) — it never contacts the cloud, never throws, and never leaks a path.
+  const cleanupEvidence = readCleanupEvidencePosture(process.env);
+
+  const snapshot = collectWebOperationsSnapshot(process.env, {
+    tools,
+    daemonLiveness,
+    cleanupEvidence,
+  });
   // Phase 31: attach the content-free alert posture (overall severity + the bounded
   // reasons/actions of each contributing alert) the operator dashboard renders and any
   // monitor scraping this endpoint keys on — the SAME verdict `pnpm worker:ops-check`
