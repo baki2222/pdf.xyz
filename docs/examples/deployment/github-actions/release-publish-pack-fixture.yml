@@ -1,0 +1,88 @@
+name: Release evidence publish / handoff pack fixture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "47 6 * * 1"
+
+# A handoff-preparation step, not a per-release gate: it COMPOSES a content-free release-evidence package (the
+# governance bundle plus the related archive / restore-drill / report / trend) into ONE publish / handoff manifest
+# an operator hands to an external reviewer / approver / investor / incident responder — with a DISCLOSURE
+# CLASSIFICATION (share-safe / internal-review / blocked) and a handoff checklist. It publishes NOTHING itself; the
+# actual handoff is done out of band. It fetches nothing — it builds a governance bundle from committed content-free
+# fixtures so the workflow is deterministic and offline.
+
+jobs:
+  release-publish-pack:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build a governance bundle (the PRIMARY summary), then compose the handoff pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pack
+          # Build the window's governance bundle from a committed content-free trend (a real pipeline archives this).
+          pnpm worker:release-governance \
+            --trend=docs/examples/release-governance/trend-stable.json \
+            --report=docs/examples/release-governance/report-promote-ready.json \
+            --audit=docs/examples/release-governance/audit-pass.json \
+            --output=pack/governance.json
+          # Compose the publish / handoff pack over the governance bundle plus the related content-free records.
+          pnpm worker:release-publish-pack \
+            --governance=pack/governance.json \
+            --archive=docs/examples/release-publish-pack/archive-archivable.json \
+            --restore-drill=docs/examples/release-publish-pack/restore-drill-verified.json \
+            --report=docs/examples/release-publish-pack/report-promote-ready.json \
+            --trend=docs/examples/release-publish-pack/trend-stable.json \
+            --output=pack/publish-pack.json
+          # Render the share-safe handoff manifest into the job summary.
+          pnpm worker:release-publish-pack \
+            --governance=pack/governance.json \
+            --archive=docs/examples/release-publish-pack/archive-archivable.json \
+            --restore-drill=docs/examples/release-publish-pack/restore-drill-verified.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail-closed examples
+        shell: bash
+        run: |
+          # A blocked governance bundle must block the handoff (exit 4) — do not share.
+          set +e
+          pnpm worker:release-publish-pack --governance=docs/examples/release-publish-pack/governance-blocked.json --json >/tmp/pack-blocked.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A package with NO governance bundle is insufficient (exit 2) — never a vacuous share-safe pack.
+          set +e
+          pnpm worker:release-publish-pack --archive=docs/examples/release-publish-pack/archive-archivable.json --json >/tmp/pack-incomplete.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # No document supplied is a usage error (exit 1).
+          set +e
+          pnpm worker:release-publish-pack --json >/tmp/pack-usage.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-publish-pack
+          path: pack/publish-pack.json
+          if-no-files-found: error

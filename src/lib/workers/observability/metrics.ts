@@ -146,6 +146,10 @@ import {
   RELEASE_RESTORE_DRILL_VERDICTS,
   type ReleaseRestoreDrillVerdict,
 } from "../release-restore-drill/types";
+import {
+  RELEASE_PUBLISH_PACK_VERDICTS,
+  type ReleasePublishPackVerdict,
+} from "../release-publish-pack/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -458,6 +462,7 @@ export const METRIC_NAMES = [
   "worker_release_governance_total",
   "worker_release_archive_total",
   "worker_release_restore_drill_total",
+  "worker_release_publish_pack_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -692,6 +697,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_RESTORE_DRILL_VERDICTS,
+    },
+  },
+  worker_release_publish_pack_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_PUBLISH_PACK_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1283,6 +1294,28 @@ export function releaseArchiveMetric(posture: ReleaseArchivePosture): WorkerMetr
 export function releaseRestoreDrillMetric(verdict: ReleaseRestoreDrillVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_restore_drill_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release evidence publish / handoff pack** (Phase 57) resolved to its publish `verdict`
+ * ({@link ReleasePublishPackVerdict}: `publishable`/`review`/`incomplete`/`blocked`). One bounded label so a release
+ * / handoff dashboard can count handoff packs by the single decision an operator acts on — e.g.
+ * `worker_release_publish_pack_total{verdict="blocked"} > 0` catches a package that must NOT be shared (a tampered /
+ * blocked / failed evidence set), `{verdict="incomplete"} > 0` catches an insufficient / governance-absent package.
+ * This counts an offline PACKAGING that ingested a content-free `pdfxyz.release-governance/1` bundle plus the related
+ * `pdfxyz.release-archive/1` / `pdfxyz.release-restore-drill/1` / `pdfxyz.release-report/1` / `pdfxyz.release-trend/1`
+ * records, re-validated each against itself, and folded them into one publish verdict + disclosure classification —
+ * NOT actual external publishing, a signature, an approval, a promotion, a cloud call, a deletion, or a claim about
+ * bucket bytes. The one label is a closed, redaction-stable enum — never a filename, path, object key, bucket, URL,
+ * endpoint, region, instant, size, digest, or document content.
+ */
+export function releasePublishPackMetric(verdict: ReleasePublishPackVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_publish_pack_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

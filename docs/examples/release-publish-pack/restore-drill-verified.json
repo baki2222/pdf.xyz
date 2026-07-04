@@ -1,0 +1,212 @@
+{
+  "schema": "pdfxyz.release-restore-drill/1",
+  "generatedAt": "2026-07-04T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-restore-drill",
+    "policyVersion": 1,
+    "archiveSchema": "pdfxyz.release-archive/1",
+    "governanceSchema": "pdfxyz.release-governance/1",
+    "trendSchema": "pdfxyz.release-trend/1",
+    "reportSchema": "pdfxyz.release-report/1",
+    "auditSchema": "pdfxyz.release-audit/1",
+    "bundleSchema": "pdfxyz.release-ci-bundle/1"
+  },
+  "policy": {
+    "archiveOnly": false,
+    "requireFullRestore": false,
+    "strictDrift": false
+  },
+  "coverage": {
+    "archive": "usable",
+    "archivedUsable": 4,
+    "recordsRestored": 4,
+    "recordsMatched": 4,
+    "recordsFailed": 0,
+    "recordsNotRestored": 0,
+    "hasArchive": true,
+    "exercised": true
+  },
+  "archive": {
+    "state": "usable",
+    "supplied": true,
+    "recognized": true,
+    "usable": true,
+    "posture": "archivable",
+    "severity": "ready",
+    "detail": "Archive pack is usable with posture archivable.",
+    "facts": {
+      "posture": "archivable",
+      "exitCode": 0,
+      "archivable": true,
+      "recordsSupplied": 4,
+      "recordsUsable": 4,
+      "blocking": 0,
+      "insufficiencies": 0,
+      "advisories": 0,
+      "records": [
+        {
+          "id": "governance",
+          "state": "usable",
+          "verdict": "healthy"
+        },
+        {
+          "id": "trend",
+          "state": "usable",
+          "verdict": "stable"
+        },
+        {
+          "id": "report",
+          "state": "usable",
+          "verdict": "promote-ready"
+        },
+        {
+          "id": "audit",
+          "state": "usable",
+          "verdict": "pass"
+        },
+        {
+          "id": "bundle",
+          "state": "absent",
+          "verdict": null
+        }
+      ]
+    }
+  },
+  "records": [
+    {
+      "id": "governance",
+      "restoreState": "restored-match",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "restoredVerdict": "healthy",
+      "archivedState": "usable",
+      "archivedVerdict": "healthy",
+      "severity": "ready",
+      "digest": null,
+      "detail": "governance restored and re-validated, matching the archive record."
+    },
+    {
+      "id": "trend",
+      "restoreState": "restored-match",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "restoredVerdict": "stable",
+      "archivedState": "usable",
+      "archivedVerdict": "stable",
+      "severity": "ready",
+      "digest": null,
+      "detail": "trend restored and re-validated, matching the archive record."
+    },
+    {
+      "id": "report",
+      "restoreState": "restored-match",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "restoredVerdict": "promote-ready",
+      "archivedState": "usable",
+      "archivedVerdict": "promote-ready",
+      "severity": "ready",
+      "digest": null,
+      "detail": "report restored and re-validated, matching the archive record."
+    },
+    {
+      "id": "audit",
+      "restoreState": "restored-match",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "restoredVerdict": "pass",
+      "archivedState": "usable",
+      "archivedVerdict": "pass",
+      "severity": "ready",
+      "digest": null,
+      "detail": "audit restored and re-validated, matching the archive record."
+    },
+    {
+      "id": "bundle",
+      "restoreState": "absent",
+      "supplied": false,
+      "recognized": false,
+      "usable": false,
+      "restoredVerdict": null,
+      "archivedState": "absent",
+      "archivedVerdict": null,
+      "severity": null,
+      "digest": null,
+      "detail": "bundle was neither archived nor restored (nothing to drill)."
+    }
+  ],
+  "drill": {
+    "verdict": "restore-verified",
+    "exitCode": 0,
+    "verified": true,
+    "reasons": [],
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "archiveOnly": false,
+    "requireFullRestore": false,
+    "strictDrift": false,
+    "strictDriftEscalated": false,
+    "detail": "RESTORE-VERIFIED: the archive pack re-derives and is ARCHIVABLE, every supplied restored record is intact and matches the archive's record, and a restore was exercised. This archived release evidence can be restored and trusted. This drill fetched nothing — the operator restored the files out of band; it only re-validated them."
+  },
+  "reasons": [],
+  "digests": {
+    "algorithm": "none",
+    "canonicalization": "pdfxyz-sorted-keys/1",
+    "archive": null,
+    "governance": null,
+    "trend": null,
+    "report": null,
+    "audit": null,
+    "bundle": null
+  },
+  "followUps": [
+    {
+      "id": "continue-restore-cadence",
+      "detail": "The restore is verified: keep drilling the archived release evidence on your review / disaster-recovery cadence (restore the pack + its records and re-run this drill), so a silent bit-rot or a broken archive store is caught before an operator needs the evidence."
+    },
+    {
+      "id": "record-restore-receipt",
+      "detail": "Keep this restore-drill receipt (and the anchor digest) alongside the archive pack as the disaster-recovery evidence for this window: it records that the archived evidence was restored and re-validated on this host. This drill uploads, copies, and promotes nothing."
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED disaster-recovery / review drill (weekly / monthly), NOT a per-release gate: RESTORE the archived pack (and, ideally, the underlying records it indexed) from your archive store to a scratch dir, hand the pack here with `--archive` and each restored record with `--governance` / `--trend` / `--report` / `--audit` / `--bundle`, and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the drill on exit 4 (a tamper / mismatch / blocked archive), surface exit 3 (a drift) for review, and treat exit 2 (insufficient) as a coverage gap, not a proven restore.",
+    "Restore the underlying records to prove restorability: re-validating the pack alone (with `--archive-only`) proves the manifest re-derives, but the DRILL's value is CROSS-CHECKING the separately-restored records against the pack — a restored record whose posture no longer matches surfaces a broken archive store or a corrupt copy. Use `--require-full-restore` to require every record the pack kept.",
+    "This drill fetches nothing: it does NOT read your archive store, bucket, or object. The operator RESTORES the pack + records out of band (a bucket copy, a tar extract, a git checkout) and hands the files here; the drill only re-validates what it is given. Storage retrieval, retention, immutability, signing, and deployment promotion are operator / CI / storage actions this offline verifier never performs.",
+    "Keep the receipt (and the anchor digest) alongside the archive as the DR evidence: it records that the archived release evidence was restored and re-validated on this host on this date — a content-free proof of a successful (or failed) drill, not a substitute for the records it drills nor for your storage-side backup, retention, and restore-testing processes."
+  ],
+  "caveats": [
+    "This is a RELEASE EVIDENCE RESTORE DRILL: it INGESTS a content-free `pdfxyz.release-archive/1` pack (the PRIMARY anchor) plus, optionally, the underlying `pdfxyz.release-governance/1` / `pdfxyz.release-trend/1` / `pdfxyz.release-report/1` / `pdfxyz.release-audit/1` / `pdfxyz.release-ci-bundle/1` records an operator RESTORED out of band, RE-VALIDATES each against ITSELF, CROSS-CHECKS each restored record against the pack's OWN recorded posture, and folds them into ONE bounded restore posture + follow-up checklist. It is local content-free RESTORE VERIFICATION over evidence summaries — NOT storage retrieval, a cloud / bucket read, signing, authentication, cloud validation, deployment approval, deployment promotion, or an unzip / copy of raw files.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, FETCHES nothing from cold storage (the operator restores the files out of band and hands them here), RUNS no gate / bundle / audit / report / trend / governance / archive itself, and NEVER deletes, prunes, uploads, zips, tars, copies, promotes, approves, or mutates any record, pack, artifact, object, or deployment. A `restore-verified` drill authorizes nothing; it only reports that the content-free evidence restored on THIS host was self-consistent and coherent with the archive record.",
+    "A `restore-verified` drill REQUIRES a usable archive pack whose own posture is `archivable`, every supplied restored record intact AND matching the pack's record, and at least one restore actually exercised (or `--archive-only` to scope the drill to the manifest). A drill that restored nothing proves no restorability — it is honestly `restore-incomplete`, never a fabricated verified. It FAILS CLOSED: a tampered pack, a blocked archive, a restored mismatch / corrupt record blocks the drill; an unreadable pack, an incomplete archive, or an un-exercised drill is insufficient.",
+    "It re-derives the pack's rollup from the pack's OWN reduced records (reusing the Phase 55 reducer) and each restored record's rollup from its OWN recorded facts (reusing the Phase 50–54 reducers), and treats a recorded posture / verdict that does not re-derive as a TAMPER, and a restored posture that disagrees with the pack's record as a RESTORE MISMATCH. This re-derivation + cross-check is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity.",
+    "The recorded digests are content-free canonical sha256 fingerprints of the exact restored bytes (safe hex over bounded, content-free data), useful for comparing one restore against another or against your own store's record; they are NOT signatures, and the archive pack records no digest to compare against, so integrity here is proven by the semantic re-derivation + cross-check, not by matching a stored hash.",
+    "It emits only bounded enums, small counts, an ISO stamp, opaque hex digests, and app-authored prose — so it carries no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, commit URL, size, byte, or record content, even from a hostile input; it never echoes an ingested record's own stamp, and it never echoes an input file path, even on an error."
+  ],
+  "receipt": {
+    "category": "worker-release-restore-drill",
+    "policyId": "pdfxyz-worker-release-restore-drill",
+    "policyVersion": 1,
+    "at": "2026-07-04T00:00:00.000Z",
+    "verdict": "restore-verified",
+    "exitCode": 0,
+    "archiveState": "usable",
+    "hasArchive": true,
+    "recordsRestored": 4,
+    "recordsMatched": 4,
+    "recordsFailed": 0,
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "archiveOnly": false,
+    "requireFullRestore": false,
+    "strictDrift": false,
+    "archiveDigest": null
+  }
+}
