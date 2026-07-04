@@ -158,6 +158,10 @@ import {
   RELEASE_DECISION_DECISIONS,
   type ReleaseDecisionDecision,
 } from "../release-decision/types";
+import {
+  RELEASE_DECISION_INDEX_VERDICTS,
+  type ReleaseDecisionIndexVerdict,
+} from "../release-decision-index/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -473,6 +477,7 @@ export const METRIC_NAMES = [
   "worker_release_publish_pack_total",
   "worker_release_ack_total",
   "worker_release_decision_total",
+  "worker_release_decision_index_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -725,6 +730,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       decision: RELEASE_DECISION_DECISIONS,
+    },
+  },
+  worker_release_decision_index_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_INDEX_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1381,6 +1392,28 @@ export function releaseDecisionMetric(decision: ReleaseDecisionDecision): Worker
     metric: "worker_release_decision_total",
     kind: "counter",
     labels: { decision },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision ledger index** (Phase 60) resolved to its index `verdict`
+ * ({@link ReleaseDecisionIndexVerdict}: `stable`/`watch`/`insufficient`/`blocked`/`invalid`). One bounded label so a
+ * release ledger / review dashboard can count decision-batch reviews by the single outcome a reviewer acts on — e.g.
+ * `worker_release_decision_index_total{verdict="blocked"} > 0` catches a rejected / invalid decision in the batch,
+ * `{verdict="invalid"} > 0` catches an unreadable / tampered record, `{verdict="insufficient"} > 0` catches an
+ * inconclusive batch. This counts an offline INDEX that ingested a bounded batch of content-free
+ * `pdfxyz.release-decision/1` records, re-validated each against itself, and folded their decisions into one index
+ * verdict — NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, a
+ * deployment / promotion ledger, a cloud call, a deletion, or a claim about bucket bytes. The one label is a closed,
+ * redaction-stable enum — never a reviewer identity, a reason id, a filename, path, object key, bucket, URL, size,
+ * digest, or record content.
+ */
+export function releaseDecisionIndexMetric(verdict: ReleaseDecisionIndexVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_index_total",
+    kind: "counter",
+    labels: { verdict },
     value: 1,
   };
 }

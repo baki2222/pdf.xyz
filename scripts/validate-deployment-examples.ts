@@ -74,6 +74,8 @@ const FILES = [
   `${DIR}/github-actions/release-handoff-ack-fixture.yml`,
   // Phase 59 — the release decision record ledger (compose a publish pack + acknowledgement into one decision).
   `${DIR}/github-actions/release-decision-record-fixture.yml`,
+  // Phase 60 — the release decision ledger index (index a bounded batch of decision records into one review summary).
+  `${DIR}/github-actions/release-decision-index-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -276,6 +278,15 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /test "\$code" -eq 4/, "release-decision GitHub Actions fixture must assert the reject/invalid (rejected / tampered ack) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /test "\$code" -eq 2/, "release-decision GitHub Actions fixture must assert the insufficient (deferred / incomplete) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /test "\$code" -eq 1/, "release-decision GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 60 — the release-decision-index template must file decision records, index a bounded batch, and pin the
+  // blocked/invalid / insufficient / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /worker:release-decision["\s\\]/, "release-decision-index GitHub Actions fixture must file a decision record first", findings);
+  requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /worker:release-decision-index/, "release-decision-index GitHub Actions fixture must run worker:release-decision-index", findings);
+  requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /--file=/, "release-decision-index GitHub Actions fixture must supply the decision-record batch", findings);
+  requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /test "\$code" -eq 4/, "release-decision-index GitHub Actions fixture must assert the blocked/invalid (reject / tampered record) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /test "\$code" -eq 2/, "release-decision-index GitHub Actions fixture must assert the insufficient (inconclusive) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /test "\$code" -eq 1/, "release-decision-index GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

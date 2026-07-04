@@ -1,0 +1,103 @@
+name: Release decision ledger index fixture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 1 * *"
+
+# A release-decision REVIEW step, not a per-release gate: after a batch of release decisions has been filed (one
+# `pdfxyz.release-decision/1` record per release), this INDEXES a bounded batch of those content-free records into ONE
+# `pdfxyz.release-decision-index/1` summary — the decision distribution, per-source posture counts, a per-record
+# posture sequence, an index verdict (stable / watch / insufficient / blocked / invalid), and a next-action checklist.
+# It is a ledger INDEX SUMMARY ONLY: it is NOT a legal audit log, a compliance attestation, an external approval /
+# signature, an identity proof, or a deployment / promotion ledger, and it signs / approves / publishes / promotes /
+# deploys / notifies / mutates NOTHING. It fetches nothing — it composes the batch from committed content-free
+# fixtures so the workflow is deterministic and offline.
+
+jobs:
+  release-decision-index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: File two release decisions, then index the batch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p decisions
+          # Compose two content-free decision records from committed publish-pack + acknowledgement fixtures (a real
+          # pipeline files one `worker:release-decision` record per release and archives it).
+          pnpm worker:release-decision \
+            --publish-pack=docs/examples/release-decision-record/publish-pack-publishable.json \
+            --ack=docs/examples/release-decision-record/ack-accepted.json \
+            --output=decisions/d1.json
+          pnpm worker:release-decision \
+            --publish-pack=docs/examples/release-decision-record/publish-pack-publishable.json \
+            --ack=docs/examples/release-decision-record/ack-accepted.json \
+            --output=decisions/d2.json
+          # Index the bounded batch (oldest first, newest last) into ONE ledger review summary.
+          pnpm worker:release-decision-index \
+            --file=decisions/d1.json \
+            --file=decisions/d2.json \
+            --output=decisions/decision-index.json
+          # Render the ledger index into the job summary.
+          pnpm worker:release-decision-index \
+            --file=decisions/d1.json \
+            --file=decisions/d2.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail-closed examples
+        shell: bash
+        run: |
+          # A REJECT decision in the batch blocks the index (exit 4) — do not treat the batch as clean.
+          set +e
+          pnpm worker:release-decision-index \
+            --file=docs/examples/release-decision-index/decision-proceed.json \
+            --file=docs/examples/release-decision-index/decision-reject.json --json >/tmp/index-blocked.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A TAMPERED record can't be trusted → invalid (exit 4), never a vacuous stable index.
+          set +e
+          pnpm worker:release-decision-index \
+            --file=docs/examples/release-decision-index/decision-proceed.json \
+            --file=docs/examples/release-decision-index/decision-tampered.json --json >/tmp/index-invalid.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # An INSUFFICIENT decision (inconclusive evidence) makes the batch insufficient (exit 2), not clean.
+          set +e
+          pnpm worker:release-decision-index \
+            --file=docs/examples/release-decision-index/decision-proceed.json \
+            --file=docs/examples/release-decision-index/decision-insufficient.json --json >/tmp/index-insufficient.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # No record supplied is a usage error (exit 1).
+          set +e
+          pnpm worker:release-decision-index --json >/tmp/index-usage.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-decision-index
+          path: decisions/decision-index.json
+          if-no-files-found: error
