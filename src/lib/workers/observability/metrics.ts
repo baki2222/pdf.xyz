@@ -130,6 +130,10 @@ import {
   RELEASE_REPORT_RECOMMENDATIONS,
   type ReleaseReportRecommendation,
 } from "../release-report/types";
+import {
+  RELEASE_TREND_VERDICTS,
+  type ReleaseTrendVerdict,
+} from "../release-trend/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -438,6 +442,7 @@ export const METRIC_NAMES = [
   "worker_release_ci_bundle_total",
   "worker_release_audit_total",
   "worker_release_report_total",
+  "worker_release_trend_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -648,6 +653,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       recommendation: RELEASE_REPORT_RECOMMENDATIONS,
+    },
+  },
+  worker_release_trend_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_TREND_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1154,6 +1165,27 @@ export function releaseReportMetric(recommendation: ReleaseReportRecommendation)
     metric: "worker_release_report_total",
     kind: "counter",
     labels: { recommendation },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release evidence trend summary** (Phase 53) resolved to its governance `verdict`
+ * ({@link ReleaseTrendVerdict}: `stable`/`warning`/`unknown`/`failing`). One bounded label so a release pipeline /
+ * governance dashboard can count trend summaries by the single decision a reviewer acts on — e.g.
+ * `worker_release_trend_total{verdict="failing"} > 0` catches a failing recent trend (a tampered report, a
+ * hold-fail newest, or a breached threshold), `{verdict="unknown"} > 0` catches an insufficient / unreadable
+ * report history. This counts an offline SUMMARY that ingested a bounded history of content-free
+ * `pdfxyz.release-report/1` reports, re-validated each against itself, and folded their recommendations into one
+ * trend verdict — NOT a cloud call, a deletion, a signature, an approval, a promotion, or a claim about bucket
+ * bytes. The one label is a closed, redaction-stable enum — never a filename, path, object key, bucket, URL,
+ * endpoint, region, instant, size, digest, or document content.
+ */
+export function releaseTrendMetric(verdict: ReleaseTrendVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_trend_total",
+    kind: "counter",
+    labels: { verdict },
     value: 1,
   };
 }

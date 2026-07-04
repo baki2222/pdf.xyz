@@ -60,6 +60,8 @@ const FILES = [
   `${DIR}/github-actions/release-audit-fixture.yml`,
   // Phase 52 — the release evidence operator report (compose bundle + audit into one operator recommendation).
   `${DIR}/github-actions/release-report-fixture.yml`,
+  // Phase 53 — the release evidence trend summary (summarize a bounded history of operator reports).
+  `${DIR}/github-actions/release-trend-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -196,6 +198,15 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-report-fixture.yml`, /test "\$code" -eq 4/, "release-report GitHub Actions fixture must assert the blocking hold-fail exit code", findings);
   requireText(`${DIR}/github-actions/release-report-fixture.yml`, /test "\$code" -eq 2/, "release-report GitHub Actions fixture must assert the audit-only needs-evidence exit code", findings);
   requireText(`${DIR}/github-actions/release-report-fixture.yml`, /test "\$code" -eq 1/, "release-report GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 53 — the release-trend template must build a current report, summarize a bounded report history, and
+  // pin the tampered-report / needs-evidence-tip / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-trend-fixture.yml`, /worker:release-report/, "release-trend GitHub Actions fixture must build a current release report first", findings);
+  requireText(`${DIR}/github-actions/release-trend-fixture.yml`, /worker:release-trend/, "release-trend GitHub Actions fixture must run worker:release-trend", findings);
+  requireText(`${DIR}/github-actions/release-trend-fixture.yml`, /--report=/, "release-trend GitHub Actions fixture must supply a report history", findings);
+  requireText(`${DIR}/github-actions/release-trend-fixture.yml`, /test "\$code" -eq 4/, "release-trend GitHub Actions fixture must assert the failing-trend (tamper / hold-fail tip) exit code", findings);
+  requireText(`${DIR}/github-actions/release-trend-fixture.yml`, /test "\$code" -eq 2/, "release-trend GitHub Actions fixture must assert the needs-evidence-tip insufficient exit code", findings);
+  requireText(`${DIR}/github-actions/release-trend-fixture.yml`, /test "\$code" -eq 1/, "release-trend GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

@@ -1,0 +1,122 @@
+{
+  "schema": "pdfxyz.release-report/1",
+  "generatedAt": "2026-07-04T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-report",
+    "policyVersion": 1,
+    "bundleSchema": "pdfxyz.release-ci-bundle/1",
+    "auditSchema": "pdfxyz.release-audit/1"
+  },
+  "coverage": {
+    "sourcesSupplied": 2,
+    "sourcesUsable": 2,
+    "bundle": "usable",
+    "audit": "usable",
+    "hasBundle": true,
+    "hasAudit": true
+  },
+  "sources": [
+    {
+      "id": "bundle",
+      "state": "usable",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "verdict": "pass",
+      "severity": "ready",
+      "facts": {
+        "verdict": "pass",
+        "exitCode": 0,
+        "stagesPresent": 2,
+        "chainComplete": false,
+        "decisionStage": "policy",
+        "inconsistencies": 0,
+        "warningSignals": 0,
+        "archiveVerdict": "ok"
+      },
+      "detail": "bundle: pass (a self-consistent release CI bundle)."
+    },
+    {
+      "id": "audit",
+      "state": "usable",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "verdict": "pass",
+      "severity": "ready",
+      "facts": {
+        "verdict": "pass",
+        "mode": "pair",
+        "comparable": true,
+        "blockingRegressions": 0,
+        "warningRegressions": 0,
+        "drivers": [],
+        "baselineVerdict": "pass",
+        "currentVerdict": "pass",
+        "postureRankDelta": 0
+      },
+      "detail": "audit: pass (a self-consistent release audit)."
+    }
+  ],
+  "recommendation": {
+    "recommendation": "hold-fail",
+    "exitCode": 0,
+    "ready": true,
+    "rationale": [],
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "strict": false,
+    "strictEscalated": false,
+    "detail": "PROMOTE-READY: the primary coherence evidence (a usable release CI bundle) PASSED, and the regression guard (an audit, if supplied) reported no regression. A coherent, non-regressed, content-free evidence set for handoff. This report authorizes nothing on its own — promotion remains an out-of-band operator/CI action."
+  },
+  "rationale": [],
+  "archive": {
+    "items": [
+      "release-ci-bundle",
+      "release-audit",
+      "operator-report"
+    ],
+    "note": "Archive each recognized document above, plus this report, as CI artifacts — they are the content-free release evidence handoff record for this build. This report never uploads or promotes them."
+  },
+  "nextActions": [
+    {
+      "id": "promote-out-of-band",
+      "detail": "Proceed with your out-of-band promotion process (sign the release, provision, and promote the deployment): this report REPORTS over content-free evidence and authorizes nothing on its own."
+    },
+    {
+      "id": "archive-report",
+      "detail": "Archive the supplied bundle / audit — plus this report — as CI artifacts: they are the content-free release evidence handoff record for this build. This report never uploads or promotes them."
+    }
+  ],
+  "guidance": [
+    "Wire this as a CI SUMMARY / handoff step AFTER `worker:release-ci-bundle` (and, optionally, `worker:release-audit`): run each to a file, hand those files here, and render `--text` into `$GITHUB_STEP_SUMMARY` (or archive `--json` as a CI artifact). Fail the pipeline on exit 4 (a blocking issue or a tamper), surface exit 3 (an advisory concern) for review, and treat exit 2 (insufficient evidence / no usable bundle) as a setup error, not a promote.",
+    "Supply at least a release CI bundle: a `promote-ready` requires it (an audit-only run is `needs-evidence`, since a regression check cannot certify the release's own coherence). Add a release audit for a regression guard against a baseline — a blocking regression there holds the release even when the bundle itself passes.",
+    "Archive the supplied bundle / audit — plus this report — as CI artifacts: this report is a content-free handoff record, not a substitute for the documents it composes, nor for your storage-side retention, signing, and release-APPROVAL processes.",
+    "Enforce promotion out of band: this report RECOMMENDS based on the content-free evidence supplied, but signing a release, provisioning, approving, and promoting a deployment are operator/CI actions this offline reporter never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE EVIDENCE OPERATOR REPORT: it INGESTS a content-free `pdfxyz.release-ci-bundle/1` (this release's evidence coherence) and/or a `pdfxyz.release-audit/1` (regression versus a baseline) a release job produced, RE-VALIDATES each against ITSELF, and folds them into ONE bounded operator recommendation + checklists. It is local content-free REPORTING over evidence — NOT signing, authentication, cloud validation, storage retention ENFORCEMENT, deployment APPROVAL, or deployment PROMOTION.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no stage / bundle / audit itself, and NEVER deletes, prunes, uploads, promotes, approves, or mutates any document, artifact, index, policy, bundle, audit, object, or deployment. A `promote-ready` authorizes nothing; it only reports that the content-free evidence supplied on THIS host was coherent and non-regressed.",
+    "A `promote-ready` REQUIRES a usable release CI bundle whose own verdict is `pass`. An audit only reports whether the release REGRESSED versus a baseline — it can never, on its own, certify that the current release is acceptable — so an audit-only (or bundle-absent) run is honestly `needs-evidence`, never a promote. It FAILS CLOSED: a tampered / failed / regressed input holds the release; a missing coherence bundle or an unreadable document is insufficient.",
+    "It re-derives each ingested document's rollup from the document's OWN recorded facts (reusing the Phase 50/51 reducers) and treats a recorded verdict that does not re-derive as a TAMPER (`hold-fail`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity.",
+    "It emits only bounded enums, small counts / deltas, an ISO stamp, and app-authored prose — so it carries no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, commit URL, size, byte, digest, or document content, even from a hostile input, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-report",
+    "policyId": "pdfxyz-worker-release-report",
+    "policyVersion": 1,
+    "at": "2026-07-04T00:00:00.000Z",
+    "recommendation": "promote-ready",
+    "exitCode": 0,
+    "sourcesUsable": 2,
+    "hasBundle": true,
+    "hasAudit": true,
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "strict": false
+  }
+}

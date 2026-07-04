@@ -1,0 +1,115 @@
+name: pdf.xyz worker release evidence trend summary
+
+# The SCHEDULED governance-review step (Phase 53). It runs over a bounded HISTORY of the content-free operator
+# reports (Phase 52) a release pipeline archived — a week / month of release handoffs — and folds them into ONE
+# trend summary: the recommendation distribution, a per-report posture sequence, a final trend verdict +
+# reasons, and an ordered follow-up checklist. It re-validates each report against ITSELF, renders the summary
+# into the CI job summary, and FAILS CLOSED when the recent trend is failing or a report cannot be trusted. It
+# makes NO cloud call, needs NO credentials, reads NO secret, and deletes / prunes / promotes / approves
+# NOTHING — every step is offline and deterministic (the offline chain + committed content-free fixtures). This
+# is a TEMPLATE.
+#
+# The trend is content-free TREND REPORTING over evidence reports, NOT signing, auth, cloud validation, storage
+# retention enforcement, deployment APPROVAL, or deployment PROMOTION. A `stable` trend requires a clean window
+# (a promote-ready tip, no tamper, no breached threshold). Wire your real promotion out of band; this is a
+# governance summary, not a per-release gate.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly governance review (Mondays 06:00 UTC). Point it at your archived per-release reports.
+    - cron: "0 6 * * 1"
+
+jobs:
+  release-trend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 1) Build ONE current release's content-free operator report from the offline chain (Phase 46-52), then
+      #    treat it as the NEWEST entry in a bounded report history (oldest first, newest last). In production,
+      #    the older reports come from your CI archive — here we use committed content-free fixtures.
+      - name: Build the current release report (newest history entry)
+        run: |
+          pnpm -s worker:release-gate --json > gate.json || true
+          pnpm -s worker:release-artifact --release-gate=gate.json --label=ci-example --output=artifact.json --json
+          pnpm -s worker:release-index --artifact=artifact.json --output=index.json --json
+          pnpm -s worker:release-policy --index=index.json --require-clean --min-artifacts=1 --output=policy.json --json
+          pnpm -s worker:release-ci-bundle \
+            --release-gate=gate.json --release-artifact=artifact.json \
+            --release-index=index.json --release-policy=policy.json \
+            --output=current-bundle.json --json
+          pnpm -s worker:release-report --bundle=current-bundle.json --output=current-report.json --json
+
+      # 2) Summarize the bounded report history → CI job summary. A clean window (promote-ready tip, no tamper)
+      #    is stable (exit 0); the trend authorizes nothing on its own.
+      - name: Summarize the recent report trend → CI summary
+        run: |
+          pnpm -s worker:release-trend \
+            --report=docs/examples/release-trend/report-promote-ready.json \
+            --report=docs/examples/release-trend/report-promote-ready.json \
+            --report=current-report.json \
+            --output=release-trend.json --json
+          pnpm -s worker:release-trend \
+            --report=docs/examples/release-trend/report-promote-ready.json \
+            --report=docs/examples/release-trend/report-promote-ready.json \
+            --report=current-report.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      # 3) A TAMPERED report anywhere in the window MUST fail the trend closed (exit 4) — here, a committed report
+      #    whose recorded recommendation does not re-derive. Proves the trend catches a hand-edited report.
+      - name: A tampered report fails the trend (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-trend \
+            --report=docs/examples/release-trend/report-promote-ready.json \
+            --report=docs/examples/release-trend/report-tampered.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 4) A hold-fail TIP MUST fail the trend closed (exit 4), even within a tolerated threshold.
+      - name: A hold-fail tip fails the trend (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-trend \
+            --report=docs/examples/release-trend/report-promote-ready.json \
+            --report=docs/examples/release-trend/report-hold-fail.json \
+            --max-hold-fail=5 >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 5) A needs-evidence TIP is insufficient (exit 2) — a thin / uncertified recent posture, never a stable.
+      - name: A needs-evidence tip is insufficient (exit 2)
+        run: |
+          set +e
+          pnpm -s worker:release-trend \
+            --report=docs/examples/release-trend/report-promote-ready.json \
+            --report=docs/examples/release-trend/report-needs-evidence.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 2 || { echo "expected 2, got $code"; exit 1; }
+
+      # 6) A misused CLI fails closed to the distinct usage band (exit 1) — never a silent stable.
+      - name: No report supplied fails closed (exit 1)
+        run: |
+          set +e
+          pnpm -s worker:release-trend >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 1 || { echo "expected 1, got $code"; exit 1; }
+
+      # 7) Publish the trend summary as a CI artifact / governance record.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-trend
+          path: release-trend.json
+
+      - name: Release-trend module unit + example tests (no-leak + fail-closed)
+        run: pnpm exec vitest run src/lib/workers/release-trend
