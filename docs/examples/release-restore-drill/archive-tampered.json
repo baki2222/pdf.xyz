@@ -1,0 +1,253 @@
+{
+  "schema": "pdfxyz.release-archive/1",
+  "generatedAt": "2026-07-04T07:43:00.727Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-archive",
+    "policyVersion": 1,
+    "governanceSchema": "pdfxyz.release-governance/1",
+    "trendSchema": "pdfxyz.release-trend/1",
+    "reportSchema": "pdfxyz.release-report/1",
+    "auditSchema": "pdfxyz.release-audit/1",
+    "bundleSchema": "pdfxyz.release-ci-bundle/1"
+  },
+  "policy": {
+    "requireTrend": false,
+    "requireReport": false,
+    "requireAudit": false,
+    "requireBundle": false,
+    "strictWatch": false
+  },
+  "coverage": {
+    "recordsSupplied": 5,
+    "recordsRecognized": 5,
+    "recordsUsable": 5,
+    "governance": "usable",
+    "trend": "usable",
+    "report": "usable",
+    "audit": "usable",
+    "bundle": "usable",
+    "hasGovernance": true,
+    "hasTrend": true,
+    "hasReport": true,
+    "hasAudit": true,
+    "hasBundle": true
+  },
+  "records": [
+    {
+      "id": "governance",
+      "state": "usable",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "verdict": "healthy",
+      "severity": "ready",
+      "detail": "governance record is usable with posture healthy.",
+      "facts": {
+        "verdict": "healthy",
+        "exitCode": 0,
+        "healthy": true,
+        "sourcesSupplied": 3,
+        "sourcesUsable": 3,
+        "trendVerdict": "stable",
+        "reportVerdict": "promote-ready",
+        "auditVerdict": "pass",
+        "blocking": 0,
+        "insufficiencies": 0,
+        "advisories": 0
+      }
+    },
+    {
+      "id": "trend",
+      "state": "usable",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "verdict": "stable",
+      "severity": "ready",
+      "detail": "trend record is usable with posture stable.",
+      "facts": {
+        "verdict": "stable",
+        "exitCode": 0,
+        "stable": true,
+        "reportsUsable": 3,
+        "reportsConsidered": 3,
+        "newest": "promote-ready",
+        "oldest": "promote-ready",
+        "direction": "flat",
+        "blocking": 0,
+        "insufficiencies": 0,
+        "advisories": 0
+      }
+    },
+    {
+      "id": "report",
+      "state": "usable",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "verdict": "promote-ready",
+      "severity": "ready",
+      "detail": "report record is usable with posture promote-ready.",
+      "facts": {
+        "recommendation": "promote-ready",
+        "exitCode": 0,
+        "ready": true,
+        "blocking": 0,
+        "insufficiencies": 0,
+        "advisories": 0,
+        "hasBundle": true,
+        "hasAudit": true,
+        "strict": false
+      }
+    },
+    {
+      "id": "audit",
+      "state": "usable",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "verdict": "pass",
+      "severity": "ready",
+      "detail": "audit record is usable with posture pass.",
+      "facts": {
+        "verdict": "pass",
+        "mode": "pair",
+        "comparable": true,
+        "blockingRegressions": 0,
+        "warningRegressions": 0,
+        "drivers": [],
+        "baselineVerdict": "pass",
+        "currentVerdict": "pass",
+        "postureRankDelta": 0
+      }
+    },
+    {
+      "id": "bundle",
+      "state": "usable",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "verdict": "pass",
+      "severity": "ready",
+      "detail": "bundle record is usable with posture pass.",
+      "facts": {
+        "verdict": "pass",
+        "exitCode": 0,
+        "stagesPresent": 2,
+        "chainComplete": false,
+        "decisionStage": "policy",
+        "inconsistencies": 0,
+        "stages": {
+          "gate": {
+            "present": false,
+            "severity": "unknown"
+          },
+          "artifact": {
+            "present": false,
+            "severity": "unknown"
+          },
+          "index": {
+            "present": true,
+            "severity": "pass"
+          },
+          "policy": {
+            "present": true,
+            "severity": "pass"
+          }
+        },
+        "links": {
+          "artifact-digest": "skipped",
+          "index-self-consistent": "ok",
+          "policy-self-consistent": "ok",
+          "gate-artifact-agreement": "skipped",
+          "artifact-index-inclusion": "skipped",
+          "index-policy-agreement": "ok"
+        },
+        "warnStages": 0,
+        "warningSignals": 0,
+        "archiveVerdict": "ok",
+        "policyBlockingViolations": 0,
+        "policyWarningViolations": 0,
+        "indexIntegrityFailures": 0
+      }
+    }
+  ],
+  "archive": {
+    "posture": "archive-blocked",
+    "exitCode": 0,
+    "archivable": true,
+    "reasons": [],
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "requireTrend": false,
+    "requireReport": false,
+    "requireAudit": false,
+    "requireBundle": false,
+    "strictWatch": false,
+    "strictWatchEscalated": false,
+    "detail": "ARCHIVABLE: the review record is coherent — the PRIMARY governance bundle is HEALTHY, and every supplied related record is clean and coherent with it. Keep this pack (and the underlying records) as the content-free archive for this review window. This pack archives nothing on its own; it only indexes what to keep together."
+  },
+  "reasons": [],
+  "checklist": {
+    "items": [
+      "governance-bundle",
+      "release-trend",
+      "latest-report",
+      "latest-audit",
+      "ci-bundle",
+      "archive-pack"
+    ],
+    "recordClasses": 5,
+    "note": "Archive each recognized content-free record class above, plus this pack manifest, as the release evidence review record. This pack never uploads, copies, zips, signs, or promotes them."
+  },
+  "followUps": [
+    {
+      "id": "continue-archive-cadence",
+      "detail": "The review record is archivable: keep composing governance bundles per review window and archiving this pack (plus the underlying records) on your weekly / monthly cadence. This pack archives nothing on its own."
+    },
+    {
+      "id": "archive-evidence-pack",
+      "detail": "Archive this pack (and the underlying governance / trend / report / audit / CI bundle records) as CI artifacts: it is the content-free release-evidence archive record for this review window. This pack never uploads, zips, or promotes anything."
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED archive-record artifact (weekly / monthly), NOT a per-release gate: run `worker:release-governance` per review window and archive its bundle, then hand that bundle (plus, optionally, the related LATEST trend / report / audit / CI bundle) here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a blocked pack or a tamper), surface exit 3 (a watch pack) for review, and treat exit 2 (insufficient evidence) as a coverage gap, not an archivable record.",
+    "Supply at least the governance bundle: an `archivable` pack requires a usable, healthy governance bundle (the primary window signal). Add the related trend / report / audit / CI bundle to index them together and cross-check coherence — a stale record that disagrees with the governance record surfaces as a watch, and use `--require-trend` / `--require-report` / `--require-audit` / `--require-bundle` to make any of them mandatory for your policy.",
+    "Archive this pack (and the underlying records) as CI artifacts: it is a content-free INDEX of which records to keep together, not a substitute for the records it indexes, nor for your storage-side retention, signing, and release-APPROVAL processes, nor an immutable archive store.",
+    "Enforce retention and immutability out of band: this pack REPORTS which content-free evidence to keep together, but zipping / copying the files, storing them immutably, enforcing retention, signing a release, and promoting a deployment are operator / CI / storage actions this offline indexer never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE EVIDENCE ARCHIVE PACK: it INGESTS a content-free `pdfxyz.release-governance/1` bundle (the PRIMARY signal) plus, optionally, the related content-free `pdfxyz.release-trend/1` / `pdfxyz.release-report/1` / `pdfxyz.release-audit/1` / `pdfxyz.release-ci-bundle/1` records a release pipeline produced, RE-VALIDATES each against ITSELF, cross-checks their coherence, and folds them into ONE bounded archive posture + record / follow-up checklists. It is local content-free ARCHIVE INDEXING over evidence summaries — NOT signing, authentication, cloud validation, storage retention ENFORCEMENT, immutable archive STORAGE, deployment APPROVAL, deployment PROMOTION, or a ZIP / tar / copy of raw files.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / bundle / audit / report / trend / governance itself, and NEVER deletes, prunes, uploads, zips, tars, copies, promotes, approves, or mutates any record, governance, trend, report, audit, bundle, artifact, index, policy, object, or deployment. An `archivable` pack authorizes nothing; it only reports that the content-free evidence supplied on THIS host was coherent for the review record.",
+    "An `archivable` pack REQUIRES a usable governance bundle whose own verdict is `healthy`. The related trend / report / audit / CI bundle are component records that can BLOCK or FLAG but can never, on their own, GRANT an archivable record — so a governance-absent (or governance-unusable) run is honestly `archive-incomplete`, never an archivable. It FAILS CLOSED: a tampered / blocked / failing / regressed record blocks the pack; an absent governance, an unreadable record, or an indeterminate posture is insufficient.",
+    "It re-derives each ingested record's rollup from the record's OWN recorded facts (reusing the Phase 50–54 reducers) and treats a recorded verdict / recommendation / rollup that does not re-derive as a TAMPER (`archive-blocked`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose — so it carries no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, commit URL, size, byte, digest, or record content, even from a hostile input; it never echoes an ingested record's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, deletion proof, or storage retention enforcement of any request or object, and it deletes, uploads, zips, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-archive",
+    "policyId": "pdfxyz-worker-release-archive",
+    "policyVersion": 1,
+    "at": "2026-07-04T07:43:00.727Z",
+    "posture": "archivable",
+    "exitCode": 0,
+    "recordsSupplied": 5,
+    "recordsUsable": 5,
+    "recordClasses": 5,
+    "hasGovernance": true,
+    "hasTrend": true,
+    "hasReport": true,
+    "hasAudit": true,
+    "hasBundle": true,
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "requireTrend": false,
+    "requireReport": false,
+    "requireAudit": false,
+    "requireBundle": false,
+    "strictWatch": false
+  }
+}

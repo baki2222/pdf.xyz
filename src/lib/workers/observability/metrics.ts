@@ -142,6 +142,10 @@ import {
   RELEASE_ARCHIVE_POSTURES,
   type ReleaseArchivePosture,
 } from "../release-archive/types";
+import {
+  RELEASE_RESTORE_DRILL_VERDICTS,
+  type ReleaseRestoreDrillVerdict,
+} from "../release-restore-drill/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -453,6 +457,7 @@ export const METRIC_NAMES = [
   "worker_release_trend_total",
   "worker_release_governance_total",
   "worker_release_archive_total",
+  "worker_release_restore_drill_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -681,6 +686,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       posture: RELEASE_ARCHIVE_POSTURES,
+    },
+  },
+  worker_release_restore_drill_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_RESTORE_DRILL_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1252,6 +1263,28 @@ export function releaseArchiveMetric(posture: ReleaseArchivePosture): WorkerMetr
     metric: "worker_release_archive_total",
     kind: "counter",
     labels: { posture },
+    value: 1,
+  };
+}
+
+/**
+ * A performed **release evidence restore drill** (Phase 56) resolved to its restore `verdict`
+ * ({@link ReleaseRestoreDrillVerdict}: `restore-verified`/`restore-drift`/`restore-incomplete`/`restore-failed`).
+ * One bounded label so a review / disaster-recovery dashboard can count restore drills by the single decision an
+ * operator acts on — e.g. `worker_release_restore_drill_total{verdict="restore-failed"} > 0` catches a tampered /
+ * blocked pack or a restored record that no longer matches the archive record, `{verdict="restore-incomplete"} > 0`
+ * catches an unreadable pack or a drill that restored nothing. This counts an offline VERIFICATION that ingested a
+ * content-free `pdfxyz.release-archive/1` pack plus the underlying records an operator RESTORED out of band,
+ * re-validated each against itself, and cross-checked their coherence with the pack — NOT a cloud call, a storage
+ * retrieval, a deletion, a signature, a promotion, or a claim about bucket bytes. The one label is a closed,
+ * redaction-stable enum — never a filename, path, object key, bucket, URL, endpoint, region, instant, size,
+ * digest, or record content.
+ */
+export function releaseRestoreDrillMetric(verdict: ReleaseRestoreDrillVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_restore_drill_total",
+    kind: "counter",
+    labels: { verdict },
     value: 1,
   };
 }

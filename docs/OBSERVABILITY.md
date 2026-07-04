@@ -778,3 +778,7 @@ A governance dashboard keys on the single verdict per review window: `worker_rel
 
 Phase 55 adds `worker_release_archive_total{posture}` with bounded `posture` labels: `archivable`, `archive-watch`, `archive-incomplete`, and `archive-blocked`. The metric is content-free and low-cardinality; it must not include paths, filenames, refs, labels, digests, timestamps from ingested evidence, endpoints, provider identifiers, or document content.
 
+## Release restore drill metrics
+
+Phase 56 adds `worker_release_restore_drill_total{verdict}` with bounded `verdict` labels: `restore-verified`, `restore-drift`, `restore-incomplete`, and `restore-failed`. Alert on `worker_release_restore_drill_total{verdict="restore-failed"} > 0` (a tampered/blocked pack or a restored record that no longer matches the archive record) and treat `{verdict="restore-incomplete"} > 0` as a coverage gap (an unreadable pack or a drill that restored nothing), not a proven restore. The metric is content-free and low-cardinality; it must not include paths, filenames, refs, labels, digests, timestamps from ingested evidence, endpoints, provider identifiers, or document content.
+

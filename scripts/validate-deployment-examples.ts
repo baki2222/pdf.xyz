@@ -66,6 +66,8 @@ const FILES = [
   `${DIR}/github-actions/release-governance-fixture.yml`,
   // Phase 55 — the release evidence archive pack (index governance + related records for review archival).
   `${DIR}/github-actions/release-archive-fixture.yml`,
+  // Phase 56 — the release evidence restore drill (restore an archived pack + records, re-validate + cross-check).
+  `${DIR}/github-actions/release-restore-drill-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -229,6 +231,15 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /test "\$code" -eq 4/, "release-archive GitHub Actions fixture must assert the blocked/tamper exit code", findings);
   requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /test "\$code" -eq 2/, "release-archive GitHub Actions fixture must assert the incomplete evidence exit code", findings);
   requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /test "\$code" -eq 1/, "release-archive GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 56 — the release-restore-drill template must restore an archive pack + records, run the drill over
+  // them, and pin the tamper / incomplete / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-restore-drill-fixture.yml`, /worker:release-archive/, "release-restore-drill GitHub Actions fixture must restore (rebuild) the archive pack first", findings);
+  requireText(`${DIR}/github-actions/release-restore-drill-fixture.yml`, /worker:release-restore-drill/, "release-restore-drill GitHub Actions fixture must run worker:release-restore-drill", findings);
+  requireText(`${DIR}/github-actions/release-restore-drill-fixture.yml`, /--archive=/, "release-restore-drill GitHub Actions fixture must supply the archive pack anchor", findings);
+  requireText(`${DIR}/github-actions/release-restore-drill-fixture.yml`, /test "\$code" -eq 4/, "release-restore-drill GitHub Actions fixture must assert the tampered/mismatch exit code", findings);
+  requireText(`${DIR}/github-actions/release-restore-drill-fixture.yml`, /test "\$code" -eq 2/, "release-restore-drill GitHub Actions fixture must assert the incomplete (nothing restored) exit code", findings);
+  requireText(`${DIR}/github-actions/release-restore-drill-fixture.yml`, /test "\$code" -eq 1/, "release-restore-drill GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);
