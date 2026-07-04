@@ -1,0 +1,87 @@
+{
+  "schema": "pdfxyz.release-ack/1",
+  "generatedAt": "2026-07-04T15:11:12.136Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-ack",
+    "policyVersion": 1,
+    "publishPackSchema": "pdfxyz.release-publish-pack/1"
+  },
+  "acknowledgement": {
+    "decision": "rejected",
+    "reviewer": "internal-approver",
+    "note": "none",
+    "strict": false,
+    "hasFollowup": false
+  },
+  "source": {
+    "state": "usable",
+    "supplied": true,
+    "recognized": true,
+    "usable": true,
+    "packVerdict": "publishable",
+    "disclosure": "share-safe",
+    "sourcesSupplied": 5,
+    "sourcesUsable": 5,
+    "detail": "pack: a self-consistent `pdfxyz.release-publish-pack/1` (its recorded verdict re-derives)."
+  },
+  "ack": {
+    "verdict": "rejected",
+    "exitCode": 4,
+    "acknowledged": false,
+    "reasons": [
+      "decision-rejected"
+    ],
+    "invalidInputs": 0,
+    "blocking": 1,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "strict": false,
+    "strictEscalated": false,
+    "strictEscalatedFrom": null,
+    "detail": "REJECTED: the decision was `rejected` / `needs-changes`, the pack is BLOCKED (do-not-share), or `--strict` escalated a non-clean posture. Do NOT hand off / promote the release on the strength of this pack until the cause is resolved."
+  },
+  "reasons": [
+    {
+      "id": "decision-rejected",
+      "severity": "blocking",
+      "detail": "The operator's decision is REJECTED: the pack is not accepted. Do not hand off / promote on the strength of this pack."
+    }
+  ],
+  "checklist": [
+    {
+      "id": "do-not-proceed-on-rejection",
+      "detail": "This acknowledgement is a REJECTION (rejected / needs-changes / a blocked pack / a strict violation). Do NOT hand off or promote the release on the strength of this pack; resolve the cause and re-run."
+    },
+    {
+      "id": "keep-ack-receipt",
+      "detail": "Keep this content-free receipt as the acknowledgement record — it is safe to forward to any downstream system verbatim."
+    }
+  ],
+  "guidance": [
+    "Obtaining an EXTERNAL SIGNATURE, an APPROVAL, or a LEGAL / COMPLIANCE sign-off is out of band — this receipt records an operator's bounded acknowledgement, not a signature or an approval.",
+    "ACTUALLY PUBLISHING / PROMOTING / DEPLOYING the release is out of band — do it with your release tooling after any required approval.",
+    "NOTIFYING the reviewer / approver, opening a ticket, or archiving the receipt in a system of record is out of band — this tool sends nothing.",
+    "VERIFYING the underlying evidence is the upstream tools' job (gate → artifact → … → publish-pack); this only acknowledges a publish pack's bounded, self-consistent posture."
+  ],
+  "caveats": [
+    "This is a local, offline, READ-ONLY acknowledgement RECEIPT — NOT an external signature, a legal / compliance approval, an identity attestation, or a release promotion.",
+    "It records THAT an operator reviewed / received a content-free publish pack and WHAT bounded decision they chose; it does NOT prove WHO reviewed it — the reviewer is a bounded CLASS (a role), never a name / email / identity.",
+    "It makes no network call, signs nothing, approves nothing, publishes nothing, promotes nothing, notifies no one, and mutates nothing.",
+    "It re-validates the publish pack against itself, so a hand-flipped verdict / disclosure is caught as `invalid`; but a fully-coherent rewrite of the pack's own reduced sources is beyond self-consistency — anchor trust in the upstream signed / archived evidence.",
+    "An `acknowledged` verdict means an operator ACCEPTED a share-safe pack; it is NOT a statement that the release is correct, secure, or compliant.",
+    "It is content-free by construction: no reviewer name / email, no path, no object key, no bucket, no URL, no raw note text, no provider error, no log, and no document / OCR content."
+  ],
+  "receipt": {
+    "category": "worker-release-ack",
+    "policyId": "pdfxyz-worker-release-ack",
+    "policyVersion": 1,
+    "at": "2026-07-04T15:11:12.136Z",
+    "verdict": "rejected",
+    "exitCode": 4,
+    "packVerdict": "publishable",
+    "packDisclosure": "share-safe",
+    "sourcesSupplied": 5,
+    "sourcesUsable": 5
+  }
+}

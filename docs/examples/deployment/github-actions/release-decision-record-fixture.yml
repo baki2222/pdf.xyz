@@ -1,0 +1,112 @@
+name: Release decision record fixture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "59 6 * * 1"
+
+# A release LEDGER step, not a per-release gate: after a publish / handoff pack is prepared and an operator's
+# acknowledgement of it is recorded, this composes the two content-free documents (`pdfxyz.release-publish-pack/1` +
+# `pdfxyz.release-ack/1`) into ONE `pdfxyz.release-decision/1` record — a bounded decision (proceed /
+# proceed-with-followup / hold / reject / insufficient / invalid), per-source summaries, a coherence cross-check, and a
+# next-action checklist. It is a decision RECORD ONLY: it is NOT an external signature, an approval, an identity
+# attestation, legal / compliance sign-off, or an actual deployment / promotion, and it signs / approves / publishes /
+# promotes / deploys / notifies / mutates NOTHING. It fetches nothing — it composes the inputs from committed
+# content-free fixtures so the workflow is deterministic and offline.
+
+jobs:
+  release-decision-record:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Compose a publish pack, acknowledge it, then record the release decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p decision
+          # Build the window's governance bundle from committed content-free records (a real pipeline archives these).
+          pnpm worker:release-governance \
+            --trend=docs/examples/release-governance/trend-stable.json \
+            --report=docs/examples/release-governance/report-promote-ready.json \
+            --audit=docs/examples/release-governance/audit-pass.json \
+            --output=decision/governance.json
+          # Compose the publish / handoff pack over the governance bundle plus the related content-free records.
+          pnpm worker:release-publish-pack \
+            --governance=decision/governance.json \
+            --archive=docs/examples/release-publish-pack/archive-archivable.json \
+            --restore-drill=docs/examples/release-publish-pack/restore-drill-verified.json \
+            --output=decision/publish-pack.json
+          # Record the operator's acknowledgement of the pack (reviewer + note are BOUNDED classes, never identity).
+          pnpm worker:release-ack \
+            --publish-pack=decision/publish-pack.json \
+            --decision=accepted \
+            --reviewer=internal-approver \
+            --output=decision/ack.json
+          # Compose the publish pack + its acknowledgement into ONE content-free decision record.
+          pnpm worker:release-decision \
+            --publish-pack=decision/publish-pack.json \
+            --ack=decision/ack.json \
+            --output=decision/release-decision.json
+          # Render the decision record into the job summary.
+          pnpm worker:release-decision \
+            --publish-pack=decision/publish-pack.json \
+            --ack=decision/ack.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail-closed examples
+        shell: bash
+        run: |
+          # A REJECTED acknowledgement must reject the decision (exit 4) — do not proceed.
+          set +e
+          pnpm worker:release-decision \
+            --publish-pack=docs/examples/release-decision-record/publish-pack-publishable.json \
+            --ack=docs/examples/release-decision-record/ack-rejected.json --json >/tmp/decision-reject.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A TAMPERED acknowledgement can't be trusted → invalid (exit 4), never a vacuous decision.
+          set +e
+          pnpm worker:release-decision \
+            --publish-pack=docs/examples/release-decision-record/publish-pack-publishable.json \
+            --ack=docs/examples/release-decision-record/ack-tampered.json --json >/tmp/decision-invalid.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A DEFERRED acknowledgement (inconclusive evidence) is insufficient (exit 2), not a proceed.
+          set +e
+          pnpm worker:release-decision \
+            --publish-pack=docs/examples/release-decision-record/publish-pack-publishable.json \
+            --ack=docs/examples/release-decision-record/ack-deferred.json --json >/tmp/decision-insufficient.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # A missing acknowledgement is a usage error (exit 1).
+          set +e
+          pnpm worker:release-decision \
+            --publish-pack=docs/examples/release-decision-record/publish-pack-publishable.json --json >/tmp/decision-usage.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-decision-record
+          path: decision/release-decision.json
+          if-no-files-found: error

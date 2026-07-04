@@ -72,6 +72,8 @@ const FILES = [
   `${DIR}/github-actions/release-publish-pack-fixture.yml`,
   // Phase 58 — the release evidence handoff acknowledgement (record a bounded acknowledgement of a publish pack).
   `${DIR}/github-actions/release-handoff-ack-fixture.yml`,
+  // Phase 59 — the release decision record ledger (compose a publish pack + acknowledgement into one decision).
+  `${DIR}/github-actions/release-decision-record-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -263,6 +265,17 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /test "\$code" -eq 4/, "release-handoff-ack GitHub Actions fixture must assert the rejected/invalid (blocked / tampered pack) exit code", findings);
   requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /test "\$code" -eq 2/, "release-handoff-ack GitHub Actions fixture must assert the deferred (incomplete pack) exit code", findings);
   requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /test "\$code" -eq 1/, "release-handoff-ack GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 59 — the release-decision template must compose a publish pack + an acknowledgement of it, record the
+  // decision, and pin the reject/invalid / insufficient / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /worker:release-publish-pack/, "release-decision GitHub Actions fixture must compose a publish pack first", findings);
+  requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /worker:release-ack/, "release-decision GitHub Actions fixture must record an acknowledgement of the pack", findings);
+  requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /worker:release-decision/, "release-decision GitHub Actions fixture must run worker:release-decision", findings);
+  requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /--publish-pack=/, "release-decision GitHub Actions fixture must supply the publish pack", findings);
+  requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /--ack=/, "release-decision GitHub Actions fixture must supply the acknowledgement", findings);
+  requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /test "\$code" -eq 4/, "release-decision GitHub Actions fixture must assert the reject/invalid (rejected / tampered ack) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /test "\$code" -eq 2/, "release-decision GitHub Actions fixture must assert the insufficient (deferred / incomplete) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-record-fixture.yml`, /test "\$code" -eq 1/, "release-decision GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

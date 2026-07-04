@@ -154,6 +154,10 @@ import {
   RELEASE_ACK_VERDICTS,
   type ReleaseAckVerdict,
 } from "../release-ack/types";
+import {
+  RELEASE_DECISION_DECISIONS,
+  type ReleaseDecisionDecision,
+} from "../release-decision/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -468,6 +472,7 @@ export const METRIC_NAMES = [
   "worker_release_restore_drill_total",
   "worker_release_publish_pack_total",
   "worker_release_ack_total",
+  "worker_release_decision_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -714,6 +719,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_ACK_VERDICTS,
+    },
+  },
+  worker_release_decision_total: {
+    kind: "counter",
+    labels: {
+      decision: RELEASE_DECISION_DECISIONS,
     },
   },
   worker_job_terminal_total: {
@@ -1349,6 +1360,27 @@ export function releaseAckMetric(verdict: ReleaseAckVerdict): WorkerMetricSample
     metric: "worker_release_ack_total",
     kind: "counter",
     labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A recorded **release decision record** (Phase 59) resolved to its final `decision`
+ * ({@link ReleaseDecisionDecision}: `proceed`/`proceed-with-followup`/`hold`/`reject`/`insufficient`/`invalid`). One
+ * bounded label so a release ledger / dashboard can count decisions by the single outcome an operator filed — e.g.
+ * `worker_release_decision_total{decision="reject"} > 0` catches a rejected release, `{decision="invalid"} > 0` catches
+ * an untrustworthy / incoherent pair, `{decision="insufficient"} > 0` catches an incomplete pack or a deferred
+ * acknowledgement. This counts an offline DECISION that ingested a content-free `pdfxyz.release-publish-pack/1` +
+ * `pdfxyz.release-ack/1`, re-validated each against itself, cross-checked their coherence, and folded them into one
+ * decision — NOT an external signature, an approval, an identity attestation, legal / compliance sign-off, or an actual
+ * deployment / promotion. The one label is a closed, redaction-stable enum — never a reviewer identity, a reason id, a
+ * filename, path, object key, bucket, URL, size, digest, or document content.
+ */
+export function releaseDecisionMetric(decision: ReleaseDecisionDecision): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_total",
+    kind: "counter",
+    labels: { decision },
     value: 1,
   };
 }

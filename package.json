@@ -28,6 +28,7 @@
     "worker:release-restore-drill": "tsx scripts/worker-release-restore-drill.ts",
     "worker:release-publish-pack": "tsx scripts/worker-release-publish-pack.ts",
     "worker:release-ack": "tsx scripts/worker-release-ack.ts",
+    "worker:release-decision": "tsx scripts/worker-release-decision.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",
