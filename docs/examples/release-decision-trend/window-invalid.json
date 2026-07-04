@@ -1,0 +1,124 @@
+{
+  "schema": "pdfxyz.release-decision-index/1",
+  "generatedAt": "2026-07-04T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-index",
+    "policyVersion": 1,
+    "decisionSchema": "pdfxyz.release-decision/1"
+  },
+  "policy": {
+    "maxRecords": 100,
+    "strict": false
+  },
+  "ledger": {
+    "recordsSupplied": 2,
+    "recordsConsidered": 2,
+    "truncated": false,
+    "droppedOldest": 0,
+    "recordsUsable": 1,
+    "recordsUnreadable": 1,
+    "recordsTampered": 0,
+    "decisionCounts": {
+      "proceed": 1,
+      "proceed-with-followup": 0,
+      "hold": 0,
+      "reject": 0,
+      "insufficient": 0,
+      "invalid": 0
+    },
+    "crossCheckCounts": {
+      "match": 1,
+      "mismatch": 0,
+      "unknown": 0
+    },
+    "newest": "proceed",
+    "oldest": "proceed",
+    "trendClass": "invalid-input"
+  },
+  "points": [
+    {
+      "position": 0,
+      "state": "usable",
+      "decision": "proceed",
+      "crossCheck": "match",
+      "severity": "ready",
+      "detail": "#1: proceed (a self-consistent release decision record)."
+    },
+    {
+      "position": 1,
+      "state": "unreadable",
+      "decision": null,
+      "crossCheck": null,
+      "severity": null,
+      "detail": "#2: supplied, but not a recognized release decision record (unreadable — never echoed). It contributes no ledger evidence (an untrustworthy input)."
+    }
+  ],
+  "index": {
+    "verdict": "invalid",
+    "exitCode": 4,
+    "stable": false,
+    "reasons": [
+      "record-unreadable"
+    ],
+    "invalidInputs": 1,
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "strict": false,
+    "strictEscalated": false,
+    "strictEscalatedFrom": null,
+    "detail": "INVALID: an untrustworthy INPUT — a supplied record was unreadable or is recognized but self-inconsistent (a tamper). The ledger index itself cannot be trusted until the record is recovered; this is never a vacuous pass."
+  },
+  "reasons": [
+    {
+      "id": "record-unreadable",
+      "severity": "invalid",
+      "detail": "A supplied record could not be read / recognized as a `pdfxyz.release-decision/1` (wrong schema or unparseable — never echoed), so it contributes no trusted decision. The ledger index is incomplete; recover a readable decision record produced by `worker:release-decision` and re-run."
+    }
+  ],
+  "checklist": [
+    {
+      "id": "recover-invalid-records",
+      "detail": "Recover the unreadable / tampered decision record(s) from your CI archive: a record that cannot be read, or whose recorded decision does not re-derive, means the ledger input was lost or hand-edited and cannot be trusted in the index."
+    },
+    {
+      "id": "keep-decision-index",
+      "detail": "Keep this content-free index as the local release-decision-ledger review SUMMARY. It is NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, or a deployment / promotion ledger; keep those separately."
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED or on-demand REVIEW summary (per sprint / month), NOT a per-release gate: run `worker:release-decision` per release and archive each record, then hand a bounded batch (oldest first, newest last) here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a blocked batch or an untrustworthy record), surface exit 3 (a watch batch) for review, and treat exit 2 (an inconclusive batch) as a coverage gap, not a clean batch.",
+    "Keep the batch bounded and explicit: `--max-records=N` caps the newest N records (older records are dropped from the window, and the count dropped is surfaced, never silent); `--strict` escalates any advisory / insufficiency to a blocked batch — a hard `clean proceed or block` gate for a high-assurance review.",
+    "Archive this index (and the underlying decision records) as CI artifacts: it is a content-free review SUMMARY, not a substitute for the records it indexes, nor for your legal audit trail, compliance log, external approval / signing, storage retention, or release-promotion processes — keep each of those in its own dedicated system.",
+    "Enforce promotion out of band: this index SUMMARIZES a batch of the content-free decision records supplied, but recording a legal audit trail, obtaining an external approval / signature, proving reviewer identity, and promoting a deployment are operator / CI / legal actions this offline indexer never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION LEDGER INDEX: it INGESTS a bounded batch of content-free `pdfxyz.release-decision/1` decision records a release pipeline produced, RE-VALIDATES each against ITSELF, and folds them into ONE bounded review verdict + follow-up checklist. It is a local content-free ledger INDEX SUMMARY over decision records — NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, or a deployment / promotion ledger.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / bundle / audit / report / decision itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, deletes, prunes, uploads, or mutates any record, artifact, object, or deployment. A `stable` index authorizes nothing; it only reports that the content-free decision records supplied on THIS host indexed clean over the review batch.",
+    "A `stable` index REQUIRES a clean bounded batch: no tampered / unreadable record, and every usable record a clean `proceed`. It FAILS CLOSED: an unreadable / tampered record makes the index `invalid`; a `reject` / `invalid` decision (or a `--strict` violation) makes it `blocked`; an `insufficient` decision or zero usable records is `insufficient`; a `proceed-with-followup` / `hold` decision is `watch`. It never fabricates a stable index from thin or untrusted input.",
+    "It re-derives each ingested record's decision from the record's OWN recorded pack / acknowledgement summaries + cross-check + strict flag (reusing the Phase 59 reducer) and treats a recorded decision that does not re-derive as a TAMPER (`invalid`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so the index proves neither authorship nor approval.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose — so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes an ingested record's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-index",
+    "policyId": "pdfxyz-worker-release-decision-index",
+    "policyVersion": 1,
+    "at": "2026-07-04T00:00:00.000Z",
+    "verdict": "invalid",
+    "exitCode": 4,
+    "recordsSupplied": 2,
+    "recordsConsidered": 2,
+    "recordsUsable": 1,
+    "decisionCounts": {
+      "proceed": 1,
+      "proceed-with-followup": 0,
+      "hold": 0,
+      "reject": 0,
+      "insufficient": 0,
+      "invalid": 0
+    },
+    "trendClass": "invalid-input"
+  }
+}

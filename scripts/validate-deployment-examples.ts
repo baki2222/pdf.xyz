@@ -76,6 +76,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-record-fixture.yml`,
   // Phase 60 — the release decision ledger index (index a bounded batch of decision records into one review summary).
   `${DIR}/github-actions/release-decision-index-fixture.yml`,
+  // Phase 61 — the release decision index trend (summarize a bounded history of decision-index windows into one trend).
+  `${DIR}/github-actions/release-decision-trend-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -287,6 +289,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /test "\$code" -eq 4/, "release-decision-index GitHub Actions fixture must assert the blocked/invalid (reject / tampered record) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /test "\$code" -eq 2/, "release-decision-index GitHub Actions fixture must assert the insufficient (inconclusive) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-index-fixture.yml`, /test "\$code" -eq 1/, "release-decision-index GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 61 — the release-decision-trend template must index a decision window, summarize a bounded history, and pin
+  // the blocked/invalid / degrading / insufficient / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /worker:release-decision-index["\s\\]/, "release-decision-trend GitHub Actions fixture must index a decision window first", findings);
+  requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /worker:release-decision-trend/, "release-decision-trend GitHub Actions fixture must run worker:release-decision-trend", findings);
+  requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /--file=/, "release-decision-trend GitHub Actions fixture must supply the decision-index window history", findings);
+  requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /test "\$code" -eq 4/, "release-decision-trend GitHub Actions fixture must assert the blocked/invalid (blocked / tampered window) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /test "\$code" -eq 3/, "release-decision-trend GitHub Actions fixture must assert the watch/degrading (worsening arc) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /test "\$code" -eq 2/, "release-decision-trend GitHub Actions fixture must assert the insufficient (inconclusive) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /test "\$code" -eq 1/, "release-decision-trend GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);
