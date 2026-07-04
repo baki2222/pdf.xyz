@@ -1,0 +1,115 @@
+name: pdf.xyz worker release evidence operator report
+
+# The CI-summary / operator-handoff step (Phase 52). It runs AFTER the release-evidence CI bundle (Phase 50)
+# and, optionally, the release audit (Phase 51): it composes the content-free `pdfxyz.release-ci-bundle/1`
+# (this release's evidence coherence) and/or `pdfxyz.release-audit/1` (regression versus a baseline) into ONE
+# operator report — the evidence coverage, a final recommendation + rationale, an archive checklist, and an
+# ordered next-action checklist — renders it into the CI job summary, and FAILS CLOSED when the release cannot
+# be certified promote-ready. It makes NO cloud call, needs NO credentials, reads NO secret, and deletes /
+# prunes / promotes / approves NOTHING — every step is offline and deterministic (the offline chain + committed
+# content-free fixtures). This is a TEMPLATE.
+#
+# The report is content-free REPORTING over evidence, NOT signing, auth, cloud validation, storage retention
+# enforcement, deployment APPROVAL, or deployment PROMOTION. A `promote-ready` requires a usable bundle that
+# itself passed — an audit-only run is `needs-evidence`, since a regression check cannot certify the release's
+# own coherence. Wire your real promotion out of band, after this report.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/lib/workers/release-report/**"
+      - "scripts/worker-release-report.ts"
+      - ".github/workflows/**"
+
+jobs:
+  release-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 1) Build the CURRENT release's content-free CI bundle from the offline chain (Phase 46-50).
+      - name: Build the current release CI bundle
+        run: |
+          pnpm -s worker:release-gate --json > gate.json || true
+          pnpm -s worker:release-artifact --release-gate=gate.json --label=ci-example --output=artifact.json --json
+          pnpm -s worker:release-index --artifact=artifact.json --output=index.json --json
+          pnpm -s worker:release-policy --index=index.json --require-clean --min-artifacts=1 --output=policy.json --json
+          pnpm -s worker:release-ci-bundle \
+            --release-gate=gate.json --release-artifact=artifact.json \
+            --release-index=index.json --release-policy=policy.json \
+            --output=current-bundle.json --json
+
+      # 2) Optionally AUDIT the current bundle against the last accepted baseline (a regression guard). A
+      #    coherent, non-regressed current passes; keep the audit as part of the evidence.
+      - name: Audit current vs baseline (optional regression guard)
+        run: |
+          pnpm -s worker:release-audit \
+            --baseline=docs/examples/release-report/bundle-pass.json \
+            --current=current-bundle.json \
+            --output=release-audit.json --json || true
+
+      # 3) Compose the operator REPORT from the bundle (+ audit) and render it into the CI job summary. A
+      #    coherent, non-regressed release is promote-ready (exit 0); the report authorizes nothing on its own.
+      - name: Compose the operator report → CI summary
+        run: |
+          pnpm -s worker:release-report \
+            --bundle=current-bundle.json --audit=release-audit.json \
+            --output=release-report.json --json
+          pnpm -s worker:release-report \
+            --bundle=current-bundle.json --audit=release-audit.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      # 4) A FAILED bundle MUST hold the release closed (exit 4) — here, a committed bundle whose coherence
+      #    verdict is fail. Proves the report blocks a broken release.
+      - name: A failed bundle holds the release (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-report --bundle=docs/examples/release-report/bundle-fail.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 5) A BLOCKING audit regression MUST hold the release closed (exit 4), even with a passing bundle.
+      - name: A blocking regression holds the release (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-report \
+            --bundle=docs/examples/release-report/bundle-pass.json \
+            --audit=docs/examples/release-report/audit-fail.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 6) An AUDIT-ONLY run is needs-evidence (exit 2) — a regression check cannot certify the release's own
+      #    coherence. Never a silent promote.
+      - name: An audit-only run needs evidence (exit 2)
+        run: |
+          set +e
+          pnpm -s worker:release-report --audit=docs/examples/release-report/audit-pass.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 2 || { echo "expected 2, got $code"; exit 1; }
+
+      # 7) A misused CLI fails closed to the distinct usage band (exit 1) — never a silent pass.
+      - name: No document supplied fails closed (exit 1)
+        run: |
+          set +e
+          pnpm -s worker:release-report >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 1 || { echo "expected 1, got $code"; exit 1; }
+
+      # 8) Publish the report as a CI artifact / release handoff record.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-report
+          path: release-report.json
+
+      - name: Release-report module unit + example tests (no-leak + fail-closed)
+        run: pnpm exec vitest run src/lib/workers/release-report

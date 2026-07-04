@@ -126,6 +126,10 @@ import {
   RELEASE_AUDIT_VERDICTS,
   type ReleaseAuditVerdict,
 } from "../release-audit/types";
+import {
+  RELEASE_REPORT_RECOMMENDATIONS,
+  type ReleaseReportRecommendation,
+} from "../release-report/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -433,6 +437,7 @@ export const METRIC_NAMES = [
   "worker_release_policy_total",
   "worker_release_ci_bundle_total",
   "worker_release_audit_total",
+  "worker_release_report_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -637,6 +642,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_AUDIT_VERDICTS,
+    },
+  },
+  worker_release_report_total: {
+    kind: "counter",
+    labels: {
+      recommendation: RELEASE_REPORT_RECOMMENDATIONS,
     },
   },
   worker_job_terminal_total: {
@@ -1121,6 +1132,28 @@ export function releaseAuditMetric(verdict: ReleaseAuditVerdict): WorkerMetricSa
     metric: "worker_release_audit_total",
     kind: "counter",
     labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release evidence operator report** (Phase 52) resolved to its final `recommendation`
+ * ({@link ReleaseReportRecommendation}: `promote-ready`/`hold-warning`/`needs-evidence`/`hold-fail`). One
+ * bounded label so a release pipeline / dashboard can count report runs by the single decision an operator
+ * acts on — e.g. `worker_release_report_total{recommendation="hold-fail"} > 0` catches a tampered / failed /
+ * regressed release held at handoff, `{recommendation="needs-evidence"} > 0` catches an insufficient-evidence
+ * (or audit-only) run that could not certify coherence. This counts an offline REPORT that ingested the
+ * content-free `pdfxyz.release-ci-bundle/1` and/or `pdfxyz.release-audit/1` composites, re-validated each
+ * against itself, and folded them into one operator recommendation — NOT a cloud call, a deletion, a
+ * signature, an approval, a promotion, or a claim about bucket bytes. The one label is a closed,
+ * redaction-stable enum — never a filename, path, object key, bucket, URL, endpoint, region, instant, size,
+ * digest, or document content.
+ */
+export function releaseReportMetric(recommendation: ReleaseReportRecommendation): WorkerMetricSample {
+  return {
+    metric: "worker_release_report_total",
+    kind: "counter",
+    labels: { recommendation },
     value: 1,
   };
 }
