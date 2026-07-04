@@ -64,6 +64,8 @@ const FILES = [
   `${DIR}/github-actions/release-trend-fixture.yml`,
   // Phase 54 — the release evidence governance bundle (compose trend + latest report / audit for a review).
   `${DIR}/github-actions/release-governance-fixture.yml`,
+  // Phase 55 — the release evidence archive pack (index governance + related records for review archival).
+  `${DIR}/github-actions/release-archive-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -218,6 +220,15 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-governance-fixture.yml`, /test "\$code" -eq 4/, "release-governance GitHub Actions fixture must assert the blocked (failing trend / tamper / hold-fail) exit code", findings);
   requireText(`${DIR}/github-actions/release-governance-fixture.yml`, /test "\$code" -eq 2/, "release-governance GitHub Actions fixture must assert the incomplete (missing trend) exit code", findings);
   requireText(`${DIR}/github-actions/release-governance-fixture.yml`, /test "\$code" -eq 1/, "release-governance GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 55 — the release-archive template must build/ingest governance + related records, compose the
+  // archive manifest, and pin the blocked / incomplete / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /worker:release-governance/, "release-archive GitHub Actions fixture must build or ingest a release governance bundle first", findings);
+  requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /worker:release-archive/, "release-archive GitHub Actions fixture must run worker:release-archive", findings);
+  requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /--governance=/, "release-archive GitHub Actions fixture must supply the primary release governance bundle", findings);
+  requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /test "\$code" -eq 4/, "release-archive GitHub Actions fixture must assert the blocked/tamper exit code", findings);
+  requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /test "\$code" -eq 2/, "release-archive GitHub Actions fixture must assert the incomplete evidence exit code", findings);
+  requireText(`${DIR}/github-actions/release-archive-fixture.yml`, /test "\$code" -eq 1/, "release-archive GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

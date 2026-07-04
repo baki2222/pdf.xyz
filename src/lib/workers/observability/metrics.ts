@@ -138,6 +138,10 @@ import {
   RELEASE_GOVERNANCE_VERDICTS,
   type ReleaseGovernanceVerdict,
 } from "../release-governance/types";
+import {
+  RELEASE_ARCHIVE_POSTURES,
+  type ReleaseArchivePosture,
+} from "../release-archive/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -448,6 +452,7 @@ export const METRIC_NAMES = [
   "worker_release_report_total",
   "worker_release_trend_total",
   "worker_release_governance_total",
+  "worker_release_archive_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -670,6 +675,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_GOVERNANCE_VERDICTS,
+    },
+  },
+  worker_release_archive_total: {
+    kind: "counter",
+    labels: {
+      posture: RELEASE_ARCHIVE_POSTURES,
     },
   },
   worker_job_terminal_total: {
@@ -1219,6 +1230,28 @@ export function releaseGovernanceMetric(verdict: ReleaseGovernanceVerdict): Work
     metric: "worker_release_governance_total",
     kind: "counter",
     labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release evidence archive pack** (Phase 55) resolved to its archive `posture`
+ * ({@link ReleaseArchivePosture}: `archivable`/`archive-watch`/`archive-incomplete`/`archive-blocked`). One
+ * bounded label so a release pipeline / review dashboard can count archive records by the single decision a
+ * reviewer acts on — e.g. `worker_release_archive_total{posture="archive-blocked"} > 0` catches a blocked / tampered
+ * / regressed record, `{posture="archive-incomplete"} > 0` catches an insufficient / governance-absent record.
+ * This counts an offline INDEX that ingested a content-free `pdfxyz.release-governance/1` bundle plus the related
+ * `pdfxyz.release-trend/1` / `pdfxyz.release-report/1` / `pdfxyz.release-audit/1` / `pdfxyz.release-ci-bundle/1`
+ * records, re-validated each against itself, cross-checked their coherence, and folded them into one archive
+ * posture — NOT a cloud call, a deletion, a signature, an approval, a promotion, immutable storage, a raw-file
+ * pack, or a claim about bucket bytes. The one label is a closed, redaction-stable enum — never a filename, path,
+ * object key, bucket, URL, endpoint, region, instant, size, digest, or record content.
+ */
+export function releaseArchiveMetric(posture: ReleaseArchivePosture): WorkerMetricSample {
+  return {
+    metric: "worker_release_archive_total",
+    kind: "counter",
+    labels: { posture },
     value: 1,
   };
 }

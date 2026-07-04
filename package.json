@@ -24,6 +24,7 @@
     "worker:release-report": "tsx scripts/worker-release-report.ts",
     "worker:release-trend": "tsx scripts/worker-release-trend.ts",
     "worker:release-governance": "tsx scripts/worker-release-governance.ts",
+    "worker:release-archive": "tsx scripts/worker-release-archive.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",
