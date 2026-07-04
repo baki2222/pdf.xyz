@@ -70,6 +70,8 @@ const FILES = [
   `${DIR}/github-actions/release-restore-drill-fixture.yml`,
   // Phase 57 — the release evidence publish / handoff pack (compose governance + records into a share-safe manifest).
   `${DIR}/github-actions/release-publish-pack-fixture.yml`,
+  // Phase 58 — the release evidence handoff acknowledgement (record a bounded acknowledgement of a publish pack).
+  `${DIR}/github-actions/release-handoff-ack-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -251,6 +253,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-publish-pack-fixture.yml`, /test "\$code" -eq 4/, "release-publish-pack GitHub Actions fixture must assert the blocked/tamper exit code", findings);
   requireText(`${DIR}/github-actions/release-publish-pack-fixture.yml`, /test "\$code" -eq 2/, "release-publish-pack GitHub Actions fixture must assert the incomplete (missing governance) exit code", findings);
   requireText(`${DIR}/github-actions/release-publish-pack-fixture.yml`, /test "\$code" -eq 1/, "release-publish-pack GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 58 — the release-handoff-ack template must compose a publish pack, record a bounded acknowledgement of it,
+  // and pin the rejected/invalid / deferred / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /worker:release-publish-pack/, "release-handoff-ack GitHub Actions fixture must compose a publish pack first", findings);
+  requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /worker:release-ack/, "release-handoff-ack GitHub Actions fixture must run worker:release-ack", findings);
+  requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /--publish-pack=/, "release-handoff-ack GitHub Actions fixture must supply the publish pack to acknowledge", findings);
+  requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /--decision=/, "release-handoff-ack GitHub Actions fixture must supply the acknowledgement decision", findings);
+  requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /test "\$code" -eq 4/, "release-handoff-ack GitHub Actions fixture must assert the rejected/invalid (blocked / tampered pack) exit code", findings);
+  requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /test "\$code" -eq 2/, "release-handoff-ack GitHub Actions fixture must assert the deferred (incomplete pack) exit code", findings);
+  requireText(`${DIR}/github-actions/release-handoff-ack-fixture.yml`, /test "\$code" -eq 1/, "release-handoff-ack GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

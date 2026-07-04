@@ -1,0 +1,157 @@
+{
+  "schema": "pdfxyz.release-publish-pack/1",
+  "generatedAt": "2026-07-04T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-publish-pack",
+    "policyVersion": 1,
+    "governanceSchema": "pdfxyz.release-governance/1",
+    "archiveSchema": "pdfxyz.release-archive/1",
+    "restoreDrillSchema": "pdfxyz.release-restore-drill/1",
+    "reportSchema": "pdfxyz.release-report/1",
+    "trendSchema": "pdfxyz.release-trend/1"
+  },
+  "policy": {
+    "requireArchive": false,
+    "requireRestoreDrill": false,
+    "strict": false
+  },
+  "coverage": {
+    "sourcesSupplied": 1,
+    "sourcesUsable": 1,
+    "governance": "usable",
+    "archive": "absent",
+    "restoreDrill": "absent",
+    "report": "absent",
+    "trend": "absent",
+    "hasGovernance": true,
+    "hasArchive": false,
+    "hasRestoreDrill": false,
+    "hasReport": false,
+    "hasTrend": false
+  },
+  "sources": [
+    {
+      "id": "governance",
+      "state": "usable",
+      "supplied": true,
+      "recognized": true,
+      "usable": true,
+      "verdict": "incomplete",
+      "severity": "insufficient",
+      "detail": "governance: incomplete (a self-consistent release governance bundle)."
+    },
+    {
+      "id": "archive",
+      "state": "absent",
+      "supplied": false,
+      "recognized": false,
+      "usable": false,
+      "verdict": null,
+      "severity": null,
+      "detail": "archive: no release archive pack supplied."
+    },
+    {
+      "id": "restore-drill",
+      "state": "absent",
+      "supplied": false,
+      "recognized": false,
+      "usable": false,
+      "verdict": null,
+      "severity": null,
+      "detail": "restore-drill: no release restore drill supplied."
+    },
+    {
+      "id": "report",
+      "state": "absent",
+      "supplied": false,
+      "recognized": false,
+      "usable": false,
+      "verdict": null,
+      "severity": null,
+      "detail": "report: no latest release report supplied."
+    },
+    {
+      "id": "trend",
+      "state": "absent",
+      "supplied": false,
+      "recognized": false,
+      "usable": false,
+      "verdict": null,
+      "severity": null,
+      "detail": "trend: no release trend summary supplied."
+    }
+  ],
+  "pack": {
+    "verdict": "incomplete",
+    "exitCode": 2,
+    "publishable": false,
+    "disclosure": "internal-review",
+    "reasons": [
+      "governance-incomplete"
+    ],
+    "blocking": 0,
+    "insufficiencies": 1,
+    "advisories": 0,
+    "requireArchive": false,
+    "requireRestoreDrill": false,
+    "strict": false,
+    "strictEscalated": false,
+    "strictEscalatedFrom": null,
+    "detail": "INCOMPLETE (internal-review): the content-free evidence is INSUFFICIENT to certify a handoff — the PRIMARY governance bundle is absent / unreadable / INCOMPLETE, a supplied source was unreadable or indeterminate, or a required document was missing. This is a coverage problem, not a share-safe package."
+  },
+  "disclosure": {
+    "classification": "internal-review",
+    "note": "INTERNAL-REVIEW: share this package INTERNALLY / with a reviewer first — it carries an advisory concern or is missing / inconclusive evidence, so it is not a clean external bill of health. Resolve or accept the concern, or supply the missing evidence, before an external handoff."
+  },
+  "reasons": [
+    {
+      "id": "governance-incomplete",
+      "severity": "insufficient",
+      "detail": "The governance bundle's verdict is INCOMPLETE: its evidence was insufficient to certify the review window (an absent / unreadable / unknown trend, or an indeterminate latest). The package cannot be certified share-safe — resolve the governance coverage gap and re-run."
+    }
+  ],
+  "checklist": [
+    {
+      "id": "complete-missing-evidence",
+      "detail": "Supply the missing / unreadable / indeterminate content-free document — the governance bundle (primary), and the archive / restore-drill / report / trend (required when `--require-archive` / `--require-restore-drill` is set) — and re-run; a missing or unreadable document leaves the handoff uncertified."
+    },
+    {
+      "id": "mark-internal-review-only",
+      "detail": "Label the package INTERNAL-REVIEW: it carries an advisory concern or is missing / inconclusive evidence, so it is not a clean external bill of health. Share it internally / with a reviewer, resolve or accept the concern, and re-run before an external handoff."
+    },
+    {
+      "id": "include-governance-summary",
+      "detail": "Include the content-free `pdfxyz.release-governance/1` bundle in the handoff — it is the summary judgment for the review window and the primary evidence a reviewer reads."
+    },
+    {
+      "id": "keep-publish-pack-record",
+      "detail": "Keep this publish pack as the content-free handoff record: it is a bounded manifest of what was shared and its posture, not a substitute for the documents it composes, nor for your signing / approval / promotion processes."
+    }
+  ],
+  "guidance": [
+    "Hand the package off OUT OF BAND: this pack CLASSIFIES whether the content-free evidence is safe to share and lists what to include, but attaching it to an email / ticket / data room, sending it to the reviewer, and tracking the handoff are operator actions this offline packager never performs.",
+    "Sign / approve / promote separately: a `share-safe` pack is not a signature, an approval, a legal / compliance sign-off, or a release promotion. Obtain the sign-offs and promote the deployment through your own processes; this manifest authorizes none of them.",
+    "Supply at least the governance BUNDLE: a `publishable` pack requires a usable, healthy governance bundle (the primary summary). Add the archive pack (proof archived), the restore drill (proof recoverable), and the latest report / trend for a complete handoff, and use `--require-archive` / `--require-restore-drill` to make either mandatory for your policy.",
+    "The evidence is already content-free: the governance / archive / restore-drill / report / trend documents this pack composes carry no document content, path, object key, bucket, URL, or secret by construction — so no additional redaction is needed before sharing them. This pack re-validates and classifies; it does not re-redact."
+  ],
+  "caveats": [
+    "This is a RELEASE EVIDENCE PUBLISH / HANDOFF PACK: it INGESTS a content-free `pdfxyz.release-governance/1` bundle (the PRIMARY signal) plus, optionally, the related content-free `pdfxyz.release-archive/1`, `pdfxyz.release-restore-drill/1`, `pdfxyz.release-report/1`, and/or `pdfxyz.release-trend/1` a release pipeline produced, RE-VALIDATES each against ITSELF, and folds them into ONE bounded publish verdict + DISCLOSURE CLASSIFICATION + a handoff checklist. It is local content-free HANDOFF PACKAGING over evidence summaries — NOT external publishing, a signature, an approval, legal / compliance sign-off, release promotion, cloud validation, or deletion.",
+    "It NEVER actually publishes, shares, sends, uploads, signs, approves, promotes, or discloses anything to anyone: it only CLASSIFIES whether the supplied content-free evidence is safe to hand off and assembles a checklist. A `share-safe` classification is a RECOMMENDATION over the evidence on THIS host, not a grant, an NDA, an access control, or a claim that a handoff occurred. The operator performs the actual handoff out of band.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / bundle / audit / report / trend / governance / archive / restore-drill itself, and NEVER deletes, prunes, uploads, promotes, approves, or mutates any document, artifact, object, or deployment.",
+    "A `publishable` (share-safe) pack REQUIRES a usable governance BUNDLE whose own verdict is `healthy`. The archive / restore-drill / report / trend are point-in-time signals that can BLOCK or FLAG but can never, on their own, GRANT a share-safe pack — so a governance-absent (or governance-unusable) run is honestly `incomplete` (internal-review), never a share-safe handoff. It FAILS CLOSED: a tampered / blocked / failed input blocks the handoff; an absent governance, an unreadable document, or an indeterminate posture is insufficient.",
+    "It re-derives each ingested document's rollup from the document's OWN recorded facts (reusing the Phase 51–56 reducers) and treats a recorded verdict / posture / recommendation that does not re-derive as a TAMPER (`blocked`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so a `share-safe` classification is not proof of authenticity or provenance.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose — so it carries no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, commit URL, size, byte, digest, raw log, provider error, or document / OCR content, even from a hostile input; it never echoes an ingested document's own stamp, and it never echoes an input file path, even on an error."
+  ],
+  "receipt": {
+    "category": "worker-release-publish-pack",
+    "policyId": "pdfxyz-worker-release-publish-pack",
+    "policyVersion": 1,
+    "at": "2026-07-04T00:00:00.000Z",
+    "verdict": "incomplete",
+    "exitCode": 2,
+    "disclosure": "internal-review",
+    "sourcesSupplied": 1,
+    "sourcesUsable": 1
+  }
+}

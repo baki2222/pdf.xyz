@@ -150,6 +150,10 @@ import {
   RELEASE_PUBLISH_PACK_VERDICTS,
   type ReleasePublishPackVerdict,
 } from "../release-publish-pack/types";
+import {
+  RELEASE_ACK_VERDICTS,
+  type ReleaseAckVerdict,
+} from "../release-ack/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -463,6 +467,7 @@ export const METRIC_NAMES = [
   "worker_release_archive_total",
   "worker_release_restore_drill_total",
   "worker_release_publish_pack_total",
+  "worker_release_ack_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -703,6 +708,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_PUBLISH_PACK_VERDICTS,
+    },
+  },
+  worker_release_ack_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_ACK_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1316,6 +1327,26 @@ export function releaseRestoreDrillMetric(verdict: ReleaseRestoreDrillVerdict): 
 export function releasePublishPackMetric(verdict: ReleasePublishPackVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_publish_pack_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A recorded **release evidence handoff acknowledgement** (Phase 58) resolved to its acknowledgement `verdict`
+ * ({@link ReleaseAckVerdict}: `acknowledged`/`acknowledged-with-followup`/`deferred`/`rejected`/`invalid`). One bounded
+ * label so a release / handoff dashboard can count acknowledgements by the single outcome an operator recorded — e.g.
+ * `worker_release_ack_total{verdict="rejected"} > 0` catches a rejected package, `{verdict="invalid"} > 0` catches an
+ * untrustworthy / tampered input. This counts an offline ACKNOWLEDGEMENT that ingested a content-free
+ * `pdfxyz.release-publish-pack/1`, re-validated it against itself, and folded the operator's bounded decision into one
+ * verdict — NOT an external signature, an approval, an identity attestation, legal / compliance sign-off, or a release
+ * promotion. The one label is a closed, redaction-stable enum — never a reviewer identity, a decision, a filename,
+ * path, object key, bucket, URL, size, digest, or document content.
+ */
+export function releaseAckMetric(verdict: ReleaseAckVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_ack_total",
     kind: "counter",
     labels: { verdict },
     value: 1,
