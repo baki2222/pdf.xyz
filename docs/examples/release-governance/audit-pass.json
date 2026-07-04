@@ -1,0 +1,198 @@
+{
+  "schema": "pdfxyz.release-audit/1",
+  "generatedAt": "2026-07-04T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-audit",
+    "policyVersion": 1,
+    "bundleSchema": "pdfxyz.release-ci-bundle/1"
+  },
+  "mode": "pair",
+  "policy": {
+    "allowWarnRegression": false,
+    "maxNewWarnings": 0,
+    "failOnUnknown": false
+  },
+  "baseline": {
+    "present": true,
+    "recognized": true,
+    "usable": true,
+    "verdict": "pass",
+    "postureRank": 0,
+    "exitCode": 0,
+    "stagesPresent": 2,
+    "chainComplete": false,
+    "decisionStage": "policy",
+    "inconsistencies": 0,
+    "warnStages": 0,
+    "warningSignals": 0,
+    "archiveVerdict": "ok",
+    "stages": {
+      "gate": {
+        "present": false,
+        "severity": "unknown"
+      },
+      "artifact": {
+        "present": false,
+        "severity": "unknown"
+      },
+      "index": {
+        "present": true,
+        "severity": "pass"
+      },
+      "policy": {
+        "present": true,
+        "severity": "pass"
+      }
+    },
+    "links": {
+      "artifact-digest": "skipped",
+      "index-self-consistent": "ok",
+      "policy-self-consistent": "ok",
+      "gate-artifact-agreement": "skipped",
+      "artifact-index-inclusion": "skipped",
+      "index-policy-agreement": "ok"
+    },
+    "detail": "baseline: pass over 2 stage(s), decision stage policy, 0 inconsistency(ies)."
+  },
+  "current": {
+    "present": true,
+    "recognized": true,
+    "usable": true,
+    "verdict": "pass",
+    "postureRank": 0,
+    "exitCode": 0,
+    "stagesPresent": 2,
+    "chainComplete": false,
+    "decisionStage": "policy",
+    "inconsistencies": 0,
+    "warnStages": 0,
+    "warningSignals": 0,
+    "archiveVerdict": "ok",
+    "stages": {
+      "gate": {
+        "present": false,
+        "severity": "unknown"
+      },
+      "artifact": {
+        "present": false,
+        "severity": "unknown"
+      },
+      "index": {
+        "present": true,
+        "severity": "pass"
+      },
+      "policy": {
+        "present": true,
+        "severity": "pass"
+      }
+    },
+    "links": {
+      "artifact-digest": "skipped",
+      "index-self-consistent": "ok",
+      "policy-self-consistent": "ok",
+      "gate-artifact-agreement": "skipped",
+      "artifact-index-inclusion": "skipped",
+      "index-policy-agreement": "ok"
+    },
+    "detail": "current: pass over 2 stage(s), decision stage policy, 0 inconsistency(ies)."
+  },
+  "history": null,
+  "comparison": {
+    "postureRankDelta": 0,
+    "stagesPresentDelta": 0,
+    "inconsistenciesDelta": 0,
+    "newWarnings": 0,
+    "brokenLinks": 0,
+    "weakenedLinks": 0,
+    "droppedStages": 0,
+    "improved": false
+  },
+  "regressions": [
+    {
+      "id": "bundle-tampered",
+      "status": "ok",
+      "severity": "none",
+      "detail": "Every supplied bundle re-derived its own rollup from its own stages + links (self-consistent)."
+    },
+    {
+      "id": "bundle-unreadable",
+      "status": "ok",
+      "severity": "none",
+      "detail": "Every supplied bundle parsed as a recognized release CI bundle."
+    },
+    {
+      "id": "verdict-worsened",
+      "status": "ok",
+      "severity": "none",
+      "detail": "The current bundle's posture is at least as strong as the baseline's."
+    },
+    {
+      "id": "consistency-broke",
+      "status": "ok",
+      "severity": "none",
+      "detail": "No consistency link that held in the baseline mismatches in the current bundle."
+    },
+    {
+      "id": "consistency-weakened",
+      "status": "ok",
+      "severity": "none",
+      "detail": "No consistency link that held in the baseline was weakened to `skipped` in the current bundle."
+    },
+    {
+      "id": "coverage-dropped",
+      "status": "ok",
+      "severity": "none",
+      "detail": "The current bundle certifies with at least the same stages as the baseline."
+    },
+    {
+      "id": "archive-decision-worsened",
+      "status": "ok",
+      "severity": "none",
+      "detail": "The current bundle's archive-decision posture is at least as strong as the baseline's."
+    },
+    {
+      "id": "warnings-increased",
+      "status": "ok",
+      "severity": "none",
+      "detail": "The current bundle's advisory pressure is within the baseline plus the configured allowance."
+    }
+  ],
+  "rollup": {
+    "verdict": "pass",
+    "exitCode": 0,
+    "regressed": false,
+    "drivers": [],
+    "blockingRegressions": 0,
+    "warningRegressions": 0,
+    "comparable": true,
+    "detail": "AUDIT PASS: no regression — the current release evidence posture is at least as strong as the baseline, every consistency link that held still holds, no coverage was dropped, and advisory pressure stayed within the configured allowance."
+  },
+  "nextAction": "No regression detected. Proceed with your out-of-band promotion process for the current release (this audit authorizes nothing on its own), and keep BOTH bundles as the before/after evidence record. Note: the audit only diffs — gate the current bundle itself separately if it is not a clean pass.",
+  "guidance": [
+    "Wire this as an OPTIONAL regression gate in a release CI job, AFTER `worker:release-ci-bundle`: keep the previous release's bundle as the baseline (a committed artifact or a restored CI artifact), pass it plus the current build's bundle, fail the pipeline on exit 4 (a blocking regression or a tampered bundle), surface exit 3 (a non-blocking drift) for review, and treat exit 2 (an unreadable bundle or too little history) as a setup error, not a pass.",
+    "The audit DIFFS; it does not GATE the current bundle on its own. Run `worker:release-ci-bundle` (and `worker:release-policy`) over the current build too, so a bundle that is itself failing is caught even when the baseline was also failing (which the diff honestly reports as 'no regression').",
+    "Record the accepted baseline deliberately: an EXPECTED drift (a new advisory, a stage you dropped on purpose) is a `warn` here — re-run with `--allow-warn-regression` or a raised `--max-new-warnings` to accept it, and archive the audit as the record of that decision. Do not silently ignore exit 3.",
+    "Enforce promotion out of band: this audit REPORTS whether the evidence posture regressed, but signing a release, provisioning, and promoting a deployment are operator/CI actions this offline differ never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE EVIDENCE AUDIT / DIFF: it INGESTS two (or a history of) content-free `pdfxyz.release-ci-bundle/1` bundles, RE-VALIDATES each bundle against ITSELF, and DIFFS a baseline against a current posture to answer whether the release evidence REGRESSED. It is local content-free audit/diff over evidence — NOT signing, authentication, cloud validation, storage retention ENFORCEMENT, or deployment promotion.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no release stage or bundle itself, and NEVER deletes, prunes, uploads, promotes, or mutates any bundle, artifact, index, policy, object, or deployment. A `pass` authorizes nothing; it only reports that the current bundle did not regress versus the baseline supplied on THIS host.",
+    "It re-derives each bundle's rollup from the bundle's OWN stages + consistency links and FAILS CLOSED on disagreement: a recognized bundle whose recorded verdict does not re-derive is treated as tampered (`fail`), and an unreadable bundle makes the comparison `unknown` (never a silent 'no regression'). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity.",
+    "It emits only bounded enums, small counts/deltas, an ISO stamp, and app-authored prose — so it carries no filename, path, object key, bucket, URL, endpoint, region, job/user id, IP, token, raw ref, raw label, commit URL, size, byte, digest, or document content, even from a hostile bundle input, and it never echoes an input file path, even on an error.",
+    "It only DIFFS: a `pass` means the current bundle did not regress versus the baseline, NOT that the current bundle is itself acceptable — gate the current bundle on its own with `worker:release-ci-bundle` / `worker:release-policy` too. A baseline and current that are BOTH failing shows 'no regression' here; that is honest scope, not an endorsement.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-audit",
+    "policyId": "pdfxyz-worker-release-audit",
+    "policyVersion": 1,
+    "at": "2026-07-04T00:00:00.000Z",
+    "mode": "pair",
+    "verdict": "pass",
+    "exitCode": 0,
+    "comparable": true,
+    "blockingRegressions": 0,
+    "warningRegressions": 0
+  }
+}

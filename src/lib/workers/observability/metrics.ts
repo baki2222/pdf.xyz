@@ -134,6 +134,10 @@ import {
   RELEASE_TREND_VERDICTS,
   type ReleaseTrendVerdict,
 } from "../release-trend/types";
+import {
+  RELEASE_GOVERNANCE_VERDICTS,
+  type ReleaseGovernanceVerdict,
+} from "../release-governance/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -443,6 +447,7 @@ export const METRIC_NAMES = [
   "worker_release_audit_total",
   "worker_release_report_total",
   "worker_release_trend_total",
+  "worker_release_governance_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -659,6 +664,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_TREND_VERDICTS,
+    },
+  },
+  worker_release_governance_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_GOVERNANCE_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1184,6 +1195,28 @@ export function releaseReportMetric(recommendation: ReleaseReportRecommendation)
 export function releaseTrendMetric(verdict: ReleaseTrendVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_trend_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release evidence governance bundle** (Phase 54) resolved to its governance `verdict`
+ * ({@link ReleaseGovernanceVerdict}: `healthy`/`watch`/`incomplete`/`blocked`). One bounded label so a release
+ * pipeline / governance dashboard can count review windows by the single decision a reviewer acts on — e.g.
+ * `worker_release_governance_total{verdict="blocked"} > 0` catches a blocked window (a tampered document, a
+ * failing trend, a hold-fail report, or a blocking audit regression), `{verdict="incomplete"} > 0` catches an
+ * insufficient / trend-absent window. This counts an offline BUNDLE that ingested a content-free
+ * `pdfxyz.release-trend/1` window summary plus the latest `pdfxyz.release-report/1` / `pdfxyz.release-audit/1`,
+ * re-validated each against itself, and folded them into one governance verdict — NOT a cloud call, a deletion,
+ * a signature, an approval, a promotion, or a claim about bucket bytes. The one label is a closed,
+ * redaction-stable enum — never a filename, path, object key, bucket, URL, endpoint, region, instant, size,
+ * digest, or document content.
+ */
+export function releaseGovernanceMetric(verdict: ReleaseGovernanceVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_governance_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

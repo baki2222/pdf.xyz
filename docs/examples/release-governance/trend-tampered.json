@@ -1,0 +1,111 @@
+{
+  "schema": "pdfxyz.release-trend/1",
+  "generatedAt": "2026-07-04T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-trend",
+    "policyVersion": 1,
+    "reportSchema": "pdfxyz.release-report/1"
+  },
+  "policy": {
+    "maxReports": 20,
+    "maxHoldWarning": 0,
+    "maxHoldFail": 0,
+    "requireLatestReady": false
+  },
+  "history": {
+    "reportsSupplied": 3,
+    "reportsConsidered": 3,
+    "truncated": false,
+    "droppedOldest": 0,
+    "reportsUsable": 3,
+    "reportsUnreadable": 0,
+    "reportsTampered": 0,
+    "counts": {
+      "promote-ready": 3,
+      "hold-warning": 0,
+      "needs-evidence": 0,
+      "hold-fail": 0
+    },
+    "newest": "promote-ready",
+    "oldest": "promote-ready",
+    "direction": "flat"
+  },
+  "points": [
+    {
+      "position": 0,
+      "state": "usable",
+      "recommendation": "promote-ready",
+      "severity": "ready",
+      "detail": "#1: promote-ready (a self-consistent release report)."
+    },
+    {
+      "position": 1,
+      "state": "usable",
+      "recommendation": "promote-ready",
+      "severity": "ready",
+      "detail": "#2: promote-ready (a self-consistent release report)."
+    },
+    {
+      "position": 2,
+      "state": "usable",
+      "recommendation": "promote-ready",
+      "severity": "ready",
+      "detail": "#3: promote-ready (a self-consistent release report)."
+    }
+  ],
+  "trend": {
+    "verdict": "failing",
+    "exitCode": 0,
+    "stable": true,
+    "reasons": [],
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "requireLatestReady": false,
+    "readyEscalated": false,
+    "detail": "STABLE: the recent release-report history is healthy — no tampered or unreadable report, the newest usable report is PROMOTE-READY, and no history threshold was breached. Keep summarizing on your governance cadence. This summary authorizes nothing on its own."
+  },
+  "reasons": [],
+  "followUps": [
+    {
+      "id": "continue-monitoring",
+      "detail": "The recent trend is stable: keep composing operator reports per release and summarizing them here on your weekly / monthly governance cadence. This summary authorizes no promotion on its own."
+    },
+    {
+      "id": "archive-trend",
+      "detail": "Archive this trend summary (and the underlying reports) as CI artifacts: it is the content-free release-governance record for this review window. This summary never uploads or promotes anything."
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED governance SUMMARY (weekly / monthly), NOT a per-release gate: run `worker:release-report` per release and archive each report, then hand a bounded chronological history (oldest first, newest last) here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a failing trend or a tampered report), surface exit 3 (a warning trend) for review, and treat exit 2 (insufficient history) as a coverage gap, not a healthy trend.",
+    "Keep the window bounded and explicit: `--max-reports=N` caps the newest N reports; `--max-hold-warning=N` / `--max-hold-fail=N` set how many advisory / blocking releases the window tolerates before the trend flags them; `--require-latest-ready` demands the newest report be promote-ready. The NEWEST report is always authoritative — a currently-failing tip fails the trend even within a tolerated threshold.",
+    "Archive this trend summary (and the underlying reports) as CI artifacts: it is a content-free governance record, not a substitute for the reports it summarizes, nor for your storage-side retention, signing, and release-APPROVAL processes.",
+    "Enforce promotion out of band: this summary REPORTS a trend over the content-free reports supplied, but signing a release, provisioning, approving, and promoting a deployment are operator / CI actions this offline summarizer never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE EVIDENCE TREND SUMMARY: it INGESTS a bounded history of content-free `pdfxyz.release-report/1` operator reports a release pipeline produced, RE-VALIDATES each against ITSELF, and folds them into ONE bounded governance verdict + follow-up checklist. It is local content-free TREND REPORTING over evidence reports — NOT signing, authentication, cloud validation, storage retention ENFORCEMENT, deployment APPROVAL, or deployment PROMOTION.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / bundle / audit / report itself, and NEVER deletes, prunes, uploads, promotes, approves, or mutates any report, bundle, audit, artifact, index, policy, object, or deployment. A `stable` trend authorizes nothing; it only reports that the content-free reports supplied on THIS host trended healthy over the review window.",
+    "A `stable` trend REQUIRES a clean bounded window: no tampered / unreadable report, a newest usable report that is `promote-ready`, and no breached history threshold. It FAILS CLOSED: a tampered report, a hold-fail newest, or a breached hold-fail threshold makes the trend `failing`; an unreadable report, an empty history, or a needs-evidence newest is `unknown` (insufficient); it never fabricates a stable trend from thin or untrusted history.",
+    "It re-derives each ingested report's recommendation from the report's OWN recorded sources + strict flag (reusing the Phase 52 reducer) and treats a recorded recommendation that does not re-derive as a TAMPER (`failing`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose — so it carries no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, commit URL, size, byte, or digest, even from a hostile input; it never echoes an ingested report's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-trend",
+    "policyId": "pdfxyz-worker-release-trend",
+    "policyVersion": 1,
+    "at": "2026-07-04T00:00:00.000Z",
+    "verdict": "stable",
+    "exitCode": 0,
+    "reportsSupplied": 3,
+    "reportsConsidered": 3,
+    "reportsUsable": 3,
+    "newest": "promote-ready",
+    "oldest": "promote-ready",
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "requireLatestReady": false
+  }
+}

@@ -1,0 +1,127 @@
+name: pdf.xyz worker release evidence governance bundle
+
+# The SCHEDULED governance-review artifact (Phase 54). It composes the content-free release-trend window summary
+# (Phase 53, the PRIMARY signal) plus the LATEST content-free operator report (Phase 52) and/or audit (Phase 51)
+# a release pipeline archived, RE-VALIDATES each document against ITSELF, cross-checks the latest report against
+# the trend's own newest report, and folds them into ONE governance bundle: the evidence coverage, per-source
+# summaries, a governance verdict + reasons, an archive checklist, and an ordered follow-up assignment list. It
+# renders the bundle into the CI job summary and FAILS CLOSED when the window is blocked or a document cannot be
+# trusted. It makes NO cloud call, needs NO credentials, reads NO secret, and deletes / prunes / promotes /
+# approves NOTHING — every step is offline and deterministic (the offline chain + committed content-free
+# fixtures). This is a TEMPLATE.
+#
+# The bundle is content-free GOVERNANCE BUNDLING over evidence summaries, NOT signing, auth, cloud validation,
+# storage retention enforcement, deployment APPROVAL, or deployment PROMOTION. A `healthy` window requires a
+# usable, STABLE trend (the primary signal); the latest report / audit can only BLOCK or FLAG. Wire your real
+# promotion out of band; this is a governance-review record, not a per-release gate.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly governance review (Mondays 07:00 UTC). Point it at your archived trend + latest report / audit.
+    - cron: "0 7 * * 1"
+
+jobs:
+  release-governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 1) Build ONE current release's content-free operator report + audit from the offline chain (Phase 46-52),
+      #    then summarize a bounded report history into the trend (Phase 53). In production, the older reports and
+      #    the trend come from your CI archive — here we use committed content-free fixtures + the offline chain.
+      - name: Build the current release report + audit + trend
+        run: |
+          pnpm -s worker:release-gate --json > gate.json || true
+          pnpm -s worker:release-artifact --release-gate=gate.json --label=ci-example --output=artifact.json --json
+          pnpm -s worker:release-index --artifact=artifact.json --output=index.json --json
+          pnpm -s worker:release-policy --index=index.json --require-clean --min-artifacts=1 --output=policy.json --json
+          pnpm -s worker:release-ci-bundle \
+            --release-gate=gate.json --release-artifact=artifact.json \
+            --release-index=index.json --release-policy=policy.json \
+            --output=current-bundle.json --json
+          pnpm -s worker:release-report --bundle=current-bundle.json --output=current-report.json --json
+          pnpm -s worker:release-audit --baseline=current-bundle.json --current=current-bundle.json --output=current-audit.json --json
+          pnpm -s worker:release-trend \
+            --report=docs/examples/release-governance/report-promote-ready.json \
+            --report=docs/examples/release-governance/report-promote-ready.json \
+            --report=current-report.json \
+            --output=release-trend.json --json
+
+      # 2) Compose the governance bundle over the trend (primary) + the latest report + latest audit → CI job
+      #    summary. A stable trend with clean latest sources is a HEALTHY window (exit 0); the bundle authorizes
+      #    nothing on its own.
+      - name: Compose the governance bundle → CI summary
+        run: |
+          pnpm -s worker:release-governance \
+            --trend=release-trend.json --report=current-report.json --audit=current-audit.json \
+            --output=release-governance.json --json
+          pnpm -s worker:release-governance \
+            --trend=release-trend.json --report=current-report.json --audit=current-audit.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      # 3) A FAILING trend MUST block the window closed (exit 4) — here, a committed trend whose newest report is
+      #    hold-fail. Proves the governance bundle fails closed on a failing primary signal.
+      - name: A failing trend blocks the window (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-governance \
+            --trend=docs/examples/release-governance/trend-failing.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 4) A TAMPERED trend (recorded verdict does not re-derive from its own points) MUST block closed (exit 4).
+      - name: A tampered trend blocks the window (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-governance \
+            --trend=docs/examples/release-governance/trend-tampered.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 5) A hold-fail LATEST report MUST block even a stable trend (exit 4) — a point-in-time blocker holds the
+      #    window.
+      - name: A hold-fail latest report blocks the window (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-governance \
+            --trend=docs/examples/release-governance/trend-stable.json \
+            --report=docs/examples/release-governance/report-hold-fail.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 6) A MISSING trend (a latest report only) is INCOMPLETE (exit 2), never a vacuous healthy — the primary
+      #    window signal is required.
+      - name: A missing trend is insufficient (exit 2)
+        run: |
+          set +e
+          pnpm -s worker:release-governance \
+            --report=docs/examples/release-governance/report-promote-ready.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 2 || { echo "expected 2, got $code"; exit 1; }
+
+      # 7) A misused CLI fails closed to the distinct usage band (exit 1) — never a silent healthy.
+      - name: No document supplied fails closed (exit 1)
+        run: |
+          set +e
+          pnpm -s worker:release-governance >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 1 || { echo "expected 1, got $code"; exit 1; }
+
+      # 8) Publish the governance bundle as a CI artifact / governance record.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-governance
+          path: release-governance.json
+
+      - name: Release-governance module unit + example tests (no-leak + fail-closed)
+        run: pnpm exec vitest run src/lib/workers/release-governance
