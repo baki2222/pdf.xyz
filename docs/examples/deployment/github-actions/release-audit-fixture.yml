@@ -1,0 +1,108 @@
+name: pdf.xyz worker release evidence audit / diff
+
+# An OPTIONAL release regression gate (Phase 51). It runs AFTER the release-evidence CI bundle (Phase 50):
+# it keeps the PREVIOUS release's content-free `pdfxyz.release-ci-bundle/1` bundle as the BASELINE (a
+# committed artifact, or a restored CI artifact), builds the CURRENT release's bundle from the offline
+# chain, then AUDITS the current bundle against the baseline and FAILS CLOSED on a regression. It makes NO
+# cloud call, needs NO credentials, reads NO secret, and deletes / prunes / promotes NOTHING — every step is
+# offline and deterministic (the offline gate + committed content-free fixtures). This is a TEMPLATE.
+#
+# The audit is content-free AUDIT / DIFF over evidence, NOT signing, auth, cloud validation, storage
+# retention enforcement, or deployment promotion. A passing audit only means the current bundle did not
+# regress versus the baseline — gate the current bundle on its own (worker:release-ci-bundle /
+# worker:release-policy) too, and wire your real promotion after.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/lib/workers/release-audit/**"
+      - "scripts/worker-release-audit.ts"
+      - ".github/workflows/**"
+
+jobs:
+  release-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 1) Build the CURRENT release's content-free CI bundle from the offline chain (Phase 46-50).
+      - name: Build the current release CI bundle
+        run: |
+          pnpm -s worker:release-gate --json > gate.json || true
+          pnpm -s worker:release-artifact --release-gate=gate.json --label=ci-example --output=artifact.json --json
+          pnpm -s worker:release-index --artifact=artifact.json --output=index.json --json
+          pnpm -s worker:release-policy --index=index.json --require-clean --min-artifacts=1 --output=policy.json --json
+          pnpm -s worker:release-ci-bundle \
+            --release-gate=gate.json --release-artifact=artifact.json \
+            --release-index=index.json --release-policy=policy.json \
+            --output=current-bundle.json --json
+
+      # 2) AUDIT the current bundle against the last accepted baseline. A coherent, non-regressed current
+      #    passes (exit 0); emit the audit as a CI artifact / release handoff record.
+      - name: Audit current vs baseline (accept)
+        run: |
+          pnpm -s worker:release-audit \
+            --baseline=docs/examples/release-audit/baseline-pass.json \
+            --current=current-bundle.json \
+            --output=release-audit.json --json
+
+      # 3) A BLOCKING regression MUST fail closed (exit 4) — here, a committed current bundle that dropped
+      #    to fail versus the baseline. Proves the gate blocks a regressed release.
+      - name: A blocking regression fails closed (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-audit \
+            --baseline=docs/examples/release-audit/baseline-pass.json \
+            --current=docs/examples/release-audit/current-fail.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 4) A TAMPERED bundle (a recorded verdict that does not re-derive) MUST fail closed (exit 4).
+      - name: A tampered bundle fails closed (exit 4)
+        run: |
+          set +e
+          pnpm -s worker:release-audit \
+            --baseline=docs/examples/release-audit/baseline-pass.json \
+            --current=docs/examples/release-audit/current-tampered.json >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 4 || { echo "expected 4, got $code"; exit 1; }
+
+      # 5) A non-blocking drift is exit 3 — accept an EXPECTED drift deliberately with --allow-warn-regression.
+      - name: A softened posture is a reviewable drift (exit 3), acceptable on purpose (exit 0)
+        run: |
+          set +e
+          pnpm -s worker:release-audit \
+            --baseline=docs/examples/release-audit/baseline-pass.json \
+            --current=docs/examples/release-audit/current-warn.json >/dev/null 2>&1
+          test "$?" -eq 3 || { echo "expected 3"; exit 1; }
+          pnpm -s worker:release-audit \
+            --baseline=docs/examples/release-audit/baseline-pass.json \
+            --current=docs/examples/release-audit/current-warn.json --allow-warn-regression >/dev/null 2>&1
+          test "$?" -eq 0 || { echo "expected 0 under --allow-warn-regression"; exit 1; }
+
+      # 6) A misused CLI fails closed to the distinct usage band (exit 1) — never a silent pass.
+      - name: No input supplied fails closed (exit 1)
+        run: |
+          set +e
+          pnpm -s worker:release-audit >/dev/null 2>&1
+          code=$?
+          test "$code" -eq 1 || { echo "expected 1, got $code"; exit 1; }
+
+      # 7) Publish the audit as a CI artifact / release regression record.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-audit
+          path: release-audit.json
+
+      - name: Release-audit module unit + example tests (no-leak + fail-closed)
+        run: pnpm exec vitest run src/lib/workers/release-audit

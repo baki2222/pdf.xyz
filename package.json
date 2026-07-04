@@ -20,6 +20,7 @@
     "worker:release-index": "tsx scripts/worker-release-index.ts",
     "worker:release-policy": "tsx scripts/worker-release-policy.ts",
     "worker:release-ci-bundle": "tsx scripts/worker-release-ci-bundle.ts",
+    "worker:release-audit": "tsx scripts/worker-release-audit.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",

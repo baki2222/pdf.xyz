@@ -56,6 +56,8 @@ const FILES = [
   `${DIR}/github-actions/release-policy-fixture.yml`,
   // Phase 50 — the release evidence CI bundle (compose the whole chain + cross-stage consistency).
   `${DIR}/github-actions/release-ci-bundle-fixture.yml`,
+  // Phase 51 — the release evidence audit / diff (compare a baseline vs current bundle; fail on regression).
+  `${DIR}/github-actions/release-audit-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -174,6 +176,15 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-ci-bundle-fixture.yml`, /--release-index=index\.json --release-policy=policy\.json/, "release-ci-bundle GitHub Actions fixture must bundle the index + policy stage outputs", findings);
   requireText(`${DIR}/github-actions/release-ci-bundle-fixture.yml`, /test "\$code" -eq 4/, "release-ci-bundle GitHub Actions fixture must assert the cross-stage-inconsistency exit code", findings);
   requireText(`${DIR}/github-actions/release-ci-bundle-fixture.yml`, /test "\$code" -eq 1/, "release-ci-bundle GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 51 — the release-audit template must build a current bundle, diff it against a baseline bundle,
+  // and pin the blocking-regression + usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-audit-fixture.yml`, /worker:release-ci-bundle/, "release-audit GitHub Actions fixture must build a current release CI bundle first", findings);
+  requireText(`${DIR}/github-actions/release-audit-fixture.yml`, /worker:release-audit/, "release-audit GitHub Actions fixture must run worker:release-audit", findings);
+  requireText(`${DIR}/github-actions/release-audit-fixture.yml`, /--baseline=/, "release-audit GitHub Actions fixture must supply a baseline bundle", findings);
+  requireText(`${DIR}/github-actions/release-audit-fixture.yml`, /--current=/, "release-audit GitHub Actions fixture must supply a current bundle", findings);
+  requireText(`${DIR}/github-actions/release-audit-fixture.yml`, /test "\$code" -eq 4/, "release-audit GitHub Actions fixture must assert the blocking-regression exit code", findings);
+  requireText(`${DIR}/github-actions/release-audit-fixture.yml`, /test "\$code" -eq 1/, "release-audit GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

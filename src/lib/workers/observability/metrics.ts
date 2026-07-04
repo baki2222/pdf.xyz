@@ -122,6 +122,10 @@ import {
   RELEASE_CI_BUNDLE_VERDICTS,
   type ReleaseCiBundleVerdict,
 } from "../release-ci-bundle/types";
+import {
+  RELEASE_AUDIT_VERDICTS,
+  type ReleaseAuditVerdict,
+} from "../release-audit/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -428,6 +432,7 @@ export const METRIC_NAMES = [
   "worker_release_index_total",
   "worker_release_policy_total",
   "worker_release_ci_bundle_total",
+  "worker_release_audit_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -626,6 +631,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_CI_BUNDLE_VERDICTS,
+    },
+  },
+  worker_release_audit_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_AUDIT_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1087,6 +1098,27 @@ export function releasePolicyMetric(verdict: ReleasePolicyVerdict): WorkerMetric
 export function releaseCiBundleMetric(verdict: ReleaseCiBundleVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_ci_bundle_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A performed **release evidence audit / diff** (Phase 51) resolved to its regression `verdict`
+ * ({@link ReleaseAuditVerdict}: `pass`/`warn`/`unknown`/`fail`). One bounded label so a release pipeline /
+ * dashboard can count audits by the single decision an operator acts on — e.g.
+ * `worker_release_audit_total{verdict="fail"} > 0` catches a blocking regression or a tampered bundle,
+ * `{verdict="warn"} > 0` catches a non-blocking drift, `{verdict="unknown"} > 0` catches an audit that
+ * could not run (an unreadable bundle / too little history). This counts an offline DIFF that ingested two
+ * (or a history of) content-free `pdfxyz.release-ci-bundle/1` bundles, re-validated each against itself,
+ * and compared their postures — NOT a cloud call, a deletion, a signature, a promotion, or a claim about
+ * bucket bytes. The one label is a closed, redaction-stable enum — never a filename, path, object key,
+ * bucket, URL, endpoint, region, instant, size, digest, or document content.
+ */
+export function releaseAuditMetric(verdict: ReleaseAuditVerdict): WorkerMetricSample {
+  return {
+    metric: "worker_release_audit_total",
     kind: "counter",
     labels: { verdict },
     value: 1,
