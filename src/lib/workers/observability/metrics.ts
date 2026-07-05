@@ -194,6 +194,10 @@ import {
   RELEASE_DECISION_CLOSEOUT_ACTION_RECEIPT_VERDICTS,
   type ReleaseDecisionCloseoutActionReceiptVerdict,
 } from "../release-decision-closeout-action-receipt/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_GOVERNANCE_VERDICTS,
+  type ReleaseDecisionCloseoutGovernanceVerdict,
+} from "../release-decision-closeout-governance/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -518,6 +522,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_closeout_index_trend_total",
   "worker_release_decision_closeout_action_plan_total",
   "worker_release_decision_closeout_action_receipt_total",
+  "worker_release_decision_closeout_governance_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -824,6 +829,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_CLOSEOUT_ACTION_RECEIPT_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_governance_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1700,6 +1711,34 @@ export function releaseDecisionCloseoutActionReceiptMetric(
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_closeout_action_receipt_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A recorded **release decision closeout governance bundle** (Phase 69) resolved to its governance `verdict`
+ * ({@link ReleaseDecisionCloseoutGovernanceVerdict}: `closed`/`governance-incomplete`/`governance-open`/
+ * `governance-blocked`). One bounded label so a release governance / review dashboard can count decision closeout
+ * governance bundles by the single outcome a reviewer acts on — e.g.
+ * `worker_release_decision_closeout_governance_total{verdict="governance-blocked"} > 0` catches a tampered / blocked
+ * primary receipt, a contradictory / tampered related record, a blocked source chain, or a `--strict-open` escalation;
+ * `{verdict="governance-incomplete"} > 0` catches a missing / unreadable / incomplete primary receipt, a
+ * required-but-missing related record, or an inconclusive source chain; `{verdict="governance-open"} > 0` catches a
+ * followup-open receipt or an advisory / open source-chain record. This counts an offline BUNDLE that ingested ONE
+ * content-free `pdfxyz.release-decision-closeout-action-receipt/1` primary receipt plus optional related closeout-chain
+ * records, re-validated each against itself, cross-checked the chain, and rolled it into ONE governance verdict — NOT a
+ * legal/compliance sign-off, an external approval/signature, an identity proof, a deployment authorization, a promotion
+ * ledger, an incident record, an audit log, a cloud call, or a deletion. The one label is a closed, redaction-stable
+ * enum — never a reviewer identity, a reason id, a record kind, a count, a filename, path, object key, bucket, URL, size,
+ * digest, or record content.
+ */
+export function releaseDecisionCloseoutGovernanceMetric(
+  verdict: ReleaseDecisionCloseoutGovernanceVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_governance_total",
     kind: "counter",
     labels: { verdict },
     value: 1,
