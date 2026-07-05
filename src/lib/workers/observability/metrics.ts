@@ -166,6 +166,10 @@ import {
   RELEASE_DECISION_TREND_VERDICTS,
   type ReleaseDecisionTrendVerdict,
 } from "../release-decision-trend/types";
+import {
+  RELEASE_DECISION_ACTION_PLAN_VERDICTS,
+  type ReleaseDecisionActionPlanVerdict,
+} from "../release-decision-action-plan/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -483,6 +487,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_total",
   "worker_release_decision_index_total",
   "worker_release_decision_trend_total",
+  "worker_release_decision_action_plan_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -747,6 +752,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_TREND_VERDICTS,
+    },
+  },
+  worker_release_decision_action_plan_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_ACTION_PLAN_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1445,6 +1456,31 @@ export function releaseDecisionIndexMetric(verdict: ReleaseDecisionIndexVerdict)
 export function releaseDecisionTrendMetric(verdict: ReleaseDecisionTrendVerdict): WorkerMetricSample {
   return {
     metric: "worker_release_decision_trend_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision trend action plan** (Phase 62) resolved to its plan `verdict`
+ * ({@link ReleaseDecisionActionPlanVerdict}: `clear`/`monitor`/`investigate`/`block-release`/`invalid`). One bounded
+ * label so a release governance / review dashboard can count decision-trend action plans by the single outcome a
+ * reviewer acts on — e.g. `worker_release_decision_action_plan_total{verdict="block-release"} > 0` catches a blocked /
+ * invalid / `--strict`-escalated trend, `{verdict="invalid"} > 0` catches an untrustworthy (unreadable / tampered)
+ * trend input, `{verdict="investigate"} > 0` catches an inconclusive trend, `{verdict="monitor"} > 0` catches a
+ * follow-up (watch / degrading / improving) trend. This counts an offline PLAN that ingested ONE content-free
+ * `pdfxyz.release-decision-trend/1` summary, re-validated it against itself, and translated its verdict into one
+ * operator follow-up plan — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a
+ * deployment authorization, a promotion ledger, an incident record, an audit log, a cloud call, or a deletion. The one
+ * label is a closed, redaction-stable enum — never a reviewer identity, a reason id, an action id, a filename, path,
+ * object key, bucket, URL, size, digest, or trend content.
+ */
+export function releaseDecisionActionPlanMetric(
+  verdict: ReleaseDecisionActionPlanVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_action_plan_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

@@ -78,6 +78,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-index-fixture.yml`,
   // Phase 61 — the release decision index trend (summarize a bounded history of decision-index windows into one trend).
   `${DIR}/github-actions/release-decision-trend-fixture.yml`,
+  // Phase 62 — the release decision trend action plan (translate a decision trend into an operator follow-up plan).
+  `${DIR}/github-actions/release-decision-action-plan-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -299,6 +301,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /test "\$code" -eq 3/, "release-decision-trend GitHub Actions fixture must assert the watch/degrading (worsening arc) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /test "\$code" -eq 2/, "release-decision-trend GitHub Actions fixture must assert the insufficient (inconclusive) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-trend-fixture.yml`, /test "\$code" -eq 1/, "release-decision-trend GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 62 — the release-decision-action-plan template must summarize a trend, translate it into a follow-up plan, and
+  // pin the block-release / followup / investigate / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-action-plan-fixture.yml`, /worker:release-decision-trend/, "release-decision-action-plan GitHub Actions fixture must summarize a decision trend first", findings);
+  requireText(`${DIR}/github-actions/release-decision-action-plan-fixture.yml`, /worker:release-decision-action-plan/, "release-decision-action-plan GitHub Actions fixture must run worker:release-decision-action-plan", findings);
+  requireText(`${DIR}/github-actions/release-decision-action-plan-fixture.yml`, /--trend=/, "release-decision-action-plan GitHub Actions fixture must supply the decision trend to plan over", findings);
+  requireText(`${DIR}/github-actions/release-decision-action-plan-fixture.yml`, /test "\$code" -eq 4/, "release-decision-action-plan GitHub Actions fixture must assert the block-release/invalid exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-action-plan-fixture.yml`, /test "\$code" -eq 3/, "release-decision-action-plan GitHub Actions fixture must assert the followup (watch/degrading) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-action-plan-fixture.yml`, /test "\$code" -eq 2/, "release-decision-action-plan GitHub Actions fixture must assert the investigate (insufficient) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-action-plan-fixture.yml`, /test "\$code" -eq 1/, "release-decision-action-plan GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);
