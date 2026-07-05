@@ -82,6 +82,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-action-plan-fixture.yml`,
   // Phase 63 — the release decision action-plan execution receipt (record whether a plan's follow-ups were acknowledged).
   `${DIR}/github-actions/release-decision-action-receipt-fixture.yml`,
+  // Phase 64 — the release decision closeout bundle (compose the decision chain into one closeout; cross-check records).
+  `${DIR}/github-actions/release-decision-closeout-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -323,6 +325,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-action-receipt-fixture.yml`, /test "\$code" -eq 3/, "release-decision-action-receipt GitHub Actions fixture must assert the followup-open (open advisory follow-up) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-action-receipt-fixture.yml`, /test "\$code" -eq 2/, "release-decision-action-receipt GitHub Actions fixture must assert the incomplete (unexercised / missing plan) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-action-receipt-fixture.yml`, /test "\$code" -eq 1/, "release-decision-action-receipt GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 64 — the release-decision-closeout template must record the execution receipt, compose the closeout over it,
+  // and pin the blocked / open / incomplete / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /worker:release-decision-action-receipt/, "release-decision-closeout GitHub Actions fixture must record the execution receipt first", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /worker:release-decision-closeout/, "release-decision-closeout GitHub Actions fixture must run worker:release-decision-closeout", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /--receipt=/, "release-decision-closeout GitHub Actions fixture must supply the primary receipt to close out", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /test "\$code" -eq 4/, "release-decision-closeout GitHub Actions fixture must assert the closeout-blocked (tampered / contradictory / blocked source chain) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout GitHub Actions fixture must assert the closeout-open (followup-open / advisory) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout GitHub Actions fixture must assert the closeout-incomplete (missing / unusable receipt) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

@@ -174,6 +174,10 @@ import {
   RELEASE_DECISION_ACTION_RECEIPT_VERDICTS,
   type ReleaseDecisionActionReceiptVerdict,
 } from "../release-decision-action-receipt/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_VERDICTS,
+  type ReleaseDecisionCloseoutVerdict,
+} from "../release-decision-closeout/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -493,6 +497,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_trend_total",
   "worker_release_decision_action_plan_total",
   "worker_release_decision_action_receipt_total",
+  "worker_release_decision_closeout_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -769,6 +774,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_ACTION_RECEIPT_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1518,6 +1529,32 @@ export function releaseDecisionActionReceiptMetric(
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_action_receipt_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision closeout bundle** (Phase 64) resolved to its closeout `verdict`
+ * ({@link ReleaseDecisionCloseoutVerdict}: `closed`/`closeout-incomplete`/`closeout-open`/`closeout-blocked`). One bounded
+ * label so a release governance / review dashboard can count decision closeouts by the single outcome a reviewer acts on
+ * — e.g. `worker_release_decision_closeout_total{verdict="closeout-blocked"} > 0` catches a tampered / blocked primary
+ * receipt, a contradictory / tampered related record, a blocked source chain, or a `--strict-open` escalation;
+ * `{verdict="closeout-incomplete"} > 0` catches a missing / unusable primary receipt or a missing required related record;
+ * `{verdict="closeout-open"} > 0` catches a followup-open receipt or an advisory decision / index record. This counts an
+ * offline COMPOSITION that ingested ONE content-free `pdfxyz.release-decision-action-receipt/1` receipt plus optional
+ * related records, re-validated the receipt against itself, and cross-checked the chain — NOT a legal/compliance sign-off,
+ * an external approval/signature, an identity proof, a deployment authorization, a promotion ledger, an incident record,
+ * an audit log, a cloud call, or a deletion. The one label is a closed, redaction-stable enum — never a reviewer
+ * identity, a reason id, a record kind, a plan class, a count, a filename, path, object key, bucket, URL, size, digest, or
+ * record content.
+ */
+export function releaseDecisionCloseoutMetric(
+  verdict: ReleaseDecisionCloseoutVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

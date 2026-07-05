@@ -1,0 +1,100 @@
+{
+  "schema": "pdfxyz.release-decision/1",
+  "generatedAt": "2026-07-04T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision",
+    "policyVersion": 1,
+    "publishPackSchema": "pdfxyz.release-publish-pack/1",
+    "ackSchema": "pdfxyz.release-ack/1"
+  },
+  "policy": {
+    "strict": false
+  },
+  "publishPack": {
+    "state": "usable",
+    "supplied": true,
+    "recognized": true,
+    "usable": true,
+    "verdict": "publishable",
+    "disclosure": "share-safe",
+    "sourcesSupplied": 5,
+    "sourcesUsable": 5,
+    "detail": "pack: a self-consistent `pdfxyz.release-publish-pack/1` (its recorded verdict re-derives)."
+  },
+  "acknowledgement": {
+    "state": "usable",
+    "supplied": true,
+    "recognized": true,
+    "usable": true,
+    "ackVerdict": "acknowledged",
+    "decision": "accepted",
+    "reviewer": "unknown",
+    "note": "none",
+    "recordedPackVerdict": "publishable",
+    "recordedDisclosure": "share-safe",
+    "recordedPackState": "usable",
+    "recordedSourcesSupplied": 5,
+    "recordedSourcesUsable": 5,
+    "detail": "ack: a self-consistent `pdfxyz.release-ack/1` (its recorded verdict re-derives)."
+  },
+  "crossCheck": {
+    "status": "match",
+    "detail": "MATCH: both documents are usable and the acknowledgement recorded acknowledging a pack whose bounded summary (verdict / disclosure / source count) equals the supplied pack's — the pair is coherent. This is content-free CONSISTENCY, not a cryptographic proof of shared provenance."
+  },
+  "decision": {
+    "decision": "proceed",
+    "exitCode": 0,
+    "proceed": true,
+    "reasons": [],
+    "invalidInputs": 0,
+    "blocking": 0,
+    "insufficiencies": 0,
+    "advisories": 0,
+    "strict": false,
+    "strictEscalated": false,
+    "strictEscalatedFrom": null,
+    "detail": "PROCEED: the publish pack is PUBLISHABLE (share-safe) and the acknowledgement is a clean `accepted` (no follow-up) whose recorded source matches the supplied pack — the release may proceed. This is a content-free decision RECORD, NOT an external signature, an approval, a legal / compliance sign-off, or an actual deployment / promotion; perform the handoff / promotion out of band."
+  },
+  "reasons": [],
+  "checklist": [
+    {
+      "id": "proceed-with-handoff-out-of-band",
+      "detail": "The decision supports proceeding. Perform the ACTUAL handoff / promotion / deployment OUT OF BAND with your release tooling — this record decides nothing beyond the bounded posture and performs no promotion."
+    },
+    {
+      "id": "obtain-external-approval-out-of-band",
+      "detail": "This is a decision RECORD, NOT an external approval / signature / legal-compliance sign-off / promotion. Obtain any required approval SEPARATELY, with your approval tooling."
+    },
+    {
+      "id": "keep-decision-record",
+      "detail": "Keep this content-free record as the release decision ledger entry — it is a bounded record of what was decided (and why), safe to forward to any downstream system verbatim."
+    }
+  ],
+  "guidance": [
+    "Obtaining an EXTERNAL SIGNATURE, an APPROVAL, or a LEGAL / COMPLIANCE sign-off is out of band — this record composes an operator's own content-free publish pack + acknowledgement into one decision posture; it is not a signature or an approval.",
+    "ACTUALLY PROMOTING / DEPLOYING / PUBLISHING the release is out of band — do it with your release tooling after any required approval. A `proceed` decision authorizes none of it.",
+    "RECORDING the decision in a release ledger / system of record, NOTIFYING stakeholders, or opening a ticket is out of band — this tool writes only its own content-free output and sends nothing.",
+    "VERIFYING the underlying evidence is the upstream tools' job (gate → artifact → … → publish-pack → ack); this only re-validates the pack + acknowledgement against themselves, cross-checks their coherence, and records the composite decision."
+  ],
+  "caveats": [
+    "This is a local, offline, READ-ONLY release decision RECORD — NOT an external signature, a legal / compliance approval, an identity attestation, an actual deployment / promotion, or a compliance sign-off. It RECORDS a composite decision posture over two content-free documents; it authorizes nothing.",
+    "It INGESTS a content-free `pdfxyz.release-publish-pack/1` (Phase 57) and a `pdfxyz.release-ack/1` (Phase 58), RE-VALIDATES each against ITSELF (a hand-flipped verdict / disclosure / decision is caught as a tamper ⇒ `invalid`), CROSS-CHECKS that the acknowledgement corresponds to the supplied pack, and folds them into ONE bounded decision + a next-action checklist.",
+    "It makes no network call, signs nothing, approves nothing, publishes nothing, promotes nothing, deploys nothing, notifies no one, and mutates nothing.",
+    "It never fabricates a `proceed`: a `proceed` REQUIRES a usable `publishable` (share-safe) pack AND a usable clean `accepted` acknowledgement AND a matching cross-check. It FAILS CLOSED — a missing / unreadable / tampered document, or an acknowledgement that does not correspond to the supplied pack, is `invalid`, never a vacuous pass.",
+    "The re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so a `proceed` decision is not proof of authenticity or provenance; a fully-coherent rewrite of BOTH documents' own facts is beyond self-consistency. Anchor deeper trust in the upstream signed / archived evidence.",
+    "It is content-free by construction: no reviewer name / email, no path, no object key, no bucket, no URL, no raw note text, no provider error, no log, and no document / OCR content — only bounded enums, small counts, an ISO stamp, and app-authored prose; it never echoes an ingested document's own stamp, and it never echoes an input file path, even on an error."
+  ],
+  "receipt": {
+    "category": "worker-release-decision",
+    "policyId": "pdfxyz-worker-release-decision",
+    "policyVersion": 1,
+    "at": "2026-07-04T00:00:00.000Z",
+    "decision": "proceed",
+    "exitCode": 0,
+    "crossCheck": "match",
+    "sourcesSupplied": 2,
+    "sourcesUsable": 2,
+    "ackDecision": "accepted"
+  }
+}

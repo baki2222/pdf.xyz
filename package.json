@@ -33,6 +33,7 @@
     "worker:release-decision-trend": "tsx scripts/worker-release-decision-trend.ts",
     "worker:release-decision-action-plan": "tsx scripts/worker-release-decision-action-plan.ts",
     "worker:release-decision-action-receipt": "tsx scripts/worker-release-decision-action-receipt.ts",
+    "worker:release-decision-closeout": "tsx scripts/worker-release-decision-closeout.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",
