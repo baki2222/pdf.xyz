@@ -86,6 +86,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-closeout-fixture.yml`,
   // Phase 65 — the release decision closeout index (index a bounded history of closeout records into one review summary).
   `${DIR}/github-actions/release-decision-closeout-index-fixture.yml`,
+  // Phase 66 — the release decision closeout index trend (summarize a bounded history of closeout-index windows into one trend).
+  `${DIR}/github-actions/release-decision-closeout-index-trend-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -347,6 +349,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-index GitHub Actions fixture must assert the index-open (open latest / breach) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-index GitHub Actions fixture must assert the index-incomplete (unreadable / incomplete latest) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-index GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 66 — the release-decision-closeout-index-trend template must index a closeout window, summarize a bounded
+  // history, and pin the blocked / watch / incomplete / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-trend-fixture.yml`, /worker:release-decision-closeout-index["\s\\]/, "release-decision-closeout-index-trend GitHub Actions fixture must index a closeout window first", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-trend-fixture.yml`, /worker:release-decision-closeout-index-trend/, "release-decision-closeout-index-trend GitHub Actions fixture must run worker:release-decision-closeout-index-trend", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-trend-fixture.yml`, /--file=/, "release-decision-closeout-index-trend GitHub Actions fixture must supply the closeout-index window history", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-trend-fixture.yml`, /test "\$code" -eq 4/, "release-decision-closeout-index-trend GitHub Actions fixture must assert the trend-blocked (tampered / blocked latest / strict-watch) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-trend-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-index-trend GitHub Actions fixture must assert the trend-watch (open latest / degrading arc) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-trend-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-index-trend GitHub Actions fixture must assert the trend-incomplete (unreadable / incomplete latest) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-trend-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-index-trend GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);
