@@ -202,6 +202,10 @@ import {
   RELEASE_DECISION_CLOSEOUT_GOVERNANCE_INDEX_VERDICTS,
   type ReleaseDecisionCloseoutGovernanceIndexVerdict,
 } from "../release-decision-closeout-governance-index/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_GOVERNANCE_INDEX_TREND_VERDICTS,
+  type ReleaseDecisionCloseoutGovernanceIndexTrendVerdict,
+} from "../release-decision-closeout-governance-index-trend/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -528,6 +532,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_closeout_action_receipt_total",
   "worker_release_decision_closeout_governance_total",
   "worker_release_decision_closeout_governance_index_total",
+  "worker_release_decision_closeout_governance_index_trend_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -846,6 +851,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_INDEX_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_governance_index_trend_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_INDEX_TREND_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1778,6 +1789,32 @@ export function releaseDecisionCloseoutGovernanceIndexMetric(
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_closeout_governance_index_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision closeout governance index trend** (Phase 71) resolved to its trend `verdict`
+ * ({@link ReleaseDecisionCloseoutGovernanceIndexTrendVerdict}: `trend-stable`/`trend-incomplete`/`trend-watch`/
+ * `trend-blocked`). One bounded label so a release governance / review dashboard can count governance-index-history
+ * trends by the single outcome a reviewer acts on — e.g.
+ * `worker_release_decision_closeout_governance_index_trend_total{verdict="trend-blocked"} > 0` catches a tampered /
+ * blocked governance-index history or a `--strict-watch` escalation, `{verdict="trend-watch"} > 0` catches an open latest
+ * / threshold breach or a worsening arc, `{verdict="trend-incomplete"} > 0` catches a coverage gap (an unreadable window,
+ * an incomplete latest, or zero usable windows). This counts an offline TREND that ingested a bounded history of
+ * content-free `pdfxyz.release-decision-closeout-governance-index/1` windows, re-validated each against itself, and
+ * folded their index verdicts into one trend verdict — NOT a legal audit log, a compliance attestation, an external
+ * approval / signature, an identity proof, a deployment / promotion ledger, a cloud call, a deletion, or a claim about
+ * bucket bytes. The one label is a closed, redaction-stable enum — never a reviewer identity, a reason id, a filename,
+ * path, object key, bucket, URL, size, digest, or window content.
+ */
+export function releaseDecisionCloseoutGovernanceIndexTrendMetric(
+  verdict: ReleaseDecisionCloseoutGovernanceIndexTrendVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_governance_index_trend_total",
     kind: "counter",
     labels: { verdict },
     value: 1,
