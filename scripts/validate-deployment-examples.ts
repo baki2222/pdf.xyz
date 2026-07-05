@@ -98,6 +98,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-closeout-governance-index-fixture.yml`,
   // Phase 71 — the release decision closeout governance index trend (summarize a bounded history of governance-index windows into one trend).
   `${DIR}/github-actions/release-decision-closeout-governance-index-trend-fixture.yml`,
+  // Phase 72 — the release decision closeout governance index trend action plan (translate a governance-index trend into a bounded follow-up plan).
+  `${DIR}/github-actions/release-decision-closeout-governance-action-plan-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -420,6 +422,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-index-trend-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-governance-index-trend GitHub Actions fixture must assert the trend-watch (open latest / degrading arc) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-index-trend-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-governance-index-trend GitHub Actions fixture must assert the trend-incomplete (unreadable / incomplete latest) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-index-trend-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-governance-index-trend GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 72 — the release-decision-closeout-governance-action-plan template must summarize a governance-index trend,
+  // translate it into a follow-up plan, and pin the block-release / monitor / investigate / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-action-plan-fixture.yml`, /worker:release-decision-closeout-governance-index-trend/, "release-decision-closeout-governance-action-plan GitHub Actions fixture must summarize a governance-index trend first", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-action-plan-fixture.yml`, /worker:release-decision-closeout-governance-action-plan/, "release-decision-closeout-governance-action-plan GitHub Actions fixture must run worker:release-decision-closeout-governance-action-plan", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-action-plan-fixture.yml`, /--trend=/, "release-decision-closeout-governance-action-plan GitHub Actions fixture must supply the governance-index trend to plan over", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-action-plan-fixture.yml`, /test "\$code" -eq 4/, "release-decision-closeout-governance-action-plan GitHub Actions fixture must assert the block-release (blocked / tampered trend / strict-watch) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-action-plan-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-governance-action-plan GitHub Actions fixture must assert the monitor (watch / degrading) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-action-plan-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-governance-action-plan GitHub Actions fixture must assert the investigate (trend-incomplete) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-action-plan-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-governance-action-plan GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);
