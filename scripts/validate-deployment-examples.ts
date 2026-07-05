@@ -84,6 +84,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-action-receipt-fixture.yml`,
   // Phase 64 — the release decision closeout bundle (compose the decision chain into one closeout; cross-check records).
   `${DIR}/github-actions/release-decision-closeout-fixture.yml`,
+  // Phase 65 — the release decision closeout index (index a bounded history of closeout records into one review summary).
+  `${DIR}/github-actions/release-decision-closeout-index-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -335,6 +337,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout GitHub Actions fixture must assert the closeout-open (followup-open / advisory) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout GitHub Actions fixture must assert the closeout-incomplete (missing / unusable receipt) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 65 — the release-decision-closeout-index template must record the closeout history, index it, and pin the
+  // blocked / open / incomplete / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /worker:release-decision-closeout["\s\\]/, "release-decision-closeout-index GitHub Actions fixture must record a closeout first", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /worker:release-decision-closeout-index/, "release-decision-closeout-index GitHub Actions fixture must run worker:release-decision-closeout-index", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /--file=/, "release-decision-closeout-index GitHub Actions fixture must supply the closeout-record history", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /test "\$code" -eq 4/, "release-decision-closeout-index GitHub Actions fixture must assert the index-blocked (tampered / blocked latest / strict-open) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-index GitHub Actions fixture must assert the index-open (open latest / breach) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-index GitHub Actions fixture must assert the index-incomplete (unreadable / incomplete latest) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-index-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-index GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

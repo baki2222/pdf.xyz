@@ -178,6 +178,10 @@ import {
   RELEASE_DECISION_CLOSEOUT_VERDICTS,
   type ReleaseDecisionCloseoutVerdict,
 } from "../release-decision-closeout/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_INDEX_VERDICTS,
+  type ReleaseDecisionCloseoutIndexVerdict,
+} from "../release-decision-closeout-index/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -498,6 +502,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_action_plan_total",
   "worker_release_decision_action_receipt_total",
   "worker_release_decision_closeout_total",
+  "worker_release_decision_closeout_index_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -780,6 +785,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_CLOSEOUT_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_index_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_INDEX_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1555,6 +1566,31 @@ export function releaseDecisionCloseoutMetric(
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_closeout_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision closeout index** (Phase 65) resolved to its index `verdict`
+ * ({@link ReleaseDecisionCloseoutIndexVerdict}: `indexed`/`index-incomplete`/`index-open`/`index-blocked`). One bounded
+ * label so a release governance / review dashboard can count closeout-history reviews by the single outcome a reviewer
+ * acts on — e.g. `worker_release_decision_closeout_index_total{verdict="index-blocked"} > 0` catches a tampered / blocked
+ * closeout history or a `--strict-open` escalation, `{verdict="index-incomplete"} > 0` catches a coverage gap (an
+ * unreadable closeout, an incomplete latest, or zero usable closeouts), `{verdict="index-open"} > 0` catches an open
+ * follow-up posture. This counts an offline INDEX that ingested a bounded history of content-free
+ * `pdfxyz.release-decision-closeout/1` records, re-validated each against itself, and folded their closeout verdicts
+ * into one index verdict — NOT a legal audit log, a compliance attestation, an external approval / signature, an
+ * identity proof, a deployment / promotion ledger, a cloud call, a deletion, or a claim about bucket bytes. The one
+ * label is a closed, redaction-stable enum — never a reviewer identity, a reason id, a filename, path, object key,
+ * bucket, URL, size, digest, or record content.
+ */
+export function releaseDecisionCloseoutIndexMetric(
+  verdict: ReleaseDecisionCloseoutIndexVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_index_total",
     kind: "counter",
     labels: { verdict },
     value: 1,
