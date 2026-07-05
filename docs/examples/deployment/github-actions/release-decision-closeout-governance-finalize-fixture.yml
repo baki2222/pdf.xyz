@@ -1,0 +1,158 @@
+name: Release decision closeout governance finalization bundle fixture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 11 1 3,9 *"
+
+# A release-governance REVIEW step, not a per-release gate: after the closeout-governance chain has produced ONE
+# `pdfxyz.release-decision-closeout-governance-action-receipt/1` execution receipt (Phase 73) — and, on hand, the plan /
+# trend / index / governance bundle it was built from — this FINALIZES them into ONE
+# `pdfxyz.release-decision-closeout-governance-finalize/1` bundle: a finalization verdict (finalized / finalize-incomplete
+# / finalize-open / finalize-blocked), a per-source posture, a related-record checklist, an archive checklist, and a
+# bounded follow-up assignment list. It RE-VALIDATES each record against ITSELF and CROSS-CHECKS the supplied plan / trend
+# against what the receipt recorded. It is a content-free operational governance FINALIZATION bundle ONLY: it is NOT a
+# legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion
+# ledger, an incident record, or an audit log, and it signs / approves / publishes / promotes / deploys / notifies /
+# mutates NOTHING. It fetches nothing — it composes the bundle from committed content-free fixtures so the workflow is
+# deterministic and offline.
+
+jobs:
+  release-decision-closeout-governance-finalize:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run the closeout-governance chain, then finalize the governance record
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p finalize
+          # Summarize a bounded history of committed content-free governance-index windows into ONE trend, translate that
+          # trend into a follow-up plan, and record the execution receipt (a coherent stable plan reviewed → completed).
+          pnpm worker:release-decision-closeout-governance-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-index-trend/window-indexed.json \
+            --file=docs/examples/release-decision-closeout-governance-index-trend/window-indexed.json \
+            --output=finalize/trend.json
+          pnpm worker:release-decision-closeout-governance-action-plan \
+            --trend=finalize/trend.json \
+            --output=finalize/plan.json
+          pnpm worker:release-decision-closeout-governance-action-receipt \
+            --plan=finalize/plan.json \
+            --ack-plan \
+            --output=finalize/receipt.json
+          # Finalize the governance record: the primary receipt + the related plan / trend it was built from (cross-checked).
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=finalize/receipt.json \
+            --plan=finalize/plan.json \
+            --trend=finalize/trend.json \
+            --output=finalize/governance-finalize.json
+          # Render the bundle into the job summary.
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=finalize/receipt.json \
+            --plan=finalize/plan.json \
+            --trend=finalize/trend.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail-closed examples
+        shell: bash
+        run: |
+          # A blocked primary receipt → finalize-blocked (exit 4) — do NOT treat the chain as finalized.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/receipt-blocked.json --json >/tmp/fin-blocked.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A supplied plan that CONTRADICTS the receipt's recorded plan verdict → finalize-blocked (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/receipt-completed.json \
+            --plan=docs/examples/release-decision-closeout-governance-finalize/plan-contradictory.json --json >/tmp/fin-contradiction.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A blocked source chain (a blocked governance index) → finalize-blocked (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/receipt-completed.json \
+            --index=docs/examples/release-decision-closeout-governance-finalize/index-blocked.json --json >/tmp/fin-chain.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A tampered primary receipt fails closed → finalize-blocked (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/receipt-tampered.json --json >/tmp/fin-tampered.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # --strict-open escalates an open follow-up receipt to a hard block (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/receipt-followup-open.json --strict-open --json >/tmp/fin-strict.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A followup-open receipt (no strict) → finalize-open (exit 3), for review.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/receipt-followup-open.json --json >/tmp/fin-open.json
+          code=$?
+          set -e
+          test "$code" -eq 3
+
+          # An incomplete primary receipt → finalize-incomplete (exit 2), a coverage gap.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/receipt-incomplete.json --json >/tmp/fin-incomplete.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # A --require-plan run with no plan supplied → finalize-incomplete (exit 2).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/receipt-completed.json --require-plan --json >/tmp/fin-required.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # A non-receipt decoy → finalize-incomplete (exit 2), never a vacuous finalized.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize \
+            --receipt=docs/examples/release-decision-closeout-governance-finalize/not-a-receipt.json --json >/tmp/fin-unreadable.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # No primary receipt supplied is a usage error (exit 1).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize --json >/tmp/fin-usage.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-decision-closeout-governance-finalize
+          path: finalize/governance-finalize.json
+          if-no-files-found: error
