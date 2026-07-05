@@ -186,6 +186,10 @@ import {
   RELEASE_DECISION_CLOSEOUT_INDEX_TREND_VERDICTS,
   type ReleaseDecisionCloseoutIndexTrendVerdict,
 } from "../release-decision-closeout-index-trend/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_ACTION_PLAN_VERDICTS,
+  type ReleaseDecisionCloseoutActionPlanVerdict,
+} from "../release-decision-closeout-action-plan/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -508,6 +512,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_closeout_total",
   "worker_release_decision_closeout_index_total",
   "worker_release_decision_closeout_index_trend_total",
+  "worker_release_decision_closeout_action_plan_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -802,6 +807,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_CLOSEOUT_INDEX_TREND_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_action_plan_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_ACTION_PLAN_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1627,6 +1638,30 @@ export function releaseDecisionCloseoutIndexTrendMetric(
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_closeout_index_trend_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision closeout index trend action plan** (Phase 67) resolved to its plan `verdict`
+ * ({@link ReleaseDecisionCloseoutActionPlanVerdict}: `clear`/`investigate`/`monitor`/`block-release`). One bounded label
+ * so a release governance / review dashboard can count closeout-trend follow-up plans by the single posture the release
+ * team acts on — e.g. `worker_release_decision_closeout_action_plan_total{verdict="block-release"} > 0` catches a
+ * blocked / tampered / strict-escalated closeout-index trend, `{verdict="investigate"} > 0` catches an inconclusive
+ * (trend-incomplete) history, `{verdict="monitor"} > 0` catches a watch / degrading history. This counts an offline PLAN
+ * that ingested ONE content-free `pdfxyz.release-decision-closeout-index-trend/1` summary, re-validated it against
+ * itself, and translated its verdict into one operator follow-up plan — NOT a legal / compliance sign-off, an external
+ * approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, an audit
+ * log, a cloud call, or a deletion. The one label is a closed, redaction-stable enum — never a reviewer identity, a
+ * reason id, an action id, a count, a filename, path, object key, bucket, URL, size, digest, or trend content.
+ */
+export function releaseDecisionCloseoutActionPlanMetric(
+  verdict: ReleaseDecisionCloseoutActionPlanVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_action_plan_total",
     kind: "counter",
     labels: { verdict },
     value: 1,
