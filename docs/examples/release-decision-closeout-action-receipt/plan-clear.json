@@ -1,0 +1,100 @@
+{
+  "schema": "pdfxyz.release-decision-closeout-action-plan/1",
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-closeout-action-plan",
+    "policyVersion": 1,
+    "trendSchema": "pdfxyz.release-decision-closeout-index-trend/1"
+  },
+  "policy": {
+    "strictWatch": false
+  },
+  "verdict": "clear",
+  "urgency": "none",
+  "actionClass": "none",
+  "exitCode": 0,
+  "sourceTrendVerdict": "trend-stable",
+  "sourceTrendClass": "all-indexed",
+  "sourceArcDirection": "flat",
+  "sourceLatestIndex": "indexed",
+  "source": {
+    "state": "usable",
+    "claimedVerdict": "trend-stable",
+    "windowsConsidered": 3,
+    "windowsUsable": 3,
+    "totalCloseouts": 9,
+    "sourceStrictWatch": false
+  },
+  "closeoutActionPlan": {
+    "verdict": "clear",
+    "urgency": "none",
+    "actionClass": "none",
+    "exitCode": 0,
+    "clear": true,
+    "reasons": [
+      "trend-stable"
+    ],
+    "blocking": 0,
+    "advisories": 0,
+    "incompletes": 0,
+    "informationals": 1,
+    "strictWatch": false,
+    "strictWatchEscalated": false,
+    "strictWatchEscalatedFrom": null,
+    "detail": "CLEAR: the closeout-index trend is a usable, coherent TREND-STABLE history — no follow-up is warranted beyond routine monitoring. This plan authorizes NOTHING on its own; it is not sign-off, approval, or promotion."
+  },
+  "reasons": [
+    {
+      "id": "trend-stable",
+      "severity": "informational",
+      "detail": "The trend's OWN verdict is TREND-STABLE: a coherent, healthy closeout-index history (the latest window `indexed`, within thresholds, non-degrading). No follow-up is warranted beyond routine monitoring; keep indexing + trending closeouts on your governance cadence. This clean plan authorizes no promotion on its own."
+    }
+  ],
+  "actions": [
+    {
+      "id": "continue-closeout-cadence",
+      "label": "The history is coherent: keep filing one `worker:release-decision-closeout-index` window per review period, summarizing them with `worker:release-decision-closeout-index-trend`, and planning here on your governance cadence. This clean plan authorizes no promotion on its own.",
+      "urgency": "none",
+      "expectation": "informational",
+      "blocking": false
+    },
+    {
+      "id": "keep-action-plan",
+      "label": "Keep this content-free plan as the local release-decision-closeout follow-up record. It is NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log; keep each of those in its own dedicated system.",
+      "urgency": "none",
+      "expectation": "informational",
+      "blocking": false
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED or on-demand GOVERNANCE step, NOT a per-release gate: run `worker:release-decision-closeout-index-trend` over your archived closeout-index windows, then hand the ONE trend here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a block-release plan), surface exit 3 (a follow-up monitor plan) and exit 2 (an investigate plan) for review, and treat exit 0 (a clear plan) as no follow-up warranted beyond routine monitoring — never as an authorization.",
+    "Keep the plan bounded and explicit: `--strict-watch` escalates a `monitor` plan (a watch / degrading trend) to block release — a hard `consistently closed or blocked` gate for a high-assurance review. The plan is derived only from the trend's bounded verdict / class / direction / latest posture, never from any ingested timestamp or window content.",
+    "Archive this plan (and the underlying trend + closeout-index windows) as CI artifacts: it is a content-free follow-up SUMMARY, not a substitute for the trend it plans over, nor for your legal audit trail, compliance sign-off, external approval / signing, storage retention, incident records, or release-promotion processes — keep each of those in its own dedicated system.",
+    "Act on promotion out of band: this plan TRANSLATES a content-free trend into bounded follow-up, but recording a legal audit trail, obtaining an external approval / signature, proving reviewer identity, filing an incident record, and promoting a deployment are operator / CI / legal actions this offline planner never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION CLOSEOUT INDEX TREND ACTION PLAN: it INGESTS ONE content-free `pdfxyz.release-decision-closeout-index-trend/1` summary a release pipeline produced, RE-VALIDATES it against ITSELF, and translates its bounded verdict into ONE bounded operator follow-up plan + urgency + next-action checklist. It is a content-free operational follow-up plan ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / index / decision / trend / plan / closeout itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, deletes, prunes, uploads, or mutates any trend, window, record, artifact, object, or deployment. A `clear` plan authorizes nothing; it only reports that the content-free trend supplied on THIS host warrants no follow-up beyond routine monitoring.",
+    "A `clear` plan REQUIRES a usable trend whose OWN verdict is a coherent `trend-stable` history. It FAILS CLOSED: an unreadable / tampered trend input is `block-release` (`reject-input`); a `trend-blocked` trend is `block-release` (`block-and-reconcile`); a `trend-incomplete` trend is `investigate`; a `trend-watch` trend is a follow-up `monitor` plan; and `--strict-watch` escalates a `monitor` plan to `block-release`. It never fabricates a clean plan from an untrusted or non-stable trend, and `--strict-watch` never fabricates a compliance approval for a clean one.",
+    "It re-derives the ingested trend's verdict from the trend's OWN recorded window summary (reusing the Phase 66 trend rollup reducer) AND re-checks that summary against the trend's own per-window posture sequence + window arithmetic, and treats any disagreement as a TAMPER (`block-release`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so the plan proves neither authorship nor approval, and a fully self-consistent fabricated trend is out of its scope.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose — so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes the ingested trend's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-closeout-action-plan",
+    "policyId": "pdfxyz-worker-release-decision-closeout-action-plan",
+    "policyVersion": 1,
+    "at": "2026-07-05T00:00:00.000Z",
+    "verdict": "clear",
+    "urgency": "none",
+    "actionClass": "none",
+    "exitCode": 0,
+    "sourceState": "usable",
+    "sourceTrendVerdict": "trend-stable",
+    "sourceLatestIndex": "indexed",
+    "actionsEmitted": 2,
+    "strictWatchEscalated": false,
+    "disclosure": "This is a content-free operational follow-up plan ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log. It ingests one previously produced closeout-index trend summary and recommends bounded operator follow-up; it authorizes and proves nothing."
+  }
+}
