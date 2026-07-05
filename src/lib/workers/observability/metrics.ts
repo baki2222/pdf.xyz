@@ -170,6 +170,10 @@ import {
   RELEASE_DECISION_ACTION_PLAN_VERDICTS,
   type ReleaseDecisionActionPlanVerdict,
 } from "../release-decision-action-plan/types";
+import {
+  RELEASE_DECISION_ACTION_RECEIPT_VERDICTS,
+  type ReleaseDecisionActionReceiptVerdict,
+} from "../release-decision-action-receipt/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -488,6 +492,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_index_total",
   "worker_release_decision_trend_total",
   "worker_release_decision_action_plan_total",
+  "worker_release_decision_action_receipt_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -758,6 +763,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_ACTION_PLAN_VERDICTS,
+    },
+  },
+  worker_release_decision_action_receipt_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_ACTION_RECEIPT_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1481,6 +1492,32 @@ export function releaseDecisionActionPlanMetric(
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_action_plan_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A recorded **release decision action-plan execution receipt** (Phase 63) resolved to its receipt `verdict`
+ * ({@link ReleaseDecisionActionReceiptVerdict}: `completed`/`incomplete`/`followup-open`/`blocked`). One bounded label
+ * so a release governance / review dashboard can count decision action-plan receipts by the single outcome a reviewer
+ * acts on — e.g. `worker_release_decision_action_receipt_total{verdict="blocked"} > 0` catches a tampered plan, a
+ * block plan not acknowledged as held-blocked, a `--strict-open` escalation, or a contradictory acknowledgement;
+ * `{verdict="incomplete"} > 0` catches a missing / unusable plan or a missing required acknowledgement;
+ * `{verdict="followup-open"} > 0` catches an advisory follow-up still open for a monitor / investigate plan. This
+ * counts an offline RECEIPT that ingested ONE content-free `pdfxyz.release-decision-action-plan/1` follow-up plan plus
+ * bounded operator acknowledgement flags, re-validated the plan against itself, and recorded whether its required
+ * follow-ups were acknowledged — NOT a legal/compliance sign-off, an external approval/signature, an identity proof, a
+ * deployment authorization, a promotion ledger, an incident record, an audit log, a cloud call, or a deletion. The one
+ * label is a closed, redaction-stable enum — never a reviewer identity, a reason id, an ack id, a plan class, a count,
+ * a filename, path, object key, bucket, URL, size, digest, or plan content.
+ */
+export function releaseDecisionActionReceiptMetric(
+  verdict: ReleaseDecisionActionReceiptVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_action_receipt_total",
     kind: "counter",
     labels: { verdict },
     value: 1,
