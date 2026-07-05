@@ -198,6 +198,10 @@ import {
   RELEASE_DECISION_CLOSEOUT_GOVERNANCE_VERDICTS,
   type ReleaseDecisionCloseoutGovernanceVerdict,
 } from "../release-decision-closeout-governance/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_GOVERNANCE_INDEX_VERDICTS,
+  type ReleaseDecisionCloseoutGovernanceIndexVerdict,
+} from "../release-decision-closeout-governance-index/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -523,6 +527,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_closeout_action_plan_total",
   "worker_release_decision_closeout_action_receipt_total",
   "worker_release_decision_closeout_governance_total",
+  "worker_release_decision_closeout_governance_index_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -835,6 +840,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_governance_index_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_INDEX_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -1739,6 +1750,34 @@ export function releaseDecisionCloseoutGovernanceMetric(
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_closeout_governance_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A recorded **release decision closeout governance index** (Phase 70) resolved to its index `verdict`
+ * ({@link ReleaseDecisionCloseoutGovernanceIndexVerdict}: `indexed`/`index-incomplete`/`index-open`/`index-blocked`).
+ * One bounded label so a release governance / review dashboard can count decision closeout governance indexes by the
+ * single outcome a reviewer acts on — e.g.
+ * `worker_release_decision_closeout_governance_index_total{verdict="index-blocked"} > 0` catches a tampered governance
+ * bundle in the history, a `governance-blocked` latest bundle, a blocked-count threshold breach, or a `--strict-open`
+ * escalation; `{verdict="index-incomplete"} > 0` catches an unreadable bundle, a `governance-incomplete` latest, an
+ * incomplete-count breach, or zero usable bundles; `{verdict="index-open"} > 0` catches a `governance-open` latest or an
+ * open-count breach. This counts an offline INDEX that ingested a bounded history of content-free
+ * `pdfxyz.release-decision-closeout-governance/1` records, re-validated each against itself, and folded their governance
+ * verdicts into ONE index verdict — NOT a legal/compliance sign-off, an external approval/signature, an identity proof,
+ * a deployment authorization, a promotion ledger, an incident record, an audit log, a cloud call, or a deletion. The one
+ * label is a closed, redaction-stable enum — never a reviewer identity, a reason id, the per-record governance verdict,
+ * the trend class, the latest verdict, a count, a filename, path, object key, bucket, URL, size, digest, or record
+ * content.
+ */
+export function releaseDecisionCloseoutGovernanceIndexMetric(
+  verdict: ReleaseDecisionCloseoutGovernanceIndexVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_governance_index_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

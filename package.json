@@ -39,6 +39,7 @@
     "worker:release-decision-closeout-action-plan": "tsx scripts/worker-release-decision-closeout-action-plan.ts",
     "worker:release-decision-closeout-action-receipt": "tsx scripts/worker-release-decision-closeout-action-receipt.ts",
     "worker:release-decision-closeout-governance": "tsx scripts/worker-release-decision-closeout-governance.ts",
+    "worker:release-decision-closeout-governance-index": "tsx scripts/worker-release-decision-closeout-governance-index.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",

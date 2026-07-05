@@ -1,0 +1,130 @@
+name: Release decision closeout governance index fixture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 10 1 3,9 *"
+
+# A release-governance REVIEW step, not a per-release gate: after each release has been bundled into ONE
+# `pdfxyz.release-decision-closeout-governance/1` governance record (Phase 69), this INDEXES a bounded HISTORY of those
+# governance bundles into ONE `pdfxyz.release-decision-closeout-governance-index/1` summary: an index verdict (indexed /
+# index-incomplete / index-open / index-blocked), the governance-verdict distribution, the latest / oldest governance
+# verdict, and a per-record posture sequence. It re-validates each bundle against itself (a hand-flipped governance
+# verdict / exit / rollup is caught as a tamper) and is LATEST-FOCUSED: the newest usable bundle drives the verdict, and
+# bounded history thresholds (--max-open / --max-incomplete / --max-blocked, each default 0) tolerate a bounded number of
+# non-closed bundles. It is a content-free governance-history INDEX SUMMARY ONLY: it is NOT a legal / compliance
+# sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an
+# incident record, or an audit log, and it signs / approves / publishes / promotes / deploys / notifies / mutates
+# NOTHING. It fetches nothing — it builds the governance history from committed content-free fixtures so the workflow is
+# deterministic and offline.
+
+jobs:
+  release-decision-closeout-governance-index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Bundle the governance history, then index it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p governance-index
+          # Bundle three releases (each a completed primary receipt → a `closed` governance bundle), oldest first / newest
+          # last. The second cross-checks the coherent plan / trend the receipt was built from.
+          pnpm worker:release-decision-closeout-governance \
+            --receipt=docs/examples/release-decision-closeout-governance/receipt-completed.json \
+            --output=governance-index/g1.json
+          pnpm worker:release-decision-closeout-governance \
+            --receipt=docs/examples/release-decision-closeout-governance/receipt-completed.json \
+            --plan=docs/examples/release-decision-closeout-governance/plan-coherent.json \
+            --trend=docs/examples/release-decision-closeout-governance/trend-coherent.json \
+            --output=governance-index/g2.json
+          pnpm worker:release-decision-closeout-governance \
+            --receipt=docs/examples/release-decision-closeout-governance/receipt-completed.json \
+            --output=governance-index/g3.json
+          # Index the bounded history (oldest first, newest last) → indexed (a coherent, consistently-closed history).
+          pnpm worker:release-decision-closeout-governance-index \
+            --file=governance-index/g1.json \
+            --file=governance-index/g2.json \
+            --file=governance-index/g3.json \
+            --output=governance-index/index.json
+          # Render the index into the job summary.
+          pnpm worker:release-decision-closeout-governance-index \
+            --file=governance-index/g1.json \
+            --file=governance-index/g2.json \
+            --file=governance-index/g3.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail-closed examples
+        shell: bash
+        run: |
+          # A blocked latest governance bundle → index-blocked (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-index \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-closed.json \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-blocked.json --json >/tmp/gidx-blocked.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A tampered governance bundle fails closed → index-blocked (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-index \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-closed.json \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-tampered.json --json >/tmp/gidx-tampered.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # --strict-open escalates an open history to a hard block (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-index \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-open.json \
+            --strict-open --json >/tmp/gidx-strict.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A latest-open history (an advisory follow-up still open) → index-open (exit 3), for review.
+          set +e
+          pnpm worker:release-decision-closeout-governance-index \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-closed.json \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-open.json --json >/tmp/gidx-open.json
+          code=$?
+          set -e
+          test "$code" -eq 3
+
+          # A latest-incomplete history, or an unreadable bundle → index-incomplete (exit 2).
+          set +e
+          pnpm worker:release-decision-closeout-governance-index \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-closed.json \
+            --file=docs/examples/release-decision-closeout-governance-index/governance-incomplete.json --json >/tmp/gidx-incomplete.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # No governance bundle supplied is a usage error (exit 1).
+          set +e
+          pnpm worker:release-decision-closeout-governance-index --json >/tmp/gidx-usage.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-decision-closeout-governance-index
+          path: governance-index/index.json
+          if-no-files-found: error
