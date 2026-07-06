@@ -1,0 +1,144 @@
+{
+  "schema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout/1",
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout",
+    "policyVersion": 1,
+    "receiptSchema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-action-receipt/1",
+    "planSchema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-action-plan/1",
+    "trendSchema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend/1",
+    "indexSchema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index/1"
+  },
+  "policy": {
+    "strictOpen": false,
+    "require": {
+      "plan": false,
+      "trend": false,
+      "index": false
+    }
+  },
+  "verdict": "open",
+  "exitCode": 3,
+  "primaryReceipt": {
+    "state": "usable",
+    "receiptVerdict": "followup-open",
+    "planClass": "monitor",
+    "claimedPlanVerdict": "monitor",
+    "sourceTrendVerdict": "watch",
+    "sourceLatestIndex": "indexed",
+    "planUrgency": "soon",
+    "planActionClass": "monitor-followups",
+    "blockingActions": 0,
+    "advisoryActions": 2,
+    "planStrictWatch": false,
+    "planRequireClean": false,
+    "acksRequired": 3,
+    "acksSatisfied": 1,
+    "acksMissing": 2,
+    "receiptStrictOpen": false
+  },
+  "related": [
+    {
+      "kind": "plan",
+      "required": false,
+      "state": "absent",
+      "signal": "none",
+      "verdict": null
+    },
+    {
+      "kind": "trend",
+      "required": false,
+      "state": "absent",
+      "signal": "none",
+      "verdict": null
+    },
+    {
+      "kind": "index",
+      "required": false,
+      "state": "absent",
+      "signal": "none",
+      "verdict": null
+    }
+  ],
+  "sourceChain": {
+    "receiptTrendVerdict": "watch",
+    "receiptLatestIndex": "indexed",
+    "indexState": "absent",
+    "indexVerdict": null,
+    "posture": "none"
+  },
+  "coverage": {
+    "verdict": "open",
+    "exitCode": 3,
+    "closed": false,
+    "receiptState": "usable",
+    "receiptVerdict": "followup-open",
+    "planClass": "monitor",
+    "reasons": [
+      "receipt-followup-open"
+    ],
+    "invalid": 0,
+    "blocking": 0,
+    "open": 1,
+    "incomplete": 0,
+    "informational": 0,
+    "relatedSupplied": 0,
+    "relatedCoherent": 0,
+    "relatedContradictory": 0,
+    "relatedBlocking": 0,
+    "requiredMissing": [],
+    "strictOpen": false,
+    "strictOpenEscalated": false,
+    "strictOpenEscalatedFrom": null,
+    "detail": "OPEN: the primary receipt's own verdict is FOLLOWUP-OPEN (an advisory follow-up still open), or the supplied finalization-index window's own posture is advisory. Track the follow-up to closure and re-run; this is not a hard block, but the loop is not closed out either."
+  },
+  "reasons": [
+    {
+      "id": "receipt-followup-open",
+      "severity": "open",
+      "detail": "The primary receipt's OWN verdict is `followup-open` — the plan it receipted was reviewed but an advisory follow-up (a monitor / investigate plan) remains open (its follow-up acknowledgement is absent). Track the follow-up to closure, re-run the receipt, and re-run this closeout; this is not a hard block, but the loop is not closed out."
+    }
+  ],
+  "nextActions": [
+    {
+      "id": "close-open-followup",
+      "detail": "Track the open advisory follow-up / finalization-index posture to closure, re-run the underlying receipt, and re-run this closeout."
+    },
+    {
+      "id": "archive-closeout",
+      "detail": "Archive this content-free closeout (and the underlying receipt + plan + trend + finalization-index records) as CI artifacts; it is a summary, not a substitute for the records it composes."
+    },
+    {
+      "id": "record-governance-out-of-band",
+      "detail": "Record the legal audit trail, obtain the external approval / signature, prove reviewer identity, file any incident record, and promote a deployment in their OWN systems — this offline closeout performs none of them."
+    }
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION CLOSEOUT BUNDLE: it INGESTS ONE content-free `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-action-receipt/1` document a release pipeline produced (REQUIRED), plus OPTIONAL previously produced related records (the `…-action-plan/1` plan, the `…-finalize-index-trend/1` trend, and the `…-finalize-index/1` finalization-index window), RE-VALIDATES the primary receipt against ITSELF, CROSS-CHECKS the supplied related records against what the receipt recorded, and records whether the follow-up loop reads as closed out. It is a content-free operational closeout SUMMARY ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / index / decision / trend / plan / receipt / governance / finalize / closeout itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, archives, deletes, prunes, uploads, or mutates any receipt, plan, trend, record, index, artifact, object, or deployment. A `closed` closeout authorizes nothing; it only records that the content-free records supplied on THIS host read as a closed-out follow-up loop.",
+    "A `closed` closeout REQUIRES a usable primary receipt whose OWN verdict is `completed` AND every supplied related record coherent. It FAILS CLOSED: a missing / unreadable / tampered / wrong-schema receipt (or a receipt whose own verdict is `invalid`) is `invalid`; a receipt whose own verdict is `blocked`, a supplied cross-check record that contradicts the receipt, a tampered / unreadable related record, or a blocked source-chain window is `blocked`; a receipt whose own verdict is `incomplete`, a missing required related record, or an inconclusive source-chain window is `incomplete`; a receipt whose own verdict is `followup-open` or an advisory source-chain window is `open`; and `--strict-open` escalates an open closeout to `blocked`. It never fabricates a `closed` closeout from an untrusted receipt or an inconsistent chain.",
+    "It re-validates the primary receipt by RECONSTRUCTING its bounded Phase 83 decision from the source facets the receipt recorded (reusing the Phase 83 `computeReceipt` reducer) and requiring the recorded receipt verdict / exit code / acknowledgement coverage to re-derive, treating any disagreement as a TAMPER (`invalid`); it re-validates each supplied related record against ITSELF the same way (reusing that phase's ingest boundary). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so the closeout proves neither authorship nor approval, and a set of fully self-consistent fabricated records is out of its scope.",
+    "It records only bounded enums, small counts, booleans, an ISO stamp, and app-authored prose — so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes any ingested record's own stamp, and it never echoes an input file path, even on an error. It accepts NO free-form note or actor name.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it archives, deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout",
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout",
+    "policyVersion": 1,
+    "at": "2026-07-05T00:00:00.000Z",
+    "verdict": "open",
+    "exitCode": 3,
+    "receiptState": "usable",
+    "receiptVerdict": "followup-open",
+    "planClass": "monitor",
+    "relatedSupplied": 0,
+    "relatedCoherent": 0,
+    "relatedContradictory": 0,
+    "relatedBlocking": 0,
+    "requiredMissing": 0,
+    "sourceChainPosture": "none",
+    "strictOpenEscalated": false,
+    "disclosure": "This is a content-free operational closeout SUMMARY ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log. It ingests one previously produced action-plan execution receipt plus optional previously produced related records and records whether the finalization-index-trend follow-up loop reads as closed out; it authorizes and proves nothing, and it attests no person's identity."
+  }
+}
