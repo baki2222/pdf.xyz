@@ -106,6 +106,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-closeout-governance-finalize-fixture.yml`,
   // Phase 75 — the release decision closeout governance finalize index (index a bounded history of finalization bundles into one review summary).
   `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-fixture.yml`,
+  // Phase 76 — the release decision closeout governance finalize index trend (summarize a bounded history of finalize-index windows into one trend).
+  `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -470,6 +472,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-governance-finalize-index GitHub Actions fixture must assert the index-open (open latest / breach) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-governance-finalize-index GitHub Actions fixture must assert the index-incomplete (incomplete latest / require-latest miss) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-governance-finalize-index GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 76 — the release-decision-closeout-governance-finalize-index-trend template must index a finalization window,
+  // summarize a bounded history, and pin the blocked / invalid / degrading / insufficient / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-fixture.yml`, /worker:release-decision-closeout-governance-finalize-index["\s\\]/, "release-decision-closeout-governance-finalize-index-trend GitHub Actions fixture must index a finalization window first", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-fixture.yml`, /worker:release-decision-closeout-governance-finalize-index-trend/, "release-decision-closeout-governance-finalize-index-trend GitHub Actions fixture must run worker:release-decision-closeout-governance-finalize-index-trend", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-fixture.yml`, /--file=/, "release-decision-closeout-governance-finalize-index-trend GitHub Actions fixture must supply the finalize-index window history", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-fixture.yml`, /test "\$code" -eq 4/, "release-decision-closeout-governance-finalize-index-trend GitHub Actions fixture must assert the blocked / invalid (blocked latest / index-invalid window / tampered / unreadable / strict-open) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-governance-finalize-index-trend GitHub Actions fixture must assert the watch / degrading (open latest / degrading arc) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-governance-finalize-index-trend GitHub Actions fixture must assert the insufficient (incomplete latest / only-incomplete / zero usable) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-governance-finalize-index-trend GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

@@ -1,0 +1,142 @@
+name: Release decision closeout governance finalize index trend fixture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 1 1,7 *"
+
+# A periodic release-governance REVIEW summary, not a per-release gate: after each review window has been indexed into ONE
+# `pdfxyz.release-decision-closeout-governance-finalize-index/1` summary (Phase 75), this SUMMARIZES a bounded HISTORY of
+# those finalize-index windows into ONE `pdfxyz.release-decision-closeout-governance-finalize-index-trend/1` trend: a trend
+# verdict (improving / stable / watch / degrading / insufficient / blocked / invalid), the per-window index-verdict
+# distribution, the aggregate finalization distribution, an arc direction + trend class, and a per-window posture
+# sequence. It re-validates each window against itself (a hand-flipped index verdict / count that does not re-derive is
+# caught as a tamper) and is LATEST-FOCUSED: the newest usable window drives the verdict, refined by the ordered arc
+# (improving vs stable, degrading vs watch). --strict-open escalates any non-indexed usable window to a hard block;
+# --require-latest-indexed demands an indexed latest. It is a content-free finalize-index TREND SUMMARY ONLY: it is NOT a
+# legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a
+# promotion ledger, an incident record, or an audit log, and it signs / approves / publishes / promotes / deploys /
+# notifies / mutates NOTHING. It fetches nothing — it builds the window history from committed content-free fixtures so
+# the workflow is deterministic and offline.
+
+jobs:
+  release-decision-closeout-governance-finalize-index-trend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Index a finalization window, then summarize the trend over the window history
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p finalize-index-trend
+          # Index a review window from a bounded finalization-bundle history (Phase 75) → one finalize-index window
+          # (indexed: a coherent, consistently-finalized history). This is the freshly-produced NEWEST window.
+          pnpm worker:release-decision-closeout-governance-finalize-index \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index/finalize-finalized.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index/finalize-finalized-coherent.json \
+            --output=finalize-index-trend/window-newest.json
+          # Summarize a bounded history of finalize-index windows (oldest first, newest last) → stable (a coherent,
+          # non-degrading history), rendered into the job summary.
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=finalize-index-trend/window-newest.json \
+            --output=finalize-index-trend/trend.json
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=finalize-index-trend/window-newest.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail-closed examples
+        shell: bash
+        run: |
+          # A blocked latest window → blocked (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-blocked.json --json >/tmp/fitrend-blocked.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # An index-invalid usable window (its finalization history was untrustworthy) → blocked (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-invalid.json --json >/tmp/fitrend-invalid.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A tampered window anywhere in the history fails closed → invalid (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-tampered.json --json >/tmp/fitrend-tampered.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # An unreadable window anywhere in the history fails closed → invalid (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/not-a-finalize-index.json --json >/tmp/fitrend-unreadable.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # --strict-open escalates a non-indexed history to a hard block (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-open.json \
+            --strict-open --json >/tmp/fitrend-strict.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A latest-open / degrading history (an advisory follow-up open) → degrading (exit 3), for review.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-open.json --json >/tmp/fitrend-degrading.json
+          code=$?
+          set -e
+          test "$code" -eq 3
+
+          # A flat incomplete history (a coverage gap, or a --require-latest-indexed miss on an incomplete latest) →
+          # insufficient (exit 2).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-incomplete.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-incomplete.json --json >/tmp/fitrend-insufficient.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # No window supplied is a usage error (exit 1).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend --json >/tmp/fitrend-usage.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-decision-closeout-governance-finalize-index-trend
+          path: finalize-index-trend/trend.json
+          if-no-files-found: error
