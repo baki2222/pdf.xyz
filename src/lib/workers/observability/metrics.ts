@@ -246,6 +246,10 @@ import {
   RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_INDEX_TREND_VERDICTS,
   type ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexTrendVerdict,
 } from "../release-decision-closeout-governance-finalize-index-trend-finalize-index-trend/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_INDEX_TREND_ACTION_PLAN_VERDICTS,
+  type ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexTrendActionPlanVerdict,
+} from "../release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-action-plan/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -583,6 +587,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_closeout_governance_finalize_index_trend_finalize_total",
   "worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_total",
   "worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_trend_total",
+  "worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_trend_action_plan_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -967,6 +972,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_INDEX_TREND_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_trend_action_plan_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_INDEX_TREND_ACTION_PLAN_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -2203,6 +2214,33 @@ export function releaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndex
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_trend_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision closeout governance finalize index trend finalize index trend action plan** (Phase 82)
+ * resolved to its plan `verdict` ({@link ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexTrendActionPlanVerdict}:
+ * `clear`/`monitor`/`investigate`/`block-release`/`invalid`). One bounded label so a release governance / review
+ * dashboard can count finalize-index-trend-finalize-index-trend follow-up plans by the single posture the release team
+ * acts on — e.g.
+ * `worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_trend_action_plan_total{verdict="block-release"} > 0`
+ * catches a blocked / invalid-history / escalated trend, `{verdict="invalid"} > 0` catches an unreadable / tampered trend
+ * input, `{verdict="investigate"} > 0` catches an inconclusive (insufficient) history, `{verdict="monitor"} > 0` catches
+ * a watch / degrading history. This counts an offline PLAN that ingested ONE content-free
+ * `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend/1` summary, re-validated it
+ * against itself, and translated its verdict into one operator follow-up plan — NOT a legal / compliance sign-off, an
+ * external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record,
+ * an audit log, a cloud call, or a deletion. The one label is a closed, redaction-stable enum — never a reviewer
+ * identity, a reason id, an action id, a count, a filename, path, object key, bucket, URL, size, digest, or trend content.
+ */
+export function releaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexTrendActionPlanMetric(
+  verdict: ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexTrendActionPlanVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_trend_action_plan_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

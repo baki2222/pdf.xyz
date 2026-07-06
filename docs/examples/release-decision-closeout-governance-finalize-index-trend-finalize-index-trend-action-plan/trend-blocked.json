@@ -1,0 +1,142 @@
+{
+  "schema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend/1",
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend",
+    "policyVersion": 1,
+    "finalizeIndexSchema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index/1"
+  },
+  "policy": {
+    "maxWindows": 26,
+    "strictOpen": false,
+    "requireLatestIndexed": false
+  },
+  "verdict": "blocked",
+  "exitCode": 4,
+  "coverage": {
+    "windowsSupplied": 2,
+    "windowsConsidered": 2,
+    "windowsUsable": 2,
+    "windowsUnreadable": 0,
+    "windowsTampered": 0,
+    "truncated": false,
+    "droppedOldest": 0
+  },
+  "windowDistribution": {
+    "verdictCounts": {
+      "indexed": 1,
+      "index-open": 0,
+      "index-incomplete": 0,
+      "index-blocked": 1,
+      "index-invalid": 0
+    },
+    "newest": "index-blocked",
+    "oldest": "indexed"
+  },
+  "finalizationDistribution": {
+    "verdictCounts": {
+      "finalized": 1,
+      "finalize-open": 0,
+      "finalize-incomplete": 0,
+      "finalize-blocked": 1,
+      "finalize-invalid": 0
+    },
+    "totalConsidered": 2,
+    "totalUsable": 2
+  },
+  "latest": {
+    "verdict": "index-blocked",
+    "indexed": false,
+    "finalizationsConsidered": 1,
+    "finalizationsUsable": 1,
+    "latestFinalization": "finalize-blocked",
+    "strictOpen": false
+  },
+  "points": [
+    {
+      "position": 0,
+      "state": "usable",
+      "verdict": "indexed",
+      "latestFinalization": "finalized",
+      "severity": "informational",
+      "finalizationsConsidered": 1,
+      "detail": "#1: indexed (a self-consistent release decision closeout governance finalize index trend finalize index)."
+    },
+    {
+      "position": 1,
+      "state": "usable",
+      "verdict": "index-blocked",
+      "latestFinalization": "finalize-blocked",
+      "severity": "blocking",
+      "finalizationsConsidered": 1,
+      "detail": "#2: index-blocked (a self-consistent release decision closeout governance finalize index trend finalize index)."
+    }
+  ],
+  "trend": {
+    "direction": "degrading",
+    "class": "blocked"
+  },
+  "reasons": [
+    {
+      "id": "window-index-blocked",
+      "severity": "blocking",
+      "detail": "A usable window's OWN index verdict is `index-blocked` — its finalization history was blocked (a `finalize-blocked` latest / bundle, or a `--strict-open` escalation in that window). The recent finalization is not consistently finalized: reconcile the block and re-index that window before relying on the history."
+    },
+    {
+      "id": "trend-degrading",
+      "severity": "advisory",
+      "detail": "The newest usable window's index verdict is WORSE than the oldest usable window's (a worse index posture after an earlier cleaner one) — the recent arc degraded. Investigate what changed between the recent windows before relying on the history."
+    }
+  ],
+  "nextActions": [
+    {
+      "id": "review-blocked-windows",
+      "detail": "A window in the history is `index-blocked` / `index-invalid` (its finalization history was blocked, or contained a tampered / unreadable bundle): do NOT treat that review period as consistently finalized. Reconcile the block / recover the untampered bundle and re-index that window before relying on the history."
+    },
+    {
+      "id": "review-degrading-trend",
+      "detail": "The recent arc is worsening (the newest window is worse than the earliest usable window), or the latest window is open: investigate what changed between the recent review periods and resolve the regression before relying on the history. Archive this trend as the record of that review."
+    },
+    {
+      "id": "keep-finalize-index-trend",
+      "detail": "Keep this content-free trend as the local release-decision-closeout-governance-finalize-index-trend-finalize-index governance review SUMMARY. It is NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, or a deployment / promotion ledger; keep those separately."
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED or on-demand GOVERNANCE summary (per quarter / half-year), NOT a per-release gate: run `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index` per review window and archive each window, then hand a bounded history (oldest first, newest last) here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a blocked / untrustworthy history), surface exit 3 (a watch / degrading history) and exit 2 (an insufficient history) for review, and treat exit 0 (a coherent / improving history) as consistently finalized — never as an authorization.",
+    "Keep the history bounded and explicit: `--max-windows=N` caps the newest N windows (older windows are dropped from the history, and the count dropped is surfaced, never silent); `--require-latest-indexed` demands an `indexed` latest window; `--strict-open` escalates any non-indexed usable window to a hard block for a high-assurance review. Direction is derived from ORDERED INPUT POSITIONS (oldest first, newest last), never from any ingested timestamp.",
+    "Archive this trend (and the underlying finalize-index windows) as CI artifacts: it is a content-free governance SUMMARY, not a substitute for the windows it summarizes, nor for your legal audit trail, compliance log, external approval / signing, storage retention, or release-promotion processes — keep each of those in its own dedicated system.",
+    "Enforce promotion out of band: this trend SUMMARIZES a history of the content-free finalize-index windows supplied, but recording a legal audit trail, obtaining an external approval / signature, proving reviewer identity, and promoting a deployment are operator / CI / legal actions this offline summarizer never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION CLOSEOUT GOVERNANCE FINALIZE INDEX TREND FINALIZE INDEX TREND SUMMARY: it INGESTS a bounded history of content-free `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index/1` windows a release pipeline produced, RE-VALIDATES each against ITSELF, and folds them into ONE bounded trend verdict + follow-up list. It is a local content-free finalize-index TREND SUMMARY over finalize-index windows — NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, or a deployment / promotion ledger.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / index / decision / trend / plan / receipt / closeout / governance / finalize itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, deletes, prunes, uploads, or mutates any window, record, artifact, object, or deployment. A `stable` / `improving` trend authorizes nothing; it only reports that the content-free finalize-index windows supplied on THIS host trended consistently finalized over the review history.",
+    "A `stable` / `improving` trend REQUIRES a coherent bounded history: every usable window an `indexed` index, no tampered / unreadable window, and no open / incomplete / blocked / invalid window. It FAILS CLOSED: a tampered / unreadable window makes the trend `invalid` (the TOP precedence); an `index-blocked` / `index-invalid` usable window, or a `--strict-open` escalation, makes it `blocked`; zero usable windows, an `index-incomplete` latest, or an only-incomplete history makes it `insufficient`; an `index-open` latest or a degrading arc makes it `degrading`; an older open / incomplete window under a clean latest makes it `watch`. It never fabricates a clean trend from thin or untrusted history.",
+    "It re-derives each ingested window's index verdict from the window's OWN recorded coverage + distribution + policy (reusing the Phase 80 index reducer) AND re-checks those counts against the window's own per-record sequence + window arithmetic, and treats any disagreement as a TAMPER (`invalid`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so the trend proves neither authorship nor approval, and a set of fully self-consistent fabricated windows is out of its scope.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose — so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes an ingested window's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend",
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend",
+    "policyVersion": 1,
+    "at": "2026-07-05T00:00:00.000Z",
+    "verdict": "blocked",
+    "exitCode": 4,
+    "windowsSupplied": 2,
+    "windowsConsidered": 2,
+    "windowsUsable": 2,
+    "windowVerdictCounts": {
+      "indexed": 1,
+      "index-open": 0,
+      "index-incomplete": 0,
+      "index-blocked": 1,
+      "index-invalid": 0
+    },
+    "latest": "index-blocked",
+    "direction": "degrading",
+    "trendClass": "blocked",
+    "disclosure": "This is a content-free finalize-index TREND SUMMARY ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log. It ingests a bounded history of previously produced finalize-index summaries and records whether the recent release decision closeout governance FINALIZATION trended consistently finalized; it authorizes and proves nothing, and it attests no person's identity."
+  }
+}
