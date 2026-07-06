@@ -1,0 +1,157 @@
+{
+  "schema": "pdfxyz.release-decision-closeout-governance-finalize/1",
+  "generatedAt": "2026-07-06T04:27:42.314Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize",
+    "policyVersion": 1,
+    "receiptSchema": "pdfxyz.release-decision-closeout-governance-action-receipt/1",
+    "planSchema": "pdfxyz.release-decision-closeout-governance-action-plan/1",
+    "trendSchema": "pdfxyz.release-decision-closeout-governance-index-trend/1",
+    "indexSchema": "pdfxyz.release-decision-closeout-governance-index/1",
+    "governanceSchema": "pdfxyz.release-decision-closeout-governance/1"
+  },
+  "policy": {
+    "require": {
+      "plan": false,
+      "trend": false,
+      "index": false,
+      "governance": false
+    },
+    "strictOpen": false
+  },
+  "verdict": "finalized",
+  "exitCode": 0,
+  "coverage": {
+    "hasReceipt": true,
+    "relatedSupplied": 0,
+    "relatedUsable": 0,
+    "relatedCoherent": 0,
+    "relatedContradictory": 0,
+    "relatedBlocking": 0
+  },
+  "source": {
+    "state": "usable",
+    "receiptVerdict": "completed",
+    "planClass": "clear",
+    "claimedPlanVerdict": "clear",
+    "sourceTrendVerdict": "trend-stable",
+    "sourceLatestIndex": "indexed",
+    "receiptSourceState": "usable",
+    "acksRequired": 1,
+    "acksSatisfied": 1,
+    "acksMissing": 0,
+    "receiptStrictOpen": false
+  },
+  "related": [
+    {
+      "kind": "plan",
+      "required": false,
+      "state": "absent",
+      "signal": "none",
+      "verdict": null
+    },
+    {
+      "kind": "trend",
+      "required": false,
+      "state": "absent",
+      "signal": "none",
+      "verdict": null
+    },
+    {
+      "kind": "index",
+      "required": false,
+      "state": "absent",
+      "signal": "none",
+      "verdict": null
+    },
+    {
+      "kind": "governance",
+      "required": false,
+      "state": "absent",
+      "signal": "none",
+      "verdict": null
+    }
+  ],
+  "governanceFinalize": {
+    "verdict": "finalized",
+    "exitCode": 0,
+    "finalized": true,
+    "receiptState": "usable",
+    "receiptVerdict": "completed",
+    "planClass": "clear",
+    "reasons": [
+      "receipt-completed"
+    ],
+    "blocking": 0,
+    "open": 0,
+    "incomplete": 0,
+    "informational": 1,
+    "relatedSupplied": 0,
+    "relatedCoherent": 0,
+    "relatedContradictory": 0,
+    "relatedBlocking": 0,
+    "requiredMissing": [],
+    "strictOpen": false,
+    "strictOpenEscalated": false,
+    "strictOpenEscalatedFrom": null,
+    "detail": "FINALIZED: the primary governance action-plan execution receipt is usable and COMPLETED, and every supplied related record is coherent (no contradiction, no tamper, no open / insufficient / blocked posture). The release decision closeout-governance chain reads as fully finalized on THIS host. Archive this bundle as the FINAL governance record and continue on your cadence. This bundle authorizes NOTHING on its own; it is not sign-off, approval, or promotion."
+  },
+  "reasons": [
+    {
+      "id": "receipt-completed",
+      "severity": "informational",
+      "detail": "The primary receipt is usable and its OWN verdict is COMPLETED: the governance follow-up plan's required acknowledgements were all supplied. This is the baseline for a `finalized` chain; the bundle is finalized unless a supplied related record contradicts / blocks it."
+    }
+  ],
+  "archive": {
+    "items": [
+      "primary-receipt",
+      "finalize-bundle"
+    ],
+    "note": "Archive each recognized record above, plus this bundle, as CI artifacts — they are the content-free release-decision-closeout-governance-finalize record for this review. This bundle never uploads or promotes them."
+  },
+  "followUps": [
+    {
+      "id": "continue-governance-cadence",
+      "detail": "The governance chain is finalized: keep composing governance receipts / plans / trends / indices per review period and finalizing here on your weekly / monthly cadence. This bundle authorizes no promotion on its own."
+    },
+    {
+      "id": "archive-finalize-bundle",
+      "detail": "Archive this finalization bundle (and the underlying primary receipt + related records) as CI artifacts: it is the content-free release-decision-closeout-governance-finalize record for this review. This bundle never uploads or promotes anything."
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED or on-demand GOVERNANCE step, NOT a per-release gate: after the closeout-governance chain produces the ONE `pdfxyz.release-decision-closeout-governance-action-receipt/1` receipt (and, on hand, the plan / trend / index / governance bundle it was built from), hand them here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a blocked bundle), surface exit 3 (an open follow-up) and exit 2 (an incomplete chain) for review, and treat exit 0 (a finalized chain) as finalized — never as an authorization.",
+    "Supply the related records you actually have — each is OPTIONAL, but the more of the chain you supply, the stronger the coherence check: `--plan` and `--trend` are cross-checked against what the receipt recorded (a mismatch fails closed), and `--index` / `--governance` fold their own bounded posture. Use `--require-plan` / `--require-trend` / `--require-index` / `--require-governance` to make a record mandatory, and `--strict-open` to escalate an open follow-up to a hard block for a high-assurance review.",
+    "Archive this bundle (and the underlying receipt + related records) as CI artifacts: it is a content-free FINAL governance SUMMARY, not a substitute for the records it composes, nor for your legal audit trail, compliance sign-off, external approval / signing, identity attestation, storage retention, incident records, or release-promotion processes — keep each of those in its own dedicated system.",
+    "Act on promotion out of band: this bundle RECORDS that a content-free closeout-governance chain reads as finalized, but recording a legal audit trail, obtaining an external approval / signature, proving reviewer identity, filing an incident record, and promoting a deployment are operator / CI / legal actions this offline bundle never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION CLOSEOUT GOVERNANCE FINALIZATION BUNDLE: it INGESTS a REQUIRED content-free `pdfxyz.release-decision-closeout-governance-action-receipt/1` primary receipt plus, optionally, the related governance-chain records (the follow-up plan, the governance-index trend, the governance index, and the governance bundle) a release pipeline produced, RE-VALIDATES each against ITSELF, cross-checks the chain, and folds them into ONE bounded finalization verdict + archive / follow-up checklists. It is local content-free GOVERNANCE FINALIZATION over evidence records — NOT signing, authentication, cloud validation, storage retention ENFORCEMENT, deployment APPROVAL, or deployment PROMOTION.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / index / decision / trend / plan / governance / closeout / receipt itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, deletes, prunes, uploads, or mutates any record, artifact, object, or deployment. A `finalized` bundle authorizes nothing; it only records that the content-free records supplied on THIS host read as a coherently finalized chain.",
+    "A `finalized` bundle REQUIRES a usable primary receipt whose OWN verdict is `completed` AND every supplied related record coherent. It FAILS CLOSED: a missing / unreadable primary receipt is `finalize-incomplete` (nothing to finalize); a tampered primary receipt is `finalize-blocked`; a `blocked` receipt is `finalize-blocked`; a supplied plan / trend that contradicts the receipt is `finalize-blocked`; a tampered related record is `finalize-blocked`; a blocked source chain is `finalize-blocked`; a required-but-missing related record, an `incomplete` receipt, or an inconclusive source chain is `finalize-incomplete`; a `followup-open` receipt or an advisory source chain is `finalize-open`; and `--strict-open` escalates an open finalization to `finalize-blocked`. It never fabricates a `finalized` from an untrusted receipt or a contradictory chain.",
+    "It re-validates each ingested record by RECONSTRUCTING its bounded decision from the facts the record recorded and re-running the SAME tested reducer that phase used (the Phase 73 `computeReceipt` for the primary receipt; the Phase 69–72 boundaries for the related records), requiring the recorded verdict / counts / exit code to re-derive, treating any disagreement as a TAMPER. This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so the bundle proves neither authorship nor approval, and a fully self-consistent fabricated record is out of its scope. The cross-checks compare bounded verdict enums across records; they catch a swapped / edited record, not a fully-consistent forgery.",
+    "It emits only bounded enums, small counts, booleans, an ISO stamp, and app-authored prose — so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes an ingested record's own stamp, and it never echoes an input file path, even on an error. It accepts NO free-form note or actor name — only bounded record inputs and policy flags.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-closeout-governance-finalize",
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize",
+    "policyVersion": 1,
+    "at": "2026-07-06T04:27:42.314Z",
+    "verdict": "finalized",
+    "exitCode": 0,
+    "receiptState": "usable",
+    "receiptVerdict": "completed",
+    "relatedSupplied": 0,
+    "relatedCoherent": 0,
+    "relatedContradictory": 0,
+    "relatedBlocking": 0,
+    "blocking": 0,
+    "open": 0,
+    "incomplete": 0,
+    "strictOpenEscalated": false,
+    "disclosure": "This is a content-free operational GOVERNANCE FINALIZATION BUNDLE ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log. It ingests one previously produced governance action-plan execution receipt (required) plus optional related governance-chain records, re-validates each against itself, cross-checks the chain, and rolls them into one finalization verdict; it authorizes and proves nothing, and it attests no person's identity."
+  }
+}
