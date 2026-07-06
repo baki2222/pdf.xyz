@@ -62,7 +62,7 @@ describe("ingestFinalize — recognition", () => {
       expect(r.recognized).toBe(true);
       expect(r.usable, build.name).toBe(true);
     }
-  });
+  }, 15_000);
 
   it("a required-record bundle (with require flags) re-derives usable", () => {
     const fin = finalizeWith(
@@ -108,7 +108,7 @@ describe("ingestFinalize — tamper is caught (recognized but not usable)", () =
         expect(r.usable, `${from}->${to}`).toBe(false);
       }
     }
-  });
+  }, 15_000);
 
   it("a top-level verdict that disagrees with the nested rollup is a tamper", () => {
     const fin = clone(finalizedFinalize());

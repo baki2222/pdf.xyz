@@ -234,6 +234,10 @@ import {
   RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_ACTION_RECEIPT_VERDICTS,
   type ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendActionReceiptVerdict,
 } from "../release-decision-closeout-governance-finalize-index-trend-action-receipt/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_VERDICTS,
+  type ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeVerdict,
+} from "../release-decision-closeout-governance-finalize-index-trend-finalize/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -568,6 +572,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_closeout_governance_finalize_index_trend_total",
   "worker_release_decision_closeout_governance_finalize_index_trend_action_plan_total",
   "worker_release_decision_closeout_governance_finalize_index_trend_action_receipt_total",
+  "worker_release_decision_closeout_governance_finalize_index_trend_finalize_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -934,6 +939,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_ACTION_RECEIPT_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_governance_finalize_index_trend_finalize_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -2087,6 +2098,34 @@ export function releaseDecisionCloseoutGovernanceFinalizeIndexTrendActionReceipt
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_closeout_governance_finalize_index_trend_action_receipt_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision closeout governance finalize index trend FINALIZATION record** (Phase 79) resolved to its
+ * finalization `verdict` ({@link ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeVerdict}:
+ * `finalized`/`finalize-open`/`finalize-incomplete`/`finalize-blocked`/`finalize-invalid`). One bounded label so a release
+ * governance / review dashboard can count finalize-index-trend follow-up loops by the single posture a reviewer acts on —
+ * e.g. `worker_release_decision_closeout_governance_finalize_index_trend_finalize_total{verdict="finalize-invalid"} > 0`
+ * catches an unreadable / tampered / wrong-schema primary receipt or a tampered supplied source;
+ * `{verdict="finalize-blocked"} > 0` catches a `blocked` / `invalid` receipt verdict, a contradictory source-chain record,
+ * a blocked source chain, or a `--strict-open` escalation; `{verdict="finalize-incomplete"} > 0` catches an `incomplete`
+ * receipt, a required-but-missing record, or an inconclusive source chain. This counts an offline FINALIZATION that
+ * ingested ONE content-free `pdfxyz.release-decision-closeout-governance-finalize-index-trend-action-receipt/1` primary
+ * receipt plus optional source-chain records, re-validated each against itself, cross-checked the loop, and folded them
+ * into one finalization verdict — NOT a legal / compliance sign-off, an external approval / signature, an identity proof,
+ * a deployment authorization, a promotion ledger, an incident record, an audit log, a cloud call, or a deletion. The one
+ * label is a closed, redaction-stable enum — never a reviewer identity, a reason id, a record kind, a count, a filename,
+ * path, object key, bucket, URL, size, digest, or record content.
+ */
+export function releaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeMetric(
+  verdict: ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_governance_finalize_index_trend_finalize_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

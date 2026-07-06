@@ -1,0 +1,145 @@
+{
+  "schema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-action-receipt/1",
+  "generatedAt": "2026-07-06T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-action-receipt",
+    "policyVersion": 1,
+    "planSchema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-action-plan/1"
+  },
+  "policy": {
+    "strictOpen": false,
+    "ack": {
+      "plan": true,
+      "executed": true,
+      "monitor": true,
+      "investigation": false,
+      "block": false,
+      "clear": false
+    }
+  },
+  "verdict": "completed",
+  "exitCode": 0,
+  "planClass": "monitor",
+  "source": {
+    "state": "usable",
+    "claimedPlanVerdict": "monitor",
+    "planClass": "monitor",
+    "planUrgency": "high",
+    "planActionClass": "stabilize-regression",
+    "sourceTrendVerdict": "degrading",
+    "sourceLatestIndex": "index-open",
+    "blockingActions": 0,
+    "advisoryActions": 2,
+    "planStrictWatch": false,
+    "planRequireClean": false
+  },
+  "actionReceipt": {
+    "verdict": "completed",
+    "exitCode": 0,
+    "planClass": "monitor",
+    "completed": true,
+    "reasons": [
+      "monitor-acknowledged"
+    ],
+    "invalid": 0,
+    "blocking": 0,
+    "incomplete": 0,
+    "informational": 1,
+    "requiredAcks": [
+      "plan",
+      "executed",
+      "monitor"
+    ],
+    "suppliedAcks": [
+      "plan",
+      "executed",
+      "monitor"
+    ],
+    "missingAcks": [],
+    "mismatchedAcks": [],
+    "strictOpen": false,
+    "strictOpenEscalated": false,
+    "strictOpenEscalatedFrom": null,
+    "detail": "COMPLETED: the finalize-index-trend follow-up plan is usable, of a closeable class (clear / monitor / investigate), and the bounded acknowledgements its class requires were all supplied — the plan is closed out for the governance record on THIS host. This receipt authorizes NOTHING on its own; it is not sign-off, approval, or promotion."
+  },
+  "acknowledgements": [
+    {
+      "id": "plan",
+      "supplied": true,
+      "required": true,
+      "satisfied": true
+    },
+    {
+      "id": "executed",
+      "supplied": true,
+      "required": true,
+      "satisfied": true
+    },
+    {
+      "id": "monitor",
+      "supplied": true,
+      "required": true,
+      "satisfied": true
+    },
+    {
+      "id": "investigation",
+      "supplied": false,
+      "required": false,
+      "satisfied": true
+    },
+    {
+      "id": "block",
+      "supplied": false,
+      "required": false,
+      "satisfied": true
+    },
+    {
+      "id": "clear",
+      "supplied": false,
+      "required": false,
+      "satisfied": true
+    }
+  ],
+  "reasons": [
+    {
+      "id": "monitor-acknowledged",
+      "severity": "informational",
+      "detail": "The plan is a MONITOR class and its follow-up was acknowledged + executed (`--ack-plan` + `--ack-monitor` + `--ack-executed`). The monitor follow-up is closed out on THIS host; keep tracking the arc on your governance cadence."
+    }
+  ],
+  "nextActions": [
+    "keep-action-receipt"
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED or on-demand GOVERNANCE step, NOT a per-release gate: after `worker:release-decision-closeout-governance-finalize-index-trend-action-plan` produces the ONE finalize-index-trend follow-up plan, hand it here with the bounded acknowledgement flags an operator supplies, and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a blocked / invalid receipt), surface exit 2 (an incomplete receipt) for review, and treat exit 0 (a completed receipt) as closed-out — never as an authorization.",
+    "Supply the acknowledgement flags an operator ACTUALLY performed — never fabricate them: `--ack-plan` (alias `--ack-reviewed`, the plan was reviewed), `--ack-executed` (the follow-up checklist was worked), `--ack-monitor` / `--ack-investigation` (the class follow-up was tracked), `--ack-block` (the release remains BLOCKED, not promoted), and the optional `--ack-clear` (a clear plan needs no follow-up). Acknowledge the plan's ACTUAL class only; a contradictory acknowledgement fails closed. `--strict-open` escalates any missing required acknowledgement to a hard block for a high-assurance review.",
+    "Archive this receipt (and the underlying plan + trend + finalize-index windows) as CI artifacts: it is a content-free acknowledgement SUMMARY, not a substitute for the plan it receipts, nor for your legal audit trail, compliance sign-off, external approval / signing, identity attestation, storage retention, incident records, or release-promotion processes — keep each of those in its own dedicated system.",
+    "Act on promotion out of band: this receipt RECORDS that a content-free plan's follow-ups were acknowledged, but recording a legal audit trail, obtaining an external approval / signature, proving reviewer identity, filing an incident record, and promoting a deployment are operator / CI / legal actions this offline receipt never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION CLOSEOUT GOVERNANCE FINALIZE INDEX TREND ACTION-PLAN EXECUTION RECEIPT: it INGESTS ONE content-free `pdfxyz.release-decision-closeout-governance-finalize-index-trend-action-plan/1` document a release pipeline produced, RE-VALIDATES it against ITSELF, and records whether the operator's bounded acknowledgements closed out the plan's required follow-ups. It is a content-free operational acknowledgement receipt ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / index / decision / trend / finalize / plan / governance / closeout itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, deletes, prunes, uploads, or mutates any plan, trend, window, record, artifact, object, or deployment. A `completed` receipt authorizes nothing; it only records that the content-free plan supplied on THIS host had its required acknowledgements provided by the bounded flags given.",
+    "A `completed` receipt REQUIRES a usable plan of a closeable class (`clear` / `monitor` / `investigate`) AND the bounded acknowledgements its class demands. It FAILS CLOSED: a missing / unreadable / tampered plan is `invalid`; a plan whose OWN verdict is `invalid` is `invalid` even if every flag is supplied; a `block-release` plan is always `blocked` (the release remains held — acknowledging it records the hold, never a close-out); a supplied acknowledgement that contradicts the plan class is `blocked`; a missing required acknowledgement for a clear / monitor / investigate plan is `incomplete`; and `--strict-open` escalates any missing-acknowledgement gap to `blocked`. It never fabricates a completed close-out from an untrusted, invalid, or under-acknowledged plan.",
+    "It re-validates the ingested plan by RECONSTRUCTING its bounded Phase 77 decision from the source-trend details the plan recorded (reusing the Phase 77 `computeActionPlan` reducer) and requiring the recorded plan verdict / urgency / action class / exit code / reasons to re-derive, treating any disagreement as a TAMPER (`invalid`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so the receipt proves neither authorship nor approval, and a fully self-consistent fabricated plan is out of its scope.",
+    "It records only bounded acknowledgement FLAGS — booleans, never a free-form note or an actor name / identity, and it never claims an action was EXECUTED unless `--ack-executed` was supplied, nor claims any release approval / promotion. It emits only bounded enums, small counts, booleans, an ISO stamp, and app-authored prose — so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes the ingested plan's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-closeout-governance-finalize-index-trend-action-receipt",
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-action-receipt",
+    "policyVersion": 1,
+    "at": "2026-07-06T00:00:00.000Z",
+    "verdict": "completed",
+    "exitCode": 0,
+    "planClass": "monitor",
+    "sourceState": "usable",
+    "claimedPlanVerdict": "monitor",
+    "acksRequired": 3,
+    "acksSatisfied": 3,
+    "acksMissing": 0,
+    "acksMismatched": 0,
+    "strictOpenEscalated": false,
+    "disclosure": "This is a content-free operational acknowledgement receipt ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log. It ingests one previously produced finalize-index-trend follow-up plan plus bounded operator acknowledgement flags and records whether the plan's required acknowledgements were supplied; it authorizes and proves nothing, it attests no person's identity, and it never claims an action was executed unless `--ack-executed` was supplied."
+  }
+}

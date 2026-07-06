@@ -112,6 +112,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-action-plan-fixture.yml`,
   // Phase 78 — the release decision closeout governance finalize index trend action-plan execution receipt (record whether a finalize-index-trend plan's follow-ups were acknowledged).
   `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-action-receipt-fixture.yml`,
+  // Phase 79 — the release decision closeout governance finalize index trend FINALIZATION record (finalize the finalize-index-trend follow-up loop from its receipt + optional source-chain records).
+  `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -511,6 +513,20 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-action-receipt-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-governance-finalize-index-trend-action-receipt GitHub Actions fixture must assert the incomplete (missing required acknowledgement) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-action-receipt-fixture.yml`, /test "\$code" -eq 0/, "release-decision-closeout-governance-finalize-index-trend-action-receipt GitHub Actions fixture must assert the completed (reviewed clear plan) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-action-receipt-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-governance-finalize-index-trend-action-receipt GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 79 — the release-decision-closeout-governance-finalize-index-trend-finalize template must record the execution
+  // receipt, finalize the follow-up loop from it plus optional source-chain records, and pin the finalized / open /
+  // incomplete / blocked-or-invalid / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /worker:release-decision-closeout-governance-finalize-index-trend-action-receipt/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must record the execution receipt first", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /worker:release-decision-closeout-governance-finalize-index-trend-finalize/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must run worker:release-decision-closeout-governance-finalize-index-trend-finalize", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /--receipt=/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must supply the primary receipt to finalize", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /--plan=/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must cross-check a supplied source-chain record", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /--strict-open/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must exercise the strict-open escalation", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /test "\$code" -eq 4/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must assert the blocked / invalid (blocked receipt / contradiction / tampered / unreadable / strict-open) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must assert the open (advisory source chain) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must assert the incomplete (incomplete receipt / required-missing) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /test "\$code" -eq 0/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must assert the finalized exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-governance-finalize-index-trend-finalize GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

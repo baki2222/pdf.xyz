@@ -1,0 +1,140 @@
+{
+  "schema": "pdfxyz.release-decision-closeout-governance-finalize-index/1",
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index",
+    "policyVersion": 1,
+    "finalizeSchema": "pdfxyz.release-decision-closeout-governance-finalize/1"
+  },
+  "policy": {
+    "maxFinalizations": 26,
+    "maxOpen": 0,
+    "maxIncomplete": 0,
+    "requireLatestFinalized": false,
+    "strictOpen": false
+  },
+  "verdict": "indexed",
+  "exitCode": 0,
+  "coverage": {
+    "finalizationsSupplied": 1,
+    "finalizationsConsidered": 1,
+    "finalizationsUsable": 1,
+    "finalizationsUnreadable": 0,
+    "finalizationsTampered": 0,
+    "truncated": false,
+    "droppedOldest": 0
+  },
+  "distribution": {
+    "verdictCounts": {
+      "finalized": 1,
+      "finalize-incomplete": 0,
+      "finalize-open": 0,
+      "finalize-blocked": 0
+    },
+    "newest": "finalized",
+    "oldest": "finalized",
+    "trendClass": "all-finalized"
+  },
+  "latest": {
+    "verdict": "finalized",
+    "receiptState": "usable",
+    "receiptVerdict": "completed",
+    "planClass": "clear",
+    "relatedSupplied": 0,
+    "relatedContradictory": 0,
+    "relatedBlocking": 0,
+    "strictOpen": false
+  },
+  "points": [
+    {
+      "position": 0,
+      "state": "usable",
+      "verdict": "finalized",
+      "receiptState": "usable",
+      "receiptVerdict": "completed",
+      "planClass": "clear",
+      "severity": "informational",
+      "detail": "#1: finalized (a self-consistent release decision closeout governance finalize bundle)."
+    }
+  ],
+  "finalizeIndex": {
+    "verdict": "indexed",
+    "exitCode": 0,
+    "indexed": true,
+    "latest": "finalized",
+    "oldest": "finalized",
+    "trendClass": "all-finalized",
+    "reasons": [
+      "latest-finalized",
+      "history-coherent"
+    ],
+    "invalid": 0,
+    "blocking": 0,
+    "open": 0,
+    "incomplete": 0,
+    "informational": 2,
+    "strictOpen": false,
+    "strictOpenEscalated": false,
+    "strictOpenEscalatedFrom": null,
+    "detail": "INDEXED: the recent release decision closeout governance FINALIZATION bundles are consistently finalized — the latest usable bundle is FINALIZED, no tampered / unreadable / blocked bundle is present, and the open / incomplete counts are within their thresholds. Keep finalizing one governance chain per release and indexing them on your review cadence. This index authorizes nothing on its own."
+  },
+  "reasons": [
+    {
+      "id": "latest-finalized",
+      "severity": "informational",
+      "detail": "The latest (newest) usable bundle's OWN verdict is `finalized` — the most recent release governance chain reads as fully finalized. This is the load-bearing marker for an `indexed` index (provided the history is coherent within its thresholds); it records a bounded review, not an approval or a promotion."
+    },
+    {
+      "id": "history-coherent",
+      "severity": "informational",
+      "detail": "Every considered bundle is a usable `finalized` finalization bundle — the whole recent history reads as consistently finalized, with no unreadable / tampered / open / incomplete / blocked bundle. Keep the underlying finalization bundles on your review cadence."
+    }
+  ],
+  "nextActions": [
+    {
+      "id": "continue-recording-finalization",
+      "detail": "The history is coherent: keep finalizing one `worker:release-decision-closeout-governance-finalize` bundle per release and indexing them here on your review cadence. This index authorizes no promotion on its own."
+    },
+    {
+      "id": "keep-finalize-index",
+      "detail": "Keep this content-free index as the local release-decision-closeout-governance-finalize-history review SUMMARY. It is NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, or a deployment / promotion ledger; keep those separately."
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED or on-demand REVIEW summary (per sprint / quarter), NOT a per-release gate: run `worker:release-decision-closeout-governance-finalize` per release and archive each bundle, then hand a bounded history (oldest first, newest last) here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a blocked / untrustworthy history), surface exit 3 (an open history) and exit 2 (an incomplete history) for review, and treat exit 0 (a coherent history) as consistently finalized — never as an authorization.",
+    "Keep the history bounded and explicit: `--max-finalizations=N` caps the newest N bundles (older bundles are dropped from the window, and the count dropped is surfaced, never silent); `--max-open=N` / `--max-incomplete=N` (each default 0) tolerate a bounded number of non-finalized OLDER bundles in the window before the accumulation escalates; `--require-latest-finalized` demands a finalized latest; `--strict-open` escalates any open index to a hard block for a high-assurance review.",
+    "Archive this index (and the underlying finalization bundles) as CI artifacts: it is a content-free review SUMMARY, not a substitute for the bundles it indexes, nor for your legal audit trail, compliance log, external approval / signing, storage retention, or release-promotion processes — keep each of those in its own dedicated system.",
+    "Enforce promotion out of band: this index SUMMARIZES a history of the content-free finalization bundles supplied, but recording a legal audit trail, obtaining an external approval / signature, proving reviewer identity, and promoting a deployment are operator / CI / legal actions this offline indexer never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION CLOSEOUT GOVERNANCE FINALIZE INDEX: it INGESTS a bounded history of content-free `pdfxyz.release-decision-closeout-governance-finalize/1` finalization bundles a release pipeline produced, RE-VALIDATES each against ITSELF, and folds them into ONE bounded review verdict + follow-up checklist. It is a local content-free finalization-history INDEX SUMMARY over finalization bundles — NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, or a deployment / promotion ledger.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / index / decision / trend / plan / receipt / closeout / governance / finalize itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, deletes, prunes, uploads, or mutates any record, artifact, object, or deployment. An `indexed` index authorizes nothing; it only reports that the content-free finalization bundles supplied on THIS host indexed as consistently finalized over the review history.",
+    "An `indexed` index REQUIRES a coherent bounded history: the latest usable bundle `finalized`, no tampered / unreadable bundle, no blocked bundle, and the open / incomplete counts within their thresholds. It FAILS CLOSED: a tampered OR unreadable bundle makes the index `index-invalid` (an untrustworthy input, the TOP precedence); a `finalize-blocked` latest / any blocked bundle, or a `--strict-open` escalation, makes it `index-blocked`; a `finalize-incomplete` latest / threshold breach, a `--require-latest-finalized` miss, or zero usable bundles makes it `index-incomplete`; a `finalize-open` latest / threshold breach makes it `index-open`. It never fabricates an `indexed` from thin or untrusted input.",
+    "It re-derives each ingested bundle's rollup from the bundle's OWN recorded primary-receipt source facets + related-record signals + policy (mirroring the Phase 74 `computeGovernanceFinalize` reducer) and treats a recorded rollup that does not re-derive as a TAMPER (`index-invalid`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so the index proves neither authorship nor approval, and a set of fully self-consistent fabricated records is out of its scope.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose — so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes an ingested bundle's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-closeout-governance-finalize-index",
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index",
+    "policyVersion": 1,
+    "at": "2026-07-05T00:00:00.000Z",
+    "verdict": "indexed",
+    "exitCode": 0,
+    "finalizationsSupplied": 1,
+    "finalizationsConsidered": 1,
+    "finalizationsUsable": 1,
+    "finalizationsUnreadable": 0,
+    "finalizationsTampered": 0,
+    "verdictCounts": {
+      "finalized": 1,
+      "finalize-incomplete": 0,
+      "finalize-open": 0,
+      "finalize-blocked": 0
+    },
+    "latest": "finalized",
+    "trendClass": "all-finalized",
+    "disclosure": "This is a content-free finalization-history INDEX SUMMARY ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log. It ingests a bounded history of previously produced governance finalization bundles and records whether the recent release decision closeout governance reads as consistently finalized; it authorizes and proves nothing, and it attests no person's identity."
+  }
+}

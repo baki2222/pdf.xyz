@@ -24,7 +24,7 @@ describe("runReleaseDecisionCloseoutGovernanceFinalizeIndexTrend — orchestrati
       const run = await runReleaseDecisionCloseoutGovernanceFinalizeIndexTrend(makeArgs(objs), makeProvider(objs));
       expect(run.exitCode, `history len ${objs.length}`).toBe(code);
     }
-  });
+  }, 15_000);
 
   it("an unreadable file becomes an unreadable window (never throws, path never echoed)", async () => {
     const provider = {

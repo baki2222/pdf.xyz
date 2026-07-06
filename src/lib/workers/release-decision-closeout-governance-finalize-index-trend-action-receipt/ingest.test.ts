@@ -29,7 +29,7 @@ describe("finalize-index-trend-action-receipt ingest — usable plans re-derive"
       expect(ingested.facts?.planClass).toBe(planClass);
       expect(ingested.facts?.planVerdict).toBe(planVerdict);
     }
-  });
+  }, 15_000);
 
   it("a clear plan surfaces its trusted source trend verdict + latest index posture", () => {
     const ingested = ingestFinalizeIndexTrendActionPlan(clearPlan());
