@@ -238,6 +238,10 @@ import {
   RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_VERDICTS,
   type ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeVerdict,
 } from "../release-decision-closeout-governance-finalize-index-trend-finalize/types";
+import {
+  RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_INDEX_VERDICTS,
+  type ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexVerdict,
+} from "../release-decision-closeout-governance-finalize-index-trend-finalize-index/types";
 import type { FacetId, FacetState } from "../deploy/readiness";
 
 /* ------------------------------------------------------------------ *
@@ -573,6 +577,7 @@ export const METRIC_NAMES = [
   "worker_release_decision_closeout_governance_finalize_index_trend_action_plan_total",
   "worker_release_decision_closeout_governance_finalize_index_trend_action_receipt_total",
   "worker_release_decision_closeout_governance_finalize_index_trend_finalize_total",
+  "worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_total",
   "worker_job_terminal_total",
 ] as const;
 export type WorkerMetricName = (typeof METRIC_NAMES)[number];
@@ -945,6 +950,12 @@ export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>
     kind: "counter",
     labels: {
       verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_VERDICTS,
+    },
+  },
+  worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_total: {
+    kind: "counter",
+    labels: {
+      verdict: RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_TREND_FINALIZE_INDEX_VERDICTS,
     },
   },
   worker_job_terminal_total: {
@@ -2126,6 +2137,32 @@ export function releaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeMetri
 ): WorkerMetricSample {
   return {
     metric: "worker_release_decision_closeout_governance_finalize_index_trend_finalize_total",
+    kind: "counter",
+    labels: { verdict },
+    value: 1,
+  };
+}
+
+/**
+ * A composed **release decision closeout governance finalize index trend finalize INDEX** (Phase 80) resolved to its
+ * composite index `verdict` ({@link ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexVerdict}:
+ * `indexed`/`index-open`/`index-incomplete`/`index-blocked`/`index-invalid`). One bounded label so a release governance
+ * / review dashboard can count finalization-history indexes by the single posture a reviewer acts on — e.g.
+ * `worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_total{verdict="index-invalid"} > 0`
+ * catches a tampered / unreadable record in the indexed history; `{verdict="index-blocked"} > 0` catches a blocked
+ * latest / any blocked record / a `--strict-open` escalation; `{verdict="index-incomplete"} > 0` catches a coverage gap;
+ * `{verdict="index-open"} > 0` catches an open follow-up posture. This counts an offline INDEX that ingested a bounded
+ * history of content-free `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize/1` records,
+ * re-validated each against itself, and folded them into one index verdict — NOT a legal / compliance sign-off, an
+ * external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record,
+ * an audit log, a cloud call, or a deletion. The one label is a closed, redaction-stable enum — never a reviewer
+ * identity, a reason id, a count, a filename, path, object key, bucket, URL, size, digest, or record content.
+ */
+export function releaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexMetric(
+  verdict: ReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexVerdict,
+): WorkerMetricSample {
+  return {
+    metric: "worker_release_decision_closeout_governance_finalize_index_trend_finalize_index_total",
     kind: "counter",
     labels: { verdict },
     value: 1,

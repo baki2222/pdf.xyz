@@ -1,0 +1,150 @@
+name: Release decision closeout governance finalize index trend finalize INDEX fixture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 1 3,9 *"
+
+# A release-governance REVIEW step, not a per-release gate: after each release has been FINALIZED into ONE
+# `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize/1` record (Phase 79), this INDEXES a bounded
+# HISTORY of those finalization records into ONE `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index/1`
+# summary: an index verdict (indexed / index-open / index-incomplete / index-blocked / index-invalid), the
+# finalization-verdict distribution, a bounded summary of the newest usable finalization, and a per-record posture
+# sequence. It re-validates each record against itself (a hand-flipped finalization verdict / exit / rollup, or a flipped
+# cross-check / posture signal, is caught as a tamper) and is LATEST-FOCUSED: the newest usable record drives the
+# verdict, bounded history thresholds (--max-open / --max-incomplete, each default 0) tolerate a bounded number of
+# non-finalized OLDER records, any blocked record escalates to index-blocked, and any tampered / unreadable record fails
+# closed to index-invalid (the top precedence). It is a content-free finalization-history INDEX SUMMARY ONLY: it is NOT a
+# legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a
+# promotion ledger, an incident record, or an audit log, and it signs / approves / publishes / promotes / deploys /
+# notifies / mutates NOTHING. It fetches nothing — it builds the finalization history from committed content-free
+# fixtures so the workflow is deterministic and offline.
+
+jobs:
+  release-decision-closeout-governance-finalize-index-trend-finalize-index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Finalize a history of governance follow-up loops, then index it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p finalize-index
+          # Run the finalize-index-trend chain once (a coherent history → trend → follow-up plan → completed receipt),
+          # then FINALIZE it into ONE finalization record — repeated for three "releases", oldest first / newest last.
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --file=docs/examples/release-decision-closeout-governance-finalize-index-trend/window-indexed.json \
+            --output=finalize-index/trend.json
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-action-plan \
+            --trend=finalize-index/trend.json \
+            --output=finalize-index/plan.json
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-action-receipt \
+            --plan=finalize-index/plan.json --ack-plan \
+            --output=finalize-index/receipt.json
+          for n in 1 2 3; do
+            pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize \
+              --receipt=finalize-index/receipt.json \
+              --plan=finalize-index/plan.json \
+              --trend=finalize-index/trend.json \
+              --output="finalize-index/f${n}.json"
+          done
+          # Index the bounded history (oldest first, newest last) → indexed (a coherent, consistently-finalized history).
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index \
+            --file=finalize-index/f1.json \
+            --file=finalize-index/f2.json \
+            --file=finalize-index/f3.json \
+            --output=finalize-index/index.json
+          # Render the index into the job summary.
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index \
+            --file=finalize-index/f1.json \
+            --file=finalize-index/f2.json \
+            --file=finalize-index/f3.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail-closed examples
+        shell: bash
+        run: |
+          D=docs/examples/release-decision-closeout-governance-finalize-index-trend-finalize-index
+
+          # A blocked latest finalization record → index-blocked (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index \
+            --file=$D/finalize-finalized.json \
+            --file=$D/finalize-blocked.json --json >/tmp/fitfi-blocked.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A tampered finalization record fails closed → index-invalid (exit 4), the top precedence.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index \
+            --file=$D/finalize-finalized.json \
+            --file=$D/finalize-tampered.json --json >/tmp/fitfi-tampered.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # An unreadable (non-finalize) input fails closed → index-invalid (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index \
+            --file=$D/not-a-finalize.json --json >/tmp/fitfi-unreadable.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # --strict-open escalates an open history to a hard block (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index \
+            --file=$D/finalize-open.json \
+            --strict-open --json >/tmp/fitfi-strict.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A latest-open history (an advisory follow-up still open) → index-open (exit 3), for review.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index \
+            --file=$D/finalize-finalized.json \
+            --file=$D/finalize-open.json --json >/tmp/fitfi-open.json
+          code=$?
+          set -e
+          test "$code" -eq 3
+
+          # A latest-incomplete history → index-incomplete (exit 2). --require-latest-finalized also fails a
+          # non-finalized latest to exit 2.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index \
+            --file=$D/finalize-finalized.json \
+            --file=$D/finalize-incomplete.json \
+            --require-latest-finalized --json >/tmp/fitfi-incomplete.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # No finalization record supplied is a usage error (exit 1).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index --json >/tmp/fitfi-usage.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-decision-closeout-governance-finalize-index-trend-finalize-index
+          path: finalize-index/index.json
+          if-no-files-found: error

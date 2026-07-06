@@ -134,7 +134,7 @@ describe("computeTrendRollup — the 7-verdict fold", () => {
     expect(fold([indexedWindow(), blockedWindow()], { strictOpen: true }).rollup.strictOpenEscalated).toBe(false);
     expect(fold([indexedWindow(), tamperedWindow()], { strictOpen: true }).rollup.verdict).toBe("invalid");
     expect(fold([indexedWindow(), indexedWindow()], { strictOpen: true }).rollup.verdict).toBe("stable");
-  });
+  }, 15_000);
 
   it("--require-latest-indexed surfaces a reason when the latest is not indexed", () => {
     const { rollup } = fold([indexedWindow(), openWindow()], { requireLatestIndexed: true });

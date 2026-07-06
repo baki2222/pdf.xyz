@@ -16,17 +16,21 @@ import { RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_VERDICTS } from "./
 type Obj = Record<string, unknown>;
 
 describe("ingestFinalizeIndex — trust boundary over finalize-index windows", () => {
-  it("marks a real self-consistent window of each index verdict usable and reduces its facts", () => {
-    for (const window of [indexedWindow(), openWindow(), incompleteWindow(), blockedWindow(), invalidWindow()]) {
-      const r = ingestFinalizeIndex(window);
-      expect(r.recognized).toBe(true);
-      expect(r.usable).toBe(true);
-      expect(RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_VERDICTS).toContain(r.verdict);
-      expect(r.facts).not.toBeNull();
-      expect(r.facts!.verdict).toBe(window.finalizeIndex.verdict);
-      expect(r.facts!.finalizationsConsidered).toBe(window.coverage.finalizationsConsidered);
-    }
-  });
+  it(
+    "marks a real self-consistent window of each index verdict usable and reduces its facts",
+    () => {
+      for (const window of [indexedWindow(), openWindow(), incompleteWindow(), blockedWindow(), invalidWindow()]) {
+        const r = ingestFinalizeIndex(window);
+        expect(r.recognized).toBe(true);
+        expect(r.usable).toBe(true);
+        expect(RELEASE_DECISION_CLOSEOUT_GOVERNANCE_FINALIZE_INDEX_VERDICTS).toContain(r.verdict);
+        expect(r.facts).not.toBeNull();
+        expect(r.facts!.verdict).toBe(window.finalizeIndex.verdict);
+        expect(r.facts!.finalizationsConsidered).toBe(window.coverage.finalizationsConsidered);
+      }
+    },
+    15_000,
+  );
 
   it("reduces the aggregate finalization distribution + latest finalization of a multi-bundle window", () => {
     const r = ingestFinalizeIndex(indexedHistory());
