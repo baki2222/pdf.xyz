@@ -1,0 +1,118 @@
+{
+  "schema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-action-plan/1",
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-action-plan",
+    "policyVersion": 1,
+    "trendSchema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend/1"
+  },
+  "policy": {
+    "strict": false,
+    "maxActions": 8
+  },
+  "verdict": "investigate",
+  "urgency": "soon",
+  "actionClass": "complete-evidence",
+  "exitCode": 2,
+  "sourceTrendVerdict": "insufficient",
+  "sourceTrendClass": "insufficient",
+  "sourceArcDirection": "stable",
+  "sourceLatestIndex": "incomplete",
+  "source": {
+    "state": "usable",
+    "claimedVerdict": "insufficient",
+    "indexesConsidered": 2,
+    "indexesUsable": 2,
+    "totalCloseouts": 2,
+    "sourceStrictOpen": false
+  },
+  "actionPlan": {
+    "verdict": "investigate",
+    "urgency": "soon",
+    "actionClass": "complete-evidence",
+    "exitCode": 2,
+    "clear": false,
+    "reasons": [
+      "trend-insufficient"
+    ],
+    "invalidInputs": 0,
+    "blocking": 0,
+    "insufficiencies": 1,
+    "advisories": 0,
+    "informationals": 0,
+    "strict": false,
+    "strictEscalated": false,
+    "escalatedFrom": null,
+    "detail": "INVESTIGATE: the trend is INSUFFICIENT (inconclusive) \u2014 supply or complete the missing closeout-index evidence and re-summarize before treating the history as usable. This is not a clean pass and not a block; it is a coverage gap to close."
+  },
+  "reasons": [
+    {
+      "id": "trend-insufficient",
+      "severity": "insufficient",
+      "detail": "The trend's OWN verdict is INSUFFICIENT: zero usable windows, an `incomplete` latest, or an only-incomplete history (the recent closeouts were inconclusive). Supply / complete the missing closeout-index evidence, re-index + re-trend those windows, and re-plan before treating the history as usable."
+    }
+  ],
+  "plan": [
+    {
+      "id": "complete-insufficient-history",
+      "label": "Complete the missing closeout-index evidence the inconclusive trend is short of: recover the unreadable window(s), complete the `incomplete` latest window with `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout` / `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index`, re-run `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend`, then re-plan. An inconclusive history cannot be treated as usable.",
+      "urgency": "soon",
+      "expectation": "must-complete-before-release",
+      "blocking": true
+    },
+    {
+      "id": "re-summarize-after-fix",
+      "label": "After remediating, re-index the affected closeouts with `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index`, re-run `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend`, and re-run this plan over the fresh trend \u2014 do not rely on this plan once the underlying windows change.",
+      "urgency": "soon",
+      "expectation": "recommended",
+      "blocking": false
+    },
+    {
+      "id": "keep-action-plan",
+      "label": "Keep this content-free plan as the local release-decision-closeout-governance-finalize follow-up record. It is NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log; keep each of those in its own dedicated system.",
+      "urgency": "routine",
+      "expectation": "informational",
+      "blocking": false
+    }
+  ],
+  "nextActions": [
+    "complete-insufficient-history",
+    "re-summarize-after-fix",
+    "keep-action-plan"
+  ],
+  "maxActions": 8,
+  "actionsConsidered": 3,
+  "actionsDropped": 0,
+  "guidance": [
+    "Wire this as a SCHEDULED or on-demand GOVERNANCE step, NOT a per-release gate: run `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend` over your archived closeout-index windows, then hand the ONE trend here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a block-release / invalid plan), surface exit 3 (a follow-up monitor plan) and exit 2 (an investigate plan) for review, and treat exit 0 (a clear plan) as no follow-up warranted \u2014 never as an authorization.",
+    "Keep the plan bounded and explicit: `--strict` escalates EVERY non-clear (monitor / investigate) plan to block release \u2014 a hard `all-clear or block` gate for a high-assurance review \u2014 and never weakens the `invalid` precedence of an untrustworthy input; `--max-actions=N` caps the emitted checklist (default 8, hard max 20; the highest-priority N are kept and the count dropped is surfaced, never silent). The plan is derived only from the trend's bounded verdict / class / direction / latest posture, never from any ingested timestamp or window content.",
+    "Archive this plan (and the underlying trend + closeout-index windows) as CI artifacts: it is a content-free follow-up SUMMARY, not a substitute for the trend it plans over, nor for your legal audit trail, compliance sign-off, external approval / signing, storage retention, incident records, or release-promotion processes \u2014 keep each of those in its own dedicated system.",
+    "Act on promotion out of band: this plan TRANSLATES a content-free trend into bounded follow-up, but recording a legal audit trail, obtaining an external approval / signature, proving reviewer identity, filing an incident record, and promoting a deployment are operator / CI / legal actions this offline planner never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION CLOSEOUT GOVERNANCE FINALIZE INDEX TREND FINALIZE INDEX TREND CLOSEOUT INDEX TREND ACTION PLAN: it INGESTS ONE content-free `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend/1` summary a release pipeline produced, RE-VALIDATES it against ITSELF, and translates its bounded verdict into ONE bounded operator follow-up plan + urgency + next-action checklist. It is a content-free operational follow-up plan ONLY \u2014 NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / index / decision / trend / closeout / finalize / governance itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, deletes, prunes, uploads, or mutates any trend, window, record, artifact, object, or deployment. A `clear` plan authorizes nothing; it only reports that the content-free trend supplied on THIS host warrants no follow-up beyond continuing the cadence.",
+    "A `clear` plan REQUIRES a usable trend whose OWN verdict is a coherent `stable` history. It FAILS CLOSED: an unreadable / tampered trend input, or a trend whose OWN verdict is `invalid` (an untrustworthy window in its history), is `invalid`; a `blocked` trend is `block-release` (`block-and-reconcile`); an `insufficient` trend is `investigate`; an `improving` / `watch` / `degrading` trend is a follow-up `monitor` plan (improving is benign, low urgency); and `--strict` escalates every non-clear (monitor / investigate) plan to `block-release`. The checklist is capped by `--max-actions` (default 8, hard max 20; the count dropped is surfaced, never silent). It never fabricates a clean plan from an untrusted or non-clean trend, and `--strict` never weakens the `invalid` precedence of an untrustworthy input.",
+    "It re-derives the ingested trend's verdict from the trend's OWN recorded coverage + window distribution + arc summary (reusing the Phase 86 trend rollup reducer) AND re-checks that summary against the trend's own per-window posture sequence + window arithmetic, and treats any disagreement as a TAMPER (`invalid`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature \u2014 there is no signing key and no attested identity, so the plan proves neither authorship nor approval, and a fully self-consistent fabricated trend is out of its scope.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose \u2014 so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes the ingested trend's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-action-plan",
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-action-plan",
+    "policyVersion": 1,
+    "at": "2026-07-05T00:00:00.000Z",
+    "verdict": "investigate",
+    "urgency": "soon",
+    "actionClass": "complete-evidence",
+    "exitCode": 2,
+    "sourceState": "usable",
+    "sourceTrendVerdict": "insufficient",
+    "sourceLatestIndex": "incomplete",
+    "actionsEmitted": 3,
+    "actionsDropped": 0,
+    "escalated": false,
+    "disclosure": "This is a content-free operational follow-up plan ONLY \u2014 NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log. It ingests one previously produced closeout-index-trend summary and recommends bounded operator follow-up; it authorizes and proves nothing."
+  }
+}
