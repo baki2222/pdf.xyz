@@ -1,0 +1,142 @@
+{
+  "schema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index/1",
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "metadata": {
+    "schemaVersion": 1,
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index",
+    "policyVersion": 1,
+    "closeoutSchema": "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout/1"
+  },
+  "policy": {
+    "maxCloseouts": 26,
+    "maxOpen": 0,
+    "maxIncomplete": 0,
+    "requireLatestClosed": false,
+    "strictOpen": false
+  },
+  "verdict": "index-open",
+  "exitCode": 3,
+  "coverage": {
+    "closeoutsSupplied": 1,
+    "closeoutsConsidered": 1,
+    "closeoutsUsable": 1,
+    "closeoutsUnreadable": 0,
+    "closeoutsTampered": 0,
+    "truncated": false,
+    "droppedOldest": 0
+  },
+  "distribution": {
+    "verdictCounts": {
+      "closed": 0,
+      "open": 1,
+      "incomplete": 0,
+      "blocked": 0,
+      "invalid": 0
+    },
+    "newest": "open",
+    "oldest": "open",
+    "trendClass": "open-present"
+  },
+  "latest": {
+    "verdict": "open",
+    "receiptState": "usable",
+    "receiptVerdict": "followup-open",
+    "planClass": "monitor",
+    "relatedSupplied": 0,
+    "relatedContradictory": 0,
+    "relatedBlocking": 0,
+    "strictOpen": false
+  },
+  "points": [
+    {
+      "position": 0,
+      "state": "usable",
+      "verdict": "open",
+      "receiptState": "usable",
+      "receiptVerdict": "followup-open",
+      "planClass": "monitor",
+      "severity": "open",
+      "detail": "#1: open (a self-consistent release decision closeout governance finalize-index-trend closeout record)."
+    }
+  ],
+  "closeoutIndex": {
+    "verdict": "index-open",
+    "exitCode": 3,
+    "indexed": false,
+    "latest": "open",
+    "oldest": "open",
+    "trendClass": "open-present",
+    "reasons": [
+      "latest-open",
+      "open-threshold-exceeded"
+    ],
+    "invalid": 0,
+    "blocking": 0,
+    "open": 2,
+    "incomplete": 0,
+    "informational": 0,
+    "strictOpen": false,
+    "strictOpenEscalated": false,
+    "strictOpenEscalatedFrom": null,
+    "detail": "INDEX-OPEN: an OPEN follow-up posture is present — the latest usable record is OPEN, or the open count exceeds the threshold. Track the open follow-up(s) to closure and re-index; this is not a hard block, but the history is not consistently closed either."
+  },
+  "reasons": [
+    {
+      "id": "latest-open",
+      "severity": "open",
+      "detail": "The latest (newest) usable record's OWN verdict is `open` — an advisory follow-up remains open on the most recent loop. Track the follow-up to closure, re-close the latest loop, and re-index; this is not a hard block, but the history is not consistently closed."
+    },
+    {
+      "id": "open-threshold-exceeded",
+      "severity": "open",
+      "detail": "The number of `open` records in the window exceeds `--max-open`. Recurring open follow-ups mean the recent releases are not being closed out promptly: track the open follow-ups to closure (or raise `--max-open` if a bounded open backlog is acceptable) before treating the history as consistently closed."
+    }
+  ],
+  "nextActions": [
+    {
+      "id": "review-open-closeout",
+      "detail": "A record in the window is `open` (an advisory follow-up still open): track the recorded follow-up to closure, re-close that release's loop, and re-index before relying on the history. Archive this index as the record of that review."
+    },
+    {
+      "id": "keep-closeout-index",
+      "detail": "Keep this content-free index as the local release-decision-closeout-…-closeout-history review SUMMARY. It is NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, or a deployment / promotion ledger; keep those separately."
+    }
+  ],
+  "guidance": [
+    "Wire this as a SCHEDULED or on-demand REVIEW summary (per sprint / quarter), NOT a per-release gate: run `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout` per release and archive each record, then hand a bounded history (oldest first, newest last) here and render `--text` into a review artifact / `$GITHUB_STEP_SUMMARY`. Fail the review on exit 4 (a blocked / untrustworthy history), surface exit 3 (an open history) and exit 2 (an incomplete history) for review, and treat exit 0 (a coherent history) as consistently closed — never as an authorization.",
+    "Keep the history bounded and explicit: `--max-closeouts=N` caps the newest N records (older records are dropped from the window, and the count dropped is surfaced, never silent); `--max-open=N` / `--max-incomplete=N` (each default 0) tolerate a bounded number of non-closed OLDER records in the window before the accumulation escalates; `--require-latest-closed` demands a closed latest; `--strict-open` escalates any open index to a hard block for a high-assurance review.",
+    "Archive this index (and the underlying closeout records) as CI artifacts: it is a content-free review SUMMARY, not a substitute for the records it indexes, nor for your legal audit trail, compliance log, external approval / signing, storage retention, or release-promotion processes — keep each of those in its own dedicated system.",
+    "Enforce promotion out of band: this index SUMMARIZES a history of the content-free closeout records supplied, but recording a legal audit trail, obtaining an external approval / signature, proving reviewer identity, and promoting a deployment are operator / CI / legal actions this offline indexer never performs."
+  ],
+  "caveats": [
+    "This is a RELEASE DECISION CLOSEOUT GOVERNANCE FINALIZE INDEX TREND FINALIZE INDEX TREND CLOSEOUT INDEX: it INGESTS a bounded history of content-free `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout/1` closeout records a release pipeline produced, RE-VALIDATES each against ITSELF, and folds them into ONE bounded review verdict + follow-up checklist. It is a local content-free closeout-history INDEX SUMMARY over closeout records — NOT a legal audit log, a compliance attestation, an external approval / signature, an identity proof, or a deployment / promotion ledger.",
+    "It is offline and READ-ONLY: it makes NO network call, reads NO secret, bucket, or object, RUNS no gate / index / decision / trend / plan / receipt / closeout / governance / finalize itself, and NEVER signs, approves, publishes, promotes, deploys, notifies, deletes, prunes, uploads, or mutates any record, artifact, object, or deployment. An `indexed` index authorizes nothing; it only reports that the content-free closeout records supplied on THIS host indexed as consistently closed over the review history.",
+    "An `indexed` index REQUIRES a coherent bounded history: the latest usable record `closed`, no tampered / unreadable record, no blocked / invalid-posture record, and the open / incomplete counts within their thresholds. It FAILS CLOSED: a tampered OR unreadable record makes the index `index-invalid` (an untrustworthy input, the TOP precedence); a `blocked` / `invalid` latest / any blocked-or-invalid record, or a `--strict-open` escalation, makes it `index-blocked`; an `incomplete` latest / threshold breach, a `--require-latest-closed` miss, or zero usable records makes it `index-incomplete`; an `open` latest / threshold breach makes it `index-open`. It never fabricates an `indexed` from thin or untrusted input.",
+    "It re-derives each ingested record's coverage rollup from the record's OWN recorded primary-receipt facets + related-record signals + source-chain posture + policy (mirroring the Phase 84 `computeCloseout` reducer) and treats a recorded rollup that does not re-derive as a TAMPER (`index-invalid`). This re-derivation is TAMPER-EVIDENCE over content-free data, NOT a cryptographic signature — there is no signing key and no attested identity, so the index proves neither authorship nor approval, and a set of fully self-consistent fabricated records is out of its scope.",
+    "It emits only bounded enums, small counts, an ISO stamp, and app-authored prose — so it carries no reviewer name or email, no filename, path, object key, bucket, URL, endpoint, region, job / user id, IP, token, raw ref, raw label, raw note, commit URL, size, byte, or digest, even from a hostile input; it never echoes an ingested record's own stamp, and it never echoes an input file path, even on an error.",
+    "It is not malware scanning, sanitization, authorization, cloud validation, or deletion proof of any request or object, and it deletes, uploads, promotes, approves, or mutates nothing."
+  ],
+  "receipt": {
+    "category": "worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index",
+    "policyId": "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index",
+    "policyVersion": 1,
+    "at": "2026-07-05T00:00:00.000Z",
+    "verdict": "index-open",
+    "exitCode": 3,
+    "closeoutsSupplied": 1,
+    "closeoutsConsidered": 1,
+    "closeoutsUsable": 1,
+    "closeoutsUnreadable": 0,
+    "closeoutsTampered": 0,
+    "verdictCounts": {
+      "closed": 0,
+      "open": 1,
+      "incomplete": 0,
+      "blocked": 0,
+      "invalid": 0
+    },
+    "latest": "open",
+    "trendClass": "open-present",
+    "disclosure": "This is a content-free closeout-history INDEX SUMMARY ONLY — NOT a legal / compliance sign-off, an external approval / signature, an identity proof, a deployment authorization, a promotion ledger, an incident record, or an audit log. It ingests a bounded history of previously produced governance closeout records and records whether the recent finalization-index-trend follow-up loops read as consistently closed; it authorizes and proves nothing, and it attests no person's identity."
+  }
+}

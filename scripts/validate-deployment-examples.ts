@@ -126,6 +126,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-fixture.yml`,
   // Phase 85 — the release decision closeout governance finalize index trend finalize index trend closeout INDEX (index a bounded history of closeout records into one review summary).
   `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-fixture.yml`,
+  // Phase 86 — the release decision closeout governance finalize index trend finalize index trend closeout INDEX TREND (summarize a bounded history of closeout-index windows into one trend).
+  `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
@@ -611,6 +613,16 @@ function main(): number {
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index GitHub Actions fixture must assert the index-open (open latest / breach) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index GitHub Actions fixture must assert the index-incomplete (incomplete latest / require-latest miss) exit code", findings);
   requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
+
+  // Phase 86 — the release-decision-…-closeout-index-trend template must index a closeout window, summarize a bounded
+  // history, and pin the blocked / watch-degrading / insufficient / usage exit codes (fail closed).
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-fixture.yml`, /worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index["\s\\]/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend GitHub Actions fixture must index a closeout window first", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-fixture.yml`, /worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend GitHub Actions fixture must run worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-fixture.yml`, /--file=/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend GitHub Actions fixture must supply the closeout-index window history", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-fixture.yml`, /test "\$code" -eq 4/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend GitHub Actions fixture must assert the blocked (blocked / tampered latest / strict-watch) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-fixture.yml`, /test "\$code" -eq 3/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend GitHub Actions fixture must assert the watch / degrading (open latest / degrading arc) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-fixture.yml`, /test "\$code" -eq 2/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend GitHub Actions fixture must assert the insufficient (unreadable / incomplete latest) exit code", findings);
+  requireText(`${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-fixture.yml`, /test "\$code" -eq 1/, "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

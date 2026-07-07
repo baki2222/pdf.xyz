@@ -55,6 +55,7 @@
     "worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-action-receipt": "tsx scripts/worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-action-receipt.ts",
     "worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout": "tsx scripts/worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout.ts",
     "worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index": "tsx scripts/worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index.ts",
+    "worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend": "tsx scripts/worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend.ts",
     "deploy:examples:check": "tsx scripts/validate-deployment-examples.ts",
     "worker:smoke": "sh scripts/worker-smoke.sh",
     "worker:engines": "sh scripts/worker-engines.sh",
