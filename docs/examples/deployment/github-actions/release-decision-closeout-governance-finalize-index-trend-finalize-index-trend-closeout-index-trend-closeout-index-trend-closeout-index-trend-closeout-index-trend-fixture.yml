@@ -1,0 +1,133 @@
+name: Release decision closeout governance finalize index trend finalize index trend closeout index trend closeout index trend closeout index trend fixture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 9 1 1,7 *"
+
+# A release-governance REVIEW step, not a per-release gate: after a series of release-decision CLOSEOUT records has been
+# INDEXED (one `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index/1` per
+# review period, Phase 85), this SUMMARIZES a bounded HISTORY of those content-free windows into ONE
+# `pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend/1` summary — the
+# per-window index-verdict distribution, the aggregate closeout distribution, a per-window posture sequence, an arc direction
+# + trend class, a trend verdict (improving / stable / watch / degrading / insufficient / blocked / invalid), and a
+# next-action list. It re-validates each window against itself (a hand-flipped index verdict is caught as a tamper) and is
+# LATEST-FOCUSED: the newest usable window drives the verdict, bounded history thresholds (--max-open / --max-incomplete /
+# --max-blocked, each default 0) tolerate a bounded number of non-all-closed windows, and a worsening ARC raises a degrading. It
+# is a closeout-index TREND SUMMARY ONLY: it is NOT a legal audit log, a compliance attestation, an external approval /
+# signature, an identity proof, or a deployment / promotion ledger, and it signs / approves / publishes / promotes / deploys
+# / notifies / mutates NOTHING. It fetches nothing — it composes the history from committed content-free fixtures so the
+# workflow is deterministic and offline. Direction is derived from ORDERED INPUT POSITIONS (oldest first, newest last), never
+# from any ingested timestamp.
+
+jobs:
+  release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Index two closeout windows, then summarize the trend
+        shell: bash
+        env:
+          CX: docs/examples/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index
+        run: |
+          set -euo pipefail
+          mkdir -p cit
+          # Compose two content-free closeout-index windows from committed closeout fixtures (a real pipeline indexes one
+          # `worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index` window per
+          # review period and archives it).
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index \
+            --file="$CX/closeout-closed.json" \
+            --file="$CX/closeout-closed.json" \
+            --output=cit/w1.json
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index \
+            --file="$CX/closeout-closed.json" \
+            --file="$CX/closeout-closed.json" \
+            --output=cit/w2.json
+          # Summarize the bounded history (oldest first, newest last) into ONE governance trend summary.
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend \
+            --file=cit/w1.json \
+            --file=cit/w2.json \
+            --output=cit/closeout-index-trend.json
+          # Render the trend into the job summary.
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend \
+            --file=cit/w1.json \
+            --file=cit/w2.json \
+            --text >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail-closed examples
+        shell: bash
+        run: |
+          D=docs/examples/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend
+
+          # A BLOCKED window in the history blocks the trend (exit 4) — do not treat the history as clean.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend \
+            --file=$D/window-all-closed.json \
+            --file=$D/window-blocked.json --json >/tmp/citrend-blocked.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A TAMPERED window can't be trusted → invalid (exit 4), never a vacuous clean pass.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend \
+            --file=$D/window-all-closed.json \
+            --file=$D/window-tampered.json --json >/tmp/citrend-tampered.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # --strict-open escalates a watch / degrading history (a worsening arc into an open latest) to a hard block (exit 4).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend \
+            --file=$D/window-all-closed.json \
+            --file=$D/window-open.json \
+            --strict-open --json >/tmp/citrend-strict.json
+          code=$?
+          set -e
+          test "$code" -eq 4
+
+          # A worsening arc (all-closed → open) is a degrading history (exit 3) for review, not a clean pass.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend \
+            --file=$D/window-all-closed.json \
+            --file=$D/window-open.json --json >/tmp/citrend-degrading.json
+          code=$?
+          set -e
+          test "$code" -eq 3
+
+          # A flat incomplete history, or an incomplete-threshold breach → insufficient (exit 2), never clean.
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend \
+            --file=$D/window-incomplete.json \
+            --file=$D/window-incomplete.json --json >/tmp/citrend-insufficient.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+
+          # No window supplied is a usage error (exit 1).
+          set +e
+          pnpm worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend --json >/tmp/citrend-usage.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend
+          path: cit/closeout-index-trend.json
+          if-no-files-found: error
