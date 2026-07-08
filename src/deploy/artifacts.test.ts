@@ -102,6 +102,7 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
 
   it("the worker image owns Corepack/pnpm cache paths before dropping privileges", () => {
     const worker = stageInstructions(stages, "worker");
+    expect(worker).toContain("PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false");
     expect(worker).toContain("COREPACK_HOME=/home/worker/.cache/node/corepack");
     expect(worker).toMatch(/useradd[\s\S]*--home-dir\s+\/home\/worker[\s\S]*--create-home[\s\S]*worker/);
     expect(worker).toContain("mkdir -p /home/worker/.cache/node/corepack /pnpm");
@@ -131,6 +132,7 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
   it("the web image serves the site and ships no worker daemon or native engines", () => {
     const web = stageInstructions(stages, "web");
     expect(web).toMatch(/CMD\s*\[\s*"pnpm",\s*"start"\s*\]/);
+    expect(web).toContain("PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false");
     expect(web).not.toContain("worker:daemon");
     expect(web).not.toContain("apt-get install");
     // Neither the deep-compression engines, the OCR stack, NOR the proof-only pdftotext

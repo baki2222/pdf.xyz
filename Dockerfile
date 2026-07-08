@@ -57,6 +57,7 @@ RUN pnpm build
 # --------------------------------------------------------------------------- #
 FROM base AS web
 ENV NODE_ENV=production
+ENV PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
 # Run as a non-root user.
 RUN groupadd --system --gid 1001 nodejs \
  && useradd --system --uid 1001 --gid nodejs nextjs
@@ -76,6 +77,7 @@ CMD ["pnpm", "start"]
 # --------------------------------------------------------------------------- #
 FROM base AS worker
 ENV NODE_ENV=production
+ENV PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
 # Native engines the secure-worker path advertises. Two families, one apt layer
 # (a single `apt-get update` + cleanup keeps the layer small and cache-honest):
 #
