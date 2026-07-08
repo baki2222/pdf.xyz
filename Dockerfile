@@ -113,14 +113,14 @@ ENV COREPACK_HOME=/home/worker/.cache/node/corepack
 RUN groupadd --system --gid 1001 worker \
  && useradd --system --uid 1001 --gid worker --home-dir /home/worker --create-home worker \
  && mkdir -p /home/worker/.cache/node/corepack /pnpm \
- && chown -R worker:worker /home/worker /pnpm
+ && chown -R worker:worker /home/worker /pnpm /app
 # The daemon runs scripts/worker-daemon.ts via tsx, so it needs the source tree
 # and its config — but NOT the web build (`.next` is intentionally not copied).
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/tsconfig.json ./tsconfig.json
-COPY --from=build /app/scripts ./scripts
-COPY --from=build /app/src ./src
+COPY --from=build --chown=worker:worker /app/node_modules ./node_modules
+COPY --from=build --chown=worker:worker /app/package.json ./package.json
+COPY --from=build --chown=worker:worker /app/tsconfig.json ./tsconfig.json
+COPY --from=build --chown=worker:worker /app/scripts ./scripts
+COPY --from=build --chown=worker:worker /app/src ./src
 USER worker
 # Presence-only readiness probe: exit 0 = drainable (queue + storage configured),
 # exit 2 = not configured. Provider config is read from the environment at run

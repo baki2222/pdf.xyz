@@ -105,8 +105,10 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(worker).toContain("COREPACK_HOME=/home/worker/.cache/node/corepack");
     expect(worker).toMatch(/useradd[\s\S]*--home-dir\s+\/home\/worker[\s\S]*--create-home[\s\S]*worker/);
     expect(worker).toContain("mkdir -p /home/worker/.cache/node/corepack /pnpm");
-    expect(worker).toContain("chown -R worker:worker /home/worker /pnpm");
-    expect(worker.indexOf("chown -R worker:worker /home/worker /pnpm")).toBeLessThan(
+    expect(worker).toContain("chown -R worker:worker /home/worker /pnpm /app");
+    expect(worker).toMatch(/COPY --from=build --chown=worker:worker[\s\S]*\/app\/node_modules/);
+    expect(worker).toMatch(/COPY --from=build --chown=worker:worker[\s\S]*\/app\/src/);
+    expect(worker.indexOf("chown -R worker:worker /home/worker /pnpm /app")).toBeLessThan(
       worker.indexOf("USER worker"),
     );
   });
