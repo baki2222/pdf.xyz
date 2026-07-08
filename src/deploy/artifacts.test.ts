@@ -100,6 +100,17 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(worker).not.toMatch(/^\s*EXPOSE/m);
   });
 
+  it("the worker image owns Corepack/pnpm cache paths before dropping privileges", () => {
+    const worker = stageInstructions(stages, "worker");
+    expect(worker).toContain("COREPACK_HOME=/home/worker/.cache/node/corepack");
+    expect(worker).toMatch(/useradd[\s\S]*--home-dir\s+\/home\/worker[\s\S]*--create-home[\s\S]*worker/);
+    expect(worker).toContain("mkdir -p /home/worker/.cache/node/corepack /pnpm");
+    expect(worker).toContain("chown -R worker:worker /home/worker /pnpm");
+    expect(worker.indexOf("chown -R worker:worker /home/worker /pnpm")).toBeLessThan(
+      worker.indexOf("USER worker"),
+    );
+  });
+
   it("the worker image does not bundle the web build (.next)", () => {
     expect(stageInstructions(stages, "worker")).not.toContain(".next");
   });

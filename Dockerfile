@@ -106,9 +106,14 @@ RUN apt-get update \
       tesseract-ocr-eng \
       poppler-utils \
  && rm -rf /var/lib/apt/lists/*
-# Run as a non-root user.
+# Run as a non-root user. Corepack may need to hydrate pnpm shims at runtime
+# (`docker run … pnpm worker:smoke` in CI), so the worker-owned HOME/cache and
+# PNPM_HOME must exist before `USER worker` or Corepack fails with EACCES.
+ENV COREPACK_HOME=/home/worker/.cache/node/corepack
 RUN groupadd --system --gid 1001 worker \
- && useradd --system --uid 1001 --gid worker worker
+ && useradd --system --uid 1001 --gid worker --home-dir /home/worker --create-home worker \
+ && mkdir -p /home/worker/.cache/node/corepack /pnpm \
+ && chown -R worker:worker /home/worker /pnpm
 # The daemon runs scripts/worker-daemon.ts via tsx, so it needs the source tree
 # and its config — but NOT the web build (`.next` is intentionally not copied).
 COPY --from=build /app/node_modules ./node_modules
