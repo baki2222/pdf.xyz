@@ -25,6 +25,43 @@ export PDFXYZ_QUEUE_PROVIDER=""
 export PDFXYZ_WORKER_MODE=""
 
 fail=0
+smoke_tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pdfxyz-worker-smoke)
+trap 'rm -rf "$smoke_tmp"' EXIT INT TERM
+verified_lifecycle="$smoke_tmp/observed-verified.aws-s3.json"
+drifted_lifecycle="$smoke_tmp/observed-drift-weaker.aws-s3.json"
+cat >"$verified_lifecycle" <<'JSON'
+{
+  "Rules": [
+    { "ID": "expire-inputs-1d", "Filter": { "Prefix": "inputs/" }, "Status": "Enabled", "Expiration": { "Days": 1 } },
+    { "ID": "expire-artifacts-1d", "Filter": { "Prefix": "artifacts/" }, "Status": "Enabled", "Expiration": { "Days": 1 } },
+    {
+      "ID": "cleanup-bucket-versions-and-parts",
+      "Filter": { "Prefix": "" },
+      "Status": "Enabled",
+      "Expiration": { "ExpiredObjectDeleteMarker": true },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+    },
+    { "ID": "archive-app-logs", "Filter": { "Prefix": "logs/" }, "Status": "Enabled", "Expiration": { "Days": 90 } }
+  ]
+}
+JSON
+cat >"$drifted_lifecycle" <<'JSON'
+{
+  "Rules": [
+    { "ID": "expire-inputs-30d", "Filter": { "Prefix": "inputs/" }, "Status": "Enabled", "Expiration": { "Days": 30 } },
+    { "ID": "expire-artifacts-1d", "Filter": { "Prefix": "artifacts/" }, "Status": "Enabled", "Expiration": { "Days": 1 } },
+    {
+      "ID": "cleanup-bucket-versions-and-parts",
+      "Filter": { "Prefix": "" },
+      "Status": "Enabled",
+      "Expiration": { "ExpiredObjectDeleteMarker": true },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+    }
+  ]
+}
+JSON
 
 # check <expected-exit> <label> [daemon flags...]
 check() {
@@ -81,8 +118,8 @@ check 0 "--lifecycle-policy generates offline"     --lifecycle-policy
 # No observed doc ⇒ nothing to verify ⇒ honest not-configured (exit 2). A matching
 # export verifies (0); a drifted export is invalid (4). The app never reads a bucket.
 check 2 "--lifecycle-verify without a doc is unknown"    --lifecycle-verify --provider=aws-s3 --versioned
-check 0 "--lifecycle-verify accepts a matching export"   --lifecycle-verify --provider=aws-s3 --versioned --observed=docs/examples/lifecycle/observed-verified.aws-s3.json
-check 4 "--lifecycle-verify flags a drifted export"      --lifecycle-verify --provider=aws-s3 --versioned --observed=docs/examples/lifecycle/observed-drift-weaker.aws-s3.json
+check 0 "--lifecycle-verify accepts a matching export"   --lifecycle-verify --provider=aws-s3 --versioned --observed="$verified_lifecycle"
+check 4 "--lifecycle-verify flags a drifted export"      --lifecycle-verify --provider=aws-s3 --versioned --observed="$drifted_lifecycle"
 # A selected-but-unsupported provider is a DANGEROUS config: the daemon must fail
 # fast (exit 4, guardrail) instead of silently reporting "not configured".
 check_env 4 "--check rejects a dangerous config"   PDFXYZ_STORAGE_PROVIDER=not-a-real-provider --check

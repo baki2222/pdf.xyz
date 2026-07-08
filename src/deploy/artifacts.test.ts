@@ -222,6 +222,13 @@ describe("worker smoke script is present and honest", () => {
     expect(script).toMatch(/\bcheck_env 4\b/);
   });
 
+  it("generates lifecycle fixtures at runtime so the worker image does not need docs/examples", () => {
+    expect(script).toContain("smoke_tmp=$(mktemp -d");
+    expect(script).toContain("verified_lifecycle=");
+    expect(script).toContain("drifted_lifecycle=");
+    expect(script).not.toContain("--observed=docs/examples/lifecycle/");
+  });
+
   it("never invokes the bare default (loop) mode, which would run forever", () => {
     // Every assertion passes an explicit flag; a bare `worker:daemon` with no mode
     // is the long-running loop and would block the smoke (and CI) indefinitely.
