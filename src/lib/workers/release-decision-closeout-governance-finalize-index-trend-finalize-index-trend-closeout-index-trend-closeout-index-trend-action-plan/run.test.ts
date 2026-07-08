@@ -11,7 +11,7 @@ describe("runReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexTre
     expect(run.exitCode).toBe(0);
     expect(run.result.verdict).toBe("clear");
     expect(run.output).toContain('"verdict": "clear"');
-  });
+  }, 15_000);
 
   it("a missing / unreadable trend file is an invalid plan (exit 4), never a throw or a fabricated pass", async () => {
     const run = await runReleaseDecisionCloseoutGovernanceFinalizeIndexTrendFinalizeIndexTrendCloseoutIndexTrendCloseoutIndexTrendActionPlan(

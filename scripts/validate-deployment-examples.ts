@@ -166,6 +166,8 @@ const FILES = [
   `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-fixture.yml`,
   // Phase 105 — the release decision closeout governance finalize index trend finalize index trend closeout index trend closeout index trend closeout index trend closeout index trend closeout index trend closeout INDEX (index a bounded window of closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout records into one review summary).
   `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-fixture.yml`,
+  // Phase 106 — the release decision closeout governance finalize index trend finalize index trend closeout index trend closeout index trend closeout index trend closeout index trend closeout index TREND (summarize a bounded history of closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index windows into one trend summary).
+  `${DIR}/github-actions/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-fixture.yml`,
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
