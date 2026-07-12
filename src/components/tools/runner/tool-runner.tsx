@@ -12,6 +12,9 @@ import { PdfToTextRunner } from "./pdf-to-text-runner";
 import { TextToPdfRunner } from "./text-to-pdf-runner";
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
 import { PdfToImageRunner } from "./pdf-to-image-runner";
+import { PageNumbersRunner } from "./page-numbers-runner";
+import { WatermarkRunner } from "./watermark-runner";
+import { HeaderFooterRunner } from "./header-footer-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -42,6 +45,12 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <ImageToPdfRunner kind={slug === "png-to-pdf" ? "png" : "jpg"} />;
     case "pdf-to-image":
       return <PdfToImageRunner format={rasterFormatForSlug(slug)} />;
+    case "page-numbers":
+      return <PageNumbersRunner />;
+    case "watermark":
+      return <WatermarkRunner />;
+    case "header-footer":
+      return <HeaderFooterRunner />;
     default:
       return null;
   }

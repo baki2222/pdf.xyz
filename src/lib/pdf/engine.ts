@@ -18,7 +18,12 @@ export class PdfEngineError extends Error {
 
 const PRODUCER = "pdf.xyz";
 
-async function load(bytes: Uint8Array): Promise<PDFDocument> {
+/**
+ * Load PDF bytes into a pdf-lib document, translating pdf-lib's raw failures
+ * into typed, user-facing errors. Exported so text-stamping helpers (page
+ * numbers, watermark, header/footer) share one loader and one set of messages.
+ */
+export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(bytes);
   } catch (err) {
@@ -32,6 +37,11 @@ async function load(bytes: Uint8Array): Promise<PDFDocument> {
       "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
     );
   }
+}
+
+/** Internal alias kept so existing call sites read the same as before. */
+async function load(bytes: Uint8Array): Promise<PDFDocument> {
+  return loadPdf(bytes);
 }
 
 /** Stamp our producer/creator so exported files identify their origin. */

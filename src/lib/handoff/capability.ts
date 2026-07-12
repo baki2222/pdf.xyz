@@ -42,6 +42,9 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "text-to-pdf": "single",
   "image-to-pdf": "batch",
   "pdf-to-image": "single",
+  "page-numbers": "single",
+  watermark: "single",
+  "header-footer": "single",
 };
 
 /** Resolve a tool slug to its handoff capability. */
