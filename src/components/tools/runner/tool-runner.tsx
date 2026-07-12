@@ -1,6 +1,7 @@
 "use client";
 
 import type { RunnerKind } from "@/lib/pdf/registry";
+import { rasterFormatForSlug } from "@/lib/pdf/pdf-to-image";
 import { MergeRunner } from "./merge-runner";
 import { SplitRunner } from "./split-runner";
 import { RotateRunner } from "./rotate-runner";
@@ -10,6 +11,7 @@ import { CompressRunner } from "./compress-runner";
 import { PdfToTextRunner } from "./pdf-to-text-runner";
 import { TextToPdfRunner } from "./text-to-pdf-runner";
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
+import { PdfToImageRunner } from "./pdf-to-image-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -38,6 +40,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <TextToPdfRunner />;
     case "image-to-pdf":
       return <ImageToPdfRunner kind={slug === "png-to-pdf" ? "png" : "jpg"} />;
+    case "pdf-to-image":
+      return <PdfToImageRunner format={rasterFormatForSlug(slug)} />;
     default:
       return null;
   }

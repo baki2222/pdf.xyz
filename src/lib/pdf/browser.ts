@@ -50,16 +50,28 @@ export function downloadBytes(
   downloadBlob(new Blob([toArrayBuffer(bytes)], { type: mime }), filename);
 }
 
+export interface ZipOptions {
+  /**
+   * `DEFLATE` (default) recompresses entries; `STORE` bundles them as-is, which
+   * is the right choice for already-compressed media (PNG/JPEG) where DEFLATE
+   * burns CPU for a near-zero size gain.
+   */
+  compression?: "DEFLATE" | "STORE";
+}
+
 /** Bundle several named byte blobs into a single ZIP archive. */
-export async function zipFiles(files: NamedBytes[]): Promise<Blob> {
+export async function zipFiles(
+  files: NamedBytes[],
+  { compression = "DEFLATE" }: ZipOptions = {},
+): Promise<Blob> {
   const zip = new JSZip();
   for (const file of files) {
     zip.file(file.name, toArrayBuffer(file.bytes));
   }
   return zip.generateAsync({
     type: "blob",
-    compression: "DEFLATE",
-    compressionOptions: { level: 6 },
+    compression,
+    compressionOptions: compression === "DEFLATE" ? { level: 6 } : undefined,
   });
 }
 

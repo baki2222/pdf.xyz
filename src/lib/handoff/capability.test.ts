@@ -29,6 +29,8 @@ describe("handoffCapabilityFor", () => {
       "extract-pages",
       "pdf-to-text",
       "text-to-pdf",
+      "pdf-to-jpg",
+      "pdf-to-png",
     ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "single",
@@ -55,6 +57,11 @@ describe("eligibleFilesFor", () => {
 
   it("keeps only PDFs for a supported PDF tool", () => {
     expect(eligibleFilesFor("merge-pdf", [pdf, png, pdfByExt])).toEqual([pdf, pdfByExt]);
+  });
+
+  it("keeps only PDFs for the PDF-to-image tools", () => {
+    expect(eligibleFilesFor("pdf-to-jpg", [pdf, png, pdfByExt])).toEqual([pdf, pdfByExt]);
+    expect(eligibleFilesFor("pdf-to-png", [pdf, png, pdfByExt])).toEqual([pdf, pdfByExt]);
   });
 
   it("keeps only text files for text-to-pdf", () => {
