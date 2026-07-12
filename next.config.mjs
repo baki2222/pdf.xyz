@@ -35,9 +35,22 @@ function telemetryConnectSrc() {
  *  - 'unsafe-eval' (dev only): React Fast Refresh evaluates modules in dev.
  *  - connect-src telemetry origin: when (and only when) NEXT_PUBLIC_TELEMETRY_ENDPOINT
  *    points at a cross-origin URL, that origin is allowlisted so the privacy-safe
- *    beacon isn't blocked. Unset (the default) or a same-origin path → no change,
- *    so the shipping policy stays same-origin-only.
+ *    beacon isn't blocked.
+ *  - connect-src R2 origin: secure-worker uploads PUT directly to short-lived R2
+ *    signed URLs, so the browser must be allowed to connect to Cloudflare's R2
+ *    S3 endpoint. This is still narrow (R2 only), not a wildcard internet policy.
  */
+function storageConnectSrc() {
+  const extra = process.env.NEXT_PUBLIC_STORAGE_CONNECT_SRC?.trim();
+  const configured = extra
+    ? extra
+        .split(/[\s,]+/)
+        .map((value) => value.trim())
+        .filter((value) => /^https:\/\/([*.a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/.test(value))
+    : [];
+  return ["https://*.r2.cloudflarestorage.com", ...configured].join(" ");
+}
+
 function contentSecurityPolicy() {
   const scriptSrc = [
     "'self'",
@@ -48,9 +61,15 @@ function contentSecurityPolicy() {
     .filter(Boolean)
     .join(" ");
 
-  // Same-origin only in production; dev adds the HMR websocket. A configured,
-  // cross-origin telemetry endpoint (if any) contributes exactly its origin.
-  const connectSrc = ["'self'", isDev ? "ws: wss:" : "", telemetryConnectSrc()]
+  // Same-origin in production, plus the narrow storage endpoint needed for direct
+  // signed uploads. Dev adds the HMR websocket. A configured, cross-origin
+  // telemetry endpoint (if any) contributes exactly its origin.
+  const connectSrc = [
+    "'self'",
+    storageConnectSrc(),
+    isDev ? "ws: wss:" : "",
+    telemetryConnectSrc(),
+  ]
     .filter(Boolean)
     .join(" ");
 

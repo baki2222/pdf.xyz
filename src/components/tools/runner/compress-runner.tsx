@@ -343,6 +343,27 @@ const DEEP_QUALITY = [
 ] as const;
 
 /**
+ * True when the UI may offer the secure-worker deep compression flow.
+ *
+ * Local-dev reports native compression directly in `compress.deep`. Production and
+ * staging are different: the web process never runs the processor, so its
+ * `/api/worker/status` compression facet remains web-vantage/disabled even when a
+ * separate worker daemon is observed and drainable. In that case the job API is
+ * still the honest source of truth: it will run on the worker or return a typed
+ * failure. Gate on configured storage+queue+drainability so staging can actually
+ * use the secure worker instead of trapping users on browser-only lossless repack.
+ */
+export function canRunDeepCompression(status: WorkerStatus | null | undefined): boolean {
+  if (!status) return false;
+  if (status.localDevOnly) return status.compress.deep;
+  return Boolean(
+    status.providers.storage.ready &&
+      status.providers.queue.ready &&
+      status.daemon.drainable,
+  );
+}
+
+/**
  * The secure-worker "deep compression" path. It stays honest about the boundary:
  * this analysis runs on-device, but real image downsampling requires a native
  * engine on a worker. The panel asks `/api/worker/status` and only offers the
@@ -378,8 +399,7 @@ function WorkerDeepPanel({
     };
   }, []);
 
-  const canRunDeep =
-    status != null && status.mode === "local-dev" && status.compress.deep;
+  const canRunDeep = canRunDeepCompression(status);
 
   async function run() {
     setBusy(true);
@@ -403,7 +423,7 @@ function WorkerDeepPanel({
             <span className="text-sm font-medium text-slate-200">
               Deep image compression (secure worker)
             </span>
-            <WorkerBadge status={status} />
+            <WorkerBadge status={status} canRunDeep={canRunDeep} />
           </div>
           <p className="text-sm leading-relaxed text-slate-400">
             Aggressive image downsampling and re-encoding can&apos;t be done
@@ -420,7 +440,7 @@ function WorkerDeepPanel({
         </p>
       ) : canRunDeep ? (
         <DeepRunControls
-          localDevOnly={status.localDevOnly}
+          localDevOnly={status?.localDevOnly ?? false}
           dpi={dpi}
           onDpi={setDpi}
           busy={busy}
@@ -440,13 +460,27 @@ function WorkerDeepPanel({
 }
 
 /** Small status pill: honest about disabled / local-dev / not-enabled. */
-function WorkerBadge({ status }: { status: WorkerStatus | null | undefined }) {
+function WorkerBadge({
+  status,
+  canRunDeep,
+}: {
+  status: WorkerStatus | null | undefined;
+  canRunDeep: boolean;
+}) {
   if (status === undefined) return null;
   if (status?.mode === "local-dev") {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-200">
         <span className="size-1.5 rounded-full bg-amber-400" aria-hidden />
         Local-dev worker
+      </span>
+    );
+  }
+  if (canRunDeep) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-200">
+        <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+        Secure worker
       </span>
     );
   }
