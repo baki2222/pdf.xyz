@@ -9,13 +9,14 @@ import { PageSelectRunner } from "./page-select-runner";
 import { CompressRunner } from "./compress-runner";
 import { PdfToTextRunner } from "./pdf-to-text-runner";
 import { TextToPdfRunner } from "./text-to-pdf-runner";
+import { ImageToPdfRunner } from "./image-to-pdf-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
  * The dynamic tool page decides whether a tool is supported (via the registry)
  * and, if so, mounts this component in place of the placeholder upload panel.
  */
-export function ToolRunner({ kind }: { kind: RunnerKind }) {
+export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
   switch (kind) {
     case "merge":
       return <MergeRunner />;
@@ -35,6 +36,8 @@ export function ToolRunner({ kind }: { kind: RunnerKind }) {
       return <PdfToTextRunner />;
     case "text-to-pdf":
       return <TextToPdfRunner />;
+    case "image-to-pdf":
+      return <ImageToPdfRunner kind={slug === "png-to-pdf" ? "png" : "jpg"} />;
     default:
       return null;
   }

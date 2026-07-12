@@ -40,6 +40,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "extract-pages": "single",
   "pdf-to-text": "single",
   "text-to-pdf": "single",
+  "image-to-pdf": "batch",
 };
 
 /** Resolve a tool slug to its handoff capability. */
@@ -73,6 +74,17 @@ export function eligibleFilesFor<T extends FileMetaLike>(
     return files.filter(
       (file) => file.type === "text/plain" || /\.(txt|text)$/i.test(file.name),
     );
+  }
+  if (slug === "jpg-to-pdf") {
+    return files.filter(
+      (file) =>
+        file.type === "image/jpeg" ||
+        file.type === "image/jpg" ||
+        /\.(jpe?g)$/i.test(file.name),
+    );
+  }
+  if (slug === "png-to-pdf") {
+    return files.filter((file) => file.type === "image/png" || /\.png$/i.test(file.name));
   }
   return files.filter((file) => isLikelyPdf(file));
 }

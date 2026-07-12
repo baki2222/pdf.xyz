@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 import { eligibleFilesFor, handoffCapabilityFor } from "./capability";
 
 describe("handoffCapabilityFor", () => {
-  it("maps merge to collect, compress to batch", () => {
+  it("maps merge to collect, compress and image-to-pdf to batch", () => {
     expect(handoffCapabilityFor("merge-pdf")).toMatchObject({
       mode: "collect",
       supported: true,
       minFiles: 2,
     });
     expect(handoffCapabilityFor("compress-pdf")).toMatchObject({
+      mode: "batch",
+      supported: true,
+      minFiles: 1,
+    });
+    expect(handoffCapabilityFor("jpg-to-pdf")).toMatchObject({
       mode: "batch",
       supported: true,
       minFiles: 1,
@@ -59,6 +64,16 @@ describe("eligibleFilesFor", () => {
       txt,
       textByExt,
     ]);
+  });
+
+  it("keeps only matching images for image-to-pdf tools", () => {
+    const jpg = { name: "photo.jpeg", type: "image/jpeg" };
+    const jpgByExt = { name: "scan.JPG", type: "" };
+    expect(eligibleFilesFor("jpg-to-pdf", [pdf, jpg, jpgByExt, png])).toEqual([
+      jpg,
+      jpgByExt,
+    ]);
+    expect(eligibleFilesFor("png-to-pdf", [pdf, jpg, png])).toEqual([png]);
   });
 
   it("returns nothing for an unsupported tool", () => {
