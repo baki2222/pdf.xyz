@@ -7,6 +7,7 @@ import { RotateRunner } from "./rotate-runner";
 import { OrganizeRunner } from "./organize-runner";
 import { PageSelectRunner } from "./page-select-runner";
 import { CompressRunner } from "./compress-runner";
+import { PdfToTextRunner } from "./pdf-to-text-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -29,6 +30,8 @@ export function ToolRunner({ kind }: { kind: RunnerKind }) {
       return <OrganizeRunner />;
     case "compress":
       return <CompressRunner />;
+    case "pdf-to-text":
+      return <PdfToTextRunner />;
     default:
       return null;
   }

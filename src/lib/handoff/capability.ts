@@ -37,6 +37,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   split: "single",
   "delete-pages": "single",
   "extract-pages": "single",
+  "pdf-to-text": "single",
 };
 
 /** Resolve a tool slug to its handoff capability. */

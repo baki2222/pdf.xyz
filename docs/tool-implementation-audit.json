@@ -1,0 +1,68 @@
+{
+  "catalog_count": 50,
+  "supported_runner_count": 7,
+  "supported_runners": [
+    "merge-pdf",
+    "split-pdf",
+    "rotate-pdf",
+    "remove-pages",
+    "extract-pages",
+    "organize-pages",
+    "compress-pdf"
+  ],
+  "processor_tools": [
+    "compress-pdf",
+    "ocr-pdf"
+  ],
+  "missing_count": 43,
+  "client_missing": [
+    "extract-images",
+    "grayscale-pdf",
+    "jpg-to-pdf",
+    "png-to-pdf",
+    "text-to-pdf",
+    "pdf-to-jpg",
+    "pdf-to-png",
+    "pdf-to-text",
+    "edit-pdf",
+    "annotate-pdf",
+    "page-numbers",
+    "watermark-pdf",
+    "crop-pdf",
+    "header-footer",
+    "overlay-pdf",
+    "sign-pdf",
+    "fill-forms",
+    "create-forms",
+    "redact-pdf",
+    "flatten-pdf"
+  ],
+  "hybrid_missing": [
+    "markdown-to-pdf",
+    "protect-pdf",
+    "unlock-pdf"
+  ],
+  "server_or_ai_missing_count": 20,
+  "server_or_ai_missing": [
+    "ocr-pdf",
+    "repair-pdf",
+    "optimize-web",
+    "word-to-pdf",
+    "excel-to-pdf",
+    "powerpoint-to-pdf",
+    "html-to-pdf",
+    "webpage-to-pdf",
+    "pdf-to-word",
+    "pdf-to-excel",
+    "pdf-to-powerpoint",
+    "pdf-to-pdfa",
+    "pdf-to-markdown",
+    "extract-tables",
+    "request-signatures",
+    "compare-pdf",
+    "chat-with-pdf",
+    "summarize-pdf",
+    "translate-pdf",
+    "ai-extract"
+  ]
+}
