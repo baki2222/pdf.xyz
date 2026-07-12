@@ -13,7 +13,8 @@ export type RunnerKind =
   | "extract-pages"
   | "organize"
   | "compress"
-  | "pdf-to-text";
+  | "pdf-to-text"
+  | "text-to-pdf";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -24,6 +25,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "organize-pages": "organize",
   "compress-pdf": "compress",
   "pdf-to-text": "pdf-to-text",
+  "text-to-pdf": "text-to-pdf",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {

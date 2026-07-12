@@ -22,6 +22,8 @@ describe("handoffCapabilityFor", () => {
       "split-pdf",
       "remove-pages",
       "extract-pages",
+      "pdf-to-text",
+      "text-to-pdf",
     ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "single",
@@ -46,8 +48,17 @@ describe("eligibleFilesFor", () => {
   const pdfByExt = { name: "b.PDF", type: "" };
   const png = { name: "c.png", type: "image/png" };
 
-  it("keeps only PDFs for a supported tool", () => {
+  it("keeps only PDFs for a supported PDF tool", () => {
     expect(eligibleFilesFor("merge-pdf", [pdf, png, pdfByExt])).toEqual([pdf, pdfByExt]);
+  });
+
+  it("keeps only text files for text-to-pdf", () => {
+    const txt = { name: "notes.txt", type: "text/plain" };
+    const textByExt = { name: "readme.TEXT", type: "" };
+    expect(eligibleFilesFor("text-to-pdf", [pdf, txt, png, textByExt])).toEqual([
+      txt,
+      textByExt,
+    ]);
   });
 
   it("returns nothing for an unsupported tool", () => {
