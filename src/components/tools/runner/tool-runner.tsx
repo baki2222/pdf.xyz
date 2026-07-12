@@ -18,6 +18,7 @@ import { HeaderFooterRunner } from "./header-footer-runner";
 import { CropRunner } from "./crop-runner";
 import { SignRunner } from "./sign-runner";
 import { FlattenRunner } from "./flatten-runner";
+import { OverlayRunner } from "./overlay-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -60,6 +61,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <SignRunner />;
     case "flatten":
       return <FlattenRunner />;
+    case "overlay":
+      return <OverlayRunner />;
     default:
       return null;
   }

@@ -1,6 +1,6 @@
 {
   "catalog_count": 50,
-  "supported_runner_count": 19,
+  "supported_runner_count": 20,
   "supported_runners": [
     "compress-pdf",
     "crop-pdf",
@@ -10,6 +10,7 @@
     "jpg-to-pdf",
     "merge-pdf",
     "organize-pages",
+    "overlay-pdf",
     "page-numbers",
     "pdf-to-jpg",
     "pdf-to-png",
@@ -22,13 +23,12 @@
     "text-to-pdf",
     "watermark-pdf"
   ],
-  "missing_count": 31,
+  "missing_count": 30,
   "client_missing": [
     "extract-images",
     "grayscale-pdf",
     "edit-pdf",
     "annotate-pdf",
-    "overlay-pdf",
     "fill-forms",
     "create-forms",
     "redact-pdf"
@@ -62,7 +62,7 @@
     "ai-extract"
   ],
   "missing_by_processing": {
-    "client": 8,
+    "client": 7,
     "server": 15,
     "hybrid": 3,
     "ai": 5
@@ -72,7 +72,7 @@
     "optimize": 4,
     "convert-to": 6,
     "convert-from": 6,
-    "edit": 3,
+    "edit": 2,
     "sign": 3,
     "security": 4,
     "ai": 4

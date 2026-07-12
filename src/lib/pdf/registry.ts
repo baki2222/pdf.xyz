@@ -22,7 +22,8 @@ export type RunnerKind =
   | "header-footer"
   | "crop"
   | "sign"
-  | "flatten";
+  | "flatten"
+  | "overlay";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -44,6 +45,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "crop-pdf": "crop",
   "sign-pdf": "sign",
   "flatten-pdf": "flatten",
+  "overlay-pdf": "overlay",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {
