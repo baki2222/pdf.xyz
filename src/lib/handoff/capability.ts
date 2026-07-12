@@ -45,6 +45,9 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "page-numbers": "single",
   watermark: "single",
   "header-footer": "single",
+  crop: "single",
+  sign: "single",
+  flatten: "single",
 };
 
 /** Resolve a tool slug to its handoff capability. */

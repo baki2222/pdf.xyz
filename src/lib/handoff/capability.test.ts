@@ -34,6 +34,9 @@ describe("handoffCapabilityFor", () => {
       "page-numbers",
       "watermark-pdf",
       "header-footer",
+      "crop-pdf",
+      "sign-pdf",
+      "flatten-pdf",
     ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "single",

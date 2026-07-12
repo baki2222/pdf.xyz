@@ -15,6 +15,9 @@ import { PdfToImageRunner } from "./pdf-to-image-runner";
 import { PageNumbersRunner } from "./page-numbers-runner";
 import { WatermarkRunner } from "./watermark-runner";
 import { HeaderFooterRunner } from "./header-footer-runner";
+import { CropRunner } from "./crop-runner";
+import { SignRunner } from "./sign-runner";
+import { FlattenRunner } from "./flatten-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -51,6 +54,12 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <WatermarkRunner />;
     case "header-footer":
       return <HeaderFooterRunner />;
+    case "crop":
+      return <CropRunner />;
+    case "sign":
+      return <SignRunner />;
+    case "flatten":
+      return <FlattenRunner />;
     default:
       return null;
   }

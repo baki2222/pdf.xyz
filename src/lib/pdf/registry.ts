@@ -19,7 +19,10 @@ export type RunnerKind =
   | "pdf-to-image"
   | "page-numbers"
   | "watermark"
-  | "header-footer";
+  | "header-footer"
+  | "crop"
+  | "sign"
+  | "flatten";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -38,6 +41,9 @@ const RUNNERS: Record<string, RunnerKind> = {
   "page-numbers": "page-numbers",
   "watermark-pdf": "watermark",
   "header-footer": "header-footer",
+  "crop-pdf": "crop",
+  "sign-pdf": "sign",
+  "flatten-pdf": "flatten",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {

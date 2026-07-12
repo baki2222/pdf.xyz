@@ -544,6 +544,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["crop pdf", "trim margins", "cut pdf", "resize pages"],
     related: ["rotate-pdf", "organize-pages", "edit-pdf"],
+    how: [
+      "Open the PDF you want to crop.",
+      "Set the crop margins and choose which pages to apply them to.",
+      "Download your cropped PDF.",
+    ],
   },
   {
     slug: "header-footer",
@@ -688,16 +693,21 @@ export const tools: Tool[] = [
   {
     slug: "flatten-pdf",
     name: "Flatten PDF",
-    tagline: "Merge layers, forms, and markup.",
+    tagline: "Lock fillable form fields into the page.",
     description:
-      "Flatten form fields, annotations, and layers into the page so they can't be changed.",
+      "Flatten fillable AcroForm fields into the page so their values become permanent and can't be edited. Other annotations and layers are kept as-is.",
     category: "security",
     icon: "flatten",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["flatten pdf", "flatten form", "merge layers", "lock content"],
+    keywords: ["flatten pdf", "flatten form", "lock form fields", "lock content"],
     related: ["fill-forms", "redact-pdf", "protect-pdf"],
+    how: [
+      "Open a PDF with fillable form fields.",
+      "We flatten those AcroForm fields into the page content.",
+      "Download a PDF whose field values can no longer be edited.",
+    ],
   },
   {
     slug: "compare-pdf",
