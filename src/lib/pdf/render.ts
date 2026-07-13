@@ -269,6 +269,10 @@ export interface RasterPage {
   width: number;
   /** Rendered bitmap height, in device pixels. */
   height: number;
+  /** Source page width, in PDF points. */
+  pageWidth: number;
+  /** Source page height, in PDF points. */
+  pageHeight: number;
 }
 
 export interface RasterizeOptions {
@@ -280,6 +284,8 @@ export interface RasterizeOptions {
   quality?: number;
   /** Canvas background; defaults to white (JPEG has no alpha channel). */
   background?: string;
+  /** Convert rendered pixels to grayscale before encoding. */
+  grayscale?: boolean;
   /** Abort promptly between and within pages. */
   signal?: AbortSignal;
   /** Invoked as each page finishes, in page order. */
@@ -305,6 +311,7 @@ export async function rasterizePdf(
     dpi = 150,
     quality,
     background = "#ffffff",
+    grayscale = false,
     signal,
     onPage,
     onProgress,
@@ -362,6 +369,7 @@ export async function rasterizePdf(
           break;
         }
 
+        if (grayscale) grayscaleCanvas(canvas);
         const imageBytes = await canvasToImageBytes(canvas, mime, encodeQuality);
         // Release the backing bitmap now that the image is encoded.
         canvas.width = 0;
@@ -374,7 +382,14 @@ export async function rasterizePdf(
           );
         }
 
-        const rendered: RasterPage = { index: i, bytes: imageBytes, width, height };
+        const rendered: RasterPage = {
+          index: i,
+          bytes: imageBytes,
+          width,
+          height,
+          pageWidth: base.width,
+          pageHeight: base.height,
+        };
         pages.push(rendered);
         onPage?.(rendered);
         onProgress?.(pages.length, total);
@@ -397,6 +412,24 @@ export async function rasterizePdf(
   }
 
   return pages;
+}
+
+/** Convert RGBA image data to luminance grayscale in-place. */
+export function grayscaleImageData(data: Uint8ClampedArray): void {
+  for (let i = 0; i + 2 < data.length; i += 4) {
+    const gray = Math.round(data[i]! * 0.299 + data[i + 1]! * 0.587 + data[i + 2]! * 0.114);
+    data[i] = gray;
+    data[i + 1] = gray;
+    data[i + 2] = gray;
+  }
+}
+
+function grayscaleCanvas(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  grayscaleImageData(image.data);
+  ctx.putImageData(image, 0, 0);
 }
 
 /** Encode a canvas to image bytes, falling back to a data URL when needed. */

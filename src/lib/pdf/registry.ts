@@ -23,7 +23,8 @@ export type RunnerKind =
   | "crop"
   | "sign"
   | "flatten"
-  | "overlay";
+  | "overlay"
+  | "grayscale";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -46,6 +47,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "sign-pdf": "sign",
   "flatten-pdf": "flatten",
   "overlay-pdf": "overlay",
+  "grayscale-pdf": "grayscale",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {

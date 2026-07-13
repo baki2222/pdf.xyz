@@ -193,7 +193,7 @@ export const tools: Tool[] = [
     name: "Grayscale PDF",
     tagline: "Convert to black & white to save ink.",
     description:
-      "Convert a color PDF to grayscale for cleaner printing and smaller files.",
+      "Render each page to grayscale and rebuild a print-friendly PDF. This flattens selectable text and vectors into page images.",
     category: "optimize",
     icon: "grayscale",
     processing: "client",
