@@ -150,7 +150,7 @@ async function readError(
  * result. Returns the downloaded bytes or an honest, typed failure. The `options`
  * object is the ONLY place the password travels, and only in the job-create body.
  */
-async function runSecurityJob(
+export async function runSecurityJob(
   tool: string,
   filename: string,
   bytes: Uint8Array,

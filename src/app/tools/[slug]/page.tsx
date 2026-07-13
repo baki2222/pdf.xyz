@@ -27,6 +27,7 @@ import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { WorkerPreview } from "@/components/tools/worker-preview";
 import { OcrWorkerPanel } from "@/components/tools/ocr-worker-panel";
 import { PdfSecurityWorkerPanel } from "@/components/tools/pdf-security-worker-panel";
+import { PdfStructureWorkerPanel } from "@/components/tools/pdf-structure-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -276,6 +277,12 @@ export default async function ToolPage({
                    capability check, real job path with a masked password field). */
                 <ErrorBoundary boundary="pdf-security-worker-panel">
                   <PdfSecurityWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "repair-pdf" || tool.slug === "optimize-web" ? (
+                /* Repair / Optimize for Web: qpdf-backed structure operations with
+                   the same honest secure-worker lifecycle and real output download. */
+                <ErrorBoundary boundary="pdf-structure-worker-panel">
+                  <PdfStructureWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */
