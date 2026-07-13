@@ -25,6 +25,7 @@ export type RunnerKind =
   | "flatten"
   | "overlay"
   | "grayscale"
+  | "redact"
   | "fill-forms"
   | "create-forms";
 
@@ -50,6 +51,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "flatten-pdf": "flatten",
   "overlay-pdf": "overlay",
   "grayscale-pdf": "grayscale",
+  "redact-pdf": "redact",
   "fill-forms": "fill-forms",
   "create-forms": "create-forms",
 };

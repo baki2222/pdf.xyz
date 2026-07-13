@@ -275,6 +275,24 @@ export interface RasterPage {
   pageHeight: number;
 }
 
+/**
+ * The rendered-canvas context handed to an {@link RasterizeOptions.onCanvas}
+ * hook: the bitmap size (device px) plus the source page size (PDF points), so a
+ * caller can map point-space geometry onto the pixels.
+ */
+export interface RasterCanvasInfo {
+  /** 0-based index of the source page. */
+  index: number;
+  /** Rendered bitmap width, in device pixels. */
+  width: number;
+  /** Rendered bitmap height, in device pixels. */
+  height: number;
+  /** Source page width, in PDF points. */
+  pageWidth: number;
+  /** Source page height, in PDF points. */
+  pageHeight: number;
+}
+
 export interface RasterizeOptions {
   /** Output image format. */
   format: RasterFormat;
@@ -286,6 +304,12 @@ export interface RasterizeOptions {
   background?: string;
   /** Convert rendered pixels to grayscale before encoding. */
   grayscale?: boolean;
+  /**
+   * Mutate each page's canvas in place just before it is encoded — after any
+   * grayscale pass. Used to paint solid redaction boxes directly over the
+   * pixels so the underlying content is destroyed, not merely covered.
+   */
+  onCanvas?: (canvas: HTMLCanvasElement, page: RasterCanvasInfo) => void;
   /** Abort promptly between and within pages. */
   signal?: AbortSignal;
   /** Invoked as each page finishes, in page order. */
@@ -312,6 +336,7 @@ export async function rasterizePdf(
     quality,
     background = "#ffffff",
     grayscale = false,
+    onCanvas,
     signal,
     onPage,
     onProgress,
@@ -370,6 +395,15 @@ export async function rasterizePdf(
         }
 
         if (grayscale) grayscaleCanvas(canvas);
+        // Let the caller paint over the pixels (e.g. redaction boxes) before the
+        // image is encoded — this is what makes the covered content unrecoverable.
+        onCanvas?.(canvas, {
+          index: i,
+          width,
+          height,
+          pageWidth: base.width,
+          pageHeight: base.height,
+        });
         const imageBytes = await canvasToImageBytes(canvas, mime, encodeQuality);
         // Release the backing bitmap now that the image is encoded.
         canvas.width = 0;

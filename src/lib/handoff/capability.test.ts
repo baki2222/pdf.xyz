@@ -39,6 +39,7 @@ describe("handoffCapabilityFor", () => {
       "flatten-pdf",
       "overlay-pdf",
       "grayscale-pdf",
+      "redact-pdf",
       "fill-forms",
       "create-forms",
     ]) {

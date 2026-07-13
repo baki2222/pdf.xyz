@@ -50,6 +50,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   flatten: "single",
   overlay: "single",
   grayscale: "single",
+  redact: "single",
   "fill-forms": "single",
   "create-forms": "single",
 };

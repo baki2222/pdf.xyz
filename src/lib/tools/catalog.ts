@@ -680,7 +680,7 @@ export const tools: Tool[] = [
     name: "Redact PDF",
     tagline: "Permanently black out sensitive data.",
     description:
-      "Draw redactions to permanently remove text and images — not just cover them up.",
+      "Cover sensitive areas with solid boxes, then rebuild each page as a flattened image so the text and vectors underneath are permanently removed — not just hidden.",
     category: "security",
     icon: "redact",
     processing: "client",
@@ -689,6 +689,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["redact pdf", "black out", "remove sensitive", "hide text"],
     related: ["flatten-pdf", "annotate-pdf", "protect-pdf"],
+    how: [
+      "Add your PDF — everything runs privately in your browser.",
+      "Add redaction boxes by page and position, in PDF points from the bottom-left.",
+      "Download a rasterized PDF whose pages are flattened images with the content erased under each box.",
+    ],
   },
   {
     slug: "flatten-pdf",
