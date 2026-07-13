@@ -21,6 +21,10 @@ import {
   type OcrCapability,
   type OcrEngineAvailability,
 } from "./ocr";
+import {
+  buildSecurityCapability,
+  type SecurityCapability,
+} from "./pdf-security/capability";
 import { getProviderReadiness, type WorkerProviders } from "./providers";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./daemon/readiness";
 
@@ -49,6 +53,13 @@ export interface WorkerStatus {
   compress: CompressCapability;
   /** What the worker can do for the OCR tool right now (its own honest detail). */
   ocr: OcrCapability;
+  /**
+   * What the worker can do for the Protect / Unlock (qpdf) tools right now. Like
+   * OCR, this is presence-only and honest: `available` only where the web process
+   * can confirm the engine (local-dev with qpdf on PATH); elsewhere the UI decides
+   * whether to offer the flow from provider/daemon readiness.
+   */
+  security: SecurityCapability;
   /**
    * Presence-only readiness of the three providers behind the adapter — object
    * storage, job queue, and the processor. Lets the UI distinguish which piece
@@ -82,8 +93,13 @@ export function buildWorkerStatus(
   tools?: ToolAvailability,
   ocrEngines?: OcrEngineAvailability,
   env: Record<string, string | undefined> = process.env,
+  securityQpdf?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(mode, ocrEngines);
+  // Protect/unlock run on qpdf. The route can pass a dedicated qpdf-security probe;
+  // absent that, fall back to the qpdf presence the compression probe already found,
+  // so local-dev status reflects it without any extra wiring.
+  const security = buildSecurityCapability(mode, securityQpdf ?? tools?.qpdf);
   const providers = getProviderReadiness(mode, env);
   const daemon = resolveDaemonReadiness(env);
 
@@ -99,6 +115,7 @@ export function buildWorkerStatus(
         : "Local-dev worker enabled, but no native engine (Ghostscript, qpdf, or mutool) is installed, so deep image compression can't run here. Install one to enable it.",
       compress: { lossless: true, deep, engines },
       ocr,
+      security,
       providers,
       daemon,
     };
@@ -113,6 +130,7 @@ export function buildWorkerStatus(
         "A worker backend is configured, but this build ships no processing pipeline yet.",
       compress: { ...NO_COMPRESS },
       ocr,
+      security,
       providers,
       daemon,
     };
@@ -126,6 +144,7 @@ export function buildWorkerStatus(
       "No secure worker is configured in this environment. Deep image compression runs on an encrypted, auto-deleting worker when enabled.",
     compress: { ...NO_COMPRESS },
     ocr,
+    security,
     providers,
     daemon,
   };

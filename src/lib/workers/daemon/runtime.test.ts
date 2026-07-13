@@ -45,8 +45,12 @@ describe("resolveWorkerRuntime — gating", () => {
     const runtime = resolveWorkerRuntime({}, { compression: noEngines });
     expect(runtime.executor).toBeUndefined();
     expect(runtime.blocked).toBe("not_configured");
-    // Processors are still reported honestly (compression lossless + OCR).
-    expect(runtime.processors.map((p) => p.id).sort()).toEqual(["compression", "ocr"]);
+    // Processors are still reported honestly (compression lossless + OCR + PDF security).
+    expect(runtime.processors.map((p) => p.id).sort()).toEqual([
+      "compression",
+      "ocr",
+      "pdf-security",
+    ]);
   });
 
   it("blocks on storage when the queue is drainable but storage is absent", () => {

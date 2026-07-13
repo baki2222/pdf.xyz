@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { createLocalDevAdapter } from "./local-dev";
 import { disabledSoundnessGate } from "./soundness";
+import { disabledArtifactManifestGate } from "./artifacts/gate";
 import { DevWorkerStore } from "./store";
 import type { CompressionDeps } from "./compression/engine";
+import type { QpdfRunner } from "./pdf-security/engine";
 import type { WorkerAdapter } from "./types";
 
 async function makePdf(pages = 4): Promise<Uint8Array> {
@@ -342,5 +344,125 @@ describe("local-dev worker — compression job flow", () => {
     const res = await adapter.cancelJob("job_deadbeef00");
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.body.error.code).toBe("not_found");
+  });
+});
+
+describe("local-dev worker — PDF security (protect/unlock) flow", () => {
+  let store: DevWorkerStore;
+
+  beforeEach(() => {
+    store = new DevWorkerStore();
+  });
+
+  // A structurally-valid PDF carrying a content marker so a fake qpdf runner can
+  // report "encrypted" by inspecting bytes (robust to any copying the store does),
+  // never by object identity.
+  function taggedPdf(tag: string): Uint8Array {
+    return new TextEncoder().encode(
+      `%PDF-1.7\n%tag:${tag}\n${"0".repeat(64)}\n%%EOF\n`,
+    );
+  }
+  const isTagged = (bytes: Uint8Array, tag: string): boolean =>
+    new TextDecoder().decode(bytes).includes(`tag:${tag}`);
+
+  const fakeQpdf = (over: Partial<QpdfRunner> = {}): QpdfRunner => ({
+    isEncrypted: async (b) => isTagged(b, "ENC"),
+    protect: async () => taggedPdf("ENC"),
+    unlock: async () => ({ ok: true, output: taggedPdf("DEC") }),
+    ...over,
+  });
+
+  const adapterWith = (qpdf: QpdfRunner): WorkerAdapter =>
+    createLocalDevAdapter({
+      store,
+      compressionDeps: noEngines,
+      pdfSecurityDeps: { qpdf },
+      // Isolate the security logic from the structural gates (exercised elsewhere).
+      soundness: disabledSoundnessGate(),
+      artifactManifest: disabledArtifactManifestGate(),
+    });
+
+  async function seed(
+    adapter: WorkerAdapter,
+    tool: string,
+    bytes: Uint8Array,
+    filename = "report.pdf",
+  ): Promise<string> {
+    const session = await adapter.createUploadSession({
+      tool,
+      files: [{ filename, contentType: "application/pdf", bytes: bytes.byteLength }],
+    });
+    if (!session.ok) throw new Error("upload session should succeed");
+    const slot = session.value.slots[0];
+    if (!slot) throw new Error("session should mint a slot");
+    store.putBytes(slot.fileId, bytes);
+    return slot.fileId;
+  }
+
+  it("protects a PDF end to end, names the artifact, and wipes the input", async () => {
+    const adapter = adapterWith(fakeQpdf());
+    const fileId = await seed(adapter, "protect-pdf", taggedPdf("PLAIN"), "statement.pdf");
+
+    const created = await adapter.createJob({
+      tool: "protect-pdf",
+      inputs: [fileId],
+      inputNames: ["statement.pdf"],
+      options: { password: "s3cret-PW", keyLength: 256 },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const job = created.value;
+    expect(job.status).toBe("completed");
+    expect(job.artifacts?.[0]?.filename).toBe("statement-protected.pdf");
+    // The password never appears anywhere in the persisted job record.
+    expect(JSON.stringify(job)).not.toContain("s3cret-PW");
+    // The input is wiped right after processing (retention contract).
+    expect(store.getSlot(fileId)).toBeUndefined();
+  });
+
+  it("unlocks a PDF end to end", async () => {
+    const adapter = adapterWith(fakeQpdf());
+    const fileId = await seed(adapter, "unlock-pdf", taggedPdf("ENC"), "locked.pdf");
+    const created = await adapter.createJob({
+      tool: "unlock-pdf",
+      inputs: [fileId],
+      inputNames: ["locked.pdf"],
+      options: { password: "s3cret-PW" },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.value.status).toBe("completed");
+    expect(created.value.artifacts?.[0]?.filename).toBe("locked-unlocked.pdf");
+    expect(JSON.stringify(created.value)).not.toContain("s3cret-PW");
+  });
+
+  it("rejects a missing password with a 4xx before creating a job", async () => {
+    const adapter = adapterWith(fakeQpdf());
+    const fileId = await seed(adapter, "protect-pdf", taggedPdf("PLAIN"));
+    const created = await adapter.createJob({
+      tool: "protect-pdf",
+      inputs: [fileId],
+      options: {},
+    });
+    expect(created.ok).toBe(false);
+    if (!created.ok) expect(created.error.body.error.code).toBe("invalid_request");
+  });
+
+  it("maps a wrong unlock password to a failed job, password-free", async () => {
+    const adapter = adapterWith(
+      fakeQpdf({ unlock: async () => ({ ok: false, wrongPassword: true }) }),
+    );
+    const fileId = await seed(adapter, "unlock-pdf", taggedPdf("ENC"), "locked.pdf");
+    const created = await adapter.createJob({
+      tool: "unlock-pdf",
+      inputs: [fileId],
+      options: { password: "WRONG-PW-9" },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.value.status).toBe("failed");
+    expect(created.value.error?.code).toBe("unprocessable_entity");
+    expect(created.value.error?.retryable).toBe(false);
+    expect(JSON.stringify(created.value)).not.toContain("WRONG-PW-9");
   });
 });

@@ -661,10 +661,10 @@ export const tools: Tool[] = [
     name: "Protect PDF",
     tagline: "Encrypt with a password.",
     description:
-      "Add a password and strong encryption to control who can open and edit a PDF.",
+      "Add a password and real AES encryption (qpdf) so only people with the password can open your PDF. Encryption runs on an encrypted, auto-deleting secure worker.",
     category: "security",
     icon: "protect",
-    processing: "hybrid",
+    processing: "server",
     badge: "popular",
     accept: ["PDF"],
     outputs: ["PDF"],
@@ -674,12 +674,12 @@ export const tools: Tool[] = [
   {
     slug: "unlock-pdf",
     name: "Unlock PDF",
-    tagline: "Remove passwords you own.",
+    tagline: "Remove a password you know.",
     description:
-      "Remove password protection from PDFs you have the right to access.",
+      "Remove the password from a PDF you can already open: enter its password and download an unprotected copy. It can't recover or bypass an unknown password — you provide the one that works.",
     category: "security",
     icon: "unlock",
-    processing: "hybrid",
+    processing: "server",
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["unlock pdf", "remove password", "decrypt pdf", "open pdf"],

@@ -9,14 +9,17 @@
  */
 
 import type { CompressionDeps } from "../compression/engine";
+import type { PdfSecurityDeps } from "../pdf-security/engine";
 import { ProcessorRegistry } from "./registry";
 import { createCompressionProcessor } from "./compression";
 import { createOcrProcessor, type OcrProcessorDeps } from "./ocr";
+import { createPdfSecurityProcessor } from "./pdf-security";
 
 export * from "./types";
 export * from "./registry";
 export * from "./compression";
 export * from "./ocr";
+export * from "./pdf-security";
 
 /** Dependencies for the standard secure-worker processor set. */
 export interface SecureWorkerProcessorDeps {
@@ -24,13 +27,17 @@ export interface SecureWorkerProcessorDeps {
   compression?: CompressionDeps;
   /** OCR dependencies (engine availability + runner); none ships by default. */
   ocr?: OcrProcessorDeps;
+  /** PDF security (protect/unlock) dependencies — qpdf runner + limits. */
+  pdfSecurity?: PdfSecurityDeps;
 }
 
 /**
- * Build a registry with the standard processors wired. Compression is registered
- * only when its dependencies are supplied (the executor/adapter pass a live PATH
- * probe); OCR is always registered so its honest `not_implemented` capability is
- * discoverable, and it flips on the moment a runner is provided.
+ * Build a registry with the standard processors wired. Compression and PDF
+ * security are registered only when their dependencies are supplied (the
+ * executor/adapter pass a live PATH probe; with no qpdf wired, the PDF-security
+ * processor is still honestly not-ready and fails as `not_implemented`). OCR is
+ * always registered so its honest `not_implemented` capability is discoverable,
+ * and it flips on the moment a runner is provided.
  */
 export function createProcessorRegistry(
   deps: SecureWorkerProcessorDeps = {},
@@ -40,5 +47,8 @@ export function createProcessorRegistry(
     registry.register(createCompressionProcessor(deps.compression));
   }
   registry.register(createOcrProcessor(deps.ocr ?? {}));
+  if (deps.pdfSecurity) {
+    registry.register(createPdfSecurityProcessor(deps.pdfSecurity));
+  }
   return registry;
 }

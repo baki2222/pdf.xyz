@@ -78,6 +78,33 @@ describe("buildWorkerStatus", () => {
     expect(status.detail).toContain("qpdf");
   });
 
+  it("reports the protect/unlock (qpdf) security facet honestly", () => {
+    // Explicit qpdf-security probe wins.
+    const withProbe = buildWorkerStatus(
+      "local-dev",
+      undefined,
+      undefined,
+      {},
+      true,
+    );
+    expect(withProbe.security.available).toBe(true);
+    expect(withProbe.security.operations).toEqual(["protect", "unlock"]);
+
+    // Absent an explicit probe, it falls back to the compression qpdf presence.
+    const fromTools = buildWorkerStatus("local-dev", {
+      ghostscript: false,
+      qpdf: true,
+      mutool: false,
+    });
+    expect(fromTools.security.available).toBe(true);
+
+    // No qpdf anywhere ⇒ unavailable.
+    expect(buildWorkerStatus("local-dev", noTools).security.available).toBe(false);
+    // The web process never claims availability for a remote worker's engine.
+    expect(buildWorkerStatus("remote-configured").security.available).toBe(false);
+    expect(buildWorkerStatus("disabled").security.available).toBe(false);
+  });
+
   it("treats missing tool data in local-dev as no deep engine", () => {
     const status = buildWorkerStatus("local-dev");
     expect(status.compress.lossless).toBe(true);

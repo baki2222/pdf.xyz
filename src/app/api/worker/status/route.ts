@@ -34,12 +34,18 @@ export async function GET(request: Request): Promise<Response> {
   const mode = resolveWorkerMode();
 
   let tools: ToolAvailability | undefined;
+  let securityQpdf: boolean | undefined;
   if (mode === "local-dev") {
     // Config-aware probe: honors the native-compression enable flag, engine pin,
     // and binary-path overrides, so the client status matches what the worker will
     // actually run. Reports engine *names* only — never a path or variable value.
     const { probeNativeTools } = await import("@/lib/workers/compression/native");
     tools = probeNativeTools(process.env);
+    // Dedicated qpdf-security probe (honors the PDF-security enable flag / binary
+    // override), so protect/unlock availability is decoupled from compression's
+    // engine pin. Presence-only — reports a boolean, never a path.
+    const { probeQpdf } = await import("@/lib/workers/pdf-security/native");
+    securityQpdf = probeQpdf(process.env);
   }
 
   // OCR is intentionally NOT probed: this build ships no OCR pipeline in any
@@ -47,5 +53,5 @@ export async function GET(request: Request): Promise<Response> {
   // `buildWorkerStatus` report OCR honestly unavailable everywhere. When a real
   // OCR processor is wired behind the adapter, probe it here (presence-only),
   // exactly like compression, and pass the result as the third argument.
-  return respond(ok(buildWorkerStatus(mode, tools)));
+  return respond(ok(buildWorkerStatus(mode, tools, undefined, process.env, securityQpdf)));
 }

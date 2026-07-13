@@ -27,6 +27,11 @@ const DISABLED: WorkerStatus = {
     detail:
       "OCR needs a secure worker with a native OCR engine, which isn't enabled in this environment — nothing is uploaded and no text is produced here.",
   },
+  security: {
+    available: false,
+    operations: ["protect", "unlock"],
+    detail: "PDF password protection isn't enabled here.",
+  },
   providers: getProviderReadiness("disabled"),
   daemon: resolveDaemonReadiness({}),
 };
@@ -42,6 +47,11 @@ const AVAILABLE: WorkerStatus = {
     engine: "ocrmypdf",
     languages: [...OCR_LANGUAGE_CODES],
     detail: "OCR runs on ocrmypdf on an encrypted, auto-deleting secure worker.",
+  },
+  security: {
+    available: false,
+    operations: ["protect", "unlock"],
+    detail: "PDF password protection runs on the secure worker.",
   },
   providers: getProviderReadiness("remote-configured"),
   daemon: resolveDaemonReadiness({}),
