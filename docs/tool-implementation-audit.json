@@ -1,8 +1,9 @@
 {
   "catalog_count": 50,
-  "supported_runner_count": 22,
+  "supported_runner_count": 23,
   "supported_runners": [
     "compress-pdf",
+    "create-forms",
     "crop-pdf",
     "extract-pages",
     "fill-forms",
@@ -25,12 +26,11 @@
     "text-to-pdf",
     "watermark-pdf"
   ],
-  "missing_count": 28,
+  "missing_count": 27,
   "client_missing": [
     "extract-images",
     "edit-pdf",
     "annotate-pdf",
-    "create-forms",
     "redact-pdf"
   ],
   "hybrid_missing": [
@@ -62,7 +62,7 @@
     "ai-extract"
   ],
   "missing_by_processing": {
-    "client": 5,
+    "client": 4,
     "server": 15,
     "hybrid": 3,
     "ai": 5
@@ -73,7 +73,7 @@
     "convert-to": 6,
     "convert-from": 6,
     "edit": 2,
-    "sign": 2,
+    "sign": 1,
     "security": 4,
     "ai": 4
   }

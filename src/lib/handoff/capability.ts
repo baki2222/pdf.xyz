@@ -51,6 +51,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   overlay: "single",
   grayscale: "single",
   "fill-forms": "single",
+  "create-forms": "single",
 };
 
 /** Resolve a tool slug to its handoff capability. */

@@ -40,6 +40,7 @@ describe("handoffCapabilityFor", () => {
       "overlay-pdf",
       "grayscale-pdf",
       "fill-forms",
+      "create-forms",
     ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "single",

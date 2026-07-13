@@ -25,7 +25,8 @@ export type RunnerKind =
   | "flatten"
   | "overlay"
   | "grayscale"
-  | "fill-forms";
+  | "fill-forms"
+  | "create-forms";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -50,6 +51,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "overlay-pdf": "overlay",
   "grayscale-pdf": "grayscale",
   "fill-forms": "fill-forms",
+  "create-forms": "create-forms",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {

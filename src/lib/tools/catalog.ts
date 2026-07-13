@@ -634,14 +634,14 @@ export const tools: Tool[] = [
     name: "Create Fillable Forms",
     tagline: "Turn a PDF into a fillable form.",
     description:
-      "Add text fields, checkboxes, and dropdowns to build reusable fillable PDF forms.",
+      "Add text fields, checkboxes, dropdowns, radio groups, and lists by position to build a reusable fillable AcroForm PDF — right in your browser.",
     category: "sign",
     icon: "createForm",
     processing: "client",
     badge: "beta",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["create form", "fillable pdf", "form builder", "add fields"],
+    keywords: ["create form", "fillable pdf", "form builder", "add fields", "acroform"],
     related: ["fill-forms", "sign-pdf", "edit-pdf"],
   },
 
