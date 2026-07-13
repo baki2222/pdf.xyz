@@ -38,6 +38,7 @@ const FORBIDDEN = [
 const ALLOWED = new Set(
   [
     "src/lib/workers/compression/native.ts",
+    "src/lib/workers/pdf-security/native.ts",
     "src/lib/workers/ocr-native.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
