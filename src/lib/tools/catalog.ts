@@ -617,16 +617,16 @@ export const tools: Tool[] = [
   },
   {
     slug: "fill-forms",
-    name: "Fill & Sign Forms",
-    tagline: "Complete PDF forms and sign them.",
+    name: "Fill Forms",
+    tagline: "Complete a PDF's existing form fields.",
     description:
-      "Fill in AcroForm and flat PDF forms with text, checkboxes, and signatures.",
+      "Fill a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in your browser.",
     category: "sign",
     icon: "fillForm",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["fill form", "pdf form", "complete form", "acroform"],
+    keywords: ["fill form", "pdf form", "complete form", "acroform", "form filler"],
     related: ["create-forms", "sign-pdf", "flatten-pdf"],
   },
   {

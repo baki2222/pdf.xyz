@@ -20,6 +20,7 @@ import { SignRunner } from "./sign-runner";
 import { FlattenRunner } from "./flatten-runner";
 import { OverlayRunner } from "./overlay-runner";
 import { GrayscaleRunner } from "./grayscale-runner";
+import { FillFormsRunner } from "./fill-forms-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -66,6 +67,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <OverlayRunner />;
     case "grayscale":
       return <GrayscaleRunner />;
+    case "fill-forms":
+      return <FillFormsRunner />;
     default:
       return null;
   }
