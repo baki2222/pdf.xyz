@@ -8,7 +8,8 @@
  *  - `collect`: the runner takes many files and combines them (merge).
  *  - `batch`  : the runner takes many files and processes each one (compress).
  *  - `single` : the runner works on exactly one file at a time (rotate, split,
- *               organize, extract/delete pages) — a handoff pre-loads the first.
+ *               organize, extract/delete pages, text conversion) — a handoff
+ *               pre-loads the first eligible file.
  *  - `none`   : no in-browser handoff (worker/AI tools, or client tools without
  *               a runner yet).
  */
@@ -37,6 +38,24 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   split: "single",
   "delete-pages": "single",
   "extract-pages": "single",
+  "pdf-to-text": "single",
+  "text-to-pdf": "single",
+  "image-to-pdf": "batch",
+  "pdf-to-image": "single",
+  "page-numbers": "single",
+  watermark: "single",
+  "header-footer": "single",
+  crop: "single",
+  sign: "single",
+  flatten: "single",
+  overlay: "single",
+  grayscale: "single",
+  redact: "single",
+  "fill-forms": "single",
+  "create-forms": "single",
+  annotate: "single",
+  edit: "single",
+  "extract-images": "single",
 };
 
 /** Resolve a tool slug to its handoff capability. */
@@ -59,14 +78,28 @@ interface FileMetaLike {
 }
 
 /**
- * Filter a list of files to those a tool's runner can actually open. Every live
- * runner today is PDF-only, so this narrows to PDFs; the signature keeps room to
- * branch per tool (e.g. image tools) without touching call sites.
+ * Filter a list of files to those a tool's runner can actually open.
  */
 export function eligibleFilesFor<T extends FileMetaLike>(
   slug: string,
   files: T[],
 ): T[] {
   if (!handoffCapabilityFor(slug).supported) return [];
+  if (getRunnerKind(slug) === "text-to-pdf") {
+    return files.filter(
+      (file) => file.type === "text/plain" || /\.(txt|text)$/i.test(file.name),
+    );
+  }
+  if (slug === "jpg-to-pdf") {
+    return files.filter(
+      (file) =>
+        file.type === "image/jpeg" ||
+        file.type === "image/jpg" ||
+        /\.(jpe?g)$/i.test(file.name),
+    );
+  }
+  if (slug === "png-to-pdf") {
+    return files.filter((file) => file.type === "image/png" || /\.png$/i.test(file.name));
+  }
   return files.filter((file) => isLikelyPdf(file));
 }

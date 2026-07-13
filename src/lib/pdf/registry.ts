@@ -12,7 +12,25 @@ export type RunnerKind =
   | "delete-pages"
   | "extract-pages"
   | "organize"
-  | "compress";
+  | "compress"
+  | "pdf-to-text"
+  | "text-to-pdf"
+  | "image-to-pdf"
+  | "pdf-to-image"
+  | "page-numbers"
+  | "watermark"
+  | "header-footer"
+  | "crop"
+  | "sign"
+  | "flatten"
+  | "overlay"
+  | "grayscale"
+  | "redact"
+  | "fill-forms"
+  | "create-forms"
+  | "annotate"
+  | "edit"
+  | "extract-images";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -22,6 +40,26 @@ const RUNNERS: Record<string, RunnerKind> = {
   "extract-pages": "extract-pages",
   "organize-pages": "organize",
   "compress-pdf": "compress",
+  "pdf-to-text": "pdf-to-text",
+  "text-to-pdf": "text-to-pdf",
+  "jpg-to-pdf": "image-to-pdf",
+  "png-to-pdf": "image-to-pdf",
+  "pdf-to-jpg": "pdf-to-image",
+  "pdf-to-png": "pdf-to-image",
+  "page-numbers": "page-numbers",
+  "watermark-pdf": "watermark",
+  "header-footer": "header-footer",
+  "crop-pdf": "crop",
+  "sign-pdf": "sign",
+  "flatten-pdf": "flatten",
+  "overlay-pdf": "overlay",
+  "grayscale-pdf": "grayscale",
+  "redact-pdf": "redact",
+  "fill-forms": "fill-forms",
+  "create-forms": "create-forms",
+  "annotate-pdf": "annotate",
+  "edit-pdf": "edit",
+  "extract-images": "extract-images",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {

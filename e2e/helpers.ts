@@ -31,6 +31,33 @@ export async function writeTempPdf(name: string, pages = 2): Promise<string> {
 }
 
 /**
+ * Generate a single-page PDF carrying a fillable AcroForm (one text field and
+ * one checkbox), so the flatten runner has real fields to flatten end-to-end.
+ */
+export async function makeFormPdfBytes(label: string): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([320, 240]);
+  page.drawText(label, { x: 24, y: 210, size: 12, font });
+  const form = doc.getForm();
+  const name = form.createTextField("e2e.name");
+  name.setText("Ada Lovelace");
+  name.addToPage(page, { x: 24, y: 160, width: 200, height: 20 });
+  const agree = form.createCheckBox("e2e.agree");
+  agree.check();
+  agree.addToPage(page, { x: 24, y: 130, width: 16, height: 16 });
+  return doc.save();
+}
+
+/** Write a generated form PDF to a temp file and return its path. */
+export async function writeTempFormPdf(name: string): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), "pdfxyz-e2e-"));
+  const path = join(dir, name);
+  writeFileSync(path, await makeFormPdfBytes(name));
+  return path;
+}
+
+/**
  * Attach a guard that records console errors and uncaught page errors. Used to
  * assert a page loads cleanly under the production CSP (a blocked script,
  * worker, or wasm surfaces here as a "Content Security Policy" console error).

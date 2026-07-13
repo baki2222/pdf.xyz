@@ -111,9 +111,9 @@ export const tools: Tool[] = [
   {
     slug: "extract-images",
     name: "Extract Images",
-    tagline: "Save every image from a PDF.",
+    tagline: "Save the images embedded in a PDF.",
     description:
-      "Pull all embedded images out of a PDF and download them at original resolution.",
+      "Pull embedded JPEG and RGB/grayscale images out of a PDF at their original resolution — the real image files, not page screenshots. Formats we can't recover yet (JPEG 2000, CMYK, palette) are reported as skipped.",
     category: "organize",
     icon: "extractImages",
     processing: "client",
@@ -121,6 +121,11 @@ export const tools: Tool[] = [
     outputs: ["JPG", "PNG", "ZIP"],
     keywords: ["extract images", "save images", "pdf images", "get pictures"],
     related: ["pdf-to-jpg", "pdf-to-png", "compress-pdf"],
+    how: [
+      "Add your PDF — every page is scanned for embedded images, right in your browser.",
+      "Embedded JPEGs are saved as-is; RGB and grayscale images are rebuilt losslessly as PNGs at native size.",
+      "Download the images individually or as one ZIP; anything in an unsupported format is listed as skipped.",
+    ],
   },
 
   // ─────────────────────────────── Optimize ───────────────────────────────
@@ -193,7 +198,7 @@ export const tools: Tool[] = [
     name: "Grayscale PDF",
     tagline: "Convert to black & white to save ink.",
     description:
-      "Convert a color PDF to grayscale for cleaner printing and smaller files.",
+      "Render each page to grayscale and rebuild a print-friendly PDF. This flattens selectable text and vectors into page images.",
     category: "optimize",
     icon: "grayscale",
     processing: "client",
@@ -471,9 +476,9 @@ export const tools: Tool[] = [
   {
     slug: "edit-pdf",
     name: "Edit PDF",
-    tagline: "Edit text, images, and shapes.",
+    tagline: "Add text, images, and shapes.",
     description:
-      "Add or edit text, insert images and shapes, and mark up a PDF in a live editor.",
+      "Add new text, PNG/JPG images, boxes, and lines to a PDF's pages, then export a flattened copy. Content is placed by page and coordinates in your browser — it doesn't rewrite the existing text in the file.",
     category: "edit",
     icon: "edit",
     processing: "client",
@@ -481,27 +486,32 @@ export const tools: Tool[] = [
     featured: true,
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["edit pdf", "pdf editor", "change text", "add text to pdf"],
+    keywords: ["edit pdf", "pdf editor", "add text to pdf", "insert image in pdf"],
     related: ["annotate-pdf", "sign-pdf", "watermark-pdf"],
     how: [
-      "Open your PDF in the editor.",
-      "Add or change text, images, shapes, and highlights.",
-      "Export a flattened, print-ready PDF.",
+      "Open your PDF — its pages are preserved exactly.",
+      "Add text, images, boxes, or lines by page and position.",
+      "Export a flattened PDF with your additions baked in.",
     ],
   },
   {
     slug: "annotate-pdf",
     name: "Annotate PDF",
-    tagline: "Highlight, comment, and draw.",
+    tagline: "Highlight, box, note, and draw.",
     description:
-      "Highlight text, add sticky notes and comments, and draw directly on a PDF.",
+      "Add highlight boxes, outlines, text notes, and lines or arrows onto a PDF. Markups are flattened into the page as vector content — all in your browser.",
     category: "edit",
     icon: "annotate",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["annotate pdf", "highlight pdf", "comment pdf", "markup pdf"],
+    keywords: ["annotate pdf", "highlight pdf", "markup pdf", "draw on pdf"],
     related: ["edit-pdf", "redact-pdf", "sign-pdf"],
+    how: [
+      "Open your PDF and pick a markup: highlight, box, note, or line.",
+      "Place it by page and coordinates (PDF points from the bottom-left).",
+      "Apply to flatten the markups in and download the annotated PDF.",
+    ],
   },
   {
     slug: "page-numbers",
@@ -544,6 +554,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["crop pdf", "trim margins", "cut pdf", "resize pages"],
     related: ["rotate-pdf", "organize-pages", "edit-pdf"],
+    how: [
+      "Open the PDF you want to crop.",
+      "Set the crop margins and choose which pages to apply them to.",
+      "Download your cropped PDF.",
+    ],
   },
   {
     slug: "header-footer",
@@ -612,16 +627,16 @@ export const tools: Tool[] = [
   },
   {
     slug: "fill-forms",
-    name: "Fill & Sign Forms",
-    tagline: "Complete PDF forms and sign them.",
+    name: "Fill Forms",
+    tagline: "Complete a PDF's existing form fields.",
     description:
-      "Fill in AcroForm and flat PDF forms with text, checkboxes, and signatures.",
+      "Fill a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in your browser.",
     category: "sign",
     icon: "fillForm",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["fill form", "pdf form", "complete form", "acroform"],
+    keywords: ["fill form", "pdf form", "complete form", "acroform", "form filler"],
     related: ["create-forms", "sign-pdf", "flatten-pdf"],
   },
   {
@@ -629,14 +644,14 @@ export const tools: Tool[] = [
     name: "Create Fillable Forms",
     tagline: "Turn a PDF into a fillable form.",
     description:
-      "Add text fields, checkboxes, and dropdowns to build reusable fillable PDF forms.",
+      "Add text fields, checkboxes, dropdowns, radio groups, and lists by position to build a reusable fillable AcroForm PDF — right in your browser.",
     category: "sign",
     icon: "createForm",
     processing: "client",
     badge: "beta",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["create form", "fillable pdf", "form builder", "add fields"],
+    keywords: ["create form", "fillable pdf", "form builder", "add fields", "acroform"],
     related: ["fill-forms", "sign-pdf", "edit-pdf"],
   },
 
@@ -675,7 +690,7 @@ export const tools: Tool[] = [
     name: "Redact PDF",
     tagline: "Permanently black out sensitive data.",
     description:
-      "Draw redactions to permanently remove text and images — not just cover them up.",
+      "Cover sensitive areas with solid boxes, then rebuild each page as a flattened image so the text and vectors underneath are permanently removed — not just hidden.",
     category: "security",
     icon: "redact",
     processing: "client",
@@ -684,20 +699,30 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["redact pdf", "black out", "remove sensitive", "hide text"],
     related: ["flatten-pdf", "annotate-pdf", "protect-pdf"],
+    how: [
+      "Add your PDF — everything runs privately in your browser.",
+      "Add redaction boxes by page and position, in PDF points from the bottom-left.",
+      "Download a rasterized PDF whose pages are flattened images with the content erased under each box.",
+    ],
   },
   {
     slug: "flatten-pdf",
     name: "Flatten PDF",
-    tagline: "Merge layers, forms, and markup.",
+    tagline: "Lock fillable form fields into the page.",
     description:
-      "Flatten form fields, annotations, and layers into the page so they can't be changed.",
+      "Flatten fillable AcroForm fields into the page so their values become permanent and can't be edited. Other annotations and layers are kept as-is.",
     category: "security",
     icon: "flatten",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["flatten pdf", "flatten form", "merge layers", "lock content"],
+    keywords: ["flatten pdf", "flatten form", "lock form fields", "lock content"],
     related: ["fill-forms", "redact-pdf", "protect-pdf"],
+    how: [
+      "Open a PDF with fillable form fields.",
+      "We flatten those AcroForm fields into the page content.",
+      "Download a PDF whose field values can no longer be edited.",
+    ],
   },
   {
     slug: "compare-pdf",

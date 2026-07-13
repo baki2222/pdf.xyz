@@ -178,7 +178,7 @@ describe("planBatch", () => {
       "rotate-pdf": single,
       "legacy-live": live,
       "ocr-pdf": worker,
-      "edit-pdf": clientNoRunner,
+      "extract-images": clientNoRunner,
     })[slug];
 
   it("reports 'empty' with nothing chosen", () => {
@@ -228,7 +228,7 @@ describe("planBatch", () => {
 
   it("is 'unavailable' for a client tool with no runner and for unknown slugs", () => {
     expect(
-      planBatch({ toolSlug: "edit-pdf", fileIds: ["f0"] }, resolve).status,
+      planBatch({ toolSlug: "extract-images", fileIds: ["f0"] }, resolve).status,
     ).toBe("unavailable");
     expect(
       planBatch({ toolSlug: "does-not-exist", fileIds: ["f0"] }, resolve).status,

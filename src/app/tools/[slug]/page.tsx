@@ -153,7 +153,7 @@ export default async function ToolPage({
                     : "Runs in your browser — your file never leaves your device."}
                 </div>
                 <ErrorBoundary boundary="tool-runner">
-                  <ToolRunner kind={runnerKind} />
+                  <ToolRunner kind={runnerKind} slug={tool.slug} />
                 </ErrorBoundary>
               </div>
             </div>
