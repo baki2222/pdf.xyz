@@ -73,6 +73,8 @@ import {
 import { nativeCompressionDeps } from "../compression/native";
 import type { PdfSecurityDeps } from "../pdf-security/engine";
 import { nativePdfSecurityDeps } from "../pdf-security/native";
+import type { PdfStructureDeps } from "../pdf-structure/engine";
+import { nativePdfStructureDeps } from "../pdf-structure/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -273,6 +275,8 @@ export interface WorkerRuntimeDeps {
    * (honestly not-implemented) otherwise.
    */
   pdfSecurity?: PdfSecurityDeps;
+  /** PDF structure (repair/linearize) deps; defaults to qpdf auto-detection. */
+  pdfStructure?: PdfStructureDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -339,12 +343,14 @@ export function resolveWorkerRuntime(
   // runner is left off and protect/unlock fail honestly as `not_implemented`. Tests
   // inject a fake runner to exercise the ready path without a real binary.
   const pdfSecurityDeps = deps.pdfSecurity ?? nativePdfSecurityDeps(env);
+  const pdfStructureDeps = deps.pdfStructure ?? nativePdfStructureDeps(env);
   const registry =
     deps.registry ??
     createProcessorRegistry({
       compression: compressionDeps,
       ocr: ocrDeps,
       pdfSecurity: pdfSecurityDeps,
+      pdfStructure: pdfStructureDeps,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);

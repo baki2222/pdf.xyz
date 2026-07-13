@@ -7,6 +7,7 @@ import { disabledArtifactManifestGate } from "./artifacts/gate";
 import { DevWorkerStore } from "./store";
 import type { CompressionDeps } from "./compression/engine";
 import type { QpdfRunner } from "./pdf-security/engine";
+import type { QpdfStructureRunner } from "./pdf-structure/engine";
 import type { WorkerAdapter } from "./types";
 
 async function makePdf(pages = 4): Promise<Uint8Array> {
@@ -464,5 +465,87 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
     expect(created.value.error?.code).toBe("unprocessable_entity");
     expect(created.value.error?.retryable).toBe(false);
     expect(JSON.stringify(created.value)).not.toContain("WRONG-PW-9");
+  });
+});
+
+describe("local-dev worker — qpdf structure job flow", () => {
+  let store: DevWorkerStore;
+
+  beforeEach(() => {
+    store = new DevWorkerStore();
+  });
+
+  function taggedPdf(tag: string): Uint8Array {
+    return new TextEncoder().encode(
+      `%PDF-1.7\n%tag:${tag}\n${"0".repeat(64)}\n%%EOF\n`,
+    );
+  }
+
+  const fakeStructure = (over: Partial<QpdfStructureRunner> = {}): QpdfStructureRunner => ({
+    repair: async () => taggedPdf("REPAIRED"),
+    linearize: async () => taggedPdf("LINEARIZED"),
+    ...over,
+  });
+
+  const adapterWith = (qpdf: QpdfStructureRunner): WorkerAdapter =>
+    createLocalDevAdapter({
+      store,
+      compressionDeps: noEngines,
+      pdfStructureDeps: { qpdf },
+      soundness: disabledSoundnessGate(),
+      artifactManifest: disabledArtifactManifestGate(),
+    });
+
+  async function seed(
+    adapter: WorkerAdapter,
+    tool: string,
+    bytes: Uint8Array,
+    filename = "report.pdf",
+  ): Promise<string> {
+    const session = await adapter.createUploadSession({
+      tool,
+      files: [{ filename, contentType: "application/pdf", bytes: bytes.byteLength }],
+    });
+    if (!session.ok) throw new Error("upload session should succeed");
+    const slot = session.value.slots[0];
+    if (!slot) throw new Error("session should mint a slot");
+    store.putBytes(slot.fileId, bytes);
+    return slot.fileId;
+  }
+
+  it("repairs a PDF end to end", async () => {
+    const adapter = adapterWith(fakeStructure());
+    const fileId = await seed(adapter, "repair-pdf", taggedPdf("DAMAGED"), "damaged.pdf");
+
+    const created = await adapter.createJob({
+      tool: "repair-pdf",
+      inputs: [fileId],
+      inputNames: ["damaged.pdf"],
+      options: {},
+    });
+
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.value.status).toBe("completed");
+    expect(created.value.artifacts?.[0]?.filename).toBe("damaged-repaired.pdf");
+    expect(store.getSlot(fileId)).toBeUndefined();
+  });
+
+  it("optimizes a PDF for web end to end", async () => {
+    const adapter = adapterWith(fakeStructure());
+    const fileId = await seed(adapter, "optimize-web", taggedPdf("PLAIN"), "catalog.pdf");
+
+    const created = await adapter.createJob({
+      tool: "optimize-web",
+      inputs: [fileId],
+      inputNames: ["catalog.pdf"],
+      options: {},
+    });
+
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.value.status).toBe("completed");
+    expect(created.value.artifacts?.[0]?.filename).toBe("catalog-web-optimized.pdf");
+    expect(store.getSlot(fileId)).toBeUndefined();
   });
 });

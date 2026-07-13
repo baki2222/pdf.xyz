@@ -50,6 +50,8 @@ import {
 } from "@/lib/jobs/pdf-security";
 import { PROTECT_TOOL, UNLOCK_TOOL, type PdfSecurityDeps } from "./pdf-security/engine";
 import { nativePdfSecurityDeps } from "./pdf-security/native";
+import { REPAIR_TOOL, OPTIMIZE_WEB_TOOL, type PdfStructureDeps } from "./pdf-structure/engine";
+import { nativePdfStructureDeps } from "./pdf-structure/native";
 import { createProcessorRegistry } from "./processor";
 import { processorFail } from "./processor/types";
 import { resolveWorkerSoundness, type SoundnessGate } from "./soundness";
@@ -80,6 +82,8 @@ export const LOCAL_DEV_SUPPORTED_TOOLS: ReadonlySet<string> = new Set([
   "compress-pdf",
   PROTECT_TOOL,
   UNLOCK_TOOL,
+  REPAIR_TOOL,
+  OPTIMIZE_WEB_TOOL,
 ]);
 
 /** Injectable seams so the adapter is fully unit-testable without a binary. */
@@ -89,6 +93,8 @@ export interface LocalDevDeps {
   compressionDeps?: CompressionDeps;
   /** PDF security (protect/unlock) dependencies; defaults to a live qpdf probe + runner. */
   pdfSecurityDeps?: PdfSecurityDeps;
+  /** PDF structure (repair/linearize) dependencies; defaults to a live qpdf probe + runner. */
+  pdfStructureDeps?: PdfStructureDeps;
   /**
    * The file-soundness gate (Phase 36). Defaults to the env-resolved gate (enabled),
    * so this synchronous dev path runs the SAME bounded preflight the async executor
@@ -114,6 +120,9 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
   const injectedPdfSecurity = deps.pdfSecurityDeps;
   const resolvePdfSecurityDeps = (): PdfSecurityDeps =>
     injectedPdfSecurity ?? nativePdfSecurityDeps();
+  const injectedPdfStructure = deps.pdfStructureDeps;
+  const resolvePdfStructureDeps = (): PdfStructureDeps =>
+    injectedPdfStructure ?? nativePdfStructureDeps();
   // The same gate the async executor runs, so the dev path cannot drift on which
   // inputs are structurally sound. Enabled by default; injectable for tests.
   const soundness = deps.soundness ?? resolveWorkerSoundness();
@@ -188,7 +197,9 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
           ? parseProtectPdfOptions(request.options ?? {})
           : request.tool === UNLOCK_TOOL
             ? parseUnlockPdfOptions(request.options ?? {})
-            : parseCompressionOptions(request.options ?? {});
+            : request.tool === REPAIR_TOOL || request.tool === OPTIMIZE_WEB_TOOL
+              ? ({ ok: true, value: {} } as const)
+              : parseCompressionOptions(request.options ?? {});
       if (!optionsResult.ok) return adapterError(optionsResult.error);
 
       const fileId = request.inputs[0];
@@ -234,6 +245,7 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       const registry = createProcessorRegistry({
         compression: resolveCompressionDeps(),
         pdfSecurity: resolvePdfSecurityDeps(),
+        pdfStructure: resolvePdfStructureDeps(),
       });
       const processor = registry.resolve(request.tool);
       if (!processor) return adapterError(notImplemented());

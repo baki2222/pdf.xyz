@@ -8,6 +8,7 @@ import type { ClaimableQueue } from "../queue/claim";
 import { createLocalDevExecutorStorage } from "../executor/local-dev-storage";
 import type { ExecutorStorage } from "../executor/types";
 import { createProcessorRegistry } from "../processor";
+import type { QpdfStructureRunner } from "../pdf-structure/engine";
 import { fakeScanner, scanInfected } from "../scanner";
 import { createWorkerDaemon } from "./daemon";
 import { deriveCompressionHealth, resolveWorkerRuntime } from "./runtime";
@@ -50,6 +51,7 @@ describe("resolveWorkerRuntime — gating", () => {
       "compression",
       "ocr",
       "pdf-security",
+      "pdf-structure",
     ]);
   });
 
@@ -82,6 +84,24 @@ describe("resolveWorkerRuntime — gating", () => {
     );
     expect(runtime.executor).toBeDefined();
     expect(runtime.blocked).toBeUndefined();
+  });
+
+  it("threads injected qpdf structure deps into the standard processor registry", () => {
+    const output = new TextEncoder().encode(`%PDF-1.7\n${"1".repeat(32)}\n%%EOF\n`);
+    const qpdf: QpdfStructureRunner = {
+      repair: async () => output,
+      linearize: async () => output,
+    };
+    const runtime = resolveWorkerRuntime(
+      {},
+      { queue: fakeClaimable, storage: fakeStorage, compression: noEngines, pdfStructure: { qpdf } },
+    );
+    const facet = runtime.processors.find((p) => p.id === "pdf-structure");
+    expect(facet).toMatchObject({
+      id: "pdf-structure",
+      ready: true,
+      tools: ["repair-pdf", "optimize-web"],
+    });
   });
 });
 
