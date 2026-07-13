@@ -23,6 +23,7 @@ import { GrayscaleRunner } from "./grayscale-runner";
 import { RedactRunner } from "./redact-runner";
 import { FillFormsRunner } from "./fill-forms-runner";
 import { CreateFormsRunner } from "./create-forms-runner";
+import { AnnotateRunner } from "./annotate-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -75,6 +76,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <FillFormsRunner />;
     case "create-forms":
       return <CreateFormsRunner />;
+    case "annotate":
+      return <AnnotateRunner />;
     default:
       return null;
   }

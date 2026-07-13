@@ -27,7 +27,8 @@ export type RunnerKind =
   | "grayscale"
   | "redact"
   | "fill-forms"
-  | "create-forms";
+  | "create-forms"
+  | "annotate";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -54,6 +55,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "redact-pdf": "redact",
   "fill-forms": "fill-forms",
   "create-forms": "create-forms",
+  "annotate-pdf": "annotate",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {

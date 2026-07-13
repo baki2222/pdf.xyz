@@ -492,16 +492,21 @@ export const tools: Tool[] = [
   {
     slug: "annotate-pdf",
     name: "Annotate PDF",
-    tagline: "Highlight, comment, and draw.",
+    tagline: "Highlight, box, note, and draw.",
     description:
-      "Highlight text, add sticky notes and comments, and draw directly on a PDF.",
+      "Add highlight boxes, outlines, text notes, and lines or arrows onto a PDF. Markups are flattened into the page as vector content — all in your browser.",
     category: "edit",
     icon: "annotate",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["annotate pdf", "highlight pdf", "comment pdf", "markup pdf"],
+    keywords: ["annotate pdf", "highlight pdf", "markup pdf", "draw on pdf"],
     related: ["edit-pdf", "redact-pdf", "sign-pdf"],
+    how: [
+      "Open your PDF and pick a markup: highlight, box, note, or line.",
+      "Place it by page and coordinates (PDF points from the bottom-left).",
+      "Apply to flatten the markups in and download the annotated PDF.",
+    ],
   },
   {
     slug: "page-numbers",

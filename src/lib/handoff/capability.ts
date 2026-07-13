@@ -53,6 +53,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   redact: "single",
   "fill-forms": "single",
   "create-forms": "single",
+  annotate: "single",
 };
 
 /** Resolve a tool slug to its handoff capability. */
