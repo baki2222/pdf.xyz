@@ -43,6 +43,7 @@ describe("handoffCapabilityFor", () => {
       "fill-forms",
       "create-forms",
       "annotate-pdf",
+      "edit-pdf",
     ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "single",

@@ -24,6 +24,7 @@ import { RedactRunner } from "./redact-runner";
 import { FillFormsRunner } from "./fill-forms-runner";
 import { CreateFormsRunner } from "./create-forms-runner";
 import { AnnotateRunner } from "./annotate-runner";
+import { EditRunner } from "./edit-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -78,6 +79,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <CreateFormsRunner />;
     case "annotate":
       return <AnnotateRunner />;
+    case "edit":
+      return <EditRunner />;
     default:
       return null;
   }

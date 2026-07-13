@@ -471,9 +471,9 @@ export const tools: Tool[] = [
   {
     slug: "edit-pdf",
     name: "Edit PDF",
-    tagline: "Edit text, images, and shapes.",
+    tagline: "Add text, images, and shapes.",
     description:
-      "Add or edit text, insert images and shapes, and mark up a PDF in a live editor.",
+      "Add new text, PNG/JPG images, boxes, and lines to a PDF's pages, then export a flattened copy. Content is placed by page and coordinates in your browser — it doesn't rewrite the existing text in the file.",
     category: "edit",
     icon: "edit",
     processing: "client",
@@ -481,12 +481,12 @@ export const tools: Tool[] = [
     featured: true,
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["edit pdf", "pdf editor", "change text", "add text to pdf"],
+    keywords: ["edit pdf", "pdf editor", "add text to pdf", "insert image in pdf"],
     related: ["annotate-pdf", "sign-pdf", "watermark-pdf"],
     how: [
-      "Open your PDF in the editor.",
-      "Add or change text, images, shapes, and highlights.",
-      "Export a flattened, print-ready PDF.",
+      "Open your PDF — its pages are preserved exactly.",
+      "Add text, images, boxes, or lines by page and position.",
+      "Export a flattened PDF with your additions baked in.",
     ],
   },
   {
