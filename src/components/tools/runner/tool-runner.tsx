@@ -25,6 +25,7 @@ import { FillFormsRunner } from "./fill-forms-runner";
 import { CreateFormsRunner } from "./create-forms-runner";
 import { AnnotateRunner } from "./annotate-runner";
 import { EditRunner } from "./edit-runner";
+import { ExtractImagesRunner } from "./extract-images-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -81,6 +82,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <AnnotateRunner />;
     case "edit":
       return <EditRunner />;
+    case "extract-images":
+      return <ExtractImagesRunner />;
     default:
       return null;
   }

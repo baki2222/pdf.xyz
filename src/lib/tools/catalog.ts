@@ -111,9 +111,9 @@ export const tools: Tool[] = [
   {
     slug: "extract-images",
     name: "Extract Images",
-    tagline: "Save every image from a PDF.",
+    tagline: "Save the images embedded in a PDF.",
     description:
-      "Pull all embedded images out of a PDF and download them at original resolution.",
+      "Pull embedded JPEG and RGB/grayscale images out of a PDF at their original resolution — the real image files, not page screenshots. Formats we can't recover yet (JPEG 2000, CMYK, palette) are reported as skipped.",
     category: "organize",
     icon: "extractImages",
     processing: "client",
@@ -121,6 +121,11 @@ export const tools: Tool[] = [
     outputs: ["JPG", "PNG", "ZIP"],
     keywords: ["extract images", "save images", "pdf images", "get pictures"],
     related: ["pdf-to-jpg", "pdf-to-png", "compress-pdf"],
+    how: [
+      "Add your PDF — every page is scanned for embedded images, right in your browser.",
+      "Embedded JPEGs are saved as-is; RGB and grayscale images are rebuilt losslessly as PNGs at native size.",
+      "Download the images individually or as one ZIP; anything in an unsupported format is listed as skipped.",
+    ],
   },
 
   // ─────────────────────────────── Optimize ───────────────────────────────

@@ -29,7 +29,8 @@ export type RunnerKind =
   | "fill-forms"
   | "create-forms"
   | "annotate"
-  | "edit";
+  | "edit"
+  | "extract-images";
 
 const RUNNERS: Record<string, RunnerKind> = {
   "merge-pdf": "merge",
@@ -58,6 +59,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "create-forms": "create-forms",
   "annotate-pdf": "annotate",
   "edit-pdf": "edit",
+  "extract-images": "extract-images",
 };
 
 export function getRunnerKind(slug: string): RunnerKind | undefined {

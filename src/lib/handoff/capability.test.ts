@@ -44,6 +44,7 @@ describe("handoffCapabilityFor", () => {
       "create-forms",
       "annotate-pdf",
       "edit-pdf",
+      "extract-images",
     ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "single",
