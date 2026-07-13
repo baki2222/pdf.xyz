@@ -71,6 +71,8 @@ import {
   type ToolAvailability,
 } from "../compression/engine";
 import { nativeCompressionDeps } from "../compression/native";
+import type { PdfSecurityDeps } from "../pdf-security/engine";
+import { nativePdfSecurityDeps } from "../pdf-security/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -263,6 +265,14 @@ export interface WorkerRuntimeDeps {
    * unless an operator has opted in with `PDFXYZ_OCR` and installed an engine.
    */
   ocr?: OcrProcessorDeps;
+  /**
+   * Override the PDF security (protect/unlock) deps. Tests inject a fake qpdf runner
+   * so protect/unlock complete without a real binary; the shipped runtime resolves
+   * them from the environment via {@link nativePdfSecurityDeps} — the qpdf runner is
+   * wired whenever qpdf is installed (it ships in the worker image) and left off
+   * (honestly not-implemented) otherwise.
+   */
+  pdfSecurity?: PdfSecurityDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -324,9 +334,18 @@ export function resolveWorkerRuntime(
   // and `ocr-pdf` fails as `not_implemented` — no host probe, no runner. A test
   // injects a fake runner to exercise the ready path.
   const ocrDeps = deps.ocr ?? nativeOcrDeps(env);
+  // PDF security auto-detects qpdf (it ships in the worker image), honoring the
+  // `PDFXYZ_PDF_SECURITY` kill switch and binary override. When qpdf is absent the
+  // runner is left off and protect/unlock fail honestly as `not_implemented`. Tests
+  // inject a fake runner to exercise the ready path without a real binary.
+  const pdfSecurityDeps = deps.pdfSecurity ?? nativePdfSecurityDeps(env);
   const registry =
     deps.registry ??
-    createProcessorRegistry({ compression: compressionDeps, ocr: ocrDeps });
+    createProcessorRegistry({
+      compression: compressionDeps,
+      ocr: ocrDeps,
+      pdfSecurity: pdfSecurityDeps,
+    });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
 

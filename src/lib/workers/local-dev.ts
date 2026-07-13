@@ -44,6 +44,12 @@ import {
   type CompressionDeps,
 } from "./compression/engine";
 import { nativeCompressionDeps } from "./compression/native";
+import {
+  parseProtectPdfOptions,
+  parseUnlockPdfOptions,
+} from "@/lib/jobs/pdf-security";
+import { PROTECT_TOOL, UNLOCK_TOOL, type PdfSecurityDeps } from "./pdf-security/engine";
+import { nativePdfSecurityDeps } from "./pdf-security/native";
 import { createProcessorRegistry } from "./processor";
 import { processorFail } from "./processor/types";
 import { resolveWorkerSoundness, type SoundnessGate } from "./soundness";
@@ -72,6 +78,8 @@ const MINUTE_MS = 60_000;
 /** Tools the local worker can honestly process today. */
 export const LOCAL_DEV_SUPPORTED_TOOLS: ReadonlySet<string> = new Set([
   "compress-pdf",
+  PROTECT_TOOL,
+  UNLOCK_TOOL,
 ]);
 
 /** Injectable seams so the adapter is fully unit-testable without a binary. */
@@ -79,6 +87,8 @@ export interface LocalDevDeps {
   store?: DevWorkerStore;
   /** Compression dependencies; defaults to a live PATH probe + native runner. */
   compressionDeps?: CompressionDeps;
+  /** PDF security (protect/unlock) dependencies; defaults to a live qpdf probe + runner. */
+  pdfSecurityDeps?: PdfSecurityDeps;
   /**
    * The file-soundness gate (Phase 36). Defaults to the env-resolved gate (enabled),
    * so this synchronous dev path runs the SAME bounded preflight the async executor
@@ -101,6 +111,9 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
   const injectedCompression = deps.compressionDeps;
   const resolveCompressionDeps = (): CompressionDeps =>
     injectedCompression ?? nativeCompressionDeps();
+  const injectedPdfSecurity = deps.pdfSecurityDeps;
+  const resolvePdfSecurityDeps = (): PdfSecurityDeps =>
+    injectedPdfSecurity ?? nativePdfSecurityDeps();
   // The same gate the async executor runs, so the dev path cannot drift on which
   // inputs are structurally sound. Enabled by default; injectable for tests.
   const soundness = deps.soundness ?? resolveWorkerSoundness();
@@ -166,9 +179,16 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       }
 
       // Early request-shape validation so bad options are a 4xx rejection
-      // (no job created), not a failed job. The processor re-validates the raw
-      // bag defensively; here we only care that it is well-formed.
-      const optionsResult = parseCompressionOptions(request.options ?? {});
+      // (no job created), not a failed job. Tool-aware: each tool's own validator
+      // runs here, exactly as its processor re-validates the raw bag defensively.
+      // For protect/unlock this validates the password too (missing/invalid → 400);
+      // like every option it is only ever validated, never logged.
+      const optionsResult =
+        request.tool === PROTECT_TOOL
+          ? parseProtectPdfOptions(request.options ?? {})
+          : request.tool === UNLOCK_TOOL
+            ? parseUnlockPdfOptions(request.options ?? {})
+            : parseCompressionOptions(request.options ?? {});
       if (!optionsResult.ok) return adapterError(optionsResult.error);
 
       const fileId = request.inputs[0];
@@ -176,7 +196,7 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
         return adapterError(
           apiError(
             "unprocessable_entity",
-            "Compression accepts exactly one PDF input.",
+            "This tool accepts exactly one PDF input.",
             [{ field: "inputs", message: "Provide exactly one uploaded file id." }],
           ),
         );
@@ -210,9 +230,10 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
 
       // Dispatch through the shared processor registry — the exact processor the
       // async executor runs — so the synchronous adapter and the executor cannot
-      // drift in how compression is executed or how failures are classified.
+      // drift in how a tool is executed or how failures are classified.
       const registry = createProcessorRegistry({
         compression: resolveCompressionDeps(),
+        pdfSecurity: resolvePdfSecurityDeps(),
       });
       const processor = registry.resolve(request.tool);
       if (!processor) return adapterError(notImplemented());

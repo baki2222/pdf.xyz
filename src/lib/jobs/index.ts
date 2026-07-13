@@ -13,4 +13,5 @@ export * from "./responses";
 export * from "./validation";
 export * from "./filenames";
 export * from "./ocr";
+export * from "./pdf-security";
 export * from "./results";

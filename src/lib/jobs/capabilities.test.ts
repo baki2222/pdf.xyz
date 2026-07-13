@@ -34,7 +34,8 @@ describe("capability mapping", () => {
   it("resolves capability from a tool slug", () => {
     expect(getToolCapability("merge-pdf")).toBe("in-browser");
     expect(getToolCapability("ocr-pdf")).toBe("secure-worker");
-    expect(getToolCapability("protect-pdf")).toBe("hybrid");
+    expect(getToolCapability("protect-pdf")).toBe("secure-worker");
+    expect(getToolCapability("compress-pdf")).toBe("hybrid");
     expect(getToolCapability("chat-with-pdf")).toBe("ai");
     expect(getToolCapability("does-not-exist")).toBeUndefined();
   });

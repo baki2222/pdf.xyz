@@ -22,6 +22,11 @@ const DISABLED_STATUS: WorkerStatus = {
     languages: [],
     detail: "OCR is unavailable in this environment.",
   },
+  security: {
+    available: false,
+    operations: ["protect", "unlock"],
+    detail: "PDF password protection is unavailable in this environment.",
+  },
   providers: getProviderReadiness("disabled"),
   daemon: resolveDaemonReadiness({}),
 };
