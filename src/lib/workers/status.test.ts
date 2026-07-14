@@ -88,7 +88,13 @@ describe("buildWorkerStatus", () => {
       true,
     );
     expect(withProbe.security.available).toBe(true);
-    expect(withProbe.security.operations).toEqual(["protect", "unlock"]);
+    expect(withProbe.security.operations).toEqual([
+      "protect",
+      "unlock",
+      "repair",
+      "optimize-web",
+    ]);
+    expect(withProbe.security.detail).toMatch(/repair/i);
 
     // Absent an explicit probe, it falls back to the compression qpdf presence.
     const fromTools = buildWorkerStatus("local-dev", {
@@ -100,9 +106,14 @@ describe("buildWorkerStatus", () => {
 
     // No qpdf anywhere ⇒ unavailable.
     expect(buildWorkerStatus("local-dev", noTools).security.available).toBe(false);
+    const disabledSecurity = buildWorkerStatus("disabled").security;
+    // The shared qpdf facet backs security + structure tools; unavailable copy
+    // must not claim the whole facet is only password protection.
+    expect(disabledSecurity.available).toBe(false);
+    expect(disabledSecurity.detail).toMatch(/qpdf-backed PDF tools/i);
+    expect(disabledSecurity.detail).not.toMatch(/password protection needs/i);
     // The web process never claims availability for a remote worker's engine.
     expect(buildWorkerStatus("remote-configured").security.available).toBe(false);
-    expect(buildWorkerStatus("disabled").security.available).toBe(false);
   });
 
   it("treats missing tool data in local-dev as no deep engine", () => {

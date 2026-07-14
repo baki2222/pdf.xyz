@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildSecurityCapability } from "./capability";
+import { buildSecurityCapability, QPDF_OPERATIONS } from "./capability";
 
 describe("buildSecurityCapability", () => {
   it("is available in local-dev only when qpdf was probed present", () => {
     const yes = buildSecurityCapability("local-dev", true);
     expect(yes.available).toBe(true);
-    expect(yes.operations).toEqual(["protect", "unlock"]);
+    expect(yes.operations).toEqual([...QPDF_OPERATIONS]);
     expect(yes.detail).toMatch(/qpdf/i);
+    expect(yes.detail).toMatch(/repair/i);
 
     const no = buildSecurityCapability("local-dev", false);
     expect(no.available).toBe(false);
@@ -26,7 +27,7 @@ describe("buildSecurityCapability", () => {
   it("is unavailable when disabled", () => {
     const cap = buildSecurityCapability("disabled");
     expect(cap.available).toBe(false);
-    // Still names both operations so the UI can render an honest, complete label.
-    expect(cap.operations).toEqual(["protect", "unlock"]);
+    // Still names all qpdf-backed operations so the UI can render an honest, complete label.
+    expect(cap.operations).toEqual([...QPDF_OPERATIONS]);
   });
 });
