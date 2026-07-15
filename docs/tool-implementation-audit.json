@@ -1,6 +1,6 @@
 {
   "catalog_count": 50,
-  "supported_runner_count": 45,
+  "supported_runner_count": 46,
   "supported_runners": [
     "annotate-pdf",
     "compress-pdf",
@@ -39,6 +39,7 @@
     "redact-pdf",
     "remove-pages",
     "repair-pdf",
+    "request-signatures",
     "rotate-pdf",
     "sign-pdf",
     "split-pdf",
@@ -48,27 +49,26 @@
     "webpage-to-pdf",
     "word-to-pdf"
   ],
-  "missing_count": 5,
+  "missing_count": 4,
   "client_missing": [],
   "hybrid_missing": [],
-  "server_or_ai_missing_count": 5,
+  "server_or_ai_missing_count": 4,
   "server_or_ai_missing": [
-    "request-signatures",
     "chat-with-pdf",
     "summarize-pdf",
     "translate-pdf",
     "ai-extract"
   ],
   "missing_by_processing": {
-    "server": 1,
+    "server": 0,
     "hybrid": 0,
     "ai": 4
   },
   "missing_by_category": {
     "optimize": 0,
-    "convert-to": 1,
-    "convert-from": 1,
-    "sign": 1,
+    "convert-to": 0,
+    "convert-from": 0,
+    "sign": 0,
     "security": 0,
     "ai": 4
   }

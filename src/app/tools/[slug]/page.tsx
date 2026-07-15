@@ -33,6 +33,7 @@ import { HtmlRenderWorkerPanel } from "@/components/tools/html-render-worker-pan
 import { OfficeConversionWorkerPanel } from "@/components/tools/office-conversion-worker-panel";
 import { PdfOfficeExportWorkerPanel } from "@/components/tools/pdf-office-export-worker-panel";
 import { TableExtractWorkerPanel } from "@/components/tools/table-extract-worker-panel";
+import { RequestSignaturesWorkerPanel } from "@/components/tools/request-signatures-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -314,6 +315,12 @@ export default async function ToolPage({
                    CSV + XLSX output packaged in a ZIP on the secure worker. */
                 <ErrorBoundary boundary="table-extract-worker-panel">
                   <TableExtractWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "request-signatures" ? (
+                /* Request Signatures: pdf-lib field preparation packaged as a real
+                   signature-request ZIP (prepared PDF + manifest + audit) on the worker. */
+                <ErrorBoundary boundary="request-signatures-worker-panel">
+                  <RequestSignaturesWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

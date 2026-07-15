@@ -85,6 +85,8 @@ import type { PdfOfficeExportDeps } from "../pdf-office-export/engine";
 import { pdfOfficeExportDeps } from "../pdf-office-export/native";
 import type { TableExtractDeps } from "../table-extract/engine";
 import { tableExtractDeps } from "../table-extract/native";
+import type { SignatureRequestDeps } from "../request-signatures/engine";
+import { signatureRequestDeps } from "../request-signatures/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -297,6 +299,8 @@ export interface WorkerRuntimeDeps {
   pdfOfficeExport?: PdfOfficeExportDeps;
   /** Table extraction deps; defaults to pdfjs positioned-text layout. */
   tableExtract?: TableExtractDeps;
+  /** Request-signatures deps; defaults to the pdf-lib field preparer. */
+  requestSignatures?: SignatureRequestDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -369,6 +373,7 @@ export function resolveWorkerRuntime(
   const officeConversionDeps = deps.officeConversion ?? nativeOfficeConversionDeps(env);
   const pdfOfficeExport = deps.pdfOfficeExport ?? pdfOfficeExportDeps();
   const tableExtract = deps.tableExtract ?? tableExtractDeps();
+  const requestSignatures = deps.requestSignatures ?? signatureRequestDeps();
   const registry =
     deps.registry ??
     createProcessorRegistry({
@@ -381,6 +386,7 @@ export function resolveWorkerRuntime(
       officeConversion: officeConversionDeps,
       pdfOfficeExport,
       tableExtract,
+      requestSignatures,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
