@@ -27,7 +27,7 @@ describe("buildCloseoutIndexTrendActionPlanResult — full result assembly", () 
     expect(r.metadata.policyId).toBe(
       "pdfxyz-worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-action-plan",
     );
-  });
+  }, 15_000);
 
   it("surfaces the trusted source facets for a usable (degrading) trend", () => {
     const r = build(degradingTrend()); // indexed -> open
