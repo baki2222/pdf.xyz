@@ -13,6 +13,7 @@ import type { PdfSecurityDeps } from "../pdf-security/engine";
 import type { PdfStructureDeps } from "../pdf-structure/engine";
 import type { PdfArchiveDeps } from "../pdf-archive/engine";
 import type { HtmlRenderDeps } from "../html-render/engine";
+import type { OfficeConversionDeps } from "../office-conversion/engine";
 import { ProcessorRegistry } from "./registry";
 import { createCompressionProcessor } from "./compression";
 import { createOcrProcessor, type OcrProcessorDeps } from "./ocr";
@@ -20,6 +21,7 @@ import { createPdfSecurityProcessor } from "./pdf-security";
 import { createPdfStructureProcessor } from "./pdf-structure";
 import { createPdfArchiveProcessor } from "./pdf-archive";
 import { createHtmlRenderProcessor } from "./html-render";
+import { createOfficeConversionProcessor } from "./office-conversion";
 
 export * from "./types";
 export * from "./registry";
@@ -29,6 +31,7 @@ export * from "./pdf-security";
 export * from "./pdf-structure";
 export * from "./pdf-archive";
 export * from "./html-render";
+export * from "./office-conversion";
 
 /** Dependencies for the standard secure-worker processor set. */
 export interface SecureWorkerProcessorDeps {
@@ -44,6 +47,8 @@ export interface SecureWorkerProcessorDeps {
   pdfArchive?: PdfArchiveDeps;
   /** HTML/Webpage rendering dependencies — Chromium runner + limits. */
   htmlRender?: HtmlRenderDeps;
+  /** Office document conversion dependencies — LibreOffice runner + limits. */
+  officeConversion?: OfficeConversionDeps;
 }
 
 /**
@@ -73,6 +78,9 @@ export function createProcessorRegistry(
   }
   if (deps.htmlRender) {
     registry.register(createHtmlRenderProcessor(deps.htmlRender));
+  }
+  if (deps.officeConversion) {
+    registry.register(createOfficeConversionProcessor(deps.officeConversion));
   }
   return registry;
 }

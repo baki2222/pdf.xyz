@@ -87,6 +87,11 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(worker).toMatch(/apt-get install[\s\S]*chromium/);
   });
 
+  it("the worker image installs LibreOffice for Office to PDF conversion", () => {
+    const worker = stageInstructions(stages, "worker");
+    expect(worker).toMatch(/apt-get install[\s\S]*libreoffice/);
+  });
+
   it("the worker image installs the proof-only pdftotext tool (poppler-utils)", () => {
     // Phase 27: the OCRmyPDF searchable-PDF proof uses `pdftotext` (poppler-utils) to
     // confirm the synthetic source PDF has no selectable text and the OCRmyPDF output
@@ -140,9 +145,9 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(web).toContain("PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false");
     expect(web).not.toContain("worker:daemon");
     expect(web).not.toContain("apt-get install");
-    // Neither the deep-compression engines, Chromium, the OCR stack, NOR the proof-only pdftotext
+    // Neither the deep-compression engines, Chromium, LibreOffice, the OCR stack, NOR the proof-only pdftotext
     // tool (poppler-utils) belong in the web image.
-    expect(web).not.toMatch(/ghostscript|qpdf|mupdf|chromium|ocrmypdf|tesseract|poppler|pdftotext/);
+    expect(web).not.toMatch(/ghostscript|qpdf|mupdf|chromium|libreoffice|soffice|ocrmypdf|tesseract|poppler|pdftotext/);
   });
 });
 

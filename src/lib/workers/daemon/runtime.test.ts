@@ -51,6 +51,7 @@ describe("resolveWorkerRuntime — gating", () => {
       "compression",
       "html-render",
       "ocr",
+      "office-conversion",
       "pdf-archive",
       "pdf-security",
       "pdf-structure",

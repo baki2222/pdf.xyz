@@ -6,13 +6,12 @@ test.describe("secure-worker tool preview", () => {
     page,
   }) => {
     const guard = attachConsoleGuard(page);
-    // `word-to-pdf` is still a generic secure-worker tool that renders the shared
-    // WorkerPreview (OCR, PDF security, repair, and web optimize have dedicated
-    // panels covered by their own smoke/unit tests).
-    await page.goto("/tools/word-to-pdf");
+    // `pdf-to-word` is still a generic secure-worker tool that renders the shared
+    // WorkerPreview (implemented worker tools have dedicated panels covered by their own smoke/unit tests).
+    await page.goto("/tools/pdf-to-word");
 
     await expect(
-      page.getByRole("heading", { level: 1, name: "Word to PDF" }),
+      page.getByRole("heading", { level: 1, name: "PDF to Word" }),
     ).toBeVisible();
 
     // The preview — not the in-browser runner, and not a fake uploader.
