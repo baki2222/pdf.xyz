@@ -4,6 +4,7 @@ import type { QpdfStructureRunner } from "../pdf-structure/engine";
 import type { GhostscriptPdfARunner } from "../pdf-archive/engine";
 import type { ChromiumPdfRunner } from "../html-render/engine";
 import type { LibreOfficePdfRunner } from "../office-conversion/engine";
+import type { PdfTextExtractor } from "../pdf-office-export/engine";
 
 const PDF = new TextEncoder().encode("%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
 
@@ -18,6 +19,9 @@ function fakeChromiumRunner(): ChromiumPdfRunner {
 }
 function fakeLibreOfficeRunner(): LibreOfficePdfRunner {
   return { convertToPdf: async () => PDF };
+}
+function fakePdfTextExtractor(): PdfTextExtractor {
+  return async () => ({ pageCount: 1, pages: [{ pageNumber: 1, text: "Hello", characterCount: 5 }], text: "Hello", characterCount: 5, hasText: true });
 }
 
 describe("createProcessorRegistry", () => {
@@ -53,5 +57,14 @@ describe("createProcessorRegistry", () => {
     expect(registry.supports("powerpoint-to-pdf")).toBe(true);
     expect(registry.resolve("word-to-pdf")?.id).toBe("office-conversion");
     expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "office-conversion", ready: true, tools: ["word-to-pdf", "excel-to-pdf", "powerpoint-to-pdf"] }));
+  });
+
+  it("registers the PDF to Office exporter for PDF to Word/Excel/PowerPoint tools", () => {
+    const registry = createProcessorRegistry({ pdfOfficeExport: { extract: fakePdfTextExtractor() } });
+    expect(registry.supports("pdf-to-word")).toBe(true);
+    expect(registry.supports("pdf-to-excel")).toBe(true);
+    expect(registry.supports("pdf-to-powerpoint")).toBe(true);
+    expect(registry.resolve("pdf-to-word")?.id).toBe("pdf-office-export");
+    expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "pdf-office-export", ready: true, tools: ["pdf-to-word", "pdf-to-excel", "pdf-to-powerpoint"] }));
   });
 });

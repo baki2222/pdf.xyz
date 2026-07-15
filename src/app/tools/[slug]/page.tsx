@@ -31,6 +31,7 @@ import { PdfStructureWorkerPanel } from "@/components/tools/pdf-structure-worker
 import { PdfArchiveWorkerPanel } from "@/components/tools/pdf-archive-worker-panel";
 import { HtmlRenderWorkerPanel } from "@/components/tools/html-render-worker-panel";
 import { OfficeConversionWorkerPanel } from "@/components/tools/office-conversion-worker-panel";
+import { PdfOfficeExportWorkerPanel } from "@/components/tools/pdf-office-export-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -301,6 +302,11 @@ export default async function ToolPage({
                 /* Office to PDF: LibreOffice-backed secure-worker conversion with real output download. */
                 <ErrorBoundary boundary="office-conversion-worker-panel">
                   <OfficeConversionWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "pdf-to-word" || tool.slug === "pdf-to-excel" || tool.slug === "pdf-to-powerpoint" ? (
+                /* PDF to Office: selectable-text worker export with real Office Open XML output download. */
+                <ErrorBoundary boundary="pdf-office-export-worker-panel">
+                  <PdfOfficeExportWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

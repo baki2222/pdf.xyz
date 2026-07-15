@@ -6,12 +6,12 @@ test.describe("secure-worker tool preview", () => {
     page,
   }) => {
     const guard = attachConsoleGuard(page);
-    // `pdf-to-word` is still a generic secure-worker tool that renders the shared
+    // `extract-tables` is still a generic secure-worker/AI tool that renders the shared
     // WorkerPreview (implemented worker tools have dedicated panels covered by their own smoke/unit tests).
-    await page.goto("/tools/pdf-to-word");
+    await page.goto("/tools/extract-tables");
 
     await expect(
-      page.getByRole("heading", { level: 1, name: "PDF to Word" }),
+      page.getByRole("heading", { level: 1, name: "Extract Tables" }),
     ).toBeVisible();
 
     // The preview — not the in-browser runner, and not a fake uploader.

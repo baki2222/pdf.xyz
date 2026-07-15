@@ -81,6 +81,8 @@ import type { HtmlRenderDeps } from "../html-render/engine";
 import { nativeHtmlRenderDeps } from "../html-render/native";
 import type { OfficeConversionDeps } from "../office-conversion/engine";
 import { nativeOfficeConversionDeps } from "../office-conversion/native";
+import type { PdfOfficeExportDeps } from "../pdf-office-export/engine";
+import { pdfOfficeExportDeps } from "../pdf-office-export/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -289,6 +291,8 @@ export interface WorkerRuntimeDeps {
   htmlRender?: HtmlRenderDeps;
   /** Office conversion deps; defaults to LibreOffice auto-detection. */
   officeConversion?: OfficeConversionDeps;
+  /** PDF to Office export deps; defaults to pdfjs text extraction. */
+  pdfOfficeExport?: PdfOfficeExportDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -359,6 +363,7 @@ export function resolveWorkerRuntime(
   const pdfArchiveDeps = deps.pdfArchive ?? nativePdfArchiveDeps(env);
   const htmlRenderDeps = deps.htmlRender ?? nativeHtmlRenderDeps(env);
   const officeConversionDeps = deps.officeConversion ?? nativeOfficeConversionDeps(env);
+  const pdfOfficeExport = deps.pdfOfficeExport ?? pdfOfficeExportDeps();
   const registry =
     deps.registry ??
     createProcessorRegistry({
@@ -369,6 +374,7 @@ export function resolveWorkerRuntime(
       pdfArchive: pdfArchiveDeps,
       htmlRender: htmlRenderDeps,
       officeConversion: officeConversionDeps,
+      pdfOfficeExport,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
