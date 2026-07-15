@@ -75,6 +75,8 @@ import type { PdfSecurityDeps } from "../pdf-security/engine";
 import { nativePdfSecurityDeps } from "../pdf-security/native";
 import type { PdfStructureDeps } from "../pdf-structure/engine";
 import { nativePdfStructureDeps } from "../pdf-structure/native";
+import type { PdfArchiveDeps } from "../pdf-archive/engine";
+import { nativePdfArchiveDeps } from "../pdf-archive/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -277,6 +279,8 @@ export interface WorkerRuntimeDeps {
   pdfSecurity?: PdfSecurityDeps;
   /** PDF structure (repair/linearize) deps; defaults to qpdf auto-detection. */
   pdfStructure?: PdfStructureDeps;
+  /** PDF/A archive deps; defaults to Ghostscript auto-detection. */
+  pdfArchive?: PdfArchiveDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -344,6 +348,7 @@ export function resolveWorkerRuntime(
   // inject a fake runner to exercise the ready path without a real binary.
   const pdfSecurityDeps = deps.pdfSecurity ?? nativePdfSecurityDeps(env);
   const pdfStructureDeps = deps.pdfStructure ?? nativePdfStructureDeps(env);
+  const pdfArchiveDeps = deps.pdfArchive ?? nativePdfArchiveDeps(env);
   const registry =
     deps.registry ??
     createProcessorRegistry({
@@ -351,6 +356,7 @@ export function resolveWorkerRuntime(
       ocr: ocrDeps,
       pdfSecurity: pdfSecurityDeps,
       pdfStructure: pdfStructureDeps,
+      pdfArchive: pdfArchiveDeps,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
