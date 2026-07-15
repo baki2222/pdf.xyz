@@ -9,6 +9,7 @@ import { OrganizeRunner } from "./organize-runner";
 import { PageSelectRunner } from "./page-select-runner";
 import { CompressRunner } from "./compress-runner";
 import { PdfToTextRunner } from "./pdf-to-text-runner";
+import { PdfToMarkdownRunner } from "./pdf-to-markdown-runner";
 import { TextToPdfRunner } from "./text-to-pdf-runner";
 import { MarkdownToPdfRunner } from "./markdown-to-pdf-runner";
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
@@ -51,6 +52,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <CompressRunner />;
     case "pdf-to-text":
       return <PdfToTextRunner />;
+    case "pdf-to-markdown":
+      return <PdfToMarkdownRunner />;
     case "text-to-pdf":
       return <TextToPdfRunner />;
     case "markdown-to-pdf":

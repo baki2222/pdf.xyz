@@ -28,6 +28,7 @@ describe("handoffCapabilityFor", () => {
       "remove-pages",
       "extract-pages",
       "pdf-to-text",
+      "pdf-to-markdown",
       "text-to-pdf",
       "markdown-to-pdf",
       "pdf-to-jpg",
