@@ -49,6 +49,7 @@ describe("resolveWorkerRuntime — gating", () => {
     // Processors are still reported honestly (compression lossless + OCR + PDF security).
     expect(runtime.processors.map((p) => p.id).sort()).toEqual([
       "compression",
+      "html-render",
       "ocr",
       "pdf-archive",
       "pdf-security",
