@@ -15,6 +15,7 @@ export type RunnerKind =
   | "compress"
   | "pdf-to-text"
   | "text-to-pdf"
+  | "markdown-to-pdf"
   | "image-to-pdf"
   | "pdf-to-image"
   | "page-numbers"
@@ -42,6 +43,7 @@ const RUNNERS: Record<string, RunnerKind> = {
   "compress-pdf": "compress",
   "pdf-to-text": "pdf-to-text",
   "text-to-pdf": "text-to-pdf",
+  "markdown-to-pdf": "markdown-to-pdf",
   "jpg-to-pdf": "image-to-pdf",
   "png-to-pdf": "image-to-pdf",
   "pdf-to-jpg": "pdf-to-image",
