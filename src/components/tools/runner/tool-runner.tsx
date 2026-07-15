@@ -28,6 +28,7 @@ import { CreateFormsRunner } from "./create-forms-runner";
 import { AnnotateRunner } from "./annotate-runner";
 import { EditRunner } from "./edit-runner";
 import { ExtractImagesRunner } from "./extract-images-runner";
+import { ComparePdfRunner } from "./compare-pdf-runner";
 
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
@@ -90,6 +91,8 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <EditRunner />;
     case "extract-images":
       return <ExtractImagesRunner />;
+    case "compare":
+      return <ComparePdfRunner />;
     default:
       return null;
   }

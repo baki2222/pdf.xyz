@@ -727,16 +727,16 @@ export const tools: Tool[] = [
   {
     slug: "compare-pdf",
     name: "Compare PDF",
-    tagline: "Spot every difference between two files.",
+    tagline: "Compare two PDFs locally.",
     description:
-      "Compare two PDFs side by side and highlight text and visual differences.",
+      "Compare two PDFs in your browser by page count, file size, and selectable text. Scanned pages need OCR first; this is not a pixel-perfect visual diff.",
     category: "security",
     icon: "compare",
-    processing: "server",
+    processing: "client",
     badge: "new",
     accept: ["PDF"],
-    outputs: ["PDF", "HTML"],
-    keywords: ["compare pdf", "pdf diff", "difference", "version compare"],
+    outputs: ["TXT"],
+    keywords: ["compare pdf", "pdf diff", "text difference", "version compare"],
     related: ["redact-pdf", "annotate-pdf", "pdf-to-text"],
   },
 
