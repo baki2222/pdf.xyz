@@ -29,6 +29,7 @@ describe("handoffCapabilityFor", () => {
       "extract-pages",
       "pdf-to-text",
       "text-to-pdf",
+      "markdown-to-pdf",
       "pdf-to-jpg",
       "pdf-to-png",
       "page-numbers",
@@ -84,6 +85,25 @@ describe("eligibleFilesFor", () => {
     expect(eligibleFilesFor("text-to-pdf", [pdf, txt, png, textByExt])).toEqual([
       txt,
       textByExt,
+    ]);
+  });
+
+  it("keeps Markdown files for markdown-to-pdf", () => {
+    const markdown = { name: "README.md", type: "text/markdown" };
+    const markdownByExt = { name: "notes.MARKDOWN", type: "" };
+    const plainMarkdown = { name: "draft.md", type: "text/plain" };
+    const textButWrongExt = { name: "notes.txt", type: "text/plain" };
+    expect(eligibleFilesFor("markdown-to-pdf", [
+      pdf,
+      markdown,
+      png,
+      markdownByExt,
+      plainMarkdown,
+      textButWrongExt,
+    ])).toEqual([
+      markdown,
+      markdownByExt,
+      plainMarkdown,
     ]);
   });
 

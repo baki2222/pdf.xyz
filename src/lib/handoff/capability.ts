@@ -40,6 +40,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "extract-pages": "single",
   "pdf-to-text": "single",
   "text-to-pdf": "single",
+  "markdown-to-pdf": "single",
   "image-to-pdf": "batch",
   "pdf-to-image": "single",
   "page-numbers": "single",
@@ -88,6 +89,14 @@ export function eligibleFilesFor<T extends FileMetaLike>(
   if (getRunnerKind(slug) === "text-to-pdf") {
     return files.filter(
       (file) => file.type === "text/plain" || /\.(txt|text)$/i.test(file.name),
+    );
+  }
+  if (getRunnerKind(slug) === "markdown-to-pdf") {
+    return files.filter(
+      (file) =>
+        file.type === "text/markdown" ||
+        file.type === "text/x-markdown" ||
+        /\.(md|markdown|mdown)$/i.test(file.name),
     );
   }
   if (slug === "jpg-to-pdf") {
