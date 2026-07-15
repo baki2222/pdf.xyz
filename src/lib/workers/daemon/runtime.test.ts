@@ -50,6 +50,7 @@ describe("resolveWorkerRuntime — gating", () => {
     expect(runtime.processors.map((p) => p.id).sort()).toEqual([
       "compression",
       "ocr",
+      "pdf-archive",
       "pdf-security",
       "pdf-structure",
     ]);

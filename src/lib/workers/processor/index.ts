@@ -11,11 +11,13 @@
 import type { CompressionDeps } from "../compression/engine";
 import type { PdfSecurityDeps } from "../pdf-security/engine";
 import type { PdfStructureDeps } from "../pdf-structure/engine";
+import type { PdfArchiveDeps } from "../pdf-archive/engine";
 import { ProcessorRegistry } from "./registry";
 import { createCompressionProcessor } from "./compression";
 import { createOcrProcessor, type OcrProcessorDeps } from "./ocr";
 import { createPdfSecurityProcessor } from "./pdf-security";
 import { createPdfStructureProcessor } from "./pdf-structure";
+import { createPdfArchiveProcessor } from "./pdf-archive";
 
 export * from "./types";
 export * from "./registry";
@@ -23,6 +25,7 @@ export * from "./compression";
 export * from "./ocr";
 export * from "./pdf-security";
 export * from "./pdf-structure";
+export * from "./pdf-archive";
 
 /** Dependencies for the standard secure-worker processor set. */
 export interface SecureWorkerProcessorDeps {
@@ -34,6 +37,8 @@ export interface SecureWorkerProcessorDeps {
   pdfSecurity?: PdfSecurityDeps;
   /** PDF structure (repair/linearize) dependencies — qpdf runner + limits. */
   pdfStructure?: PdfStructureDeps;
+  /** PDF archive/PDF-A dependencies — Ghostscript runner + limits. */
+  pdfArchive?: PdfArchiveDeps;
 }
 
 /**
@@ -57,6 +62,9 @@ export function createProcessorRegistry(
   }
   if (deps.pdfStructure) {
     registry.register(createPdfStructureProcessor(deps.pdfStructure));
+  }
+  if (deps.pdfArchive) {
+    registry.register(createPdfArchiveProcessor(deps.pdfArchive));
   }
   return registry;
 }
