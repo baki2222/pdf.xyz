@@ -29,6 +29,7 @@ import { OcrWorkerPanel } from "@/components/tools/ocr-worker-panel";
 import { PdfSecurityWorkerPanel } from "@/components/tools/pdf-security-worker-panel";
 import { PdfStructureWorkerPanel } from "@/components/tools/pdf-structure-worker-panel";
 import { PdfArchiveWorkerPanel } from "@/components/tools/pdf-archive-worker-panel";
+import { HtmlRenderWorkerPanel } from "@/components/tools/html-render-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -289,6 +290,11 @@ export default async function ToolPage({
                 /* PDF/A: Ghostscript-backed secure-worker conversion with real output download. */
                 <ErrorBoundary boundary="pdf-archive-worker-panel">
                   <PdfArchiveWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "html-to-pdf" || tool.slug === "webpage-to-pdf" ? (
+                /* HTML/Webpage to PDF: Chromium-backed secure-worker conversion with real output download. */
+                <ErrorBoundary boundary="html-render-worker-panel">
+                  <HtmlRenderWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

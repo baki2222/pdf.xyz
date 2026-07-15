@@ -77,6 +77,8 @@ import type { PdfStructureDeps } from "../pdf-structure/engine";
 import { nativePdfStructureDeps } from "../pdf-structure/native";
 import type { PdfArchiveDeps } from "../pdf-archive/engine";
 import { nativePdfArchiveDeps } from "../pdf-archive/native";
+import type { HtmlRenderDeps } from "../html-render/engine";
+import { nativeHtmlRenderDeps } from "../html-render/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -281,6 +283,8 @@ export interface WorkerRuntimeDeps {
   pdfStructure?: PdfStructureDeps;
   /** PDF/A archive deps; defaults to Ghostscript auto-detection. */
   pdfArchive?: PdfArchiveDeps;
+  /** HTML/Webpage rendering deps; defaults to Chromium auto-detection. */
+  htmlRender?: HtmlRenderDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -349,6 +353,7 @@ export function resolveWorkerRuntime(
   const pdfSecurityDeps = deps.pdfSecurity ?? nativePdfSecurityDeps(env);
   const pdfStructureDeps = deps.pdfStructure ?? nativePdfStructureDeps(env);
   const pdfArchiveDeps = deps.pdfArchive ?? nativePdfArchiveDeps(env);
+  const htmlRenderDeps = deps.htmlRender ?? nativeHtmlRenderDeps(env);
   const registry =
     deps.registry ??
     createProcessorRegistry({
@@ -357,6 +362,7 @@ export function resolveWorkerRuntime(
       pdfSecurity: pdfSecurityDeps,
       pdfStructure: pdfStructureDeps,
       pdfArchive: pdfArchiveDeps,
+      htmlRender: htmlRenderDeps,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);

@@ -103,6 +103,7 @@ RUN apt-get update \
       ghostscript \
       qpdf \
       mupdf-tools \
+      chromium \
       ocrmypdf \
       tesseract-ocr \
       tesseract-ocr-eng \
