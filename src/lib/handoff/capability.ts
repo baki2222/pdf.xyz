@@ -39,6 +39,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   "delete-pages": "single",
   "extract-pages": "single",
   "pdf-to-text": "single",
+  "pdf-to-markdown": "single",
   "text-to-pdf": "single",
   "markdown-to-pdf": "single",
   "image-to-pdf": "batch",

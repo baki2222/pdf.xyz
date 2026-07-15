@@ -432,14 +432,14 @@ export const tools: Tool[] = [
     name: "PDF to Markdown",
     tagline: "Clean Markdown from PDF content.",
     description:
-      "Extract a PDF's structure into clean Markdown with headings, lists, and tables.",
+      "Convert a PDF's selectable text into clean Markdown locally, preserving paragraphs and obvious list lines. Scanned pages need OCR first; table extraction remains an AI tool.",
     category: "convert-from",
     icon: "markdown",
-    processing: "server",
+    processing: "client",
     badge: "new",
     accept: ["PDF"],
     outputs: ["MD"],
-    keywords: ["pdf to markdown", "pdf to md", "extract markdown", "convert"],
+    keywords: ["pdf to markdown", "pdf to md", "extract markdown", "selectable text"],
     related: ["markdown-to-pdf", "pdf-to-text", "extract-tables"],
   },
   {
