@@ -57,6 +57,7 @@ describe("resolveWorkerRuntime — gating", () => {
       "pdf-security",
       "pdf-structure",
       "request-signatures",
+      "summarize",
       "table-extract",
     ]);
   });

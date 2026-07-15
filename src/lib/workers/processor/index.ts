@@ -17,6 +17,7 @@ import type { OfficeConversionDeps } from "../office-conversion/engine";
 import type { PdfOfficeExportDeps } from "../pdf-office-export/engine";
 import type { TableExtractDeps } from "../table-extract/engine";
 import type { SignatureRequestDeps } from "../request-signatures/engine";
+import type { SummarizeDeps } from "../summarize/engine";
 import { ProcessorRegistry } from "./registry";
 import { createCompressionProcessor } from "./compression";
 import { createOcrProcessor, type OcrProcessorDeps } from "./ocr";
@@ -28,6 +29,7 @@ import { createOfficeConversionProcessor } from "./office-conversion";
 import { createPdfOfficeExportProcessor } from "./pdf-office-export";
 import { createTableExtractProcessor } from "./table-extract";
 import { createRequestSignaturesProcessor } from "./request-signatures";
+import { createSummarizeProcessor } from "./summarize";
 
 export * from "./types";
 export * from "./registry";
@@ -41,6 +43,7 @@ export * from "./office-conversion";
 export * from "./pdf-office-export";
 export * from "./table-extract";
 export * from "./request-signatures";
+export * from "./summarize";
 
 /** Dependencies for the standard secure-worker processor set. */
 export interface SecureWorkerProcessorDeps {
@@ -64,6 +67,8 @@ export interface SecureWorkerProcessorDeps {
   tableExtract?: TableExtractDeps;
   /** Request-signatures dependencies — pdf-lib field preparer + package packaging. */
   requestSignatures?: SignatureRequestDeps;
+  /** Summarize dependencies — pdfjs selectable-text extractor + AI provider. */
+  summarize?: SummarizeDeps;
 }
 
 /**
@@ -105,6 +110,9 @@ export function createProcessorRegistry(
   }
   if (deps.requestSignatures) {
     registry.register(createRequestSignaturesProcessor(deps.requestSignatures));
+  }
+  if (deps.summarize) {
+    registry.register(createSummarizeProcessor(deps.summarize));
   }
   return registry;
 }
