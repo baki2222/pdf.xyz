@@ -53,6 +53,7 @@ describe("resolveWorkerRuntime — gating", () => {
       "ocr",
       "office-conversion",
       "pdf-archive",
+      "pdf-office-export",
       "pdf-security",
       "pdf-structure",
     ]);
