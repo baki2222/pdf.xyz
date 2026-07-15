@@ -58,6 +58,7 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   annotate: "single",
   edit: "single",
   "extract-images": "single",
+  compare: "collect",
 };
 
 /** Resolve a tool slug to its handoff capability. */

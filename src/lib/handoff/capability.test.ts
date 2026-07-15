@@ -18,6 +18,11 @@ describe("handoffCapabilityFor", () => {
       supported: true,
       minFiles: 1,
     });
+    expect(handoffCapabilityFor("compare-pdf")).toMatchObject({
+      mode: "collect",
+      supported: true,
+      minFiles: 2,
+    });
   });
 
   it("maps every single-file runner to single (max one file)", () => {
