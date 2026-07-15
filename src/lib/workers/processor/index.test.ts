@@ -67,4 +67,11 @@ describe("createProcessorRegistry", () => {
     expect(registry.resolve("pdf-to-word")?.id).toBe("pdf-office-export");
     expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "pdf-office-export", ready: true, tools: ["pdf-to-word", "pdf-to-excel", "pdf-to-powerpoint"] }));
   });
+
+  it("registers the table extractor for extract-tables", () => {
+    const registry = createProcessorRegistry({ tableExtract: { extractLayout: async () => ({ pageCount: 0, pages: [] }) } });
+    expect(registry.supports("extract-tables")).toBe(true);
+    expect(registry.resolve("extract-tables")?.id).toBe("table-extract");
+    expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "table-extract", ready: true, tools: ["extract-tables"] }));
+  });
 });

@@ -459,16 +459,16 @@ export const tools: Tool[] = [
   {
     slug: "extract-tables",
     name: "Extract Tables",
-    tagline: "AI-detected tables into CSV/Excel.",
+    tagline: "Detected tables into CSV/Excel.",
     description:
-      "Detect tables inside PDFs with AI and export them to clean CSV or Excel.",
+      "Detect aligned tables inside a PDF's selectable text and export them to clean CSV files plus a combined Excel workbook. Scanned PDFs need OCR first.",
     category: "convert-from",
     icon: "table",
-    processing: "ai",
-    badge: "ai",
+    processing: "server",
+    badge: "new",
     accept: ["PDF"],
-    outputs: ["CSV", "XLSX"],
-    keywords: ["extract tables", "pdf tables", "table to csv", "ai tables"],
+    outputs: ["CSV", "XLSX", "ZIP"],
+    keywords: ["extract tables", "pdf tables", "table to csv", "table to excel"],
     related: ["pdf-to-excel", "pdf-to-markdown", "ai-extract"],
   },
 

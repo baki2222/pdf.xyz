@@ -15,6 +15,7 @@ import type { PdfArchiveDeps } from "../pdf-archive/engine";
 import type { HtmlRenderDeps } from "../html-render/engine";
 import type { OfficeConversionDeps } from "../office-conversion/engine";
 import type { PdfOfficeExportDeps } from "../pdf-office-export/engine";
+import type { TableExtractDeps } from "../table-extract/engine";
 import { ProcessorRegistry } from "./registry";
 import { createCompressionProcessor } from "./compression";
 import { createOcrProcessor, type OcrProcessorDeps } from "./ocr";
@@ -24,6 +25,7 @@ import { createPdfArchiveProcessor } from "./pdf-archive";
 import { createHtmlRenderProcessor } from "./html-render";
 import { createOfficeConversionProcessor } from "./office-conversion";
 import { createPdfOfficeExportProcessor } from "./pdf-office-export";
+import { createTableExtractProcessor } from "./table-extract";
 
 export * from "./types";
 export * from "./registry";
@@ -35,6 +37,7 @@ export * from "./pdf-archive";
 export * from "./html-render";
 export * from "./office-conversion";
 export * from "./pdf-office-export";
+export * from "./table-extract";
 
 /** Dependencies for the standard secure-worker processor set. */
 export interface SecureWorkerProcessorDeps {
@@ -54,6 +57,8 @@ export interface SecureWorkerProcessorDeps {
   officeConversion?: OfficeConversionDeps;
   /** PDF to Office export dependencies — pdfjs text extraction + OpenXML packaging. */
   pdfOfficeExport?: PdfOfficeExportDeps;
+  /** Table extraction dependencies — pdfjs positioned-text layout + CSV/XLSX packaging. */
+  tableExtract?: TableExtractDeps;
 }
 
 /**
@@ -89,6 +94,9 @@ export function createProcessorRegistry(
   }
   if (deps.pdfOfficeExport) {
     registry.register(createPdfOfficeExportProcessor(deps.pdfOfficeExport));
+  }
+  if (deps.tableExtract) {
+    registry.register(createTableExtractProcessor(deps.tableExtract));
   }
   return registry;
 }
