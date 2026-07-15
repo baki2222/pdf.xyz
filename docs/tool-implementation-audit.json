@@ -1,6 +1,6 @@
 {
   "catalog_count": 50,
-  "supported_runner_count": 35,
+  "supported_runner_count": 36,
   "supported_runners": [
     "annotate-pdf",
     "compress-pdf",
@@ -17,6 +17,7 @@
     "jpg-to-pdf",
     "markdown-to-pdf",
     "merge-pdf",
+    "ocr-pdf",
     "optimize-web",
     "organize-pages",
     "overlay-pdf",
@@ -38,12 +39,11 @@
     "unlock-pdf",
     "watermark-pdf"
   ],
-  "missing_count": 15,
+  "missing_count": 14,
   "client_missing": [],
   "hybrid_missing": [],
-  "server_or_ai_missing_count": 15,
+  "server_or_ai_missing_count": 14,
   "server_or_ai_missing": [
-    "ocr-pdf",
     "word-to-pdf",
     "excel-to-pdf",
     "powerpoint-to-pdf",
@@ -60,7 +60,7 @@
     "ai-extract"
   ],
   "missing_by_processing": {
-    "server": 10,
+    "server": 9,
     "hybrid": 0,
     "ai": 5
   },
