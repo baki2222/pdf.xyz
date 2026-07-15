@@ -6,12 +6,13 @@ test.describe("secure-worker tool preview", () => {
     page,
   }) => {
     const guard = attachConsoleGuard(page);
-    // `request-signatures` is still a generic secure-worker/AI tool that renders the shared
-    // WorkerPreview (implemented worker tools have dedicated panels covered by their own smoke/unit tests).
-    await page.goto("/tools/request-signatures");
+    // `chat-with-pdf` is still a generic AI tool that renders the shared WorkerPreview
+    // (implemented worker tools — including request-signatures — have dedicated panels
+    // covered by their own smoke/unit tests).
+    await page.goto("/tools/chat-with-pdf");
 
     await expect(
-      page.getByRole("heading", { level: 1, name: "Request Signatures" }),
+      page.getByRole("heading", { level: 1, name: "Chat with PDF" }),
     ).toBeVisible();
 
     // The preview — not the in-browser runner, and not a fake uploader.

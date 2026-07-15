@@ -74,4 +74,16 @@ describe("createProcessorRegistry", () => {
     expect(registry.resolve("extract-tables")?.id).toBe("table-extract");
     expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "table-extract", ready: true, tools: ["extract-tables"] }));
   });
+
+  it("registers the signature-request preparer for request-signatures", () => {
+    const registry = createProcessorRegistry({
+      requestSignatures: {
+        inspect: async () => ({ pageCount: 1, pageSizes: [{ width: 612, height: 792 }] }),
+        place: async () => PDF,
+      },
+    });
+    expect(registry.supports("request-signatures")).toBe(true);
+    expect(registry.resolve("request-signatures")?.id).toBe("request-signatures");
+    expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "request-signatures", ready: true, tools: ["request-signatures"] }));
+  });
 });
