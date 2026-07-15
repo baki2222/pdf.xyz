@@ -30,6 +30,7 @@ import { PdfSecurityWorkerPanel } from "@/components/tools/pdf-security-worker-p
 import { PdfStructureWorkerPanel } from "@/components/tools/pdf-structure-worker-panel";
 import { PdfArchiveWorkerPanel } from "@/components/tools/pdf-archive-worker-panel";
 import { HtmlRenderWorkerPanel } from "@/components/tools/html-render-worker-panel";
+import { OfficeConversionWorkerPanel } from "@/components/tools/office-conversion-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -295,6 +296,11 @@ export default async function ToolPage({
                 /* HTML/Webpage to PDF: Chromium-backed secure-worker conversion with real output download. */
                 <ErrorBoundary boundary="html-render-worker-panel">
                   <HtmlRenderWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "word-to-pdf" || tool.slug === "excel-to-pdf" || tool.slug === "powerpoint-to-pdf" ? (
+                /* Office to PDF: LibreOffice-backed secure-worker conversion with real output download. */
+                <ErrorBoundary boundary="office-conversion-worker-panel">
+                  <OfficeConversionWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

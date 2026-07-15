@@ -104,6 +104,7 @@ RUN apt-get update \
       qpdf \
       mupdf-tools \
       chromium \
+      libreoffice \
       ocrmypdf \
       tesseract-ocr \
       tesseract-ocr-eng \

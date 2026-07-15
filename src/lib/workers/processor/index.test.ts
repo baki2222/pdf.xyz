@@ -3,79 +3,55 @@ import { createProcessorRegistry } from "./index";
 import type { QpdfStructureRunner } from "../pdf-structure/engine";
 import type { GhostscriptPdfARunner } from "../pdf-archive/engine";
 import type { ChromiumPdfRunner } from "../html-render/engine";
+import type { LibreOfficePdfRunner } from "../office-conversion/engine";
 
 const PDF = new TextEncoder().encode("%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
 
 function fakeStructureRunner(): QpdfStructureRunner {
-  return {
-    repair: async () => PDF,
-    linearize: async () => PDF,
-  };
+  return { repair: async () => PDF, linearize: async () => PDF };
 }
-
 function fakePdfARunner(): GhostscriptPdfARunner {
-  return {
-    convertToPdfA: async () => PDF,
-  };
+  return { convertToPdfA: async () => PDF };
 }
-
 function fakeChromiumRunner(): ChromiumPdfRunner {
-  return {
-    renderHtml: async () => PDF,
-    renderUrl: async () => PDF,
-  };
+  return { renderHtml: async () => PDF, renderUrl: async () => PDF };
+}
+function fakeLibreOfficeRunner(): LibreOfficePdfRunner {
+  return { convertToPdf: async () => PDF };
 }
 
 describe("createProcessorRegistry", () => {
   it("registers the qpdf structure processor for repair-pdf and optimize-web", () => {
-    const registry = createProcessorRegistry({
-      pdfStructure: { qpdf: fakeStructureRunner() },
-    });
-
+    const registry = createProcessorRegistry({ pdfStructure: { qpdf: fakeStructureRunner() } });
     expect(registry.supports("repair-pdf")).toBe(true);
     expect(registry.supports("optimize-web")).toBe(true);
     expect(registry.resolve("repair-pdf")?.id).toBe("pdf-structure");
     expect(registry.resolve("optimize-web")?.id).toBe("pdf-structure");
-    expect(registry.capabilities()).toContainEqual(
-      expect.objectContaining({
-        id: "pdf-structure",
-        ready: true,
-        tools: ["repair-pdf", "optimize-web"],
-      }),
-    );
+    expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "pdf-structure", ready: true, tools: ["repair-pdf", "optimize-web"] }));
   });
 
   it("registers the Ghostscript archive processor for pdf-to-pdfa", () => {
-    const registry = createProcessorRegistry({
-      pdfArchive: { ghostscript: fakePdfARunner() },
-    });
-
+    const registry = createProcessorRegistry({ pdfArchive: { ghostscript: fakePdfARunner() } });
     expect(registry.supports("pdf-to-pdfa")).toBe(true);
     expect(registry.resolve("pdf-to-pdfa")?.id).toBe("pdf-archive");
-    expect(registry.capabilities()).toContainEqual(
-      expect.objectContaining({
-        id: "pdf-archive",
-        ready: true,
-        tools: ["pdf-to-pdfa"],
-      }),
-    );
+    expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "pdf-archive", ready: true, tools: ["pdf-to-pdfa"] }));
   });
 
   it("registers the Chromium HTML renderer for html-to-pdf and webpage-to-pdf", () => {
-    const registry = createProcessorRegistry({
-      htmlRender: { chromium: fakeChromiumRunner() },
-    });
-
+    const registry = createProcessorRegistry({ htmlRender: { chromium: fakeChromiumRunner() } });
     expect(registry.supports("html-to-pdf")).toBe(true);
     expect(registry.supports("webpage-to-pdf")).toBe(true);
     expect(registry.resolve("html-to-pdf")?.id).toBe("html-render");
     expect(registry.resolve("webpage-to-pdf")?.id).toBe("html-render");
-    expect(registry.capabilities()).toContainEqual(
-      expect.objectContaining({
-        id: "html-render",
-        ready: true,
-        tools: ["html-to-pdf", "webpage-to-pdf"],
-      }),
-    );
+    expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "html-render", ready: true, tools: ["html-to-pdf", "webpage-to-pdf"] }));
+  });
+
+  it("registers the LibreOffice converter for Office to PDF tools", () => {
+    const registry = createProcessorRegistry({ officeConversion: { libreoffice: fakeLibreOfficeRunner() } });
+    expect(registry.supports("word-to-pdf")).toBe(true);
+    expect(registry.supports("excel-to-pdf")).toBe(true);
+    expect(registry.supports("powerpoint-to-pdf")).toBe(true);
+    expect(registry.resolve("word-to-pdf")?.id).toBe("office-conversion");
+    expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "office-conversion", ready: true, tools: ["word-to-pdf", "excel-to-pdf", "powerpoint-to-pdf"] }));
   });
 });

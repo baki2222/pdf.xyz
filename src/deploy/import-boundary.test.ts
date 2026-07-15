@@ -42,6 +42,7 @@ const ALLOWED = new Set(
     "src/lib/workers/pdf-structure/native.ts",
     "src/lib/workers/pdf-archive/native.ts",
     "src/lib/workers/html-render/native.ts",
+    "src/lib/workers/office-conversion/native.ts",
     "src/lib/workers/ocr-native.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
