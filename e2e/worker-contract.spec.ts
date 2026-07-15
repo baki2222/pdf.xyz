@@ -6,12 +6,12 @@ test.describe("secure-worker tool preview", () => {
     page,
   }) => {
     const guard = attachConsoleGuard(page);
-    // `extract-tables` is still a generic secure-worker/AI tool that renders the shared
+    // `request-signatures` is still a generic secure-worker/AI tool that renders the shared
     // WorkerPreview (implemented worker tools have dedicated panels covered by their own smoke/unit tests).
-    await page.goto("/tools/extract-tables");
+    await page.goto("/tools/request-signatures");
 
     await expect(
-      page.getByRole("heading", { level: 1, name: "Extract Tables" }),
+      page.getByRole("heading", { level: 1, name: "Request Signatures" }),
     ).toBeVisible();
 
     // The preview — not the in-browser runner, and not a fake uploader.

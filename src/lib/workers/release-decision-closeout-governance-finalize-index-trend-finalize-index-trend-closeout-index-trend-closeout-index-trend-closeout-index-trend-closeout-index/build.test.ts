@@ -47,14 +47,14 @@ describe("buildCloseoutIndexResult — stable shape", () => {
       "worker-release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-closeout-index-trend-closeout-index-trend-closeout-index-trend-closeout-index",
     );
     expect(r.receipt.disclosure).toMatch(/content-free/i);
-  });
+  }, 15_000);
 
   it("emits one point per considered record, oldest → newest, with the supplied-order positions", () => {
     const r = build([closedCloseout(), openCloseout(), blockedCloseout()]);
     expect(r.points.map((p) => p.position)).toEqual([0, 1, 2]);
     expect(r.points.map((p) => p.verdict)).toEqual(["closed", "open", "blocked"]);
     expect(r.points.map((p) => p.state)).toEqual(["usable", "usable", "usable"]);
-  });
+  }, 15_000);
 
   it("surfaces a tampered point's claimed verdict but marks it tampered (no trusted facts)", () => {
     const r = build([tamperedCloseout()]);

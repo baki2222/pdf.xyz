@@ -32,6 +32,7 @@ import { PdfArchiveWorkerPanel } from "@/components/tools/pdf-archive-worker-pan
 import { HtmlRenderWorkerPanel } from "@/components/tools/html-render-worker-panel";
 import { OfficeConversionWorkerPanel } from "@/components/tools/office-conversion-worker-panel";
 import { PdfOfficeExportWorkerPanel } from "@/components/tools/pdf-office-export-worker-panel";
+import { TableExtractWorkerPanel } from "@/components/tools/table-extract-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -307,6 +308,12 @@ export default async function ToolPage({
                 /* PDF to Office: selectable-text worker export with real Office Open XML output download. */
                 <ErrorBoundary boundary="pdf-office-export-worker-panel">
                   <PdfOfficeExportWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "extract-tables" ? (
+                /* Extract Tables: pdfjs positioned-text layout detection with real
+                   CSV + XLSX output packaged in a ZIP on the secure worker. */
+                <ErrorBoundary boundary="table-extract-worker-panel">
+                  <TableExtractWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

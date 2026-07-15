@@ -56,6 +56,7 @@ describe("resolveWorkerRuntime — gating", () => {
       "pdf-office-export",
       "pdf-security",
       "pdf-structure",
+      "table-extract",
     ]);
   });
 
