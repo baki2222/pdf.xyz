@@ -37,6 +37,7 @@ import { RequestSignaturesWorkerPanel } from "@/components/tools/request-signatu
 import { SummarizeWorkerPanel } from "@/components/tools/summarize-worker-panel";
 import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel";
 import { AiExtractWorkerPanel } from "@/components/tools/ai-extract-worker-panel";
+import { ChatWithPdfWorkerPanel } from "@/components/tools/chat-with-pdf-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -346,6 +347,15 @@ export default async function ToolPage({
                    honestly when no provider is configured or the reply isn't JSON — never faked. */
                 <ErrorBoundary boundary="ai-extract-worker-panel">
                   <AiExtractWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "chat-with-pdf" ? (
+                /* Chat with PDF: selectable-text extraction answered by a configured
+                   AI provider from ONLY the document text, with page-level [p.N]
+                   citations when page metadata is present, packaged as a real answer ZIP
+                   (answer.md + answer.txt + manifest) on the worker. Fails honestly when
+                   no provider is configured or the PDF has no selectable text — never faked. */
+                <ErrorBoundary boundary="chat-with-pdf-worker-panel">
+                  <ChatWithPdfWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

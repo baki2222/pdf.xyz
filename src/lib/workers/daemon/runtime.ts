@@ -93,6 +93,8 @@ import type { TranslateDeps } from "../translate/engine";
 import { translateDeps } from "../translate/native";
 import type { AiExtractDeps } from "../ai-extract/engine";
 import { aiExtractDeps } from "../ai-extract/native";
+import type { ChatWithPdfDeps } from "../chat-with-pdf/engine";
+import { chatWithPdfDeps } from "../chat-with-pdf/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -331,6 +333,14 @@ export interface WorkerRuntimeDeps {
    * Tests inject a fake provider to exercise the ready path without a real key.
    */
   aiExtract?: AiExtractDeps;
+  /**
+   * Chat with PDF deps (selectable-text extractor + AI provider). Defaults to the
+   * pdfjs extractor plus a live AI provider resolved from the environment via
+   * {@link chatWithPdfDeps} — the provider is present only when an operator configured
+   * one (`PDFXYZ_AI_PROVIDER` + key), else chat-with-pdf fails honestly as
+   * not-implemented. Tests inject a fake provider to exercise the ready path.
+   */
+  chatWithPdf?: ChatWithPdfDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -417,6 +427,11 @@ export function resolveWorkerRuntime(
   // no provider the processor is registered but honestly not-ready and fails as
   // not_implemented — never a fabricated extraction.
   const aiExtract = deps.aiExtract ?? aiExtractDeps(env);
+  // Chat with PDF mirrors summarize/translate/ai-extract: the extractor is always
+  // wired; the AI provider is auto-resolved from the env (absent unless an operator
+  // opted in). With no provider the processor is registered but honestly not-ready and
+  // fails as not_implemented — never a fabricated answer.
+  const chatWithPdf = deps.chatWithPdf ?? chatWithPdfDeps(env);
   const registry =
     deps.registry ??
     createProcessorRegistry({
@@ -433,6 +448,7 @@ export function resolveWorkerRuntime(
       summarize,
       translate,
       aiExtract,
+      chatWithPdf,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
