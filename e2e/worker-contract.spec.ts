@@ -7,8 +7,9 @@ test.describe("secure-worker tool preview", () => {
   }) => {
     const guard = attachConsoleGuard(page);
     // `chat-with-pdf` is still a generic AI tool that renders the shared WorkerPreview
-    // (implemented worker tools — including request-signatures, summarize-pdf, and
-    // translate-pdf — have dedicated panels covered by their own smoke/unit tests).
+    // (implemented worker tools — including request-signatures, summarize-pdf,
+    // translate-pdf, and ai-extract — have dedicated panels covered by their own
+    // smoke/unit tests).
     await page.goto("/tools/chat-with-pdf");
 
     await expect(

@@ -36,6 +36,7 @@ import { TableExtractWorkerPanel } from "@/components/tools/table-extract-worker
 import { RequestSignaturesWorkerPanel } from "@/components/tools/request-signatures-worker-panel";
 import { SummarizeWorkerPanel } from "@/components/tools/summarize-worker-panel";
 import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel";
+import { AiExtractWorkerPanel } from "@/components/tools/ai-extract-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -337,6 +338,14 @@ export default async function ToolPage({
                    on the worker. Fails honestly when no provider is configured — never faked. */
                 <ErrorBoundary boundary="translate-worker-panel">
                   <TranslateWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "ai-extract" ? (
+                /* AI Data Extraction: selectable-text extraction turned into structured
+                   JSON by a configured AI provider, packaged as a real extraction ZIP
+                   (extraction.json + extraction.md + manifest) on the worker. Fails
+                   honestly when no provider is configured or the reply isn't JSON — never faked. */
+                <ErrorBoundary boundary="ai-extract-worker-panel">
+                  <AiExtractWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

@@ -86,4 +86,12 @@ describe("createProcessorRegistry", () => {
     expect(registry.resolve("request-signatures")?.id).toBe("request-signatures");
     expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "request-signatures", ready: true, tools: ["request-signatures"] }));
   });
+
+  it("registers the AI Data Extraction processor for ai-extract, honestly not-ready without a provider", () => {
+    const registry = createProcessorRegistry({ aiExtract: { extract: fakePdfTextExtractor() } });
+    expect(registry.supports("ai-extract")).toBe(true);
+    expect(registry.resolve("ai-extract")?.id).toBe("ai-extract");
+    // Wired but not ready: the extractor is present, but no AI provider is configured.
+    expect(registry.capabilities()).toContainEqual(expect.objectContaining({ id: "ai-extract", ready: false, tools: ["ai-extract"] }));
+  });
 });
