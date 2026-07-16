@@ -34,6 +34,7 @@ import { OfficeConversionWorkerPanel } from "@/components/tools/office-conversio
 import { PdfOfficeExportWorkerPanel } from "@/components/tools/pdf-office-export-worker-panel";
 import { TableExtractWorkerPanel } from "@/components/tools/table-extract-worker-panel";
 import { RequestSignaturesWorkerPanel } from "@/components/tools/request-signatures-worker-panel";
+import { SummarizeWorkerPanel } from "@/components/tools/summarize-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -321,6 +322,13 @@ export default async function ToolPage({
                    signature-request ZIP (prepared PDF + manifest + audit) on the worker. */
                 <ErrorBoundary boundary="request-signatures-worker-panel">
                   <RequestSignaturesWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "summarize-pdf" ? (
+                /* Summarize PDF: selectable-text extraction summarized by a configured
+                   AI provider, packaged as a real summary ZIP (md + txt + manifest) on
+                   the worker. Fails honestly when no provider is configured — never faked. */
+                <ErrorBoundary boundary="summarize-worker-panel">
+                  <SummarizeWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

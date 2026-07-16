@@ -87,6 +87,8 @@ import type { TableExtractDeps } from "../table-extract/engine";
 import { tableExtractDeps } from "../table-extract/native";
 import type { SignatureRequestDeps } from "../request-signatures/engine";
 import { signatureRequestDeps } from "../request-signatures/native";
+import type { SummarizeDeps } from "../summarize/engine";
+import { summarizeDeps } from "../summarize/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -301,6 +303,14 @@ export interface WorkerRuntimeDeps {
   tableExtract?: TableExtractDeps;
   /** Request-signatures deps; defaults to the pdf-lib field preparer. */
   requestSignatures?: SignatureRequestDeps;
+  /**
+   * Summarize deps (selectable-text extractor + AI provider). Defaults to the pdfjs
+   * extractor plus a live AI provider resolved from the environment via
+   * {@link summarizeDeps} — the provider is present only when an operator configured
+   * one (`PDFXYZ_AI_PROVIDER` + key), else summarize fails honestly as not-implemented.
+   * Tests inject a fake provider to exercise the ready path without a real key.
+   */
+  summarize?: SummarizeDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -374,6 +384,10 @@ export function resolveWorkerRuntime(
   const pdfOfficeExport = deps.pdfOfficeExport ?? pdfOfficeExportDeps();
   const tableExtract = deps.tableExtract ?? tableExtractDeps();
   const requestSignatures = deps.requestSignatures ?? signatureRequestDeps();
+  // Summarize auto-resolves its AI provider from the env (absent unless an operator
+  // opted in). The extractor is always wired; with no provider the processor is
+  // registered but honestly not-ready and fails as not_implemented — never faked.
+  const summarize = deps.summarize ?? summarizeDeps(env);
   const registry =
     deps.registry ??
     createProcessorRegistry({
@@ -387,6 +401,7 @@ export function resolveWorkerRuntime(
       pdfOfficeExport,
       tableExtract,
       requestSignatures,
+      summarize,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
