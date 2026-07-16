@@ -20,6 +20,7 @@ import type { SignatureRequestDeps } from "../request-signatures/engine";
 import type { SummarizeDeps } from "../summarize/engine";
 import type { TranslateDeps } from "../translate/engine";
 import type { AiExtractDeps } from "../ai-extract/engine";
+import type { ChatWithPdfDeps } from "../chat-with-pdf/engine";
 import { ProcessorRegistry } from "./registry";
 import { createCompressionProcessor } from "./compression";
 import { createOcrProcessor, type OcrProcessorDeps } from "./ocr";
@@ -34,6 +35,7 @@ import { createRequestSignaturesProcessor } from "./request-signatures";
 import { createSummarizeProcessor } from "./summarize";
 import { createTranslateProcessor } from "./translate";
 import { createAiExtractProcessor } from "./ai-extract";
+import { createChatWithPdfProcessor } from "./chat-with-pdf";
 
 export * from "./types";
 export * from "./registry";
@@ -50,6 +52,7 @@ export * from "./request-signatures";
 export * from "./summarize";
 export * from "./translate";
 export * from "./ai-extract";
+export * from "./chat-with-pdf";
 
 /** Dependencies for the standard secure-worker processor set. */
 export interface SecureWorkerProcessorDeps {
@@ -79,6 +82,8 @@ export interface SecureWorkerProcessorDeps {
   translate?: TranslateDeps;
   /** AI Data Extraction dependencies — pdfjs selectable-text extractor + AI provider. */
   aiExtract?: AiExtractDeps;
+  /** Chat with PDF dependencies — pdfjs selectable-text extractor + AI provider. */
+  chatWithPdf?: ChatWithPdfDeps;
 }
 
 /**
@@ -129,6 +134,9 @@ export function createProcessorRegistry(
   }
   if (deps.aiExtract) {
     registry.register(createAiExtractProcessor(deps.aiExtract));
+  }
+  if (deps.chatWithPdf) {
+    registry.register(createChatWithPdfProcessor(deps.chatWithPdf));
   }
   return registry;
 }

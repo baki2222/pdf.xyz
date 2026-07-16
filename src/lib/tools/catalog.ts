@@ -753,7 +753,7 @@ export const tools: Tool[] = [
     badge: "ai",
     featured: true,
     accept: ["PDF"],
-    outputs: ["Chat"],
+    outputs: ["MD", "TXT"],
     keywords: ["chat pdf", "ask pdf", "pdf q&a", "ai pdf", "talk to pdf"],
     related: ["summarize-pdf", "extract-tables", "ai-extract"],
     how: [

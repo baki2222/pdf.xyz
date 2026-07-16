@@ -1,0 +1,446 @@
+import JSZip from "jszip";
+import type { ExtractedPdfText } from "@/lib/pdf/text";
+import type { ChatOptions, ChatTurn } from "@/lib/jobs/chat-with-pdf";
+import {
+  validateCompletionRequest,
+  type AiCompletionResult,
+  type AiMessage,
+  type AiProvider,
+} from "../ai/provider";
+
+/**
+ * Chat with PDF engine for the `chat-with-pdf` AI tool.
+ *
+ * This is a real, honest document question-answering engine — never a fabricated
+ * "here is your answer". Given a PDF, a bounded question, and optional prior
+ * conversation it:
+ *   1. extracts the PDF's SELECTABLE text only (no OCR — a scanned/image-only PDF is
+ *      honestly rejected as `no_text` and pointed at the OCR tool), then
+ *   2. asks a configured {@link AiProvider} to answer from ONLY that text, grounding
+ *      the prompt in per-page markers (`[Page N]`) when the extractor reports page
+ *      metadata so the model can cite pages as `[p.N]`, then
+ *   3. packages the model's real answer as a ZIP (answer.md + answer.txt +
+ *      manifest.json + README.txt) recording the provider, model, question, cited
+ *      pages, and honest scope.
+ *
+ * HONESTY (load-bearing):
+ *   - No provider ⇒ `ai_unconfigured` with operator requirements. The engine NEVER
+ *     invents an answer when no model is configured — checked before any file work.
+ *   - No selectable text ⇒ `no_text` (run OCR first). It never answers from an
+ *     empty/scanned document by guessing.
+ *   - The system prompt constrains the model to the document text and instructs it to
+ *     say so plainly when the document does not contain the answer — the shipped answer
+ *     is exactly the model's text, unedited and unfabricated.
+ *   - If the model returns an empty completion, the run fails honestly (`failed`)
+ *     rather than shipping a blank answer dressed up as a result.
+ *   - When the extractor reports no page metadata, the package is EXPLICIT that the
+ *     answer is grounded in selectable text without page-level citations.
+ *   - The text extractor and AI provider are injected, so this module stays node-free
+ *     and unit-testable: production wires the real pdfjs extractor + Anthropic provider
+ *     (`./native`), tests wire deterministic fakes.
+ *
+ * SAFETY: the question and conversation context are user-authored, already validated
+ * (bounded, control-character-free, complete pairs) by the job contract. No secret ever
+ * reaches this layer — the AI key lives only in the provider's closure (`../ai/native`).
+ */
+
+export const CHAT_TOOL = "chat-with-pdf" as const;
+export const CHAT_ENGINE = "pdf-chat" as const;
+
+/** Extract selectable text from a PDF; throws on an unreadable PDF. */
+export type PdfTextExtractor = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+
+export interface ChatWithPdfLimits {
+  maxInputBytes?: number;
+  maxOutputBytes?: number;
+  /** Max source characters sent to the model; longer input is truncated (never silently). */
+  maxInputChars?: number;
+  /** Ceiling on the model's generated tokens; the default budget is clamped to it. */
+  maxOutputTokens?: number;
+}
+
+export interface ChatWithPdfDeps {
+  extract?: PdfTextExtractor;
+  /** A configured AI provider. Absent ⇒ the engine fails honestly as `ai_unconfigured`. */
+  provider?: AiProvider;
+  /** ISO timestamp source; defaults to the wall clock. Injected for deterministic tests. */
+  now?: () => string;
+  limits?: ChatWithPdfLimits;
+}
+
+/** Content-free metrics a successful run reports. Never carries document text or the answer body. */
+export interface ChatWithPdfMeta {
+  engine: typeof CHAT_ENGINE;
+  tool: typeof CHAT_TOOL;
+  /** AI provider family id (e.g. "anthropic"). Never a key. */
+  provider: string;
+  /** Public model id (e.g. "claude-sonnet-5"). Never a secret. */
+  model: string;
+  pageCount: number;
+  /** Character count of the question (a COUNT, never the text). */
+  questionCharacters: number;
+  /** Number of prior conversation turns supplied as context. */
+  contextTurns: number;
+  /** Character count of the model's answer (a COUNT, never the text). */
+  answerCharacters: number;
+  /** Number of distinct pages the answer cited (0 when ungrounded or none cited). */
+  citedPages: number;
+  /** True when the source carried per-page metadata, so `[p.N]` citations are possible. */
+  grounded: boolean;
+  inputBytes: number;
+  outputBytes: number;
+  /** Character count of the extracted source text (a COUNT, never the text). */
+  sourceCharacters: number;
+  /** True when the source exceeded `maxInputChars` and only a prefix was sent. */
+  truncated: boolean;
+}
+
+export type ChatWithPdfFailureKind =
+  | "unsupported"
+  | "ai_unconfigured"
+  | "no_text"
+  | "too_large"
+  | "rate_limited"
+  | "content_filtered"
+  | "failed";
+
+export type ChatWithPdfRun =
+  | {
+      ok: true;
+      output: Uint8Array;
+      filenameExt: "zip";
+      contentType: "application/zip";
+      meta: ChatWithPdfMeta;
+    }
+  | {
+      ok: false;
+      kind: ChatWithPdfFailureKind;
+      limitBytes?: number;
+      retryable?: boolean;
+      message: string;
+    };
+
+/**
+ * A generous default generation budget. A grounded answer is bounded by the question,
+ * so a fixed default the operator's `maxOutputTokens` limit can only lower (never
+ * raise) is sufficient.
+ */
+const DEFAULT_MAX_OUTPUT_TOKENS = 2000;
+const DEFAULT_MAX_INPUT_CHARS = 500_000;
+
+/** Assemble the grounding text. When pages carry text, prefix each with a `[Page N]`
+ * marker so the model can cite pages; otherwise fall back to the joined text (ungrounded). */
+function buildGrounding(extracted: ExtractedPdfText): { text: string; grounded: boolean } {
+  const pagesWithText = extracted.pages.filter((page) => page.text.trim().length > 0);
+  if (pagesWithText.length > 0) {
+    const text = pagesWithText
+      .map((page) => `[Page ${page.pageNumber}]\n${page.text.trim()}`)
+      .join("\n\n");
+    return { text, grounded: true };
+  }
+  return { text: extracted.text.trim(), grounded: false };
+}
+
+/** The honesty-critical system prompt: answer ONLY from the document; cite pages when grounded. */
+function buildSystemPrompt(grounding: string, grounded: boolean): string {
+  const parts = [
+    "You are a careful document question-answering assistant for pdf.xyz.",
+    "Answer the user's question using ONLY the information in the document text provided below.",
+    "Do not use outside knowledge and do not invent facts.",
+    'If the document does not contain the answer, say so plainly (e.g. "The document does not state this.").',
+  ];
+  if (grounded) {
+    parts.push(
+      'The document is divided into pages marked "[Page N]". When you use information from a page, cite it inline as [p.N].',
+    );
+  } else {
+    parts.push(
+      "The document text has no page markers, so answer without page-level citations; you may quote the relevant text.",
+    );
+  }
+  parts.push("Be concise and reference the document where possible.");
+  parts.push("", "--- DOCUMENT START ---", grounding, "--- DOCUMENT END ---");
+  return parts.join("\n");
+}
+
+/** Distinct pages the answer cited (`[p.N]`), within the document's real page range. */
+function citedPagesIn(answer: string, pageCount: number): number[] {
+  const cited = new Set<number>();
+  const re = /\[p\.?\s*(\d+)\]/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(answer)) !== null) {
+    const page = Number(match[1]);
+    if (Number.isInteger(page) && page >= 1 && page <= pageCount) cited.add(page);
+  }
+  return [...cited].sort((a, b) => a - b);
+}
+
+/** Map a provider completion failure to an honest, typed run failure. */
+function mapProviderFailure(
+  result: Extract<AiCompletionResult, { ok: false }>,
+): Extract<ChatWithPdfRun, { ok: false }> {
+  switch (result.kind) {
+    case "not_configured":
+      return { ok: false, kind: "ai_unconfigured", retryable: false, message: result.message };
+    case "rate_limited":
+      return { ok: false, kind: "rate_limited", retryable: true, message: result.message };
+    case "content_filtered":
+      return { ok: false, kind: "content_filtered", retryable: false, message: result.message };
+    case "too_long":
+      return {
+        ok: false,
+        kind: "too_large",
+        retryable: false,
+        message:
+          "This document is too large for the AI model's context window. Try a shorter PDF or split it first.",
+      };
+    case "timeout":
+    case "invalid_response":
+    case "provider_error":
+    default:
+      return { ok: false, kind: "failed", retryable: result.retryable, message: result.message };
+  }
+}
+
+/**
+ * Run the chat flow honestly: reject oversized input, fail `unsupported` when no text
+ * extractor is wired, `ai_unconfigured` when no provider is configured, `no_text` when
+ * the PDF has no selectable text (run OCR first), and map every provider failure to a
+ * typed run failure — never a fabricated answer. On success, return a real ZIP package
+ * (answer.md + answer.txt + manifest.json + README.txt) holding the model's real answer.
+ */
+export async function runChatWithPdf(
+  input: Uint8Array,
+  options: ChatOptions,
+  deps: ChatWithPdfDeps,
+): Promise<ChatWithPdfRun> {
+  const { extract, provider } = deps;
+  if (!extract) {
+    return {
+      ok: false,
+      kind: "unsupported",
+      message:
+        "Chat with PDF requires the PDF text extractor, which is not available in this environment.",
+    };
+  }
+
+  // No provider is the biggest blocker and needs no file work to detect — fail first,
+  // honestly, with operator requirements. Never fabricate an answer without a model.
+  if (!provider) {
+    return {
+      ok: false,
+      kind: "ai_unconfigured",
+      retryable: false,
+      message:
+        "Answering questions about a PDF requires a configured AI provider (operator setup: PDFXYZ_AI_PROVIDER + PDFXYZ_AI_API_KEY). No provider is configured on this worker, so no answer can be produced. See docs/WORKER_ARCHITECTURE.md.",
+    };
+  }
+
+  const maxInput = deps.limits?.maxInputBytes;
+  if (maxInput !== undefined && input.byteLength > maxInput) {
+    return {
+      ok: false,
+      kind: "too_large",
+      limitBytes: maxInput,
+      message: "The PDF input exceeds the worker's size limit.",
+    };
+  }
+
+  const now = deps.now ?? (() => new Date().toISOString());
+
+  let extracted: ExtractedPdfText;
+  try {
+    extracted = await extract(input);
+  } catch {
+    return { ok: false, kind: "failed", retryable: false, message: "The PDF could not be read for text extraction." };
+  }
+
+  const { text: groundingSource, grounded } = buildGrounding(extracted);
+  if (!extracted.hasText || groundingSource.length === 0) {
+    return {
+      ok: false,
+      kind: "no_text",
+      retryable: false,
+      message:
+        "This PDF has no selectable text to answer from. It may be a scan or image-only PDF — run OCR PDF first, then chat with the result.",
+    };
+  }
+
+  const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
+  const truncated = groundingSource.length > maxChars;
+  const grounding = truncated ? groundingSource.slice(0, maxChars) : groundingSource;
+
+  const maxOutputTokens = deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+
+  const messages: AiMessage[] = [
+    ...(options.context ?? []).map((turn: ChatTurn) => ({ role: turn.role, content: turn.content })),
+    { role: "user" as const, content: options.question },
+  ];
+
+  const request = {
+    system: buildSystemPrompt(grounding, grounded),
+    messages,
+    maxOutputTokens,
+    // Deterministic, factual question-answering: no creative sampling.
+    temperature: 0,
+  };
+
+  // Defensive: the contract already guarantees a valid conversation; a shape check here
+  // means a bug upstream fails honestly rather than dispatching a doomed request.
+  const shape = validateCompletionRequest(request);
+  if (!shape.ok) {
+    return { ok: false, kind: "failed", retryable: false, message: `The chat request was malformed: ${shape.reason}` };
+  }
+
+  const completion = await provider.complete(request);
+  if (!completion.ok) return mapProviderFailure(completion);
+
+  const answer = completion.text.trim();
+  if (answer.length === 0) {
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: true,
+      message:
+        "The AI provider returned an empty answer, so no honest response could be produced. No answer was fabricated. Retrying may succeed.",
+    };
+  }
+
+  const citedPages = grounded ? citedPagesIn(answer, extracted.pageCount) : [];
+
+  const createdAt = now();
+  const manifest: ChatManifest = {
+    schema: "pdfxyz.chat/v1",
+    tool: CHAT_TOOL,
+    engine: CHAT_ENGINE,
+    createdAt,
+    provider: provider.id,
+    model: completion.model,
+    question: options.question,
+    contextTurns: options.context?.length ?? 0,
+    source: {
+      pageCount: extracted.pageCount,
+      characters: groundingSource.length,
+      truncatedToCharacters: truncated ? maxChars : null,
+    },
+    answer: { characters: answer.length, citedPages },
+    grounded,
+    notice: grounded
+      ? "This answer was produced by an AI model from ONLY the SELECTABLE TEXT of the source PDF, with inline page-level citations ([p.N]). The model may still err — verify against the original before relying on it. Nothing was answered from outside the document."
+      : "This answer was produced by an AI model from ONLY the SELECTABLE TEXT of the source PDF. The extractor reported no page metadata, so the answer is grounded in the selectable text without page-level citations. The model may still err — verify against the original before relying on it. Nothing was answered from outside the document.",
+  };
+
+  const output = await buildPackage(options.question, answer, manifest);
+  const maxOutput = deps.limits?.maxOutputBytes;
+  if (maxOutput !== undefined && output.byteLength > maxOutput) {
+    return { ok: false, kind: "failed", retryable: false, message: "The answer package exceeds the worker size limit." };
+  }
+
+  return {
+    ok: true,
+    output,
+    filenameExt: "zip",
+    contentType: "application/zip",
+    meta: {
+      engine: CHAT_ENGINE,
+      tool: CHAT_TOOL,
+      provider: provider.id,
+      model: completion.model,
+      pageCount: extracted.pageCount,
+      questionCharacters: options.question.length,
+      contextTurns: options.context?.length ?? 0,
+      answerCharacters: answer.length,
+      citedPages: citedPages.length,
+      grounded,
+      inputBytes: input.byteLength,
+      outputBytes: output.byteLength,
+      sourceCharacters: groundingSource.length,
+      truncated,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Manifest / package types + serialization
+// ---------------------------------------------------------------------------
+
+interface ChatManifest {
+  schema: string;
+  tool: string;
+  engine: string;
+  createdAt: string;
+  provider: string;
+  model: string;
+  question: string;
+  contextTurns: number;
+  source: { pageCount: number; characters: number; truncatedToCharacters: number | null };
+  answer: { characters: number; citedPages: number[] };
+  grounded: boolean;
+  notice: string;
+}
+
+/** Render answer.md: a provenance header, the question, and the model's answer. */
+function renderMarkdown(question: string, answer: string, manifest: ChatManifest): string {
+  const lines: string[] = [];
+  lines.push("# Answer");
+  lines.push("");
+  lines.push(`> Answered by ${manifest.provider} (${manifest.model}) from the selectable text of the source PDF.`);
+  lines.push(
+    `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for answering)` : ""}`,
+  );
+  if (manifest.grounded && manifest.answer.citedPages.length > 0) {
+    lines.push(`> Cited pages: ${manifest.answer.citedPages.map((p) => `p.${p}`).join(", ")}`);
+  }
+  lines.push("");
+  lines.push("## Question");
+  lines.push("");
+  lines.push(question);
+  lines.push("");
+  lines.push("## Answer");
+  lines.push("");
+  lines.push(answer);
+  lines.push("");
+  lines.push("---");
+  lines.push(`_${manifest.notice}_`);
+  return lines.join("\n");
+}
+
+/** Render answer.txt: a plain Q/A rendering with no Markdown. */
+function renderText(question: string, answer: string): string {
+  return `Q: ${question}\n\nA: ${answer}\n`;
+}
+
+/** Render a plain-text README describing the package and its honest scope. */
+function renderReadme(manifest: ChatManifest): string {
+  const lines: string[] = [];
+  lines.push("pdf.xyz — Chat with PDF Answer Package");
+  lines.push("======================================");
+  lines.push("");
+  lines.push(`Generated: ${manifest.createdAt}`);
+  lines.push(`Provider: ${manifest.provider}`);
+  lines.push(`Model: ${manifest.model}`);
+  lines.push(`Question: ${manifest.question}`);
+  if (manifest.contextTurns > 0) {
+    lines.push(`Conversation context: ${manifest.contextTurns} prior turn(s)`);
+  }
+  lines.push(`Grounding: ${manifest.grounded ? "page-level (with [p.N] citations)" : "selectable text (no page-level citations)"}`);
+  lines.push("");
+  lines.push("Contents:");
+  lines.push("  answer.md      The model's answer with a provenance header and the question.");
+  lines.push("  answer.txt     A plain-text Q/A rendering of the same answer.");
+  lines.push("  manifest.json  A structured record of the request (provider, model, question, scope).");
+  lines.push("");
+  lines.push("HONEST SCOPE:");
+  lines.push("  " + manifest.notice);
+  return lines.join("\n");
+}
+
+/** Package the answer + manifest + README into a real ZIP. */
+async function buildPackage(question: string, answer: string, manifest: ChatManifest): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file("answer.md", renderMarkdown(question, answer, manifest));
+  zip.file("answer.txt", renderText(question, answer));
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+  zip.file("README.txt", renderReadme(manifest));
+  return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
+}

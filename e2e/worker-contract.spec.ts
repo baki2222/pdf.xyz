@@ -1,30 +1,33 @@
 import { test, expect } from "@playwright/test";
 import { attachConsoleGuard } from "./helpers";
 
-test.describe("secure-worker tool preview", () => {
-  test("a secure-worker tool page shows the honest future-flow preview", async ({
+test.describe("secure-worker AI tool panel", () => {
+  test("the chat-with-pdf page mounts its dedicated secure-worker panel, honestly not-enabled", async ({
     page,
   }) => {
     const guard = attachConsoleGuard(page);
-    // `chat-with-pdf` is still a generic AI tool that renders the shared WorkerPreview
-    // (implemented worker tools — including request-signatures, summarize-pdf,
-    // translate-pdf, and ai-extract — have dedicated panels covered by their own
-    // smoke/unit tests).
+    // `chat-with-pdf` now has a dedicated secure-worker panel (like summarize-pdf,
+    // translate-pdf, and ai-extract). With the worker disabled in this environment the
+    // panel is honestly "Not enabled": it shows the pipeline + a notify placeholder and
+    // never mounts an uploader or fabricates an answer. (The ready/answer path is
+    // exercised by the engine/processor/client unit tests, which inject a fake provider.)
     await page.goto("/tools/chat-with-pdf");
 
     await expect(
       page.getByRole("heading", { level: 1, name: "Chat with PDF" }),
     ).toBeVisible();
 
-    // The preview — not the in-browser runner, and not a fake uploader.
-    await expect(page.getByText("Not yet enabled")).toBeVisible();
-    await expect(page.getByText(/secure worker/i).first()).toBeVisible();
+    // The dedicated panel — not the in-browser runner, and not a fake uploader.
+    await expect(
+      page.getByRole("heading", { name: /runs on an encrypted secure worker/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Not enabled")).toBeVisible();
     await expect(page.getByText("Malware scan")).toBeVisible();
     await expect(page.getByText("Isolated processing")).toBeVisible();
     await expect(page.getByText("5. Auto-delete")).toBeVisible();
     await expect(page.getByText(/wiped after processing/i)).toBeVisible();
 
-    // A secure-worker preview never mounts a client runner or uploader.
+    // Not-enabled ⇒ no builder, so no client uploader or in-browser runner is mounted.
     expect(await page.locator('input[type="file"]').count()).toBe(0);
     await expect(
       page.getByText(/runs in your browser — your file never leaves/i),
