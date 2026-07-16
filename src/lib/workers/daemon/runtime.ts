@@ -89,6 +89,8 @@ import type { SignatureRequestDeps } from "../request-signatures/engine";
 import { signatureRequestDeps } from "../request-signatures/native";
 import type { SummarizeDeps } from "../summarize/engine";
 import { summarizeDeps } from "../summarize/native";
+import type { TranslateDeps } from "../translate/engine";
+import { translateDeps } from "../translate/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -311,6 +313,14 @@ export interface WorkerRuntimeDeps {
    * Tests inject a fake provider to exercise the ready path without a real key.
    */
   summarize?: SummarizeDeps;
+  /**
+   * Translate deps (selectable-text extractor + AI provider). Defaults to the pdfjs
+   * extractor plus a live AI provider resolved from the environment via
+   * {@link translateDeps} — the provider is present only when an operator configured
+   * one (`PDFXYZ_AI_PROVIDER` + key), else translate fails honestly as not-implemented.
+   * Tests inject a fake provider to exercise the ready path without a real key.
+   */
+  translate?: TranslateDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -388,6 +398,10 @@ export function resolveWorkerRuntime(
   // opted in). The extractor is always wired; with no provider the processor is
   // registered but honestly not-ready and fails as not_implemented — never faked.
   const summarize = deps.summarize ?? summarizeDeps(env);
+  // Translate mirrors summarize: the extractor is always wired; the AI provider is
+  // auto-resolved from the env (absent unless an operator opted in). With no provider
+  // the processor is registered but honestly not-ready and fails as not_implemented.
+  const translate = deps.translate ?? translateDeps(env);
   const registry =
     deps.registry ??
     createProcessorRegistry({
@@ -402,6 +416,7 @@ export function resolveWorkerRuntime(
       tableExtract,
       requestSignatures,
       summarize,
+      translate,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
