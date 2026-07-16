@@ -91,6 +91,8 @@ import type { SummarizeDeps } from "../summarize/engine";
 import { summarizeDeps } from "../summarize/native";
 import type { TranslateDeps } from "../translate/engine";
 import { translateDeps } from "../translate/native";
+import type { AiExtractDeps } from "../ai-extract/engine";
+import { aiExtractDeps } from "../ai-extract/native";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./readiness";
 import {
   resolveDeploymentReadiness,
@@ -321,6 +323,14 @@ export interface WorkerRuntimeDeps {
    * Tests inject a fake provider to exercise the ready path without a real key.
    */
   translate?: TranslateDeps;
+  /**
+   * AI Data Extraction deps (selectable-text extractor + AI provider). Defaults to
+   * the pdfjs extractor plus a live AI provider resolved from the environment via
+   * {@link aiExtractDeps} — the provider is present only when an operator configured
+   * one (`PDFXYZ_AI_PROVIDER` + key), else ai-extract fails honestly as not-implemented.
+   * Tests inject a fake provider to exercise the ready path without a real key.
+   */
+  aiExtract?: AiExtractDeps;
   /** Lease each claimed job for this long (ms); forwarded to the executor. */
   leaseMs?: number;
   /** Max delivery attempts before a retryable failure becomes terminal. */
@@ -402,6 +412,11 @@ export function resolveWorkerRuntime(
   // auto-resolved from the env (absent unless an operator opted in). With no provider
   // the processor is registered but honestly not-ready and fails as not_implemented.
   const translate = deps.translate ?? translateDeps(env);
+  // AI Data Extraction mirrors summarize/translate: the extractor is always wired; the
+  // AI provider is auto-resolved from the env (absent unless an operator opted in). With
+  // no provider the processor is registered but honestly not-ready and fails as
+  // not_implemented — never a fabricated extraction.
+  const aiExtract = deps.aiExtract ?? aiExtractDeps(env);
   const registry =
     deps.registry ??
     createProcessorRegistry({
@@ -417,6 +432,7 @@ export function resolveWorkerRuntime(
       requestSignatures,
       summarize,
       translate,
+      aiExtract,
     });
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);

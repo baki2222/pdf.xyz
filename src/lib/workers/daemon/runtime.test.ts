@@ -48,6 +48,7 @@ describe("resolveWorkerRuntime — gating", () => {
     expect(runtime.blocked).toBe("not_configured");
     // Processors are still reported honestly (compression lossless + OCR + PDF security).
     expect(runtime.processors.map((p) => p.id).sort()).toEqual([
+      "ai-extract",
       "compression",
       "html-render",
       "ocr",
