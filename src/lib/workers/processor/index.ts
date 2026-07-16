@@ -18,6 +18,7 @@ import type { PdfOfficeExportDeps } from "../pdf-office-export/engine";
 import type { TableExtractDeps } from "../table-extract/engine";
 import type { SignatureRequestDeps } from "../request-signatures/engine";
 import type { SummarizeDeps } from "../summarize/engine";
+import type { TranslateDeps } from "../translate/engine";
 import { ProcessorRegistry } from "./registry";
 import { createCompressionProcessor } from "./compression";
 import { createOcrProcessor, type OcrProcessorDeps } from "./ocr";
@@ -30,6 +31,7 @@ import { createPdfOfficeExportProcessor } from "./pdf-office-export";
 import { createTableExtractProcessor } from "./table-extract";
 import { createRequestSignaturesProcessor } from "./request-signatures";
 import { createSummarizeProcessor } from "./summarize";
+import { createTranslateProcessor } from "./translate";
 
 export * from "./types";
 export * from "./registry";
@@ -44,6 +46,7 @@ export * from "./pdf-office-export";
 export * from "./table-extract";
 export * from "./request-signatures";
 export * from "./summarize";
+export * from "./translate";
 
 /** Dependencies for the standard secure-worker processor set. */
 export interface SecureWorkerProcessorDeps {
@@ -69,6 +72,8 @@ export interface SecureWorkerProcessorDeps {
   requestSignatures?: SignatureRequestDeps;
   /** Summarize dependencies — pdfjs selectable-text extractor + AI provider. */
   summarize?: SummarizeDeps;
+  /** Translate dependencies — pdfjs selectable-text extractor + AI provider. */
+  translate?: TranslateDeps;
 }
 
 /**
@@ -113,6 +118,9 @@ export function createProcessorRegistry(
   }
   if (deps.summarize) {
     registry.register(createSummarizeProcessor(deps.summarize));
+  }
+  if (deps.translate) {
+    registry.register(createTranslateProcessor(deps.translate));
   }
   return registry;
 }

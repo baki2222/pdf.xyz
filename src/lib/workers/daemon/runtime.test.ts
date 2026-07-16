@@ -59,6 +59,7 @@ describe("resolveWorkerRuntime — gating", () => {
       "request-signatures",
       "summarize",
       "table-extract",
+      "translate",
     ]);
   });
 

@@ -35,6 +35,7 @@ import { PdfOfficeExportWorkerPanel } from "@/components/tools/pdf-office-export
 import { TableExtractWorkerPanel } from "@/components/tools/table-extract-worker-panel";
 import { RequestSignaturesWorkerPanel } from "@/components/tools/request-signatures-worker-panel";
 import { SummarizeWorkerPanel } from "@/components/tools/summarize-worker-panel";
+import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -329,6 +330,13 @@ export default async function ToolPage({
                    the worker. Fails honestly when no provider is configured — never faked. */
                 <ErrorBoundary boundary="summarize-worker-panel">
                   <SummarizeWorkerPanel tool={tool} />
+                </ErrorBoundary>
+              ) : tool.slug === "translate-pdf" ? (
+                /* Translate PDF: selectable-text extraction translated by a configured
+                   AI provider, packaged as a real translation ZIP (md + txt + manifest)
+                   on the worker. Fails honestly when no provider is configured — never faked. */
+                <ErrorBoundary boundary="translate-worker-panel">
+                  <TranslateWorkerPanel tool={tool} />
                 </ErrorBoundary>
               ) : (
                 /* Secure-worker / hybrid / AI tool: honest future-flow preview. */

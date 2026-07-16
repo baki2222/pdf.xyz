@@ -780,15 +780,15 @@ export const tools: Tool[] = [
   {
     slug: "translate-pdf",
     name: "Translate PDF",
-    tagline: "Translate while keeping the layout.",
+    tagline: "Translate a PDF's text into another language.",
     description:
-      "Translate a PDF into another language while preserving its original layout.",
+      "Translate a PDF's selectable text into another language with AI, packaged as translated Markdown and plain text.",
     category: "ai",
     icon: "translate",
     processing: "ai",
     badge: "ai",
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["MD", "TXT"],
     keywords: ["translate pdf", "pdf translation", "ai translate", "language"],
     related: ["summarize-pdf", "chat-with-pdf", "ocr-pdf"],
   },
