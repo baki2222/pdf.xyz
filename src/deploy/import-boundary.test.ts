@@ -46,6 +46,11 @@ const ALLOWED = new Set(
     "src/lib/workers/ocr-native.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
+    // Portable-pnpm subprocess resolution: only reached by the release CLI
+    // scripts (`scripts/worker-release-*.ts`) and worker `cli.smoke.test.ts`
+    // helpers, never by a web route/component/barrel.
+    "src/lib/workers/exec-pnpm.ts",
+    "src/tests/exec-pnpm.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 

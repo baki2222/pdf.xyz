@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execPnpmSync } from "@/tests/exec-pnpm";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,18 +35,15 @@ function runCli(
   input?: string,
 ): { status: number; stdout: string } {
   try {
-    const stdout = execFileSync(
-      "pnpm",
-      ["-s", "worker:release-decision", ...args],
-      {
-        cwd: process.cwd(),
-        env: process.env,
-        encoding: "utf8",
-        timeout: SPAWN_TIMEOUT_MS,
-        maxBuffer: 16 * 1024 * 1024,
-        ...(input !== undefined ? { input } : {}),
-      },
-    );
+    const stdout = execPnpmSync(["-s", "worker:release-decision", ...args], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      encoding: "utf8",
+      timeout: SPAWN_TIMEOUT_MS,
+      maxBuffer: 16 * 1024 * 1024,
+      ...(input !== undefined ? { input } : {}),
+    });
     return { status: 0, stdout };
   } catch (err) {
     const e = err as {

@@ -39,6 +39,7 @@ import {
   type ReleaseCheckSpec,
   type ReleaseGateProvider,
 } from "@/lib/workers/release-gate";
+import { resolvePnpmInvocation } from "@/lib/workers/exec-pnpm";
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
@@ -59,7 +60,8 @@ const MAX_OUTPUT_BYTES = 16 * 1024 * 1024; // 16 MiB
  * build host; the fixture-driven checks ignore the environment entirely.
  */
 async function runCheck(spec: ReleaseCheckSpec): Promise<ProbeResult> {
-  const r = spawnSync("pnpm", ["-s", spec.script, ...spec.args], {
+  const { command, prefixArgs } = resolvePnpmInvocation();
+  const r = spawnSync(command, [...prefixArgs, "-s", spec.script, ...spec.args], {
     cwd: process.cwd(),
     env: process.env,
     encoding: "utf8",

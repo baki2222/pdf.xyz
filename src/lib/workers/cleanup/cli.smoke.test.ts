@@ -16,7 +16,7 @@
  * It proves the CLI evaluates honestly (never fabricates a deletion) and never leaks an ingested
  * string.
  */
-import { execFileSync } from "node:child_process";
+import { execPnpmSync } from "@/tests/exec-pnpm";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,17 +53,23 @@ function runCli(
   opts: { input?: string; env?: Record<string, string> } = {},
 ): CliResult {
   try {
-    const stdout = execFileSync("pnpm", ["-s", "worker:cleanup-check", ...args], {
+    const stdout = execPnpmSync(["-s", "worker:cleanup-check", ...args], {
       cwd: process.cwd(),
       env: { ...process.env, ...EMPTY_ENV, ...opts.env },
       ...(opts.input !== undefined ? { input: opts.input } : {}),
+      stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf8",
       timeout: 90_000,
     });
     return { status: 0, stdout };
   } catch (err) {
-    const e = err as { status?: number | null; signal?: string | null; stdout?: string };
-    if (typeof e.status === "number") return { status: e.status, stdout: String(e.stdout ?? "") };
+    const e = err as {
+      status?: number | null;
+      signal?: string | null;
+      stdout?: string;
+    };
+    if (typeof e.status === "number")
+      return { status: e.status, stdout: String(e.stdout ?? "") };
     throw err; // killed by a signal or never spawned — surface loudly
   }
 }
@@ -77,12 +83,17 @@ const HEALTHY = JSON.stringify([
 ]);
 
 /** A long-expired object still present → drift (far past any grace). */
-const DRIFT = JSON.stringify([{ presence: "present", expiresAtMs: 1_000_000_000_000, deleted: false }]);
+const DRIFT = JSON.stringify([
+  { presence: "present", expiresAtMs: 1_000_000_000_000, deleted: false },
+]);
 
 /** A recently-expired object still present → retrieval-denied → unknown. */
-const PENDING = JSON.stringify([{ presence: "present", expiresAtMs: Date.now() - 3_600_000, deleted: false }]);
+const PENDING = JSON.stringify([
+  { presence: "present", expiresAtMs: Date.now() - 3_600_000, deleted: false },
+]);
 
-const HOSTILE_CONTENT_MARKER = "hostile-storage-locator-customer-document-redacted";
+const HOSTILE_CONTENT_MARKER =
+  "hostile-storage-locator-customer-document-redacted";
 
 const tmp = mkdtempSync(join(tmpdir(), "cleanup-check-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -166,9 +177,9 @@ describe("worker cleanup-check CLI — exit codes + output", () => {
   it(
     "exits usage (1) for malformed stdin input — never fabricates a verdict",
     () => {
-      expect(runCli(["--stdin"], { env: S3_ENV, input: "{not json" }).status).toBe(
-        OPS_CHECK_EXIT.USAGE,
-      );
+      expect(
+        runCli(["--stdin"], { env: S3_ENV, input: "{not json" }).status,
+      ).toBe(OPS_CHECK_EXIT.USAGE);
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -176,7 +187,9 @@ describe("worker cleanup-check CLI — exit codes + output", () => {
   it(
     "exits usage (1) for an unknown flag",
     () => {
-      expect(runCli(["--definitely-not-a-flag"]).status).toBe(OPS_CHECK_EXIT.USAGE);
+      expect(runCli(["--definitely-not-a-flag"]).status).toBe(
+        OPS_CHECK_EXIT.USAGE,
+      );
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -198,7 +211,14 @@ describe("worker cleanup-check CLI — exit codes + output", () => {
     () => {
       const poisoned = JSON.stringify({
         bucket: HOSTILE_CONTENT_MARKER,
-        objects: [{ presence: "present", expiresAtMs: 1_000_000_000_000, objectKey: HOSTILE_CONTENT_MARKER, signedUrl: HOSTILE_CONTENT_MARKER }],
+        objects: [
+          {
+            presence: "present",
+            expiresAtMs: 1_000_000_000_000,
+            objectKey: HOSTILE_CONTENT_MARKER,
+            signedUrl: HOSTILE_CONTENT_MARKER,
+          },
+        ],
       });
       const r = runCli(["--stdin"], { env: S3_ENV, input: poisoned });
       // A drift verdict, but crucially no leak of the ingested strings.
