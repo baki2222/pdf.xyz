@@ -24,6 +24,19 @@ export PDFXYZ_STORAGE_PROVIDER=""
 export PDFXYZ_QUEUE_PROVIDER=""
 export PDFXYZ_WORKER_MODE=""
 
+# Resolve pnpm without assuming it's on PATH: honor an explicit override (PNPM,
+# e.g. a wrapper script or absolute path), then a pnpm already on PATH, then
+# fall back to Corepack, which ships with Node >=16.9 and resolves the exact
+# version pinned by package.json's "packageManager" field even when pnpm
+# itself isn't installed globally or on PATH (as in this environment).
+if [ -n "${PNPM:-}" ]; then
+  pnpm_cmd=$PNPM
+elif command -v pnpm >/dev/null 2>&1; then
+  pnpm_cmd=pnpm
+else
+  pnpm_cmd="corepack pnpm"
+fi
+
 fail=0
 smoke_tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pdfxyz-worker-smoke)
 trap 'rm -rf "$smoke_tmp"' EXIT INT TERM
@@ -68,7 +81,7 @@ check() {
   want=$1
   label=$2
   shift 2
-  if pnpm -s worker:daemon "$@" >/dev/null 2>&1; then
+  if $pnpm_cmd -s worker:daemon "$@" >/dev/null 2>&1; then
     code=0
   else
     code=$?
@@ -90,7 +103,7 @@ check_env() {
   label=$2
   assignment=$3
   shift 3
-  if env "$assignment" pnpm -s worker:daemon "$@" >/dev/null 2>&1; then
+  if env "$assignment" $pnpm_cmd -s worker:daemon "$@" >/dev/null 2>&1; then
     code=0
   else
     code=$?
