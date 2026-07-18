@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +29,7 @@ function runCli(
   input?: string,
 ): { status: number; stdout: string } {
   try {
-    const stdout = execPnpmSync(["-s", WORKER, ...args], {
+    const stdout = runWorkerCliSync(["-s", WORKER, ...args], {
       cwd: process.cwd(),
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],

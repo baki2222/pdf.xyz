@@ -16,7 +16,7 @@
  * It proves the CLI evaluates honestly (never fabricates a deletion) and never leaks an ingested
  * string.
  */
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,7 +53,7 @@ function runCli(
   opts: { input?: string; env?: Record<string, string> } = {},
 ): CliResult {
   try {
-    const stdout = execPnpmSync(["-s", "worker:cleanup-check", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:cleanup-check", ...args], {
       cwd: process.cwd(),
       env: { ...process.env, ...EMPTY_ENV, ...opts.env },
       ...(opts.input !== undefined ? { input: opts.input } : {}),

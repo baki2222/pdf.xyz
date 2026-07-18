@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 
 const SPAWN_TIMEOUT_MS = 60_000;
 const D = "docs/examples/release-ci-bundle";
@@ -20,7 +20,7 @@ const POLICY_MISMATCH = `${D}/policy-mismatch.json`;
 
 function runCli(args: string[]): { status: number; stdout: string } {
   try {
-    const stdout = execPnpmSync(["-s", "worker:release-ci-bundle", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:release-ci-bundle", ...args], {
       cwd: process.cwd(),
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],

@@ -9,7 +9,7 @@
  * them. Node env; generous spawn timeout (the pipeline spawns one process that composes three
  * in-process runners).
  */
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { describe, expect, it } from "vitest";
 
 const SPAWN_TIMEOUT_MS = 90_000;
@@ -32,7 +32,7 @@ interface RunResult {
 /** Spawn a `pnpm -s <script>` worker CLI, capturing status + stdout (never throwing on non-zero). */
 function runScript(script: string, args: string[], input?: string): RunResult {
   try {
-    const stdout = execPnpmSync(["-s", script, ...args], {
+    const stdout = runWorkerCliSync(["-s", script, ...args], {
       cwd: process.cwd(),
       env: CLEAN_ENV,
       ...(input !== undefined ? { input } : {}),

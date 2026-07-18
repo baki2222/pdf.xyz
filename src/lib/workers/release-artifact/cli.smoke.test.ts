@@ -11,7 +11,7 @@
  */
 
 import { afterAll, describe, expect, it } from "vitest";
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,7 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 function runCli(args: string[]): { status: number; stdout: string } {
   try {
-    const stdout = execPnpmSync(["-s", "worker:release-artifact", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:release-artifact", ...args], {
       cwd: process.cwd(),
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],

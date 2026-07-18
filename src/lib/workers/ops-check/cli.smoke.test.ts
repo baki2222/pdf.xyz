@@ -14,7 +14,7 @@
  * It is the automated form of the healthcheck smoke and proves the CLI evaluates
  * honestly rather than fabricating health — and never leaks an ingested string.
  */
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,7 +32,7 @@ function runCli(
   opts: { input?: string; env?: Record<string, string> } = {},
 ): CliResult {
   try {
-    const stdout = execPnpmSync(["-s", "worker:ops-check", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:ops-check", ...args], {
       cwd: process.cwd(),
       env: {
         ...process.env,

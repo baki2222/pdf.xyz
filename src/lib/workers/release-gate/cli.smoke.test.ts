@@ -10,14 +10,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { RELEASE_GATE_EXIT } from "./types";
 
 const SPAWN_TIMEOUT_MS = 240_000;
 
 function runCli(args: string[]): { status: number; stdout: string } {
   try {
-    const stdout = execPnpmSync(["-s", "worker:release-gate", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:release-gate", ...args], {
       cwd: process.cwd(),
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],

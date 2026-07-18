@@ -16,7 +16,7 @@
  * the automated form of `scripts/worker-smoke.sh` and proves the daemon fails
  * honestly rather than fabricating work.
  */
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
  */
 function runDaemon(args: string[], env: Record<string, string> = {}): number {
   try {
-    execPnpmSync(["-s", "worker:daemon", ...args], {
+    runWorkerCliSync(["-s", "worker:daemon", ...args], {
       cwd: process.cwd(),
       env: {
         ...process.env,

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -17,7 +17,7 @@ interface RunResult {
 
 function runCli(args: string[], opts: { input?: string } = {}): RunResult {
   try {
-    const stdout = execPnpmSync(["-s", "worker:artifact-cleanup", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:artifact-cleanup", ...args], {
       cwd: process.cwd(),
       env: {
         ...process.env,

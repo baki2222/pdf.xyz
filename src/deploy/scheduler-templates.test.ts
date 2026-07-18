@@ -4,7 +4,7 @@
  * These tests intentionally do not run Docker, kubectl, systemd, cron, or GitHub
  * Actions. They pin the committed blueprints' safety and command semantics offline.
  */
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -52,7 +52,7 @@ describe("deployment example templates — privacy and static syntax", () => {
   });
 
   it("validates through the repo's deployment example validator", () => {
-    const out = execPnpmSync(["-s", "deploy:examples:check"], {
+    const out = runWorkerCliSync(["-s", "deploy:examples:check"], {
       cwd: ROOT,
       stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf8",

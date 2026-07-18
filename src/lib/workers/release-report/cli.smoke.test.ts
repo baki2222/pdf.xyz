@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { execPnpmSync } from "@/tests/exec-pnpm";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 
 const SPAWN_TIMEOUT_MS = 60_000;
 const D = "docs/examples/release-report";
@@ -25,7 +25,7 @@ function runCli(
   input?: string,
 ): { status: number; stdout: string } {
   try {
-    const stdout = execPnpmSync(["-s", "worker:release-report", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:release-report", ...args], {
       cwd: process.cwd(),
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
