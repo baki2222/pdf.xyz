@@ -89,7 +89,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
-    "qa": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "qa": "tsx scripts/qa.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
