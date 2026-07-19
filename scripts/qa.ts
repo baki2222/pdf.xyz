@@ -32,6 +32,12 @@ export const QA_STEPS = ["typecheck", "lint", "test", "build"] as const;
 /** Run one package script as a subprocess, streaming its output, and reduce it to an exit code. */
 export function runStep(step: string): number {
   const { command, prefixArgs } = resolvePnpmInvocation();
+  // Announce each step before it starts and report its wall-clock after. When this gate runs under
+  // a cron/CI timeout, the harness kills the whole process group and prints nothing about progress —
+  // so without these markers a timeout is indistinguishable between "lint hung" and "tests are just
+  // slow". This makes the failure honest and diagnosable rather than silent.
+  const startedAt = Date.now();
+  process.stderr.write(`qa: running \`${step}\`...\n`);
   const result = spawnSync(command, [...prefixArgs, "-s", "run", step], {
     // Stream the child's output straight through — `qa` is an interactive dev/CI gate,
     // not a captured probe, so there is nothing to sanitize.
@@ -39,15 +45,24 @@ export function runStep(step: string): number {
     env: process.env,
     cwd: process.cwd(),
   });
+  const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
   if (result.error) {
-    process.stderr.write(`qa: could not launch \`${step}\`: ${result.error.message}\n`);
+    process.stderr.write(
+      `qa: could not launch \`${step}\` after ${elapsedSec}s: ${result.error.message}\n`,
+    );
     return 1;
   }
   if (result.signal) {
-    process.stderr.write(`qa: \`${step}\` terminated by signal ${result.signal}\n`);
+    process.stderr.write(
+      `qa: \`${step}\` terminated by signal ${result.signal} after ${elapsedSec}s\n`,
+    );
     return 1;
   }
-  return typeof result.status === "number" ? result.status : 1;
+  const status = typeof result.status === "number" ? result.status : 1;
+  process.stderr.write(
+    `qa: \`${step}\` finished in ${elapsedSec}s (exit ${status})\n`,
+  );
+  return status;
 }
 
 /** Run every step in order, stopping at the first failure. Returns the exit code to propagate. */
@@ -55,7 +70,9 @@ export function runQa(): number {
   for (const step of QA_STEPS) {
     const code = runStep(step);
     if (code !== 0) {
-      process.stderr.write(`qa: \`${step}\` failed (exit ${code}); stopping.\n`);
+      process.stderr.write(
+        `qa: \`${step}\` failed (exit ${code}); stopping.\n`,
+      );
       return code;
     }
   }
