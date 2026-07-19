@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
 /**
@@ -17,7 +17,12 @@ export async function makePdfBytes(
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (let i = 0; i < pageCount; i++) {
     const page = doc.addPage([320, 240]);
-    page.drawText(`${label} — page ${i + 1}`, { x: 24, y: 200, size: 16, font });
+    page.drawText(`${label} — page ${i + 1}`, {
+      x: 24,
+      y: 200,
+      size: 16,
+      font,
+    });
   }
   return doc.save();
 }
@@ -57,6 +62,56 @@ export async function writeTempFormPdf(name: string): Promise<string> {
   return path;
 }
 
+/** The runner/workspace file picker — every upload flow goes through this. */
+export function fileInput(page: Page): Locator {
+  return page.locator('input[type="file"]').first();
+}
+
+/**
+ * Resolve once React has actually claimed `target`, i.e. the node is wired up
+ * and will respond to events.
+ *
+ * Waiting for server-rendered copy to appear does NOT prove this: that markup
+ * ships in the SSR HTML and is visible while hydration is still pending. React
+ * instead tags every host node it hydrates with an internal `__reactFiber$…`
+ * key, so the presence of that key is a direct signal about this exact element.
+ */
+export async function waitForHydration(target: Locator): Promise<void> {
+  await target.waitFor({ state: "attached" });
+  await expect
+    .poll(
+      () =>
+        target.evaluate((el) =>
+          Object.keys(el).some((k) => k.startsWith("__reactFiber$")),
+        ),
+      {
+        message:
+          "element never hydrated — the page is inert, so interactions are silently dropped",
+      },
+    )
+    .toBe(true);
+}
+
+/**
+ * Stage files through the page's file picker the way a user would.
+ *
+ * `setInputFiles` writes the file list and dispatches `change` synchronously.
+ * Immediately after `page.goto` the input already exists in the server-rendered
+ * HTML while hydration is still pending (~60ms locally, and far longer under
+ * parallel-worker CPU contention), so there is no listener to receive that
+ * event: the file is dropped without a trace and the spec fails seconds later
+ * on a missing filename, pointing nowhere near the real cause. Gate the upload
+ * on the input actually being live.
+ */
+export async function uploadFiles(
+  page: Page,
+  files: string | string[],
+): Promise<void> {
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles(files);
+}
+
 /**
  * Attach a guard that records console errors and uncaught page errors. Used to
  * assert a page loads cleanly under the production CSP (a blocked script,
@@ -73,6 +128,8 @@ export function attachConsoleGuard(page: Page) {
     consoleErrors,
     pageErrors,
     cspViolations: () =>
-      consoleErrors.filter((t) => /content security policy|refused to/i.test(t)),
+      consoleErrors.filter((t) =>
+        /content security policy|refused to/i.test(t),
+      ),
   };
 }

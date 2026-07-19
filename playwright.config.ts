@@ -21,6 +21,9 @@ const pnpm = [pnpmCommand, ...prefixArgs].map(shQuote).join(" ");
 
 export default defineConfig({
   testDir: "./e2e",
+  // Fail fast when the port is already held by a dev server, instead of
+  // silently adopting it via `webServer.reuseExistingServer`.
+  globalSetup: "./e2e/global-setup.ts",
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
@@ -35,9 +38,7 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-  ],
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command: `rm -f .next/lock && ${pnpm} start --port ${PORT}`,
     url: baseURL,

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { attachConsoleGuard, writeTempPdf } from "./helpers";
+import { attachConsoleGuard, writeTempPdf, uploadFiles } from "./helpers";
 
 /**
  * End-to-end proof that the single-file rotate runner works entirely in the
@@ -15,7 +15,7 @@ test("rotate spins every page client-side and yields a download", async ({
 
   await page.goto("/tools/rotate-pdf");
 
-  await page.locator('input[type="file"]').first().setInputFiles(source);
+  await uploadFiles(page, source);
 
   // The editor mounts once the PDF is parsed: the file header names the doc.
   await expect(page.getByText("spin.pdf")).toBeVisible();

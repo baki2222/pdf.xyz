@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { attachConsoleGuard, writeTempPdf } from "./helpers";
+import { attachConsoleGuard, uploadFiles, writeTempPdf } from "./helpers";
 
 /**
  * End-to-end proof that a "client" tool really runs in the browser: we generate
@@ -18,10 +18,7 @@ test("merge combines uploaded PDFs client-side and yields a download", async ({
 
   await page.goto("/tools/merge-pdf");
 
-  await page
-    .locator('input[type="file"]')
-    .first()
-    .setInputFiles([alpha, beta]);
+  await uploadFiles(page, [alpha, beta]);
 
   await expect(page.getByText("alpha.pdf")).toBeVisible();
   await expect(page.getByText("beta.pdf")).toBeVisible();

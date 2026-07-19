@@ -19,6 +19,7 @@ import {
 import { PageRangeError } from "@/lib/pdf/ranges";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import { buttonVariants } from "@/components/ui/button";
+import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ *
@@ -117,6 +118,8 @@ export function Dropzone({
     },
     [onFiles],
   );
+
+  useEarlyFilePick(inputRef, emit);
 
   return (
     <label
