@@ -107,6 +107,73 @@ describe("createAnthropicProvider", () => {
     expect(result).toMatchObject({ ok: false, kind: "content_filtered", retryable: false });
   });
 
+  it("fails honestly when the model truncated its answer at max_tokens", async () => {
+    // The body carries real text — the point is that we must NOT return it as a
+    // complete answer, because it stops mid-sentence.
+    const provider = createAnthropicProvider(CONFIG, {
+      fetch: vi.fn(async () =>
+        jsonResponse({
+          content: [{ type: "text", text: "The document begins by describing the" }],
+          stop_reason: "max_tokens",
+        }),
+      ),
+    });
+    const result = await provider.complete(REQUEST);
+    expect(result).toMatchObject({ ok: false, kind: "incomplete_output", retryable: false });
+    // The truncated text must not leak out as if it were the answer.
+    if (!result.ok) expect(result.message).not.toContain("The document begins");
+  });
+
+  it("maps auth/permission failures to a non-retryable rejection", async () => {
+    for (const status of [401, 403]) {
+      const provider = createAnthropicProvider(CONFIG, {
+        fetch: vi.fn(async () =>
+          jsonResponse({ error: { type: "authentication_error", message: "sk-leak" } }, status),
+        ),
+      });
+      const result = await provider.complete(REQUEST);
+      expect(result).toMatchObject({ ok: false, kind: "rejected", retryable: false });
+      if (!result.ok) expect(result.message).not.toContain("sk-leak");
+    }
+  });
+
+  it("treats a context-window 400 as too_long, not a retryable error", async () => {
+    // Anthropic reports context overflow as a plain 400 invalid_request_error — 413 is
+    // the separate request-size limit — so the status code alone cannot distinguish it.
+    const provider = createAnthropicProvider(CONFIG, {
+      fetch: vi.fn(async () =>
+        jsonResponse(
+          {
+            error: {
+              type: "invalid_request_error",
+              message: "prompt is too long: 250000 tokens > 200000 maximum",
+            },
+          },
+          400,
+        ),
+      ),
+    });
+    const result = await provider.complete(REQUEST);
+    expect(result).toMatchObject({ ok: false, kind: "too_long", retryable: false });
+  });
+
+  it("maps a 413 to too_long and any other 4xx to a non-retryable rejection", async () => {
+    const tooLarge = createAnthropicProvider(CONFIG, {
+      fetch: vi.fn(async () => jsonResponse({ error: "request too large" }, 413)),
+    });
+    expect(await tooLarge.complete(REQUEST)).toMatchObject({ ok: false, kind: "too_long" });
+
+    // e.g. an unknown model id — replaying it identically can never succeed.
+    const notFound = createAnthropicProvider(CONFIG, {
+      fetch: vi.fn(async () => jsonResponse({ error: { type: "not_found_error" } }, 404)),
+    });
+    expect(await notFound.complete(REQUEST)).toMatchObject({
+      ok: false,
+      kind: "rejected",
+      retryable: false,
+    });
+  });
+
   it("maps an abort to a timeout failure", async () => {
     const provider = createAnthropicProvider(CONFIG, {
       fetch: vi.fn(async () => {

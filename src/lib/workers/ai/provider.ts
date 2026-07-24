@@ -59,6 +59,16 @@ export interface AiUsage {
  *  - `timeout`        : the request exceeded the deadline. Retryable.
  *  - `content_filtered`: the provider refused to answer (safety). Not retryable.
  *  - `too_long`       : the input exceeded the model/window budget. Not retryable.
+ *  - `incomplete_output`: the model hit its output ceiling, so the generated text is
+ *    CUT OFF mid-answer. Not retryable — an identical request truncates identically.
+ *    This is a failure rather than a success on purpose: a half-written summary or a
+ *    translation missing its last pages is not a shorter answer, it is a WRONG one,
+ *    and returning it as complete would be exactly the kind of quiet fabrication the
+ *    honesty rules above forbid. Only a smaller input or a larger output budget clears it.
+ *  - `rejected`       : the provider refused the request itself — a bad/expired key, a
+ *    revoked permission, an unknown model id, a malformed body. Not retryable: replaying
+ *    the identical request cannot fix an operator misconfiguration, and pretending it
+ *    might would burn the retry budget (and real money) on a guaranteed failure.
  *  - `invalid_response`: the provider replied in an unusable shape. Retryable.
  *  - `provider_error` : any other upstream failure. Retryable.
  */
@@ -68,6 +78,8 @@ export type AiFailureKind =
   | "timeout"
   | "content_filtered"
   | "too_long"
+  | "incomplete_output"
+  | "rejected"
   | "invalid_response"
   | "provider_error";
 

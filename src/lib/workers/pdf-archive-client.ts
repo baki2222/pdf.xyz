@@ -22,7 +22,19 @@ export async function runWorkerPdfToPdfA(
   return runSecurityJob(PDF_TO_PDFA_TOOL, input.filename, input.bytes, {}, options);
 }
 
-/** Same secure-worker readiness rule as qpdf tools: remote worker binaries are not visible to web. */
+/**
+ * Honest readiness for PDF/A. Remote worker binaries are not visible to web, so a
+ * configured + drainable worker is the best signal we have there.
+ *
+ * Local dev is always `false`: `pdf-to-pdfa` is not in `LOCAL_DEV_SUPPORTED_TOOLS` and the
+ * local adapter never wires the archive processor, so this tool genuinely cannot run in
+ * that mode. Deferring to `canRunPdfSecurity` alone would key readiness off the **qpdf**
+ * probe — a different binary from the Ghostscript one PDF/A actually needs — and advertise
+ * the tool as available on any dev box with qpdf installed, only to reject the job after
+ * the user picked a file.
+ */
 export function canRunPdfArchive(status: WorkerStatus | null | undefined): boolean {
+  if (!status) return false;
+  if (status.localDevOnly) return false;
   return canRunPdfSecurity(status);
 }
