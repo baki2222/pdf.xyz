@@ -5,6 +5,7 @@ import {
   DEFAULT_AI_MODEL,
   nativeAiCapability,
   resolveAiConfig,
+  resolveAiDeclaration,
 } from "./config";
 
 const ENABLED = {
@@ -99,5 +100,60 @@ describe("nativeAiCapability", () => {
     expect(cap.id).toBe("anthropic");
     expect(cap.model).toBe(DEFAULT_AI_MODEL.anthropic);
     expect(JSON.stringify(cap)).not.toContain("sk-secret-value-never-read-here");
+  });
+});
+
+describe("resolveAiDeclaration", () => {
+  it("is absent when the family switch is unset", () => {
+    expect(resolveAiDeclaration({})).toEqual({ state: "absent" });
+  });
+
+  it("declares a family WITHOUT requiring the API key", () => {
+    // The whole point: the web tier holds no secret but must still know whether
+    // this deployment runs AI at all.
+    const declaration = resolveAiDeclaration({ [AI_ENV.provider]: "anthropic" });
+    expect(declaration).toEqual({
+      state: "declared",
+      provider: "anthropic",
+      model: DEFAULT_AI_MODEL.anthropic,
+    });
+  });
+
+  it("agrees with resolveAiConfig on the resolved public model id", () => {
+    const env = { ...ENABLED, [AI_ENV.model]: "claude-opus-5" };
+    const config = resolveAiConfig(env);
+    const declaration = resolveAiDeclaration(env);
+    expect(config.enabled).toBe(true);
+    expect(declaration.state).toBe("declared");
+    if (config.enabled && declaration.state === "declared") {
+      expect(declaration.model).toBe(config.config.model);
+      expect(declaration.provider).toBe(config.config.provider);
+    }
+  });
+
+  it("rejects an unknown family, naming the variable and not its value", () => {
+    const declaration = resolveAiDeclaration({ [AI_ENV.provider]: "totally-made-up" });
+    expect(declaration.state).toBe("invalid");
+    if (declaration.state === "invalid") {
+      expect(declaration.error.field).toBe(AI_ENV.provider);
+      expect(declaration.error.message).not.toContain("totally-made-up");
+    }
+  });
+
+  it("rejects a malformed model override", () => {
+    const declaration = resolveAiDeclaration({
+      [AI_ENV.provider]: "anthropic",
+      [AI_ENV.model]: "NOT A TOKEN",
+    });
+    expect(declaration.state).toBe("invalid");
+    if (declaration.state === "invalid") {
+      expect(declaration.error.field).toBe(AI_ENV.model);
+    }
+  });
+
+  it("never reads the API key, so its presence cannot change the result", () => {
+    const withoutKey = resolveAiDeclaration({ [AI_ENV.provider]: "anthropic" });
+    const withKey = resolveAiDeclaration({ ...ENABLED });
+    expect(withKey).toEqual(withoutKey);
   });
 });

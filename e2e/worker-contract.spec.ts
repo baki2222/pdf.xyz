@@ -27,6 +27,13 @@ test.describe("secure-worker AI tool panel", () => {
     await expect(page.getByText("5. Auto-delete")).toBeVisible();
     await expect(page.getByText(/wiped after processing/i)).toBeVisible();
 
+    // The stated reason must be the one that is actually blocking. No AI provider
+    // is declared in this build, so the panel names that — not the daemon — and a
+    // user is never asked to upload a PDF for work that provably cannot happen.
+    await expect(
+      page.getByText(/no ai provider is declared for this deployment/i),
+    ).toBeVisible();
+
     // Not-enabled ⇒ no builder, so no client uploader or in-browser runner is mounted.
     expect(await page.locator('input[type="file"]').count()).toBe(0);
     await expect(

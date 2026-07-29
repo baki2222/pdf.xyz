@@ -46,6 +46,14 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       runsInThisProcess: false,
       detail: "ready",
     },
+    ai: {
+      declared: false,
+      provider: null,
+      model: null,
+      configuredHere: false,
+      ready: false,
+      detail: "no ai declared",
+    },
     ...overrides,
   };
 }

@@ -4,6 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
+import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -30,6 +31,7 @@ const DISABLED_STATUS: WorkerStatus = {
   },
   providers: getProviderReadiness("disabled"),
   daemon: resolveDaemonReadiness({}),
+  ai: resolveAiReadiness({}),
 };
 
 const LOCAL_TOOLS: LocalToolRef[] = [
@@ -68,6 +70,30 @@ describe("SystemStatus", () => {
     expect(screen.getByText(DISABLED_STATUS.ocr.detail)).toBeInTheDocument();
     // Disabled OCR shows its own "Not enabled" badge alongside the worker one.
     expect(screen.getAllByText("Not enabled").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows an honest AI capability row read from the live status", async () => {
+    mockFetchOnce(async () => ({ ok: true, json: async () => DISABLED_STATUS }));
+    render(<SystemStatus localTools={LOCAL_TOOLS} />);
+
+    expect(await screen.findByText("AI tools")).toBeInTheDocument();
+    // With nothing declared the page states the absence rather than implying a
+    // model is reachable because the worker pipeline exists.
+    expect(screen.getByText(DISABLED_STATUS.ai.detail)).toBeInTheDocument();
+    expect(DISABLED_STATUS.ai.ready).toBe(false);
+  });
+
+  it("shows AI as declared when the deployment names a provider family", async () => {
+    const declared: WorkerStatus = {
+      ...DISABLED_STATUS,
+      ai: resolveAiReadiness({ PDFXYZ_AI_PROVIDER: "anthropic" }),
+    };
+    mockFetchOnce(async () => ({ ok: true, json: async () => declared }));
+    render(<SystemStatus localTools={LOCAL_TOOLS} />);
+
+    expect(await screen.findByText("AI tools")).toBeInTheDocument();
+    expect(screen.getByText("Declared")).toBeInTheDocument();
+    expect(screen.getByText(declared.ai.detail)).toBeInTheDocument();
   });
 
   it("shows the production pipeline providers, each honestly not configured", async () => {

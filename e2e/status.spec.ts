@@ -50,6 +50,28 @@ test.describe("system status page", () => {
       page.getByText("Not configured", { exact: true }).first(),
     ).toBeVisible();
 
+    // The AI capability is broken out on its own, for the same reason OCR is: a
+    // configured pipeline says nothing about whether a model is wired. With no
+    // provider declared in this build the page states the absence up front, so a
+    // user learns the AI tools can't run BEFORE handing over a document.
+    //
+    // "AI tools" is also a header/footer nav label, so scope to the secure-worker
+    // card itself — identified by its heading plus the live worker detail asserted
+    // above, i.e. the innermost element that is both. That keeps the assertion on
+    // the capability row (a nav link can never satisfy it) instead of weakening it
+    // to a .first().
+    const workerCard = page
+      .locator("div")
+      .filter({ has: page.getByRole("heading", { name: "Secure worker" }) })
+      .filter({ has: page.getByText(/no secure worker is configured/i) })
+      .last();
+    await expect(
+      workerCard.getByText("AI tools", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      workerCard.getByText(/no ai provider is declared for this deployment/i),
+    ).toBeVisible();
+
     // Static "what runs where" explainer is present and honest.
     await expect(
       page.getByRole("heading", { name: /what runs where/i }),

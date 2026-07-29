@@ -12,6 +12,7 @@ import {
   type SummaryLength,
 } from "@/lib/jobs/summarize-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
+import { aiToolUnavailableDetail } from "@/lib/workers/ai-tool-availability";
 import {
   canRunSummarize,
   runWorkerSummarize,
@@ -76,7 +77,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
       ? "Checking whether a secure worker is available…"
       : phase === "error"
         ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+        : aiToolUnavailableDetail(status);
 
   return (
     <div className="gradient-border">

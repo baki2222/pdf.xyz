@@ -46,6 +46,14 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       runsInThisProcess: false,
       detail: "ready",
     },
+    ai: {
+      declared: true,
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      configuredHere: false,
+      ready: true,
+      detail: "ai declared",
+    },
     ...overrides,
   };
 }
@@ -57,6 +65,25 @@ describe("translate-client", () => {
 
   it("never advertises the flow for a local-dev-only worker", () => {
     expect(canRunTranslate(status({ localDevOnly: true }))).toBe(false);
+  });
+
+  it("refuses up front when the deployment declares no AI provider", () => {
+    // A drainable pipeline is not enough: with no model wired there is no
+    // translation to produce, so the tool must not take the user's document first.
+    expect(
+      canRunTranslate(
+        status({
+      ai: {
+        declared: false,
+        provider: null,
+        model: null,
+        configuredHere: false,
+        ready: false,
+        detail: "no ai provider is declared",
+      },
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("is unavailable when status is absent", () => {

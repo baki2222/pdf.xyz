@@ -8,6 +8,7 @@ import {
   MonitorSmartphone,
   ScanText,
   Server,
+  Sparkles,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -203,6 +204,25 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                 </div>
                 <p className="text-xs leading-relaxed text-slate-500">
                   {status.ocr.detail}
+                </p>
+              </div>
+
+              {/* Same honesty for the AI tools: a drainable pipeline says nothing
+                  about whether a model is wired, so AI reports its own readiness
+                  rather than being implied by the worker's. */}
+              <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300">
+                    <Sparkles className="size-3.5 text-slate-400" aria-hidden />
+                    AI tools
+                  </span>
+                  <StatusBadge
+                    tone={status.ai.ready ? "ok" : "muted"}
+                    label={status.ai.ready ? "Declared" : "Not enabled"}
+                  />
+                </div>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  {status.ai.detail}
                 </p>
               </div>
 

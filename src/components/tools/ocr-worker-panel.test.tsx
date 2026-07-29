@@ -6,6 +6,7 @@ import { OCR_LANGUAGE_CODES, buildOcrResultMeta } from "@/lib/jobs/ocr";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
+import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -35,6 +36,7 @@ const DISABLED: WorkerStatus = {
   },
   providers: getProviderReadiness("disabled"),
   daemon: resolveDaemonReadiness({}),
+  ai: resolveAiReadiness({}),
 };
 
 const AVAILABLE: WorkerStatus = {
@@ -56,6 +58,7 @@ const AVAILABLE: WorkerStatus = {
   },
   providers: getProviderReadiness("remote-configured"),
   daemon: resolveDaemonReadiness({}),
+  ai: resolveAiReadiness({}),
 };
 
 function stubFetch(status: WorkerStatus) {

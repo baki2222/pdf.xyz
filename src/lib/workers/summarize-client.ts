@@ -1,5 +1,6 @@
 import type { WorkerStatus } from "./status";
-import { canRunPdfSecurity, runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import { runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import { canRunAiTool } from "./ai-tool-availability";
 import type { SummaryFormat, SummaryLength } from "@/lib/jobs/summarize-pdf";
 
 /**
@@ -37,15 +38,10 @@ export function runWorkerSummarize(
 }
 
 /**
- * True when the UI may offer the secure-worker Summarize PDF flow. Mirrors the
- * request-signatures gate: the summarization engine lives on the remote worker, so
- * local-dev (whose probes are about native binaries) never advertises it, and
- * staging/production gate on storage + queue + a drainable daemon. Whether an AI
- * provider is actually configured is decided server-side — an unconfigured worker
- * still surfaces the honest not-implemented error rather than a fabricated summary.
+ * True when the UI may offer the secure-worker Summarize PDF flow: a drainable
+ * remote pipeline AND a declared AI provider. See `./ai-tool-availability` for why
+ * the AI half is checked here rather than left to fail after the upload.
  */
 export function canRunSummarize(status: WorkerStatus | null | undefined): boolean {
-  if (!status) return false;
-  if (status.localDevOnly) return false;
-  return canRunPdfSecurity(status);
+  return canRunAiTool(status);
 }

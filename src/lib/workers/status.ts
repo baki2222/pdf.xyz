@@ -27,6 +27,7 @@ import {
 } from "./pdf-security/capability";
 import { getProviderReadiness, type WorkerProviders } from "./providers";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./daemon/readiness";
+import { resolveAiReadiness, type AiReadiness } from "./ai/readiness";
 
 /** What the worker can do for the Compress tool in this environment, right now. */
 export interface CompressCapability {
@@ -73,6 +74,15 @@ export interface WorkerStatus {
    * here — the daemon never runs inside this app.
    */
   daemon: DaemonReadiness;
+  /**
+   * Presence-only readiness of the AI provider the AI tools (summarize, translate,
+   * chat, ai-extract) need. Kept distinct from `providers`/`daemon`: a deployment
+   * can have a perfectly drainable pipeline and still have no model wired, in which
+   * case those tools must be honestly off *before* a user uploads a document
+   * rather than failing after the upload. Derived from the non-secret family
+   * switch only — the API key lives on the worker and is never read here.
+   */
+  ai: AiReadiness;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -102,6 +112,9 @@ export function buildWorkerStatus(
   const security = buildSecurityCapability(mode, securityQpdf ?? tools?.qpdf);
   const providers = getProviderReadiness(mode, env);
   const daemon = resolveDaemonReadiness(env);
+  // Mode-independent, like `daemon`: the AI tools always run on the out-of-band
+  // worker, so what matters is whether this deployment declares a provider at all.
+  const ai = resolveAiReadiness(env);
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -118,6 +131,7 @@ export function buildWorkerStatus(
       security,
       providers,
       daemon,
+      ai,
     };
   }
 
@@ -133,6 +147,7 @@ export function buildWorkerStatus(
       security,
       providers,
       daemon,
+      ai,
     };
   }
 
@@ -147,5 +162,6 @@ export function buildWorkerStatus(
     security,
     providers,
     daemon,
+    ai,
   };
 }

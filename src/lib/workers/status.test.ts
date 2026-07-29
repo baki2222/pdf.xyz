@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolAvailability } from "./compression/engine";
 import { S3_ENV } from "./storage/s3-config";
+import { AI_ENV } from "./ai/config";
 import { buildWorkerStatus } from "./status";
 
 const noTools: ToolAvailability = {
@@ -234,5 +235,57 @@ describe("buildWorkerStatus — worker daemon readiness (Phase 16)", () => {
     expect(
       buildWorkerStatus("disabled", undefined, undefined, s3Env).daemon.drainable,
     ).toBe(false);
+  });
+});
+
+describe("buildWorkerStatus — AI provider readiness", () => {
+  it("reports AI not ready in every mode when nothing is declared", () => {
+    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+      const { ai } = buildWorkerStatus(mode, undefined, undefined, noEnv);
+      expect(ai.ready).toBe(false);
+      expect(ai.declared).toBe(false);
+      expect(ai.provider).toBeNull();
+      expect(ai.detail.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("reports AI ready from the declaration alone, independently of the mode", () => {
+    // AI always runs on the out-of-band worker, so — exactly like `daemon` — its
+    // readiness is mode-independent and derived from the non-secret family switch.
+    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+      const { ai } = buildWorkerStatus(mode, undefined, undefined, {
+        [AI_ENV.provider]: "anthropic",
+      });
+      expect(ai).toMatchObject({
+        ready: true,
+        declared: true,
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        configuredHere: false,
+      });
+    }
+  });
+
+  it("keeps AI readiness independent of the pipeline providers", () => {
+    // A fully drainable deployment with no model wired must still report AI off,
+    // so the AI tools are refused up front instead of after an upload.
+    const { ai, daemon } = buildWorkerStatus("disabled", undefined, undefined, {
+      ...s3Env,
+      PDFXYZ_QUEUE_PROVIDER: "redis",
+      PDFXYZ_REDIS_REST_URL: "https://redis.example.com",
+      PDFXYZ_REDIS_REST_TOKEN: "redis-rest-token-1234",
+    });
+    expect(daemon.drainable).toBe(true);
+    expect(ai.ready).toBe(false);
+  });
+
+  it("never serializes an API key into the client-facing status", () => {
+    const key = "sk-ant-EXAMPLE-not-a-real-key-0000000000";
+    const status = buildWorkerStatus("disabled", undefined, undefined, {
+      [AI_ENV.provider]: "anthropic",
+      [AI_ENV.apiKey]: key,
+    });
+    expect(status.ai.configuredHere).toBe(true);
+    expect(JSON.stringify(status)).not.toContain(key);
   });
 });
