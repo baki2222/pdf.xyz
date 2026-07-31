@@ -66,6 +66,8 @@ this section is the by-service summary.
 | `NEXT_PUBLIC_TELEMETRY_ENDPOINT` / `NEXT_PUBLIC_TELEMETRY_SAMPLE_RATE` | Optional | Client telemetry, **off** unless set. `NEXT_PUBLIC_` is correct here — it is public by nature, never a secret. |
 | `PDFXYZ_RATE_LIMIT_PROVIDER` / `PDFXYZ_RATE_LIMIT_TRUST_PROXY` | Optional | In-app abuse guard, **off** unless a provider is set. `local-memory` = per-process limiter (**not distributed**). A remote name (`redis`/`upstash`) activates the shipped **distributed** provider (Phase 34) when the store below is wired, else skips honestly. Server-only; never `NEXT_PUBLIC_`. Deny ⇒ `429` + `Retry-After`, content-free. |
 | `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `..._TOKEN` / `..._KEY_PREFIX` / `..._FAIL_MODE` | Optional | **Web-tier** store for distributed rate limiting (Phase 34) — separate names from the worker-only `PDFXYZ_REDIS_REST_*` so no worker secret lands on the public web pod. May reuse the same instance. `FAIL_MODE`: `open` (default, store outage ⇒ allow) or `closed` (⇒ `429`). Server-only; never `NEXT_PUBLIC_`. |
+| `PDFXYZ_WORKER_HEARTBEAT`, `PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS` | **Yes, to see a worker** | The **same flag gates both halves**: on the worker it enables the beat *publisher*, on the web it enables the *reader*. Set it on the worker only and the web reports `daemon.state: "disabled"`, `daemonObserved:false`, and `processor.ready:false` — while a perfectly healthy worker beats away unseen. Give both services the same value. |
+| `PDFXYZ_LIFECYCLE_PROVIDER` / `PDFXYZ_LIFECYCLE_VALIDATED` | Optional (recommended) | The web reports the retention backstop from its **own** environment, not the worker's. Absent here, `/api/worker/operations` sits at `health: "warn"` with `recommendedAction: "declare-lifecycle"` even when the bucket rules are applied and the worker declares them. |
 
 ### worker service
 
@@ -83,8 +85,26 @@ this section is the by-service summary.
 Provider config is read from the **environment at run time** and is never baked
 into an image layer, never logged, and never returned by `/api/worker/status`
 (readiness is presence-only — it never names a bucket, endpoint, token, key, or
-variable). Give the web and worker the **same** storage/queue values when you want
-end-to-end flow; give the worker the compression/lifecycle/guardrail knobs.
+variable).
+
+**Which service gets what.** Give the web and worker the **same** storage/queue
+values when you want end-to-end flow. The compression, scanner and guardrail knobs
+are worker-only. But **heartbeat and lifecycle are not worker-only, despite naming
+that suggests it** — the web needs both to describe what it can see:
+
+- `PDFXYZ_WORKER_HEARTBEAT` on the worker publishes the beat; the *same* variable
+  on the web enables the reader that looks for it.
+- `PDFXYZ_LIFECYCLE_*` on the worker lets `--dry-run-status` report the backstop;
+  the *same* variables on the web let `/api/worker/operations` report it.
+
+Setting either on one side only produces a deployment that works but reports
+itself as broken — the most expensive kind of wrong, because everything you check
+says "no worker" while jobs quietly complete.
+
+**Env changes need a new container, not a restart.** `docker run --env-file` reads
+the file once, at creation. `docker restart` re-runs the *old* environment, so an
+edited env file appears to have no effect. Recreate the container (`docker rm -f`
+then `docker run`, or `docker compose up -d --force-recreate`).
 
 ---
 

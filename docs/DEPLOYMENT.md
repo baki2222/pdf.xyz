@@ -36,8 +36,16 @@ preview, and production.
 **Policy: never commit secrets, and never read `.env*` files into the client.**
 
 - `.env`, `.env.local`, and `.env*.local` are git-ignored (see `.gitignore`).
-- **Today:** no environment variables are required. The whole app builds and
-  runs without any.
+- **Nothing is required to build or serve.** The whole app builds and runs with
+  no environment at all; every server-side tool then reports itself honestly as
+  not configured. That is the intended zero-config state, not a degraded one.
+- **A deployment that actually processes documents needs the worker environment
+  on _both_ services.** Scope every variable to **Production only** — a Preview
+  deployment sharing production storage and queue would write real user objects
+  and real jobs from a pull request. See [`RUNBOOK.md`](RUNBOOK.md) §2 for the
+  by-service table, including the two variable groups whose names suggest they
+  are worker-only but are needed on the web as well
+  (`PDFXYZ_WORKER_HEARTBEAT`, `PDFXYZ_LIFECYCLE_*`).
 - **Secure-worker storage (optional, Phase 14):** object storage can be wired
   independently of the queue/processor by setting server-only S3-compatible
   variables in Vercel. This enables real signed upload/download URL minting.
