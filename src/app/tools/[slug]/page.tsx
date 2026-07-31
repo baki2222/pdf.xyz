@@ -65,6 +65,9 @@ export async function generateMetadata({
     description: tool.description,
     path: `/tools/${tool.slug}`,
     keywords: tool.keywords,
+    // Every tool gets its own share card, leading with where it actually runs.
+    imagePath: `/tools/${tool.slug}/opengraph-image`,
+    imageAlt: `${tool.name} — ${tool.tagline}`,
   });
 }
 

@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { siteConfig } from "@/lib/site";
+import { OG_BACKGROUND_IMAGE } from "@/lib/og";
 import { toolCount } from "@/lib/tools";
 
 // Generated at build time (no dynamic params), so the fonts are read from disk
@@ -33,37 +34,11 @@ export default async function OpengraphImage() {
           width: "100%",
           height: "100%",
           padding: "72px 80px",
-          background: "linear-gradient(135deg, #0b0b1e 0%, #060611 55%)",
+          backgroundImage: OG_BACKGROUND_IMAGE,
           color: "#ffffff",
           fontFamily: "Inter",
         }}
       >
-        {/* Brand glows */}
-        <div
-          style={{
-            position: "absolute",
-            top: -260,
-            left: -180,
-            width: 760,
-            height: 760,
-            borderRadius: 9999,
-            background:
-              "radial-gradient(closest-side, rgba(139,92,246,0.45), rgba(139,92,246,0))",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            top: -280,
-            right: -160,
-            width: 680,
-            height: 680,
-            borderRadius: 9999,
-            background:
-              "radial-gradient(closest-side, rgba(59,130,246,0.38), rgba(59,130,246,0))",
-          }}
-        />
-
         {/* Wordmark */}
         <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
           <div

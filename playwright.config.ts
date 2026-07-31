@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { resolvePnpmInvocation } from "./src/lib/workers/exec-pnpm";
+import { shellQuote } from "./src/lib/workers/shell-quote";
 
 /**
  * Playwright runs the smoke suite against a real production build served by
@@ -15,15 +16,9 @@ const isCI = !!process.env.CI;
 // through `cmd.exe` on Windows, so a bare `pnpm` 127s wherever pnpm isn't on
 // PATH (this cron sandbox has only `corepack pnpm`). Resolve it the same way
 // the worker CLIs do — reusing the shared helper — and shell-quote each part so
-// a resolved node/pnpm path containing spaces survives. Quote for whichever
-// shell actually parses the string: `cmd.exe` does not treat `'` as a quote
-// character at all, so POSIX quoting there splits `C:\Program Files\...` back
-// into separate tokens and the spawn fails before Next ever starts.
-const isWindows = process.platform === "win32";
-const shQuote = (s: string): string =>
-  isWindows ? `"${s.replace(/"/g, '""')}"` : `'${s.replace(/'/g, `'\\''`)}'`;
+// a resolved node/pnpm path containing spaces survives whichever shell parses it.
 const { command: pnpmCommand, prefixArgs } = resolvePnpmInvocation();
-const pnpm = [pnpmCommand, ...prefixArgs].map(shQuote).join(" ");
+const pnpm = [pnpmCommand, ...prefixArgs].map(shellQuote).join(" ");
 
 // `rm` is not a `cmd.exe` builtin, so clear the stale Next lock through node
 // instead — one spelling that both shells parse identically.
