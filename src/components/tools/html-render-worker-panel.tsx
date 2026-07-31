@@ -116,7 +116,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
         {available ? (
           <HtmlRenderRunArea mode={mode} />
         ) : (
-          <HtmlRenderUnavailable phase={phase} status={status} toolName={tool.name} />
+          <HtmlRenderUnavailable phase={phase} status={status} toolName={tool.name} toolSlug={tool.slug} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -170,10 +170,12 @@ function HtmlRenderUnavailable({
   phase,
   status,
   toolName,
+  toolSlug,
 }: {
   phase: Phase;
   status: WorkerStatus | null;
   toolName: string;
+  toolSlug: string;
 }) {
   const detail =
     phase === "loading"
@@ -188,7 +190,7 @@ function HtmlRenderUnavailable({
       <p className="text-xs leading-relaxed text-slate-500">
         No runner is shown until the worker is ready, so {toolName} never pretends to process input it cannot actually render.
       </p>
-      <NotifyMe toolName={toolName} />
+      <NotifyMe toolName={toolName} toolSlug={toolSlug} />
     </div>
   );
 }

@@ -18,6 +18,7 @@ describe("event name allowlist", () => {
         "worker_status_checked",
         "worker_operations_checked",
         "worker_contract_hit",
+        "gated_tool_interest",
       ].sort(),
     );
   });

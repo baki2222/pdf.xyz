@@ -15,6 +15,25 @@ export const OG_SIZE = { width: 1200, height: 630 } as const;
 export const OG_CONTENT_TYPE = "image/png";
 
 /**
+ * The card background: base wash plus the two brand glows, as one value.
+ *
+ * Satori is not a browser. It does not resolve `radial-gradient(closest-side,
+ * …)` — a card using that syntax renders each glow as a hard-edged disc with a
+ * dark middle instead of a soft falloff — and it clips a gradient to its
+ * element's box rather than letting it bleed, so glows painted onto absolutely
+ * positioned child divs leave a straight seam where the box ends. Painting all
+ * three layers onto the card's own background avoids both: explicit percentage
+ * stops Satori understands, and no child box to clip against.
+ *
+ * Shared from here so the site-wide card and the per-tool cards cannot drift.
+ */
+export const OG_BACKGROUND_IMAGE = [
+  "radial-gradient(circle at 12% 8%, rgba(139,92,246,0.40) 0%, rgba(139,92,246,0.14) 32%, rgba(139,92,246,0) 58%)",
+  "radial-gradient(circle at 88% 6%, rgba(59,130,246,0.34) 0%, rgba(59,130,246,0.12) 30%, rgba(59,130,246,0) 55%)",
+  "linear-gradient(135deg, #0b0b1e 0%, #060611 55%)",
+].join(", ");
+
+/**
  * The pdf.xyz mark: a gradient rounded square + document glyph. Kept in sync
  * with `src/app/icon.svg` (the static favicon) so every surface reads the same.
  */

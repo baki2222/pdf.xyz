@@ -143,7 +143,7 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
         </div>
 
         <div className="flex flex-col gap-3">
-          <NotifyMe toolName={tool.name} />
+          <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           <p className="text-xs leading-relaxed text-slate-500">
             No account required. When this ships, files are encrypted in transit
             and at rest, processed in an isolated sandbox, and deleted

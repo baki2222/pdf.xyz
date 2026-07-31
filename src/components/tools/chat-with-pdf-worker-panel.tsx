@@ -91,7 +91,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
               No question box is shown until the worker is ready, so {tool.name} never pretends to answer from a document
               it cannot actually read.
             </p>
-            <NotifyMe toolName={tool.name} />
+            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
         )}
 

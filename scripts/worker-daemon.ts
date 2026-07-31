@@ -496,6 +496,8 @@ async function main(): Promise<number> {
   // it is safe to log verbatim; a beat is published in the readiness modes below and,
   // for a run, once at start and per iteration by the daemon loop.
   const heartbeat = buildHeartbeatPublisher(runtime, args.mode);
+  // Tracks the last observed publish state so only changes are logged.
+  let lastBeatPublished: boolean | undefined;
   emit({ src: "daemon", event: "heartbeat_capability", ...heartbeat.capability });
 
   // `--check`: evaluate deployment guardrails only. Exit 0 when clean, 4 when a
@@ -567,8 +569,19 @@ async function main(): Promise<number> {
     // Publish liveness once at start and per poll iteration; the publisher self-
     // throttles to the configured cadence and swallows outages, so this never
     // disrupts draining. A disabled publisher makes this a cheap no-op.
+    //
+    // The outcome used to be discarded, which made a total liveness outage
+    // completely silent: the worker logged `tick`/`sleep` forever while the web
+    // layer reported a worker it could not see, and the only way to find out
+    // which side was wrong was to run `--dry-run-status` by hand. Log the
+    // transitions — not every beat, or a 15s cadence would bury the loop.
     heartbeat: async () => {
-      await heartbeat.beat();
+      const result = await heartbeat.beat();
+      if (result.reason === "throttled") return;
+      if (result.published !== lastBeatPublished) {
+        lastBeatPublished = result.published;
+        emit({ src: "daemon", event: "heartbeat", ...result });
+      }
     },
   });
 

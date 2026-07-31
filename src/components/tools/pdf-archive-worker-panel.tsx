@@ -95,7 +95,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
 
 function ArchiveUnavailable({ phase, status }: { phase: Phase; status: WorkerStatus | null }) {
   const detail = phase === "loading" ? "Checking whether a secure worker is available…" : phase === "error" ? "The worker status endpoint could not be reached right now." : status?.daemon.detail ?? "The secure worker is not drainable here.";
-  return <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-sm leading-relaxed text-slate-300">{detail}</p><p className="text-xs leading-relaxed text-slate-500">No uploader is shown until the worker is ready, so PDF/A conversion never pretends to process a file it cannot actually run.</p><NotifyMe toolName="PDF to PDF/A" /></div>;
+  return <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-sm leading-relaxed text-slate-300">{detail}</p><p className="text-xs leading-relaxed text-slate-500">No uploader is shown until the worker is ready, so PDF/A conversion never pretends to process a file it cannot actually run.</p><NotifyMe toolName="PDF to PDF/A" toolSlug="pdf-to-pdfa" /></div>;
 }
 
 function ArchiveRunArea({ localDevOnly }: { localDevOnly: boolean }) {

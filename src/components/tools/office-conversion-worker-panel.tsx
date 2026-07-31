@@ -89,7 +89,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
             <p className="text-xs leading-relaxed text-slate-500">
               No runner is shown until the worker is ready, so {tool.name} never pretends to process input it cannot actually convert.
             </p>
-            <NotifyMe toolName={tool.name} />
+            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
         )}
 

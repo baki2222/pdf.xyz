@@ -108,7 +108,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
               No builder is shown until the worker is ready, so {tool.name} never pretends to produce a summary it cannot
               actually generate.
             </p>
-            <NotifyMe toolName={tool.name} />
+            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
         )}
 

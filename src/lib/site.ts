@@ -27,10 +27,12 @@ export const siteConfig = {
     "AI PDF",
     "privacy-first PDF",
   ],
-  links: {
-    twitter: "https://twitter.com/pdfxyz",
-    github: "https://github.com/pdfxyz",
-  },
+  /** Where "Contact" and the Team plan's "Talk to us" actually go. */
+  contactEmail: "support@pdf.xyz",
+  // No social profiles are claimed here on purpose. The placeholders that used
+  // to sit in this slot were also emitted as schema.org `sameAs`, which asserts
+  // to search engines that those accounts are officially ours. Add them back
+  // only when the accounts exist and are actually controlled by us.
 } as const;
 
 export type NavItem = {
@@ -39,6 +41,13 @@ export type NavItem = {
   description?: string;
 };
 
+/**
+ * Footer entries additionally allow a label with no destination, for something
+ * announced but not built. Only the footer needs this — primary nav items all
+ * go somewhere — so the optionality lives here rather than on `NavItem`.
+ */
+export type FooterNavItem = Omit<NavItem, "href"> & { href?: string };
+
 export const primaryNav: NavItem[] = [
   { label: "All tools", href: "/tools" },
   { label: "Workspace", href: "/workspace" },
@@ -46,7 +55,7 @@ export const primaryNav: NavItem[] = [
   { label: "Pricing", href: "/#pricing" },
 ];
 
-export const footerNav: { title: string; items: NavItem[] }[] = [
+export const footerNav: { title: string; items: FooterNavItem[] }[] = [
   {
     title: "Product",
     items: [
@@ -69,9 +78,11 @@ export const footerNav: { title: string; items: NavItem[] }[] = [
     title: "Resources",
     items: [
       { label: "Help center", href: "/#faq" },
-      { label: "API (coming soon)", href: "/#api" },
+      // Announced, not built. Rendered as plain text rather than a link that
+      // goes nowhere — a dead nav item reads as neglect, which is expensive on
+      // a product whose whole pitch is that it does what it says.
+      { label: "API (coming soon)" },
       { label: "Status", href: "/status" },
-      { label: "Changelog", href: "/#changelog" },
     ],
   },
 ];
