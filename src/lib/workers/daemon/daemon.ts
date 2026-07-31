@@ -30,6 +30,7 @@ import {
   type ClaimResult,
 } from "../observability/metrics";
 import type { WorkerMetricSink } from "../observability/collector";
+import { DEFAULT_MAX_IDLE_SLEEP_MS, idleBackoffMs } from "./backoff";
 
 /** A run mode the daemon loop can execute (readiness-only `dry-run-status` is CLI-side). */
 export type DaemonRunMode = "once" | "drain" | "loop";
@@ -107,6 +108,12 @@ export interface DaemonRunOptions {
   maxTicks?: number;
   /** `loop`: ms to sleep after an idle/error tick before re-polling. */
   idleSleepMs?: number;
+  /**
+   * `loop`: ceiling for the backed-off idle wait. The base cadence holds while
+   * work is plausibly still coming, then grows towards this — so a worker left
+   * alone stops billing the broker for silence. See `./backoff`.
+   */
+  maxIdleSleepMs?: number;
 }
 
 /** Content-free counters describing what a run did. Safe to log and return. */
@@ -173,6 +180,9 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
   async function run(options: DaemonRunOptions): Promise<DaemonRunSummary> {
     const { mode } = options;
     const idleSleepMs = options.idleSleepMs ?? DEFAULT_IDLE_SLEEP_MS;
+    const maxIdleSleepMs = options.maxIdleSleepMs ?? DEFAULT_MAX_IDLE_SLEEP_MS;
+    // Consecutive idle/error ticks, for the backoff. Reset by any real work.
+    let consecutiveIdle = 0;
     // `loop` is unbounded unless capped; `drain` always has a safety cap.
     const cap =
       mode === "drain"
@@ -263,8 +273,17 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
         }
         // `loop`: an idle or transiently-erroring queue is a reason to back off,
         // not to exit — a long-running worker survives broker blips.
-        log({ event: "sleep", mode, sleepMs: idleSleepMs });
-        await sleep(idleSleepMs);
+        consecutiveIdle += 1;
+        const sleepMs = idleBackoffMs(
+          idleSleepMs,
+          maxIdleSleepMs,
+          consecutiveIdle,
+        );
+        log({ event: "sleep", mode, sleepMs });
+        await sleep(sleepMs);
+      } else {
+        // Work arrived: drop back to the fast cadence, because more is likely.
+        consecutiveIdle = 0;
       }
       // A productive outcome (completed/failed/requeued/canceled) loops straight
       // into the next claim with no sleep, so a busy queue drains at full speed.
