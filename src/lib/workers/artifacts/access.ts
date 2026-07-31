@@ -279,7 +279,7 @@ export function httpErrorForAccessReason(reason: ArtifactAccessDenyReason): {
  * ever streams a recognized kind. Kept as a set so it stays closed as kinds grow.
  */
 const DOWNLOADABLE_KINDS: ReadonlySet<ArtifactOutputKind> = new Set<ArtifactOutputKind>(
-  ["pdf", "text-sidecar", "archive", "image"],
+  ["pdf", "text-sidecar", "archive", "office-document", "image"],
 );
 
 /** Canonical file extension per bare content-type (inverse of the manifest's kind map). */
@@ -287,6 +287,9 @@ const EXTENSION_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
   "application/pdf": "pdf",
   "text/plain": "txt",
   "application/zip": "zip",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/jpg": "jpg", // non-standard JPEG alias some toolchains emit (mirrors the manifest map)
@@ -314,6 +317,10 @@ function downloadBaseName(
       return "extracted-text";
     case "archive":
       return "documents";
+    case "office-document":
+      // The extension (docx/xlsx/pptx) already says which Office format it is, so
+      // the base stays a single generic, content-free noun.
+      return "document";
     case "image":
       return "image";
     default:
