@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { join } from "node:path";
 import { libreOfficeConvertArgs, createNativeLibreOfficePdfRunner, nativeOfficeConversionDeps, probeLibreOfficeFromConfig } from "./native";
 import { resolveNativeOfficeConversionConfig, type NativeOfficeConversionConfig } from "./native-config";
 
@@ -26,9 +27,16 @@ describe("native LibreOffice Office converter", () => {
     const runner = createNativeLibreOfficePdfRunner(config, { exec, fs, resolveOnPath: (bin) => bin === "soffice" });
     const output = await runner.convertToPdf(DOCX, "report.docx");
     expect([...output]).toEqual([...PDF]);
-    expect(fs.writeFile).toHaveBeenCalledWith("/tmp/pdfxyz-office-1/input.docx", DOCX);
-    expect(exec).toHaveBeenCalledWith("soffice", expect.arrayContaining(["--outdir", "/tmp/pdfxyz-office-1", "/tmp/pdfxyz-office-1/input.docx"]), expect.objectContaining({ timeout: 120_000 }));
-    expect(fs.readFile).toHaveBeenCalledWith("/tmp/pdfxyz-office-1/input.pdf");
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      join("/tmp/pdfxyz-office-1", "input.docx"),
+      DOCX,
+    );
+    expect(exec).toHaveBeenCalledWith("soffice", expect.arrayContaining([
+        "--outdir",
+        "/tmp/pdfxyz-office-1",
+        join("/tmp/pdfxyz-office-1", "input.docx"),
+      ]), expect.objectContaining({ timeout: 120_000 }));
+    expect(fs.readFile).toHaveBeenCalledWith(join("/tmp/pdfxyz-office-1", "input.pdf"));
     expect(fs.rm).toHaveBeenCalledWith("/tmp/pdfxyz-office-1", { recursive: true, force: true });
   });
 

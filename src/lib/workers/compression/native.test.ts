@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { join } from "node:path";
 import type { CompressionOptions } from "./engine";
 import type { NativeCompressionConfig } from "./native-config";
 import {
@@ -105,7 +106,7 @@ describe("createNativeCompressor — success path", () => {
 
     expect(out).toEqual(VALID_PDF);
     // The whole temp lifecycle happened, and the temp dir was removed.
-    expect(calls.mkdtemp[0]).toContain("/base");
+    expect(calls.mkdtemp[0]).toContain(join("/base", "pdfxyz-compress-"));
     expect(calls.writeFile).toHaveLength(1);
     expect(calls.readFile).toHaveLength(1);
     expect(calls.rm).toHaveLength(1);
