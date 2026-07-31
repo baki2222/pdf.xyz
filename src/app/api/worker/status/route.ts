@@ -16,6 +16,7 @@ import {
   resolveWorkerMode,
   type ToolAvailability,
 } from "@/lib/workers";
+import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
 import { respond, respondRateLimited } from "../../_lib/http";
 
@@ -53,5 +54,14 @@ export async function GET(request: Request): Promise<Response> {
   // `buildWorkerStatus` report OCR honestly unavailable everywhere. When a real
   // OCR processor is wired behind the adapter, probe it here (presence-only),
   // exactly like compression, and pass the result as the third argument.
-  return respond(ok(buildWorkerStatus(mode, tools, undefined, process.env, securityQpdf)));
+  // Whether a worker is actually out there. `processor.ready` is the one field
+  // that must not be inferred from configuration — a bucket and a broker say
+  // nothing about whether anyone deployed a daemon — so it is answered from an
+  // observed liveness heartbeat. Never throws: a disabled seam reads `disabled`
+  // and an unreachable broker reads `unknown`, both of which are not observed.
+  const { observed } = await readWorkerHeartbeatLiveness();
+
+  return respond(
+    ok(buildWorkerStatus(mode, tools, undefined, process.env, securityQpdf, observed)),
+  );
 }

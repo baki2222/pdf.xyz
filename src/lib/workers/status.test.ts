@@ -212,6 +212,88 @@ describe("buildWorkerStatus — S3 storage readiness (independent of queue/proce
   });
 });
 
+describe("buildWorkerStatus — processor readiness follows observed liveness", () => {
+  const queueEnv: Record<string, string> = {
+    PDFXYZ_QUEUE_PROVIDER: "redis",
+    PDFXYZ_REDIS_REST_URL: "https://redis.example.com",
+    PDFXYZ_REDIS_REST_TOKEN: "redis-rest-token-1234",
+  };
+
+  it("stays not-ready when a queue is configured but no worker is seen", () => {
+    const { providers } = buildWorkerStatus(
+      "disabled",
+      undefined,
+      undefined,
+      queueEnv,
+      undefined,
+      false,
+    );
+    expect(providers.queue.ready).toBe(true);
+    expect(providers.processor.ready).toBe(false);
+    expect(providers.processor.executor).toMatchObject({
+      mode: "not-implemented",
+      ready: false,
+    });
+  });
+
+  it("becomes ready once a worker is observed beating against that queue", () => {
+    const { providers } = buildWorkerStatus(
+      "disabled",
+      undefined,
+      undefined,
+      queueEnv,
+      undefined,
+      true,
+    );
+    expect(providers.processor.ready).toBe(true);
+    expect(providers.processor.executor).toMatchObject({
+      mode: "worker",
+      ready: true,
+    });
+  });
+
+  it("never claims a processor on an observed worker with no queue to claim from", () => {
+    // Liveness alone is not enough: without a broker there is nothing to drain,
+    // so this must not flip ready on the strength of a heartbeat.
+    const { providers } = buildWorkerStatus(
+      "disabled",
+      undefined,
+      undefined,
+      noEnv,
+      undefined,
+      true,
+    );
+    expect(providers.queue.ready).toBe(false);
+    expect(providers.processor.ready).toBe(false);
+  });
+
+  it("keeps the cautious answer when the caller cannot observe at all", () => {
+    const { providers } = buildWorkerStatus(
+      "disabled",
+      undefined,
+      undefined,
+      queueEnv,
+    );
+    expect(providers.processor.ready).toBe(false);
+  });
+
+  it("never names a variable in either processor detail", () => {
+    for (const observed of [true, false]) {
+      const { providers } = buildWorkerStatus(
+        "disabled",
+        undefined,
+        undefined,
+        queueEnv,
+        undefined,
+        observed,
+      );
+      expect(providers.processor.detail).not.toMatch(/PDFXYZ_/);
+      expect(providers.processor.executor.detail).not.toMatch(/PDFXYZ_/);
+      expect(providers.processor.detail.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("buildWorkerStatus — worker daemon readiness (Phase 16)", () => {
   const redisEnv: Record<string, string> = {
     PDFXYZ_QUEUE_PROVIDER: "redis",
