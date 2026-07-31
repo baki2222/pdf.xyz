@@ -315,7 +315,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         {available && status ? (
           <OcrRunArea request={request} localDevOnly={status.localDevOnly} />
         ) : (
-          <OcrUnavailable phase={phase} status={status} toolName={tool.name} />
+          <OcrUnavailable phase={phase} status={status} toolName={tool.name} toolSlug={tool.slug} />
         )}
 
         {/* Pipeline: honest "here's what will happen" */}
@@ -383,10 +383,12 @@ function OcrUnavailable({
   phase,
   status,
   toolName,
+  toolSlug,
 }: {
   phase: Phase;
   status: WorkerStatus | null;
   toolName: string;
+  toolSlug: string;
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] p-4">
@@ -407,7 +409,7 @@ function OcrUnavailable({
         </p>
       )}
       <div className="flex flex-col gap-2">
-        <NotifyMe toolName={toolName} />
+        <NotifyMe toolName={toolName} toolSlug={toolSlug} />
       </div>
     </div>
   );

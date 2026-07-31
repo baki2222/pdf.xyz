@@ -184,7 +184,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
         {available && status ? (
           <SecurityRunArea mode={mode} localDevOnly={status.localDevOnly} />
         ) : (
-          <SecurityUnavailable phase={phase} status={status} toolName={tool.name} />
+          <SecurityUnavailable phase={phase} status={status} toolName={tool.name} toolSlug={tool.slug} />
         )}
 
         {/* Pipeline: honest "here's what will happen" */}
@@ -252,10 +252,12 @@ function SecurityUnavailable({
   phase,
   status,
   toolName,
+  toolSlug,
 }: {
   phase: Phase;
   status: WorkerStatus | null;
   toolName: string;
+  toolSlug: string;
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] p-4">
@@ -276,7 +278,7 @@ function SecurityUnavailable({
         </p>
       )}
       <div className="flex flex-col gap-2">
-        <NotifyMe toolName={toolName} />
+        <NotifyMe toolName={toolName} toolSlug={toolSlug} />
       </div>
     </div>
   );

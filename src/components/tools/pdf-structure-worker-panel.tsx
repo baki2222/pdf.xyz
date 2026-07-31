@@ -110,7 +110,7 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
         {available && status ? (
           <StructureRunArea mode={mode} localDevOnly={status.localDevOnly} />
         ) : (
-          <StructureUnavailable phase={phase} status={status} toolName={tool.name} />
+          <StructureUnavailable phase={phase} status={status} toolName={tool.name} toolSlug={tool.slug} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -144,7 +144,7 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
   );
 }
 
-function StructureUnavailable({ phase, status, toolName }: { phase: Phase; status: WorkerStatus | null; toolName: string }) {
+function StructureUnavailable({ phase, status, toolName, toolSlug }: { phase: Phase; status: WorkerStatus | null; toolName: string; toolSlug: string }) {
   const detail =
     phase === "loading"
       ? "Checking whether a secure worker is available…"
@@ -155,7 +155,7 @@ function StructureUnavailable({ phase, status, toolName }: { phase: Phase; statu
     <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
       <p className="text-sm leading-relaxed text-slate-300">{detail}</p>
       <p className="text-xs leading-relaxed text-slate-500">No uploader is shown until the worker is ready, so {toolName} never pretends to process a file it cannot actually run.</p>
-      <NotifyMe toolName={toolName} />
+      <NotifyMe toolName={toolName} toolSlug={toolSlug} />
     </div>
   );
 }

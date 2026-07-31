@@ -116,6 +116,19 @@ export type ProductEvent =
       ok: boolean;
       /** Contract/job error code (a fixed identifier), when the run failed. */
       code?: string;
+    }
+  | {
+      /**
+       * Someone asked to be told when a tool that is not enabled here ships.
+       *
+       * A `tool_viewed` on a gated tool says a page was opened; this says the
+       * visitor wanted the thing and it was not there. That is the difference
+       * between traffic and demand, and it is the only signal that can rank
+       * which gated tool to unblock first. `toolSlug` is a public route id.
+       */
+      name: "gated_tool_interest";
+      toolSlug: string;
+      capability: ToolCapability;
     };
 
 /** Every valid event name. The runtime allowlist behind {@link isKnownEventName}. */
@@ -127,6 +140,7 @@ export const EVENT_NAMES = [
   "worker_status_checked",
   "worker_operations_checked",
   "worker_contract_hit",
+  "gated_tool_interest",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];
