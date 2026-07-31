@@ -57,9 +57,20 @@ describe("checkSoundness — gate on/off", () => {
 });
 
 describe("checkSoundness — reject taxonomy", () => {
-  it("missing_input when the job carries no inputs", () => {
+  it("missing_input when a FILE-input job carries no inputs", () => {
     const result = checkSoundness(policy(), { tool: "compress-pdf", inputs: [] });
     expect(result).toMatchObject({ verdict: "unsound", reason: "missing_input" });
+  });
+
+  it("skips — never rejects — a URL-input tool, which has no files by design", () => {
+    // webpage-to-pdf takes `options.url` and an empty `inputs`; treating that as a
+    // missing file blocked every one of its jobs before the processor ever ran.
+    const result = checkSoundness(policy(), { tool: "webpage-to-pdf", inputs: [] });
+    expect(result).toMatchObject({
+      verdict: "skipped",
+      checked: false,
+      reason: "not_checked",
+    });
   });
 
   it("empty when an input has zero bytes (even before any PDF logic)", () => {

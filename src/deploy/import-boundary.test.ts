@@ -26,6 +26,7 @@ const SRC = path.join(ROOT, "src");
 const FORBIDDEN = [
   "compression/native",
   "ocr-native",
+  "pdf-text/native",
   "daemon/runtime",
   "node:child_process",
 ] as const;
@@ -44,6 +45,12 @@ const ALLOWED = new Set(
     "src/lib/workers/html-render/native.ts",
     "src/lib/workers/office-conversion/native.ts",
     "src/lib/workers/ocr-native.ts",
+    // The `pdftotext` subprocess runner and the two deps builders that wire it.
+    // The web path must keep using the pdfjs extractors in `@/lib/pdf/*`; these
+    // are reached only through `daemon/runtime` and the lazy local-dev adapter.
+    "src/lib/workers/pdf-text/native.ts",
+    "src/lib/workers/pdf-office-export/native.ts",
+    "src/lib/workers/table-extract/native.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // Portable-pnpm subprocess resolution: only reached by the release CLI
@@ -100,6 +107,13 @@ function matchesForbiddenImport(spec: string, forbidden: string): boolean {
     // Exact leaf only — the node-free `ocr-native-config` (which ends with
     // `/ocr-native-config`) is safe to import eagerly and must NOT be flagged.
     return spec === "@/lib/workers/ocr-native" || spec.endsWith("/ocr-native");
+  }
+  if (forbidden === "pdf-text/native") {
+    // Exact leaf only — `pdf-text/native-config` and `pdf-text/parse` are
+    // node-free and safe to import eagerly.
+    return (
+      spec === "@/lib/workers/pdf-text/native" || spec.endsWith("/pdf-text/native")
+    );
   }
   return spec.includes(forbidden);
 }

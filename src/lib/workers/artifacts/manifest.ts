@@ -44,6 +44,15 @@ const KIND_BY_CONTENT_TYPE: Readonly<Record<string, ArtifactOutputKind>> = {
   "application/pdf": "pdf",
   "text/plain": "text-sidecar",
   "application/zip": "archive",
+  // OOXML, as emitted by pdf-to-word / pdf-to-excel / pdf-to-powerpoint. These are
+  // zip containers, but they are classified on their own so the gate's coherence
+  // check can still tell a .docx from a generic .zip bundle.
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "office-document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+    "office-document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+    "office-document",
   "image/png": "image",
   "image/jpeg": "image",
   "image/jpg": "image", // non-standard JPEG alias some toolchains emit
@@ -59,6 +68,9 @@ const KIND_BY_EXTENSION: Readonly<Record<string, ArtifactOutputKind>> = {
   pdf: "pdf",
   txt: "text-sidecar",
   zip: "archive",
+  docx: "office-document",
+  xlsx: "office-document",
+  pptx: "office-document",
   png: "image",
   jpg: "image",
   jpeg: "image",
@@ -76,7 +88,13 @@ const PRODUCIBLE_BY_PROCESSOR: Readonly<
 > = {
   compress: new Set<ArtifactOutputKind>(["pdf"]),
   ocr: new Set<ArtifactOutputKind>(["pdf", "text-sidecar"]),
-  other: new Set<ArtifactOutputKind>(["pdf", "text-sidecar", "archive", "image"]),
+  other: new Set<ArtifactOutputKind>([
+    "pdf",
+    "text-sidecar",
+    "archive",
+    "office-document",
+    "image",
+  ]),
 };
 
 /** The bounded processor families this gate recognizes (defense-in-depth for provenance). */

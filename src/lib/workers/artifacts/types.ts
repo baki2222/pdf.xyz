@@ -57,6 +57,7 @@ export const ARTIFACT_OUTPUT_KINDS = [
   "pdf", // application/pdf — a produced PDF (compressed, searchable, …)
   "text-sidecar", // text/plain — an OCR text sidecar
   "archive", // application/zip — a multi-file bundle
+  "office-document", // OOXML docx/xlsx/pptx — a produced Office document
   "image", // image/png|jpeg — a produced raster image
   "unknown", // content-type maps to no recognized output kind (→ rejected)
 ] as const;

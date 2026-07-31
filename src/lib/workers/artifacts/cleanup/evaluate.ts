@@ -41,7 +41,7 @@ import {
   evaluateArtifactLifecycle,
   type StorageArtifactLifecycle,
 } from "../lifecycle";
-import type { ArtifactOutputKind } from "../types";
+import { ARTIFACT_OUTPUT_KINDS, type ArtifactOutputKind } from "../types";
 import type { ProcessorKind } from "../../observability/metrics";
 import {
   CLEANUP_ACTION_BY_CATEGORY,
@@ -195,13 +195,11 @@ const PROVIDER_KEYS = [
   "not-configured",
   "unknown",
 ] as const;
-const KIND_KEYS = [
-  "pdf",
-  "text-sidecar",
-  "archive",
-  "image",
-  "unknown",
-] as const;
+/**
+ * Derived from the taxonomy rather than restated, so a new output kind can never
+ * leave this breakdown silently missing a bucket (it did, for `office-document`).
+ */
+const KIND_KEYS = ARTIFACT_OUTPUT_KINDS;
 const PROCESSOR_KEYS = ["compress", "ocr", "other"] as const;
 
 /** A content-free one-line summary keyed off the verdict + headline counts. */

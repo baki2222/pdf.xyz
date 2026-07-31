@@ -254,6 +254,24 @@ describe("decideArtifactAccess — served headers", () => {
     expect(downloadFilenameFor("image", "image/png", "other")).toBe("image.png");
     expect(downloadFilenameFor("image", "image/jpeg", "other")).toBe("image.jpg");
   });
+
+  it("gives an Office export its real extension, not the .bin fallback", () => {
+    // Without the content-type→extension entries, every Office export downloaded
+    // as `download.bin` and no application would open it.
+    const office = (type: string) =>
+      downloadFilenameFor("office-document", type, "other");
+    expect(
+      office("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    ).toBe("document.docx");
+    expect(
+      office("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ).toBe("document.xlsx");
+    expect(
+      office(
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ),
+    ).toBe("document.pptx");
+  });
 });
 
 describe("httpErrorForAccessReason", () => {

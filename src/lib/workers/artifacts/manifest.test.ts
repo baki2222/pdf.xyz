@@ -60,6 +60,18 @@ describe("output-kind classification", () => {
     expect(outputKindForContentType("image/jpeg")).toBe("image");
   });
 
+  it("classifies the OOXML types pdf-to-word/excel/powerpoint emit", () => {
+    // Missing entries here classified as `unknown`, so the gate rejected every
+    // Office export as `artifact_invalid` and no output was ever published.
+    for (const type of [
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ]) {
+      expect(outputKindForContentType(type)).toBe("office-document");
+    }
+  });
+
   it("classifies an unrecognized or empty content-type as unknown", () => {
     expect(outputKindForContentType("application/x-msdownload")).toBe("unknown");
     expect(outputKindForContentType("")).toBe("unknown");
@@ -70,8 +82,25 @@ describe("output-kind classification", () => {
     expect(outputKindForFilename("scan.txt")).toBe("text-sidecar");
     expect(outputKindForFilename("bundle.zip")).toBe("archive");
     expect(outputKindForFilename("page.PNG")).toBe("image");
+    expect(outputKindForFilename("export.docx")).toBe("office-document");
+    expect(outputKindForFilename("export.xlsx")).toBe("office-document");
+    expect(outputKindForFilename("export.pptx")).toBe("office-document");
     expect(outputKindForFilename("noext")).toBeNull();
     expect(outputKindForFilename("weird.bin")).toBeNull();
+  });
+
+  it("keeps an OOXML export coherent with its own extension", () => {
+    // A .docx named .zip (or vice versa) must still read as an incoherent pair.
+    expect(outputKindForFilename("export.docx")).toBe(
+      outputKindForContentType(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+    );
+    expect(outputKindForFilename("bundle.zip")).not.toBe(
+      outputKindForContentType(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+    );
   });
 });
 
@@ -108,6 +137,12 @@ describe("producible kinds per processor family", () => {
     expect([...producibleKinds("ocr")].sort()).toEqual(["pdf", "text-sidecar"]);
     expect(producibleKinds("other").has("archive")).toBe(true);
     expect(producibleKinds("other").has("image")).toBe(true);
+    expect(producibleKinds("other").has("office-document")).toBe(true);
+  });
+
+  it("still forbids an Office export from the compress and ocr families", () => {
+    expect(producibleKinds("compress").has("office-document")).toBe(false);
+    expect(producibleKinds("ocr").has("office-document")).toBe(false);
   });
 });
 
