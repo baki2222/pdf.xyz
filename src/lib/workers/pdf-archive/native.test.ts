@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { join } from "node:path";
 import {
   createNativeGhostscriptPdfARunner,
   ghostscriptPdfAArgs,
@@ -49,7 +50,7 @@ describe("Ghostscript PDF/A native runner", () => {
     const runner = createNativeGhostscriptPdfARunner(config, { exec, fs });
     const output = await runner.convertToPdfA(PDF, { standard: "PDF/A-2b" });
     expect([...output]).toEqual([...PDF]);
-    expect(fs.writeFile).toHaveBeenCalledWith("/tmp/pdfxyz-pdfa-1/input.pdf", PDF);
+    expect(fs.writeFile).toHaveBeenCalledWith(join("/tmp/pdfxyz-pdfa-1", "input.pdf"), PDF);
     expect(exec).toHaveBeenCalledWith(
       "gs",
       expect.arrayContaining(["-dPDFA=2"]),

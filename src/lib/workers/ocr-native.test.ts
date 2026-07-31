@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import type { OcrOptions } from "@/lib/jobs/ocr";
 import type { ProcessorInputFile } from "./processor/types";
@@ -102,7 +103,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
     // never be reinterpreted as a flag or shell syntax.
     expect(inv.args[inv.args.length - 2]).toBe("/tmp/j/input.pdf");
     expect(inv.args[inv.args.length - 1]).toBe(inv.pdfOut);
-    expect(inv.pdfOut).toBe("/tmp/j/output.pdf");
+    expect(inv.pdfOut).toBe(join("/tmp/j", "output.pdf"));
   });
 
   it("adds --skip-text only when requested, and omits the sidecar for pdf-only", () => {
@@ -128,13 +129,18 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       wantText: true,
     });
     expect(inv.command).toBe("tesseract");
-    expect(inv.args.slice(0, 4)).toEqual(["/t/in.png", "/t/output", "-l", "eng+deu"]);
+    expect(inv.args.slice(0, 4)).toEqual([
+      "/t/in.png",
+      join("/t", "output"),
+      "-l",
+      "eng+deu",
+    ]);
     expect(inv.args).toContain("pdf");
     expect(inv.args).toContain("txt");
     // tesseract has no page-level skip-text notion.
     expect(inv.args).not.toContain("--skip-text");
-    expect(inv.pdfOut).toBe("/t/output.pdf");
-    expect(inv.txtOut).toBe("/t/output.txt");
+    expect(inv.pdfOut).toBe(join("/t", "output.pdf"));
+    expect(inv.txtOut).toBe(join("/t", "output.txt"));
   });
 
   it("passes an override command path through verbatim", () => {
@@ -181,7 +187,7 @@ describe("createNativeOcrRunner — success paths", () => {
     expect(artifacts[1]?.contentType).toContain("text/plain");
     expect(artifacts[1]?.bytes).toEqual(TEXT_OUT);
     // The whole temp lifecycle happened and the dir was removed.
-    expect(calls.mkdtemp[0]).toContain("/base");
+    expect(calls.mkdtemp[0]).toContain(join("/base", "pdfxyz-ocr-"));
     expect(calls.writeFile).toHaveLength(1);
     expect(calls.rm).toHaveLength(1);
     // The subprocess was invoked by argv with the configured timeout.

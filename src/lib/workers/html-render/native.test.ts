@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   chromiumPdfArgs,
   createNativeChromiumPdfRunner,
@@ -48,8 +50,14 @@ describe("native Chromium HTML renderer", () => {
     const runner = createNativeChromiumPdfRunner(config, { exec, fs, resolveOnPath: () => true });
     const output = await runner.renderHtml(HTML);
     expect([...output]).toEqual([...PDF]);
-    expect(fs.writeFile).toHaveBeenCalledWith("/tmp/pdfxyz-html-1/input.html", HTML);
-    expect(exec).toHaveBeenCalledWith("chromium", expect.arrayContaining(["--print-to-pdf=/tmp/pdfxyz-html-1/output.pdf", "file:///tmp/pdfxyz-html-1/input.html"]), expect.objectContaining({ timeout: 10_000 }));
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      join("/tmp/pdfxyz-html-1", "input.html"),
+      HTML,
+    );
+    expect(exec).toHaveBeenCalledWith("chromium", expect.arrayContaining([
+        `--print-to-pdf=${join("/tmp/pdfxyz-html-1", "output.pdf")}`,
+        pathToFileURL(join("/tmp/pdfxyz-html-1", "input.html")).toString(),
+      ]), expect.objectContaining({ timeout: 10_000 }));
     expect(fs.rm).toHaveBeenCalledWith("/tmp/pdfxyz-html-1", { recursive: true, force: true });
   });
 
