@@ -9,6 +9,7 @@
     "start": "next start",
     "worker:daemon": "tsx scripts/worker-daemon.ts",
     "worker:daemon:status": "tsx scripts/worker-daemon.ts --dry-run-status",
+    "worker:prove-tools": "tsx scripts/worker-prove-tools.ts",
     "worker:ops-check": "tsx scripts/worker-ops-check.ts",
     "worker:cleanup-check": "tsx scripts/worker-cleanup-check.ts",
     "worker:artifact-cleanup": "tsx scripts/worker-artifact-cleanup.ts",
