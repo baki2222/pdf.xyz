@@ -41,11 +41,13 @@ export interface ExecutorReadiness {
   /**
    * - `in-process`: the local-dev worker runs jobs synchronously in this process
    *   (and the async claim/execute loop foundation is available for a broker).
-   * - `not-implemented`: a worker service is configured but this build ships no
-   *   execution loop, so no job is dispatched.
+   * - `worker`: an out-of-band worker daemon is *observed* claiming from this
+   *   queue — established by a fresh liveness heartbeat, never by configuration.
+   * - `not-implemented`: a queue is configured but no worker is observed against
+   *   it, so a submitted job is accepted and waits.
    * - `none`: no execution loop is configured.
    */
-  mode: "in-process" | "not-implemented" | "none";
+  mode: "in-process" | "worker" | "not-implemented" | "none";
   /** True only when a processor can be dispatched for a job now. */
   ready: boolean;
   /** One-line, client-safe explanation. Never names a variable or a value. */
@@ -118,6 +120,28 @@ const QUEUE_READY_NO_WORKER = {
 } as const satisfies { processorDetail: string; executor: ExecutorReadiness };
 
 /**
+ * Queue configured AND a worker daemon observed beating against it.
+ *
+ * This is the one claim that may NOT be made from configuration: the app cannot
+ * see whether anyone deployed a worker, so `QUEUE_READY_NO_WORKER` is the honest
+ * default. A fresh liveness heartbeat is different in kind — it is evidence that
+ * a worker exists, is alive, and is claiming from this very broker. Reporting
+ * "nothing is processed yet" while a worker completes jobs is not caution, it is
+ * just wrong in the other direction, and it tells a user their file will sit
+ * unprocessed when it will not.
+ */
+const QUEUE_READY_WORKER_OBSERVED = {
+  processorDetail:
+    "A job queue is configured and a worker is observed running against it, so submitted jobs are claimed and processed on an encrypted, auto-deleting secure worker.",
+  executor: {
+    mode: "worker",
+    ready: true,
+    detail:
+      "A worker daemon is beating against this queue and claiming jobs from it. Liveness is observed from a recent heartbeat, not assumed from configuration.",
+  },
+} as const satisfies { processorDetail: string; executor: ExecutorReadiness };
+
+/**
  * Derive the client-facing readiness of all three providers from the resolved
  * mode and the environment. Storage AND queue readiness each come from their own
  * config (S3/R2 and Redis/Upstash respectively), so either can be ready
@@ -130,6 +154,12 @@ const QUEUE_READY_NO_WORKER = {
 export function getProviderReadiness(
   mode: WorkerMode,
   env: Record<string, string | undefined> = process.env,
+  /**
+   * Whether a worker daemon is *observed* alive against this queue — a fresh
+   * liveness heartbeat, never an inference from configuration. Callers that
+   * cannot check (or have not) leave it undefined and get the cautious answer.
+   */
+  workerObserved = false,
 ): WorkerProviders {
   // In local-dev mode the in-process store is what actually serves uploads, so
   // storage reports the local-dev capability regardless of any S3 variables (the
@@ -159,11 +189,21 @@ export function getProviderReadiness(
     storage,
     queue,
     processor: {
-      // Never ready: this build ships no processor pipeline in any non-dev mode.
-      ready: false,
+      // Ready only on observed evidence: a queue to claim from AND a worker seen
+      // beating against it. Configuration alone never earns this — a bucket and a
+      // broker say nothing about whether anyone deployed a worker.
+      ready: queue.ready && workerObserved,
       configured: mode === "remote-configured",
-      detail: queue.ready ? QUEUE_READY_NO_WORKER.processorDetail : PROCESSOR_DETAIL[mode],
-      executor: queue.ready ? QUEUE_READY_NO_WORKER.executor : EXECUTOR_READINESS[mode],
+      detail: !queue.ready
+        ? PROCESSOR_DETAIL[mode]
+        : workerObserved
+          ? QUEUE_READY_WORKER_OBSERVED.processorDetail
+          : QUEUE_READY_NO_WORKER.processorDetail,
+      executor: !queue.ready
+        ? EXECUTOR_READINESS[mode]
+        : workerObserved
+          ? QUEUE_READY_WORKER_OBSERVED.executor
+          : QUEUE_READY_NO_WORKER.executor,
     },
   };
 }

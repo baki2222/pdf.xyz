@@ -104,13 +104,19 @@ export function buildWorkerStatus(
   ocrEngines?: OcrEngineAvailability,
   env: Record<string, string | undefined> = process.env,
   securityQpdf?: boolean,
+  /**
+   * Whether a worker daemon is *observed* alive against the queue. The route
+   * reads a liveness heartbeat and passes the result; a caller that cannot
+   * observe leaves it out and gets the cautious "no worker deployed" answer.
+   */
+  workerObserved?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(mode, ocrEngines);
   // Protect/unlock run on qpdf. The route can pass a dedicated qpdf-security probe;
   // absent that, fall back to the qpdf presence the compression probe already found,
   // so local-dev status reflects it without any extra wiring.
   const security = buildSecurityCapability(mode, securityQpdf ?? tools?.qpdf);
-  const providers = getProviderReadiness(mode, env);
+  const providers = getProviderReadiness(mode, env, workerObserved);
   const daemon = resolveDaemonReadiness(env);
   // Mode-independent, like `daemon`: the AI tools always run on the out-of-band
   // worker, so what matters is whether this deployment declares a provider at all.
