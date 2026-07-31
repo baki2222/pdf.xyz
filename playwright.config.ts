@@ -11,13 +11,23 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 const baseURL = `http://127.0.0.1:${PORT}`;
 const isCI = !!process.env.CI;
 
-// Playwright launches `webServer.command` through `/bin/sh`, so a bare `pnpm`
-// 127s wherever pnpm isn't on PATH (this cron sandbox has only `corepack pnpm`).
-// Resolve it the same way the worker CLIs do — reusing the shared helper — and
-// shell-quote each part so a resolved node/pnpm path containing spaces survives.
-const shQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+// Playwright launches `webServer.command` through `/bin/sh` on POSIX but
+// through `cmd.exe` on Windows, so a bare `pnpm` 127s wherever pnpm isn't on
+// PATH (this cron sandbox has only `corepack pnpm`). Resolve it the same way
+// the worker CLIs do — reusing the shared helper — and shell-quote each part so
+// a resolved node/pnpm path containing spaces survives. Quote for whichever
+// shell actually parses the string: `cmd.exe` does not treat `'` as a quote
+// character at all, so POSIX quoting there splits `C:\Program Files\...` back
+// into separate tokens and the spawn fails before Next ever starts.
+const isWindows = process.platform === "win32";
+const shQuote = (s: string): string =>
+  isWindows ? `"${s.replace(/"/g, '""')}"` : `'${s.replace(/'/g, `'\\''`)}'`;
 const { command: pnpmCommand, prefixArgs } = resolvePnpmInvocation();
 const pnpm = [pnpmCommand, ...prefixArgs].map(shQuote).join(" ");
+
+// `rm` is not a `cmd.exe` builtin, so clear the stale Next lock through node
+// instead — one spelling that both shells parse identically.
+const clearNextLock = `node -e "require('fs').rmSync('.next/lock',{force:true,recursive:true})"`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -40,7 +50,7 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `rm -f .next/lock && ${pnpm} start --port ${PORT}`,
+    command: `${clearNextLock} && ${pnpm} start --port ${PORT}`,
     url: baseURL,
     reuseExistingServer: !isCI,
     timeout: 180_000,
