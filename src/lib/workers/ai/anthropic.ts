@@ -56,6 +56,37 @@ interface AnthropicResponseBody {
   usage?: { input_tokens?: unknown; output_tokens?: unknown };
 }
 
+/**
+ * Classify a 4xx that is not a 429. Every branch here is NON-retryable, so a
+ * misclassification can only change the wording a user sees — never whether a doomed
+ * request is replayed. That property is deliberate: it lets us read the upstream error
+ * type/message to tell "your document is too long" apart from "your API key is wrong"
+ * without making retry behaviour depend on an upstream string we do not control.
+ *
+ * The body is inspected ONLY to pick one of our own fixed messages; no upstream text is
+ * ever returned to the caller. Anthropic reports a context-window overflow as a plain
+ * `400 invalid_request_error` (413 is the separate request-body-size limit), which is why
+ * the length check cannot key on the status code alone.
+ */
+function classifyClientError(status: number, rawBody: string): AiCompletionResult {
+  if (status === 413) {
+    return aiFailure("too_long", "The document is too large for the AI model's context window.");
+  }
+  if (status === 400 && /too long|exceed|maximum.*token|context window/i.test(rawBody)) {
+    return aiFailure("too_long", "The document is too large for the AI model's context window.");
+  }
+  if (status === 401 || status === 403) {
+    return aiFailure(
+      "rejected",
+      "The AI provider rejected this worker's credentials. An operator must check the configured API key.",
+    );
+  }
+  return aiFailure(
+    "rejected",
+    "The AI provider rejected the request. An operator must check the AI configuration.",
+  );
+}
+
 /** Pull the concatenated text of every `text` block from a Messages API response. */
 function extractText(body: AnthropicResponseBody): string {
   if (!Array.isArray(body.content)) return "";
@@ -137,15 +168,20 @@ export function createAnthropicProvider(
         return aiFailure("rate_limited", "The AI provider is rate limiting requests. Try again shortly.");
       }
       if (!response.ok) {
-        // Server (5xx) errors are transient; client (4xx) errors — including an auth
-        // or over-budget request — are surfaced generically, never leaking the body.
+        // Server (5xx) errors are transient, so they stay retryable. Every 4xx is a
+        // permanent rejection — a bad key, a revoked permission, an unknown model, an
+        // over-long prompt — and is classified below so the job layer stops instead of
+        // replaying a request that cannot succeed. Neither path leaks the upstream body.
         if (response.status >= 500) {
           return aiFailure("provider_error", "The AI provider returned a server error.");
         }
-        if (response.status === 413) {
-          return aiFailure("too_long", "The document is too large for the AI model's context window.");
+        let rawBody = "";
+        try {
+          rawBody = await response.text();
+        } catch {
+          rawBody = "";
         }
-        return aiFailure("provider_error", "The AI provider rejected the request.");
+        return classifyClientError(response.status, rawBody);
       }
 
       let body: AnthropicResponseBody;
@@ -157,6 +193,17 @@ export function createAnthropicProvider(
 
       if (body.stop_reason === "refusal") {
         return aiFailure("content_filtered", "The AI model declined to answer this request.");
+      }
+
+      // The model ran into `max_tokens` and stopped mid-answer. There IS text here, and
+      // returning it would look like a success — but a summary that stops mid-sentence or
+      // a translation missing its final pages is a wrong answer, not a short one. Fail
+      // honestly instead of letting a truncated artifact be published as complete.
+      if (body.stop_reason === "max_tokens") {
+        return aiFailure(
+          "incomplete_output",
+          "The AI model reached its output limit before finishing, so the answer would have been cut off. Try a shorter document or a briefer output.",
+        );
       }
 
       const text = extractText(body);

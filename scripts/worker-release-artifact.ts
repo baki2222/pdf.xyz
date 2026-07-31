@@ -45,6 +45,7 @@ import {
   type RawGitFacts,
   type ReleaseArtifactProvider,
 } from "@/lib/workers/release-artifact";
+import { resolvePnpmInvocation } from "@/lib/workers/exec-pnpm";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
@@ -113,7 +114,8 @@ function readBounded(path: string): string {
  * non-zero gate exit is expected and NOT an error here — only a spawn failure / empty output is.
  */
 function runGate(): string {
-  const r = spawnSync("pnpm", ["-s", "worker:release-gate", "--json"], {
+  const { command, prefixArgs } = resolvePnpmInvocation();
+  const r = spawnSync(command, [...prefixArgs, "-s", "worker:release-gate", "--json"], {
     cwd: process.cwd(),
     env: process.env,
     encoding: "utf8",

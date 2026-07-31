@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { attachConsoleGuard, writeTempPdf } from "./helpers";
+import { attachConsoleGuard, writeTempPdf, uploadFiles } from "./helpers";
 
 /**
  * Proves the Organize Pages editor works end-to-end in the browser: it loads a
@@ -7,7 +7,9 @@ import { attachConsoleGuard, writeTempPdf } from "./helpers";
  * thumbnails under the production CSP), and drives the undo/redo timeline —
  * exercising the history reducer and edit controls through real user actions.
  */
-test("organize loads a PDF and supports edit → undo → redo", async ({ page }) => {
+test("organize loads a PDF and supports edit → undo → redo", async ({
+  page,
+}) => {
   const guard = attachConsoleGuard(page);
   const file = await writeTempPdf("organize.pdf", 3);
 
@@ -16,7 +18,7 @@ test("organize loads a PDF and supports edit → undo → redo", async ({ page }
     page.getByRole("heading", { level: 1, name: "Organize Pages" }),
   ).toBeVisible();
 
-  await page.locator('input[type="file"]').first().setInputFiles(file);
+  await uploadFiles(page, file);
 
   // The page board renders from the loaded document.
   await expect(page.getByText("organize.pdf")).toBeVisible();

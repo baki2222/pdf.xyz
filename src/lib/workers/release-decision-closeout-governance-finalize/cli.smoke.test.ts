@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,14 +24,17 @@ const PLAN_OK = `${D}/plan-coherent.json`;
 const PLAN_BAD = `${D}/plan-contradictory.json`;
 const INDEX_BLOCKED = `${D}/index-blocked.json`;
 
-function runCli(args: string[], input?: string): { status: number; stdout: string } {
+function runCli(
+  args: string[],
+  input?: string,
+): { status: number; stdout: string } {
   try {
-    const stdout = execFileSync(
-      "pnpm",
+    const stdout = runWorkerCliSync(
       ["-s", "worker:release-decision-closeout-governance-finalize", ...args],
       {
         cwd: process.cwd(),
         env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
         encoding: "utf8",
         timeout: SPAWN_TIMEOUT_MS,
         maxBuffer: 16 * 1024 * 1024,
@@ -40,94 +43,168 @@ function runCli(args: string[], input?: string): { status: number; stdout: strin
     );
     return { status: 0, stdout };
   } catch (err) {
-    const e = err as { status?: number | null; signal?: string | null; stdout?: string };
-    if (typeof e.status === "number") return { status: e.status, stdout: String(e.stdout ?? "") };
+    const e = err as {
+      status?: number | null;
+      signal?: string | null;
+      stdout?: string;
+    };
+    if (typeof e.status === "number")
+      return { status: e.status, stdout: String(e.stdout ?? "") };
     throw err; // killed by a signal / spawn failure — surface it
   }
 }
 
 describe("worker:release-decision-closeout-governance-finalize CLI smoke", () => {
-  it("--help exits 0 and prints usage", () => {
-    const r = runCli(["--help"]);
-    expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/release decision closeout governance finalization bundle/i);
-  }, SPAWN_TIMEOUT_MS);
-
-  it("an unknown flag / no receipt supplied / stdin+receipt is a usage error (exit 1)", () => {
-    expect(runCli(["--nope"]).status).toBe(1);
-    expect(runCli([]).status).toBe(1);
-    expect(runCli(["--stdin", "--receipt=x"]).status).toBe(1);
-  }, SPAWN_TIMEOUT_MS);
-
-  it("the primary receipt folds its own verdict: completed → finalized (0), incomplete → 2, open → 3, blocked → 4", () => {
-    const finalized = runCli([`--receipt=${COMPLETED}`, "--json"]);
-    expect(finalized.status).toBe(0);
-    const parsed = JSON.parse(finalized.stdout);
-    expect(parsed.schema).toBe("pdfxyz.release-decision-closeout-governance-finalize/1");
-    expect(parsed.verdict).toBe("finalized");
-
-    expect(runCli([`--receipt=${INCOMPLETE}`, "--json"]).status).toBe(2);
-    expect(runCli([`--file=${OPEN}`, "--json"]).status).toBe(3);
-    expect(runCli([`--receipt=${BLOCKED}`, "--json"]).status).toBe(4);
-  }, SPAWN_TIMEOUT_MS);
-
-  it("a completed receipt + a coherent plan stays finalized (exit 0); a contradictory plan is blocked (exit 4)", () => {
-    expect(runCli([`--receipt=${COMPLETED}`, `--plan=${PLAN_OK}`, "--json"]).status).toBe(0);
-    const bad = runCli([`--receipt=${COMPLETED}`, `--plan=${PLAN_BAD}`, "--json"]);
-    expect(bad.status).toBe(4);
-    expect(JSON.parse(bad.stdout).governanceFinalize.reasons).toContain("plan-contradiction");
-  }, SPAWN_TIMEOUT_MS);
-
-  it("a blocked source chain is blocked (exit 4)", () => {
-    const r = runCli([`--receipt=${COMPLETED}`, `--index=${INDEX_BLOCKED}`, "--json"]);
-    expect(r.status).toBe(4);
-    expect(JSON.parse(r.stdout).governanceFinalize.reasons).toContain("source-chain-blocked");
-  }, SPAWN_TIMEOUT_MS);
-
-  it("--require-plan without a plan is incomplete (exit 2)", () => {
-    expect(runCli([`--receipt=${COMPLETED}`, "--require-plan", "--json"]).status).toBe(2);
-  }, SPAWN_TIMEOUT_MS);
-
-  it("--strict-open escalates an open finalization to blocked (exit 4); a finalized chain is untouched", () => {
-    expect(runCli([`--receipt=${OPEN}`, "--strict-open"]).status).toBe(4);
-    expect(runCli([`--receipt=${COMPLETED}`, "--strict-open"]).status).toBe(0);
-  }, SPAWN_TIMEOUT_MS);
-
-  it("a tampered receipt → blocked (exit 4); an unreadable decoy → incomplete (exit 2), never a fabricated finalize", () => {
-    const t = runCli([`--receipt=${TAMPERED}`, "--json"]);
-    expect(t.status).toBe(4);
-    expect(JSON.parse(t.stdout).source.state).toBe("tampered");
-
-    const n = runCli([`--receipt=${NOT}`, "--json"]);
-    expect(n.status).toBe(2);
-    expect(JSON.parse(n.stdout).source.state).toBe("unreadable");
-  }, SPAWN_TIMEOUT_MS);
-
-  it("reads the primary receipt from stdin (--stdin)", () => {
-    const r = runCli(["--stdin", "--json"], readFileSync(BLOCKED, "utf8"));
-    expect(r.status).toBe(4);
-    expect(JSON.parse(r.stdout).verdict).toBe("finalize-blocked");
-  }, SPAWN_TIMEOUT_MS);
-
-  it("writes to --output without printing to stdout", () => {
-    const dir = mkdtempSync(join(tmpdir(), "release-decision-closeout-governance-finalize-"));
-    const out = join(dir, "bundle.json");
-    try {
-      const r = runCli([`--receipt=${COMPLETED}`, `--output=${out}`]);
+  it(
+    "--help exits 0 and prints usage",
+    () => {
+      const r = runCli(["--help"]);
       expect(r.status).toBe(0);
-      expect(r.stdout.trim()).toBe("");
-      expect(JSON.parse(readFileSync(out, "utf8")).verdict).toBe("finalized");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }, SPAWN_TIMEOUT_MS);
+      expect(r.stdout).toMatch(
+        /release decision closeout governance finalization bundle/i,
+      );
+    },
+    SPAWN_TIMEOUT_MS,
+  );
 
-  it("never leaks the fixture path or filename into the result", () => {
-    const r = runCli([`--receipt=${COMPLETED}`, "--text"]);
-    expect(r.stdout).not.toContain("docs/examples");
-    expect(r.stdout).not.toContain(".json");
-    // The full filename must not leak. (The bare stem `receipt-completed` is legitimately a REASON id here — like
-    // `plan-tampered` in the sibling worker — so we assert the filename WITH its extension, which is not a reason id.)
-    expect(r.stdout).not.toContain("receipt-completed.json");
-  }, SPAWN_TIMEOUT_MS);
+  it(
+    "an unknown flag / no receipt supplied / stdin+receipt is a usage error (exit 1)",
+    () => {
+      expect(runCli(["--nope"]).status).toBe(1);
+      expect(runCli([]).status).toBe(1);
+      expect(runCli(["--stdin", "--receipt=x"]).status).toBe(1);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "the primary receipt folds its own verdict: completed → finalized (0), incomplete → 2, open → 3, blocked → 4",
+    () => {
+      const finalized = runCli([`--receipt=${COMPLETED}`, "--json"]);
+      expect(finalized.status).toBe(0);
+      const parsed = JSON.parse(finalized.stdout);
+      expect(parsed.schema).toBe(
+        "pdfxyz.release-decision-closeout-governance-finalize/1",
+      );
+      expect(parsed.verdict).toBe("finalized");
+
+      expect(runCli([`--receipt=${INCOMPLETE}`, "--json"]).status).toBe(2);
+      expect(runCli([`--file=${OPEN}`, "--json"]).status).toBe(3);
+      expect(runCli([`--receipt=${BLOCKED}`, "--json"]).status).toBe(4);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "a completed receipt + a coherent plan stays finalized (exit 0); a contradictory plan is blocked (exit 4)",
+    () => {
+      expect(
+        runCli([`--receipt=${COMPLETED}`, `--plan=${PLAN_OK}`, "--json"])
+          .status,
+      ).toBe(0);
+      const bad = runCli([
+        `--receipt=${COMPLETED}`,
+        `--plan=${PLAN_BAD}`,
+        "--json",
+      ]);
+      expect(bad.status).toBe(4);
+      expect(JSON.parse(bad.stdout).governanceFinalize.reasons).toContain(
+        "plan-contradiction",
+      );
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "a blocked source chain is blocked (exit 4)",
+    () => {
+      const r = runCli([
+        `--receipt=${COMPLETED}`,
+        `--index=${INDEX_BLOCKED}`,
+        "--json",
+      ]);
+      expect(r.status).toBe(4);
+      expect(JSON.parse(r.stdout).governanceFinalize.reasons).toContain(
+        "source-chain-blocked",
+      );
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "--require-plan without a plan is incomplete (exit 2)",
+    () => {
+      expect(
+        runCli([`--receipt=${COMPLETED}`, "--require-plan", "--json"]).status,
+      ).toBe(2);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "--strict-open escalates an open finalization to blocked (exit 4); a finalized chain is untouched",
+    () => {
+      expect(runCli([`--receipt=${OPEN}`, "--strict-open"]).status).toBe(4);
+      expect(runCli([`--receipt=${COMPLETED}`, "--strict-open"]).status).toBe(
+        0,
+      );
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "a tampered receipt → blocked (exit 4); an unreadable decoy → incomplete (exit 2), never a fabricated finalize",
+    () => {
+      const t = runCli([`--receipt=${TAMPERED}`, "--json"]);
+      expect(t.status).toBe(4);
+      expect(JSON.parse(t.stdout).source.state).toBe("tampered");
+
+      const n = runCli([`--receipt=${NOT}`, "--json"]);
+      expect(n.status).toBe(2);
+      expect(JSON.parse(n.stdout).source.state).toBe("unreadable");
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "reads the primary receipt from stdin (--stdin)",
+    () => {
+      const r = runCli(["--stdin", "--json"], readFileSync(BLOCKED, "utf8"));
+      expect(r.status).toBe(4);
+      expect(JSON.parse(r.stdout).verdict).toBe("finalize-blocked");
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "writes to --output without printing to stdout",
+    () => {
+      const dir = mkdtempSync(
+        join(tmpdir(), "release-decision-closeout-governance-finalize-"),
+      );
+      const out = join(dir, "bundle.json");
+      try {
+        const r = runCli([`--receipt=${COMPLETED}`, `--output=${out}`]);
+        expect(r.status).toBe(0);
+        expect(r.stdout.trim()).toBe("");
+        expect(JSON.parse(readFileSync(out, "utf8")).verdict).toBe("finalized");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "never leaks the fixture path or filename into the result",
+    () => {
+      const r = runCli([`--receipt=${COMPLETED}`, "--text"]);
+      expect(r.stdout).not.toContain("docs/examples");
+      expect(r.stdout).not.toContain(".json");
+      // The full filename must not leak. (The bare stem `receipt-completed` is legitimately a REASON id here — like
+      // `plan-tampered` in the sibling worker — so we assert the filename WITH its extension, which is not a reason id.)
+      expect(r.stdout).not.toContain("receipt-completed.json");
+    },
+    SPAWN_TIMEOUT_MS,
+  );
 });

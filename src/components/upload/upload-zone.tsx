@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FileText, ShieldCheck, UploadCloud, X } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
+import { useEarlyFilePick } from "./use-early-file-pick";
 
 type StagedFile = { id: string; name: string; size: number };
 
@@ -58,6 +59,8 @@ export function UploadZone({
   const removeFile = useCallback((id: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== id));
   }, []);
+
+  useEarlyFilePick(inputRef, addFiles);
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>

@@ -71,6 +71,53 @@ export const AI_MAX_OUTPUT_TOKENS_BOUNDS = {
 const MODEL_TOKEN = /^[a-z0-9][a-z0-9.-]{0,63}$/;
 
 /**
+ * Parse the provider-family switch. Key-free and order-independent, so both the
+ * full config resolver and the key-free {@link resolveAiDeclaration} share exactly
+ * one notion of "which families exist". Names only the variable, never its value.
+ */
+function parseProviderFamily(
+  env: EnvSource,
+):
+  | { state: "absent" }
+  | { state: "ok"; family: AiProviderFamily }
+  | { state: "invalid"; error: FieldError } {
+  const raw = env[AI_ENV.provider];
+  if (!present(raw)) return { state: "absent" };
+  const provider = raw.trim().toLowerCase();
+  if (!AI_PROVIDER_FAMILY_SET.has(provider)) {
+    return {
+      state: "invalid",
+      error: fieldError(
+        AI_ENV.provider,
+        `must be one of ${AI_PROVIDER_FAMILIES.join(", ")}.`,
+      ),
+    };
+  }
+  return { state: "ok", family: provider as AiProviderFamily };
+}
+
+/**
+ * Resolve the public model id for a family: the optional `PDFXYZ_AI_MODEL`
+ * override when it is a shape-safe token, else the family default. Key-free and
+ * shared with {@link resolveAiDeclaration}. Names only the variable, never its value.
+ */
+function parseModel(
+  env: EnvSource,
+  family: AiProviderFamily,
+): { ok: true; model: string } | { ok: false; error: FieldError } {
+  const raw = env[AI_ENV.model];
+  if (!present(raw)) return { ok: true, model: DEFAULT_AI_MODEL[family] };
+  const token = raw.trim().toLowerCase();
+  if (!MODEL_TOKEN.test(token)) {
+    return {
+      ok: false,
+      error: fieldError(AI_ENV.model, "must be a bounded model id token."),
+    };
+  }
+  return { ok: true, model: token };
+}
+
+/**
  * A validated AI configuration — presence + shape only. It carries the public
  * provider family, the resolved public model id, an optional non-secret base URL,
  * and the bounded limits. It deliberately does NOT carry the API key: `hasApiKey`
@@ -138,23 +185,18 @@ function parseBoundedInt(
  * variable — never its value). `env` is injectable for deterministic tests.
  */
 export function resolveAiConfig(env: EnvSource = process.env): AiConfigResolution {
-  const rawProvider = env[AI_ENV.provider];
-  if (!present(rawProvider)) {
+  const parsedFamily = parseProviderFamily(env);
+  if (parsedFamily.state === "absent") {
     return { enabled: false, reason: "not_configured" };
   }
-  const provider = rawProvider.trim().toLowerCase();
-  if (!AI_PROVIDER_FAMILY_SET.has(provider)) {
-    return {
-      enabled: false,
-      reason: "invalid",
-      error: fieldError(
-        AI_ENV.provider,
-        `must be one of ${AI_PROVIDER_FAMILIES.join(", ")}.`,
-      ),
-    };
+  if (parsedFamily.state === "invalid") {
+    return { enabled: false, reason: "invalid", error: parsedFamily.error };
   }
-  const family = provider as AiProviderFamily;
+  const family = parsedFamily.family;
 
+  // Key presence is checked before the remaining shape parsing so a deployment
+  // that names a family without a key reports the actionable `missing_api_key`
+  // rather than a downstream shape complaint.
   const hasApiKey = present(env[AI_ENV.apiKey]);
   if (!hasApiKey) {
     return {
@@ -164,19 +206,11 @@ export function resolveAiConfig(env: EnvSource = process.env): AiConfigResolutio
     };
   }
 
-  let model = DEFAULT_AI_MODEL[family];
-  const rawModel = env[AI_ENV.model];
-  if (present(rawModel)) {
-    const token = rawModel.trim().toLowerCase();
-    if (!MODEL_TOKEN.test(token)) {
-      return {
-        enabled: false,
-        reason: "invalid",
-        error: fieldError(AI_ENV.model, "must be a bounded model id token."),
-      };
-    }
-    model = token;
+  const parsedModel = parseModel(env, family);
+  if (!parsedModel.ok) {
+    return { enabled: false, reason: "invalid", error: parsedModel.error };
   }
+  const model = parsedModel.model;
 
   let baseUrl: string | undefined;
   const rawBaseUrl = env[AI_ENV.baseUrl];
@@ -225,6 +259,40 @@ export function resolveAiConfig(env: EnvSource = process.env): AiConfigResolutio
       maxOutputTokens: maxOutput.value,
     },
   };
+}
+
+/**
+ * The **key-free** view of the AI configuration: which provider family and public
+ * model id this deployment declares, with no opinion on whether an API key is
+ * present in *this* process.
+ *
+ * This exists because the API key is deliberately NOT deployed to the web tier —
+ * only the out-of-band worker that actually calls the model holds it (see
+ * `docker-compose.worker.yml`: the web service "needs no worker secrets"). The web
+ * app still has to decide, up front, whether to offer an AI tool at all, so it
+ * reads the non-secret family switch alone. `PDFXYZ_AI_PROVIDER` and
+ * `PDFXYZ_AI_MODEL` are both public identifiers, safe to set on both tiers.
+ */
+export type AiDeclaration =
+  | { state: "absent" }
+  | { state: "declared"; provider: AiProviderFamily; model: string }
+  | { state: "invalid"; error: FieldError };
+
+/**
+ * Resolve the key-free {@link AiDeclaration} from an environment. Reads ONLY the
+ * two non-secret variables (`PDFXYZ_AI_PROVIDER`, `PDFXYZ_AI_MODEL`) and never
+ * touches the API key, so it is safe to evaluate in a process that holds no
+ * secret. `env` is injectable for deterministic tests.
+ */
+export function resolveAiDeclaration(env: EnvSource = process.env): AiDeclaration {
+  const family = parseProviderFamily(env);
+  if (family.state === "absent") return { state: "absent" };
+  if (family.state === "invalid") return { state: "invalid", error: family.error };
+
+  const model = parseModel(env, family.family);
+  if (!model.ok) return { state: "invalid", error: model.error };
+
+  return { state: "declared", provider: family.family, model: model.model };
 }
 
 /** One-line, client-safe explanation for each disabled reason. Never names a value. */

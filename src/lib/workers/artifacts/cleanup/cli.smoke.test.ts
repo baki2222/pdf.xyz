@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { execFileSync } from "node:child_process";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -17,7 +17,7 @@ interface RunResult {
 
 function runCli(args: string[], opts: { input?: string } = {}): RunResult {
   try {
-    const stdout = execFileSync("pnpm", ["-s", "worker:artifact-cleanup", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:artifact-cleanup", ...args], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -26,13 +26,19 @@ function runCli(args: string[], opts: { input?: string } = {}): RunResult {
         PDFXYZ_WORKER_MODE: "",
       },
       ...(opts.input !== undefined ? { input: opts.input } : {}),
+      stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf8",
       timeout: SPAWN_TIMEOUT_MS,
     });
     return { status: 0, stdout };
   } catch (err) {
-    const e = err as { status?: number | null; signal?: string | null; stdout?: string };
-    if (typeof e.status === "number") return { status: e.status, stdout: String(e.stdout ?? "") };
+    const e = err as {
+      status?: number | null;
+      signal?: string | null;
+      stdout?: string;
+    };
+    if (typeof e.status === "number")
+      return { status: e.status, stdout: String(e.stdout ?? "") };
     throw err; // killed by a signal or never spawned — surface loudly
   }
 }
@@ -63,7 +69,11 @@ describe("worker:artifact-cleanup CLI", () => {
   it(
     "emits stable JSON for a fixture",
     () => {
-      const r = runCli([`--file=${FIX}/inventory-drift.json`, "--json", "--plan"]);
+      const r = runCli([
+        `--file=${FIX}/inventory-drift.json`,
+        "--json",
+        "--plan",
+      ]);
       expect(r.status).toBe(3);
       const parsed = JSON.parse(r.stdout);
       expect(parsed.tool).toBe("worker-artifact-cleanup");
@@ -78,7 +88,14 @@ describe("worker:artifact-cleanup CLI", () => {
     "reads an inventory from stdin",
     () => {
       const input = JSON.stringify({
-        artifacts: [{ lifecycle: "live", manifest: "valid", provider: "remote-configured", kind: "pdf" }],
+        artifacts: [
+          {
+            lifecycle: "live",
+            manifest: "valid",
+            provider: "remote-configured",
+            kind: "pdf",
+          },
+        ],
       });
       const r = runCli(["--stdin", "--text"], { input });
       expect(r.status).toBe(0);
@@ -107,7 +124,8 @@ describe("worker:artifact-cleanup CLI", () => {
           {
             objectKey: "artifacts/ACME-Q3-SECRET.pdf",
             bucket: "prod-user-uploads",
-            signedUrl: "https://prod.s3.amazonaws.com/x?X-Amz-Signature=deadbeefcafe",
+            signedUrl:
+              "https://prod.s3.amazonaws.com/x?X-Amz-Signature=deadbeefcafe",
             filename: "Bank Statement.pdf",
             ocrText: "Account 1234 balance",
             env: "AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE",
@@ -117,13 +135,28 @@ describe("worker:artifact-cleanup CLI", () => {
           },
         ],
       });
-      const r = runCli(["--stdin", "--json", "--plan", "--breakdown", "--metrics"], { input: hostile });
+      const r = runCli(
+        ["--stdin", "--json", "--plan", "--breakdown", "--metrics"],
+        { input: hostile },
+      );
       const out = r.stdout.toLowerCase();
-      for (const needle of ["acme", "secret", "prod-user-uploads", "amazonaws", "deadbeef", "bank statement", "akia", "://", ".pdf"]) {
+      for (const needle of [
+        "acme",
+        "secret",
+        "prod-user-uploads",
+        "amazonaws",
+        "deadbeef",
+        "bank statement",
+        "akia",
+        "://",
+        ".pdf",
+      ]) {
         expect(out).not.toContain(needle);
       }
       // It still classified the (expired) object.
-      expect(JSON.parse(r.stdout).report.categories["expired-but-present"]).toBe(1);
+      expect(
+        JSON.parse(r.stdout).report.categories["expired-but-present"],
+      ).toBe(1);
     },
     SPAWN_TIMEOUT_MS,
   );

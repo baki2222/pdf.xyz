@@ -14,7 +14,7 @@
  * It is the automated form of the healthcheck smoke and proves the CLI evaluates
  * honestly rather than fabricating health — and never leaks an ingested string.
  */
-import { execFileSync } from "node:child_process";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,7 +32,7 @@ function runCli(
   opts: { input?: string; env?: Record<string, string> } = {},
 ): CliResult {
   try {
-    const stdout = execFileSync("pnpm", ["-s", "worker:ops-check", ...args], {
+    const stdout = runWorkerCliSync(["-s", "worker:ops-check", ...args], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -43,13 +43,19 @@ function runCli(
         ...opts.env,
       },
       ...(opts.input !== undefined ? { input: opts.input } : {}),
+      stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf8",
       timeout: 90_000,
     });
     return { status: 0, stdout };
   } catch (err) {
-    const e = err as { status?: number | null; signal?: string | null; stdout?: string };
-    if (typeof e.status === "number") return { status: e.status, stdout: String(e.stdout ?? "") };
+    const e = err as {
+      status?: number | null;
+      signal?: string | null;
+      stdout?: string;
+    };
+    if (typeof e.status === "number")
+      return { status: e.status, stdout: String(e.stdout ?? "") };
     throw err; // killed by a signal or never spawned — surface loudly
   }
 }
@@ -123,7 +129,9 @@ describe("worker ops-check CLI — exit codes + output", () => {
   it(
     "exits CRITICAL for a blocked synthetic snapshot on stdin",
     () => {
-      expect(runCli(["--stdin"], { input: BLOCKED }).status).toBe(OPS_CHECK_EXIT.CRITICAL);
+      expect(runCli(["--stdin"], { input: BLOCKED }).status).toBe(
+        OPS_CHECK_EXIT.CRITICAL,
+      );
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -131,7 +139,9 @@ describe("worker ops-check CLI — exit codes + output", () => {
   it(
     "exits usage (1) for malformed stdin input — never fabricates health",
     () => {
-      expect(runCli(["--stdin"], { input: "{not json" }).status).toBe(OPS_CHECK_EXIT.USAGE);
+      expect(runCli(["--stdin"], { input: "{not json" }).status).toBe(
+        OPS_CHECK_EXIT.USAGE,
+      );
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -139,7 +149,9 @@ describe("worker ops-check CLI — exit codes + output", () => {
   it(
     "exits usage (1) for an unknown flag",
     () => {
-      expect(runCli(["--definitely-not-a-flag"]).status).toBe(OPS_CHECK_EXIT.USAGE);
+      expect(runCli(["--definitely-not-a-flag"]).status).toBe(
+        OPS_CHECK_EXIT.USAGE,
+      );
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -173,12 +185,20 @@ describe("worker ops-check CLI — exit codes + output", () => {
         detail: SECRET,
         recommendedActionDetail: SECRET,
         daemon: { state: "stale", source: "queue-broker", detail: SECRET },
-        subsystems: [{ id: "lifecycle-verification", health: "warn", detail: SECRET }],
-        lifecycleVerification: { verdict: "drift", health: "warn", detail: SECRET },
+        subsystems: [
+          { id: "lifecycle-verification", health: "warn", detail: SECRET },
+        ],
+        lifecycleVerification: {
+          verdict: "drift",
+          health: "warn",
+          detail: SECRET,
+        },
       });
       const r = runCli(["--stdin"], { input: poisoned });
       // A warn/critical verdict (degraded), but crucially no leak of the ingested strings.
-      expect([OPS_CHECK_EXIT.WARN, OPS_CHECK_EXIT.CRITICAL]).toContain(r.status);
+      expect([OPS_CHECK_EXIT.WARN, OPS_CHECK_EXIT.CRITICAL]).toContain(
+        r.status,
+      );
       expect(r.stdout).not.toContain(SECRET);
     },
     SPAWN_TIMEOUT_MS,

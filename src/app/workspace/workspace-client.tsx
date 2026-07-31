@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
 import { cn, formatBytes } from "@/lib/utils";
 import { FILE_FAMILIES, type FileFamily, type WorkspaceAction } from "@/lib/workspace";
 import { BatchPanel } from "./batch-panel";
@@ -84,6 +85,8 @@ export function WorkspaceClient({
   const [dragging, setDragging] = useState(false);
   const ws = useWorkspace(tools, preselected);
   const { state, rejected } = ws;
+
+  useEarlyFilePick(inputRef, ws.addFiles);
 
   const totalBytes = useMemo(
     () => state.files.reduce((sum, f) => sum + f.size, 0),

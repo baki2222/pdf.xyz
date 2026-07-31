@@ -6,6 +6,7 @@ import { WORKER_PIPELINE_STAGES } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
+import { aiToolUnavailableDetail } from "@/lib/workers/ai-tool-availability";
 import {
   canRunChatWithPdf,
   runWorkerChatWithPdf,
@@ -58,7 +59,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
       ? "Checking whether a secure worker is available…"
       : phase === "error"
         ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+        : aiToolUnavailableDetail(status);
 
   return (
     <div className="gradient-border">

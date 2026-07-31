@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { attachConsoleGuard, writeTempPdf } from "./helpers";
+import { attachConsoleGuard, writeTempPdf, uploadFiles } from "./helpers";
 
 /**
  * Proves the Compress tool is honest end-to-end: it analyzes the PDF entirely in
@@ -21,7 +21,7 @@ test("compress analyzes in-browser and honestly labels the worker path", async (
     page.getByText(/any secure-worker step is optional/i),
   ).toBeVisible();
 
-  await page.locator('input[type="file"]').first().setInputFiles(file);
+  await uploadFiles(page, file);
 
   // Real in-browser analysis renders.
   await expect(page.getByText("shrink.pdf")).toBeVisible();

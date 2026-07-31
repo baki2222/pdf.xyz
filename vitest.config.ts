@@ -15,6 +15,11 @@ export default defineConfig({
     environment: "node",
     globals: true,
     setupFiles: ["./src/tests/setup.ts"],
+    // Compile every `scripts/worker-*.ts` entrypoint once (~1.8s) before any test runs, so the
+    // ~1.2k CLI smoke spawns exec plain `node` rather than paying tsx's ~0.61s loader bootstrap
+    // each time (~730 CPU-seconds of pure overhead — the reason the `pnpm qa` vitest step blew its
+    // wall-clock budget). Falls back to tsx if the precompile is unavailable.
+    globalSetup: ["./src/tests/worker-cli-precompile.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     css: false,
     // This suite is very large (~900 files) and shares a deep, mostly-pure worker

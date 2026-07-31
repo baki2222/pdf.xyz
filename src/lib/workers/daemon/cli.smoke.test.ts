@@ -16,7 +16,7 @@
  * the automated form of `scripts/worker-smoke.sh` and proves the daemon fails
  * honestly rather than fabricating work.
  */
-import { execFileSync } from "node:child_process";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
  */
 function runDaemon(args: string[], env: Record<string, string> = {}): number {
   try {
-    execFileSync("pnpm", ["-s", "worker:daemon", ...args], {
+    runWorkerCliSync(["-s", "worker:daemon", ...args], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -41,7 +41,8 @@ function runDaemon(args: string[], env: Record<string, string> = {}): number {
     });
     return 0;
   } catch (err) {
-    const status = (err as { status?: number | null; signal?: string | null }).status;
+    const status = (err as { status?: number | null; signal?: string | null })
+      .status;
     if (typeof status === "number") return status;
     // No numeric status → the child was killed by a signal or never spawned.
     throw err;
@@ -147,7 +148,9 @@ describe("worker daemon CLI — honest no-config exit codes", () => {
   it(
     "exits 2 (unknown) for --lifecycle-verify with no observed document",
     () => {
-      expect(runDaemon(["--lifecycle-verify", "--provider=aws-s3", "--versioned"])).toBe(2);
+      expect(
+        runDaemon(["--lifecycle-verify", "--provider=aws-s3", "--versioned"]),
+      ).toBe(2);
     },
     SPAWN_TIMEOUT_MS,
   );

@@ -4,14 +4,15 @@
  * These tests intentionally do not run Docker, kubectl, systemd, cron, or GitHub
  * Actions. They pin the committed blueprints' safety and command semantics offline.
  */
-import { execFileSync } from "node:child_process";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const DIR = "docs/examples/deployment";
-const read = (rel: string): string => readFileSync(path.join(ROOT, rel), "utf8");
+const read = (rel: string): string =>
+  readFileSync(path.join(ROOT, rel), "utf8");
 
 const files = [
   `${DIR}/systemd/pdfxyz-worker-daemon.service`,
@@ -36,7 +37,9 @@ function expectNoSecrets(text: string): void {
   expect(text).not.toMatch(/Bearer\s+[A-Za-z0-9._-]{20,}/);
   expect(text).not.toMatch(/https:\/\/[^\s<>]*:[^\s<>@]+@/);
   expect(text).not.toMatch(/NEXT_PUBLIC_.*(?:SECRET|TOKEN|PASSWORD|KEY)/i);
-  expect(text).not.toMatch(/(?:amazonaws\.com|\.upstash\.io|\.r2\.cloudflarestorage\.com|googleapis\.com|\.blob\.core\.windows\.net)/i);
+  expect(text).not.toMatch(
+    /(?:amazonaws\.com|\.upstash\.io|\.r2\.cloudflarestorage\.com|googleapis\.com|\.blob\.core\.windows\.net)/i,
+  );
 }
 
 describe("deployment example templates — privacy and static syntax", () => {
@@ -49,8 +52,9 @@ describe("deployment example templates — privacy and static syntax", () => {
   });
 
   it("validates through the repo's deployment example validator", () => {
-    const out = execFileSync("pnpm", ["-s", "deploy:examples:check"], {
+    const out = runWorkerCliSync(["-s", "deploy:examples:check"], {
       cwd: ROOT,
+      stdio: ["pipe", "pipe", "pipe"],
       encoding: "utf8",
       timeout: 30_000,
     });
@@ -95,7 +99,9 @@ describe("Kubernetes examples", () => {
     expect(worker).toContain("name: pdfxyz-worker");
     expect(worker).toContain('command: ["pnpm", "-s", "worker:daemon"]');
     expect(worker).toContain("secretRef:");
-    expect(worker).toContain('command: ["pnpm", "-s", "worker:daemon", "--dry-run-status"]');
+    expect(worker).toContain(
+      'command: ["pnpm", "-s", "worker:daemon", "--dry-run-status"]',
+    );
     expect(worker).not.toContain("kind: Service");
   });
 
@@ -105,15 +111,17 @@ describe("Kubernetes examples", () => {
     expect(secret).toContain("kind: Secret");
     expect(secret).toContain("REPLACE_WITH_SECRET_ACCESS_KEY");
     expect(secret).toContain("REPLACE_WITH_REDIS_REST_TOKEN");
-    expect(config).toContain("PDFXYZ_WORKER_HEARTBEAT: \"true\"");
+    expect(config).toContain('PDFXYZ_WORKER_HEARTBEAT: "true"');
     expect(config).toContain("PDFXYZ_OPSCHECK_SOURCE: --runtime");
   });
 
   it("runs ops-check from a CronJob without masking failures", () => {
     const cron = read(`${DIR}/kubernetes/ops-check-cronjob.yaml`);
     expect(cron).toContain("kind: CronJob");
-    expect(cron).toContain("schedule: \"*/5 * * * *\"");
-    expect(cron).toContain('command: ["pnpm", "-s", "worker:ops-check", "--runtime", "--json"]');
+    expect(cron).toContain('schedule: "*/5 * * * *"');
+    expect(cron).toContain(
+      'command: ["pnpm", "-s", "worker:ops-check", "--runtime", "--json"]',
+    );
     expect(cron).toContain("backoffLimit: 0");
     expect(cron).not.toMatch(/\|\|\s*true/);
     expect(cron).not.toMatch(/exit\s+0/);
@@ -123,11 +131,17 @@ describe("Kubernetes examples", () => {
 describe("GitHub Actions ops-check fixture gate", () => {
   it("checks healthy, warn, and critical fixtures without requiring real credentials", () => {
     const workflow = read(`${DIR}/github-actions/ops-check-fixture.yml`);
-    expect(workflow).toContain("worker:ops-check --file=docs/examples/observability/healthcheck/healthy.json");
-    expect(workflow).toContain("worker:ops-check --file=docs/examples/observability/healthcheck/stale-heartbeat.json");
-    expect(workflow).toContain("test \"$code\" -eq 3");
-    expect(workflow).toContain("worker:ops-check --file=docs/examples/observability/healthcheck/lifecycle-drift.json");
-    expect(workflow).toContain("test \"$code\" -eq 4");
+    expect(workflow).toContain(
+      "worker:ops-check --file=docs/examples/observability/healthcheck/healthy.json",
+    );
+    expect(workflow).toContain(
+      "worker:ops-check --file=docs/examples/observability/healthcheck/stale-heartbeat.json",
+    );
+    expect(workflow).toContain('test "$code" -eq 3');
+    expect(workflow).toContain(
+      "worker:ops-check --file=docs/examples/observability/healthcheck/lifecycle-drift.json",
+    );
+    expect(workflow).toContain('test "$code" -eq 4');
     expect(workflow).not.toMatch(/secrets\./i);
   });
 });
@@ -159,7 +173,9 @@ describe("Phase 44 cleanup evidence pipeline examples", () => {
 
   it("the CI fixture pins the documented composite exit codes and needs no credentials", () => {
     const text = read(fixture);
-    expect(text).toContain("worker:cleanup-pipeline --file=docs/examples/cleanup-project/raw-unsafe-tombstoned.json");
+    expect(text).toContain(
+      "worker:cleanup-pipeline --file=docs/examples/cleanup-project/raw-unsafe-tombstoned.json",
+    );
     expect(text).toContain('test "$code" -eq 4'); // present-tombstoned → breach
     expect(text).toContain('test "$code" -eq 2'); // no wired backend → unknown
     expect(text).toContain('test "$code" -eq 1'); // malformed → usage, fail closed

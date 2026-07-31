@@ -46,6 +46,15 @@ const ALLOWED = new Set(
     "src/lib/workers/ocr-native.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
+    // Portable-pnpm subprocess resolution: only reached by the release CLI
+    // scripts (`scripts/worker-release-*.ts`) and worker `cli.smoke.test.ts`
+    // helpers, never by a web route/component/barrel.
+    "src/lib/workers/exec-pnpm.ts",
+    "src/tests/exec-pnpm.ts",
+    // Subprocess runner for the worker `cli.smoke.test.ts` tier: spawns the real
+    // `tsx scripts/worker-*.ts` binary end-to-end. Node-only by design and pulled
+    // in exclusively by smoke-test helpers, never by a web route/component/barrel.
+    "src/tests/run-worker-cli.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 

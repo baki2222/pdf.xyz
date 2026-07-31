@@ -58,6 +58,17 @@ export default function RootLayout({
     <html
       lang="en"
       className={cn(GeistSans.variable, GeistMono.variable)}
+      /**
+       * We ship `html { scroll-behavior: smooth }` for in-page anchor links.
+       * Since Next 16 the router no longer neutralizes that during a route
+       * change unless this attribute says to, so every navigation would glide
+       * to the top over several hundred ms — the destination page keeps moving
+       * under the pointer, and a click landing mid-glide is dropped by the
+       * browser (press and release resolve to different elements, so no
+       * `click` fires at all). This opts back into an instant navigation
+       * scroll and leaves anchor scrolling smooth.
+       */
+      data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
       <head>

@@ -5,13 +5,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { runWorkerCliSync } from "@/tests/run-worker-cli";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const SPAWN_TIMEOUT_MS = 60_000;
-const D = "docs/examples/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend";
+const D =
+  "docs/examples/release-decision-closeout-governance-finalize-index-trend-finalize-index-trend";
 const IDX = `${D}/window-indexed.json`;
 const OPEN = `${D}/window-open.json`;
 const INC = `${D}/window-incomplete.json`;
@@ -21,14 +22,21 @@ const TAMP = `${D}/window-tampered.json`;
 const NOT = `${D}/not-a-finalize-index.json`;
 
 /** Run the CLI with `args` (and optional stdin `input`), returning its exit `status` + `stdout`. */
-function runCli(args: string[], input?: string): { status: number; stdout: string } {
+function runCli(
+  args: string[],
+  input?: string,
+): { status: number; stdout: string } {
   try {
-    const stdout = execFileSync(
-      "pnpm",
-      ["-s", "worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend", ...args],
+    const stdout = runWorkerCliSync(
+      [
+        "-s",
+        "worker:release-decision-closeout-governance-finalize-index-trend-finalize-index-trend",
+        ...args,
+      ],
       {
         cwd: process.cwd(),
         env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
         encoding: "utf8",
         timeout: SPAWN_TIMEOUT_MS,
         maxBuffer: 16 * 1024 * 1024,
@@ -38,7 +46,8 @@ function runCli(args: string[], input?: string): { status: number; stdout: strin
     return { status: 0, stdout };
   } catch (err) {
     const e = err as { status?: number; signal?: string; stdout?: string };
-    if (typeof e.status === "number") return { status: e.status, stdout: String(e.stdout ?? "") };
+    if (typeof e.status === "number")
+      return { status: e.status, stdout: String(e.stdout ?? "") };
     throw err; // a signal / spawn failure is a real error
   }
 }
@@ -49,7 +58,9 @@ describe("worker:release-decision-closeout-governance-finalize-index-trend-final
     () => {
       const { status, stdout } = runCli(["--help"]);
       expect(status).toBe(0);
-      expect(stdout).toMatch(/release decision closeout governance finalize index trend finalize index trend/i);
+      expect(stdout).toMatch(
+        /release decision closeout governance finalize index trend finalize index trend/i,
+      );
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -67,10 +78,17 @@ describe("worker:release-decision-closeout-governance-finalize-index-trend-final
   it(
     "a clean history of indexed windows → stable (exit 0)",
     () => {
-      const { status, stdout } = runCli([`--file=${IDX}`, `--file=${IDX}`, `--file=${IDX}`, "--json"]);
+      const { status, stdout } = runCli([
+        `--file=${IDX}`,
+        `--file=${IDX}`,
+        `--file=${IDX}`,
+        "--json",
+      ]);
       expect(status).toBe(0);
       const parsed = JSON.parse(stdout);
-      expect(parsed.schema).toBe("pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend/1");
+      expect(parsed.schema).toBe(
+        "pdfxyz.release-decision-closeout-governance-finalize-index-trend-finalize-index-trend/1",
+      );
       expect(parsed.verdict).toBe("stable");
       expect(parsed.coverage.windowsUsable).toBe(3);
       expect(parsed.windowDistribution.verdictCounts.indexed).toBe(3);
@@ -95,7 +113,11 @@ describe("worker:release-decision-closeout-governance-finalize-index-trend-final
   it(
     "a flat incomplete history → insufficient (exit 2)",
     () => {
-      const { status, stdout } = runCli([`--file=${INC}`, `--file=${INC}`, "--json"]);
+      const { status, stdout } = runCli([
+        `--file=${INC}`,
+        `--file=${INC}`,
+        "--json",
+      ]);
       expect(status).toBe(2);
       expect(JSON.parse(stdout).verdict).toBe("insufficient");
     },
@@ -107,7 +129,9 @@ describe("worker:release-decision-closeout-governance-finalize-index-trend-final
     () => {
       const blk = runCli([`--file=${IDX}`, `--file=${BLK}`, "--json"]);
       expect(blk.status).toBe(4);
-      expect(JSON.parse(blk.stdout).reasons.map((r: { id: string }) => r.id)).toContain("window-index-blocked");
+      expect(
+        JSON.parse(blk.stdout).reasons.map((r: { id: string }) => r.id),
+      ).toContain("window-index-blocked");
 
       const inv = runCli([`--file=${IDX}`, `--file=${INV}`, "--json"]);
       expect(inv.status).toBe(4);
@@ -121,7 +145,9 @@ describe("worker:release-decision-closeout-governance-finalize-index-trend-final
     () => {
       const tamp = runCli([`--file=${IDX}`, `--file=${TAMP}`, "--json"]);
       expect(tamp.status).toBe(4);
-      expect(JSON.parse(tamp.stdout).reasons.map((r: { id: string }) => r.id)).toContain("window-tampered");
+      expect(
+        JSON.parse(tamp.stdout).reasons.map((r: { id: string }) => r.id),
+      ).toContain("window-tampered");
 
       const unreadable = runCli([`--file=${IDX}`, `--file=${NOT}`, "--json"]);
       expect(unreadable.status).toBe(4);
@@ -133,8 +159,12 @@ describe("worker:release-decision-closeout-governance-finalize-index-trend-final
   it(
     "--strict-open escalates a non-indexed history to blocked (exit 4); a clean one is untouched (exit 0)",
     () => {
-      expect(runCli([`--file=${IDX}`, `--file=${OPEN}`, "--strict-open"]).status).toBe(4);
-      expect(runCli([`--file=${IDX}`, `--file=${IDX}`, "--strict-open"]).status).toBe(0);
+      expect(
+        runCli([`--file=${IDX}`, `--file=${OPEN}`, "--strict-open"]).status,
+      ).toBe(4);
+      expect(
+        runCli([`--file=${IDX}`, `--file=${IDX}`, "--strict-open"]).status,
+      ).toBe(0);
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -142,7 +172,10 @@ describe("worker:release-decision-closeout-governance-finalize-index-trend-final
   it(
     "reads a JSON array of windows from stdin (--stdin)",
     () => {
-      const arr = JSON.stringify([JSON.parse(readFileSync(IDX, "utf8")), JSON.parse(readFileSync(BLK, "utf8"))]);
+      const arr = JSON.stringify([
+        JSON.parse(readFileSync(IDX, "utf8")),
+        JSON.parse(readFileSync(BLK, "utf8")),
+      ]);
       const { status, stdout } = runCli(["--stdin", "--json"], arr);
       expect(status).toBe(4);
       expect(JSON.parse(stdout).verdict).toBe("blocked");
@@ -166,7 +199,12 @@ describe("worker:release-decision-closeout-governance-finalize-index-trend-final
   it(
     "writes to --output without printing to stdout",
     () => {
-      const dir = mkdtempSync(join(tmpdir(), "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-"));
+      const dir = mkdtempSync(
+        join(
+          tmpdir(),
+          "release-decision-closeout-governance-finalize-index-trend-finalize-index-trend-",
+        ),
+      );
       const out = join(dir, "trend.json");
       try {
         const { status, stdout } = runCli([`--file=${IDX}`, `--output=${out}`]);

@@ -46,6 +46,14 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       runsInThisProcess: false,
       detail: "ready",
     },
+    ai: {
+      declared: false,
+      provider: null,
+      model: null,
+      configuredHere: false,
+      ready: false,
+      detail: "no ai declared",
+    },
     ...overrides,
   };
 }
@@ -55,9 +63,12 @@ describe("pdf-archive-client", () => {
     expect(canRunPdfArchive(status())).toBe(true);
   });
 
-  it("requires local-dev Ghostscript/security-style availability when local", () => {
+  it("stays unavailable in local dev, which cannot run pdf-to-pdfa at all", () => {
     expect(canRunPdfArchive(status({ localDevOnly: true }))).toBe(false);
-    expect(canRunPdfArchive(status({ localDevOnly: true, security: { available: true, operations: ["protect", "unlock", "repair", "optimize-web"], detail: "qpdf" } }))).toBe(true);
+    // Even with qpdf probed available: qpdf is not Ghostscript, and `pdf-to-pdfa` is not
+    // in LOCAL_DEV_SUPPORTED_TOOLS, so advertising it here would promise a job the local
+    // adapter always rejects.
+    expect(canRunPdfArchive(status({ localDevOnly: true, security: { available: true, operations: ["protect", "unlock", "repair", "optimize-web"], detail: "qpdf" } }))).toBe(false);
   });
 
   it("submits pdf-to-pdfa through the shared secure-worker job path", async () => {
