@@ -28,7 +28,14 @@ export function organizationSchema(): Json {
     logo: abs("/icon.svg"),
     image: abs(siteConfig.ogImage),
     description: siteConfig.description,
-    sameAs: [siteConfig.links.twitter, siteConfig.links.github],
+    // No `sameAs`: it asserts ownership of the linked profiles to search
+    // engines, so it stays out until there are real accounts to claim.
+    contactPoint: {
+      "@type": "ContactPoint",
+      contactType: "customer support",
+      email: siteConfig.contactEmail,
+      availableLanguage: ["en"],
+    },
   };
 }
 

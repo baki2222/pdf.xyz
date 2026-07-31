@@ -7,6 +7,7 @@ import { AiSection } from "@/components/sections/ai-section";
 import { SecuritySection } from "@/components/sections/security-section";
 import { PricingSection } from "@/components/sections/pricing-section";
 import { FaqSection } from "@/components/sections/faq-section";
+import { AboutSection } from "@/components/sections/about-section";
 import { CtaSection } from "@/components/sections/cta-section";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -39,6 +40,7 @@ export default function HomePage() {
       <SecuritySection />
       <PricingSection />
       <FaqSection />
+      <AboutSection />
       <CtaSection />
     </>
   );

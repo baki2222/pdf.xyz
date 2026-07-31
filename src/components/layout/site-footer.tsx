@@ -32,12 +32,18 @@ export function SiteFooter() {
               <ul className="flex flex-col gap-2.5">
                 {column.items.map((item) => (
                   <li key={item.label}>
-                    <Link
-                      href={item.href}
-                      className="text-sm text-slate-400 transition-colors hover:text-white"
-                    >
-                      {item.label}
-                    </Link>
+                    {item.href ? (
+                      <Link
+                        href={item.href}
+                        className="text-sm text-slate-400 transition-colors hover:text-white"
+                      >
+                        {item.label}
+                      </Link>
+                    ) : (
+                      <span className="text-sm text-slate-500">
+                        {item.label}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
