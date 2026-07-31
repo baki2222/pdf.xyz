@@ -140,26 +140,55 @@ docker run --rm "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:ocr-proof
 # searchable). Exit 0 = passed. No document, no cloud.
 docker run --rm "$REGISTRY/pdfxyz-worker:$GIT_SHA" pnpm worker:ocrmypdf-proof
 
-# 3. Push, then deploy the SAME image reference to staging first.
+# 3. Push the images your host will pull.
 docker push "$REGISTRY/pdfxyz-web:$GIT_SHA"
 docker push "$REGISTRY/pdfxyz-worker:$GIT_SHA"
 ```
 
-- **Promote by digest, not by tag.** After staging smoke passes, promote the exact
-  image **digest** (`$REGISTRY/pdfxyz-worker@sha256:…`) to production so staging
-  and production run byte-identical images. Never repoint a `latest`/`prod` tag.
+- **Deploy by digest, not by tag.** Deploy the exact image **digest**
+  (`$REGISTRY/pdfxyz-worker@sha256:…`) so what you validated is byte-identical to
+  what runs. Never repoint a floating `latest`/`prod` tag.
 - **Registry auth stays out of source.** Authenticate the pusher with a short-lived
   registry token in your deploy environment; never commit it, and never place a
   provider secret behind `NEXT_PUBLIC_`.
 - **The web app** may instead deploy to Vercel from `main` (see
   [`DEPLOYMENT.md`](DEPLOYMENT.md)); the worker is always the container above.
 
+### 3a. Deploying without a registry
+
+The reference deployment has no registry and the worker host cannot reach GitHub,
+so the image is built **on the host** from a source archive:
+
+```bash
+# From a clean checkout of the commit you are shipping:
+git archive --format=tar.gz -o pdfxyz-main.tar.gz HEAD
+scp pdfxyz-main.tar.gz root@<worker-host>:/opt/pdfxyz/
+
+# On the host:
+cd /opt/pdfxyz
+rm -rf repo-prod.new && mkdir repo-prod.new
+tar -xzf pdfxyz-main.tar.gz -C repo-prod.new
+docker tag pdfxyz-worker:prod pdfxyz-worker:prod-rollback   # keep one way back
+docker build --target worker -t pdfxyz-worker:prod repo-prod.new
+rm -rf repo-prod && mv repo-prod.new repo-prod
+
+# Recreate — never `docker restart`, which re-runs the OLD --env-file (see §2).
+docker rm -f pdfxyz-worker-prod
+docker run -d --name pdfxyz-worker-prod --restart unless-stopped \
+  --env-file /opt/pdfxyz/.env.production pdfxyz-worker:prod pnpm worker:daemon
+```
+
+There is **no staging environment**: `main` is what runs. That makes the
+post-deploy proof in §4 the only thing standing between a broken tool and a user,
+so run it every time — a processor reporting `ready:true` is evidence that a
+dependency was *wired*, never that it *works*.
+
 ---
 
 ## 4. Smoke procedure (no secrets required)
 
-Run these after every deploy (and in staging before promotion). None need a real
-secret; the no-config checks need no network.
+Run these after every deploy. None need a real secret; the no-config checks need
+no network.
 
 **a. Worker no-config honesty contract** — the built worker image must refuse to
 fake work with nothing wired:
@@ -301,7 +330,14 @@ Deploy checklist:
 - [ ] `--check` is `0` (or intentionally `4` with strict on a config you are fixing).
 - [ ] `compression_health.deep` is `true` if you advertise deep compression.
 - [ ] Web security headers + CSP present; core in-browser tools work.
-- [ ] A test job flows end-to-end (queued → claimed → completed) in staging.
+- [ ] **One real job per worker-backed tool** flows end-to-end (queued → claimed →
+      completed) and its artifact downloads with the expected shape — not one job for
+      the deployment. `ready:true` is derived from a dependency being *wired*
+      (`deps.extract != null`), so a dependency that throws on every call still reports
+      ready. Five tools once passed every check here and failed 100% of real jobs:
+      `webpage-to-pdf` (the soundness gate rejected its by-design empty `inputs`) and
+      `pdf-to-word`/`-excel`/`-powerpoint`/`extract-tables` (browser-only pdfjs on a
+      Node worker). Nothing short of a real job per tool would have caught them.
 - [ ] A completed **OCR** job's status (`GET /api/jobs/:id`) carries `results.ocr`
       with structural facts (pages, output kind, languages, character count) and
       **no** recognized text, path, key, or URL (Phase 26). A failed/blocked OCR job,

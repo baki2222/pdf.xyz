@@ -317,7 +317,13 @@ export const tools: Tool[] = [
       "Convert Markdown into a styled, typographic PDF with code blocks and tables.",
     category: "convert-to",
     icon: "markdown",
-    processing: "hybrid",
+    // Client, not hybrid: the only implementation is the in-browser runner
+    // (`markdown-to-pdf-runner`), which never calls the API, and no worker
+    // processor claims this tool. Declaring `hybrid` promised a secure-worker
+    // fallback that did not exist — it told users their file might be uploaded
+    // when it never is, and made the job API accept jobs that could only fail
+    // with `not_implemented`. Guarded by `processor/catalog-coverage.test.ts`.
+    processing: "client",
     badge: "new",
     accept: ["MD", "MARKDOWN"],
     outputs: ["PDF"],
