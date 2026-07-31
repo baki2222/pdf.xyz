@@ -19,6 +19,7 @@
  * the fetched-vs-declared byte-count equality — none of which is ever echoed.
  */
 
+import { getToolInputKind } from "@/lib/jobs/capabilities";
 import {
   familyForExtension,
   familyForMime,
@@ -133,7 +134,15 @@ export function checkSoundness(
   }
   if (!policy.enabled) return soundnessSkipped();
 
-  if (input.inputs.length === 0) return soundnessReject("missing_input");
+  // A URL-input tool (webpage-to-pdf) legitimately carries no file inputs: the job
+  // API validated `options.url` as a public http(s) URL and produced an empty
+  // `inputs`. There are no bytes to inspect, so report honestly that nothing was
+  // checked rather than rejecting a well-formed job as if a file had gone missing.
+  if (input.inputs.length === 0) {
+    return getToolInputKind(input.tool) === "url"
+      ? soundnessSkipped()
+      : soundnessReject("missing_input");
+  }
   if (input.inputs.length > policy.maxInputs) {
     return soundnessReject("too_many_inputs");
   }

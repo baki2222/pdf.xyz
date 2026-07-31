@@ -42,8 +42,10 @@ export const SOUNDNESS_VERDICTS = ["sound", "unsound", "skipped"] as const;
  *  - `sound`   — the gate ran its bounded checks and every input passed (proceed);
  *  - `unsound` — the gate ran and an input failed a check (block before scanning and
  *                processing, terminal, no artifact); the specific `reason` says which;
- *  - `skipped` — the gate did not evaluate the bytes (it is disabled), so the inputs
- *                were NOT checked (and are never reported as checked).
+ *  - `skipped` — the gate did not evaluate any bytes, so the inputs were NOT checked
+ *                (and are never reported as checked). Either the gate is disabled, or
+ *                the job legitimately carries no file inputs at all (a URL-input tool
+ *                such as webpage-to-pdf, whose source the job API validated instead).
  */
 export type SoundnessVerdict = (typeof SOUNDNESS_VERDICTS)[number];
 
@@ -56,8 +58,8 @@ export type SoundnessVerdict = (typeof SOUNDNESS_VERDICTS)[number];
  */
 export const SOUNDNESS_REASONS = [
   "ok", // sound: passed every bounded check
-  "not_checked", // skipped: the gate is disabled
-  "missing_input", // unsound: the job carried no input bytes to check
+  "not_checked", // skipped: the gate is disabled, or the tool takes a URL and has no files
+  "missing_input", // unsound: a file-input job carried no input bytes to check
   "too_many_inputs", // unsound: more inputs than the bounded per-job ceiling
   "empty", // unsound: an input had zero bytes
   "file_too_large", // unsound: an input exceeded the configured max-bytes ceiling
