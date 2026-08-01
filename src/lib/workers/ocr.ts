@@ -96,11 +96,34 @@ export function buildOcrCapability(
   mode: WorkerMode,
   engines?: OcrEngineAvailability,
   installedLanguages?: readonly string[],
+  observedOnWorker?: boolean,
 ): OcrCapability {
   const engine =
     mode === "disabled"
       ? null
       : (OCR_ENGINES.find((candidate) => engines?.[candidate]) ?? null);
+
+  // Nothing is installed in THIS process, but a live worker heartbeat reports OCR
+  // enabled on the daemon that actually runs the jobs. That is the normal shape of
+  // a production deployment: the engine is deliberately absent from the web tier,
+  // so probing locally can only ever answer "no". Reporting unavailable on that
+  // basis took a working tool dark — the OCR page showed "Not enabled" and offered
+  // no uploader while real jobs succeeded through the queue.
+  //
+  // `engine` stays null because which engine the worker runs is genuinely not
+  // observable from here, and naming one would be a guess. The languages fall back
+  // to the advertised list for the same reason; if the worker lacks a pack for the
+  // language a user picks, the processor refuses it by name rather than returning
+  // fabricated text.
+  if (!engine && observedOnWorker) {
+    return {
+      available: true,
+      engine: null,
+      languages: [...OCR_LANGUAGE_CODES],
+      detail:
+        "OCR runs on the out-of-band secure worker, which reports it enabled in its liveness heartbeat — inputs are wiped right after processing. Which engine and language packs that worker holds is not observable from here; a language it lacks fails honestly instead of returning invented text.",
+    };
+  }
 
   if (engine) {
     const installed = installedLanguages ? new Set(installedLanguages) : null;

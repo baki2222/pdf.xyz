@@ -49,19 +49,36 @@ export async function GET(request: Request): Promise<Response> {
     securityQpdf = probeQpdf(process.env);
   }
 
-  // OCR is intentionally NOT probed: this build ships no OCR pipeline in any
-  // mode (the local-dev worker only compresses), so passing no OCR engines makes
-  // `buildWorkerStatus` report OCR honestly unavailable everywhere. When a real
-  // OCR processor is wired behind the adapter, probe it here (presence-only),
-  // exactly like compression, and pass the result as the third argument.
+  // OCR is not probed LOCALLY, and cannot be: the OCR engine is deliberately
+  // installed on the out-of-band worker only — this tier "needs no worker
+  // secrets" and ships none of those binaries — so a PATH probe here can only
+  // ever answer "no". Answering on that basis is what took a working tool dark:
+  // `/tools/ocr-pdf` rendered "Not enabled" and offered no uploader while real
+  // OCR jobs were completing through the queue. The honest signal is the same one
+  // `processor.ready` already uses — the worker's own liveness heartbeat, which
+  // carries what that worker can actually do.
+  //
   // Whether a worker is actually out there. `processor.ready` is the one field
   // that must not be inferred from configuration — a bucket and a broker say
   // nothing about whether anyone deployed a daemon — so it is answered from an
   // observed liveness heartbeat. Never throws: a disabled seam reads `disabled`
   // and an unreachable broker reads `unknown`, both of which are not observed.
-  const { observed } = await readWorkerHeartbeatLiveness();
+  const { observed, capabilities } = await readWorkerHeartbeatLiveness();
+  // Only trust the capability when the heartbeat was genuinely observed — a stale
+  // or absent beat must not be read as "OCR is available".
+  const workerOcr = observed && capabilities?.ocr === true;
 
   return respond(
-    ok(buildWorkerStatus(mode, tools, undefined, process.env, securityQpdf, observed)),
+    ok(
+      buildWorkerStatus(
+        mode,
+        tools,
+        undefined,
+        process.env,
+        securityQpdf,
+        observed,
+        workerOcr,
+      ),
+    ),
   );
 }
