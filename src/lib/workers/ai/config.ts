@@ -31,14 +31,22 @@ import type { AiProviderCapability } from "./provider";
 type EnvSource = Record<string, string | undefined>;
 
 /** The AI provider families this build knows how to drive. */
-export const AI_PROVIDER_FAMILIES = ["anthropic"] as const;
+export const AI_PROVIDER_FAMILIES = ["anthropic", "openai"] as const;
 export type AiProviderFamily = (typeof AI_PROVIDER_FAMILIES)[number];
 
 const AI_PROVIDER_FAMILY_SET: ReadonlySet<string> = new Set(AI_PROVIDER_FAMILIES);
 
-/** Default public model id per provider family. Overridable via `PDFXYZ_AI_MODEL`. */
+/**
+ * Default public model id per provider family, used when `PDFXYZ_AI_MODEL` is
+ * unset. Each is the cost-effective tier for this workload — the AI tools run
+ * summarization, translation, extraction, and document QA over already-extracted
+ * text, not frontier reasoning. Pinning the model to an environment variable is
+ * deliberate: moving to a larger model in the same family is an env change on both
+ * tiers, never a code change or a redeploy.
+ */
 export const DEFAULT_AI_MODEL: Record<AiProviderFamily, string> = {
   anthropic: "claude-sonnet-5",
+  openai: "gpt-5.6-luna",
 };
 
 /** The environment variables this provider reads (names only; never values). */
