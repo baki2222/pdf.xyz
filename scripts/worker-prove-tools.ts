@@ -379,18 +379,36 @@ const SPECS: ProofSpec[] = [
       routing: "sequential",
     },
     expect: isZipContainer, want: "signature-request ZIP" },
-  // AI tools are intentionally absent: with no provider configured they fail
-  // honestly as not-implemented, which is the correct behaviour, not a proof.
+
+  // The AI tools. They run only when an operator has configured a provider; with
+  // none they fail honestly as not-configured, which is correct behaviour rather
+  // than a proof — so a run against an AI-less deployment reports them as failures
+  // and that is the honest answer, not a bug in this harness.
+  { tool: "summarize-pdf", make: textPdf, name: "report.pdf", type: PDF_MIME,
+    options: { length: "brief", format: "paragraphs" },
+    expect: isZipContainer, want: "summary ZIP" },
+  { tool: "translate-pdf", make: textPdf, name: "letter.pdf", type: PDF_MIME,
+    options: { targetLanguage: "es", sourceLanguage: "auto" },
+    expect: isZipContainer, want: "translation ZIP" },
+  { tool: "ai-extract", make: tablePdf, name: "table.pdf", type: PDF_MIME,
+    options: {
+      mode: "schema",
+      schema: [
+        { name: "region", type: "string", description: "The region name" },
+        { name: "q1", type: "number", description: "The Q1 figure" },
+      ],
+    },
+    expect: isZipContainer, want: "extraction ZIP" },
+  { tool: "chat-with-pdf", make: textPdf, name: "doc.pdf", type: PDF_MIME,
+    options: { question: "In one sentence, what is this document for?" },
+    expect: isZipContainer, want: "answer ZIP" },
 ];
 
 /** Worker-backed tools with no spec above — a new tool must arrive with a proof. */
 function unspecifiedWorkerTools(): string[] {
   const specified = new Set(SPECS.map((s) => s.tool));
-  const AI_TOOLS = new Set([
-    "summarize-pdf", "translate-pdf", "ai-extract", "chat-with-pdf",
-  ]);
   return getAllToolSlugs().filter((slug) => {
-    if (specified.has(slug) || AI_TOOLS.has(slug)) return false;
+    if (specified.has(slug)) return false;
     const tool = getToolBySlug(slug);
     return tool ? usesWorkerBackend(capabilityForMode(tool.processing)) : false;
   });
