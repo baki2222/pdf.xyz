@@ -250,7 +250,10 @@ describe("createNativeOcrRunner — success paths", () => {
     expect(meta.textCharacters).toBe(TEXT_OUT.byteLength);
   });
 
-  it("uses tesseract when it is the only engine present, and names it in the meta", async () => {
+  it("uses tesseract for a raster input, and names it in the meta", async () => {
+    // Tesseract is the engine that reads an image; OCRmyPDF is PDF-in/PDF-out and
+    // cannot. Dispatch follows the input kind, so a PNG lands here even when
+    // OCRmyPDF is installed and would otherwise be preferred.
     const execCalls: string[][] = [];
     const { fs } = fakeFs(pdfOrText);
     const runner = createNativeOcrRunner(cfg(), {
@@ -258,15 +261,51 @@ describe("createNativeOcrRunner — success paths", () => {
         execCalls.push([...args]);
       },
       fs,
-      resolveOnPath: onlyEngine("tesseract"),
+      resolveOnPath: () => true, // BOTH engines present
       countPages: async () => 1,
     });
-    const { artifacts, meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
+    const png: ProcessorInputFile = { ...scan, filename: "Client Scan.png", contentType: "image/png" };
+    const { artifacts, meta } = await runner({ options: PDF_ONLY, inputs: [png] });
     expect(artifacts).toHaveLength(1);
     // tesseract argv shape: input, base, -l, lang, pdf
     expect(execCalls[0]?.[2]).toBe("-l");
     expect(execCalls[0]).toContain("pdf");
     expect(meta.engine).toBe("tesseract");
+  });
+
+  it("refuses a PDF when only tesseract is installed, instead of feeding it one", async () => {
+    // The previous behaviour dispatched a PDF to whichever engine was present, so
+    // this combination reached tesseract — which cannot read a PDF and failed inside
+    // the engine, surfacing as "could not process this file". Refusing names the
+    // real cause: this worker has no engine for that input kind.
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {
+        throw new Error("the engine must not be invoked");
+      },
+      fs,
+      resolveOnPath: onlyEngine("tesseract"),
+      countPages: async () => 1,
+    });
+    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow(
+      /no ocr engine .* can read a pdf/i,
+    );
+  });
+
+  it("refuses a raster when only OCRmyPDF is installed", async () => {
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {
+        throw new Error("the engine must not be invoked");
+      },
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      countPages: async () => 1,
+    });
+    const png: ProcessorInputFile = { ...scan, filename: "scan.png", contentType: "image/png" };
+    await expect(runner({ options: PDF_ONLY, inputs: [png] })).rejects.toThrow(
+      /no ocr engine .* can read an image/i,
+    );
   });
 
   it("falls back to a null page count when the produced PDF cannot be parsed (never fabricated)", async () => {

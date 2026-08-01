@@ -154,6 +154,81 @@ function crc32(buf: Buffer): number {
   return c ^ 0xffffffff;
 }
 
+/** A standalone PNG of the same bar pattern — the raster path OCR also accepts. */
+function rasterPng(): Buffer {
+  const w = 600;
+  const h = 200;
+  const raw = Buffer.alloc(w * h * 3);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dark = y > 80 && y < 120 && x % 50 < 25;
+      raw.fill(dark ? 0 : 255, (y * w + x) * 3, (y * w + x) * 3 + 3);
+    }
+  }
+  return encodePng(raw, w, h);
+}
+
+/**
+ * A minimal, valid 8×8 baseline JPEG.
+ *
+ * Built from explicit bytes rather than checked in as an opaque base64 blob so the
+ * structure stays reviewable, and generated rather than borrowed so nothing here
+ * depends on a binary fixture. It carries no legible text — it does not need to.
+ * What it proves is the dispatch and the decode: that an `image/jpeg` upload reaches
+ * Tesseract rather than OCRmyPDF, and that the worker image can actually decode a
+ * JPEG (a libjpeg dependency a PNG fixture would never exercise).
+ *
+ * The entropy payload is one all-zero block: a DC difference of 0 followed by
+ * end-of-block, using the standard Annex K luminance tables.
+ */
+function minimalJpeg(): Buffer {
+  const seg = (marker: number, body: number[]) =>
+    Buffer.from([0xff, marker, ((body.length + 2) >> 8) & 0xff, (body.length + 2) & 0xff, ...body]);
+
+  // Quantization table 0 — a flat table; any value in 1..255 is valid.
+  const dqt = seg(0xdb, [0x00, ...new Array<number>(64).fill(0x10)]);
+  // Baseline, 8-bit, 8×8, one greyscale component with no subsampling.
+  const sof = seg(0xc0, [0x08, 0x00, 0x08, 0x00, 0x08, 0x01, 0x01, 0x11, 0x00]);
+
+  // Annex K luminance DC table.
+  const dcBits = [0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
+  const dcVals = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  const dht0 = seg(0xc4, [0x00, ...dcBits, ...dcVals]);
+
+  // Annex K luminance AC table (only the leading symbols matter here; the full
+  // table is declared so the file is a conforming baseline JPEG).
+  const acBits = [0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 0x7d];
+  const acVals = [
+    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61,
+    0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52,
+    0xd1, 0xf0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25,
+    0x26, 0x27, 0x28, 0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45,
+    0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64,
+    0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83,
+    0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
+    0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6,
+    0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3,
+    0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8,
+    0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa,
+  ];
+  const dht1 = seg(0xc4, [0x10, ...acBits, ...acVals]);
+
+  const sos = seg(0xda, [0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]);
+  // DC symbol 0 is the 2-bit code `00`; AC end-of-block is the 4-bit code `1010`.
+  // `00 1010` padded with 1s to a byte boundary is 0b00101011.
+  const scan = Buffer.from([0b00101011]);
+
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]), // SOI
+    dqt, sof, dht0, dht1, sos, scan,
+    Buffer.from([0xff, 0xd9]), // EOI
+  ]);
+}
+
+function rasterJpg(): Buffer {
+  return minimalJpeg();
+}
+
 function htmlFile(): Buffer {
   return Buffer.from(
     `<!doctype html><html><head><meta charset="utf-8"><title>pdf.xyz proof</title>
@@ -343,6 +418,14 @@ const SPECS: ProofSpec[] = [
     expect: isPdf, want: "linearized PDF" },
   { tool: "ocr-pdf", make: imagePdf, name: "scan.pdf", type: PDF_MIME,
     expect: isPdf, want: "searchable PDF" },
+  // `ocr-pdf` accepts PDF, JPG and PNG, and the two engines behind it read
+  // different things — OCRmyPDF takes a PDF, Tesseract takes a raster. Proving
+  // only the PDF path left the other two formats untested, and both were broken:
+  // every image upload dispatched to OCRmyPDF and failed inside the engine.
+  { tool: "ocr-pdf", label: "ocr-pdf (png)", make: rasterPng, name: "scan.png",
+    type: "image/png", expect: isPdf, want: "searchable PDF" },
+  { tool: "ocr-pdf", label: "ocr-pdf (jpg)", make: rasterJpg, name: "scan.jpg",
+    type: "image/jpeg", expect: isPdf, want: "searchable PDF" },
   { tool: "protect-pdf", make: textPdf, name: "secret.pdf", type: PDF_MIME,
     options: { password: PROOF_PASSWORD, keyLength: 256 },
     expect: isPdf, want: "encrypted PDF", keepArtifactAs: "encrypted" },

@@ -256,6 +256,41 @@ export function firstUsableOcrEngine(
 }
 
 /**
+ * Whether an input is a raster image rather than a PDF, decided from the same
+ * content-type mapping the temp-file extension uses so the two can never disagree.
+ */
+export function isImageInput(input: ProcessorInputFile): boolean {
+  const ext = inputExtension(input);
+  return ext === "png" || ext === "jpg" || ext === "tif";
+}
+
+/**
+ * Which engine can actually handle THIS input, or null when none installed here can.
+ *
+ * The two engines are not interchangeable, and the tool accepts both kinds of input:
+ * OCRmyPDF is PDF-in/PDF-out and rejects a raster outright, while Tesseract reads an
+ * image. Picking by a fixed preference order alone ignored that — with both engines
+ * installed, OCRmyPDF always won, so every PNG and JPG upload died in the engine and
+ * surfaced as "The OCR engine could not process this file". The tool advertises
+ * `PDF, JPG, PNG`; two of the three were broken.
+ *
+ * Order still matters within a kind: for a PDF, OCRmyPDF is preferred because it adds
+ * an invisible text layer to the existing pages, which is the tool's actual promise —
+ * Tesseract would rasterize and rebuild the document instead.
+ */
+export function engineForInput(
+  input: ProcessorInputFile,
+  config: NativeOcrConfig,
+  seams: NativeOcrSeams = {},
+): OcrEngine | null {
+  const usable = (engine: OcrEngine) => engineUsable(engine, config, seams);
+  // A raster can only be read by Tesseract; OCRmyPDF has no path for it.
+  if (isImageInput(input)) return usable("tesseract") ? "tesseract" : null;
+  // A PDF: OCRmyPDF preferred, and it is the only one that takes a PDF directly.
+  return usable("ocrmypdf") ? "ocrmypdf" : null;
+}
+
+/**
  * Probe which OCR engines are actually usable under a configuration:
  *  - a disabled config yields no engines (the opt-in switch is off);
  *  - a pinned config considers only that engine;
@@ -345,11 +380,18 @@ export function createNativeOcrRunner(
     if (input.bytes.byteLength > config.maxInputBytes) {
       throw new Error("Input exceeds the configured maximum size.");
     }
-    const engine = firstUsableOcrEngine(config, seams);
+    // Chosen from the INPUT KIND, not a fixed preference: OCRmyPDF cannot read a
+    // raster and Tesseract cannot take a PDF, and this tool accepts both.
+    const engine = engineForInput(input, config, seams);
     if (!engine) {
-      // The processor only invokes the runner when an engine is present, so this is
-      // a defensive backstop; the message stays content-free regardless.
-      throw new Error("No OCR engine is available on this worker.");
+      // Some engine is installed (the processor checks that before invoking us) but
+      // not one that can read this kind of file. Say which kind, so the failure is
+      // about our missing engine rather than the user's document.
+      throw new Error(
+        isImageInput(input)
+          ? "No OCR engine on this worker can read an image input."
+          : "No OCR engine on this worker can read a PDF input.",
+      );
     }
 
     const wantPdf = options.outputMode === "searchable-pdf" || options.outputMode === "both";
