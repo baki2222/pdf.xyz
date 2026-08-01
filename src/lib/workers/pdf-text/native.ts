@@ -176,6 +176,26 @@ export function createNativePdfLayoutExtractor(
 }
 
 /**
+ * The plain-text extractor for this host, or `undefined` when `pdftotext` is not
+ * available. Returning `undefined` rather than a throwing stub is what lets every
+ * consumer's `extract?` stay honestly absent, so the engine reports "this worker
+ * cannot do it" instead of accepting a job it will always fail.
+ *
+ * Shared by the four AI engines (summarize, translate, ai-extract, chat-with-pdf),
+ * which read a PDF's selectable text before prompting a model. They must not use
+ * the pdfjs extractor in `@/lib/pdf/text`: it is browser-only and throws on Node
+ * before reading a byte.
+ */
+export function resolveNativePdfTextExtractor(
+  env: Record<string, string | undefined> = process.env,
+  seams: PdfTextSeams = {},
+): PdfTextExtractor | undefined {
+  const config = resolveNativePdfTextConfig(env);
+  const binary = probePdfTextFromConfig(config, seams);
+  return binary ? createNativePdfTextExtractor(binary, config, seams) : undefined;
+}
+
+/**
  * PDF→Office export deps for this host. `extract` is present only when pdftotext
  * really is — otherwise the engine reports `unsupported` (an honest "this worker
  * cannot do it") instead of accepting jobs it will always fail.
