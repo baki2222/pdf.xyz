@@ -124,11 +124,19 @@ RUN apt-get update \
       tesseract-ocr-por \
       tesseract-ocr-nld \
       tesseract-ocr-rus \
+      tesseract-ocr-ukr \
+      tesseract-ocr-pol \
+      tesseract-ocr-swe \
+      tesseract-ocr-tur \
       tesseract-ocr-chi-sim \
       tesseract-ocr-jpn \
       tesseract-ocr-kor \
+      tesseract-ocr-vie \
+      tesseract-ocr-ind \
+      tesseract-ocr-tha \
       tesseract-ocr-ara \
       tesseract-ocr-hin \
+      tesseract-ocr-ben \
       poppler-utils \
  && rm -rf /var/lib/apt/lists/*
 # Run as a non-root user. Corepack may need to hydrate pnpm shims at runtime

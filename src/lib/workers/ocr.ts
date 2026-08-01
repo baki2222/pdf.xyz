@@ -84,9 +84,9 @@ function unavailableDetail(mode: WorkerMode): string {
  * `installedLanguages` is the honest signal. An engine binary being present says
  * nothing about which languages it can recognize: that needs a `traineddata` pack,
  * and Tesseract fails outright on a language it has no pack for. Reporting the
- * static allowlist regardless meant the status payload promised thirteen languages
- * while the image shipped one, so a user could pick Spanish and be told their file
- * was the problem. When the caller supplies the observed packs, only the
+ * static allowlist regardless meant the status payload promised every advertised
+ * language while the image shipped one, so a user could pick Spanish and be told
+ * their file was the problem. When the caller supplies the observed packs, only the
  * intersection is reported — the languages that are BOTH offered by the product and
  * runnable here. Callers that cannot observe them (the web tier, which has no
  * worker filesystem) omit it and fall back to the advertised list, which is the
