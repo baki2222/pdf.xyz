@@ -49,6 +49,7 @@ export const TRANSLATE_LANGUAGES = [
   "vi",
   "id",
   "th",
+  "bn",
 ] as const;
 export type TranslateLanguage = (typeof TRANSLATE_LANGUAGES)[number];
 
@@ -74,6 +75,7 @@ export const LANGUAGE_NAMES: Record<TranslateLanguage, string> = {
   vi: "Vietnamese",
   id: "Indonesian",
   th: "Thai",
+  bn: "Bengali",
 };
 
 /** The source language, either a supported language or `auto` (let the model detect it). */

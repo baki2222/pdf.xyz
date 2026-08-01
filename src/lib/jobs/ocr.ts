@@ -21,21 +21,15 @@
 
 import { apiError, type ParseResult } from "./responses";
 
-/** A supported OCR recognition language (Tesseract / ISO 639-2/T code). */
-export type OcrLanguage =
-  | "eng"
-  | "spa"
-  | "fra"
-  | "deu"
-  | "ita"
-  | "por"
-  | "nld"
-  | "rus"
-  | "chi_sim"
-  | "jpn"
-  | "kor"
-  | "ara"
-  | "hin";
+/**
+ * A supported OCR recognition language (Tesseract / ISO 639-2/T code).
+ *
+ * Derived from {@link OCR_LANGUAGES} rather than restated, so the list below is the
+ * only place a language is declared. When this union was maintained by hand it was a
+ * third copy of the same set — after the Dockerfile and the list itself — and adding
+ * a language meant remembering all three.
+ */
+export type OcrLanguage = (typeof OCR_LANGUAGES)[number]["code"];
 
 /** A language plus its human label, for menus and docs. */
 export interface OcrLanguageInfo {
@@ -45,12 +39,22 @@ export interface OcrLanguageInfo {
 }
 
 /**
- * Curated OCR language allowlist. These are the languages a production OCR
- * processor (OCRmyPDF/Tesseract or a managed provider) is expected to ship
- * packs for. Intentionally small and honest — extend it only alongside a
- * processor that genuinely supports the added pack.
+ * OCR language allowlist — the menu the tool page shows and the set the job API
+ * accepts. Every entry is a promise: the worker image must ship the matching
+ * `tesseract-ocr-<code>` pack, and `src/deploy/ocr-languages.test.ts` fails the
+ * build if it does not. Extend the pack and this list in the same change, never
+ * this list first.
+ *
+ * It deliberately mirrors the translation languages in `./translate-pdf`. A user
+ * who can translate a Vietnamese PDF should be able to OCR a scanned one; when the
+ * two lists drifted, OCR silently lagged translation by seven languages.
+ *
+ * Choosing the wrong language does not fail — Tesseract matches glyph shapes
+ * against the model it was given and returns confident-looking nonsense, so a
+ * Bengali page read as English comes back as Latin gibberish. That makes coverage
+ * a correctness concern, not a nice-to-have.
  */
-export const OCR_LANGUAGES: readonly OcrLanguageInfo[] = [
+export const OCR_LANGUAGES = [
   { code: "eng", label: "English" },
   { code: "spa", label: "Spanish" },
   { code: "fra", label: "French" },
@@ -59,12 +63,22 @@ export const OCR_LANGUAGES: readonly OcrLanguageInfo[] = [
   { code: "por", label: "Portuguese" },
   { code: "nld", label: "Dutch" },
   { code: "rus", label: "Russian" },
+  { code: "ukr", label: "Ukrainian" },
+  { code: "pol", label: "Polish" },
+  { code: "swe", label: "Swedish" },
+  { code: "tur", label: "Turkish" },
   { code: "chi_sim", label: "Chinese (Simplified)" },
   { code: "jpn", label: "Japanese" },
   { code: "kor", label: "Korean" },
+  { code: "vie", label: "Vietnamese" },
+  { code: "ind", label: "Indonesian" },
+  { code: "tha", label: "Thai" },
   { code: "ara", label: "Arabic" },
   { code: "hin", label: "Hindi" },
-] as const;
+  { code: "ben", label: "Bengali" },
+  // `satisfies` (not an annotation) keeps each `code` a literal type so `OcrLanguage`
+  // can be derived from it, while still checking the shape of every entry.
+] as const satisfies readonly { readonly code: string; readonly label: string }[];
 
 /** Every supported language code, in menu order. */
 export const OCR_LANGUAGE_CODES: readonly OcrLanguage[] = OCR_LANGUAGES.map(
