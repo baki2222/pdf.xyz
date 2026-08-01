@@ -32,7 +32,7 @@
 
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -458,7 +458,81 @@ export function nativeOcrDeps(
   return {
     engines: probeNativeOcrEnginesFromConfig(config, seams),
     runner: createNativeOcrRunner(config, seams),
+    // What this host can genuinely recognize, so a request for a language with no
+    // pack is refused by name instead of surfacing as a broken document.
+    installedLanguages: probeInstalledOcrLanguages(env),
   };
+}
+
+/**
+ * Where Tesseract keeps its `traineddata` packs, in the order they are searched.
+ * `TESSDATA_PREFIX` wins when an operator sets it; the rest are the standard
+ * Debian/Homebrew locations. The versioned Debian path is expanded by listing the
+ * parent, so a Tesseract major-version bump needs no change here.
+ */
+function tessdataDirectories(env: Record<string, string | undefined>): string[] {
+  const dirs: string[] = [];
+  const prefix = env.TESSDATA_PREFIX?.trim();
+  if (prefix) dirs.push(prefix);
+
+  // /usr/share/tesseract-ocr/<version>/tessdata — the Debian layout.
+  const versioned = "/usr/share/tesseract-ocr";
+  try {
+    for (const entry of readdirSync(versioned, { withFileTypes: true })) {
+      if (entry.isDirectory()) dirs.push(path.join(versioned, entry.name, "tessdata"));
+    }
+  } catch {
+    // Not this layout on this host — the fixed paths below still apply.
+  }
+
+  dirs.push("/usr/share/tessdata", "/usr/local/share/tessdata", versioned);
+  return dirs;
+}
+
+/**
+ * The recognition languages this host can ACTUALLY run, read from the installed
+ * `traineddata` packs.
+ *
+ * Presence-only, exactly like {@link resolveOnPath}: it lists a directory and never
+ * executes Tesseract. That matters beyond convention — `tesseract --list-langs`
+ * would mean spawning a subprocess on the status path, which the capability layer
+ * must never do.
+ *
+ * `osd` is excluded deliberately. It is the orientation-and-script-detection model,
+ * not a language a user can pick, and reporting it as one would misrepresent what
+ * the worker can recognize.
+ *
+ * Why this exists at all: the advertised list (`OCR_LANGUAGES`) is a product
+ * promise, while recognition needs a pack in the image. When those two drifted, a
+ * user could select Spanish, upload a document, and be told "The OCR engine could
+ * not process this file" — their file blamed for our missing dependency. Reading
+ * the real packs lets both the status payload and the processor tell the truth even
+ * if a deployment ships an image the Dockerfile no longer describes.
+ */
+export function probeInstalledOcrLanguages(
+  env: Record<string, string | undefined> = process.env,
+  seams: { readDir?: (dir: string) => string[] } = {},
+): string[] {
+  const readDir =
+    seams.readDir ??
+    ((dir: string): string[] => {
+      try {
+        return readdirSync(dir);
+      } catch {
+        return [];
+      }
+    });
+
+  const found = new Set<string>();
+  for (const dir of tessdataDirectories(env)) {
+    for (const file of readDir(dir)) {
+      if (!file.endsWith(".traineddata")) continue;
+      const code = file.slice(0, -".traineddata".length);
+      // `osd` is script detection, not a selectable recognition language.
+      if (code && code !== "osd") found.add(code);
+    }
+  }
+  return [...found].sort();
 }
 
 /**

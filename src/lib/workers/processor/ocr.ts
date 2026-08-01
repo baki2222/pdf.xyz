@@ -15,7 +15,12 @@
  * wired" branch and the failure mapping are unit-tested without shipping an engine.
  */
 
-import { parseOcrOptions, type OcrOptions, type OcrResultMeta } from "@/lib/jobs";
+import {
+  describeOcrLanguage,
+  parseOcrOptions,
+  type OcrOptions,
+  type OcrResultMeta,
+} from "@/lib/jobs";
 import {
   OCR_ENGINES,
   type OcrEngine,
@@ -83,6 +88,17 @@ export interface OcrProcessorDeps {
   engines?: OcrEngineAvailability;
   /** The native OCR runner; absent in every environment this build ships. */
   runner?: OcrRunner;
+  /**
+   * The recognition packs actually installed on this host, when the wiring layer
+   * could observe them. Absent ⇒ the check is skipped and the engine's own error
+   * is the only signal, which is the pre-existing behaviour.
+   *
+   * An engine binary says nothing about which languages it can recognize: that
+   * needs a `traineddata` pack, and Tesseract exits non-zero on a language it has
+   * none for. Without this, that surfaced as a retryable "could not process this
+   * file" — the user's document blamed for our missing dependency, three times over.
+   */
+  installedLanguages?: readonly string[];
 }
 
 /**
@@ -166,6 +182,27 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
           message: `${unavailableDetail} See docs/OCR_BACKEND.md.`,
           retryable: false,
         });
+      }
+
+      // Requested-language check, BEFORE any work. A language with no traineddata
+      // pack makes Tesseract exit non-zero, which the catch below maps to a
+      // retryable "could not process this file" — the user's document blamed for a
+      // dependency we did not install, and retried twice more for a failure that is
+      // perfectly deterministic. Naming the language and refusing up front is both
+      // honest and cheaper. Skipped when the wiring layer could not observe the
+      // installed packs, so this can only ever make the failure more accurate.
+      if (deps.installedLanguages) {
+        const installed = new Set(deps.installedLanguages);
+        const missing = parsed.value.languages.filter((code) => !installed.has(code));
+        if (missing.length > 0) {
+          return processorFail({
+            code: "unprocessable_entity",
+            message: `This worker has no recognition data installed for: ${missing
+              .map(describeOcrLanguage)
+              .join(", ")}. Choose a language this worker supports, or ask an operator to install the missing language pack. Nothing was processed.`,
+            retryable: false,
+          });
+        }
       }
 
       // A real runner returns artifacts + safe metadata from ACTUAL recognition, or
