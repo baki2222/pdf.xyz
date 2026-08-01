@@ -45,12 +45,18 @@ const ALLOWED = new Set(
     "src/lib/workers/html-render/native.ts",
     "src/lib/workers/office-conversion/native.ts",
     "src/lib/workers/ocr-native.ts",
-    // The `pdftotext` subprocess runner and the two deps builders that wire it.
+    // The `pdftotext` subprocess runner and every deps builder that wires it.
     // The web path must keep using the pdfjs extractors in `@/lib/pdf/*`; these
     // are reached only through `daemon/runtime` and the lazy local-dev adapter.
     "src/lib/workers/pdf-text/native.ts",
     "src/lib/workers/pdf-office-export/native.ts",
     "src/lib/workers/table-extract/native.ts",
+    // The four AI engines read a PDF's selectable text before prompting a model,
+    // so they take the same native extractor rather than the browser-only pdfjs one.
+    "src/lib/workers/summarize/native.ts",
+    "src/lib/workers/translate/native.ts",
+    "src/lib/workers/ai-extract/native.ts",
+    "src/lib/workers/chat-with-pdf/native.ts",
     "src/lib/workers/local-dev.ts",
     "src/lib/workers/daemon/runtime.ts",
     // Portable-pnpm subprocess resolution: only reached by the release CLI

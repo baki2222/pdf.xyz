@@ -30,11 +30,43 @@ describe("resolveAiConfig", () => {
   });
 
   it("rejects an unknown provider family (invalid, naming the variable not the value)", () => {
-    const r = resolveAiConfig({ [AI_ENV.provider]: "openai", [AI_ENV.apiKey]: "x" });
+    const r = resolveAiConfig({ [AI_ENV.provider]: "notaprovider", [AI_ENV.apiKey]: "x" });
     expect(r.enabled).toBe(false);
     if (!r.enabled) {
       expect(r.reason).toBe("invalid");
       expect(r.error?.field).toBe(AI_ENV.provider);
+      // The offending VALUE is never echoed back — only the variable is named.
+      expect(JSON.stringify(r)).not.toContain("notaprovider");
+    }
+  });
+
+  it("enables the openai family with its own default model", () => {
+    const r = resolveAiConfig({
+      [AI_ENV.provider]: "openai",
+      [AI_ENV.apiKey]: "sk-secret-VALUE",
+    });
+    expect(r.enabled).toBe(true);
+    if (r.enabled) {
+      expect(r.config.provider).toBe("openai");
+      expect(r.config.model).toBe("gpt-5.6-luna");
+      expect(r.config.hasApiKey).toBe(true);
+      // Presence only — the key VALUE never reaches the resolved config.
+      expect(JSON.stringify(r.config)).not.toContain("sk-secret-VALUE");
+    }
+  });
+
+  it("accepts a model pin on either family, so switching models needs no code change", () => {
+    for (const [provider, model] of [
+      ["openai", "gpt-5.6-sol"],
+      ["anthropic", "claude-opus-5"],
+    ] as const) {
+      const r = resolveAiConfig({
+        [AI_ENV.provider]: provider,
+        [AI_ENV.apiKey]: "k",
+        [AI_ENV.model]: model,
+      });
+      expect(r.enabled).toBe(true);
+      if (r.enabled) expect(r.config.model).toBe(model);
     }
   });
 
