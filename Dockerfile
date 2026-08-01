@@ -87,9 +87,18 @@ ENV PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
 #   * OCR (optional; `PDFXYZ_OCR`, off by default) — `ocrmypdf` is the PDF-first
 #     engine (adds an invisible text layer to a scanned PDF; it wraps Tesseract +
 #     Ghostscript). `tesseract-ocr` is the guaranteed baseline (image → searchable
-#     PDF / text sidecar), and `tesseract-ocr-eng` is the minimal English language
-#     data both engines need — installed EXPLICITLY because `--no-install-recommends`
-#     would otherwise skip the language pack and leave OCR with no traineddata.
+#     PDF / text sidecar). Every language pack is installed EXPLICITLY because
+#     `--no-install-recommends` would otherwise skip them and leave OCR with no
+#     traineddata.
+#
+#     ONE PACK PER LANGUAGE THE PRODUCT OFFERS. The list below must stay in step
+#     with `OCR_LANGUAGES` in `src/lib/jobs/ocr.ts` — that array is what the UI
+#     shows and the job API accepts, so a language present there but absent here
+#     is a promise the worker cannot keep. It reads as a broken file to the user:
+#     Tesseract exits non-zero on a missing pack and the job surfaced
+#     "The OCR engine could not process this file", blaming their document for
+#     our missing dependency. `src/deploy/ocr-languages.test.ts` fails the build
+#     if the two ever drift apart again.
 #   * Proof-only tooling — `poppler-utils` provides `pdftotext`, used ONLY by the
 #     deterministic OCRmyPDF searchable-PDF proof (`worker:ocrmypdf-proof`) to confirm
 #     the synthetic source PDF carries no selectable text and the OCRmyPDF output does
@@ -108,6 +117,18 @@ RUN apt-get update \
       ocrmypdf \
       tesseract-ocr \
       tesseract-ocr-eng \
+      tesseract-ocr-spa \
+      tesseract-ocr-fra \
+      tesseract-ocr-deu \
+      tesseract-ocr-ita \
+      tesseract-ocr-por \
+      tesseract-ocr-nld \
+      tesseract-ocr-rus \
+      tesseract-ocr-chi-sim \
+      tesseract-ocr-jpn \
+      tesseract-ocr-kor \
+      tesseract-ocr-ara \
+      tesseract-ocr-hin \
       poppler-utils \
  && rm -rf /var/lib/apt/lists/*
 # Run as a non-root user. Corepack may need to hydrate pnpm shims at runtime

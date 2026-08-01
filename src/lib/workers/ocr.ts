@@ -73,14 +73,29 @@ function unavailableDetail(mode: WorkerMode): string {
 }
 
 /**
- * Derive the client-facing OCR capability from the resolved mode and the OCR
- * engines a worker advertises. Never reads the environment or a secret; the
- * caller passes in exactly what was detected. With no engines (the state in
- * every environment this build runs in) OCR is reported unavailable, honestly.
+ * Derive the client-facing OCR capability from the resolved mode, the OCR engines a
+ * worker advertises, and — when the caller can observe it — the recognition packs
+ * actually installed there.
+ *
+ * Never reads the environment or a secret; the caller passes in exactly what was
+ * detected. With no engines (the state in every environment this build runs in) OCR
+ * is reported unavailable, honestly.
+ *
+ * `installedLanguages` is the honest signal. An engine binary being present says
+ * nothing about which languages it can recognize: that needs a `traineddata` pack,
+ * and Tesseract fails outright on a language it has no pack for. Reporting the
+ * static allowlist regardless meant the status payload promised thirteen languages
+ * while the image shipped one, so a user could pick Spanish and be told their file
+ * was the problem. When the caller supplies the observed packs, only the
+ * intersection is reported — the languages that are BOTH offered by the product and
+ * runnable here. Callers that cannot observe them (the web tier, which has no
+ * worker filesystem) omit it and fall back to the advertised list, which is the
+ * best it can honestly say from there.
  */
 export function buildOcrCapability(
   mode: WorkerMode,
   engines?: OcrEngineAvailability,
+  installedLanguages?: readonly string[],
 ): OcrCapability {
   const engine =
     mode === "disabled"
@@ -88,10 +103,14 @@ export function buildOcrCapability(
       : (OCR_ENGINES.find((candidate) => engines?.[candidate]) ?? null);
 
   if (engine) {
+    const installed = installedLanguages ? new Set(installedLanguages) : null;
+    const languages = installed
+      ? OCR_LANGUAGE_CODES.filter((code) => installed.has(code))
+      : [...OCR_LANGUAGE_CODES];
     return {
       available: true,
       engine,
-      languages: [...OCR_LANGUAGE_CODES],
+      languages: [...languages],
       detail: `OCR runs on ${engine} on an encrypted, auto-deleting secure worker — inputs are wiped right after processing.`,
     };
   }
