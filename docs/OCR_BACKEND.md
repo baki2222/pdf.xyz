@@ -58,7 +58,7 @@ never reads them). **No value is ever logged or returned to a client.**
 | Variable | Meaning | Default |
 | --- | --- | --- |
 | `PDFXYZ_OCR` | Master opt-in switch (`on`/`off`/`true`/`false`/`auto`). **Unset ⇒ disabled.** | disabled |
-| `PDFXYZ_OCR_ENGINE` | Pin to one engine: `ocrmypdf` or `tesseract`. Unset ⇒ auto-detect (OCRmyPDF preferred). | auto |
+| `PDFXYZ_OCR_ENGINE` | Pin to one engine: `ocrmypdf` or `tesseract`. **Leave unset.** The engines read different things, so the runner picks per input — OCRmyPDF for a PDF, Tesseract for a PNG/JPEG. Pinning one makes the other's input kind impossible: with `ocrmypdf` pinned, every image upload is refused; with `tesseract` pinned, every PDF is. Pin only when deliberately restricting the tool to one input kind. | auto (per input) |
 | `PDFXYZ_OCR_OCRMYPDF_BIN` | Absolute path override for the `ocrmypdf` binary. | `ocrmypdf` on `PATH` |
 | `PDFXYZ_OCR_TESSERACT_BIN` | Absolute path override for the `tesseract` binary. | `tesseract` on `PATH` |
 | `PDFXYZ_OCR_TIMEOUT_MS` | Hard per-job subprocess timeout. Clamped to `[1000, 1800000]`. | `300000` (5 min) |
@@ -132,14 +132,27 @@ To genuinely complete OCR jobs, the worker needs:
    sufficient — an engine must also be installed, which on the shipped worker image it
    already is.)
 
-Tesseract alone (`PDFXYZ_OCR_ENGINE=tesseract`) is supported for **image** inputs
-(PNG/JPEG); it cannot OCR a PDF directly. Prefer OCRmyPDF for the PDF-first flow — both
-are on the worker image, and auto-detect prefers OCRmyPDF.
+**The two engines are not interchangeable, and the runner dispatches on input kind.**
+OCRmyPDF is PDF-in/PDF-out and rejects a raster; Tesseract reads an image and cannot
+OCR a PDF directly. `ocr-pdf` accepts `PDF, JPG, PNG`, so the worker image ships both
+and the runner sends each input to the one that can read it — OCRmyPDF for a PDF
+(preferred, because it adds an invisible text layer to the existing pages rather than
+rebuilding the document), Tesseract for a raster.
 
-**Language packs.** The worker image ships **English only** (`tesseract-ocr-eng`). The
-advertised language allowlist lives in `src/lib/jobs/ocr.ts`; only install/enable packs
-you actually ship — add the matching `tesseract-ocr-<lang>` package (and extend the
-allowlist alongside it, never ahead of it) for any language beyond English.
+> **Do not pin `PDFXYZ_OCR_ENGINE` unless you mean to drop an input kind.** A pin is
+> honoured exactly, so `PDFXYZ_OCR_ENGINE=ocrmypdf` refuses every PNG and JPEG upload,
+> and `=tesseract` refuses every PDF. This was a real production incident: the pin was
+> set when only the PDF path was being proven, and it silently broke two of the tool's
+> three accepted formats.
+
+**Language packs.** The worker image ships a pack for **every** language in the
+advertised allowlist (`OCR_LANGUAGES` in `src/lib/jobs/ocr.ts`), and
+`src/deploy/ocr-languages.test.ts` fails the build if the Dockerfile and that list ever
+disagree in either direction. To add a language, add the matching
+`tesseract-ocr-<lang>` package to the Dockerfile and the entry to the allowlist in the
+same change — never the allowlist ahead of the pack. A language offered without a pack
+is a promise the worker cannot keep: Tesseract exits non-zero and the job blames the
+user's document for a dependency that was never installed.
 
 ### Image-level proof (no cloud, no document)
 
