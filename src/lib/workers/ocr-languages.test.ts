@@ -106,6 +106,44 @@ describe("buildOcrCapability — reports what is runnable, not what is offered",
   });
 });
 
+describe("buildOcrCapability — OCR observed on the out-of-band worker", () => {
+  it("is available when the worker's heartbeat reports it, with no local engine", () => {
+    // The production shape: the web tier ships no OCR binary, so a local probe
+    // answers "no" — but the worker that runs the jobs reports OCR enabled.
+    const capability = buildOcrCapability("disabled", undefined, undefined, true);
+    expect(capability.available).toBe(true);
+    expect(capability.languages.length).toBeGreaterThan(1);
+  });
+
+  it("does not name an engine it cannot observe", () => {
+    // Guessing "ocrmypdf" here would be a fabrication: the web tier has no way to
+    // know which engine the worker runs.
+    expect(buildOcrCapability("disabled", undefined, undefined, true).engine).toBeNull();
+  });
+
+  it("says plainly that the worker's packs are not observable from here", () => {
+    const { detail } = buildOcrCapability("disabled", undefined, undefined, true);
+    expect(detail).toMatch(/not observable from here/i);
+    expect(detail).toMatch(/fails honestly/i);
+  });
+
+  it("stays unavailable when no worker reported OCR", () => {
+    // The pre-existing, cautious answer must be unchanged when there is no signal.
+    for (const signal of [false, undefined]) {
+      const capability = buildOcrCapability("disabled", undefined, undefined, signal);
+      expect(capability.available).toBe(false);
+      expect(capability.languages).toEqual([]);
+    }
+  });
+
+  it("prefers a locally-probed engine over the heartbeat when both are present", () => {
+    // A local-dev worker with a real engine should still name it.
+    const capability = buildOcrCapability("local-dev", ENGINES, ["eng"], true);
+    expect(capability.engine).not.toBeNull();
+    expect(capability.languages).toEqual(["eng"]);
+  });
+});
+
 describe("the OCR processor refuses an uninstalled language honestly", () => {
   const processor = (installedLanguages?: readonly string[]) =>
     createOcrProcessor({

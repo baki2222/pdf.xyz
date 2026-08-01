@@ -110,8 +110,14 @@ export function buildWorkerStatus(
    * observe leaves it out and gets the cautious "no worker deployed" answer.
    */
   workerObserved?: boolean,
+  /**
+   * Whether the observed worker's heartbeat reports OCR enabled. The engine is
+   * deliberately absent from the web tier, so a local probe can only answer "no";
+   * without this the OCR page went dark while real jobs succeeded.
+   */
+  workerOcr?: boolean,
 ): WorkerStatus {
-  const ocr = buildOcrCapability(mode, ocrEngines);
+  const ocr = buildOcrCapability(mode, ocrEngines, undefined, workerOcr);
   // Protect/unlock run on qpdf. The route can pass a dedicated qpdf-security probe;
   // absent that, fall back to the qpdf presence the compression probe already found,
   // so local-dev status reflects it without any extra wiring.
