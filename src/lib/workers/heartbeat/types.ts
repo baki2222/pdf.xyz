@@ -87,12 +87,30 @@ export type HeartbeatSource = "queue-broker" | "self" | "none";
  */
 export type DaemonLivenessState = "observed" | "stale" | "unknown" | "disabled";
 
-/** The presence-only capability summary a worker publishes. Booleans only. */
+/**
+ * The presence-only capability summary a worker publishes. Bounded enums only —
+ * booleans, plus one fixed-vocabulary language list.
+ */
 export interface HeartbeatCapabilities {
   /** Deep image compression — a native engine is installed on the worker. */
   readonly deepCompression: boolean;
   /** OCR — a real engine + runner are wired on the worker. */
   readonly ocr: boolean;
+  /**
+   * The recognition languages this worker can ACTUALLY run — the `traineddata`
+   * packs observed in its image, narrowed to the codes the product advertises.
+   *
+   * `ocr: true` says an engine exists; it says nothing about which languages that
+   * engine has data for, and those are different failures. Without this the web
+   * tier could only echo the advertised list back, so the status endpoint reported
+   * every language the catalogue names while conceding, in its own detail string,
+   * that the packs "are not observable from here". A user could pick a language the
+   * running image had never installed and only find out after uploading.
+   *
+   * Content-free by construction: the values come from a fixed 21-code vocabulary
+   * (`OCR_LANGUAGE_CODES`), never from a path, a filename, or a document.
+   */
+  readonly ocrLanguages: readonly string[];
   /** A malware scanner is actively inspecting bytes (not the honest no-op). */
   readonly malwareScan: boolean;
   /** The configured queue guarantees atomic, race-safe state transitions. */

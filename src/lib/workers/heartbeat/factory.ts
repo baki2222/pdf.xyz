@@ -218,5 +218,11 @@ export function readWorkerHeartbeatLiveness(
 
 /** All-false capabilities — the safe default when a caller has nothing to report. */
 export function emptyCapabilities(): HeartbeatCapabilities {
-  return { deepCompression: false, ocr: false, malwareScan: false, atomicQueue: false };
+  return {
+    deepCompression: false,
+    ocr: false,
+    ocrLanguages: [],
+    malwareScan: false,
+    atomicQueue: false,
+  };
 }

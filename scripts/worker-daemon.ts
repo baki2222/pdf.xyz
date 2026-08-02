@@ -122,6 +122,7 @@ function buildHeartbeatPublisher(runtime: WorkerRuntime, mode: DaemonMode): Hear
     capabilities: {
       deepCompression: runtime.compression.deep,
       ocr: runtime.ocr.ready,
+      ocrLanguages: runtime.ocr.languages,
       malwareScan: runtime.scanner.active,
       atomicQueue: queueSupportsAtomicTransitions(process.env),
     },

@@ -16,6 +16,7 @@ import { WORKER_HEARTBEAT_SCHEMA_VERSION, type HeartbeatCapabilities } from "./t
 const CAPS: HeartbeatCapabilities = {
   deepCompression: true,
   ocr: false,
+  ocrLanguages: [],
   malwareScan: true,
   atomicQueue: true,
 };
@@ -65,6 +66,7 @@ describe("buildHeartbeat / serialize / parse", () => {
     expect(hb.capabilities).toEqual({
       deepCompression: false, // only literal true is true
       ocr: false,
+      ocrLanguages: [],
       malwareScan: true,
       atomicQueue: false,
     });
@@ -120,7 +122,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       role: "secure-worker",
       release: "1.2",
       mode: "loop",
-      capabilities: { deepCompression: true, ocr: false, malwareScan: false, atomicQueue: true },
+      capabilities: { deepCompression: true, ocr: false, ocrLanguages: [], malwareScan: false, atomicQueue: true },
       at: 1234,
     });
     const json = JSON.stringify(parsed);
