@@ -159,15 +159,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
     };
   }, []);
 
-  /**
-   * Whether the user has actually chosen a language, as opposed to inheriting the
-   * English default. Until they have, the first pick REPLACES it rather than joining
-   * it — see {@link toggleLanguage}.
-   */
-  const [languagesChosen, setLanguagesChosen] = useState(false);
-
   const toggleLanguage = useCallback((code: OcrLanguage) => {
-    setLanguagesChosen(true);
     setLanguages((prev) => {
       if (prev.includes(code)) {
         if (prev.length === 1) return prev; // keep at least one language
@@ -177,25 +169,6 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
       return [...prev, code];
     });
   }, []);
-
-  // Order is priority: the runner joins the array with `+` and Tesseract weights the
-  // FIRST entry as the primary language. Appending unconditionally therefore meant the
-  // English default silently stayed primary — a Bengali page picked as "English, then
-  // Bengali" is scored English-first, which is the weighting that returns Latin
-  // gibberish. Nobody chose English here; it was just what the control loaded with, so
-  // the first real choice replaces it instead of queueing behind it. Selecting English
-  // again afterwards puts it second, where the user actually put it.
-  const selectLanguage = useCallback(
-    (code: OcrLanguage) => {
-      if (!languagesChosen && !languages.includes(code)) {
-        setLanguagesChosen(true);
-        setLanguages([code]);
-        return;
-      }
-      toggleLanguage(code);
-    },
-    [languagesChosen, languages, toggleLanguage],
-  );
 
   // Run the free-form options through the real contract validator, so the "what
   // will happen" summary and any submitted job carry exactly the validated value.
@@ -246,7 +219,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               <Languages className="size-3.5" aria-hidden />
               Languages{" "}
               <span className="text-slate-500">
-                (up to {MAX_OCR_LANGUAGES}, first is primary)
+                (up to {MAX_OCR_LANGUAGES})
               </span>
             </span>
             {/*
@@ -256,8 +229,9 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               output, with nothing anywhere to tell them why.
             */}
             <p className="text-xs leading-relaxed text-slate-500">
-              Pick the language actually printed on the page. The wrong one does not
-              produce an error, it produces plausible-looking gibberish.
+              Select every language printed on the page — a page that mixes Bengali with
+              English technical terms needs both. The wrong language does not produce an
+              error, it produces plausible-looking gibberish.
             </p>
             <div
               className="flex flex-wrap gap-1.5"
@@ -265,22 +239,15 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               aria-label="OCR languages"
             >
               {OCR_LANGUAGES.map((language) => {
-                const position = languages.indexOf(language.code);
-                const active = position >= 0;
-                const primary = position === 0 && languages.length > 1;
+                const active = languages.includes(language.code);
                 const atCap = !active && languages.length >= MAX_OCR_LANGUAGES;
                 return (
                   <button
                     key={language.code}
                     type="button"
-                    onClick={() => selectLanguage(language.code)}
+                    onClick={() => toggleLanguage(language.code)}
                     disabled={atCap}
                     aria-pressed={active}
-                    aria-label={
-                      active && languages.length > 1
-                        ? `${language.label}, language ${position + 1} of ${languages.length}${primary ? " (primary)" : ""}`
-                        : language.label
-                    }
                     title={
                       atCap
                         ? `Deselect a language first — at most ${MAX_OCR_LANGUAGES} at once.`
@@ -295,24 +262,6 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                   >
                     {active && <Check className="size-3" aria-hidden />}
                     {language.label}
-                    {/*
-                      Position is meaning, not decoration: it is the priority the
-                      engine is given. Shown only once a second language makes the
-                      ordering consequential.
-                    */}
-                    {active && languages.length > 1 && (
-                      <span
-                        className={cn(
-                          "rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
-                          primary
-                            ? "bg-violet-400/25 text-violet-50"
-                            : "bg-white/10 text-slate-300",
-                        )}
-                        aria-hidden
-                      >
-                        {primary ? "1st" : position + 1}
-                      </span>
-                    )}
                   </button>
                 );
               })}
