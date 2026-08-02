@@ -275,7 +275,9 @@ measured by the native runner; the processor flattens it onto the content-free
 | `producedSearchablePdf` / `producedTextSidecar` | Which artifact kinds were produced | never |
 | `pageCount` | Structural page count of the produced searchable PDF (best-effort, pdf-lib) | no PDF produced, unparseable, or above the 64 MiB parse ceiling |
 | `textCharacters` | Character **count** of the produced text sidecar | no sidecar, or above the 32 MiB measure ceiling |
-| `meanConfidence` | Mean recognition confidence in `[0, 1]` **only if a backend safely reports it** | always for the native backend (it exposes none) |
+| `meanConfidence` | Mean recognition confidence in `[0, 1]` | every PDF input (OCRmyPDF exposes none) |
+| `lowConfidenceWordRatio` | Share of recognized words scoring under 60 on Tesseract's scale | same as above |
+| `recognizedWords` | How many words the two figures above cover | same as above |
 
 The honesty rules the builder enforces:
 
@@ -285,9 +287,18 @@ The honesty rules the builder enforces:
   or secret. This is asserted directly (`JSON.stringify(meta)` must not contain the
   recognized text) in `ocr-native.test.ts`.
 - **Missing is allowed; fabricated is not.** A value that can't be safely determined is
-  `null` — a null page count is honest, an invented one is forbidden. `meanConfidence`
-  stays `null` because OCRmyPDF/Tesseract expose no safe document-level confidence here; we
-  never invent one.
+  `null` — a null page count is honest, an invented one is forbidden.
+- **Confidence is measured for image inputs only, and that asymmetry is deliberate.**
+  Tesseract is driven directly for a raster, so the runner adds a `tsv` renderer to the
+  same recognition pass and reads per-word confidence off it — no second subprocess. A PDF
+  goes to OCRmyPDF, which owns its own Tesseract sub-invocation inside a private temp dir;
+  reading that would be undocumented and version-fragile, and re-OCRing a PDF purely to
+  score it would double the cost of the slowest tool in the catalogue. So the three fields
+  are `null` for every PDF, and the UI omits the row rather than showing a dash or a zero.
+  Tesseract reports confidence on 0-100 and the contract is `[0, 1]`; the conversion happens
+  once, in `parseTesseractConfidence`, and skipping it fails silently — every real value
+  would be rejected as out of range and nulled — so `ocr-confidence.test.ts` pins it from
+  both directions.
 - **Bounded & schema-stable.** Counts are coerced to non-negative integers and clamped to
   fixed maxima; the field set never varies by engine or option; the language set is filtered
   to the allowlist and capped. Metadata extraction is itself bounded — a very large PDF or
@@ -344,9 +355,15 @@ native runner → OcrResultMeta                     (measured from the actual ru
   artifact bytes (searchable PDF / text sidecar). It is never in `results`, the job record,
   the status API, or any log — the client-visible metadata is a *description* of the output,
   never a second copy of it.
-- **What remains out-of-band.** `meanConfidence` stays `null` (the native OCRmyPDF/Tesseract
-  backend exposes no safe document-level confidence, and we never invent one); production OCR
-  **quality** is still validated on a running worker, not in this repo.
+- **What remains out-of-band.** Confidence is a quality signal, **never a language verdict**.
+  Nothing in the pipeline identifies script, so the product may say recognition looks shaky
+  and list the ordinary causes — blur, skew, resolution, wrong language — but never "this
+  document appears to be Bengali". The advisory thresholds (mean < 0.70, or more than 35% of
+  words under 60, with at least 25 words) are the Tesseract-ecosystem convention rather than
+  values derived from this product's corpus, which is why they drive a suggestion and never
+  a failure: no job is rejected, retried, or downgraded on them. Re-derive them once the
+  figures have been observed across real traffic. Production OCR **quality** is still
+  validated on a running worker, not in this repo.
 
 ## Observability
 
