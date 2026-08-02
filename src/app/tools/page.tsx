@@ -10,6 +10,9 @@ export const metadata: Metadata = buildMetadata({
   title: "All PDF tools",
   description: `Browse all ${toolCount} pdf.xyz tools — merge, split, compress, convert, edit, sign, secure, and AI. Filter by category and see exactly where each tool runs.`,
   path: "/tools",
+  // Without this the file-convention card is ignored: buildMetadata always sets
+  // an explicit openGraph.images, and explicit beats convention.
+  imagePath: "/tools/opengraph-image",
 });
 
 const CATEGORY_IDS = new Set<ToolCategoryId>(categories.map((c) => c.id));

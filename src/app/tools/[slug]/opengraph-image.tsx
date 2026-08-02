@@ -1,8 +1,6 @@
 import { ImageResponse } from "next/og";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { siteConfig } from "@/lib/site";
-import { OG_BACKGROUND_IMAGE } from "@/lib/og";
+import { OG_BACKGROUND_IMAGE, OgWordmark, loadCardFonts } from "@/lib/og";
 import { getAllToolSlugs, getToolBySlug, getCategory } from "@/lib/tools";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import type { ProcessingMode } from "@/lib/tools/types";
@@ -32,9 +30,6 @@ export const contentType = "image/png";
 export function generateStaticParams(): { slug: string }[] {
   return getAllToolSlugs().map((slug) => ({ slug }));
 }
-
-const font = (file: string) =>
-  readFile(join(process.cwd(), "src/assets/fonts", file));
 
 /** Satori has no Tailwind, so the chip tones are restated as literal colours. */
 const PROCESSING_TONE: Record<
@@ -70,10 +65,7 @@ export default async function ToolOpengraphImage({
 }) {
   const { slug } = await params;
   const tool = getToolBySlug(slug);
-  const [bold, regular] = await Promise.all([
-    font("Inter-Bold.woff"),
-    font("Inter-Regular.woff"),
-  ]);
+  const fonts = await loadCardFonts();
 
   // An unknown slug still 404s as a page; the image just falls back to the
   // brand line rather than throwing during static generation.
@@ -107,35 +99,7 @@ export default async function ToolOpengraphImage({
           fontFamily: "Inter",
         }}
       >
-        {/* Wordmark */}
-        <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 72,
-              height: 72,
-              borderRadius: 20,
-              background:
-                "linear-gradient(135deg, #8b5cf6, #6366f1 55%, #3b82f6)",
-              boxShadow: "0 12px 40px rgba(99,102,241,0.45)",
-            }}
-          >
-            <div
-              style={{
-                width: 34,
-                height: 43,
-                borderRadius: 6,
-                background: "#ffffff",
-              }}
-            />
-          </div>
-          <div style={{ display: "flex", fontSize: 38, fontWeight: 700 }}>
-            <span>pdf</span>
-            <span style={{ color: "#a5b4fc" }}>.xyz</span>
-          </div>
-        </div>
+        <OgWordmark />
 
         {/* Tool identity */}
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -215,12 +179,6 @@ export default async function ToolOpengraphImage({
         </div>
       </div>
     ),
-    {
-      ...size,
-      fonts: [
-        { name: "Inter", data: bold, weight: 700, style: "normal" },
-        { name: "Inter", data: regular, weight: 400, style: "normal" },
-      ],
-    },
+    { ...size, fonts },
   );
 }
