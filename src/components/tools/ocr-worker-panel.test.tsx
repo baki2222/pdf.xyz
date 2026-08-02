@@ -126,49 +126,19 @@ describe("OcrWorkerPanel", () => {
     // Default request.
     expect(screen.getByText(/English → Searchable PDF/)).toBeInTheDocument();
 
-    // The FIRST pick replaces the default rather than queueing behind it. Nobody
-    // chose English — it is what the control loaded with — and order is priority:
-    // the runner joins the array with `+` and Tesseract weights the first entry as
-    // primary. Appending would have left English primary for a Spanish document,
-    // which is the weighting that returns gibberish.
+    // Selecting a language ADDS it, keeping the English default. Measured on the real
+    // document that prompted this: `eng` alone scored 49.4 mean confidence and returned
+    // gibberish, `eng+ben` scored 81.3 and read correctly, and `ben` alone scored 66.8
+    // while mangling the English words. A page mixing scripts needs both models, so
+    // dropping the default on first pick made the one-click path measurably worse.
     screen.getByRole("button", { name: /spanish/i }).click();
     screen.getByRole("radio", { name: "Text sidecar" }).click();
 
     await waitFor(() =>
-      expect(screen.getByText(/Spanish → Text sidecar/)).toBeInTheDocument(),
-    );
-
-    // A SECOND pick appends, so the user's own order is preserved: they asked for
-    // Spanish first, English second.
-    screen.getByRole("button", { name: /^english/i }).click();
-    await waitFor(() =>
       expect(
-        screen.getByText(/Spanish, English → Text sidecar/),
+        screen.getByText(/English, Spanish → Text sidecar/),
       ).toBeInTheDocument(),
     );
-  });
-
-  it("labels the primary language, because position decides the engine's weighting", async () => {
-    stubFetch(DISABLED);
-    render(<OcrWorkerPanel tool={ocrTool} />);
-    await screen.findByText(DISABLED.ocr.detail);
-
-    // With one language there is no ordering to communicate.
-    expect(
-      screen.queryByRole("button", { name: /language 1 of/i }),
-    ).not.toBeInTheDocument();
-
-    screen.getByRole("button", { name: /bengali/i }).click();
-    screen.getByRole("button", { name: /^english/i }).click();
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /bengali, language 1 of 2 \(primary\)/i }),
-      ).toBeInTheDocument(),
-    );
-    expect(
-      screen.getByRole("button", { name: /english, language 2 of 2/i }),
-    ).toBeInTheDocument();
   });
 
   it("warns that the wrong language yields gibberish rather than an error", async () => {
@@ -179,6 +149,8 @@ describe("OcrWorkerPanel", () => {
     // who leaves the default alone otherwise gets a successful job and unusable output
     // with nothing to explain why.
     expect(screen.getByText(/plausible-looking gibberish/i)).toBeInTheDocument();
+    // And the instruction the measurement actually supports.
+    expect(screen.getByText(/select every language printed on the page/i)).toBeInTheDocument();
   });
 
   it("mounts the real uploader + run action only when OCR is available", async () => {
