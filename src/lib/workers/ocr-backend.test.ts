@@ -155,6 +155,8 @@ describe("OCR backend — executor integration", () => {
       pageCount: 1,
       textCharacters: OCR_TEXT.byteLength,
       meanConfidence: null,
+      lowConfidenceWordRatio: null,
+      recognizedWords: null,
     });
     // The metadata carries no recognized text, no object key, and no signed URL —
     // it is safe to persist and return to a client.

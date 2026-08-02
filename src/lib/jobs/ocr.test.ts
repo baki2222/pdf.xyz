@@ -164,6 +164,8 @@ describe("buildOcrResultMeta — bounded, honest, schema-stable", () => {
       pageCount: 12,
       textCharacters: 3456,
       meanConfidence: 0.91,
+      lowConfidenceWordRatio: null,
+      recognizedWords: null,
     });
     expect(meta).toEqual({
       engine: "ocrmypdf",
@@ -174,6 +176,10 @@ describe("buildOcrResultMeta — bounded, honest, schema-stable", () => {
       pageCount: 12,
       textCharacters: 3456,
       meanConfidence: 0.91,
+      // OCRmyPDF supplies no per-word data, so the shape figures stay null even when
+      // a document-level mean is present. The row is absent, never a fabricated zero.
+      lowConfidenceWordRatio: null,
+      recognizedWords: null,
     });
   });
 
@@ -316,7 +322,9 @@ describe("buildOcrResultMeta — bounded, honest, schema-stable", () => {
       [
         "engine",
         "languages",
+        "lowConfidenceWordRatio",
         "meanConfidence",
+        "recognizedWords",
         "outputMode",
         "pageCount",
         "producedSearchablePdf",

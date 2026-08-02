@@ -59,6 +59,8 @@ describe("sanitizeJobResults — the redaction/persistence boundary", () => {
       pageCount: 3,
       textCharacters: 1_240,
       meanConfidence: null,
+      lowConfidenceWordRatio: null,
+      recognizedWords: null,
     });
   });
 
@@ -167,6 +169,8 @@ describe("sanitizeJobResults — the redaction/persistence boundary", () => {
         pageCount: 2,
         textCharacters: 42,
         meanConfidence: null,
+        lowConfidenceWordRatio: null,
+        recognizedWords: null,
       },
     };
     const serialized = JSON.stringify(sanitizeJobResults(hostile));

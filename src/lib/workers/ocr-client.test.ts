@@ -109,6 +109,8 @@ function completedJob(): Job {
         pageCount: 3,
         textCharacters: 128,
         meanConfidence: null,
+        lowConfidenceWordRatio: null,
+        recognizedWords: null,
       },
     },
     createdAt: new Date(0).toISOString(),

@@ -126,6 +126,8 @@ describe("ocr processor — flips on when a real runner is wired", () => {
       pageCount: 4,
       textCharacters: null,
       meanConfidence: null,
+      lowConfidenceWordRatio: null,
+      recognizedWords: null,
     });
   });
 
@@ -180,6 +182,8 @@ describe("ocrProcessorMeta — flat, bounded, null-free flattening", () => {
         pageCount: null,
         textCharacters: null,
         meanConfidence: null,
+        lowConfidenceWordRatio: null,
+        recognizedWords: null,
       }),
     );
     expect("pageCount" in flat).toBe(false);

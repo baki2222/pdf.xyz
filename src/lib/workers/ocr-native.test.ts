@@ -204,7 +204,12 @@ describe("createNativeOcrRunner — success paths", () => {
       producedTextSidecar: true,
       pageCount: 5,
       textCharacters: TEXT_OUT.byteLength, // "Recognized text from the scan." → 30 ASCII chars
-      meanConfidence: null, // the native backend exposes none — never fabricated
+      // OCRmyPDF drives its own Tesseract in a private temp dir, so there is no TSV to
+      // read and every confidence figure is honestly absent. The tesseract path, which
+      // the runner drives directly, does report them.
+      meanConfidence: null,
+      lowConfidenceWordRatio: null,
+      recognizedWords: null,
     });
     // The recognized text itself never rides along in the metadata.
     expect(JSON.stringify(meta)).not.toContain("Recognized text");

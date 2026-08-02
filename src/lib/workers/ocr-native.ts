@@ -37,7 +37,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { PDFDocument } from "pdf-lib";
-import { buildOcrResultMeta } from "@/lib/jobs/ocr";
+import { buildOcrResultMeta, OCR_LOW_CONFIDENCE_WORD_THRESHOLD } from "@/lib/jobs/ocr";
 import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import { looksLikePdf } from "./compression/engine";
 import {
@@ -69,6 +69,12 @@ const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
  */
 const META_PDF_MAX_PARSE_BYTES = 64 * 1024 * 1024;
 const META_TEXT_MAX_MEASURE_BYTES = 32 * 1024 * 1024;
+/**
+ * Tesseract's TSV runs about 100 bytes per recognized word, so this ceiling covers
+ * documents far larger than the worker's own output limit while still refusing to
+ * parse a pathological file. Above it the confidence is honestly `null`.
+ */
+const META_TSV_MAX_PARSE_BYTES = 16 * 1024 * 1024;
 
 /** Run a subprocess by argv (never a shell). Injectable so tests never spawn a real process. */
 export type NativeOcrExec = (
@@ -164,6 +170,15 @@ export interface NativeOcrInvocation {
   pdfOut: string;
   /** Absolute path the text sidecar lands at (read only when text was requested). */
   txtOut: string;
+  /**
+   * Absolute path the per-word TSV lands at, or `null` for an engine that produces
+   * none. Only Tesseract does: OCRmyPDF owns its own Tesseract sub-invocation and
+   * writes into a private temp dir, so there is nothing here to read.
+   *
+   * Never published as an artifact — it is read for confidence figures and dropped
+   * with the temp directory.
+   */
+  tsvOut: string | null;
 }
 
 /** Normalized inputs for {@link nativeOcrArgs} — all worker-owned, never user paths. */
@@ -213,7 +228,7 @@ export function nativeOcrArgs(
         ctx.inputPath,
         pdfOut,
       ];
-      return { command, args, pdfOut, txtOut };
+      return { command, args, pdfOut, txtOut, tsvOut: null };
     }
     case "tesseract": {
       const base = path.join(ctx.workDir, "output");
@@ -226,8 +241,13 @@ export function nativeOcrArgs(
         lang,
         ...(ctx.wantPdf ? ["pdf"] : []),
         ...(ctx.wantText ? ["txt"] : []),
+        // Every renderer is served by ONE recognition pass, so asking for the TSV
+        // costs serialization only — no second OCR, no second subprocess. It is what
+        // makes a confidence figure available at all; without it a wrong-language run
+        // returns fluent nonsense with nothing to signal it.
+        "tsv",
       ];
-      return { command, args, pdfOut, txtOut };
+      return { command, args, pdfOut, txtOut, tsvOut: `${base}.tsv` };
     }
   }
 }
@@ -353,6 +373,86 @@ export function countTextCharacters(bytes: Uint8Array): number | null {
 }
 
 /**
+ * Read the confidence figures for a run, or an all-null triple when there are none.
+ * Swallows every failure by design — see the call site.
+ */
+async function readConfidence(
+  fs: NativeOcrFs,
+  tsvOut: string | null,
+): Promise<{
+  meanConfidence: number | null;
+  lowConfidenceWordRatio: number | null;
+  recognizedWords: number | null;
+}> {
+  const none = { meanConfidence: null, lowConfidenceWordRatio: null, recognizedWords: null };
+  if (!tsvOut) return none;
+  try {
+    return parseTesseractConfidence(await fs.readFile(tsvOut)) ?? none;
+  } catch {
+    return none;
+  }
+}
+
+/** The confidence figures a Tesseract TSV yields. Numbers only — never a word. */
+export interface TesseractConfidence {
+  /** Mean per-word confidence, converted to [0, 1]. */
+  meanConfidence: number;
+  /** Share of words below {@link OCR_LOW_CONFIDENCE_WORD_THRESHOLD}, in [0, 1]. */
+  lowConfidenceWordRatio: number;
+  /** How many words the figures cover. */
+  recognizedWords: number;
+}
+
+/**
+ * Read per-word confidence out of Tesseract's TSV renderer output.
+ *
+ * The format (Tesseract 4 and 5) is a header row followed by tab-separated rows of
+ * `level page_num block_num par_num line_num word_num left top width height conf text`.
+ * Only `level === 5` rows are words; everything above is layout structure and carries
+ * `conf = -1`. Rows whose text is blank are dropped too — Tesseract emits them for
+ * spacing, and counting them would drag the mean toward whatever it felt about
+ * whitespace.
+ *
+ * Like {@link countTextCharacters}, this decodes only to measure: the `text` column is
+ * recognized content and is never returned, logged, or retained. Returns `null` when
+ * the file is missing, oversized, malformed, or contains no qualifying words — every
+ * one of which means "not measured", never a fabricated score.
+ *
+ * **Units.** Tesseract reports confidence on 0-100 and the meta contract is [0, 1], so
+ * the conversion happens here, once. Forgetting it would not raise an error anywhere:
+ * `buildOcrResultMeta` would reject every real value as out of range and null the
+ * field, putting it right back to permanently invisible.
+ */
+export function parseTesseractConfidence(bytes: Uint8Array): TesseractConfidence | null {
+  if (bytes.byteLength === 0 || bytes.byteLength > META_TSV_MAX_PARSE_BYTES) return null;
+  let total = 0;
+  let words = 0;
+  let low = 0;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    for (const line of text.split("\n")) {
+      const columns = line.split("\t");
+      if (columns.length < 12 || columns[0] !== "5") continue;
+      const confidence = Number(columns[10]);
+      // `-1` marks a non-word row; a blank word is layout, not recognition.
+      if (!Number.isFinite(confidence) || confidence < 0) continue;
+      if (columns.slice(11).join("\t").trim() === "") continue;
+      total += confidence;
+      words += 1;
+      if (confidence < OCR_LOW_CONFIDENCE_WORD_THRESHOLD) low += 1;
+    }
+  } catch {
+    return null;
+  }
+  if (words === 0) return null;
+  return {
+    meanConfidence: total / words / 100,
+    lowConfidenceWordRatio: low / words,
+    recognizedWords: words,
+  };
+}
+
+/**
  * Build a native OCR runner bound to a configuration. Writes the single input to an
  * isolated temp dir, invokes the engine with a fixed argv array, reads the requested
  * outputs, validates them, and ALWAYS removes the temp dir afterward — on success,
@@ -401,7 +501,7 @@ export function createNativeOcrRunner(
     const inputPath = path.join(dir, `input.${inputExtension(input)}`);
     try {
       await fs.writeFile(inputPath, input.bytes);
-      const { command, args, pdfOut, txtOut } = nativeOcrArgs(engine, config.binaries[engine], {
+      const { command, args, pdfOut, txtOut, tsvOut } = nativeOcrArgs(engine, config.binaries[engine], {
         inputPath,
         workDir: dir,
         languages: options.languages,
@@ -472,7 +572,11 @@ export function createNativeOcrRunner(
         producedTextSidecar: textSidecar !== null,
         pageCount: searchablePdf ? await countPages(searchablePdf.bytes) : null,
         textCharacters: textSidecar ? countTextCharacters(textSidecar.bytes) : null,
-        meanConfidence: null,
+        // Best-effort and never fatal. An older Tesseract without the TSV renderer, a
+        // failed write, or an unreadable file leaves the figures null — a job that
+        // produced a good artifact must not fail because it could not be SCORED.
+        // `null` here is the normal answer for every PDF input, which OCRmyPDF handles.
+        ...(await readConfidence(fs, tsvOut)),
       });
       return { artifacts, meta };
     } finally {

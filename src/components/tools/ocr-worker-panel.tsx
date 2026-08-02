@@ -8,6 +8,7 @@ import {
   FileDown,
   FileText,
   FileUp,
+  Gauge,
   Hash,
   Languages,
   ScanText,
@@ -24,6 +25,7 @@ import {
   OCR_OUTPUT_MODES,
   describeOcrLanguage,
   describeOcrRequest,
+  ocrConfidenceLooksLow,
   ocrOutputsForMode,
   parseOcrOptions,
   type OcrLanguage,
@@ -157,7 +159,15 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
     };
   }, []);
 
+  /**
+   * Whether the user has actually chosen a language, as opposed to inheriting the
+   * English default. Until they have, the first pick REPLACES it rather than joining
+   * it — see {@link toggleLanguage}.
+   */
+  const [languagesChosen, setLanguagesChosen] = useState(false);
+
   const toggleLanguage = useCallback((code: OcrLanguage) => {
+    setLanguagesChosen(true);
     setLanguages((prev) => {
       if (prev.includes(code)) {
         if (prev.length === 1) return prev; // keep at least one language
@@ -167,6 +177,25 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
       return [...prev, code];
     });
   }, []);
+
+  // Order is priority: the runner joins the array with `+` and Tesseract weights the
+  // FIRST entry as the primary language. Appending unconditionally therefore meant the
+  // English default silently stayed primary — a Bengali page picked as "English, then
+  // Bengali" is scored English-first, which is the weighting that returns Latin
+  // gibberish. Nobody chose English here; it was just what the control loaded with, so
+  // the first real choice replaces it instead of queueing behind it. Selecting English
+  // again afterwards puts it second, where the user actually put it.
+  const selectLanguage = useCallback(
+    (code: OcrLanguage) => {
+      if (!languagesChosen && !languages.includes(code)) {
+        setLanguagesChosen(true);
+        setLanguages([code]);
+        return;
+      }
+      toggleLanguage(code);
+    },
+    [languagesChosen, languages, toggleLanguage],
+  );
 
   // Run the free-form options through the real contract validator, so the "what
   // will happen" summary and any submitted job carry exactly the validated value.
@@ -216,25 +245,47 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
               <Languages className="size-3.5" aria-hidden />
               Languages{" "}
-              <span className="text-slate-600">
-                (up to {MAX_OCR_LANGUAGES})
+              <span className="text-slate-500">
+                (up to {MAX_OCR_LANGUAGES}, first is primary)
               </span>
             </span>
+            {/*
+              The single most useful sentence on this page. OCR against the wrong
+              language does not fail — it returns confident-looking nonsense — so a
+              user who leaves the default alone gets a successful job and unusable
+              output, with nothing anywhere to tell them why.
+            */}
+            <p className="text-xs leading-relaxed text-slate-500">
+              Pick the language actually printed on the page. The wrong one does not
+              produce an error, it produces plausible-looking gibberish.
+            </p>
             <div
               className="flex flex-wrap gap-1.5"
               role="group"
               aria-label="OCR languages"
             >
               {OCR_LANGUAGES.map((language) => {
-                const active = languages.includes(language.code);
+                const position = languages.indexOf(language.code);
+                const active = position >= 0;
+                const primary = position === 0 && languages.length > 1;
                 const atCap = !active && languages.length >= MAX_OCR_LANGUAGES;
                 return (
                   <button
                     key={language.code}
                     type="button"
-                    onClick={() => toggleLanguage(language.code)}
+                    onClick={() => selectLanguage(language.code)}
                     disabled={atCap}
                     aria-pressed={active}
+                    aria-label={
+                      active && languages.length > 1
+                        ? `${language.label}, language ${position + 1} of ${languages.length}${primary ? " (primary)" : ""}`
+                        : language.label
+                    }
+                    title={
+                      atCap
+                        ? `Deselect a language first — at most ${MAX_OCR_LANGUAGES} at once.`
+                        : undefined
+                    }
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
                       active
@@ -244,6 +295,24 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                   >
                     {active && <Check className="size-3" aria-hidden />}
                     {language.label}
+                    {/*
+                      Position is meaning, not decoration: it is the priority the
+                      engine is given. Shown only once a second language makes the
+                      ordering consequential.
+                    */}
+                    {active && languages.length > 1 && (
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                          primary
+                            ? "bg-violet-400/25 text-violet-50"
+                            : "bg-white/10 text-slate-300",
+                        )}
+                        aria-hidden
+                      >
+                        {primary ? "1st" : position + 1}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -574,8 +643,21 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
       }`,
     });
   }
+  // Present for image inputs, absent for PDFs — OCRmyPDF reports none. An absent row
+  // is the honest rendering; a dash or a zero would read as a broken feature or, worse,
+  // as a measured lack of confidence.
+  if (meta.meanConfidence !== null) {
+    rows.push({
+      icon: Gauge,
+      label: "Confidence",
+      value: `${Math.round(meta.meanConfidence * 100)}%`,
+    });
+  }
 
   if (rows.length === 0) return null;
+
+  const looksLow = ocrConfidenceLooksLow(meta);
+  const languageNames = meta.languages.map(describeOcrLanguage).join(", ");
 
   return (
     <div className="mt-1 flex flex-col gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-3">
@@ -598,6 +680,31 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
           </div>
         ))}
       </dl>
+      {/*
+        Shown on every run, both engines, needing no new data — and it is the piece
+        that would actually have helped. OCR against the wrong language completes
+        successfully and returns confident-looking nonsense, so a user with unusable
+        output has no reason to suspect the setting rather than the tool.
+      */}
+      {languageNames.length > 0 && (
+        <p className="pt-1 text-xs leading-relaxed text-slate-500">
+          Recognized as <span className="text-slate-300">{languageNames}</span>. If the
+          text looks wrong, run it again with the language actually printed on the page —
+          OCR returns plausible-looking gibberish for the wrong language rather than an
+          error.
+        </p>
+      )}
+      {looksLow && (
+        <p className="mt-1 rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-2 text-xs leading-relaxed text-amber-100/90">
+          {/*
+            Deliberately a list of causes, not a diagnosis. Nothing here identifies
+            script, so "this document appears to be Bengali" would be invention. The
+            wrong language is one candidate among several ordinary ones.
+          */}
+          Recognition confidence was low. That usually means the scan is blurry, skewed
+          or low-resolution — or that the page is not in the language you selected.
+        </p>
+      )}
     </div>
   );
 }
