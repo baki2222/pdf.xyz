@@ -62,7 +62,12 @@ interface OpenAiChoice {
 }
 interface OpenAiResponseBody {
   choices?: unknown;
-  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+  usage?: {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    /** Cache accounting; `cached_tokens` is the share of the prompt served from cache. */
+    prompt_tokens_details?: { cached_tokens?: unknown };
+  };
 }
 
 /**
@@ -298,9 +303,24 @@ export function createOpenAiProvider(
 
         const inputTokens = coerceCount(body.usage?.prompt_tokens);
         const outputTokens = coerceCount(body.usage?.completion_tokens);
+        // OpenAI caches long prompt prefixes on its own — there is no request-side
+        // parameter to set, which is why `AiCompletionRequest.cacheSystem` changes
+        // nothing about the body this adapter sends. What the flag still buys here is
+        // this reading: without it a caller has no way to tell a cached request from
+        // an uncached one, and the caching bet stays unfalsifiable.
+        //
+        // The one thing that DOES matter on this side is ordering, and it is already
+        // right: the system message carrying the document is built first and the
+        // question last, so the stable span is a genuine prefix. Moving anything
+        // volatile ahead of it would silently end the cache hits.
+        const cachedInputTokens = coerceCount(body.usage?.prompt_tokens_details?.cached_tokens);
         const usage =
           inputTokens !== undefined && outputTokens !== undefined
-            ? { inputTokens, outputTokens }
+            ? {
+                inputTokens,
+                outputTokens,
+                ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+              }
             : undefined;
 
         return { ok: true, text, model: config.model, ...(usage ? { usage } : {}) };
