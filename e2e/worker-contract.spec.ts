@@ -22,7 +22,11 @@ test.describe("secure-worker AI tool panel", () => {
       page.getByRole("heading", { name: /runs on an encrypted secure worker/i }),
     ).toBeVisible();
     await expect(page.getByText("Not enabled")).toBeVisible();
-    await expect(page.getByText("Malware scan")).toBeVisible();
+    // No worker is configured in this environment, so no scanner is running — the
+    // pipeline must show the structural preflight and must NOT claim a malware scan.
+    // This line used to assert the opposite, which is how the false claim shipped.
+    await expect(page.getByText("Structural preflight")).toBeVisible();
+    await expect(page.getByText("Malware scan")).toHaveCount(0);
     await expect(page.getByText("Isolated processing")).toBeVisible();
     await expect(page.getByText("5. Auto-delete")).toBeVisible();
     await expect(page.getByText(/wiped after processing/i)).toBeVisible();

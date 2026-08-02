@@ -10,6 +10,7 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
     detail: "remote",
     compress: { lossless: false, deep: false, engines: [] },
     ocr: { available: false, engine: null, languages: [], detail: "off" },
+    scan: { active: false, detail: "not scanned" },
     security: { available: false, operations: ["protect", "unlock", "repair", "optimize-web"], detail: "qpdf" },
     providers: {
       storage: {

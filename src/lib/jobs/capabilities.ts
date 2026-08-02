@@ -55,8 +55,13 @@ export const CAPABILITY_DESCRIPTORS: Record<
   "secure-worker": {
     id: "secure-worker",
     label: "Secure worker",
+    // Deliberately does NOT say "scans": this string is static, so it can only
+    // assert what is true in every deployment, and malware scanning is optional and
+    // off unless an operator configures it. What is always true is the isolation and
+    // the deletion. Live scanning status is reported separately, from the worker's
+    // own heartbeat — see `workerPipelineStages`.
     summary:
-      "Runs on an encrypted, isolated worker that scans, processes, and then permanently deletes your files.",
+      "Runs on an encrypted, isolated worker that processes and then permanently deletes your files.",
     uploadsFiles: true,
   },
   hybrid: {
@@ -111,19 +116,56 @@ export interface PipelineStage {
   description: string;
 }
 
-export const WORKER_PIPELINE_STAGES: readonly PipelineStage[] = [
-  {
-    id: "upload",
-    title: "Encrypted upload",
-    description:
-      "Your file is uploaded directly to short-lived, encrypted storage over a pre-signed URL.",
-  },
-  {
-    id: "scan",
-    title: "Malware scan",
-    description:
-      "Every file is scanned before any processor touches it. Unsafe files are rejected.",
-  },
+/**
+ * The stages a job actually moves through, given what the worker can actually do.
+ *
+ * This is a function rather than a constant because one of the stages was a lie. The
+ * list used to assert "Every file is scanned before any processor touches it. Unsafe
+ * files are rejected." on all fourteen worker-backed tool pages, while the malware
+ * scanner is optional, off by default, and not configured on production. The worker
+ * layer knew — it publishes `active: false` and states that unscanned uploads "are
+ * never reported as scanned" — but a static string in the web tier could not read a
+ * live capability, so it overrode one and made a security claim the system is
+ * explicitly designed never to make.
+ *
+ * Taking the capability as a parameter means the claim cannot outlive the fact. The
+ * argument is a plain boolean, not a `ScanCapability`, to keep `lib/jobs` free of a
+ * dependency on `lib/workers`.
+ *
+ * @param malwareScanActive whether a live worker heartbeat reports an ACTIVE scanner.
+ * Callers that cannot observe one pass `false` — the safe direction for a security
+ * control, since under-claiming misleads nobody.
+ */
+export function workerPipelineStages(malwareScanActive: boolean): readonly PipelineStage[] {
+  return [
+    {
+      id: "upload",
+      title: "Encrypted upload",
+      description:
+        "Your file is uploaded directly to short-lived, encrypted storage over a pre-signed URL.",
+    },
+    malwareScanActive
+      ? {
+          id: "scan",
+          title: "Malware scan",
+          description:
+            "Every file is scanned for malware before any processor touches it. Unsafe files are rejected.",
+        }
+      : {
+          // Not a malware scan, and it does not pretend to be. This preflight is real
+          // and it does reject files — it checks that an input is structurally the
+          // type it claims to be — but calling it a security scan would be the same
+          // overclaim in a quieter voice.
+          id: "preflight",
+          title: "Structural preflight",
+          description:
+            "Each file is checked that it really is the type it claims to be, and malformed ones are rejected. Files are not scanned for malware here.",
+        },
+    ...WORKER_PIPELINE_TAIL,
+  ];
+}
+
+const WORKER_PIPELINE_TAIL: readonly PipelineStage[] = [
   {
     id: "process",
     title: "Isolated processing",

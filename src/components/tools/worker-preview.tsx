@@ -13,7 +13,7 @@ import {
   describeCapability,
   DEFAULT_RETENTION,
   JOB_LIMITS,
-  WORKER_PIPELINE_STAGES,
+  workerPipelineStages,
 } from "@/lib/jobs";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
@@ -23,7 +23,10 @@ function StageIcon({ id, className }: { id: string; className?: string }) {
   switch (id) {
     case "upload":
       return <UploadCloud className={className} aria-hidden />;
+    // The structural preflight is the same kind of step — a gate that rejects a file
+    // before any processor sees it — so it carries the same shield.
     case "scan":
+    case "preflight":
       return <ShieldCheck className={className} aria-hidden />;
     case "process":
       return <Cpu className={className} aria-hidden />;
@@ -98,13 +101,13 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
         </div>
 
         <ol className="flex flex-col gap-1">
-          {WORKER_PIPELINE_STAGES.map((stage, i) => (
+          {workerPipelineStages(false).map((stage, i, all) => (
             <li key={stage.id} className="flex items-start gap-3">
               <div className="flex flex-col items-center self-stretch">
                 <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
                   <StageIcon id={stage.id} className="size-4" />
                 </span>
-                {i < WORKER_PIPELINE_STAGES.length - 1 && (
+                {i < all.length - 1 && (
                   <span
                     className="my-1 w-px flex-1 bg-white/10"
                     aria-hidden

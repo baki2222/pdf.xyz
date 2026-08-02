@@ -67,6 +67,11 @@ export async function GET(request: Request): Promise<Response> {
   // Only trust the capability when the heartbeat was genuinely observed — a stale
   // or absent beat must not be read as "OCR is available".
   const workerOcr = observed && capabilities?.ocr === true;
+  // Same rule, and it matters more here: the pipeline copy shown on every
+  // worker-backed tool page claims files are scanned for malware. That claim is
+  // only made when a live heartbeat positively reports an active scanner — an
+  // unobserved worker reads as NOT scanning, never as scanning.
+  const workerScan = observed && capabilities?.malwareScan === true;
 
   return respond(
     ok(
@@ -78,6 +83,7 @@ export async function GET(request: Request): Promise<Response> {
         securityQpdf,
         observed,
         workerOcr,
+        workerScan,
       ),
     ),
   );

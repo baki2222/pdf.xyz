@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, PenLine, Plus, ShieldCheck, Timer, Trash2, Users } from "lucide-react";
-import { WORKER_PIPELINE_STAGES } from "@/lib/jobs/capabilities";
+import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
   MAX_REQUEST_SIGNERS,
@@ -130,13 +130,13 @@ export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
         <div className="flex flex-col gap-3">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">What happens</h3>
           <ol className="flex flex-col gap-1">
-            {WORKER_PIPELINE_STAGES.map((stage, index) => (
+            {workerPipelineStages(status?.scan.active ?? false).map((stage, index, all) => (
               <li key={stage.id} className="flex items-start gap-3">
                 <div className="flex flex-col items-center self-stretch">
                   <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
                     <PenLine className="size-4" aria-hidden />
                   </span>
-                  {index < WORKER_PIPELINE_STAGES.length - 1 && <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />}
+                  {index < all.length - 1 && <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />}
                 </div>
                 <div className="flex flex-col gap-0.5 pb-3">
                   <span className="text-sm font-medium text-slate-200">
