@@ -51,13 +51,32 @@ describe("client status — never over-claims", () => {
     }
   });
 
-  it("presence-only: never leaks a variable name or claims malware scanning", () => {
+  it("presence-only: never leaks a variable name", () => {
     const serialized = JSON.stringify(
       buildWorkerStatus("remote-configured", undefined, undefined, DRAINABLE_ENV),
     );
     expect(serialized).not.toMatch(/PDFXYZ_/);
-    // The client status makes no malware-scan claim at all — no false positive.
-    expect(serialized.toLowerCase()).not.toContain("malware");
+  });
+
+  it("never claims malware scanning it is not doing", () => {
+    // This assertion used to be `not.toContain("malware")` — honesty by silence. The
+    // silence was the problem: because the status said nothing either way, the UI's
+    // pipeline copy filled the vacuum with "Every file is scanned before any processor
+    // touches it", shown on every worker-backed tool page while no scanner existed.
+    // The invariant was never "do not say the word"; it was "do not claim the control".
+    // Saying so explicitly is what lets the UI render the truth.
+    const status = buildWorkerStatus(
+      "remote-configured",
+      undefined,
+      undefined,
+      DRAINABLE_ENV,
+    );
+    const serialized = JSON.stringify(status).toLowerCase();
+    expect(status.scan.active).toBe(false);
+    expect(serialized).not.toMatch(/every file is scanned/);
+    expect(serialized).not.toMatch(/files are scanned/);
+    // ...and it must positively disclose the absence, not merely omit the claim.
+    expect(status.scan.detail.toLowerCase()).toContain("not scanned for malware");
   });
 });
 

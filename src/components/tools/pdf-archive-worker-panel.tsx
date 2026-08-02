@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Archive, Download, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
-import { WORKER_PIPELINE_STAGES } from "@/lib/jobs/capabilities";
+import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { canRunPdfArchive, runWorkerPdfToPdfA, type PdfArchiveWorkerResult } from "@/lib/workers/pdf-archive-client";
@@ -73,9 +73,9 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
         <div className="flex flex-col gap-3">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">What happens to your file</h3>
           <ol className="flex flex-col gap-1">
-            {WORKER_PIPELINE_STAGES.map((stage, i) => (
+            {workerPipelineStages(status?.scan.active ?? false).map((stage, i, all) => (
               <li key={stage.id} className="flex items-start gap-3">
-                <div className="flex flex-col items-center self-stretch"><span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300"><Archive className="size-4" aria-hidden /></span>{i < WORKER_PIPELINE_STAGES.length - 1 && <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />}</div>
+                <div className="flex flex-col items-center self-stretch"><span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300"><Archive className="size-4" aria-hidden /></span>{i < all.length - 1 && <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />}</div>
                 <div className="flex flex-col gap-0.5 pb-3"><span className="text-sm font-medium text-slate-200">{i + 1}. {stage.title}</span><span className="text-xs leading-relaxed text-slate-500">{stage.description}</span></div>
               </li>
             ))}

@@ -25,6 +25,7 @@ import {
   buildSecurityCapability,
   type SecurityCapability,
 } from "./pdf-security/capability";
+import { buildScanCapability, type ScanCapability } from "./scan/capability";
 import { getProviderReadiness, type WorkerProviders } from "./providers";
 import { resolveDaemonReadiness, type DaemonReadiness } from "./daemon/readiness";
 import { resolveAiReadiness, type AiReadiness } from "./ai/readiness";
@@ -54,6 +55,14 @@ export interface WorkerStatus {
   compress: CompressCapability;
   /** What the worker can do for the OCR tool right now (its own honest detail). */
   ocr: OcrCapability;
+  /**
+   * Whether uploads are actually scanned for malware right now. Like OCR, the
+   * scanner lives only on the out-of-band worker, so this is answerable only from a
+   * live heartbeat — and it reads false unless one positively says otherwise. The
+   * UI's pipeline copy is derived from this; it used to be a static string that
+   * claimed scanning unconditionally.
+   */
+  scan: ScanCapability;
   /**
    * What the worker can do for the Protect / Unlock (qpdf) tools right now. Like
    * OCR, this is presence-only and honest: `available` only where the web process
@@ -116,8 +125,15 @@ export function buildWorkerStatus(
    * without this the OCR page went dark while real jobs succeeded.
    */
   workerOcr?: boolean,
+  /**
+   * Whether the observed worker's heartbeat reports an ACTIVE malware scanner.
+   * Omitted by any caller that cannot observe one, which resolves to "not scanned" —
+   * a security control must never be reported as present on the strength of silence.
+   */
+  workerScan?: boolean,
 ): WorkerStatus {
   const ocr = buildOcrCapability(mode, ocrEngines, undefined, workerOcr);
+  const scan = buildScanCapability(workerScan);
   // Protect/unlock run on qpdf. The route can pass a dedicated qpdf-security probe;
   // absent that, fall back to the qpdf presence the compression probe already found,
   // so local-dev status reflects it without any extra wiring.
@@ -140,6 +156,7 @@ export function buildWorkerStatus(
         : "Local-dev worker enabled, but no native engine (Ghostscript, qpdf, or mutool) is installed, so deep image compression can't run here. Install one to enable it.",
       compress: { lossless: true, deep, engines },
       ocr,
+      scan,
       security,
       providers,
       daemon,
@@ -156,6 +173,7 @@ export function buildWorkerStatus(
         "A worker backend is configured, but this build ships no processing pipeline yet.",
       compress: { ...NO_COMPRESS },
       ocr,
+      scan,
       security,
       providers,
       daemon,
@@ -171,6 +189,7 @@ export function buildWorkerStatus(
       "No secure worker is configured in this environment. Deep image compression runs on an encrypted, auto-deleting worker when enabled.",
     compress: { ...NO_COMPRESS },
     ocr,
+    scan,
     security,
     providers,
     daemon,

@@ -22,6 +22,7 @@ const DISABLED: WorkerStatus = {
   localDevOnly: false,
   detail: "No secure worker is configured in this environment.",
   compress: { lossless: false, deep: false, engines: [] },
+  scan: { active: false, detail: "not scanned" },
   ocr: {
     available: false,
     engine: null,
@@ -45,6 +46,7 @@ const AVAILABLE: WorkerStatus = {
   localDevOnly: false,
   detail: "A worker backend is configured.",
   compress: { lossless: false, deep: false, engines: [] },
+  scan: { active: false, detail: "not scanned" },
   ocr: {
     available: true,
     engine: "ocrmypdf",

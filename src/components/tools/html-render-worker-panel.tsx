@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileCode, Globe, ShieldCheck, Timer } from "lucide-react";
-import { WORKER_PIPELINE_STAGES } from "@/lib/jobs/capabilities";
+import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
@@ -124,13 +124,13 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {WORKER_PIPELINE_STAGES.map((stage, index) => (
+            {workerPipelineStages(status?.scan.active ?? false).map((stage, index, all) => (
               <li key={stage.id} className="flex items-start gap-3">
                 <div className="flex flex-col items-center self-stretch">
                   <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
                     <Icon className="size-4" aria-hidden />
                   </span>
-                  {index < WORKER_PIPELINE_STAGES.length - 1 && (
+                  {index < all.length - 1 && (
                     <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />
                   )}
                 </div>
