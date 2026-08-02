@@ -43,12 +43,37 @@ export interface AiCompletionRequest {
   maxOutputTokens: number;
   /** Sampling temperature in [0, 1]; defaults to the provider's choice when omitted. */
   temperature?: number;
+  /**
+   * Ask the provider to cache the system instruction so a LATER request that
+   * repeats it byte-for-byte is billed at a fraction of the price.
+   *
+   * Opt-in per tool, because it is a bet, not a free win: the first request pays a
+   * write premium (~1.25x on the cached span) and only a repeat request recovers it.
+   * A tool that asks one question per document and never follows up would pay the
+   * premium forever and never collect — so only `chat-with-pdf`, which accepts prior
+   * conversation turns and re-sends the same document on each one, sets it.
+   *
+   * Providers differ in whether they need to be told: Anthropic requires an explicit
+   * marker, OpenAI caches long prefixes automatically. This flag is the intent; each
+   * adapter decides what, if anything, to put on the wire.
+   */
+  cacheSystem?: boolean;
 }
 
 /** Content-free token accounting a provider MAY report (never required). */
 export interface AiUsage {
   inputTokens: number;
   outputTokens: number;
+  /**
+   * How many of the input tokens were served from the provider's prompt cache.
+   * Absent when the provider does not report it.
+   *
+   * This is the only way to tell whether {@link AiCompletionRequest.cacheSystem} is
+   * actually paying for itself. A run of requests where this stays 0 means the cached
+   * prefix is being invalidated — or that nobody is asking a second question — and
+   * the bet should be reconsidered rather than assumed.
+   */
+  cachedInputTokens?: number;
 }
 
 /**

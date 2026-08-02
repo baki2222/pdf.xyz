@@ -280,6 +280,12 @@ export async function runChatWithPdf(
   const request = {
     system: buildSystemPrompt(grounding, grounded),
     messages,
+    // The document is re-sent verbatim on every follow-up, so it is worth caching:
+    // turn one pays a write premium and each later turn reads the span back at a
+    // fraction of the price. This is the only AI tool that takes prior turns —
+    // summarize, translate and ai-extract ask once per document and never return,
+    // so caching there would pay the premium and never collect it.
+    cacheSystem: true,
     maxOutputTokens,
     // Deterministic, factual question-answering: no creative sampling.
     temperature: 0,
@@ -324,6 +330,17 @@ export async function runChatWithPdf(
       truncatedToCharacters: truncated ? maxChars : null,
     },
     answer: { characters: answer.length, citedPages },
+    ...(completion.usage
+      ? {
+          usage: {
+            input: completion.usage.inputTokens,
+            output: completion.usage.outputTokens,
+            ...(completion.usage.cachedInputTokens !== undefined
+              ? { cachedInput: completion.usage.cachedInputTokens }
+              : {}),
+          },
+        }
+      : {}),
     grounded,
     notice: grounded
       ? "This answer was produced by an AI model from ONLY the SELECTABLE TEXT of the source PDF, with inline page-level citations ([p.N]). The model may still err — verify against the original before relying on it. Nothing was answered from outside the document."
@@ -375,6 +392,17 @@ interface ChatManifest {
   contextTurns: number;
   source: { pageCount: number; characters: number; truncatedToCharacters: number | null };
   answer: { characters: number; citedPages: number[] };
+  /**
+   * Token accounting, when the provider reported it. Counts only — never text.
+   *
+   * `cachedInput` is what makes the caching decision auditable rather than assumed.
+   * Caching the document is a bet that a second question follows: turn one pays a write
+   * premium and only a later turn collects. Recorded next to `contextTurns`, the two
+   * answer the question directly — do requests that carry prior turns actually show
+   * cache reads? If that stays zero across real traffic, the bet is not paying and
+   * `cacheSystem` should come back off.
+   */
+  usage?: { input: number; output: number; cachedInput?: number };
   grounded: boolean;
   notice: string;
 }

@@ -53,7 +53,12 @@ interface AnthropicContentBlock {
 interface AnthropicResponseBody {
   content?: unknown;
   stop_reason?: unknown;
-  usage?: { input_tokens?: unknown; output_tokens?: unknown };
+  usage?: {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+    /** Tokens billed at the cache-read rate; absent when nothing was cached. */
+    cache_read_input_tokens?: unknown;
+  };
 }
 
 /**
@@ -136,7 +141,26 @@ export function createAnthropicProvider(
         max_tokens: request.maxOutputTokens,
         messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
       };
-      if (request.system !== undefined) payload.system = request.system;
+      if (request.system !== undefined) {
+        // Anthropic caches only what it is told to. `cache_control` marks the end of a
+        // reusable prefix; the API hashes the bytes up to that point and a later
+        // request whose prefix matches exactly is billed at roughly a tenth of the
+        // input rate. Render order is tools -> system -> messages, so a marker on the
+        // system block covers the whole document the caller framed the task with,
+        // while the growing conversation stays after it and is priced normally.
+        //
+        // `ephemeral` is the 5-minute TTL. That is the right window here: it costs
+        // ~1.25x to write (the 1-hour TTL costs 2x) and follow-up questions in a chat
+        // arrive in seconds, not hours.
+        //
+        // Below roughly a thousand tokens the API declines to cache and says nothing —
+        // no error, no field, just a request that quietly never gets cheaper. Only the
+        // document makes the system prompt big enough to clear that bar; the fixed
+        // instructions are a few lines and would never cache on their own.
+        payload.system = request.cacheSystem
+          ? [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }]
+          : request.system;
+      }
       if (request.temperature !== undefined) payload.temperature = request.temperature;
 
       const controller = new AbortController();
@@ -213,9 +237,17 @@ export function createAnthropicProvider(
 
       const inputTokens = coerceCount(body.usage?.input_tokens);
       const outputTokens = coerceCount(body.usage?.output_tokens);
+      // `input_tokens` counts only what was NOT served from cache, so a cache hit shows
+      // up as a small `input_tokens` plus a large `cache_read_input_tokens` — reading
+      // the first alone makes a cached request look like a tiny one.
+      const cachedInputTokens = coerceCount(body.usage?.cache_read_input_tokens);
       const usage =
         inputTokens !== undefined && outputTokens !== undefined
-          ? { inputTokens, outputTokens }
+          ? {
+              inputTokens,
+              outputTokens,
+              ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+            }
           : undefined;
 
       return { ok: true, text, model: config.model, ...(usage ? { usage } : {}) };
