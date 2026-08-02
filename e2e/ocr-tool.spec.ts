@@ -28,9 +28,16 @@ test.describe("OCR secure-worker tool page", () => {
 
     // The request summary reflects the options and updates as they change.
     await expect(page.getByText(/English → Searchable PDF/)).toBeVisible();
-    await page.getByRole("button", { name: "Spanish" }).click();
+    // The first pick REPLACES the English default rather than joining it: nobody
+    // chose English, and order is priority — Tesseract weights the first entry as
+    // primary, so appending would leave English primary for a Spanish document.
+    await page.getByRole("button", { name: /^Spanish/ }).click();
+    await expect(page.getByText(/Spanish → Searchable PDF/)).toBeVisible();
+
+    // A second pick appends, preserving the order the user actually chose.
+    await page.getByRole("button", { name: /^English/ }).click();
     await expect(
-      page.getByText(/English, Spanish → Searchable PDF/),
+      page.getByText(/Spanish, English → Searchable PDF/),
     ).toBeVisible();
 
     // Honest capability: disabled in this environment, with a clear reason.

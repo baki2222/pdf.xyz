@@ -239,6 +239,8 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
         pageCount: 7,
         textCharacters: 2_048,
         meanConfidence: null,
+        lowConfidenceWordRatio: null,
+        recognizedWords: null,
       } as unknown as JobResults["ocr"],
     });
     expect(done.ok && done.value.results?.ocr?.engine).toBe("unknown");
@@ -257,6 +259,8 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
       pageCount: 7,
       textCharacters: 2_048,
       meanConfidence: null,
+      lowConfidenceWordRatio: null,
+      recognizedWords: null,
     });
     expect(JSON.stringify(status.value.results)).not.toContain("/opt/");
   });

@@ -334,10 +334,81 @@ export interface OcrResultMeta {
   textCharacters: number | null;
   /**
    * Mean recognition confidence in [0, 1] ONLY when the backend reports it safely;
-   * `null` otherwise. The native OCRmyPDF/Tesseract backend does not currently expose
-   * a document-level confidence, so it stays `null` — it is never invented.
+   * `null` otherwise.
+   *
+   * Populated for IMAGE inputs, where the runner drives Tesseract directly and can ask
+   * it for a per-word TSV. It stays `null` for every PDF input: those go to OCRmyPDF,
+   * which owns its own Tesseract sub-invocation and exposes no confidence, and neither
+   * scraping its private temp dir nor re-OCRing the page just to score it is a trade
+   * worth making. `null` means "not measured" and must be rendered as an absent row,
+   * never as a dash or a zero.
    */
   meanConfidence: number | null;
+  /**
+   * Share of recognized words in [0, 1] scoring below
+   * {@link OCR_LOW_CONFIDENCE_WORD_THRESHOLD}; `null` when not measured.
+   *
+   * Carried alongside the mean because the mean alone is a poor detector: a slightly
+   * soft but correct scan lands in a tight cluster at a lower mean, while a run
+   * against the wrong language produces a long low tail. The shape separates them;
+   * the average hides it.
+   */
+  lowConfidenceWordRatio: number | null;
+  /**
+   * How many words the confidence figures were computed over; `null` when not
+   * measured. Below a couple of dozen the other two numbers are noise, so a consumer
+   * has to be able to tell a confident measurement from a thin one.
+   */
+  recognizedWords: number | null;
+}
+
+/**
+ * Per-word confidence below which Tesseract's own output is treated as shaky. 60 (on
+ * its native 0-100 scale) is the long-standing convention in the Tesseract ecosystem,
+ * not a value derived from this product's corpus — which is exactly why it is used to
+ * describe a distribution rather than to pass or fail a job.
+ */
+export const OCR_LOW_CONFIDENCE_WORD_THRESHOLD = 60;
+
+/**
+ * Fewest recognized words for which the confidence figures mean anything. Below this
+ * a single misread word swings the average, so consumers must not draw a conclusion.
+ */
+export const OCR_MIN_WORDS_FOR_CONFIDENCE_ADVICE = 25;
+
+/** Mean below which recognition is described as shaky. Provisional — see below. */
+const OCR_LOW_MEAN_CONFIDENCE = 0.7;
+/** Low-word share above which recognition is described as shaky. Provisional. */
+const OCR_LOW_WORD_RATIO = 0.35;
+
+/**
+ * Whether a completed run's own numbers suggest the output is worth a second look.
+ *
+ * **This is a quality signal, not a language verdict.** It cannot say "this document is
+ * Bengali" or "you picked the wrong language" — nothing in the pipeline identifies
+ * script, so any such claim would be invention. Low confidence has several ordinary
+ * causes: a blurry or skewed scan, low resolution, an unusual typeface. A wrong
+ * language is one more.
+ *
+ * Returns `false` unless there are enough words to mean something, so a five-word
+ * receipt never triggers an alarm on the strength of one misread token.
+ *
+ * The two thresholds are the Tesseract-ecosystem convention, **not** values derived
+ * from this product's corpus, which is exactly why they drive a suggestion and never a
+ * failure: no job is rejected, retried, or downgraded on this. Once the figures have
+ * been observed across real traffic they should be re-derived from that distribution.
+ */
+export function ocrConfidenceLooksLow(meta: OcrResultMeta): boolean {
+  const { meanConfidence, lowConfidenceWordRatio, recognizedWords } = meta;
+  if (recognizedWords === null || recognizedWords < OCR_MIN_WORDS_FOR_CONFIDENCE_ADVICE) {
+    return false;
+  }
+  // Either signal alone is enough: the mean catches a uniformly poor read, the ratio
+  // catches the long low tail a mean would average away.
+  return (
+    (meanConfidence !== null && meanConfidence < OCR_LOW_MEAN_CONFIDENCE) ||
+    (lowConfidenceWordRatio !== null && lowConfidenceWordRatio > OCR_LOW_WORD_RATIO)
+  );
 }
 
 /** Upper bound on a reported page count — keeps the metric bounded against pathological input. */
@@ -364,6 +435,10 @@ export interface OcrResultMetaInput {
   textCharacters?: number | null;
   /** Backend-reported mean confidence in [0, 1]; null/absent when the backend has none. */
   meanConfidence?: number | null;
+  /** Share of recognized words below the low-confidence threshold, in [0, 1]. */
+  lowConfidenceWordRatio?: number | null;
+  /** How many words the confidence figures were computed over. */
+  recognizedWords?: number | null;
 }
 
 /** Coerce a raw metric to a bounded, non-negative integer in [0, max]; anything else ⇒ null. */
@@ -414,14 +489,17 @@ export function buildOcrResultMeta(input: OcrResultMetaInput): OcrResultMeta {
     if (isOcrLanguage(code) && !languages.includes(code)) languages.push(code);
   }
 
-  const rawConfidence = input.meanConfidence;
-  const meanConfidence =
-    typeof rawConfidence === "number" &&
-    Number.isFinite(rawConfidence) &&
-    rawConfidence >= 0 &&
-    rawConfidence <= 1
-      ? rawConfidence
+  // A unit ratio, or null. Anything outside [0, 1] is a units bug — Tesseract reports
+  // confidence on 0-100, and a silently-nulled 87.4 would put the field straight back
+  // to invisible with no error and no failing test. The parser converts explicitly and
+  // `ocr.test.ts` pins that conversion.
+  const unitRatio = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+      ? value
       : null;
+
+  const meanConfidence = unitRatio(input.meanConfidence);
+  const lowConfidenceWordRatio = unitRatio(input.lowConfidenceWordRatio);
 
   return {
     engine: sanitizeOcrEngineName(input.engine),
@@ -436,5 +514,9 @@ export function buildOcrResultMeta(input: OcrResultMetaInput): OcrResultMeta {
       ? boundedCount(input.textCharacters, OCR_MAX_REPORTED_CHARACTERS)
       : null,
     meanConfidence,
+    lowConfidenceWordRatio,
+    // Bounded like the other counts. A sidecar cannot hold more words than characters,
+    // so the character ceiling is a safe upper bound here too.
+    recognizedWords: boundedCount(input.recognizedWords ?? null, OCR_MAX_REPORTED_CHARACTERS),
   };
 }

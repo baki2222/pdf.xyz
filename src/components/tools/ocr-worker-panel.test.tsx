@@ -126,15 +126,59 @@ describe("OcrWorkerPanel", () => {
     // Default request.
     expect(screen.getByText(/English → Searchable PDF/)).toBeInTheDocument();
 
-    // Add a second language and switch the output mode.
+    // The FIRST pick replaces the default rather than queueing behind it. Nobody
+    // chose English — it is what the control loaded with — and order is priority:
+    // the runner joins the array with `+` and Tesseract weights the first entry as
+    // primary. Appending would have left English primary for a Spanish document,
+    // which is the weighting that returns gibberish.
     screen.getByRole("button", { name: /spanish/i }).click();
     screen.getByRole("radio", { name: "Text sidecar" }).click();
 
     await waitFor(() =>
+      expect(screen.getByText(/Spanish → Text sidecar/)).toBeInTheDocument(),
+    );
+
+    // A SECOND pick appends, so the user's own order is preserved: they asked for
+    // Spanish first, English second.
+    screen.getByRole("button", { name: /^english/i }).click();
+    await waitFor(() =>
       expect(
-        screen.getByText(/English, Spanish → Text sidecar/),
+        screen.getByText(/Spanish, English → Text sidecar/),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("labels the primary language, because position decides the engine's weighting", async () => {
+    stubFetch(DISABLED);
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByText(DISABLED.ocr.detail);
+
+    // With one language there is no ordering to communicate.
+    expect(
+      screen.queryByRole("button", { name: /language 1 of/i }),
+    ).not.toBeInTheDocument();
+
+    screen.getByRole("button", { name: /bengali/i }).click();
+    screen.getByRole("button", { name: /^english/i }).click();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /bengali, language 1 of 2 \(primary\)/i }),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", { name: /english, language 2 of 2/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("warns that the wrong language yields gibberish rather than an error", async () => {
+    stubFetch(DISABLED);
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByText(DISABLED.ocr.detail);
+    // The single most useful sentence on the page, and it costs no new data: a user
+    // who leaves the default alone otherwise gets a successful job and unusable output
+    // with nothing to explain why.
+    expect(screen.getByText(/plausible-looking gibberish/i)).toBeInTheDocument();
   });
 
   it("mounts the real uploader + run action only when OCR is available", async () => {
@@ -181,7 +225,11 @@ describe("OcrResultSummary — safe, structural job metadata", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("Searchable PDF + text")).toBeInTheDocument();
     expect(screen.getByText("Languages")).toBeInTheDocument();
-    expect(screen.getByText("English, Spanish")).toBeInTheDocument();
+    // Twice, deliberately: once as the summary row, once in the closing note that
+    // echoes the language back and warns the wrong one yields gibberish rather than
+    // an error. That note is the only warning a user gets before trusting the output.
+    expect(screen.getAllByText("English, Spanish")).toHaveLength(2);
+    expect(screen.getByText(/plausible-looking gibberish/i)).toBeInTheDocument();
     expect(screen.getByText("1,240 characters")).toBeInTheDocument();
 
     // Structural only: the engine token and the raw language CODES are backend
@@ -223,7 +271,8 @@ describe("OcrResultSummary — safe, structural job metadata", () => {
     });
     render(<OcrResultSummary meta={meta} />);
     expect(screen.getByText("Language")).toBeInTheDocument();
-    expect(screen.getByText("French")).toBeInTheDocument();
+    // Row plus the closing language echo — see the note in the both-mode test above.
+    expect(screen.getAllByText("French")).toHaveLength(2);
     expect(screen.getByText("1 character")).toBeInTheDocument();
   });
 });

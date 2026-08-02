@@ -468,6 +468,8 @@ describe("worker daemon runtime — honesty end-to-end", () => {
       pageCount: 1,
       textCharacters: null,
       meanConfidence: null,
+      lowConfidenceWordRatio: null,
+      recognizedWords: null,
     });
     expect(store.getSlot(slot.fileId)).toBeUndefined();
   });
