@@ -131,8 +131,15 @@ export function buildWorkerStatus(
    * a security control must never be reported as present on the strength of silence.
    */
   workerScan?: boolean,
+  /**
+   * The recognition language packs the observed worker reports actually having.
+   * Absent when no worker is observed, or when an older worker publishes a heartbeat
+   * without the field — in which case OCR falls back to the advertised catalogue and
+   * says so, rather than silently narrowing the menu to nothing.
+   */
+  workerOcrLanguages?: readonly string[],
 ): WorkerStatus {
-  const ocr = buildOcrCapability(mode, ocrEngines, undefined, workerOcr);
+  const ocr = buildOcrCapability(mode, ocrEngines, workerOcrLanguages, workerOcr);
   const scan = buildScanCapability(workerScan);
   // Protect/unlock run on qpdf. The route can pass a dedicated qpdf-security probe;
   // absent that, fall back to the qpdf presence the compression probe already found,

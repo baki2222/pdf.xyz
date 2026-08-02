@@ -22,6 +22,7 @@ const CONFIG: RedisQueueConfig = {
 const CAPS: HeartbeatCapabilities = {
   deepCompression: true,
   ocr: false,
+  ocrLanguages: [],
   malwareScan: true,
   atomicQueue: true,
 };

@@ -45,7 +45,7 @@ import { createProcessorRegistry } from "../processor";
 import type { OcrProcessorDeps } from "../processor/ocr";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { ProcessorCapability } from "../processor/types";
-import { nativeOcrDeps } from "../ocr-native";
+import { nativeOcrDeps, probeInstalledOcrLanguages } from "../ocr-native";
 import { nativeOcrCapability } from "../ocr-native-config";
 import type { OcrEngine } from "../ocr";
 import type {
@@ -155,6 +155,14 @@ export interface OcrRuntimeHealth {
   ready: boolean;
   /** One-line, client-safe explanation. Never a path, version, key, or value. */
   detail: string;
+  /**
+   * The recognition languages whose `traineddata` packs are actually present in this
+   * image, narrowed to the codes the product advertises. `ready` says an engine is
+   * wired; this says what that engine has data for, which is a different question and
+   * a different failure. Published in the heartbeat so the web tier can offer only
+   * languages that will really run. Bounded vocabulary, so content-free.
+   */
+  languages: readonly string[];
 }
 
 /** The resolved runtime: readiness + processor capabilities, and an executor iff runnable. */
@@ -469,6 +477,9 @@ export function resolveWorkerRuntime(
     enabled: ocrConfigCapability.enabled,
     engine: ocrConfigCapability.engine,
     ready: ocrCapability?.ready ?? false,
+    // Read from the image's tessdata directories, never from the advertised list —
+    // the whole point is to report what is installed rather than what is promised.
+    languages: probeInstalledOcrLanguages(env),
     detail:
       ocrCapability?.ready === true
         ? ocrCapability.detail

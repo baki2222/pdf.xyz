@@ -111,17 +111,25 @@ export function buildOcrCapability(
   // no uploader while real jobs succeeded through the queue.
   //
   // `engine` stays null because which engine the worker runs is genuinely not
-  // observable from here, and naming one would be a guess. The languages fall back
-  // to the advertised list for the same reason; if the worker lacks a pack for the
-  // language a user picks, the processor refuses it by name rather than returning
-  // fabricated text.
+  // observable from here, and naming one would be a guess.
+  //
+  // The languages, however, ARE observable now: the heartbeat carries the packs the
+  // running image actually holds, so `installedLanguages` narrows the menu to what
+  // will really run. It used to fall back to the advertised list unconditionally,
+  // which meant the status endpoint promised every catalogued language while its own
+  // detail string conceded the packs were unknowable — a user could pick one the
+  // image had never installed and only discover it after uploading.
   if (!engine && observedOnWorker) {
+    const observed = installedLanguages
+      ? OCR_LANGUAGE_CODES.filter((code) => new Set(installedLanguages).has(code))
+      : null;
     return {
       available: true,
       engine: null,
-      languages: [...OCR_LANGUAGE_CODES],
-      detail:
-        "OCR runs on the out-of-band secure worker, which reports it enabled in its liveness heartbeat — inputs are wiped right after processing. Which engine and language packs that worker holds is not observable from here; a language it lacks fails honestly instead of returning invented text.",
+      languages: observed ?? [...OCR_LANGUAGE_CODES],
+      detail: observed
+        ? "OCR runs on the out-of-band secure worker, which reports it enabled in its liveness heartbeat — inputs are wiped right after processing. The languages listed are the recognition packs that worker actually has installed."
+        : "OCR runs on the out-of-band secure worker, which reports it enabled in its liveness heartbeat — inputs are wiped right after processing. That worker is not reporting which language packs it holds, so this is the full catalogue; a language it lacks fails honestly instead of returning invented text.",
     };
   }
 

@@ -102,7 +102,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
     stubBrokerHeartbeat(
       buildHeartbeat({
         mode: "loop",
-        capabilities: { deepCompression: true, ocr: false, malwareScan: false, atomicQueue: true },
+        capabilities: { deepCompression: true, ocr: false, ocrLanguages: [], malwareScan: false, atomicQueue: true },
         at: Date.now(),
       }),
     );
@@ -122,7 +122,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
     stubBrokerHeartbeat(
       buildHeartbeat({
         mode: "loop",
-        capabilities: { deepCompression: false, ocr: false, malwareScan: false, atomicQueue: true },
+        capabilities: { deepCompression: false, ocr: false, ocrLanguages: [], malwareScan: false, atomicQueue: true },
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window
       }),
     );
@@ -211,6 +211,7 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
                 capabilities: {
                   deepCompression: true,
                   ocr: false,
+                  ocrLanguages: [],
                   malwareScan: false,
                   atomicQueue: true,
                 },

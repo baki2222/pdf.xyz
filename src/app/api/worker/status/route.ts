@@ -72,6 +72,12 @@ export async function GET(request: Request): Promise<Response> {
   // only made when a live heartbeat positively reports an active scanner — an
   // unobserved worker reads as NOT scanning, never as scanning.
   const workerScan = observed && capabilities?.malwareScan === true;
+  // The packs that worker actually has. Only trusted from an observed beat, and only
+  // when non-empty: an older worker publishing no field decodes to `[]`, which must
+  // read as "did not say" and fall back to the catalogue — not as "has no languages",
+  // which would empty the picker on a perfectly healthy deployment.
+  const workerOcrLanguages =
+    observed && capabilities?.ocrLanguages?.length ? capabilities.ocrLanguages : undefined;
 
   return respond(
     ok(
@@ -84,6 +90,7 @@ export async function GET(request: Request): Promise<Response> {
         observed,
         workerOcr,
         workerScan,
+        workerOcrLanguages,
       ),
     ),
   );

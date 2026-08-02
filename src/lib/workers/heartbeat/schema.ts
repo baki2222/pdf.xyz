@@ -21,6 +21,7 @@
  * whole classification is unit-tested with no real Redis, network, or timers.
  */
 
+import { OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
 import {
   WORKER_HEARTBEAT_SCHEMA_VERSION,
   HEARTBEAT_ROLE,
@@ -96,12 +97,31 @@ function boolOf(value: unknown): boolean {
   return value === true;
 }
 
-/** Normalize an arbitrary capabilities shape to the four bounded booleans. */
+/**
+ * Normalize an arbitrary value to the bounded set of advertised OCR language codes.
+ *
+ * A trust boundary, read defensively like every other field here: anything that is
+ * not a string from `OCR_LANGUAGE_CODES` is dropped, so a corrupted, hostile, or
+ * simply newer record can never widen the vocabulary. Emitting in menu order also
+ * caps the length at 21 and makes the value stable regardless of the order the
+ * worker probed its tessdata directories in.
+ */
+function ocrLanguagesOf(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  const present = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry === "string") present.add(entry);
+  }
+  return OCR_LANGUAGE_CODES.filter((code) => present.has(code));
+}
+
+/** Normalize an arbitrary capabilities shape to the bounded capability summary. */
 function capabilitiesOf(value: unknown): HeartbeatCapabilities {
   const src = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   return {
     deepCompression: boolOf(src.deepCompression),
     ocr: boolOf(src.ocr),
+    ocrLanguages: ocrLanguagesOf(src.ocrLanguages),
     malwareScan: boolOf(src.malwareScan),
     atomicQueue: boolOf(src.atomicQueue),
   };
@@ -144,6 +164,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
     capabilities: {
       deepCompression: hb.capabilities.deepCompression,
       ocr: hb.capabilities.ocr,
+      ocrLanguages: [...hb.capabilities.ocrLanguages],
       malwareScan: hb.capabilities.malwareScan,
       atomicQueue: hb.capabilities.atomicQueue,
     },

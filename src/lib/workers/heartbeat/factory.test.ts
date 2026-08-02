@@ -90,7 +90,7 @@ describe("createHeartbeatPublisher", () => {
     const fake = createFakeRedis();
     const publisher = createHeartbeatPublisher(ENABLED_ENV, {
       mode: "loop",
-      capabilities: { deepCompression: true, ocr: true, malwareScan: false, atomicQueue: true },
+      capabilities: { deepCompression: true, ocr: true, ocrLanguages: [], malwareScan: false, atomicQueue: true },
       deps: { client: fake, now: () => 1_000 },
     });
     expect(publisher.capability.enabled).toBe(true);
@@ -119,7 +119,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
       serializeHeartbeat(
         buildHeartbeat({
           mode: "drain",
-          capabilities: { deepCompression: false, ocr: false, malwareScan: false, atomicQueue: true },
+          capabilities: { deepCompression: false, ocr: false, ocrLanguages: [], malwareScan: false, atomicQueue: true },
           at: now,
         }),
       ),

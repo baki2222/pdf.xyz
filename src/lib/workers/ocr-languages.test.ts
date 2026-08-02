@@ -121,10 +121,23 @@ describe("buildOcrCapability — OCR observed on the out-of-band worker", () => 
     expect(buildOcrCapability("disabled", undefined, undefined, true).engine).toBeNull();
   });
 
-  it("says plainly that the worker's packs are not observable from here", () => {
+  it("admits it is guessing when the worker does not report its packs", () => {
+    // The honest fallback, unchanged in substance: with no observed pack list the menu
+    // is the full catalogue, and the copy has to say so rather than implying the
+    // worker was asked and answered.
     const { detail } = buildOcrCapability("disabled", undefined, undefined, true);
-    expect(detail).toMatch(/not observable from here/i);
+    expect(detail).toMatch(/not reporting which language packs/i);
     expect(detail).toMatch(/fails honestly/i);
+  });
+
+  it("reports the observed packs, and says they are observed, once the worker sends them", () => {
+    // This assertion used to read `not observable from here`, which was true when the
+    // heartbeat carried only a boolean. It now carries the language list, so a claim
+    // of ignorance would itself be the inaccurate statement.
+    const capability = buildOcrCapability("disabled", undefined, ["eng", "ben"], true);
+    expect(capability.languages).toEqual(["eng", "ben"]);
+    expect(capability.detail).toMatch(/actually has installed/i);
+    expect(capability.detail).not.toMatch(/not observable from here/i);
   });
 
   it("stays unavailable when no worker reported OCR", () => {
