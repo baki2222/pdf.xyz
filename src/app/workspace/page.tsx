@@ -12,6 +12,9 @@ export const metadata: Metadata = buildMetadata({
   description:
     "Your private pdf.xyz workspace. Stage files locally in your browser, get file-aware tool suggestions, and line up batches. Nothing is uploaded.",
   path: "/workspace",
+  // Without this the file-convention card is ignored: buildMetadata always sets
+  // an explicit openGraph.images, and explicit beats convention.
+  imagePath: "/workspace/opengraph-image",
   noIndex: true,
 });
 

@@ -34,6 +34,58 @@ export const OG_BACKGROUND_IMAGE = [
 ].join(", ");
 
 /**
+ * Fonts for the page cards (`/tools`, `/tools/[slug]`, `/workspace`).
+ *
+ * Read from `src/assets/fonts` rather than fetched, so a card renders identically
+ * offline and at build time. Kept here so a new card cannot quietly pick a
+ * different typeface than the ones beside it — the site-wide brand card is a
+ * deliberate exception and loads Geist on its own.
+ */
+export async function loadCardFonts() {
+  const dir = join(process.cwd(), "src/assets/fonts");
+  const [bold, regular] = await Promise.all([
+    readFile(join(dir, "Inter-Bold.woff")),
+    readFile(join(dir, "Inter-Regular.woff")),
+  ]);
+  return [
+    { name: "Inter", data: bold, weight: 700 as const, style: "normal" as const },
+    { name: "Inter", data: regular, weight: 400 as const, style: "normal" as const },
+  ];
+}
+
+/**
+ * The wordmark lockup every page card opens with.
+ *
+ * Drawn with divs rather than the shared SVG data URI because Satori renders the
+ * two slightly differently at this size, and three cards drifting apart is exactly
+ * what this file exists to prevent.
+ */
+export function OgWordmark() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 72,
+          height: 72,
+          borderRadius: 20,
+          background: "linear-gradient(135deg, #8b5cf6, #6366f1 55%, #3b82f6)",
+          boxShadow: "0 12px 40px rgba(99,102,241,0.45)",
+        }}
+      >
+        <div style={{ width: 34, height: 43, borderRadius: 6, background: "#ffffff" }} />
+      </div>
+      <div style={{ display: "flex", fontSize: 38, fontWeight: 700 }}>
+        <span>pdf</span>
+        <span style={{ color: "#a5b4fc" }}>.xyz</span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The pdf.xyz mark: a gradient rounded square + document glyph. Kept in sync
  * with `src/app/icon.svg` (the static favicon) so every surface reads the same.
  */
