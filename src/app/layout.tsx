@@ -5,6 +5,7 @@ import { siteConfig } from "@/lib/site";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { WebVitals } from "@/components/telemetry/web-vitals";
+import { LiveRegion } from "@/components/a11y/live-region";
 import { isTelemetryEnabled } from "@/lib/telemetry";
 import { cn } from "@/lib/utils";
 import "./globals.css";
@@ -89,6 +90,11 @@ export default function RootLayout({
         <SiteHeader />
         <main id="main">{children}</main>
         <SiteFooter />
+        {/* The app's single ARIA live region. It lives here, above every route,
+            because the one that already existed was rendered inside a runner's
+            editor branch and was unmounted by the early return that showed the
+            result — silent at the only moment it mattered. */}
+        <LiveRegion />
         {/* Privacy-safe Web Vitals — only mounted when a telemetry endpoint is
             configured; otherwise this is not rendered and ships no listener. */}
         {isTelemetryEnabled() && <WebVitals />}

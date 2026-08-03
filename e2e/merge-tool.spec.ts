@@ -34,5 +34,22 @@ test("merge combines uploaded PDFs client-side and yields a download", async ({
     page.getByRole("button", { name: /download merged pdf/i }),
   ).toBeVisible();
 
+  // The finished run has to reach someone who cannot see it appear. Assert on
+  // the NAMED group rather than on ":focus" containing some text — <body> also
+  // satisfies the loose version, so it would pass on the broken build.
+  const outcome = page.getByRole("group", { name: /pdfs merged/i });
+  await expect(outcome).toBeFocused();
+
+  // From the outcome, the download must be one Tab away, and that click has to
+  // land. jsdom can verify neither: it implements no smooth scrolling, so every
+  // unit test passes with or without `preventScroll`, while a real browser
+  // glides — and this repo has already lost clicks to exactly that glide, press
+  // and release resolving to different elements. Clicking here is the only place
+  // that hazard is actually observed.
+  await page.keyboard.press("Tab");
+  const download = page.getByRole("button", { name: /download merged pdf/i });
+  await expect(download).toBeFocused();
+  await download.click();
+
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
 });

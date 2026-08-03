@@ -261,7 +261,11 @@ function ChatBuilder() {
         <Dropzone onFiles={(files) => chooseFile(files[0] ?? null)} accept="application/pdf,.pdf" multiple={false} compact title="Add your PDF, or" hint="PDF with selectable text to ask about" />
       )}
 
-      {transcript.length > 0 && <Transcript entries={transcript} />}
+      {/* Always mounted. Gating this on `transcript.length > 0` inserted the live
+          region and its first answer in the same commit to the DOM, and a region
+          that arrives already containing its text is not a change — nothing is
+          spoken. The empty list costs nothing and is what makes the log work. */}
+      <Transcript entries={transcript} />
 
       <label className="flex flex-col gap-1 text-xs text-slate-400">
         {transcript.length > 0 ? "Ask a follow-up" : "Your question"}
@@ -309,7 +313,10 @@ function ChatBuilder() {
 /** The conversation so far: each question, the model's real answer, and its package. */
 function Transcript({ entries }: { entries: TranscriptEntry[] }) {
   return (
-    <ol className="flex flex-col gap-3">
+    /* `log` rather than `status`: answers arrive in sequence and the order is
+       meaningful, and unlike a focus move it never interrupts someone midway
+       through typing their follow-up. */
+    <ol role="log" aria-live="polite" className="flex flex-col gap-3">
       {entries.map((entry) => (
         <li key={entry.id} className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <p className="text-sm font-medium text-slate-200">{entry.question}</p>
