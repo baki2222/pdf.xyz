@@ -68,6 +68,50 @@ async function textPdf(): Promise<Buffer> {
 }
 
 /**
+ * A deliberately LONG text PDF, used only by the chat conversation proof.
+ *
+ * Size is the point. Providers cache a long prompt prefix automatically and only
+ * above a minimum length (OpenAI's is documented at 1024 tokens), so a follow-up
+ * question about a three-line fixture can never report a cache read no matter how
+ * well caching works. Measured against production on 2026-08-04, the short
+ * `textPdf` produced `input=216, cachedInput=0` — a zero that says nothing, and
+ * which reads as "the caching bet is not paying" to anyone who does not know the
+ * prompt was too small to be cacheable in the first place.
+ *
+ * This fixture carries a few thousand tokens of real prose so the document prefix
+ * clears any plausible threshold, and `cachedInput` on the follow-up becomes an
+ * actual measurement of the bet rather than a foregone zero.
+ */
+async function chatDocPdf(): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  // Distinct, factual sentences rather than one repeated line: a provider may
+  // collapse trivially repetitive text, and the follow-up question ("which document
+  // were you just asked about?") should have a real document to be about.
+  const topics = [
+    "retention", "encryption", "signed uploads", "queue draining", "artifact expiry",
+    "malware scanning", "structural preflight", "sandbox isolation", "egress policy",
+    "language packs", "confidence scoring", "prompt caching",
+  ];
+  for (let p = 0; p < 6; p++) {
+    const page = doc.addPage([595, 842]);
+    page.drawText(`pdf.xyz platform notes — section ${p + 1}`, {
+      x: 60, y: 790, size: 14, font: bold,
+    });
+    for (let line = 0; line < 34; line++) {
+      const topic = topics[(p * 34 + line) % topics.length];
+      page.drawText(
+        `Section ${p + 1} paragraph ${line + 1} records how ${topic} behaves on the ` +
+          `secure worker, and why it is reported rather than assumed.`,
+        { x: 60, y: 760 - line * 21, size: 9, font },
+      );
+    }
+  }
+  return Buffer.from(await doc.save());
+}
+
+/**
  * A PDF whose text is laid out as a column-aligned grid, which is what the table
  * engine detects. Columns sit at fixed x positions and rows at fixed y.
  */
@@ -390,6 +434,48 @@ ${styleList("bgFillStyleLst", `<a:solidFill><a:schemeClr val="phClr"/></a:solidF
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
+// ─────────────────────────── chat conversation proof ─────────────────────────
+
+/**
+ * The slice of `chat-with-pdf`'s `manifest.json` this proof reads. Counts only —
+ * the harness never prints the answer text.
+ */
+interface ChatProofManifest {
+  question?: string;
+  contextTurns?: number;
+  usage?: { input?: number; output?: number; cachedInput?: number };
+}
+
+/** Read `manifest.json` + `answer.txt` out of a chat answer ZIP. */
+async function readChatAnswer(
+  zipBytes: Buffer,
+): Promise<{ manifest: ChatProofManifest; answer: string }> {
+  const zip = await JSZip.loadAsync(zipBytes);
+  const manifestFile = zip.file("manifest.json");
+  const answerFile = zip.file("answer.txt");
+  if (!manifestFile || !answerFile) {
+    throw new Error("the answer ZIP is missing manifest.json or answer.txt");
+  }
+  const manifest = JSON.parse(await manifestFile.async("string")) as ChatProofManifest;
+  return { manifest, answer: (await answerFile.async("string")).trim() };
+}
+
+/**
+ * The contract caps one turn at `MAX_TURN_CHARS` (4000) and `POST /api/jobs` caps the
+ * whole options object at 8 KB of UTF-8, so a long answer has to be shortened before
+ * it can travel back as context — exactly what the browser-side builder does. Kept
+ * well under both so this proof fails on the worker's behaviour, never on a bound.
+ */
+const PROOF_TURN_CHARS = 1500;
+
+/** Report token accounting without ever printing text. */
+function usageNote(m: ChatProofManifest): string {
+  if (!m.usage) return "usage not reported";
+  const cached = m.usage.cachedInput;
+  return `input=${m.usage.input ?? "?"} output=${m.usage.output ?? "?"} ` +
+    `cachedInput=${cached ?? 0}${cached ? "" : " (no cache read)"}`;
+}
+
 // ────────────────────────────────── specs ────────────────────────────────────
 
 interface ProofSpec {
@@ -404,7 +490,30 @@ interface ProofSpec {
   /** URL-input tools carry no file; the source goes in `options.url`. */
   url?: string;
   options?: Record<string, unknown>;
+  /**
+   * Build `options` from a previously kept artifact, for a spec whose dependency on
+   * the earlier run is its CONTENT rather than its bytes-as-input. `from` re-uploads
+   * a prior artifact as the new file; this instead reads a prior artifact to compose
+   * the new request — which is what a chat follow-up needs, since it carries the
+   * previous question and answer as conversation context while re-sending the same
+   * document.
+   */
+  optionsFrom?: {
+    artifact: string;
+    build: (bytes: Buffer) => Promise<Record<string, unknown>>;
+  };
   expect: (bytes: Buffer) => boolean;
+  /**
+   * Assert on what is INSIDE the artifact, once its container shape has passed.
+   *
+   * `expect` can only see the envelope — every AI tool returns a ZIP, so it answers
+   * "a ZIP came back", which stays true even if the feature under test did nothing.
+   * A conversation proof needs the stronger claim that the worker actually received
+   * and used the prior turns, and that lives in the manifest inside the ZIP. The
+   * returned detail is printed on success, so a measurement (rather than a mere
+   * pass) reaches the operator.
+   */
+  verify?: (bytes: Buffer) => Promise<{ ok: boolean; detail: string }>;
   want: string;
   keepArtifactAs?: string;
 }
@@ -482,9 +591,59 @@ const SPECS: ProofSpec[] = [
       ],
     },
     expect: isZipContainer, want: "extraction ZIP" },
-  { tool: "chat-with-pdf", make: textPdf, name: "doc.pdf", type: PDF_MIME,
+  { tool: "chat-with-pdf", make: chatDocPdf, name: "doc.pdf", type: PDF_MIME,
     options: { question: "In one sentence, what is this document for?" },
-    expect: isZipContainer, want: "answer ZIP" },
+    expect: isZipContainer, want: "answer ZIP",
+    // Pins the OPENING turn as context-free. Without this the follow-up below could
+    // pass while every request silently carried the same context, and neither spec
+    // would notice.
+    verify: async (bytes) => {
+      const { manifest } = await readChatAnswer(bytes);
+      const turns = manifest.contextTurns ?? -1;
+      return turns === 0
+        ? { ok: true, detail: `contextTurns=0 (opening turn), ${usageNote(manifest)}` }
+        : { ok: false, detail: `opening turn reported contextTurns=${turns}, wanted 0` };
+    },
+    keepArtifactAs: "chat-answer-1" },
+  // The conversation itself. `chat-with-pdf` accepted prior turns on the wire long
+  // before anything produced any, so the tool shipped unable to hold a conversation
+  // while every readiness surface said it was fine. The spec above cannot catch that:
+  // it sends no context, so it passes identically whether or not the worker supports
+  // any. This one sends a real follow-up built from the previous answer and asserts
+  // the worker received both turns — a claim that is false if context is dropped
+  // anywhere between the API, the queue, the engine and the provider.
+  //
+  // It also carries the only measurement of the prompt-caching bet. Caching the
+  // document is justified in the engine by follow-ups re-sending it verbatim, and
+  // `cachedInput` is the number that decides whether that pays. Nothing else in this
+  // repo ever issues a request carrying prior turns, so without this spec the bet
+  // stays unfalsifiable no matter how long the deployment runs.
+  { tool: "chat-with-pdf", label: "chat-with-pdf (follow-up)",
+    // The SAME document as the opening turn: the cached span is the document inside
+    // the system prompt, so a different fixture here would guarantee a miss.
+    make: chatDocPdf, name: "doc.pdf", type: PDF_MIME,
+    optionsFrom: {
+      artifact: "chat-answer-1",
+      build: async (bytes) => {
+        const { manifest, answer } = await readChatAnswer(bytes);
+        const asked = manifest.question ?? "In one sentence, what is this document for?";
+        return {
+          question: "Which document were you just asked about?",
+          context: [
+            { role: "user", content: asked.slice(0, PROOF_TURN_CHARS) },
+            { role: "assistant", content: answer.slice(0, PROOF_TURN_CHARS) },
+          ],
+        };
+      },
+    },
+    expect: isZipContainer, want: "answer ZIP",
+    verify: async (bytes) => {
+      const { manifest } = await readChatAnswer(bytes);
+      const turns = manifest.contextTurns ?? -1;
+      return turns === 2
+        ? { ok: true, detail: `contextTurns=2 (conversation held), ${usageNote(manifest)}` }
+        : { ok: false, detail: `follow-up reported contextTurns=${turns}, wanted 2 — prior turns did not reach the worker` };
+    } },
 ];
 
 /** Worker-backed tools with no spec above — a new tool must arrive with a proof. */
@@ -581,7 +740,19 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     ...(inputNames ? { inputNames } : {}),
   };
   if (spec.url) request.options = { url: spec.url };
-  else if (spec.options) request.options = spec.options;
+  else if (spec.optionsFrom) {
+    const prior = carried.get(spec.optionsFrom.artifact);
+    if (!prior) {
+      return { label, ok: false, seconds: seconds(), stage: "options",
+               detail: `no carried "${spec.optionsFrom.artifact}"` };
+    }
+    try {
+      request.options = await spec.optionsFrom.build(prior);
+    } catch (error) {
+      return { label, ok: false, seconds: seconds(), stage: "options",
+               detail: (error as Error).message };
+    }
+  } else if (spec.options) request.options = spec.options;
 
   const created = await postJson("/api/jobs", request);
   if (!created.res.ok) {
@@ -622,9 +793,25 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     return { label, ok: false, seconds: seconds(), stage: "artifact shape",
              detail: `wanted ${spec.want}, got ${buf.length}B starting ${JSON.stringify(buf.subarray(0, 8).toString("latin1"))}` };
   }
+  // Contents, once the envelope is right. Kept separate from `expect` so a failure
+  // here reads as "the tool ran but did not do the thing", not "wrong file type".
+  let verified = "";
+  if (spec.verify) {
+    let outcome: { ok: boolean; detail: string };
+    try {
+      outcome = await spec.verify(buf);
+    } catch (error) {
+      outcome = { ok: false, detail: (error as Error).message };
+    }
+    if (!outcome.ok) {
+      return { label, ok: false, seconds: seconds(), stage: "artifact contents",
+               detail: outcome.detail };
+    }
+    verified = ` — ${outcome.detail}`;
+  }
   if (spec.keepArtifactAs) carried.set(spec.keepArtifactAs, buf);
   return { label, ok: true, seconds: seconds(),
-           detail: `${artifact.filename} — ${buf.length}B ${spec.want}` };
+           detail: `${artifact.filename} — ${buf.length}B ${spec.want}${verified}` };
 }
 
 async function main(): Promise<number> {
