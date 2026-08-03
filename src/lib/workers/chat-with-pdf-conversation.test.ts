@@ -13,6 +13,7 @@
  *     contract's bounds move, this fails instead of the user's follow-up question.
  */
 import { describe, expect, it, vi } from "vitest";
+import { parseCreateJobRequest } from "@/lib/jobs/validation";
 import {
   MAX_CONTEXT_TURNS,
   MAX_TURN_CHARS,
@@ -188,5 +189,64 @@ describe("the whole follow-up round trip", () => {
     // existed, `contextTurns` was 0 on every request the product had ever made.
     expect(parsed.value.context).toHaveLength(2);
     expect(context.turns[1]?.content).toBe(ANSWER);
+  });
+});
+
+/**
+ * The limit that actually binds, tested against the validator that actually rejects.
+ *
+ * The rest of this file rounds context through `parseChatOptions`, the tool contract —
+ * and that check passed while the feature was broken, because `POST /api/jobs` refuses
+ * the whole `options` object by UTF-8 BYTES *before* any tool-specific parsing runs.
+ * The contract counts UTF-16 characters, so a context it happily accepts could still be
+ * 2x over the API cap, and every follow-up after the first would fail permanently with
+ * an error the user could do nothing about.
+ *
+ * Driving `parseCreateJobRequest` here is the point: it is the real gate, and it is the
+ * one the previous tests never touched.
+ */
+describe("context fits the request the API will actually accept", () => {
+  const submit = (turns: ReturnType<typeof buildChatContext>["turns"]) =>
+    parseCreateJobRequest({
+      tool: "chat-with-pdf",
+      inputs: ["f_1234567890"],
+      inputNames: ["doc.pdf"],
+      options: {
+        question: "What does section 4 say?",
+        ...(turns.length > 0 ? { context: turns } : {}),
+      },
+    });
+
+  const exchanges = (count: number, text: string) =>
+    Array.from({ length: count }, (_, i) => ({ question: `Question ${i}? ${text}`, answer: text }));
+
+  it.each([
+    ["a long English conversation", 12, "x".repeat(MAX_TURN_CHARS)],
+    ["a long Bengali conversation", 6, "ক".repeat(3000)],
+    ["one enormous Bengali exchange", 1, "ক".repeat(MAX_TURN_CHARS)],
+    ["many short exchanges", 24, "A short grounded answer."],
+  ])("%s is accepted", (_label, count, text) => {
+    const built = buildChatContext(exchanges(count, text));
+    const parsed = submit(built.turns);
+    // Bengali is the case that matters most here: UTF-8 spends three bytes on each
+    // character, so a conversation in Bangla hits the byte cap a full turn earlier than
+    // the same conversation in English.
+    expect(parsed.ok, JSON.stringify(parsed.ok ? {} : parsed.error)).toBe(true);
+  });
+
+  it("still sends the most recent exchange rather than giving up on context", () => {
+    // Dropping everything would keep the request valid and make the feature pointless —
+    // a follow-up that carries no context is just a new question.
+    const built = buildChatContext(exchanges(8, "y".repeat(MAX_TURN_CHARS)));
+    expect(built.turns.length).toBeGreaterThanOrEqual(2);
+    expect(built.turns.at(-1)?.role).toBe("assistant");
+    expect(submit(built.turns).ok).toBe(true);
+  });
+
+  it("reports every exchange it left out, however it was excluded", () => {
+    // The panel repeats this number to the user. Counting only the turn-cap drops and
+    // silently omitting the byte-budget ones would understate what the model was told.
+    const built = buildChatContext(exchanges(8, "z".repeat(MAX_TURN_CHARS)));
+    expect(built.droppedExchanges).toBe(8 - built.turns.length / 2);
   });
 });

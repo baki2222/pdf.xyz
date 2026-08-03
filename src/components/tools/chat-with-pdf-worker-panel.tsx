@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, MessageSquare, ShieldCheck, Sparkles, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
@@ -181,7 +181,20 @@ function ChatBuilder() {
 
   // The conversation belongs to one document; swapping the file must not let turns
   // about the old PDF be sent as context for the new one.
+  /**
+   * Identifies which document the in-flight request belongs to.
+   *
+   * A job takes seconds to minutes, and nothing stops the user swapping the PDF while
+   * one is running — the uploader and the Remove button both stay live. Without this,
+   * a result that lands after a swap appends the OLD document's exchange to the
+   * just-cleared transcript, and the next follow-up sends it as context for the NEW
+   * PDF: the model is asked about one document while being shown another, and the
+   * panel displays it as if it belonged to the file on screen.
+   */
+  const fileToken = useRef(0);
+
   const chooseFile = useCallback((next: File | null) => {
+    fileToken.current += 1;
     setFile(next);
     setTranscript([]);
     setError(null);
@@ -190,6 +203,7 @@ function ChatBuilder() {
   const start = useCallback(async () => {
     if (!file || !requestReady) return;
     const asked = question.trim();
+    const startedFor = fileToken.current;
     setBusy(true);
     setError(null);
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -199,8 +213,20 @@ function ChatBuilder() {
       question: asked,
       ...(context.turns.length > 0 ? { context: context.turns } : {}),
     });
+    // The document changed while this was running: the answer is about a file the user
+    // has already replaced, so it belongs to no transcript on screen. Drop it rather
+    // than showing it under the wrong PDF.
+    if (fileToken.current !== startedFor) {
+      setBusy(false);
+      return;
+    }
     if (result.ok) {
       const answer = await readAnswerFromPackage(result.output, asked);
+      // Re-checked after the await: reading the package is itself asynchronous.
+      if (fileToken.current !== startedFor) {
+        setBusy(false);
+        return;
+      }
       setTranscript((prev) => [
         ...prev,
         { id: prev.length, question: asked, answer, filename: result.artifact.filename, output: result.output },

@@ -3,6 +3,7 @@ import {
   MAX_TURN_CHARS,
   type ChatTurn,
 } from "@/lib/jobs/chat-with-pdf";
+import { JOB_LIMITS } from "@/lib/jobs/types";
 
 /**
  * Browser-side conversation state for `chat-with-pdf`.
@@ -39,7 +40,7 @@ export interface ChatExchange {
 export interface ChatContext {
   /** Complete user/assistant pairs, oldest first — exactly what the contract wants. */
   turns: ChatTurn[];
-  /** Older exchanges left out entirely because of `MAX_CONTEXT_TURNS`. */
+  /** Older exchanges left out entirely, by turn count or by the byte budget. */
   droppedExchanges: number;
   /** Turns shortened to fit `MAX_TURN_CHARS`. */
   shortenedTurns: number;
@@ -47,6 +48,58 @@ export interface ChatContext {
 
 /** Most recent exchanges that fit within the contract's turn budget (2 turns each). */
 const MAX_CONTEXT_EXCHANGES = Math.floor(MAX_CONTEXT_TURNS / 2);
+
+/**
+ * Byte budget for the serialized `context` — the limit that actually binds.
+ *
+ * The chat contract counts UTF-16 CHARACTERS (`MAX_TURN_CHARS`), but `POST /api/jobs`
+ * rejects the whole `options` object by UTF-8 BYTES before any tool-specific parsing
+ * runs, so a context the contract accepts can still be refused by the API in front of
+ * it. At the contract's own maximum the payload measures ~48 KB against an 8 KB cap,
+ * and the gap is worse for any non-Latin script: a Bengali character costs three bytes,
+ * so a conversation in Bangla would die a full turn earlier than the same one in
+ * English.
+ *
+ * Unbudgeted, the failure is silent and permanent — the context is rebuilt from the same
+ * transcript on every attempt, so each retry reproduces the identical oversized body and
+ * the only escape is discarding the conversation.
+ *
+ * The reserve leaves room for `question` and the JSON scaffolding travelling in the same
+ * object, so this is what remains for `context` rather than the whole cap.
+ */
+const OPTIONS_BYTE_RESERVE = 2 * 1024;
+const CONTEXT_BYTE_BUDGET = JOB_LIMITS.maxOptionsBytes - OPTIONS_BYTE_RESERVE;
+
+/** Serialized UTF-8 size of a turn as it will travel inside `options`. */
+function turnBytes(turn: ChatTurn): number {
+  return new TextEncoder().encode(JSON.stringify(turn)).length;
+}
+
+/**
+ * Shorten `text` until its serialized turn fits `limit` bytes.
+ *
+ * The character clamp alone cannot keep the newest exchange inside the budget: one pair
+ * at the contract's 4,000-character maximum serializes to about 8 KB, so without this a
+ * single long answer would leave the next question with NO context at all — honest, but
+ * the feature would quietly stop working exactly when a conversation got substantive.
+ *
+ * Cuts by code point, never by byte, so a multi-byte character is never split into
+ * invalid UTF-8, and re-appends the marker the character clamp uses so a byte-shortened
+ * turn reads to the model exactly like a character-shortened one.
+ */
+function clampTurnBytes(role: ChatTurn["role"], text: string, limit: number): string {
+  if (turnBytes({ role, content: text }) <= limit) return text;
+  const chars = [...text];
+  let low = 0;
+  let high = chars.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = `${chars.slice(0, mid).join("").trimEnd()}${SHORTENED_MARKER}`;
+    if (turnBytes({ role, content: candidate }) <= limit) low = mid;
+    else high = mid - 1;
+  }
+  return `${chars.slice(0, low).join("").trimEnd()}${SHORTENED_MARKER}`;
+}
 
 /**
  * Appended when a turn is clipped, so a shortened answer never reads as a complete one
@@ -87,22 +140,48 @@ export function buildChatContext(exchanges: readonly ChatExchange[]): ChatContex
       clampTurn(exchange.answer).content.length > 0,
   );
 
-  const kept = usable.slice(-MAX_CONTEXT_EXCHANGES);
-  const turns: ChatTurn[] = [];
-  let shortenedTurns = 0;
+  const capped = usable.slice(-MAX_CONTEXT_EXCHANGES);
 
-  for (const exchange of kept) {
-    for (const [role, text] of [
-      ["user", exchange.question],
-      ["assistant", exchange.answer],
-    ] as const) {
-      const { content, shortened } = clampTurn(text);
-      if (shortened) shortenedTurns += 1;
-      turns.push({ role, content });
+  // Newest-first, so the byte budget is spent on the exchanges nearest the question
+  // being asked; reversed at the end because the contract wants oldest first.
+  const pairs: ChatTurn[][] = [];
+  let shortenedTurns = 0;
+  let bytes = 0;
+
+  for (let i = capped.length - 1; i >= 0; i -= 1) {
+    const exchange = capped[i]!;
+    const question = clampTurn(exchange.question);
+    const answer = clampTurn(exchange.answer);
+    let questionText = question.content;
+    let answerText = answer.content;
+
+    // The newest exchange is shortened to fit rather than dropped, so a follow-up always
+    // carries at least its immediate predecessor. Older ones are dropped whole: squeezing
+    // several long exchanges into one budget leaves each too mangled to be worth sending.
+    if (pairs.length === 0) {
+      const half = Math.floor(CONTEXT_BYTE_BUDGET / 2);
+      questionText = clampTurnBytes("user", questionText, half);
+      answerText = clampTurnBytes("assistant", answerText, half);
     }
+
+    const pair: ChatTurn[] = [
+      { role: "user", content: questionText },
+      { role: "assistant", content: answerText },
+    ];
+    const pairBytes = pair.reduce((total, turn) => total + turnBytes(turn), 0);
+    // A pair is kept whole or not at all: half of one would break the strict
+    // user/assistant alternation the contract requires for every turn after it.
+    if (bytes + pairBytes > CONTEXT_BYTE_BUDGET) break;
+    bytes += pairBytes;
+    if (questionText.endsWith(SHORTENED_MARKER)) shortenedTurns += 1;
+    if (answerText.endsWith(SHORTENED_MARKER)) shortenedTurns += 1;
+    pairs.push(pair);
   }
 
-  return { turns, droppedExchanges: usable.length - kept.length, shortenedTurns };
+  const turns = pairs.reverse().flat();
+  // Everything the transcript held that this context does not carry, however it was
+  // excluded — the user only needs to know how much of their conversation the model saw.
+  return { turns, droppedExchanges: usable.length - pairs.length, shortenedTurns };
 }
 
 /**
