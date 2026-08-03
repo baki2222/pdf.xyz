@@ -1,0 +1,240 @@
+// @vitest-environment jsdom
+/**
+ * The Chat with PDF panel, tested for the one thing it could not previously do: hold a
+ * conversation.
+ *
+ * Every layer beneath this component — the job contract, the client driver, the engine,
+ * both AI providers — has always accepted prior conversation turns, and each has tests
+ * proving it. The panel never produced any, so `contextTurns` was 0 on every request the
+ * product ever made, a tool named "Chat with PDF" answered each question as if it were
+ * the first, and the engine's `cacheSystem: true` bet (justified there as "the only AI
+ * tool that takes prior turns") had nothing to collect on.
+ *
+ * The load-bearing assertion is therefore on the SECOND request's `context`. To keep it
+ * from passing for the wrong reason, the stubbed worker returns a package built by the
+ * REAL engine — so the answer the panel shows and carries forward is one that was really
+ * recovered from a real package, not a string handed to the component by the test.
+ */
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { getToolBySlug } from "@/lib/tools";
+import type { ExtractedPdfText } from "@/lib/pdf/text";
+import type { WorkerStatus } from "@/lib/workers/status";
+import { getProviderReadiness } from "@/lib/workers/providers";
+import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
+import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
+import { MAX_CONTEXT_TURNS } from "@/lib/jobs/chat-with-pdf";
+import type { AiProvider } from "@/lib/workers/ai/provider";
+import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
+import { resetTelemetry } from "@/lib/telemetry/track";
+
+const runWorkerChatWithPdf = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/workers/chat-with-pdf-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workers/chat-with-pdf-client")>()),
+  runWorkerChatWithPdf,
+}));
+
+// Imported after the mock so the panel picks up the stubbed driver.
+const { ChatWithPdfWorkerPanel } = await import("./chat-with-pdf-worker-panel");
+
+const chatTool = getToolBySlug("chat-with-pdf")!;
+
+const providers = getProviderReadiness("remote-configured");
+
+/** A deployment where the whole pipeline AND an AI provider are ready. */
+const READY: WorkerStatus = {
+  mode: "remote-configured",
+  enabled: true,
+  localDevOnly: false,
+  detail: "A worker backend is configured.",
+  compress: { lossless: false, deep: false, engines: [] },
+  scan: { active: false, detail: "not scanned" },
+  ocr: { available: true, engine: "tesseract", languages: ["eng"], detail: "OCR runs on the worker." },
+  security: { available: true, operations: ["protect", "unlock"], detail: "qpdf runs on the worker." },
+  providers: {
+    ...providers,
+    storage: { ...providers.storage, ready: true },
+    queue: { ...providers.queue, ready: true },
+  },
+  daemon: { ...resolveDaemonReadiness({}), drainable: true },
+  ai: resolveAiReadiness({ PDFXYZ_AI_PROVIDER: "openai", PDFXYZ_AI_MODEL: "gpt-5.6-luna" }),
+};
+
+function stubStatus() {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => READY }));
+}
+
+// --- a real package from the real engine -----------------------------------
+
+function extractor(): (bytes: Uint8Array) => Promise<ExtractedPdfText> {
+  const text = "Invoice total: $1,240.00. Due 30 June 2026.";
+  return async () => ({
+    pageCount: 1,
+    pages: [{ pageNumber: 1, text, characterCount: text.length }],
+    text,
+    characterCount: text.length,
+    hasText: true,
+  });
+}
+
+function provider(answer: string): AiProvider {
+  return {
+    id: "openai",
+    model: "gpt-5.6-luna",
+    async complete() {
+      return { ok: true, text: answer, model: "gpt-5.6-luna", usage: { inputTokens: 40, outputTokens: 9 } };
+    },
+  };
+}
+
+/** What the driver resolves to: a genuine engine-built ZIP, wrapped as a job result. */
+async function workerSuccess(question: string, answer: string) {
+  const run = await runChatWithPdf(new Uint8Array([1, 2, 3]), { question }, {
+    extract: extractor(),
+    provider: provider(answer),
+  });
+  if (!run.ok) throw new Error(`engine failed: ${run.message}`);
+  return {
+    ok: true as const,
+    job: { id: "job_test" },
+    artifact: { filename: "answer.zip", url: "blob:answer" },
+    output: run.output,
+  };
+}
+
+/** The request body the driver was called with on `index`, asserted to exist. */
+function requestAt(index: number): { question: string; context?: { role: string; content: string }[] } {
+  const call = runWorkerChatWithPdf.mock.calls.at(index);
+  expect(call).toBeDefined();
+  return call![0];
+}
+
+/** Attach a PDF and submit `question`, waiting for the panel to settle. */
+async function ask(question: string) {
+  const input = document.querySelector('input[type="file"]');
+  if (input) {
+    fireEvent.change(input, {
+      target: { files: [new File([new Uint8Array([1, 2, 3])], "invoice.pdf", { type: "application/pdf" })] },
+    });
+  }
+  fireEvent.change(await screen.findByRole("textbox"), { target: { value: question } });
+  const submit = screen.getByRole("button", { name: /ask the pdf|send follow-up/i });
+  await waitFor(() => expect(submit).not.toBeDisabled());
+  fireEvent.click(submit);
+}
+
+afterEach(() => {
+  resetTelemetry();
+  runWorkerChatWithPdf.mockReset();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
+  it("sends the first question with no context, then carries the real exchange into the second", async () => {
+    const first = "What is the total?";
+    const second = "And when is it due?";
+    const answer = "The total is $1,240.00 [p.1].";
+
+    stubStatus();
+    runWorkerChatWithPdf
+      .mockImplementationOnce(() => workerSuccess(first, answer))
+      .mockImplementationOnce(() => workerSuccess(second, "It is due on 30 June 2026 [p.1]."));
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+
+    await ask(first);
+    // The answer really came out of the package — nothing here supplied it as a string.
+    expect(await screen.findByText(answer)).toBeInTheDocument();
+
+    // A first question is a fresh conversation: sending an empty `context` would be a
+    // different request than the one the contract expects for a standalone question.
+    expect(requestAt(0)).not.toHaveProperty("context");
+
+    await ask(second);
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+
+    // THE point of the change: the follow-up carries the previous exchange.
+    expect(requestAt(1).context).toEqual([
+      { role: "user", content: first },
+      { role: "assistant", content: answer },
+    ]);
+  });
+
+  it("states what the next question will carry, so the transcript never overstates it", async () => {
+    stubStatus();
+    runWorkerChatWithPdf.mockImplementation(() => workerSuccess("Q one", "A one."));
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+
+    expect(await screen.findByText(/sent with the previous exchange as context/i)).toBeInTheDocument();
+    // And the fact that makes the re-upload comprehensible rather than surprising.
+    expect(screen.getByText(/worker keeps nothing between questions/i)).toBeInTheDocument();
+  });
+
+  it("keeps an unreadable answer out of context instead of guessing what the model said", async () => {
+    stubStatus();
+    // A package whose `answer.txt` does not match the question asked — the panel cannot
+    // know what was answered, so it must not invent a turn.
+    runWorkerChatWithPdf
+      .mockImplementationOnce(async () => ({
+        ...(await workerSuccess("a different question", "Some answer.")),
+      }))
+      .mockImplementationOnce(() => workerSuccess("second", "Second answer."));
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("What is the total?");
+
+    expect(await screen.findByText(/could not be read here/i)).toBeInTheDocument();
+    expect(screen.queryByText("Some answer.")).not.toBeInTheDocument();
+
+    await ask("second");
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    expect(requestAt(1)).not.toHaveProperty("context");
+    expect(screen.getByText(/1 unreadable answer is excluded/i)).toBeInTheDocument();
+  });
+
+  it("drops the conversation when the document is swapped", async () => {
+    stubStatus();
+    runWorkerChatWithPdf.mockImplementation(() => workerSuccess("Q one", "A one."));
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+    expect(await screen.findByText("A one.")).toBeInTheDocument();
+
+    // Turns about the previous PDF must never be sent as context for a new one.
+    fireEvent.click(screen.getByRole("button", { name: /remove/i }));
+    await waitFor(() => expect(screen.queryByText("A one.")).not.toBeInTheDocument());
+  });
+
+  it("never sends more prior turns than the contract allows", async () => {
+    stubStatus();
+    runWorkerChatWithPdf.mockImplementation((input: { question: string }) =>
+      workerSuccess(input.question, `Answer to ${input.question}.`),
+    );
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+
+    const rounds = MAX_CONTEXT_TURNS / 2 + 2;
+    for (let i = 0; i < rounds; i++) {
+      await ask(`Question ${i}`);
+      expect(await screen.findByText(`Answer to Question ${i}.`)).toBeInTheDocument();
+    }
+    await ask("one more");
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(rounds + 1));
+
+    const sent = requestAt(-1).context!;
+    expect(sent).toHaveLength(MAX_CONTEXT_TURNS);
+    // The recent end survives; the transcript says so rather than implying the model
+    // was told everything on screen.
+    expect(sent.at(-1)?.content).toBe(`Answer to Question ${rounds - 1}.`);
+    expect(screen.getByText(/oldest exchanges are left out/i)).toBeInTheDocument();
+  });
+});

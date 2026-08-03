@@ -751,8 +751,10 @@ export const tools: Tool[] = [
     slug: "chat-with-pdf",
     name: "Chat with PDF",
     tagline: "Ask questions, get cited answers.",
+    // One PDF per conversation: the job contract, the engine and the panel all take a
+    // single document. This used to promise "one or many", which nothing could deliver.
     description:
-      "Chat with one or many PDFs and get answers grounded in the document, with citations.",
+      "Ask questions about a PDF and get answers grounded in the document, with page citations and follow-ups.",
     category: "ai",
     icon: "chat",
     processing: "ai",
@@ -763,9 +765,9 @@ export const tools: Tool[] = [
     keywords: ["chat pdf", "ask pdf", "pdf q&a", "ai pdf", "talk to pdf"],
     related: ["summarize-pdf", "extract-tables", "ai-extract"],
     how: [
-      "Upload one or more PDFs.",
-      "Ask questions in plain language.",
-      "Get grounded answers with page-level citations.",
+      "Upload your PDF.",
+      "Ask a question in plain language.",
+      "Get a grounded answer with page-level citations, then ask follow-ups.",
     ],
   },
   {

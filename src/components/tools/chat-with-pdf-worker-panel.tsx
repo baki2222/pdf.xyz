@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, MessageSquare, ShieldCheck, Sparkles, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
@@ -10,8 +10,12 @@ import { aiToolUnavailableDetail } from "@/lib/workers/ai-tool-availability";
 import {
   canRunChatWithPdf,
   runWorkerChatWithPdf,
-  type ChatWithPdfWorkerResult,
 } from "@/lib/workers/chat-with-pdf-client";
+import {
+  buildChatContext,
+  readAnswerFromPackage,
+  type ChatExchange,
+} from "@/lib/workers/chat-with-pdf-conversation";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
@@ -139,24 +143,74 @@ function SpecRow({ icon: Icon, label, value }: { icon: typeof Download; label: s
   );
 }
 
+/** One answered question, kept so the conversation can be shown and carried forward. */
+interface TranscriptEntry {
+  id: number;
+  question: string;
+  /**
+   * The model's answer, read back out of the returned package. `null` when it could not
+   * be recovered — the package still downloads, but that turn is NOT carried into the
+   * next question rather than sending a guess at what the model said.
+   */
+  answer: string | null;
+  filename: string;
+  output: Uint8Array;
+}
+
 function ChatBuilder() {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<ChatWithPdfWorkerResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
 
   const requestReady = question.trim().length > 0;
   const canRun = file != null && !busy && requestReady;
 
+  // Only exchanges whose answer was actually recovered can become prior turns.
+  const carryable = useMemo<ChatExchange[]>(
+    () =>
+      transcript
+        .filter((entry) => entry.answer !== null)
+        .map((entry) => ({ question: entry.question, answer: entry.answer as string })),
+    [transcript],
+  );
+  // Recomputed rather than stored so what the panel SAYS it will send and what it
+  // actually sends come from one call, not two that can drift apart.
+  const context = useMemo(() => buildChatContext(carryable), [carryable]);
+
+  // The conversation belongs to one document; swapping the file must not let turns
+  // about the old PDF be sent as context for the new one.
+  const chooseFile = useCallback((next: File | null) => {
+    setFile(next);
+    setTranscript([]);
+    setError(null);
+  }, []);
+
   const start = useCallback(async () => {
     if (!file || !requestReady) return;
+    const asked = question.trim();
     setBusy(true);
-    setOutcome(null);
+    setError(null);
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const result = await runWorkerChatWithPdf({ filename: file.name, bytes, question: question.trim() });
-    setOutcome(result);
+    const result = await runWorkerChatWithPdf({
+      filename: file.name,
+      bytes,
+      question: asked,
+      ...(context.turns.length > 0 ? { context: context.turns } : {}),
+    });
+    if (result.ok) {
+      const answer = await readAnswerFromPackage(result.output, asked);
+      setTranscript((prev) => [
+        ...prev,
+        { id: prev.length, question: asked, answer, filename: result.artifact.filename, output: result.output },
+      ]);
+      setQuestion("");
+    } else {
+      setError(result.message);
+    }
     setBusy(false);
-  }, [file, question, requestReady]);
+  }, [file, question, requestReady, context]);
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-violet-400/25 bg-violet-500/[0.06] p-4">
@@ -171,30 +225,35 @@ function ChatBuilder() {
           <span className="truncate">{file.name}</span>
           <button
             type="button"
-            onClick={() => {
-              setFile(null);
-              setOutcome(null);
-            }}
+            onClick={() => chooseFile(null)}
             className="shrink-0 text-xs font-medium text-slate-400 transition hover:text-white"
           >
             Remove
           </button>
         </div>
       ) : (
-        <Dropzone onFiles={(files) => setFile(files[0] ?? null)} accept="application/pdf,.pdf" multiple={false} compact title="Add your PDF, or" hint="PDF with selectable text to ask about" />
+        <Dropzone onFiles={(files) => chooseFile(files[0] ?? null)} accept="application/pdf,.pdf" multiple={false} compact title="Add your PDF, or" hint="PDF with selectable text to ask about" />
       )}
 
+      {transcript.length > 0 && <Transcript entries={transcript} />}
+
       <label className="flex flex-col gap-1 text-xs text-slate-400">
-        Your question
+        {transcript.length > 0 ? "Ask a follow-up" : "Your question"}
         <textarea
           value={question}
           onChange={(e) => setQuestion(e.target.value.slice(0, MAX_QUESTION_CHARS))}
           maxLength={MAX_QUESTION_CHARS}
           rows={3}
-          placeholder="e.g. What is the total amount due, and when is it due?"
+          placeholder={
+            transcript.length > 0
+              ? "e.g. And what is the payment method?"
+              : "e.g. What is the total amount due, and when is it due?"
+          }
           className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-violet-400/50"
         />
       </label>
+
+      {transcript.length > 0 && <ContextNote context={context} unreadable={transcript.length - carryable.length} />}
 
       <button
         type="button"
@@ -211,28 +270,80 @@ function ChatBuilder() {
         ) : (
           <>
             <MessageSquare className="size-4" aria-hidden />
-            Ask the PDF
+            {transcript.length > 0 ? "Send follow-up" : "Ask the PDF"}
           </>
         )}
       </button>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
-      {outcome?.ok === true && (
-        <div className="flex flex-col gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] p-4">
-          <p className="text-sm text-emerald-200">
-            Your answer package is ready — the model&apos;s answer with page citations where available, a plain-text
-            copy, plus a manifest recording the model and honest scope.
-          </p>
+      {error !== null && <ErrorNote message={error} />}
+    </div>
+  );
+}
+
+/** The conversation so far: each question, the model's real answer, and its package. */
+function Transcript({ entries }: { entries: TranscriptEntry[] }) {
+  return (
+    <ol className="flex flex-col gap-3">
+      {entries.map((entry) => (
+        <li key={entry.id} className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-sm font-medium text-slate-200">{entry.question}</p>
+          {entry.answer !== null ? (
+            // The model's answer verbatim, exactly as shipped in the package — never a
+            // paraphrase, and never anything the panel composed itself.
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{entry.answer}</p>
+          ) : (
+            <p className="text-sm leading-relaxed text-amber-200/90">
+              The answer package came back, but its answer could not be read here — so nothing is shown rather than
+              guessed, and this exchange is left out of follow-up context. Download it to read the answer.
+            </p>
+          )}
           <button
             type="button"
-            onClick={() => downloadBytes(outcome.output, outcome.artifact.filename)}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
+            onClick={() => downloadBytes(entry.output, entry.filename)}
+            className="inline-flex items-center gap-2 self-start rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-white/25 hover:text-white"
           >
-            <Download className="size-4" aria-hidden />
-            Download {outcome.artifact.filename}
+            <Download className="size-3.5" aria-hidden />
+            {entry.filename}
           </button>
-        </div>
-      )}
-    </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * States exactly what the next question will carry. The bounds are the contract's
+ * (`MAX_CONTEXT_TURNS`, `MAX_TURN_CHARS`), and a transcript longer than they allow
+ * would otherwise imply the model is being told more than it is.
+ */
+function ContextNote({
+  context,
+  unreadable,
+}: {
+  context: ReturnType<typeof buildChatContext>;
+  unreadable: number;
+}) {
+  const exchanges = context.turns.length / 2;
+  const notes: string[] = [];
+  if (context.droppedExchanges > 0) {
+    notes.push(
+      `the ${context.droppedExchanges} oldest ${context.droppedExchanges === 1 ? "exchange is" : "exchanges are"} left out`,
+    );
+  }
+  if (context.shortenedTurns > 0) {
+    notes.push(`${context.shortenedTurns} long ${context.shortenedTurns === 1 ? "message is" : "messages are"} shortened`);
+  }
+  if (unreadable > 0) {
+    notes.push(`${unreadable} unreadable ${unreadable === 1 ? "answer is" : "answers are"} excluded`);
+  }
+
+  return (
+    <p className="text-xs leading-relaxed text-slate-500">
+      {exchanges === 0
+        ? "Your next question is sent on its own — no earlier exchange is carried."
+        : `Your next question is sent with the previous ${exchanges === 1 ? "exchange" : `${exchanges} exchanges`} as context.`}
+      {notes.length > 0 ? ` To stay within the request limits, ${notes.join(", and ")}.` : ""} The PDF is re-sent and
+      re-read each time — the worker keeps nothing between questions.
+    </p>
   );
 }
