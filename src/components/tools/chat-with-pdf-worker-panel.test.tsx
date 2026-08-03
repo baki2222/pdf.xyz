@@ -213,6 +213,72 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     await waitFor(() => expect(screen.queryByText("A one.")).not.toBeInTheDocument());
   });
 
+  it("discards an answer for a document the user already replaced", async () => {
+    // The swap test above only covers a settled conversation. This is the dangerous
+    // shape: a job runs for seconds to minutes and nothing stops the PDF being replaced
+    // while one is in flight, so the answer for document A can land after the user has
+    // moved on to document B. Appending it would show A's exchange under B, and send it
+    // as context for B's next question — the model asked about one file while shown
+    // another.
+    stubStatus();
+    let release!: () => void;
+    const inFlight = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    runWorkerChatWithPdf.mockImplementation(async () => {
+      await inFlight;
+      return workerSuccess("Q about A", "A's answer.");
+    });
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q about A");
+
+    // Swap the document while the request is still running.
+    fireEvent.click(screen.getByRole("button", { name: /remove/i }));
+    const input = document.querySelector('input[type="file"]');
+    fireEvent.change(input!, {
+      target: { files: [new File([new Uint8Array([9])], "other.pdf", { type: "application/pdf" })] },
+    });
+
+    release();
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    // A's answer belongs to no document on screen, so it must not appear at all.
+    await waitFor(() => expect(screen.queryByText("A's answer.")).not.toBeInTheDocument());
+
+    // ...and must not travel as context for the document that replaced it.
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "Q about B" } });
+    const submit = screen.getByRole("button", { name: /ask the pdf|send follow-up/i });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    expect(requestAt(1).context).toBeUndefined();
+  });
+
+  it("says out loud when an exchange was shortened to fit the request", async () => {
+    // The disclosure existed but nothing asserted it, so it could have silently stopped
+    // rendering. A transcript that shows more than was actually sent is the same lie as
+    // a capability reported from wiring instead of behaviour.
+    stubStatus();
+    const long = "y".repeat(6000);
+    runWorkerChatWithPdf.mockImplementation(() => workerSuccess("Q one", long));
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+    await screen.findByText(/shortened/i);
+
+    // And what actually goes on the wire really is shortened, not merely described so.
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "Q two" } });
+    const submit = screen.getByRole("button", { name: /ask the pdf|send follow-up/i });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    const sent = requestAt(1).context ?? [];
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.some((turn) => turn.content.length < long.length)).toBe(true);
+  });
+
   it("never sends more prior turns than the contract allows", async () => {
     stubStatus();
     runWorkerChatWithPdf.mockImplementation((input: { question: string }) =>
