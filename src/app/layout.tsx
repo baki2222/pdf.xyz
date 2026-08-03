@@ -71,9 +71,14 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
-      <head>
-        <title>{`${siteConfig.name} — ${siteConfig.tagline}`}</title>
-      </head>
+      {/*
+       * No hand-written <head> here. This layout used to render its own
+       * <title> alongside the `metadata` export above, so every page below the
+       * root shipped TWO title elements — invalid HTML, and the generic brand
+       * one came first in the served markup, ahead of the page's real title.
+       * `metadata.title.default` covers the root and `.template` wraps every
+       * page title, so the export is the single source. See metadata.spec.ts.
+       */}
       <body className="min-h-dvh bg-ink font-sans text-slate-200 antialiased">
         <a
           href="#main"

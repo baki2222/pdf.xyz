@@ -17,6 +17,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildMetadata } from "./seo";
 
 const APP_DIR = path.join(process.cwd(), "src", "app");
 
@@ -44,6 +45,31 @@ function cardRoutes(): { route: string; dir: string }[] {
 const SITE_WIDE = "/";
 
 const routes = cardRoutes().filter((entry) => entry.route !== SITE_WIDE);
+
+describe("buildMetadata leaves the title to the root layout when it has none", () => {
+  /**
+   * Next distinguishes a metadata object with NO `title` key from one whose
+   * `title` is present and `undefined`. The first inherits the root layout's
+   * `title.default`; the second declares the page has no title and wins over it,
+   * leaving the document with none at all. Returning `{ title }` unconditionally
+   * meant the homepage — the one page that passes no title — served zero title
+   * elements the moment the layout stopped hand-writing one.
+   *
+   * `toHaveProperty` is the assertion that separates the two cases;
+   * `expect(md.title).toBeUndefined()` passes either way and would not have
+   * caught this.
+   */
+  it("omits the key entirely when no title is given", () => {
+    expect(buildMetadata({ path: "/" })).not.toHaveProperty("title");
+  });
+
+  it("carries the title through when one is given", () => {
+    expect(buildMetadata({ title: "Merge PDF", path: "/tools/merge-pdf" })).toHaveProperty(
+      "title",
+      "Merge PDF",
+    );
+  });
+});
 
 describe("share cards are wired to the pages they belong to", () => {
   it("finds the page cards, so a rename cannot quietly empty this suite", () => {

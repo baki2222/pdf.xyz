@@ -46,7 +46,12 @@ export function buildMetadata({
   const shareImage = new URL(imagePath, siteConfig.url).toString();
 
   return {
-    title,
+    // Omit the key entirely rather than passing `title: undefined`. Next treats
+    // a title that is PRESENT-but-undefined as the page declaring it has none,
+    // which overrides the root layout's `title.default` and leaves the document
+    // with no title at all — the homepage's exact case, since it calls this with
+    // no title of its own. An absent key is what falls back to the default.
+    ...(title === undefined ? {} : { title }),
     description,
     keywords: [...siteConfig.keywords, ...keywords],
     alternates: { canonical: url },
