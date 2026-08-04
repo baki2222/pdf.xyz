@@ -24,6 +24,16 @@ test("rotate spins every page client-side and yields a download", async ({
   const applyButton = page.getByRole("button", { name: /apply rotation/i });
   await expect(applyButton).toBeDisabled();
 
+  // ...and being unavailable must not take it away from the keyboard. This is
+  // the half of the run-trigger fix that only a real browser can prove: jsdom
+  // neither blurs an element when it becomes disabled nor refuses to dispatch a
+  // click at one, so the unit tests can pin the attributes but not the
+  // consequence. A blocked trigger and a mid-run trigger are the same `blocked`
+  // branch of `RunButton`, and the mid-run one cannot be caught here — a
+  // client-side rotate finishes faster than an assertion can land.
+  await applyButton.focus();
+  await expect(applyButton).toBeFocused();
+
   // All pages are selected by default; rotate them a quarter turn right.
   await page.getByRole("button", { name: "Right", exact: true }).click();
 

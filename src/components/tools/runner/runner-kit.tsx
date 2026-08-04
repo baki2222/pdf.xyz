@@ -201,13 +201,15 @@ export function Dropzone({
  * for ended, for a screen-reader or keyboard user, in silence.
  *
  * WHY FOCUS IS *REPAIRED*, NOT MERELY OFFERED
- * `RunButton` sets `disabled={busy || disabled}`. A disabled element cannot hold
- * focus, so the browser drops focus to `<body>` at t=0 — the moment the run
- * starts, not when it ends. The user is stranded at the top of the document for
- * the whole run even on panels whose button survives it. That is why this moves
- * focus rather than assuming the trigger is still there to return to.
- * (Replacing that `disabled` with `aria-disabled` is the deeper fix and is
- * deliberately out of scope here.)
+ * Most runners replace the whole form with their result, so the element the user
+ * activated is gone by the time the outcome exists and focus has fallen to
+ * `<body>`. There is nothing to return to; this moves focus rather than assuming
+ * the trigger survived.
+ * It used to be worse: `RunButton` set `disabled={busy}`, and a disabled element
+ * cannot hold focus, so EVERY run dropped the user to `<body>` at t=0 — the
+ * moment work started, not when it ended — even on panels whose button was never
+ * removed. `RunButton` now uses `aria-disabled`, so that half is fixed at the
+ * source and this hook sees an honest `document.activeElement`.
  *
  * WHEN IT ANNOUNCES INSTEAD
  * If focus has since landed somewhere real — the user carried on typing, or
@@ -279,7 +281,33 @@ export function ErrorNote({ message }: { message: string }) {
   );
 }
 
-/** Primary action button with an integrated loading state. */
+/**
+ * Primary action button with an integrated loading state.
+ *
+ * WHY `aria-disabled` AND NOT `disabled`
+ * A natively disabled element cannot hold focus, so `disabled={busy}` blurred
+ * the trigger the instant a run started: the user pressed Enter on a button and
+ * was dropped to `<body>`, where they stayed for the whole run. Every tool on
+ * the site did this — the run is the one thing the product exists for, and it
+ * began by throwing the keyboard user out of the document.
+ *
+ * `aria-disabled` reports the same state to assistive tech without removing the
+ * element from the focus order, so the trigger a user activated is still under
+ * them when the outcome arrives. The browser no longer suppresses the click, so
+ * the guard below has to: an unavailable button must do nothing, and the check
+ * lives in one place rather than in each of the 28 call sites.
+ *
+ * The not-yet-ready state (`disabled`) is treated the same way deliberately.
+ * Splitting them would mean a control that leaves and re-enters the tab order as
+ * unrelated state changes — rotate a page back to 0° and Apply would vanish from
+ * under the keyboard again — which is the same bug wearing a different trigger.
+ *
+ * This interacts with {@link useOutcomeFocus} by design: focus surviving the run
+ * means a result surface that renders ALONGSIDE the button (the worker panels)
+ * now speaks the outcome instead of yanking focus, while runners that replace
+ * themselves with a `ResultPanel` unmount the button, focus lands on `<body>`,
+ * and the panel takes it as before.
+ */
 export function RunButton({
   onClick,
   busy,
@@ -295,11 +323,18 @@ export function RunButton({
   busyLabel?: string;
   className?: string;
 }) {
+  const blocked = Boolean(busy) || Boolean(disabled);
   return (
     <button
       type="button"
-      onClick={onClick}
-      disabled={busy || disabled}
+      onClick={(event) => {
+        if (blocked) {
+          event.preventDefault();
+          return;
+        }
+        onClick();
+      }}
+      aria-disabled={blocked || undefined}
       aria-busy={busy}
       className={buttonVariants({
         variant: "primary",
