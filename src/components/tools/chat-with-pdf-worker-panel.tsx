@@ -206,6 +206,11 @@ function ChatBuilder() {
     const startedFor = fileToken.current;
     setBusy(true);
     setError(null);
+    // Every exit from here — the two file-swap bail-outs, the happy path, and a
+    // rejected fetch — has to stop the spinner. A rejection used to escape this
+    // callback entirely, so `setBusy(false)` never ran and the button spun
+    // forever with no error, recoverable only by reloading the page.
+    try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const result = await runWorkerChatWithPdf({
       filename: file.name,
@@ -217,14 +222,12 @@ function ChatBuilder() {
     // has already replaced, so it belongs to no transcript on screen. Drop it rather
     // than showing it under the wrong PDF.
     if (fileToken.current !== startedFor) {
-      setBusy(false);
       return;
     }
     if (result.ok) {
       const answer = await readAnswerFromPackage(result.output, asked);
       // Re-checked after the await: reading the package is itself asynchronous.
       if (fileToken.current !== startedFor) {
-        setBusy(false);
         return;
       }
       setTranscript((prev) => [
@@ -235,7 +238,17 @@ function ChatBuilder() {
     } else {
       setError(result.message);
     }
-    setBusy(false);
+    } catch {
+      // No response to inspect: offline, DNS failure, a reset connection, or a
+      // file that could not be read. Say what is true and nothing more.
+      if (fileToken.current === startedFor) {
+        setError(
+          "Lost the connection before the answer came back. Check your network and try again.",
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
   }, [file, question, requestReady, context]);
 
   return (

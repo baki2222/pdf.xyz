@@ -16,9 +16,9 @@
 // browser module never pulls the server-side validators or the tools catalog
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
-import { isTerminalStatus } from "@/lib/jobs/types";
 import type { ApiError } from "@/lib/jobs/responses";
 import type { CompressionProfile } from "./compression/engine";
+import { pollJobToTerminal } from "./job-polling";
 
 /** What the caller wants compressed, and how. */
 export interface CompressWorkerInput {
@@ -46,8 +46,7 @@ export interface CompressWorkerFailure {
 }
 
 export type CompressWorkerResult =
-  | CompressWorkerSuccess
-  | CompressWorkerFailure;
+  CompressWorkerSuccess | CompressWorkerFailure;
 
 /** Minimal `fetch` shape, so tests can inject a stub without the DOM lib. */
 export type FetchLike = (
@@ -81,8 +80,6 @@ const CONTENT_TYPE = "application/pdf";
 const DEFAULT_POLL_INTERVAL_MS = 800;
 const DEFAULT_MAX_POLL_ATTEMPTS = 150; // ~2 minutes at the default cadence
 
-const defaultSleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The global fetch, adapted to {@link FetchLike}. */
 const defaultFetch: FetchLike = (input, init) =>
@@ -133,7 +130,6 @@ export async function runWorkerCompression(
 ): Promise<CompressWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const { signal } = options;
-  const sleep = options.sleep ?? defaultSleep;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxPollAttempts = options.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
 
@@ -207,19 +203,23 @@ export async function runWorkerCompression(
 
   // 4. Poll to a terminal state (a production worker is async; local-dev is
   //    already terminal on create, so this returns immediately).
-  let attempts = 0;
-  while (!isTerminalStatus(job.status)) {
-    if (attempts >= maxPollAttempts) {
-      return { ok: false, message: "Timed out waiting for the worker." };
-    }
-    await sleep(pollIntervalMs);
-    attempts += 1;
-    const statusRes = await fetchImpl(`/api/jobs/${job.jobId}`, { signal });
-    if (!statusRes.ok) {
-      return readError(statusRes, "Lost contact with the worker job.");
-    }
-    job = (await statusRes.json()) as Job;
+  const polled = await pollJobToTerminal({
+    job,
+    fetchImpl,
+    pollIntervalMs,
+    maxPollAttempts,
+    ...(signal ? { signal } : {}),
+    ...(options.sleep ? { sleepImpl: options.sleep } : {}),
+  });
+  if (!polled.ok) {
+    return {
+      ok: false,
+      message: polled.stillRunning
+        ? `${polled.message} (job ${polled.jobId})`
+        : polled.message,
+    };
   }
+  job = polled.job;
 
   if (job.status !== "completed") {
     return {
@@ -233,7 +233,10 @@ export async function runWorkerCompression(
 
   const artifact = job.artifacts?.[0];
   if (!artifact) {
-    return { ok: false, message: "The job completed but produced no artifact." };
+    return {
+      ok: false,
+      message: "The job completed but produced no artifact.",
+    };
   }
 
   // 5. Download the real output.

@@ -22,10 +22,10 @@
 // browser module never pulls the server-side validators or the tools catalog into
 // the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
-import { isTerminalStatus } from "@/lib/jobs/types";
 import type { ApiError } from "@/lib/jobs/responses";
 import type { PdfKeyLength } from "@/lib/jobs/pdf-security";
 import type { WorkerStatus } from "./status";
+import { pollJobToTerminal } from "./job-polling";
 
 const CONTENT_TYPE = "application/pdf";
 const PROTECT_TOOL = "protect-pdf";
@@ -70,8 +70,7 @@ export interface PdfSecurityWorkerFailure {
 }
 
 export type PdfSecurityWorkerResult =
-  | PdfSecurityWorkerSuccess
-  | PdfSecurityWorkerFailure;
+  PdfSecurityWorkerSuccess | PdfSecurityWorkerFailure;
 
 /** Minimal `fetch` shape, so tests can inject a stub without the DOM lib. */
 export type FetchLike = (
@@ -101,8 +100,6 @@ export interface PdfSecurityWorkerOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
-const defaultSleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 const defaultFetch: FetchLike = (input, init) =>
   fetch(input, init as RequestInit);
@@ -159,7 +156,6 @@ export async function runSecurityJob(
 ): Promise<PdfSecurityWorkerResult> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
-  const sleep = opts.sleep ?? defaultSleep;
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxPollAttempts = opts.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
 
@@ -169,9 +165,7 @@ export async function runSecurityJob(
     headers: { "content-type": "application/json" },
     body: jsonBody({
       tool,
-      files: [
-        { filename, contentType: CONTENT_TYPE, bytes: bytes.byteLength },
-      ],
+      files: [{ filename, contentType: CONTENT_TYPE, bytes: bytes.byteLength }],
     }),
     signal,
   });
@@ -216,19 +210,23 @@ export async function runSecurityJob(
 
   // 4. Poll to a terminal state (a production worker is async; local-dev is already
   //    terminal on create, so this returns immediately).
-  let attempts = 0;
-  while (!isTerminalStatus(job.status)) {
-    if (attempts >= maxPollAttempts) {
-      return { ok: false, message: "Timed out waiting for the worker." };
-    }
-    await sleep(pollIntervalMs);
-    attempts += 1;
-    const statusRes = await fetchImpl(`/api/jobs/${job.jobId}`, { signal });
-    if (!statusRes.ok) {
-      return readError(statusRes, "Lost contact with the worker job.");
-    }
-    job = (await statusRes.json()) as Job;
+  const polled = await pollJobToTerminal({
+    job,
+    fetchImpl,
+    pollIntervalMs,
+    maxPollAttempts,
+    ...(signal ? { signal } : {}),
+    ...(opts.sleep ? { sleepImpl: opts.sleep } : {}),
+  });
+  if (!polled.ok) {
+    return {
+      ok: false,
+      message: polled.stillRunning
+        ? `${polled.message} (job ${polled.jobId})`
+        : polled.message,
+    };
   }
+  job = polled.job;
 
   if (job.status !== "completed") {
     return {
@@ -311,7 +309,7 @@ export function canRunPdfSecurity(
   if (status.localDevOnly) return status.security.available;
   return Boolean(
     status.providers.storage.ready &&
-      status.providers.queue.ready &&
-      status.daemon.drainable,
+    status.providers.queue.ready &&
+    status.daemon.drainable,
   );
 }
