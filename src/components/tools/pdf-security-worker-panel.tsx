@@ -33,7 +33,13 @@ import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, ResultCard, Spinner } from "./runner/runner-kit";
+import {
+  Dropzone,
+  ErrorNote,
+  ResultCard,
+  Spinner,
+  WorkerRunButton,
+} from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
 
 type Phase = "loading" | "error" | "ready";
@@ -492,29 +498,16 @@ function SecurityRunArea({
         </div>
       )}
 
-      <button
-        type="button"
+      <WorkerRunButton
         onClick={start}
+        busy={busy}
+        // `canSubmit` already folds in `!busy`; both go through one blocked branch.
         disabled={!canSubmit}
-        aria-busy={busy}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 px-6 py-2.5 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:self-start"
+        busyLabel={COPY[mode].running}
+        icon={mode === "protect" ? Lock : Unlock}
       >
-        {busy ? (
-          <>
-            <Spinner />
-            {COPY[mode].running}
-          </>
-        ) : (
-          <>
-            {mode === "protect" ? (
-              <Lock className="size-4" aria-hidden />
-            ) : (
-              <Unlock className="size-4" aria-hidden />
-            )}
-            {COPY[mode].cta}
-          </>
-        )}
-      </button>
+        {COPY[mode].cta}
+      </WorkerRunButton>
 
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
 

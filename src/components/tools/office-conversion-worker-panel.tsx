@@ -15,7 +15,7 @@ import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, ResultCard, Spinner } from "./runner/runner-kit";
+import { Dropzone, ErrorNote, ResultCard, WorkerRunButton } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
 
 type OfficeTool = "word-to-pdf" | "excel-to-pdf" | "powerpoint-to-pdf";
@@ -166,9 +166,9 @@ function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
       ) : (
         <Dropzone onFiles={(files) => setFile(files[0] ?? null)} accept={accept} multiple={false} compact title="Add your document, or" hint="Office document" />
       )}
-      <button type="button" onClick={start} disabled={busy || !file} aria-busy={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 px-6 py-2.5 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:self-start">
-        {busy ? <><Spinner />Converting PDF…</> : <><FileText className="size-4" aria-hidden />Convert to PDF</>}
-      </button>
+      <WorkerRunButton onClick={start} busy={busy} disabled={!file} busyLabel="Converting PDF…" icon={FileText}>
+        Convert to PDF
+      </WorkerRunButton>
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">

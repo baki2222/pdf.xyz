@@ -39,7 +39,13 @@ import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, ResultCard, Spinner } from "./runner/runner-kit";
+import {
+  Dropzone,
+  ErrorNote,
+  ResultCard,
+  Spinner,
+  WorkerRunButton,
+} from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
 
 type Phase = "loading" | "error" | "ready";
@@ -511,25 +517,15 @@ function OcrRunArea({
         />
       )}
 
-      <button
-        type="button"
+      <WorkerRunButton
         onClick={start}
-        disabled={!file || busy}
-        aria-busy={busy}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 px-6 py-2.5 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:self-start"
+        busy={busy}
+        disabled={!file}
+        busyLabel="Recognizing on the worker…"
+        icon={ScanText}
       >
-        {busy ? (
-          <>
-            <Spinner />
-            Recognizing on the worker…
-          </>
-        ) : (
-          <>
-            <ScanText className="size-4" aria-hidden />
-            Run OCR on the worker
-          </>
-        )}
-      </button>
+        Run OCR on the worker
+      </WorkerRunButton>
 
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
 
