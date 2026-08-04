@@ -257,8 +257,13 @@ export function BatchPanel({
         {canHandoff && tool && (
           <button
             type="button"
-            onClick={() => onLaunch(tool, batch.fileIds)}
-            disabled={launching}
+            // `aria-disabled`, not `disabled`, so the hand-off does not blur the
+            // user out of the button they just pressed. See `RunButton`.
+            onClick={() => {
+              if (launching) return;
+              onLaunch(tool, batch.fileIds);
+            }}
+            aria-disabled={launching || undefined}
             aria-busy={launching}
             className={buttonVariants({
               variant: "primary",

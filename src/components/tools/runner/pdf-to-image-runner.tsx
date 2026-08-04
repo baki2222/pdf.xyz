@@ -283,8 +283,13 @@ function ImageResult({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <button
             type="button"
-            onClick={() => void downloadAll()}
-            disabled={zipping}
+            // `aria-disabled`, not `disabled`, so zipping does not blur the user
+            // out of the button they just pressed. See `RunButton`.
+            onClick={() => {
+              if (zipping) return;
+              void downloadAll();
+            }}
+            aria-disabled={zipping || undefined}
             aria-busy={zipping}
             className={buttonVariants({ variant: "primary", size: "lg" })}
           >

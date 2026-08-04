@@ -2,8 +2,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
+import { UploadCloud } from "lucide-react";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
-import { ErrorNote, ResultCard, ResultPanel, RunButton } from "./runner-kit";
+import {
+  ErrorNote,
+  ResultCard,
+  ResultPanel,
+  RunButton,
+  WorkerRunButton,
+} from "./runner-kit";
 
 /**
  * What a completed run owes a user who cannot see it.
@@ -253,6 +260,108 @@ describe("RunButton", () => {
     expect(button).not.toHaveAttribute("aria-disabled");
     fireEvent.click(button);
     expect(onRun).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The worker panels' trigger, which the `RunButton` fix above did not reach.
+ *
+ * #46 fixed one component and the site still had the bug fourteen times, because
+ * every worker panel had pasted its own copy of the markup. `WorkerRunButton` is
+ * that copy, extracted once; these assertions are the `RunButton` ones that
+ * measurably discriminate — `not.toBeDisabled()` and focusing a not-yet-ready
+ * control — re-applied to it. The stakes are higher here: a worker job runs for
+ * seconds to minutes, not milliseconds.
+ *
+ * The panels themselves are guarded by source scan, in
+ * `worker-run-trigger.a11y.test.ts` — a component nobody uses fixes nothing.
+ */
+describe("WorkerRunButton", () => {
+  function Panel({ onRun }: { onRun?: () => void } = {}) {
+    const [busy, setBusy] = useState(false);
+    return (
+      <WorkerRunButton
+        busy={busy}
+        busyLabel="Recognizing on the worker…"
+        icon={UploadCloud}
+        onClick={() => {
+          setBusy(true);
+          onRun?.();
+        }}
+      >
+        Run OCR on the worker
+      </WorkerRunButton>
+    );
+  }
+
+  it("keeps the keyboard for the whole worker job it started", () => {
+    render(<Panel />);
+    const button = screen.getByRole("button", { name: "Run OCR on the worker" });
+    button.focus();
+
+    fireEvent.click(button);
+
+    expect(button).toHaveAccessibleName("Recognizing on the worker…");
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    // The load-bearing one: jest-dom reads the native attribute and ignores
+    // `aria-disabled`, so this is what fails on every pre-fix panel.
+    expect(button).not.toBeDisabled();
+  });
+
+  it("stays reachable before a file has been chosen", () => {
+    const onRun = vi.fn();
+    render(
+      <WorkerRunButton onClick={onRun} disabled busyLabel="…" icon={UploadCloud}>
+        Extract tables
+      </WorkerRunButton>,
+    );
+    const button = screen.getByRole("button", { name: "Extract tables" });
+
+    // Removing then re-adding the file flips this under a keyboard user.
+    button.focus();
+    expect(button).toHaveFocus();
+
+    fireEvent.click(button);
+    expect(onRun).not.toHaveBeenCalled();
+  });
+
+  it("ignores an impatient second press instead of queueing a second job", () => {
+    const onRun = vi.fn();
+    render(<Panel onRun={onRun} />);
+    const button = screen.getByRole("button", { name: "Run OCR on the worker" });
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("says nothing about availability when it is ready", () => {
+    const onRun = vi.fn();
+    render(
+      <WorkerRunButton onClick={onRun} busyLabel="…" icon={UploadCloud}>
+        Translate PDF
+      </WorkerRunButton>,
+    );
+    const button = screen.getByRole("button", { name: "Translate PDF" });
+
+    expect(button).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(button);
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("dims itself while blocked, since it no longer looks disabled to the browser", () => {
+    render(
+      <WorkerRunButton onClick={vi.fn()} disabled busyLabel="…" icon={UploadCloud}>
+        Summarize PDF
+      </WorkerRunButton>,
+    );
+    // A control that keeps its place in the focus order must still LOOK
+    // unavailable; `disabled:opacity-60` stops applying the moment the native
+    // attribute goes away, and nothing else would notice.
+    expect(
+      screen.getByRole("button", { name: "Summarize PDF" }).className,
+    ).toContain("aria-disabled:opacity-60");
   });
 });
 

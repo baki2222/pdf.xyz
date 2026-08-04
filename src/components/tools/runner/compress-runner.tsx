@@ -34,6 +34,7 @@ import {
   ErrorNote,
   ResultCard,
   Spinner,
+  WorkerRunButton,
   errorMessage,
   useOutcomeFocus,
 } from "./runner-kit";
@@ -600,25 +601,14 @@ function DeepRunControls({
         ))}
       </div>
 
-      <button
-        type="button"
+      <WorkerRunButton
         onClick={onRun}
-        disabled={busy}
-        aria-busy={busy}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 px-6 py-2.5 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:self-start"
+        busy={busy}
+        busyLabel="Compressing on the worker…"
+        icon={ServerCog}
       >
-        {busy ? (
-          <>
-            <Spinner />
-            Compressing on the worker…
-          </>
-        ) : (
-          <>
-            <ServerCog className="size-4" aria-hidden />
-            Compress images on the worker
-          </>
-        )}
-      </button>
+        Compress images on the worker
+      </WorkerRunButton>
 
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
 

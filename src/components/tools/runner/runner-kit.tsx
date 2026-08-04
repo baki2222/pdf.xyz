@@ -17,6 +17,7 @@ import {
   Loader2,
   RefreshCw,
   UploadCloud,
+  type LucideIcon,
 } from "lucide-react";
 import { PageRangeError } from "@/lib/pdf/ranges";
 import { PdfEngineError } from "@/lib/pdf/engine";
@@ -349,6 +350,93 @@ export function RunButton({
         </>
       ) : (
         children
+      )}
+    </button>
+  );
+}
+
+/**
+ * Tone of a worker panel's run trigger. Blue is the secure-worker default; the
+ * five AI panels (chat, extract, summarize, translate, signature requests) are
+ * violet to match the violet framing their surrounding card already uses.
+ */
+export type WorkerRunTone = "blue" | "violet";
+
+const WORKER_RUN_TONE: Record<WorkerRunTone, string> = {
+  blue: "border-blue-400/40 bg-blue-500/15 text-blue-100 hover:bg-blue-500/25",
+  violet:
+    "border-violet-400/40 bg-violet-500/15 text-violet-100 hover:bg-violet-500/25",
+};
+
+/**
+ * The run trigger for the worker panels — the outline-on-tint button that starts
+ * a real job on the secure worker.
+ *
+ * WHY THIS EXISTS AT ALL
+ * Fourteen panels hand-rolled it: the same forty-class string pasted verbatim,
+ * differing only in tone, icon and copy. Every copy therefore carried the same
+ * defect {@link RunButton} was fixed for in #46 — a native `disabled` that blurs
+ * the user at the instant their run starts — and the copying is precisely why
+ * fixing one of them fixed none of the others. The markup lives in one place now
+ * so the next fix reaches all fourteen.
+ *
+ * The blocked semantics are {@link RunButton}'s, for the reasons documented
+ * there: `aria-disabled` plus a guard in `onClick`, so the trigger keeps its
+ * place in the focus order for the whole run. It matters more here than on the
+ * in-browser runners — a worker job takes seconds to minutes, and these panels
+ * render their result ALONGSIDE the button rather than replacing it, so a user
+ * who is not blurred at t=0 never has to be sent anywhere at all.
+ *
+ * `disabled` and `busy` are separate props but share one branch on purpose;
+ * splitting them would let the control leave and re-enter the tab order as
+ * unrelated state changes.
+ */
+export function WorkerRunButton({
+  onClick,
+  busy,
+  disabled,
+  busyLabel,
+  icon: Icon,
+  children,
+  tone = "blue",
+}: {
+  onClick: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+  /** Shown, with a spinner, while the job is in flight. */
+  busyLabel: string;
+  icon: LucideIcon;
+  children: ReactNode;
+  tone?: WorkerRunTone;
+}) {
+  const blocked = Boolean(busy) || Boolean(disabled);
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        if (blocked) {
+          event.preventDefault();
+          return;
+        }
+        onClick();
+      }}
+      aria-disabled={blocked || undefined}
+      aria-busy={busy}
+      className={cn(
+        "inline-flex w-full items-center justify-center gap-2 rounded-full border px-6 py-2.5 text-sm font-semibold transition aria-disabled:cursor-not-allowed aria-disabled:opacity-60 sm:w-auto sm:self-start",
+        WORKER_RUN_TONE[tone],
+      )}
+    >
+      {busy ? (
+        <>
+          <Spinner />
+          {busyLabel}
+        </>
+      ) : (
+        <>
+          <Icon className="size-4" aria-hidden />
+          {children}
+        </>
       )}
     </button>
   );

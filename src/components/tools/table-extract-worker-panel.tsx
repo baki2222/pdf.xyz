@@ -15,7 +15,7 @@ import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, ResultCard, Spinner } from "./runner/runner-kit";
+import { Dropzone, ErrorNote, ResultCard, WorkerRunButton } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
 
 type Phase = "loading" | "error" | "ready";
@@ -152,9 +152,9 @@ function TableExtractRunArea() {
       ) : (
         <Dropzone onFiles={(files) => setFile(files[0] ?? null)} accept="application/pdf,.pdf" multiple={false} compact title="Add your PDF, or" hint="Selectable PDF" />
       )}
-      <button type="button" onClick={start} disabled={busy || !file} aria-busy={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 px-6 py-2.5 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:self-start">
-        {busy ? <><Spinner />Extracting tables…</> : <><Table className="size-4" aria-hidden />Extract tables</>}
-      </button>
+      <WorkerRunButton onClick={start} busy={busy} disabled={!file} busyLabel="Extracting tables…" icon={Table}>
+        Extract tables
+      </WorkerRunButton>
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your tables are ready as a ZIP of CSV files plus a combined Excel workbook.">

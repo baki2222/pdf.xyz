@@ -21,7 +21,11 @@ import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, Spinner } from "./runner/runner-kit";
+import {
+  Dropzone,
+  ErrorNote,
+  WorkerRunButton,
+} from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
 
 type Phase = "loading" | "error" | "ready";
@@ -298,25 +302,17 @@ function ChatBuilder() {
 
       {transcript.length > 0 && <ContextNote context={context} unreadable={transcript.length - carryable.length} />}
 
-      <button
-        type="button"
+      <WorkerRunButton
         onClick={start}
+        busy={busy}
+        // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        aria-busy={busy}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-violet-400/40 bg-violet-500/15 px-6 py-2.5 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:self-start"
+        busyLabel="Answering…"
+        icon={MessageSquare}
+        tone="violet"
       >
-        {busy ? (
-          <>
-            <Spinner />
-            Answering…
-          </>
-        ) : (
-          <>
-            <MessageSquare className="size-4" aria-hidden />
-            {transcript.length > 0 ? "Send follow-up" : "Ask the PDF"}
-          </>
-        )}
-      </button>
+        {transcript.length > 0 ? "Send follow-up" : "Ask the PDF"}
+      </WorkerRunButton>
 
       {error !== null && <ErrorNote message={error} />}
     </div>
