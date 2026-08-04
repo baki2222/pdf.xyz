@@ -27,6 +27,21 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 0.9,
     },
+    // Low priority, but indexed on purpose: for a product whose headline claim
+    // is privacy, the policy is a page people search for by name before they
+    // decide to trust it.
+    {
+      url: url("/privacy"),
+      lastModified,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
+    {
+      url: url("/terms"),
+      lastModified,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
   ];
 
   const toolRoutes: MetadataRoute.Sitemap = tools.map((tool) => ({

@@ -71,6 +71,22 @@ function copyFiles(): string[] {
   });
 }
 
+/**
+ * Source with comments removed.
+ *
+ * These guards scan prose, and a docblock explaining the defect a guard exists
+ * to prevent will contain the very phrase it forbids — which is exactly what
+ * happened: the privacy page's comment cites the old "layout-preserving
+ * translation" claim, and its note about a rendering bug quotes "60minutes".
+ * Flagging those is a false positive, and a guard that cries wolf is a guard the
+ * next person weakens. Only what a user can read counts.
+ */
+function withoutComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
 describe("marketing copy does not promise what an engine disclaims", () => {
   it("reads the copy files, so a move cannot quietly empty this suite", () => {
     expect(copyFiles().length).toBeGreaterThanOrEqual(10);
@@ -90,7 +106,7 @@ describe("marketing copy does not promise what an engine disclaims", () => {
     ({ capability, subject, promises }) => {
       const offenders: string[] = [];
       for (const file of copyFiles()) {
-        const source = readFileSync(file, "utf8");
+        const source = withoutComments(readFileSync(file, "utf8"));
         if (!subject.test(source)) continue;
         for (const promise of promises) {
           const match = promise.exec(source);

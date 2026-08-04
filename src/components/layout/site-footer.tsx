@@ -56,8 +56,15 @@ export function SiteFooter() {
             © {year} {siteConfig.name}. All rights reserved.
           </p>
           <div className="flex items-center gap-5 text-xs text-slate-500">
-            <Link href="/#privacy" className="transition hover:text-white">
+            {/* These pointed at homepage anchors — marketing sections, not
+                policies. A site that processes people's documents and offers no
+                privacy policy anywhere is missing the document a visitor goes
+                looking for precisely when they are deciding whether to trust it. */}
+            <Link href="/privacy" className="transition hover:text-white">
               Privacy
+            </Link>
+            <Link href="/terms" className="transition hover:text-white">
+              Terms
             </Link>
             <Link href="/#security" className="transition hover:text-white">
               Security
