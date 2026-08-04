@@ -53,6 +53,13 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Runs AFTER the build on purpose: it weighs the chunks the built pages
+      # reference, so `.next` has to exist. Kept out of `pnpm test` for the same
+      # reason — a budget check that silently passes with nothing to measure is
+      # a guard that guards nothing.
+      - name: Bundle budget
+        run: pnpm test:bundle
+
   e2e:
     name: Playwright smoke
     runs-on: ubuntu-latest
