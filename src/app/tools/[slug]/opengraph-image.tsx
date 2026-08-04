@@ -31,6 +31,17 @@ export function generateStaticParams(): { slug: string }[] {
   return getAllToolSlugs().map((slug) => ({ slug }));
 }
 
+/**
+ * The catalogue is the complete set of slugs, so anything outside it is a 404.
+ *
+ * This is declared for the same reason as on the page, but it does NOT do the
+ * job on its own here: measured on Next 16.2.9, a metadata image route still
+ * runs for a param outside `generateStaticParams` and answers 200. Hence the
+ * explicit refusal in the handler below. The config alone would have been a
+ * fix that looks right and changes nothing.
+ */
+export const dynamicParams = false;
+
 /** Satori has no Tailwind, so the chip tones are restated as literal colours. */
 const PROCESSING_TONE: Record<
   ProcessingMode,
@@ -65,22 +76,25 @@ export default async function ToolOpengraphImage({
 }) {
   const { slug } = await params;
   const tool = getToolBySlug(slug);
-  const fonts = await loadCardFonts();
 
-  // An unknown slug still 404s as a page; the image just falls back to the
-  // brand line rather than throwing during static generation.
-  const name = tool?.name ?? siteConfig.name;
-  const tagline = tool?.tagline ?? siteConfig.tagline;
-  const category = tool ? getCategory(tool.category) : undefined;
-  const processing = tool ? getProcessingMeta(tool.processing) : undefined;
-  const tone = tool ? PROCESSING_TONE[tool.processing] : undefined;
+  // A card for a page that 404s is a share preview for nothing, and it made
+  // `/tools/<anything>/opengraph-image` an unbounded set of URLs that each
+  // rendered a PNG. Refuse before doing any of that work.
+  if (!tool) return new Response(null, { status: 404 });
+
+  const fonts = await loadCardFonts();
+  const name = tool.name;
+  const tagline = tool.tagline;
+  const category = getCategory(tool.category);
+  const processing = getProcessingMeta(tool.processing);
+  const tone = PROCESSING_TONE[tool.processing];
 
   // Long tool names would otherwise overflow the card and clip mid-word.
   const nameFontSize = name.length > 22 ? 72 : name.length > 15 ? 88 : 104;
 
   const formatChips = [
-    ...(tool?.accept?.length ? [`In: ${tool.accept.join(", ")}`] : []),
-    ...(tool?.outputs?.length ? [`Out: ${tool.outputs.join(", ")}`] : []),
+    ...(tool.accept.length ? [`In: ${tool.accept.join(", ")}`] : []),
+    ...(tool.outputs.length ? [`Out: ${tool.outputs.join(", ")}`] : []),
   ];
 
   return new ImageResponse(
