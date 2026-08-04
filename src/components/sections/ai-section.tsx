@@ -33,9 +33,9 @@ export function AiSection() {
               </h2>
               <p className="text-pretty text-base leading-relaxed text-slate-300">
                 Chat with a contract, summarize a 200-page report, translate a
-                brochure while keeping its layout, or pull clean structured data
-                from invoices. Your content stays private and is never used to
-                train models.
+                brochure&apos;s text into another language, or pull clean
+                structured data from invoices. Your content stays private and is
+                never used to train models.
               </p>
               <ul className="flex flex-col gap-3">
                 {highlights.map((item) => (
