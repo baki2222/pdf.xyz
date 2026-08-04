@@ -15,7 +15,7 @@ import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, Spinner } from "./runner/runner-kit";
+import { Dropzone, ErrorNote, ResultCard, Spinner } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
 
 type OfficeTool = "word-to-pdf" | "excel-to-pdf" | "powerpoint-to-pdf";
@@ -159,10 +159,10 @@ function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
       </button>
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
-        <div className="flex flex-col gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] p-4">
+        <ResultCard announce="Your PDF is ready.">
           <p className="text-sm text-emerald-200">Your PDF is ready.</p>
           <button type="button" onClick={() => downloadBytes(outcome.output, outcome.artifact.filename)} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"><Download className="size-4" aria-hidden />Download {outcome.artifact.filename}</button>
-        </div>
+        </ResultCard>
       )}
     </div>
   );

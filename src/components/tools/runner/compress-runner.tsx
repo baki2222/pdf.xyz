@@ -28,7 +28,15 @@ import {
 } from "@/lib/workers/client";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { cn, formatBytes } from "@/lib/utils";
-import { ChipButton, Dropzone, ErrorNote, Spinner, errorMessage } from "./runner-kit";
+import {
+  ChipButton,
+  Dropzone,
+  ErrorNote,
+  ResultCard,
+  Spinner,
+  errorMessage,
+  useOutcomeFocus,
+} from "./runner-kit";
 import { CompressBatchRunner } from "./compress-batch";
 import {
   HandoffLoadedBadge,
@@ -233,6 +241,24 @@ function CompressEditor({
 
   const { result, error, busy } = state;
 
+  /**
+   * The analysis headline is this tool's first outcome — it replaces a spinner
+   * that ran for as long as the PDF took to inspect, so it is a completion in
+   * every sense that matters to someone who cannot see it appear.
+   *
+   * Declared here, above the early returns, because hooks cannot follow one.
+   * `useOutcomeFocus` only takes focus when focus was orphaned, and after a file
+   * picker it is still on the input — so in practice this announces rather than
+   * yanking the user out of the upload control, which is what we want.
+   */
+  const analysisHeadline = result
+    ? HEADLINES[summarizeAnalysis(result.analysis).recommendation].title
+    : "";
+  const analysisOutcome = useOutcomeFocus(
+    Boolean(result),
+    `Analysis complete. ${analysisHeadline}.`,
+  );
+
   if (busy) {
     return (
       <div className="flex flex-col gap-5">
@@ -271,7 +297,15 @@ function CompressEditor({
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
 
-      <div className={cn("flex items-start gap-3 rounded-3xl border p-5", headline.tone)}>
+      <div
+        {...analysisOutcome}
+        role="group"
+        aria-label={`Analysis complete. ${headline.title}.`}
+        className={cn(
+          "flex items-start gap-3 rounded-3xl border p-5 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50",
+          headline.tone,
+        )}
+      >
         <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-white/5">
           <HeadlineIcon className="size-5" aria-hidden />
         </span>
@@ -515,6 +549,19 @@ function DeepRunControls({
     outcome?.ok === true
       ? Math.max(0, originalBytes - outcome.output.byteLength)
       : 0;
+  /**
+   * The "nothing to gain" outcome is a COMPLETED run that produces no emerald
+   * card and no download — so neither structural guard can see it, and it was
+   * the one completion surface in the codebase that three independent design
+   * passes all missed. It is announced here by hand.
+   *
+   * Unlike `ResultPanel`, this panel stays mounted across runs, which is why the
+   * hook is keyed on a condition rather than on mount.
+   */
+  const noGain = useOutcomeFocus<HTMLParagraphElement>(
+    outcome?.ok === true && savedBytes === 0,
+    "Compression finished. The worker could not shrink this file further without losing quality — the original is already efficient.",
+  );
 
   return (
     <div className="flex flex-col gap-3 pl-6">
@@ -566,7 +613,9 @@ function DeepRunControls({
 
       {outcome?.ok === true &&
         (savedBytes > 0 ? (
-          <div className="flex flex-col gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] p-4">
+          <ResultCard
+            announce={`Compression finished. The worker shrank this file by ${formatBytes(savedBytes)} — ${formatBytes(outcome.output.byteLength)} final.`}
+          >
             <p className="text-sm text-emerald-200">
               The worker shrank this file by {formatBytes(savedBytes)} (
               {pct(savedBytes / Math.max(1, originalBytes))}%) —{" "}
@@ -588,9 +637,14 @@ function DeepRunControls({
               <Download className="size-4" aria-hidden />
               Download compressed PDF
             </button>
-          </div>
+          </ResultCard>
         ) : (
-          <p className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-sm text-slate-400">
+          <p
+            {...noGain}
+            role="group"
+            aria-label="Compression finished with no size reduction"
+            className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-sm text-slate-400 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
+          >
             The worker couldn&apos;t shrink this file further without losing
             quality — the original is already efficient.
           </p>

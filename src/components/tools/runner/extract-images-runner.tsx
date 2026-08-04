@@ -26,6 +26,7 @@ import {
   RunnerSection,
   Spinner,
   useAsyncRun,
+  useOutcomeFocus,
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
@@ -136,10 +137,26 @@ function ExtractionResult({
   onStartOver: () => void;
 }) {
   const { images, skipped } = result;
+  /**
+   * A run that finished and found nothing is still a finished run. This surface
+   * is amber rather than emerald and carries no download, so the shared card
+   * does not fit and the class-fingerprint guard cannot see it — it is wired by
+   * hand and stays amber, because turning a "nothing found" outcome green would
+   * be its own small dishonesty.
+   */
+  const empty = useOutcomeFocus(
+    images.length === 0,
+    "No extractable images found in this PDF.",
+  );
 
   if (images.length === 0) {
     return (
-      <div className="flex flex-col gap-5 rounded-3xl border border-amber-400/25 bg-amber-500/[0.06] p-6 animate-float-up">
+      <div
+        {...empty}
+        role="group"
+        aria-label="No extractable images found"
+        className="flex flex-col gap-5 rounded-3xl border border-amber-400/25 bg-amber-500/[0.06] p-6 animate-float-up outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+      >
         <div className="flex items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-amber-500/15 text-amber-300">
             <FileWarning className="size-5" aria-hidden />

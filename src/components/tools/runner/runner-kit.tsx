@@ -2,11 +2,13 @@
 
 import {
   useCallback,
+  useEffect,
   useId,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { announceOutcome } from "@/components/a11y/live-region";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -190,6 +192,81 @@ export function Dropzone({
   );
 }
 
+/**
+ * Give a finished run the same standing a failed one already has.
+ *
+ * `ErrorNote` below carries `role="alert"`, so a failure has always been spoken.
+ * Success was not announced anywhere and focus was never moved — `.focus(`
+ * appeared zero times in this repository — so the one flow the product exists
+ * for ended, for a screen-reader or keyboard user, in silence.
+ *
+ * WHY FOCUS IS *REPAIRED*, NOT MERELY OFFERED
+ * `RunButton` sets `disabled={busy || disabled}`. A disabled element cannot hold
+ * focus, so the browser drops focus to `<body>` at t=0 — the moment the run
+ * starts, not when it ends. The user is stranded at the top of the document for
+ * the whole run even on panels whose button survives it. That is why this moves
+ * focus rather than assuming the trigger is still there to return to.
+ * (Replacing that `disabled` with `aria-disabled` is the deeper fix and is
+ * deliberately out of scope here.)
+ *
+ * WHEN IT ANNOUNCES INSTEAD
+ * If focus has since landed somewhere real — the user carried on typing, or
+ * tabbed away — yanking it would be its own accessibility failure. In that case
+ * the outcome is spoken through the app live region and focus is left alone.
+ * The two paths are mutually exclusive by construction: an element that receives
+ * focus is deliberately NOT a live region, or some screen readers say it twice.
+ *
+ * `preventScroll` + an explicit `scrollIntoView` is not a stylistic choice.
+ * `globals.css` ships `scroll-behavior: smooth`, and `layout.tsx` documents an
+ * incident where a smooth glide swallowed clicks outright — press and release
+ * resolving to different elements, so no `click` fired at all. Focusing without
+ * `preventScroll` would re-enter that bug on every completed run.
+ */
+export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
+  active: boolean,
+  message: string,
+) {
+  const ref = useRef<T>(null);
+  // Which outcome has already been handled. Keyed by message rather than a
+  // boolean because surfaces like `WorkerDeepPanel` stay mounted across runs: a
+  // boolean latch would make the second run silent, and a mount-only test would
+  // never notice.
+  const handled = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!active) {
+      handled.current = null;
+      return;
+    }
+    if (handled.current === message) return; // a re-render, not a new outcome
+    handled.current = message;
+
+    const node = ref.current;
+    if (!node) {
+      announceOutcome(message);
+      return;
+    }
+    const activeElement = document.activeElement;
+    const orphaned =
+      !activeElement ||
+      activeElement === document.body ||
+      !document.body.contains(activeElement);
+    if (!orphaned) {
+      announceOutcome(message);
+      return;
+    }
+    node.focus({ preventScroll: true });
+    // `behavior: "instant"` is not a default worth omitting: with it absent the
+    // call inherits `scroll-behavior: smooth` from `globals.css` and re-creates
+    // the very glide `preventScroll` just avoided. Optional-called because jsdom
+    // does not implement `scrollIntoView`, and a missing scroll must never turn
+    // an accessibility improvement into a thrown error inside a tool.
+    node.scrollIntoView?.({ block: "nearest", behavior: "instant" });
+  }, [active, message]);
+
+  return { ref, tabIndex: -1 } as const;
+}
+
 export function ErrorNote({ message }: { message: string }) {
   return (
     <p
@@ -242,30 +319,54 @@ export function RunButton({
   );
 }
 
-/** Success panel shown after a tool produces output. */
+/**
+ * Success panel shown after a tool produces output.
+ *
+ * Deliberately NOT a live region — it receives focus instead, and doing both
+ * makes some screen readers read the outcome twice. See {@link useOutcomeFocus}.
+ */
 export function ResultPanel({
   title,
   summary,
   children,
   onReset,
   resetLabel = "Start over",
+  announcement,
 }: {
   title: string;
   summary?: ReactNode;
   children: ReactNode;
   onReset: () => void;
   resetLabel?: string;
+  /**
+   * What to say when focus cannot be moved. Defaults to `title`, which is right
+   * for most tools; override where the title alone is thin out of context
+   * ("PDF re-saved", "Selectable text matches").
+   */
+  announcement?: string;
 }) {
+  const id = useId();
+  // Always `true`: this panel only ever renders on success, so its existence IS
+  // the outcome. Surfaces that persist across runs pass a real condition.
+  const outcome = useOutcomeFocus(true, announcement ?? title);
   return (
-    <div className="flex flex-col gap-5 rounded-3xl border border-emerald-400/25 bg-emerald-500/[0.07] p-6 animate-float-up">
+    <div
+      {...outcome}
+      role="group"
+      aria-labelledby={summary ? `${id}-t ${id}-s` : `${id}-t`}
+      className="flex flex-col gap-5 rounded-3xl border border-emerald-400/25 bg-emerald-500/[0.07] p-6 animate-float-up outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50">
       <div className="flex items-start gap-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-emerald-500/15 text-emerald-300">
           <CheckCircle2 className="size-5" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
-          <h3 className="text-base font-semibold text-white">{title}</h3>
+          <h3 id={`${id}-t`} className="text-base font-semibold text-white">
+            {title}
+          </h3>
           {summary && (
-            <div className="text-sm text-slate-400">{summary}</div>
+            <div id={`${id}-s`} className="text-sm text-slate-400">
+              {summary}
+            </div>
           )}
         </div>
       </div>
@@ -278,6 +379,40 @@ export function ResultPanel({
         <RefreshCw className="size-3.5" aria-hidden />
         {resetLabel}
       </button>
+    </div>
+  );
+}
+
+/**
+ * The success card the worker panels render, with an outcome attached.
+ *
+ * Thirteen files had hand-copied the same emerald card markup, and every copy
+ * was invisible to assistive tech. This is that exact markup — the swap is a
+ * pixel-for-pixel no-op — with the difference that `announce` is REQUIRED. A new
+ * panel cannot build the card without writing the sentence a user hears, which
+ * is the only kind of convention this codebase has not drifted out of.
+ */
+export function ResultCard({
+  announce,
+  children,
+  className,
+}: {
+  announce: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const outcome = useOutcomeFocus(true, announce);
+  return (
+    <div
+      {...outcome}
+      role="group"
+      aria-label={announce}
+      className={cn(
+        "flex flex-col gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] p-4 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50",
+        className,
+      )}
+    >
+      {children}
     </div>
   );
 }

@@ -33,7 +33,7 @@ import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, Spinner } from "./runner/runner-kit";
+import { Dropzone, ErrorNote, ResultCard, Spinner } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
 
 type Phase = "loading" | "error" | "ready";
@@ -507,7 +507,7 @@ function SecurityRunArea({
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
 
       {outcome?.ok === true && (
-        <div className="flex flex-col gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] p-4">
+        <ResultCard announce={mode === "protect" ? "Your PDF is protected and ready." : "Your PDF is unlocked and ready."}>
           <p className="text-sm text-emerald-200">
             {mode === "protect"
               ? "Your PDF is protected and ready."
@@ -523,7 +523,7 @@ function SecurityRunArea({
             <Download className="size-4" aria-hidden />
             Download {outcome.artifact.filename}
           </button>
-        </div>
+        </ResultCard>
       )}
     </div>
   );
