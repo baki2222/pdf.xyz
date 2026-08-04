@@ -11,5 +11,6 @@ export const alt = openGraphAlt;
 export const size = openGraphSize;
 export const contentType = openGraphContentType;
 export const generateStaticParams = openGraphStaticParams;
+export const dynamicParams = false;
 
 export default ToolOpengraphImage;

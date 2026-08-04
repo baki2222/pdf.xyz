@@ -50,6 +50,23 @@ export function generateStaticParams() {
   return getAllToolSlugs().map((slug) => ({ slug }));
 }
 
+/**
+ * A slug that is not a tool must be a real 404, not a page that says so.
+ *
+ * `notFound()` below is reached only when this segment renders, and with
+ * `dynamicParams` left at its default an unknown slug DOES render: Next serves
+ * it on demand, caches it, and returns **200** with the not-found body. That is
+ * a soft 404 — measured on production 2026-08-05, `/tools/does-not-exist-xyz`
+ * answered `200` with `<title>Tool not found — pdf.xyz</title>` and 36 KB of
+ * markup. Crawlers index the URL, and a `noIndex` tag only asks them not to.
+ *
+ * The catalogue is compiled in, so `generateStaticParams` above is the complete
+ * and only source of valid slugs — there is no runtime origin for a new one.
+ * Closing the set is therefore exact, and Next answers anything outside it with
+ * a 404 status before this module runs.
+ */
+export const dynamicParams = false;
+
 export async function generateMetadata({
   params,
 }: {
