@@ -9,7 +9,7 @@ import { LEGAL_CONTACT, LEGAL_UPDATED } from "@/lib/legal";
 export const metadata: Metadata = buildMetadata({
   title: "Privacy Policy",
   description:
-    "What pdf.xyz does with your files. Most tools never upload anything; the rest process on a worker that deletes inputs and outputs within an hour. No accounts, no advertising, no sale of personal data.",
+    "What pdf.xyz does with your files. Most tools never upload anything; the rest process on a worker that deletes the upload when the job ends and stops serving the result after an hour. No accounts, no advertising, no sale of personal data.",
   path: "/privacy",
 });
 
@@ -58,10 +58,10 @@ export default function PrivacyPage() {
           {inBrowser} of our {tools.length} tools do their work entirely inside
           your browser — those files are never uploaded, so we never receive
           them. The remaining {onWorker} send your file to a processing worker,
-          which deletes the input and the result within {inputWindow}. There are
-          no accounts, no advertising, and no sale or sharing of personal
-          information. Each tool&apos;s page says which kind it is before you
-          upload anything.
+          which deletes it when the job ends and stops serving the result after{" "}
+          {outputWindow}. There are no accounts, no advertising, and no sale or
+          sharing of personal information. Each tool&apos;s page says which kind
+          it is before you upload anything.
         </>
       }
     >
@@ -104,27 +104,54 @@ export default function PrivacyPage() {
           Some work cannot be done in a browser — optical character recognition,
           office-format conversion, and anything using an AI model. For these,
           your file is uploaded over an encrypted connection to storage we
-          control, scanned for malware, processed, and then deleted:
+          control, scanned for malware, processed, and then removed on this
+          timetable:
         </p>
-        <ul className="ml-5 flex list-disc flex-col gap-1.5">
+        <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
-            the uploaded input is removed within{" "}
-            <strong className="font-semibold text-white">{inputWindow}</strong>,
-            and in normal operation immediately after the job finishes;
+            <strong className="font-semibold text-white">
+              The uploaded file is actively deleted
+            </strong>{" "}
+            as soon as the job reaches an end — success or failure — and in any
+            case within {inputWindow}. If a job hits a temporary error and is
+            retried, the file is kept for that retry rather than re-uploaded.
           </li>
           <li>
-            the result is available to download for{" "}
-            <strong className="font-semibold text-white">{outputWindow}</strong>
-            , then deleted;
+            <strong className="font-semibold text-white">
+              The result stops being downloadable after {outputWindow}.
+            </strong>{" "}
+            After that the link returns an error and nobody can retrieve it,
+            including us. The stored copy is then erased by a storage rule that
+            runs on a daily cycle, so the bytes typically survive a few hours
+            longer than the link does. We would rather say that than round it to
+            a number that sounds better.
           </li>
           <li>
-            neither is kept afterwards, and neither is used to train any model —
-            not ours, and not a provider&apos;s.
+            <strong className="font-semibold text-white">
+              A record of the job — including your file&apos;s name — is kept
+              for about 24 hours
+            </strong>{" "}
+            so the system can report status, avoid duplicating work, and retry
+            safely. It does not contain your document&apos;s contents.
+          </li>
+          <li>
+            Nothing here is used to train any model — not ours, and not a
+            provider&apos;s.
           </li>
         </ul>
         <p>
           We do not read your documents, and no person at pdf.xyz opens them in
           the ordinary course of running the service.
+        </p>
+        <p>
+          <strong className="font-semibold text-white">
+            One case worth naming.
+          </strong>{" "}
+          If you use the tools that add or remove a PDF password, the password
+          you type is part of the instruction sent to the worker, and it sits in
+          that job record for the same ~24 hours. It is never written to a log,
+          an error message, a filename, or a result. Still: if a password is one
+          you use elsewhere, change it, or use it only for the document.
         </p>
         <p>
           Every tool page states which of these two applies <em>before</em> you
@@ -147,6 +174,16 @@ export default function PrivacyPage() {
           PDF. The worker extracts that text and sends it to a third-party AI
           provider to produce the answer. The PDF file itself is not sent to the
           provider.
+        </p>
+        <p>
+          Two details we would rather state than have you discover. Only text
+          the PDF already contains as text is sent — we do not run character
+          recognition to manufacture text from a scan, and a scanned document is
+          refused rather than silently half-processed. And for{" "}
+          <strong className="font-semibold text-white">Chat with PDF</strong>,
+          the document&apos;s text is held briefly in the provider&apos;s cache
+          between your questions, so a follow-up does not resend the whole
+          document; that cache lasts minutes, not days.
         </p>
         <p>
           We use providers under agreements that prohibit training on data sent
@@ -178,14 +215,24 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="font-semibold text-white">
-              Anonymous performance and interest signals,{" "}
-              <em>only if enabled</em>.
+              No product analytics leave your device.
             </strong>{" "}
-            The site can report page-performance measurements and a count of
-            interest in tools that are not yet available. These carry no file
-            contents, no filenames, and no identifier for you. When no reporting
-            destination is configured, the code that would send them is not
-            loaded at all.
+            The site counts things like which tools get used, and that counting
+            goes nowhere: in the shipped build it is wired to a sink that
+            discards it. There is no analytics vendor, no advertising pixel, and
+            no error-tracking SDK anywhere in the site. The whole dependency
+            list is ten packages, none of them a tracker.
+          </li>
+          <li>
+            <strong className="font-semibold text-white">
+              Page-performance and error reports, only if we switch them on.
+            </strong>{" "}
+            There is one optional channel for load-speed measurements and crash
+            reports. It is off unless a reporting destination is configured, and
+            when it is off the code that would send anything is not loaded at
+            all. When on, values are stripped before sending — filenames, file
+            links, and query strings are removed rather than trusted to be
+            harmless.
           </li>
           <li>
             <strong className="font-semibold text-white">
@@ -285,7 +332,7 @@ export default function PrivacyPage() {
           are stored on infrastructure we control and are scanned for malware
           before any processor touches them. The site sets a strict Content
           Security Policy and related protections against common web attacks. We
-          delete inputs and outputs on the timetable in section 2 rather than
+          remove uploads and results on the timetable in section 2 rather than
           keeping them.
         </p>
         <p>

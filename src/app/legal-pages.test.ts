@@ -24,7 +24,13 @@ import { tools } from "@/lib/tools";
 const ROOT = process.cwd();
 const PRIVACY = path.join(ROOT, "src", "app", "privacy", "page.tsx");
 const TERMS = path.join(ROOT, "src", "app", "terms", "page.tsx");
-const FOOTER = path.join(ROOT, "src", "components", "layout", "site-footer.tsx");
+const FOOTER = path.join(
+  ROOT,
+  "src",
+  "components",
+  "layout",
+  "site-footer.tsx",
+);
 const SITEMAP = path.join(ROOT, "src", "app", "sitemap.ts");
 
 const read = (file: string) => readFileSync(file, "utf8");
@@ -39,9 +45,7 @@ const read = (file: string) => readFileSync(file, "utf8");
  * next person weakens. Only what a user can read counts.
  */
 function withoutComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/^\s*\/\/.*$/gm, "");
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
 }
 
 describe("the policy pages exist and are reachable", () => {
@@ -144,6 +148,24 @@ describe("the policy pages do not promise what the product does not do", () => {
       pattern: /\b(?:fully|completely) (?:GDPR|CCPA)[- ]compliant\b/i,
       instead:
         "compliance is not a self-certifiable badge; describe the practices instead",
+    },
+    {
+      // The first draft of this page said the result was "deleted" after the
+      // output window. It is not: `retrieval-storage.ts` denies the read with a
+      // 410 once the signed lifecycle metadata says the window passed, and the
+      // bytes are erased later by a bucket rule whose granularity is DAYS —
+      // `minutesToBackstopDays` turns a 60-minute TTL into a 1-day rule. The
+      // link dying and the bytes dying are different events, hours apart, and
+      // conflating them is the kind of small overstatement a policy cannot make.
+      pattern: /\bresults? (?:are|is) deleted\b/i,
+      instead:
+        "the result stops being downloadable after the window; say that, and say the stored copy is erased by a daily storage rule (see minutesToBackstopDays in src/lib/workers/lifecycle/policy.ts)",
+    },
+    {
+      pattern:
+        /\bdeletes? (?:the )?(?:input and|inputs? and) (?:the )?(?:result|output)s?\b/i,
+      instead:
+        "inputs are actively deleted at job end; outputs are denied at read time and erased later — one sentence cannot honestly cover both",
     },
   ];
 

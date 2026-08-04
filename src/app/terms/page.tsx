@@ -157,7 +157,8 @@ export default function TermsPage() {
           change, suspend, or withdraw any part of it.
         </p>
         <p>
-          Results are deleted on a short timer — currently {outputWindow}.
+          Results stop being downloadable on a short timer — currently{" "}
+          {outputWindow}, after which the link fails for everyone including us.
           Download what you need when it is ready.{" "}
           <strong className="font-semibold text-white">
             Keep your own copy of anything that matters.
