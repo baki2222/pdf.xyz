@@ -453,16 +453,28 @@ function OcrRunArea({
   const start = useCallback(async () => {
     if (!file) return;
     setBusy(true);
-    setOutcome(null);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const result = await runWorkerOcr({
-      filename: file.name,
-      bytes,
-      contentType: contentTypeFor(file),
-      options: request,
-    });
-    setOutcome(result);
-    setBusy(false);
+    try {
+      setOutcome(null);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await runWorkerOcr({
+        filename: file.name,
+        bytes,
+        contentType: contentTypeFor(file),
+        options: request,
+      });
+      setOutcome(result);
+    } catch {
+      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
+      // file that could not be read. None of these produce a response to inspect,
+      // so there is nothing honest to say beyond what happened.
+      setOutcome({
+        ok: false,
+        message:
+          "Lost the connection before the job finished. Check your network and try again.",
+      });
+    } finally {
+      setBusy(false);
+    }
   }, [file, request]);
 
   return (

@@ -20,9 +20,9 @@
 // browser module never pulls the server-side validators or the tools catalog
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
-import { isTerminalStatus } from "@/lib/jobs/types";
 import type { ApiError } from "@/lib/jobs/responses";
 import type { OcrOptions } from "@/lib/jobs/ocr";
+import { pollJobToTerminal } from "./job-polling";
 
 const OCR_TOOL = "ocr-pdf";
 const DEFAULT_POLL_INTERVAL_MS = 800;
@@ -89,8 +89,6 @@ export interface OcrWorkerOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
-const defaultSleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 const defaultFetch: FetchLike = (input, init) =>
   fetch(input, init as RequestInit);
@@ -144,7 +142,6 @@ export async function runWorkerOcr(
 ): Promise<OcrWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const { signal } = options;
-  const sleep = options.sleep ?? defaultSleep;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxPollAttempts = options.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
 
@@ -205,19 +202,23 @@ export async function runWorkerOcr(
   let job = (await jobRes.json()) as Job;
 
   // 4. Poll to a terminal state (a production worker is async).
-  let attempts = 0;
-  while (!isTerminalStatus(job.status)) {
-    if (attempts >= maxPollAttempts) {
-      return { ok: false, message: "Timed out waiting for the worker." };
-    }
-    await sleep(pollIntervalMs);
-    attempts += 1;
-    const statusRes = await fetchImpl(`/api/jobs/${job.jobId}`, { signal });
-    if (!statusRes.ok) {
-      return readError(statusRes, "Lost contact with the worker job.");
-    }
-    job = (await statusRes.json()) as Job;
+  const polled = await pollJobToTerminal({
+    job,
+    fetchImpl,
+    pollIntervalMs,
+    maxPollAttempts,
+    ...(signal ? { signal } : {}),
+    ...(options.sleep ? { sleepImpl: options.sleep } : {}),
+  });
+  if (!polled.ok) {
+    return {
+      ok: false,
+      message: polled.stillRunning
+        ? `${polled.message} (job ${polled.jobId})`
+        : polled.message,
+    };
   }
+  job = polled.job;
 
   if (job.status !== "completed") {
     return {

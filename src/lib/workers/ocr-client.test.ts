@@ -291,6 +291,10 @@ describe("runWorkerOcr", () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.message).toMatch(/timed out/i);
+    // See the equivalent assertion in `client.test.ts`: the client gives up on
+    // waiting, not on the job, and it now says so and names the job it left.
+    expect(result.message).toMatch(/stopped waiting/i);
+    expect(result.message).toMatch(/may still finish/i);
+    expect(result.message).toContain("job_");
   });
 });

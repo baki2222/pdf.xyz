@@ -140,6 +140,35 @@ describe("completion surfaces", () => {
   });
 });
 
+describe("a run that starts always stops", () => {
+  /**
+   * `fetch` REJECTS rather than returning a non-2xx for offline, DNS failure, a
+   * reset connection, and CORS — and `file.arrayBuffer()` can reject too. Every
+   * panel used to run `setBusy(true) … await … setBusy(false)` with no `try` and
+   * no `finally`, so a rejection escaped the callback, `setBusy(false)` never
+   * ran, and the button spun forever showing no error at all. A reload was the
+   * only way out, and nothing in the product said so.
+   *
+   * The client layer is now careful, but care is not a guarantee: `finally` is,
+   * and it covers causes that layer cannot see — including ones not written yet.
+   */
+  const busyPanels = completionSurfaceFiles().filter(({ file }) =>
+    readFileSync(file, "utf8").includes("setBusy(true)"),
+  );
+
+  it("finds the panels that show a busy state", () => {
+    expect(busyPanels.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it.each(busyPanels)("$name clears its busy state in a finally", ({ file, name }) => {
+    const source = readFileSync(file, "utf8");
+    expect(
+      /\}\s*finally\s*\{[^}]*setBusy\(false\)/s.test(source),
+      `${name} sets a busy state but does not clear it in a finally — a rejected fetch there leaves the button spinning with no error, and only a page reload recovers it`,
+    ).toBe(true);
+  });
+});
+
 describe("the app's live region", () => {
   it("is mounted in the root layout, above every route", () => {
     // The region that existed before this was rendered inside a runner's editor

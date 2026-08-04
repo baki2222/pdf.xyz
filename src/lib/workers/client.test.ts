@@ -268,6 +268,13 @@ describe("runWorkerCompression", () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.message).toMatch(/timed out/i);
+    // Giving up on WAITING is not the same as the job having failed, and the
+    // difference matters to whoever is holding the file. The message says which
+    // one happened, and names the job — the old wording ("Timed out waiting for
+    // the worker.") implied the job was over and dropped the id it had in hand,
+    // so a run that finished moments later was unreachable forever.
+    expect(result.message).toMatch(/stopped waiting/i);
+    expect(result.message).toMatch(/may still finish/i);
+    expect(result.message).toContain("job_");
   });
 });

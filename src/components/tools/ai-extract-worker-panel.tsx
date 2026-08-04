@@ -165,24 +165,36 @@ function AiExtractBuilder() {
   const start = useCallback(async () => {
     if (!file || !requestReady) return;
     setBusy(true);
-    setOutcome(null);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const result = await runWorkerAiExtract(
-      mode === "prompt"
-        ? { filename: file.name, bytes, mode: "prompt", prompt: prompt.trim() }
-        : {
-            filename: file.name,
-            bytes,
-            mode: "schema",
-            schema: namedFields.map((f) => ({
-              name: f.name.trim(),
-              type: f.type,
-              ...(f.description?.trim() ? { description: f.description.trim() } : {}),
-            })),
-          },
-    );
-    setOutcome(result);
-    setBusy(false);
+    try {
+      setOutcome(null);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await runWorkerAiExtract(
+        mode === "prompt"
+          ? { filename: file.name, bytes, mode: "prompt", prompt: prompt.trim() }
+          : {
+              filename: file.name,
+              bytes,
+              mode: "schema",
+              schema: namedFields.map((f) => ({
+                name: f.name.trim(),
+                type: f.type,
+                ...(f.description?.trim() ? { description: f.description.trim() } : {}),
+              })),
+            },
+      );
+      setOutcome(result);
+    } catch {
+      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
+      // file that could not be read. None of these produce a response to inspect,
+      // so there is nothing honest to say beyond what happened.
+      setOutcome({
+        ok: false,
+        message:
+          "Lost the connection before the job finished. Check your network and try again.",
+      });
+    } finally {
+      setBusy(false);
+    }
   }, [file, mode, prompt, namedFields, requestReady]);
 
   return (

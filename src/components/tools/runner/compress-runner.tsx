@@ -438,14 +438,25 @@ function WorkerDeepPanel({
   async function run() {
     setBusy(true);
     setOutcome(null);
-    const res = await runWorkerCompression({
-      filename: pdf.file.name,
-      bytes: pdf.bytes,
-      profile: "deep",
-      targetDpi: dpi,
-    });
-    setOutcome(res);
-    setBusy(false);
+    try {
+      const res = await runWorkerCompression({
+        filename: pdf.file.name,
+        bytes: pdf.bytes,
+        profile: "deep",
+        targetDpi: dpi,
+      });
+      setOutcome(res);
+    } catch {
+      // A rejected fetch — offline, DNS failure, a reset connection, CORS. There
+      // is no response to read, so there is nothing honest to say beyond this.
+      setOutcome({
+        ok: false,
+        message:
+          "Lost the connection before the job finished. Check your network and try again.",
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

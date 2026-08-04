@@ -203,18 +203,30 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
 
   const start = useCallback(async () => {
     setBusy(true);
-    setOutcome(null);
-    const result =
-      mode === "url"
-        ? await runWorkerWebpageToPdf(url.trim())
-        : file
-          ? await runWorkerHtmlToPdf({
-              filename: file.name,
-              bytes: new Uint8Array(await file.arrayBuffer()),
-            })
-          : { ok: false as const, message: "Choose an HTML file first." };
-    setOutcome(result);
-    setBusy(false);
+    try {
+      setOutcome(null);
+      const result =
+        mode === "url"
+          ? await runWorkerWebpageToPdf(url.trim())
+          : file
+            ? await runWorkerHtmlToPdf({
+                filename: file.name,
+                bytes: new Uint8Array(await file.arrayBuffer()),
+              })
+            : { ok: false as const, message: "Choose an HTML file first." };
+      setOutcome(result);
+    } catch {
+      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
+      // file that could not be read. None of these produce a response to inspect,
+      // so there is nothing honest to say beyond what happened.
+      setOutcome({
+        ok: false,
+        message:
+          "Lost the connection before the job finished. Check your network and try again.",
+      });
+    } finally {
+      setBusy(false);
+    }
   }, [file, mode, url]);
 
   const disabled =
