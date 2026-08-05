@@ -480,7 +480,7 @@ function WorkerDeepPanel({
       </div>
 
       {status === undefined ? (
-        <p className="inline-flex items-center gap-2 pl-6 text-xs text-slate-500">
+        <p className="inline-flex items-center gap-2 pl-6 text-xs text-slate-400">
           <Spinner className="size-3" />
           Checking whether a secure worker is available…
         </p>
@@ -496,7 +496,7 @@ function WorkerDeepPanel({
           originalBytes={analysis.originalBytes}
         />
       ) : (
-        <p className="pl-6 text-xs leading-relaxed text-slate-500">
+        <p className="pl-6 text-xs leading-relaxed text-slate-400">
           {status?.detail ??
             "The secure worker isn't enabled in this environment, so deep compression isn't available here."}
         </p>
@@ -585,7 +585,7 @@ function DeepRunControls({
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
           Quality
         </span>
         {DEEP_QUALITY.map((q) => (
@@ -667,12 +667,12 @@ function StatTile({
 }) {
   return (
     <div className="flex flex-col gap-1 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5">
-      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">
         <Icon className="size-3.5" aria-hidden />
         {label}
       </span>
       <span className="text-lg font-semibold tabular-nums text-white">{value}</span>
-      {hint && <span className="text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="text-xs text-slate-400">{hint}</span>}
     </div>
   );
 }

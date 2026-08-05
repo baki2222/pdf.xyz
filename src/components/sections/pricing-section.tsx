@@ -84,7 +84,7 @@ export function PricingSection() {
                   <span className="text-4xl font-bold tracking-tight text-white">
                     {tier.price}
                   </span>
-                  <span className="text-sm text-slate-500">{tier.cadence}</span>
+                  <span className="text-sm text-slate-400">{tier.cadence}</span>
                 </p>
                 <p className="text-sm text-slate-400">{tier.tagline}</p>
               </div>

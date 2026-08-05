@@ -118,7 +118,7 @@ function MarkdownToPdfEditor({
 
       <RunnerSection
         title="Markdown content"
-        aside={<span className="text-xs text-slate-500">{characterCount.toLocaleString()} chars · {formatBytes(byteCount)}</span>}
+        aside={<span className="text-xs text-slate-400">{characterCount.toLocaleString()} chars · {formatBytes(byteCount)}</span>}
       >
         <textarea
           value={source.text}

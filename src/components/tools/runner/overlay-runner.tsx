@@ -120,7 +120,7 @@ function OverlayEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
 
       <RunnerSection
         title="Overlay PDF"
-        aside={<span className="text-xs text-slate-500">stamp · letterhead · template</span>}
+        aside={<span className="text-xs text-slate-400">stamp · letterhead · template</span>}
       >
         {overlay ? (
           <div className="flex items-center gap-3 rounded-2xl border border-violet-400/25 bg-violet-500/[0.06] px-3.5 py-3">
@@ -128,7 +128,7 @@ function OverlayEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
             <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
               {overlay.file.name}
             </span>
-            <span className="shrink-0 text-xs text-slate-500">
+            <span className="shrink-0 text-xs text-slate-400">
               {overlay.pageCount} page{overlay.pageCount === 1 ? "" : "s"} ·{" "}
               {formatBytes(overlay.file.size)}
             </span>

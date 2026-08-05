@@ -124,7 +124,7 @@ export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
         ) : (
           <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <p className="text-sm leading-relaxed text-slate-300">{unavailableDetail}</p>
-            <p className="text-xs leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-slate-400">
               No builder is shown until the worker is ready, so {tool.name} never pretends to prepare a request it
               cannot actually package.
             </p>
@@ -133,7 +133,7 @@ export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">What happens</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">What happens</h3>
           <ol className="flex flex-col gap-1">
             {workerPipelineStages(status?.scan.active ?? false).map((stage, index, all) => (
               <li key={stage.id} className="flex items-start gap-3">
@@ -147,7 +147,7 @@ export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
                   <span className="text-sm font-medium text-slate-200">
                     {index + 1}. {stage.title}
                   </span>
-                  <span className="text-xs leading-relaxed text-slate-500">{stage.description}</span>
+                  <span className="text-xs leading-relaxed text-slate-400">{stage.description}</span>
                 </div>
               </li>
             ))}
@@ -168,7 +168,7 @@ function SpecRow({ icon: Icon, label, value }: { icon: typeof Download; label: s
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-500" aria-hidden />
+        <Icon className="size-4 text-slate-400" aria-hidden />
         {label}
       </span>
       <span className="text-right text-sm font-medium text-slate-200">{value}</span>
@@ -262,7 +262,7 @@ function RequestBuilder() {
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-slate-400">
             <Users className="size-3.5" aria-hidden />
             Signers
           </span>
@@ -285,7 +285,7 @@ function RequestBuilder() {
               onChange={(e) => updateSigner(index, { name: e.target.value })}
               placeholder="Full name"
               aria-label={`Signer ${index + 1} name`}
-              className="min-w-[8rem] flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-violet-400/50"
+              className="min-w-[8rem] flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus:border-violet-400/50"
             />
             <input
               type="email"
@@ -293,14 +293,14 @@ function RequestBuilder() {
               onChange={(e) => updateSigner(index, { email: e.target.value })}
               placeholder="email@company.com"
               aria-label={`Signer ${index + 1} email`}
-              className="min-w-[10rem] flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-violet-400/50"
+              className="min-w-[10rem] flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus:border-violet-400/50"
             />
             <button
               type="button"
               onClick={() => removeSigner(index)}
               disabled={signers.length <= 1}
               aria-label={`Remove signer ${index + 1}`}
-              className="shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-30"
+              className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-30"
             >
               <Trash2 className="size-4" aria-hidden />
             </button>
@@ -337,7 +337,7 @@ function RequestBuilder() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="e.g. Master Services Agreement"
-            className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-violet-400/50"
+            className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus:border-violet-400/50"
           />
         </label>
         <label className="flex items-center gap-2 text-sm text-slate-300 sm:col-span-2">

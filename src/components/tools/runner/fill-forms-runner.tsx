@@ -254,7 +254,7 @@ function FieldsEditor({
       <RunnerSection
         title="Form fields"
         aside={
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             {editable.length} fillable
             {unsupported.length > 0 ? ` · ${unsupported.length} unsupported` : ""}
           </span>
@@ -338,7 +338,7 @@ function FieldRow({
             </span>
           )}
         </span>
-        <span className="text-[11px] uppercase tracking-wide text-slate-500">
+        <span className="text-[11px] uppercase tracking-wide text-slate-400">
           {field.widgetLabel}
         </span>
       </div>
@@ -348,7 +348,7 @@ function FieldRow({
 }
 
 const INPUT_CLASS =
-  "w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20";
+  "w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20";
 
 function asString(value: FieldValue): string {
   return typeof value === "string" ? value : Array.isArray(value) ? value[0] ?? "" : "";
@@ -449,7 +449,7 @@ function TextControl({
         />
       )}
       {showCount && (
-        <span className="self-end text-[11px] tabular-nums text-slate-500">
+        <span className="self-end text-[11px] tabular-nums text-slate-400">
           {value.length}/{field.maxLength}
         </span>
       )}
@@ -560,7 +560,7 @@ function ChoiceControl({
   };
 
   if (options.length === 0) {
-    return <span className="text-xs text-slate-500">No options defined.</span>;
+    return <span className="text-xs text-slate-400">No options defined.</span>;
   }
 
   return (
@@ -590,7 +590,7 @@ function ChoiceControl({
         <button
           type="button"
           onClick={() => onChange([])}
-          className="self-start text-[11px] text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+          className="self-start text-[11px] text-slate-400 underline-offset-2 hover:text-slate-300 hover:underline"
         >
           Clear selection
         </button>
@@ -611,9 +611,9 @@ function ReadOnlyControl({ field }: { field: FormFieldInfo }) {
   return (
     <div className="flex items-center gap-2">
       <span className="min-w-0 flex-1 truncate rounded-xl border border-white/10 bg-black/10 px-3.5 py-2.5 text-sm text-slate-400">
-        {current || <span className="text-slate-600">(empty)</span>}
+        {current || <span className="text-slate-400">(empty)</span>}
       </span>
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[11px] text-slate-500">
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[11px] text-slate-400">
         <Lock className="size-3" aria-hidden />
         Read-only
       </span>
@@ -624,7 +624,7 @@ function ReadOnlyControl({ field }: { field: FormFieldInfo }) {
 function UnsupportedNote({ fields }: { fields: FormFieldInfo[] }) {
   return (
     <div className="flex items-start gap-2 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs leading-relaxed text-slate-400">
-      <Info className="mt-0.5 size-4 shrink-0 text-slate-500" aria-hidden />
+      <Info className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
       <span>
         {fields.length} field{fields.length === 1 ? "" : "s"} of an unsupported type
         (

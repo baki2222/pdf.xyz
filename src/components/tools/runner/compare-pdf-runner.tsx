@@ -185,7 +185,7 @@ function ComparePdfEditor({
 
       <RunnerSection
         title="Files to compare"
-        aside={<span className="text-xs text-slate-500">{items.length}/2 selected{loading ? ` · loading ${loading}` : ""}</span>}
+        aside={<span className="text-xs text-slate-400">{items.length}/2 selected{loading ? ` · loading ${loading}` : ""}</span>}
       >
         <div className="grid gap-3 md:grid-cols-2">
           {[0, 1].map((slot) => {
@@ -202,7 +202,7 @@ function ComparePdfEditor({
                 </button>
               </div>
             ) : (
-              <div key={slot} className="flex min-h-24 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[0.02] text-sm text-slate-500">
+              <div key={slot} className="flex min-h-24 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[0.02] text-sm text-slate-400">
                 <Plus className="mr-2 size-4" aria-hidden />
                 PDF {slot + 1}
               </div>
@@ -242,7 +242,7 @@ function ComparePdfEditor({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-slate-400">{label}</p>
       <p className="mt-1 text-lg font-semibold text-white">{value}</p>
     </div>
   );

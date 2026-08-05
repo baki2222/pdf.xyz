@@ -129,7 +129,7 @@ export function CompressBatchRunner({
               <span className="text-amber-300"> · {progress.error} failed</span>
             )}
             {progress.canceled > 0 && (
-              <span className="text-slate-500"> · {progress.canceled} canceled</span>
+              <span className="text-slate-400"> · {progress.canceled} canceled</span>
             )}
           </span>
           {settled && totalSaved > 0 && (
@@ -173,7 +173,7 @@ export function CompressBatchRunner({
 
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-400">
           Files are processed one at a time, on your device.
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -250,7 +250,7 @@ function BatchRow({ item }: { item: BatchItem<CompressResult> }) {
       <StatusGlyph status={item.status} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-slate-200">{item.name}</span>
-        <span className="block text-xs text-slate-500">
+        <span className="block text-xs text-slate-400">
           <BatchDetail item={item} />
         </span>
       </span>
@@ -322,13 +322,13 @@ function StatusGlyph({ status }: { status: BatchItem<CompressResult>["status"] }
       );
     case "canceled":
       return (
-        <span className={cn(base, "bg-white/5 text-slate-500")}>
+        <span className={cn(base, "bg-white/5 text-slate-400")}>
           <CircleSlash className="size-4" aria-hidden />
         </span>
       );
     default:
       return (
-        <span className={cn(base, "bg-white/5 text-slate-500")}>
+        <span className={cn(base, "bg-white/5 text-slate-400")}>
           <Clock className="size-4" aria-hidden />
         </span>
       );

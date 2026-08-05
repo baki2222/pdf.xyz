@@ -109,7 +109,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
         ) : (
           <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <p className="text-sm leading-relaxed text-slate-300">{unavailableDetail}</p>
-            <p className="text-xs leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-slate-400">
               No builder is shown until the worker is ready, so {tool.name} never pretends to produce a summary it cannot
               actually generate.
             </p>
@@ -118,7 +118,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">What happens</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">What happens</h3>
           <ol className="flex flex-col gap-1">
             {workerPipelineStages(status?.scan.active ?? false).map((stage, index, all) => (
               <li key={stage.id} className="flex items-start gap-3">
@@ -132,7 +132,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
                   <span className="text-sm font-medium text-slate-200">
                     {index + 1}. {stage.title}
                   </span>
-                  <span className="text-xs leading-relaxed text-slate-500">{stage.description}</span>
+                  <span className="text-xs leading-relaxed text-slate-400">{stage.description}</span>
                 </div>
               </li>
             ))}
@@ -153,7 +153,7 @@ function SpecRow({ icon: Icon, label, value }: { icon: typeof Download; label: s
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-500" aria-hidden />
+        <Icon className="size-4 text-slate-400" aria-hidden />
         {label}
       </span>
       <span className="text-right text-sm font-medium text-slate-200">{value}</span>
@@ -262,7 +262,7 @@ function SummaryBuilder() {
             onChange={(e) => setFocus(e.target.value.slice(0, MAX_SUMMARY_FOCUS_CHARS))}
             maxLength={MAX_SUMMARY_FOCUS_CHARS}
             placeholder="e.g. focus on financial risks and obligations"
-            className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-violet-400/50"
+            className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus:border-violet-400/50"
           />
         </label>
       </div>

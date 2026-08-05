@@ -69,7 +69,7 @@ export default function StatusPage() {
         <div className="h-px w-full bg-white/10" role="presentation" />
 
         <section className="flex flex-col gap-4">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
             What runs where
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -98,7 +98,7 @@ export default function StatusPage() {
               );
             })}
           </div>
-          <p className="text-xs leading-relaxed text-slate-500">
+          <p className="text-xs leading-relaxed text-slate-400">
             Secure-worker, hybrid, and AI tools show an honest, implementation-ready
             preview until their backend is enabled — pdf.xyz never fakes processing
             in the browser. See the{" "}

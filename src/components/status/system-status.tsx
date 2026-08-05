@@ -79,7 +79,7 @@ function ProviderRow({
         </span>
         <StatusBadge tone={tone} label={badge} />
       </div>
-      <p className="text-xs leading-relaxed text-slate-500">{detail}</p>
+      <p className="text-xs leading-relaxed text-slate-400">{detail}</p>
     </div>
   );
 }
@@ -202,7 +202,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                     label={status.ocr.available ? "Available" : "Not enabled"}
                   />
                 </div>
-                <p className="text-xs leading-relaxed text-slate-500">
+                <p className="text-xs leading-relaxed text-slate-400">
                   {status.ocr.detail}
                 </p>
               </div>
@@ -221,7 +221,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                     label={status.ai.ready ? "Declared" : "Not enabled"}
                   />
                 </div>
-                <p className="text-xs leading-relaxed text-slate-500">
+                <p className="text-xs leading-relaxed text-slate-400">
                   {status.ai.detail}
                 </p>
               </div>
@@ -231,7 +231,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   provider reports its own honest readiness so the page can say
                   exactly what a real deployment still needs to wire up. */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+                <span className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-400">
                   Production pipeline
                 </span>
                 <ProviderRow

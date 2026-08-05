@@ -171,7 +171,7 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
       <RunnerSection
         title="Redaction areas"
         aside={
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             Points from bottom-left · 72 pt = 1 in
           </span>
         }
@@ -315,7 +315,7 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
 function BoxList({ boxes, onRemove }: { boxes: Box[]; onRemove: (id: number) => void }) {
   if (boxes.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-4 py-6 text-center text-xs text-slate-500">
+      <p className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-4 py-6 text-center text-xs text-slate-400">
         No redaction areas yet. Add one above — its box appears on the page preview.
       </p>
     );
@@ -337,7 +337,7 @@ function BoxList({ boxes, onRemove }: { boxes: Box[]; onRemove: (id: number) => 
             type="button"
             onClick={() => onRemove(box.id)}
             aria-label={`Remove redaction area ${index + 1}`}
-            className="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/5 hover:text-red-300"
+            className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-white/5 hover:text-red-300"
           >
             <Trash2 className="size-4" aria-hidden />
           </button>
@@ -410,7 +410,7 @@ function PagePreview({
           />
         )}
       </div>
-      <span className="text-[11px] text-slate-500">Page {pageNumber} preview</span>
+      <span className="text-[11px] text-slate-400">Page {pageNumber} preview</span>
     </div>
   );
 }
@@ -434,7 +434,7 @@ function RenderProgress({ done, total }: { done: number; total: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
     <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
         <Spinner className="size-3" /> Redacting pages… {done}/{total}
       </span>
       <span className="h-1 w-full overflow-hidden rounded-full bg-white/5" aria-hidden>

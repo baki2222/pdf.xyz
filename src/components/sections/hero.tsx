@@ -74,7 +74,7 @@ export function Hero() {
         </div>
 
         <div className="mt-7 flex flex-col items-center gap-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
             Popular right now
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2">

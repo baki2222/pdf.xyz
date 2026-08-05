@@ -102,7 +102,7 @@ export function FileHeader({ pdf, aside }: { pdf: LoadedPdf; aside?: ReactNode }
         {pdf.file.name}
       </span>
       {aside}
-      <span className="shrink-0 text-xs text-slate-500">
+      <span className="shrink-0 text-xs text-slate-400">
         {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"} ·{" "}
         {formatBytes(pdf.file.size)}
       </span>

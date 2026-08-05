@@ -51,7 +51,7 @@ function SpecRow({
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-500" aria-hidden />
+        <Icon className="size-4 text-slate-400" aria-hidden />
         {label}
       </span>
       <span className="text-right text-sm font-medium text-slate-200">
@@ -118,7 +118,7 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
                 <span className="text-sm font-medium text-slate-200">
                   {i + 1}. {stage.title}
                 </span>
-                <span className="text-xs leading-relaxed text-slate-500">
+                <span className="text-xs leading-relaxed text-slate-400">
                   {stage.description}
                 </span>
               </div>
@@ -147,7 +147,7 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
 
         <div className="flex flex-col gap-3">
           <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
-          <p className="text-xs leading-relaxed text-slate-500">
+          <p className="text-xs leading-relaxed text-slate-400">
             No account required. When this ships, files are encrypted in transit
             and at rest, processed in an isolated sandbox, and deleted
             automatically — see our{" "}

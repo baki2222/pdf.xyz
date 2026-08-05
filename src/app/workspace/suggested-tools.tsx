@@ -135,10 +135,10 @@ export function SuggestedTools({
                     {tool.live ? "In-browser" : tool.capabilityLabel}
                   </span>
                 </span>
-                <span className="block truncate text-xs text-slate-500">{reason}</span>
+                <span className="block truncate text-xs text-slate-400">{reason}</span>
               </span>
               <ArrowRight
-                className="size-4 shrink-0 text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-white"
+                className="size-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-white"
                 aria-hidden
               />
             </Link>

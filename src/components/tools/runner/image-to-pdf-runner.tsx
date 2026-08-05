@@ -141,17 +141,17 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       />
 
       {items.length > 0 && (
-        <RunnerSection title="Image order" aside={<span className="text-xs text-slate-500">{items.length} image{items.length === 1 ? "" : "s"}</span>}>
+        <RunnerSection title="Image order" aside={<span className="text-xs text-slate-400">{items.length} image{items.length === 1 ? "" : "s"}</span>}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((item, index) => (
               <div key={item.id} className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={item.previewUrl} alt="" className="h-40 w-full object-contain bg-black/30" />
                 <div className="flex items-center gap-2 p-3">
-                  <GripVertical className="size-4 text-slate-500" aria-hidden />
+                  <GripVertical className="size-4 text-slate-400" aria-hidden />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-slate-200">{item.name}</p>
-                    <p className="text-xs text-slate-500">Page {index + 1} · {formatBytes(item.size)}</p>
+                    <p className="text-xs text-slate-400">Page {index + 1} · {formatBytes(item.size)}</p>
                   </div>
                   <button type="button" onClick={() => move(index, index - 1)} disabled={index === 0} className={iconButtonClass} title="Move up">
                     <ArrowUp className="size-4" aria-hidden />

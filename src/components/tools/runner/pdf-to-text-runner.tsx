@@ -84,7 +84,7 @@ function PdfToTextEditor({
 
       <RunnerSection
         title="Extract text"
-        aside={<span className="text-xs text-slate-500">{pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}</span>}
+        aside={<span className="text-xs text-slate-400">{pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}</span>}
       >
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile

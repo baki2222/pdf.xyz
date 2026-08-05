@@ -296,7 +296,7 @@ function FormBuilder({
       <RunnerSection
         title="Form fields"
         aside={
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             {drafts.length} field{drafts.length === 1 ? "" : "s"}
           </span>
         }
@@ -375,7 +375,7 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
             ? ` Page 1 is ${Math.round(first.width)} × ${Math.round(first.height)} pt.`
             : ""}
         </span>
-        <span className="text-slate-500">
+        <span className="text-slate-400">
           This adds classic fillable AcroForm fields by coordinates — it isn&apos;t a visual
           drag-and-drop editor, and it doesn&apos;t create signature fields.
           {context.existingNames.length > 0
@@ -394,7 +394,7 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
  * ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  "w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20";
+  "w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20";
 
 function FieldCard({
   draft,
@@ -447,7 +447,7 @@ function FieldCard({
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-medium text-slate-300">Placement</span>
-          <span className={cn("text-[11px]", size ? "text-slate-500" : "text-amber-300/90")}>
+          <span className={cn("text-[11px]", size ? "text-slate-400" : "text-amber-300/90")}>
             {pageHint}
           </span>
         </div>
@@ -656,7 +656,7 @@ function OptionsEditor({
         className={cn(INPUT_CLASS, "resize-y font-mono text-xs")}
         placeholder={"Option A\nOption B\nOption C"}
       />
-      {hint && <span className="text-[11px] leading-relaxed text-slate-500">{hint}</span>}
+      {hint && <span className="text-[11px] leading-relaxed text-slate-400">{hint}</span>}
     </div>
   );
 }

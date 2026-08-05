@@ -195,7 +195,7 @@ function PageSelectEditor({
       <RunnerSection
         title="Select pages"
         aside={
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             {config.helper(selected.size)}
           </span>
         }

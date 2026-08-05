@@ -168,7 +168,7 @@ export function PageTile({
           {selected ? (
             <CheckSquare className="size-4" aria-hidden />
           ) : (
-            <Square className="size-4 text-slate-500" aria-hidden />
+            <Square className="size-4 text-slate-400" aria-hidden />
           )}
         </span>
       )}

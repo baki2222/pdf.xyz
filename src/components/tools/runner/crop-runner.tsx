@@ -140,7 +140,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       <RunnerSection
         title="Crop margins"
         aside={
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             Pages never crop below {MIN_CROP_DIMENSION} pt
           </span>
         }

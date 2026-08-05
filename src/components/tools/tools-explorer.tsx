@@ -63,7 +63,7 @@ export function ToolsExplorer({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <label className="relative w-full lg:max-w-md">
           <Search
-            className="pointer-events-none absolute left-4 top-1/2 size-4.5 -translate-y-1/2 text-slate-500"
+            className="pointer-events-none absolute left-4 top-1/2 size-4.5 -translate-y-1/2 text-slate-400"
             aria-hidden
           />
           <input
@@ -72,20 +72,20 @@ export function ToolsExplorer({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={`Search ${toolCount} tools — merge, compress, sign…`}
             aria-label="Search tools"
-            className="h-12 w-full rounded-full border border-white/10 bg-surface-2 pl-11 pr-11 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/50 focus:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-violet-400/50"
+            className="h-12 w-full rounded-full border border-white/10 bg-surface-2 pl-11 pr-11 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-violet-400/50"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="absolute right-3.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-slate-500 transition hover:bg-white/10 hover:text-white"
+              className="absolute right-3.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-slate-400 transition hover:bg-white/10 hover:text-white"
             >
               <X className="size-3.5" aria-hidden />
             </button>
           )}
         </label>
-        <p className="inline-flex items-center gap-2 text-sm text-slate-500">
+        <p className="inline-flex items-center gap-2 text-sm text-slate-400">
           <SlidersHorizontal className="size-4" aria-hidden />
           <span className="tabular-nums">{results.length}</span>
           {results.length === 1 ? " tool" : " tools"}
@@ -116,7 +116,7 @@ export function ToolsExplorer({
               <span
                 className={cn(
                   "tabular-nums text-xs",
-                  selected ? "text-ink/60" : "text-slate-500",
+                  selected ? "text-ink/60" : "text-slate-400",
                 )}
               >
                 {filter.count}

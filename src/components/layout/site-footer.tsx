@@ -18,7 +18,7 @@ export function SiteFooter() {
               {siteConfig.tagline} {toolCount} tools for every document — most
               run entirely in your browser.
             </p>
-            <p className="inline-flex items-center gap-2 text-xs text-slate-500">
+            <p className="inline-flex items-center gap-2 text-xs text-slate-400">
               <ShieldCheck className="size-4 text-emerald-400" aria-hidden />
               Privacy-first by architecture, not by policy.
             </p>
@@ -26,7 +26,7 @@ export function SiteFooter() {
 
           {footerNav.map((column) => (
             <div key={column.title} className="flex flex-col gap-3">
-              <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
                 {column.title}
               </h3>
               <ul className="flex flex-col gap-2.5">
@@ -40,7 +40,7 @@ export function SiteFooter() {
                         {item.label}
                       </Link>
                     ) : (
-                      <span className="text-sm text-slate-500">
+                      <span className="text-sm text-slate-400">
                         {item.label}
                       </span>
                     )}
@@ -52,10 +52,10 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-400">
             © {year} {siteConfig.name}. All rights reserved.
           </p>
-          <div className="flex items-center gap-5 text-xs text-slate-500">
+          <div className="flex items-center gap-5 text-xs text-slate-400">
             {/* These pointed at homepage anchors — marketing sections, not
                 policies. A site that processes people's documents and offers no
                 privacy policy anywhere is missing the document a visitor goes

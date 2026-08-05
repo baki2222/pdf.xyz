@@ -225,7 +225,7 @@ export function AvailabilityGlyph({ available }: { available: boolean }) {
   return available ? (
     <CheckCircle2 className="size-4 text-emerald-300" aria-hidden />
   ) : (
-    <MinusCircle className="size-4 text-slate-500" aria-hidden />
+    <MinusCircle className="size-4 text-slate-400" aria-hidden />
   );
 }
 
