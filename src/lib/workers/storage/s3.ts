@@ -138,8 +138,26 @@ export function createS3Storage(
       const filenameMeta = encodeFilenameMetadata(displayFilename);
       // Sign the content-type so the stored object's type is locked to what was
       // declared; the client echoes exactly these headers on its PUT.
+      //
+      // `content-length` is signed too, which is what makes the size ceiling real
+      // rather than advisory. Without it the ceiling above is checked on a NUMBER
+      // THE CALLER TYPED: declare one byte, receive a signed URL, PUT gigabytes.
+      // The bucket has no idea what was declared, so it stores whatever arrives.
+      // Binding it moves enforcement to the only party that sees the bytes.
+      //
+      // The client does NOT echo this one — `Content-Length` is a forbidden fetch
+      // header, silently dropped by the browser (and by undici) — the transport
+      // sets it from the body itself, which is precisely why it is trustworthy
+      // here: the value R2 checks is the length it actually received.
+      //
+      // Measured against production R2 on 2026-08-06 before shipping, because a
+      // signature the store ignores would be a fix that reads correctly and
+      // changes nothing: declared 2048, PUT 2048 → 200; PUT 6144 → 403
+      // SignatureDoesNotMatch; PUT 1536 → 403. The binding is exact in both
+      // directions, so a slot admits its declared size and nothing else.
       const signedHeaders: Record<string, string> = {
         "content-type": request.contentType,
+        "content-length": String(request.declaredBytes),
         [FILENAME_METADATA_HEADER]: filenameMeta,
       };
       const url = sign("PUT", key, config.uploadTtlSeconds, signedHeaders);
@@ -154,7 +172,11 @@ export function createS3Storage(
             "content-type": request.contentType,
             [FILENAME_METADATA_HEADER]: filenameMeta,
           },
-          maxBytes: JOB_LIMITS.maxFileBytes,
+          // What this target will actually accept — the declared size, not the
+          // catalogue-wide ceiling it was checked against. Reporting
+          // `JOB_LIMITS.maxFileBytes` here would describe a permission the
+          // signature does not grant.
+          maxBytes: request.declaredBytes,
         },
         expiresAt: isoAfter(config.uploadTtlSeconds),
       });
