@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { reportClientError } from "@/lib/telemetry";
+import { useUploadDisclosure } from "@/components/telemetry/upload-disclosure";
 
 /**
  * Root error boundary. This only renders when the root layout itself fails, so
@@ -17,6 +18,8 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const disclosure = useUploadDisclosure();
+
   useEffect(() => {
     reportClientError(error, "global", { digest: error.digest });
   }, [error]);
@@ -50,8 +53,7 @@ export default function GlobalError({
               margin: "0 0 1.5rem",
             }}
           >
-            The app hit an unexpected error. Nothing was uploaded and your files
-            stay on your device.
+            The app hit an unexpected error.{disclosure ? ` ${disclosure}` : ""}
           </p>
           <button
             type="button"

@@ -6,6 +6,7 @@ import { ArrowRight, RotateCcw } from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { reportClientError } from "@/lib/telemetry";
+import { useUploadDisclosure } from "@/components/telemetry/upload-disclosure";
 
 /**
  * Route-segment error boundary. Catches render errors below the root layout,
@@ -21,6 +22,8 @@ export default function RouteError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const disclosure = useUploadDisclosure();
+
   useEffect(() => {
     reportClientError(error, "route", { digest: error.digest });
   }, [error]);
@@ -36,8 +39,8 @@ export default function RouteError({
             Something went wrong
           </h1>
           <p className="max-w-md text-pretty text-base leading-relaxed text-slate-400">
-            An unexpected error interrupted this page. Nothing was uploaded and
-            your files stay on your device. Try again, or head back home.
+            An unexpected error interrupted this page.{" "}
+            {disclosure ? `${disclosure} ` : ""}Try again, or head back home.
           </p>
         </div>
 
