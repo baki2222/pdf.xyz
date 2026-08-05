@@ -226,7 +226,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
         </ul>
       )}
 
-      <p className="text-[11px] leading-relaxed text-slate-500">
+      <p className="text-[11px] leading-relaxed text-slate-400">
         This is the verdict a monitor running <code className="text-slate-400">worker:ops-check</code>{" "}
         would report from this snapshot — local evaluation only, never a hosted pager.
       </p>

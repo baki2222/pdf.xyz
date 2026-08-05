@@ -662,7 +662,7 @@ export function HealthBadge({ health }: { health: HealthClass }) {
 function FactPill({ label, value }: { label: string; value: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-[11px] text-slate-300">
-      <span className="text-slate-500">{label}</span>
+      <span className="text-slate-400">{label}</span>
       {value}
     </span>
   );
@@ -693,7 +693,7 @@ export function OperationsHealthCard({ view }: { view: SafeOperationsView }) {
             <Icon className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col">
-            <span className="text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500">
+            <span className="text-[0.7rem] font-semibold uppercase tracking-widest text-slate-400">
               Worker operations
             </span>
             <span className="text-lg font-semibold text-white">{meta.label}</span>
@@ -905,7 +905,7 @@ function SubsystemTile({ sub }: { sub: SafeSubsystem }) {
         </span>
         <StatusBadge tone={health.tone} label={health.label} />
       </div>
-      <p className="text-xs leading-relaxed text-slate-500">{meta.description}</p>
+      <p className="text-xs leading-relaxed text-slate-400">{meta.description}</p>
     </div>
   );
 }
@@ -919,7 +919,7 @@ export function SubsystemGrid({ subsystems }: { subsystems: SafeSubsystem[] }) {
   if (ordered.length === 0) return null;
   return (
     <section className="flex flex-col gap-3">
-      <h3 className="text-[0.7rem] font-semibold uppercase tracking-widest text-slate-500">
+      <h3 className="text-[0.7rem] font-semibold uppercase tracking-widest text-slate-400">
         Subsystem health
       </h3>
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -1035,7 +1035,7 @@ export function ProofsCard({
         <ProofRow icon={ScanText} label="OCR" proof={proofs.ocr} />
       </div>
       {vantage === "web" && (
-        <p className="text-xs leading-relaxed text-slate-500">
+        <p className="text-xs leading-relaxed text-slate-400">
           A separate worker image&apos;s installed engines can&apos;t be probed from
           the web, so these stay <span className="text-slate-400">unknown</span> here
           — a worker-vantage snapshot confirms them.
@@ -1050,7 +1050,7 @@ function LoopStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex flex-col rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2">
       <span className="text-sm font-semibold text-white tabular-nums">{value}</span>
-      <span className="text-[0.65rem] uppercase tracking-wide text-slate-500">
+      <span className="text-[0.65rem] uppercase tracking-wide text-slate-400">
         {label}
       </span>
     </div>
@@ -1105,15 +1105,15 @@ export function LoopOutcomeCard({ loop }: { loop: SafeLoop }) {
  */
 function SourceFooter({ view }: { view: SafeOperationsView }) {
   return (
-    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-500">
-      <ServerCog className="size-3 text-slate-600" aria-hidden />
+    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-400">
+      <ServerCog className="size-3 text-slate-400" aria-hidden />
       <span>
         Source: live, point-in-time{" "}
         <span className="text-slate-400">{view.vantage}-vantage</span> worker operations
         snapshot
       </span>
       {view.schemaVersion > 0 && (
-        <span className="text-slate-600">· schema v{view.schemaVersion}</span>
+        <span className="text-slate-400">· schema v{view.schemaVersion}</span>
       )}
     </p>
   );

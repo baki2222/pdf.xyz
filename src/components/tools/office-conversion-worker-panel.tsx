@@ -86,7 +86,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
         ) : (
           <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <p className="text-sm leading-relaxed text-slate-300">{unavailableDetail}</p>
-            <p className="text-xs leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-slate-400">
               No runner is shown until the worker is ready, so {tool.name} never pretends to process input it cannot actually convert.
             </p>
             <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
@@ -94,7 +94,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">What happens</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">What happens</h3>
           <ol className="flex flex-col gap-1">
             {workerPipelineStages(status?.scan.active ?? false).map((stage, index, all) => (
               <li key={stage.id} className="flex items-start gap-3">
@@ -106,7 +106,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
                 </div>
                 <div className="flex flex-col gap-0.5 pb-3">
                   <span className="text-sm font-medium text-slate-200">{index + 1}. {stage.title}</span>
-                  <span className="text-xs leading-relaxed text-slate-500">{stage.description}</span>
+                  <span className="text-xs leading-relaxed text-slate-400">{stage.description}</span>
                 </div>
               </li>
             ))}
@@ -124,7 +124,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
 }
 
 function SpecRow({ icon: Icon, label, value }: { icon: typeof Download; label: string; value: string }) {
-  return <div className="flex items-center justify-between gap-3 py-2.5"><span className="inline-flex items-center gap-2 text-sm text-slate-400"><Icon className="size-4 text-slate-500" aria-hidden />{label}</span><span className="text-right text-sm font-medium text-slate-200">{value}</span></div>;
+  return <div className="flex items-center justify-between gap-3 py-2.5"><span className="inline-flex items-center gap-2 text-sm text-slate-400"><Icon className="size-4 text-slate-400" aria-hidden />{label}</span><span className="text-right text-sm font-medium text-slate-200">{value}</span></div>;
 }
 
 function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {

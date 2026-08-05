@@ -286,7 +286,7 @@ function AnnotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
       <RunnerSection
         title="Add markup"
         aside={
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             Points from bottom-left · 72 pt = 1 in
           </span>
         }
@@ -518,9 +518,9 @@ function TypeFields({
             rows={2}
             placeholder="Type the note to place on the page…"
             onChange={(event) => setField("text", event.target.value)}
-            className="w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+            className="w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
           />
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[11px] text-slate-400">
             Y is the baseline of the first line; wrapped lines flow downward. Wrap 0 = one line per line break.
           </span>
         </div>
@@ -580,7 +580,7 @@ function MarkupList({
 }) {
   if (markups.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-4 py-6 text-center text-xs text-slate-500">
+      <p className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-4 py-6 text-center text-xs text-slate-400">
         No markups yet. Add one above — it appears on the page preview.
       </p>
     );
@@ -607,7 +607,7 @@ function MarkupList({
             type="button"
             onClick={() => onRemove(markup.id)}
             aria-label={`Remove markup ${index + 1}`}
-            className="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/5 hover:text-red-300"
+            className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-white/5 hover:text-red-300"
           >
             <Trash2 className="size-4" aria-hidden />
           </button>
@@ -707,7 +707,7 @@ function PagePreview({
           );
         })}
       </div>
-      <span className="text-[11px] text-slate-500">Page {pageNumber} preview</span>
+      <span className="text-[11px] text-slate-400">Page {pageNumber} preview</span>
     </div>
   );
 }

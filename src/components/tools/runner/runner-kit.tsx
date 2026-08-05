@@ -596,7 +596,7 @@ export function PreviewStatus({
 }) {
   if (status === "error") {
     return (
-      <p className="inline-flex items-center gap-1.5 text-xs text-slate-500" role="status">
+      <p className="inline-flex items-center gap-1.5 text-xs text-slate-400" role="status">
         <ImageOff className="size-3.5" aria-hidden />
         Live previews couldn&apos;t be rendered — showing page placeholders. All
         tools still work.
@@ -611,7 +611,7 @@ export function PreviewStatus({
     const pct = target > 0 ? Math.round((done / target) * 100) : 0;
     return (
       <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
           <Spinner className="size-3" />
           Rendering previews… {done}/{target}
         </span>
@@ -630,7 +630,7 @@ export function PreviewStatus({
 
   if (capped && (status === "done" || done >= target)) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
         <ImageIcon className="size-3.5 text-violet-300/70" aria-hidden />
         Showing {eager ?? target} previews — the rest render as you scroll.
       </span>
@@ -674,7 +674,7 @@ export function RunnerSection({
       {(title || aside) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           {title && (
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
               {title}
             </h3>
           )}

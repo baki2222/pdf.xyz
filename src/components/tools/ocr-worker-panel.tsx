@@ -92,7 +92,7 @@ function SpecRow({
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-500" aria-hidden />
+        <Icon className="size-4 text-slate-400" aria-hidden />
         {label}
       </span>
       <span className="text-right text-sm font-medium text-slate-200">
@@ -215,7 +215,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Recognition settings */}
         <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
             Recognition settings
           </h3>
 
@@ -224,7 +224,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
               <Languages className="size-3.5" aria-hidden />
               Languages{" "}
-              <span className="text-slate-500">
+              <span className="text-slate-400">
                 (up to {MAX_OCR_LANGUAGES})
               </span>
             </span>
@@ -234,7 +234,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               user who leaves the default alone gets a successful job and unusable
               output, with nothing anywhere to tell them why.
             */}
-            <p className="text-xs leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-slate-400">
               Select every language printed on the page — a page that mixes Bengali with
               English technical terms needs both. The wrong language does not produce an
               error, it produces plausible-looking gibberish.
@@ -304,7 +304,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                 );
               })}
             </div>
-            <p className="text-xs leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-slate-400">
               {OCR_OUTPUT_MODES.find((mode) => mode.id === outputMode)?.description}
             </p>
           </div>
@@ -321,7 +321,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               <span className="font-medium text-slate-200">
                 Skip pages that already have text
               </span>
-              <span className="text-xs leading-relaxed text-slate-500">
+              <span className="text-xs leading-relaxed text-slate-400">
                 Leave pages with an existing text layer untouched instead of
                 re-recognizing them.
               </span>
@@ -344,7 +344,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
@@ -362,7 +362,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                   <span className="text-sm font-medium text-slate-200">
                     {i + 1}. {stage.title}
                   </span>
-                  <span className="text-xs leading-relaxed text-slate-500">
+                  <span className="text-xs leading-relaxed text-slate-400">
                     {stage.description}
                   </span>
                 </div>
@@ -387,7 +387,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
           />
         </div>
 
-        <p className="text-xs leading-relaxed text-slate-500">
+        <p className="text-xs leading-relaxed text-slate-400">
           No account required. OCR runs on an isolated secure worker: files are
           encrypted in transit and at rest, recognized in a sandbox with no network
           egress, and deleted automatically. It&apos;s enabled per deployment — see
@@ -618,7 +618,7 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
 
   return (
     <div className="mt-1 flex flex-col gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-      <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+      <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
         Recognition summary
       </h4>
       <dl className="divide-y divide-white/5">
@@ -628,7 +628,7 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
             className="flex items-center justify-between gap-3 py-1.5"
           >
             <dt className="inline-flex items-center gap-2 text-xs text-slate-400">
-              <row.icon className="size-3.5 text-slate-500" aria-hidden />
+              <row.icon className="size-3.5 text-slate-400" aria-hidden />
               {row.label}
             </dt>
             <dd className="text-right text-xs font-medium text-slate-200">
@@ -644,7 +644,7 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
         output has no reason to suspect the setting rather than the tool.
       */}
       {languageNames.length > 0 && (
-        <p className="pt-1 text-xs leading-relaxed text-slate-500">
+        <p className="pt-1 text-xs leading-relaxed text-slate-400">
           Recognized as <span className="text-slate-300">{languageNames}</span>. If the
           text looks wrong, run it again with the language actually printed on the page —
           OCR returns plausible-looking gibberish for the wrong language rather than an

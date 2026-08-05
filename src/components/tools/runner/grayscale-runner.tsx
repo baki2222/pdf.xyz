@@ -137,7 +137,7 @@ function RenderProgress({ done, total }: { done: number; total: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
     <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
         <Spinner className="size-3" /> Converting pages… {done}/{total}
       </span>
       <span className="h-1 w-full overflow-hidden rounded-full bg-white/5" aria-hidden>

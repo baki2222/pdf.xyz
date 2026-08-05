@@ -46,7 +46,7 @@ export function WorkflowSection() {
                   {step}
                 </span>
                 {i < chain.length - 1 && (
-                  <ArrowRight className="size-4 text-slate-600" aria-hidden />
+                  <ArrowRight className="size-4 text-slate-400" aria-hidden />
                 )}
               </div>
             ))}

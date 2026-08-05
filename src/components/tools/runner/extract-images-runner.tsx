@@ -92,7 +92,7 @@ function ExtractImagesEditor({
 
       <RunnerSection
         title="What gets extracted"
-        aside={<span className="text-xs text-slate-500">Original resolution</span>}
+        aside={<span className="text-xs text-slate-400">Original resolution</span>}
       >
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
@@ -365,7 +365,7 @@ function ImageGrid({
         })}
       </div>
       {hiddenCount > 0 && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-400">
           Showing the first {previews.length} previews — all {images.length} images
           are included in the ZIP.
         </p>
@@ -389,7 +389,7 @@ function SkippedNote({ skipped }: { skipped: SkippedImage[] }) {
       <ul className="flex flex-col gap-1 text-xs leading-relaxed text-slate-400">
         {rows.map(([reason, count]) => (
           <li key={reason} className="flex gap-2">
-            <span className="shrink-0 tabular-nums text-slate-500">{count}×</span>
+            <span className="shrink-0 tabular-nums text-slate-400">{count}×</span>
             <span>{reason}</span>
           </li>
         ))}

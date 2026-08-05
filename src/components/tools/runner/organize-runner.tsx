@@ -243,7 +243,7 @@ function OrganizeEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
       <RunnerSection
         title="Arrange pages"
         aside={
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             {items.length} page{items.length === 1 ? "" : "s"} in output
           </span>
         }
@@ -382,7 +382,7 @@ function OrganizeEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
       {error && <ErrorNote message={error} />}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-400">
           Badge shows the new position; label shows the original page. Grab a
           tile&apos;s handle and use arrow keys, or press Ctrl/⌘+Z to undo.
         </p>

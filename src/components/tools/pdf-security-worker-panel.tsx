@@ -77,7 +77,7 @@ function SpecRow({
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-500" aria-hidden />
+        <Icon className="size-4 text-slate-400" aria-hidden />
         {label}
       </span>
       <span className="text-right text-sm font-medium text-slate-200">
@@ -195,7 +195,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
@@ -213,7 +213,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
                   <span className="text-sm font-medium text-slate-200">
                     {i + 1}. {stage.title}
                   </span>
-                  <span className="text-xs leading-relaxed text-slate-500">
+                  <span className="text-xs leading-relaxed text-slate-400">
                     {stage.description}
                   </span>
                 </div>
@@ -238,7 +238,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
           />
         </div>
 
-        <p className="text-xs leading-relaxed text-slate-500">
+        <p className="text-xs leading-relaxed text-slate-400">
           No account required. This runs on an isolated secure worker: files are
           encrypted in transit and at rest, processed in a sandbox with no network
           egress, and deleted automatically. Your password is used only to perform
@@ -323,7 +323,7 @@ function PasswordField({
           autoComplete={autoComplete}
           spellCheck={false}
           aria-describedby={`${id}-hint`}
-          className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 pr-11 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 focus:bg-white/[0.05] disabled:opacity-50"
+          className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 pr-11 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:bg-white/[0.05] disabled:opacity-50"
           placeholder="••••••••"
         />
         <button
@@ -332,7 +332,7 @@ function PasswordField({
           disabled={disabled}
           aria-label={reveal ? "Hide password" : "Show password"}
           aria-pressed={reveal}
-          className="absolute inset-y-0 right-0 grid w-11 place-items-center text-slate-500 transition hover:text-slate-200 disabled:opacity-50"
+          className="absolute inset-y-0 right-0 grid w-11 place-items-center text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
         >
           {reveal ? (
             <EyeOff className="size-4" aria-hidden />
@@ -451,7 +451,7 @@ function SecurityRunArea({
         id="pdf-security-password-hint"
         className={cn(
           "text-xs leading-relaxed",
-          tooLong ? "text-amber-300" : "text-slate-500",
+          tooLong ? "text-amber-300" : "text-slate-400",
         )}
       >
         {mode === "protect"
@@ -492,7 +492,7 @@ function SecurityRunArea({
               );
             })}
           </div>
-          <p className="text-xs leading-relaxed text-slate-500">
+          <p className="text-xs leading-relaxed text-slate-400">
             {PDF_ENCRYPTION_LEVELS.find((l) => l.keyLength === keyLength)?.description}
           </p>
         </div>

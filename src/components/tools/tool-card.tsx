@@ -29,7 +29,7 @@ export function ToolCard({
         <div className="flex items-center gap-2">
           {tool.badge && <ToolBadgePill badge={tool.badge} />}
           <ArrowUpRight
-            className="size-4 shrink-0 text-slate-500 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-white"
+            className="size-4 shrink-0 text-slate-400 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-white"
             aria-hidden
           />
         </div>

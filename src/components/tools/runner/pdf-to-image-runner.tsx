@@ -144,7 +144,7 @@ function PdfToImageEditor({
 
       <RunnerSection
         title="Resolution"
-        aside={<span className="text-xs text-slate-500">{label} output</span>}
+        aside={<span className="text-xs text-slate-400">{label} output</span>}
       >
         <div className="flex flex-wrap gap-2">
           {RASTER_RESOLUTIONS.map((res) => (
@@ -156,7 +156,7 @@ function PdfToImageEditor({
               title={`${res.dpi} DPI`}
             >
               {res.label}
-              <span className="text-[10px] text-slate-500">{res.dpi} DPI</span>
+              <span className="text-[10px] text-slate-400">{res.dpi} DPI</span>
             </ChipButton>
           ))}
         </div>
@@ -352,7 +352,7 @@ function ImageResult({
           })}
         </div>
         {hiddenCount > 0 && (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-400">
             Showing the first {previews.length} previews — all {pageCount} pages
             are included in the ZIP.
           </p>
@@ -374,7 +374,7 @@ function RenderProgress({
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
     <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
         <Spinner className="size-3" />
         Rendering {label}… {done}/{total}
       </span>

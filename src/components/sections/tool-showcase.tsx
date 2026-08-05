@@ -30,7 +30,7 @@ export function ToolShowcase() {
                 <div className="flex flex-col gap-1">
                   <h3 className="text-xl font-semibold text-white">
                     {category.name}
-                    <span className="ml-2 text-sm font-normal text-slate-500">
+                    <span className="ml-2 text-sm font-normal text-slate-400">
                       {categoryTools.length}
                     </span>
                   </h3>

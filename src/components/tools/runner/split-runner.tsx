@@ -167,7 +167,7 @@ function SplitEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) 
             spellCheck={false}
             className="rounded-xl border border-white/10 bg-ink/60 px-3.5 py-2.5 text-sm text-white outline-none transition focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
           />
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             Use commas to separate files. Ranges are inclusive, e.g.{" "}
             <code className="text-slate-400">1-3, 8, 10-</code>.
           </span>
@@ -215,7 +215,7 @@ function SplitEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) 
                   <span className="min-w-0 flex-1 truncate text-slate-300">
                     {part.name}
                   </span>
-                  <span className="shrink-0 text-xs text-slate-500">
+                  <span className="shrink-0 text-xs text-slate-400">
                     {part.indices.length} page
                     {part.indices.length === 1 ? "" : "s"}
                   </span>

@@ -60,7 +60,7 @@ function SpecRow({
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-500" aria-hidden />
+        <Icon className="size-4 text-slate-400" aria-hidden />
         {label}
       </span>
       <span className="text-right text-sm font-medium text-slate-200">
@@ -135,7 +135,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold tracking-widest text-slate-500 uppercase">
+          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
@@ -157,7 +157,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
                     <span className="text-sm font-medium text-slate-200">
                       {i + 1}. {stage.title}
                     </span>
-                    <span className="text-xs leading-relaxed text-slate-500">
+                    <span className="text-xs leading-relaxed text-slate-400">
                       {stage.description}
                     </span>
                   </div>
@@ -202,7 +202,7 @@ function ArchiveUnavailable({
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
       <p className="text-sm leading-relaxed text-slate-300">{detail}</p>
-      <p className="text-xs leading-relaxed text-slate-500">
+      <p className="text-xs leading-relaxed text-slate-400">
         No uploader is shown until the worker is ready, so PDF/A conversion
         never pretends to process a file it cannot actually run.
       </p>

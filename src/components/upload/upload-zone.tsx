@@ -116,14 +116,14 @@ export function UploadZone({
               <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
                 {file.name}
               </span>
-              <span className="shrink-0 text-xs tabular-nums text-slate-500">
+              <span className="shrink-0 text-xs tabular-nums text-slate-400">
                 {formatBytes(file.size)}
               </span>
               <button
                 type="button"
                 onClick={() => removeFile(file.id)}
                 aria-label={`Remove ${file.name}`}
-                className="grid size-6 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-white/10 hover:text-white"
+                className="grid size-6 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-white/10 hover:text-white"
               >
                 <X className="size-3.5" aria-hidden />
               </button>
@@ -133,7 +133,7 @@ export function UploadZone({
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+        <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
           <ShieldCheck className="size-3.5 text-emerald-400" aria-hidden />
           Files stay on your device until you pick a tool.
         </p>

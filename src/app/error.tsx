@@ -59,7 +59,7 @@ export default function RouteError({
         </div>
 
         {error.digest && (
-          <p className="text-xs text-slate-600">Reference: {error.digest}</p>
+          <p className="text-xs text-slate-400">Reference: {error.digest}</p>
         )}
       </Container>
     </div>

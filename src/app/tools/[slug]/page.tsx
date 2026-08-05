@@ -133,7 +133,7 @@ export default async function ToolPage({
       <Container className="flex flex-col gap-10">
         <nav
           aria-label="Breadcrumb"
-          className="flex items-center gap-2 text-sm text-slate-500"
+          className="flex items-center gap-2 text-sm text-slate-400"
         >
           <Link
             href="/tools"
@@ -192,19 +192,19 @@ export default async function ToolPage({
 
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-5">
-                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
+                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
                   About this tool
                 </h2>
                 <p className="text-sm leading-relaxed text-slate-300">
                   {tool.description}
                 </p>
-                <p className="text-sm leading-relaxed text-slate-500">
+                <p className="text-sm leading-relaxed text-slate-400">
                   {processing.description}
                 </p>
               </div>
               {steps.length > 0 && (
                 <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
-                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
                     How it works
                   </h2>
                   <ol className="flex flex-col gap-3">
@@ -256,7 +256,7 @@ export default async function ToolPage({
 
               {steps.length > 0 && (
                 <div className="flex flex-col gap-4">
-                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">
+                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
                     How it works
                   </h2>
                   <ol className="flex flex-col gap-3">
@@ -408,7 +408,7 @@ export default async function ToolPage({
           </div>
         )}
 
-        <p className="inline-flex items-center gap-2 text-xs text-slate-500">
+        <p className="inline-flex items-center gap-2 text-xs text-slate-400">
           <Check className="size-3.5 text-emerald-400" aria-hidden />
           No sign-up required. Your files stay on your device until you run a
           tool.

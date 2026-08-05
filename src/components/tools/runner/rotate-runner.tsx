@@ -123,7 +123,7 @@ function RotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
 
       <RunnerSection
         title="Rotate"
-        aside={<span className="text-xs text-slate-500">Applies to {scope}</span>}
+        aside={<span className="text-xs text-slate-400">Applies to {scope}</span>}
       >
         <div className="flex flex-wrap items-center gap-2">
           <ChipButton onClick={() => rotateBy(-90)}>

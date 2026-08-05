@@ -131,7 +131,7 @@ export function BatchPanel({
           <h2 id="batch-heading" className="text-sm font-semibold text-white">
             Batch queue
           </h2>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-400">
             Line up files, choose one tool, hand them straight over.
           </p>
         </div>
@@ -141,7 +141,7 @@ export function BatchPanel({
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor={selectId}
-          className="text-xs font-medium uppercase tracking-wide text-slate-500"
+          className="text-xs font-medium uppercase tracking-wide text-slate-400"
         >
           Tool
         </label>
@@ -172,7 +172,7 @@ export function BatchPanel({
       {/* Step 2 — queue files */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
             Files ({queued}/{files.length})
           </span>
           <div className="flex items-center gap-1.5">
@@ -212,7 +212,7 @@ export function BatchPanel({
                     type="button"
                     onClick={() => onRemove(id)}
                     aria-label={`Remove ${file.name} from batch`}
-                    className="grid size-5 shrink-0 place-items-center rounded text-slate-500 transition hover:bg-white/10 hover:text-white"
+                    className="grid size-5 shrink-0 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-white"
                   >
                     <X className="size-3" aria-hidden />
                   </button>
@@ -221,7 +221,7 @@ export function BatchPanel({
             })}
           </ul>
         ) : (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-400">
             {files.length === 0
               ? "Stage files above, then add them here."
               : "No files queued yet."}

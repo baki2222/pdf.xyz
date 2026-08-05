@@ -207,7 +207,7 @@ export function TextField({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+        className="w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
       />
     </div>
   );
@@ -260,7 +260,7 @@ export function TokenButtons({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] uppercase tracking-wide text-slate-500">
+      <span className="text-[11px] uppercase tracking-wide text-slate-400">
         Insert
       </span>
       {tokens.map(({ token, label }) => (
@@ -280,7 +280,7 @@ export function TokenButtons({
 /** A compact, reassuring privacy line reused across the stamping runners. */
 export function PrivacyLine({ children }: { children: ReactNode }) {
   return (
-    <p className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+    <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
       <ShieldCheck className="size-3.5 text-emerald-400/80" aria-hidden />
       {children}
     </p>

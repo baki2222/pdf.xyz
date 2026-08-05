@@ -243,7 +243,7 @@ export function MergeRunner() {
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
         aside={
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-400">
             Drag to reorder · top to bottom
           </span>
         }
@@ -281,7 +281,7 @@ export function MergeRunner() {
               )}
             >
               <GripVertical
-                className="size-4 shrink-0 cursor-grab text-slate-600"
+                className="size-4 shrink-0 cursor-grab text-slate-400"
                 aria-hidden
               />
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white/5 text-xs font-semibold tabular-nums text-slate-400">
@@ -303,7 +303,7 @@ export function MergeRunner() {
                 <span className="block truncate text-sm text-slate-200">
                   {item.name}
                 </span>
-                <span className="block text-xs text-slate-500">
+                <span className="block text-xs text-slate-400">
                   {item.pageCount} page{item.pageCount === 1 ? "" : "s"} ·{" "}
                   {formatBytes(item.size)}
                 </span>
@@ -314,7 +314,7 @@ export function MergeRunner() {
                   onClick={() => move(index, index - 1)}
                   disabled={index === 0}
                   aria-label={`Move ${item.name} up`}
-                  className="grid size-7 place-items-center rounded-lg text-slate-500 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <ArrowUp className="size-4" aria-hidden />
                 </button>
@@ -323,7 +323,7 @@ export function MergeRunner() {
                   onClick={() => move(index, index + 1)}
                   disabled={index === items.length - 1}
                   aria-label={`Move ${item.name} down`}
-                  className="grid size-7 place-items-center rounded-lg text-slate-500 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <ArrowDown className="size-4" aria-hidden />
                 </button>
@@ -331,7 +331,7 @@ export function MergeRunner() {
                   type="button"
                   onClick={() => removeAt(index)}
                   aria-label={`Remove ${item.name}`}
-                  className="grid size-7 place-items-center rounded-lg text-slate-500 transition hover:bg-red-500/15 hover:text-red-200"
+                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-red-500/15 hover:text-red-200"
                 >
                   <X className="size-4" aria-hidden />
                 </button>
@@ -360,7 +360,7 @@ export function MergeRunner() {
       {error && <ErrorNote message={error} />}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+        <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
           <Layers className="size-3.5 text-violet-300" aria-hidden />
           Files are combined in the order shown above.
         </p>
