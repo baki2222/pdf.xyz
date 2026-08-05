@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { JOB_LIMITS } from "@/lib/jobs";
 import { DevWorkerStore } from "../store";
 import {
   createLocalDevStorage,
@@ -89,7 +88,9 @@ describe("local-dev storage provider", () => {
     expect(res.value.fileId).toMatch(/^f_/);
     expect(res.value.target.url).toBe(`/api/uploads/local/${res.value.fileId}`);
     expect(res.value.target.method).toBe("PUT");
-    expect(res.value.target.maxBytes).toBe(JOB_LIMITS.maxFileBytes);
+    // The ceiling the store will actually enforce on the write (`putBytes`
+    // rejects any other length), not the catalogue-wide limit.
+    expect(res.value.target.maxBytes).toBe(uploadReq.declaredBytes);
     // The reservation is a real slot in the shared store.
     expect(store.getSlot(res.value.fileId)?.filename).toBe("a.pdf");
   });

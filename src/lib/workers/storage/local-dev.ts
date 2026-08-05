@@ -11,7 +11,7 @@
  * fabricates a target it cannot honor.
  */
 
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs";
+import { DEFAULT_RETENTION } from "@/lib/jobs";
 import { DevWorkerStore, devWorkerStore } from "../store";
 import type { StorageObjectKind, StorageProvider } from "./types";
 import { LOCAL_DEV_STORAGE_CAPABILITY, storageOk } from "./types";
@@ -60,7 +60,12 @@ export function createLocalDevStorage(
           url: `/api/uploads/local/${slot.fileId}`,
           method: "PUT",
           headers: { "content-type": slot.contentType },
-          maxBytes: JOB_LIMITS.maxFileBytes,
+          // The store rejects any write whose length differs from the declared
+          // size (`DevWorkerStore.putBytes` → `size_mismatch`), so this target's
+          // real ceiling has always been the declared size — it just used to
+          // report the catalogue-wide one. Matches the S3 provider, where the
+          // same ceiling is signed into the URL.
+          maxBytes: slot.declaredBytes,
         },
         expiresAt: isoAfter(DEFAULT_RETENTION.inputTtlMinutes),
       });

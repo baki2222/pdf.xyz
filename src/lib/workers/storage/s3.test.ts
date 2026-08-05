@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { JOB_LIMITS } from "@/lib/jobs";
 import { parseS3Config, S3_ENV, type S3StorageConfig } from "./s3-config";
+import { presignS3Url } from "./s3-signer";
 import { createS3Storage, type S3DeleteFetch } from "./s3";
 
 const SECRET = "s3cr3tEXAMPLEkeyValue00000000000000000000";
@@ -70,11 +71,16 @@ describe("createS3Storage — reserveUpload", () => {
     expect(res.value.target.method).toBe("PUT");
     // The PUT now also carries the sanitized filename as signed object metadata
     // (echoed by the client). Content-type stays locked to the declared type.
+    // `content-length` is signed but deliberately absent from what the client
+    // echoes: it is a forbidden fetch header, so the transport — not the caller —
+    // supplies the value the store checks. This exact-equality pins that.
     expect(res.value.target.headers).toEqual({
       "content-type": "application/pdf",
       "x-amz-meta-filename": "quarterly-invoice.pdf",
     });
-    expect(res.value.target.maxBytes).toBe(JOB_LIMITS.maxFileBytes);
+    // The ceiling this target actually admits is the declared size, not the
+    // catalogue-wide limit the declaration was checked against.
+    expect(res.value.target.maxBytes).toBe(uploadReq.declaredBytes);
     expect(res.value.expiresAt).toBe(new Date(NOW + 900_000).toISOString());
 
     const url = new URL(res.value.target.url);
@@ -86,7 +92,7 @@ describe("createS3Storage — reserveUpload", () => {
     // the client cannot alter either without breaking the signature.
     expect(url.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
     expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe(
-      "content-type;host;x-amz-meta-filename",
+      "content-length;content-type;host;x-amz-meta-filename",
     );
     expect(url.searchParams.get("X-Amz-Credential")).toContain("AKIAEXAMPLE0000000");
     expect(res.value.target.url).not.toContain(SECRET);
@@ -126,6 +132,61 @@ describe("createS3Storage — reserveUpload", () => {
     expect(url.host).toBe("localhost:9000");
     expect(url.pathname).toBe(`/pdfxyz-prod/tenant-a/inputs/${res.value.fileId}`);
   });
+  /**
+   * The size ceiling used to be checked against a number the caller typed and
+   * then forgotten: the bucket never learned it, so a slot reserved for one byte
+   * would store gigabytes. These pin the signed binding that closes it. Naming
+   * `content-length` in `X-Amz-SignedHeaders` is not enough on its own — the
+   * VALUE never appears in the URL — so the signature is rebuilt independently
+   * and compared, which is the only way to tell "signed the declared size" from
+   * "signed something".
+   */
+  it("signs the DECLARED size, not merely the name of the header", async () => {
+    const provider = createS3Storage(config(), { now });
+    const res = await provider.reserveUpload(uploadReq);
+    if (!res.ok) throw new Error("reserve failed");
+    const signature = new URL(res.value.target.url).searchParams.get(
+      "X-Amz-Signature",
+    );
+
+    const rebuild = (contentLength: number): string =>
+      presignS3Url({
+        method: "PUT",
+        protocol: "https:",
+        host: "pdfxyz-prod.s3.us-east-1.amazonaws.com",
+        path: `/inputs/${res.value.fileId}`,
+        region: "us-east-1",
+        accessKeyId: "AKIAEXAMPLE0000000",
+        secretAccessKey: SECRET,
+        date: new Date(NOW),
+        expiresSeconds: 900,
+        signedHeaders: {
+          "content-type": "application/pdf",
+          "content-length": String(contentLength),
+          "x-amz-meta-filename": "quarterly-invoice.pdf",
+        },
+      }).signature;
+
+    expect(signature).toBe(rebuild(uploadReq.declaredBytes));
+    // Load-bearing in both directions: one byte either way is a different URL,
+    // and the catalogue-wide ceiling is emphatically not what was signed.
+    expect(signature).not.toBe(rebuild(uploadReq.declaredBytes + 1));
+    expect(signature).not.toBe(rebuild(uploadReq.declaredBytes - 1));
+    expect(signature).not.toBe(rebuild(JOB_LIMITS.maxFileBytes));
+  });
+
+  it("reports the declared size as the target's ceiling, whatever it is", async () => {
+    const provider = createS3Storage(config(), { now });
+    const small = await provider.reserveUpload({ ...uploadReq, declaredBytes: 1 });
+    const large = await provider.reserveUpload({
+      ...uploadReq,
+      declaredBytes: JOB_LIMITS.maxFileBytes,
+    });
+    if (!small.ok || !large.ok) throw new Error("reserve failed");
+    expect(small.value.target.maxBytes).toBe(1);
+    expect(large.value.target.maxBytes).toBe(JOB_LIMITS.maxFileBytes);
+  });
+
   it("rejects an oversized upload before minting any signed target", async () => {
     const provider = createS3Storage(config(), { now });
     const res = await provider.reserveUpload({

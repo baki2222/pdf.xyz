@@ -69,7 +69,15 @@ export interface SignedUploadTarget {
   method: "PUT" | "POST";
   /** Headers the client must echo on the upload request. */
   headers: Record<string, string>;
-  /** Hard byte ceiling the storage layer enforces on the stored object. */
+  /**
+   * The largest object this specific target will accept — enforced by the
+   * storage layer itself, not advice to the client. Both shipped providers pin
+   * it to the reservation's declared size (S3/R2 by signing `content-length`,
+   * local-dev by comparing on write), so a slot admits exactly the file it was
+   * opened for. It is deliberately NOT the catalogue-wide ceiling: that value is
+   * what the declaration was *checked against*, and printing it here would
+   * advertise headroom no signature grants.
+   */
   maxBytes: number;
 }
 
