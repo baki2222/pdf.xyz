@@ -4,6 +4,7 @@ import { Component, type ReactNode } from "react";
 import { RotateCcw } from "lucide-react";
 import { reportClientError } from "@/lib/telemetry";
 import { Button } from "@/components/ui/button";
+import { useUploadDisclosure } from "./upload-disclosure";
 
 /**
  * A small, reusable React error boundary that reports render-time crashes to the
@@ -63,8 +64,16 @@ export class ErrorBoundary extends Component<
   }
 }
 
-/** The default in-place fallback: an accessible, retryable notice card. */
+/**
+ * The default in-place fallback: an accessible, retryable notice card.
+ *
+ * Thirteen of the fourteen boundaries on `/tools/[slug]` wrap a secure-worker
+ * panel that uploads, so the upload line is asked for rather than asserted —
+ * see `useUploadDisclosure`.
+ */
 function DefaultBoundaryFallback({ retry }: { retry: () => void }) {
+  const disclosure = useUploadDisclosure();
+
   return (
     <div
       role="alert"
@@ -75,8 +84,8 @@ function DefaultBoundaryFallback({ retry }: { retry: () => void }) {
           This tool hit an unexpected snag
         </p>
         <p className="mx-auto max-w-sm text-sm leading-relaxed text-slate-400">
-          Nothing was uploaded and your files are untouched. You can try again,
-          or reload the page.
+          {disclosure ? `${disclosure} ` : ""}You can try again, or reload the
+          page.
         </p>
       </div>
       <Button variant="secondary" size="sm" onClick={retry}>

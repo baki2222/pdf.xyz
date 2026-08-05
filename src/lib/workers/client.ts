@@ -19,6 +19,7 @@ import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
 import type { ApiError } from "@/lib/jobs/responses";
 import type { CompressionProfile } from "./compression/engine";
 import { pollJobToTerminal } from "./job-polling";
+import { markUploadStarted } from "@/lib/uploads/session-uploads";
 
 /** What the caller wants compressed, and how. */
 export interface CompressWorkerInput {
@@ -162,7 +163,10 @@ export async function runWorkerCompression(
     return { ok: false, message: "The worker did not return an upload slot." };
   }
 
-  // 2. Upload the bytes directly to the slot the worker minted.
+  // 2. Upload the bytes directly to the slot the worker minted. Flag it before
+  //    the request, not after: once bytes are on the wire a crash fallback can
+  //    no longer honestly claim the file never left the device.
+  markUploadStarted();
   const uploadRes = await fetchImpl(slot.url, {
     method: slot.method,
     headers: slot.headers,

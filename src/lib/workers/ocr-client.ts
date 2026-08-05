@@ -23,6 +23,7 @@ import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
 import type { ApiError } from "@/lib/jobs/responses";
 import type { OcrOptions } from "@/lib/jobs/ocr";
 import { pollJobToTerminal } from "./job-polling";
+import { markUploadStarted } from "@/lib/uploads/session-uploads";
 
 const OCR_TOOL = "ocr-pdf";
 const DEFAULT_POLL_INTERVAL_MS = 800;
@@ -170,7 +171,10 @@ export async function runWorkerOcr(
     return { ok: false, message: "The worker did not return an upload slot." };
   }
 
-  // 2. Upload the bytes directly to the slot the worker minted.
+  // 2. Upload the bytes directly to the slot the worker minted. Flag it before
+  //    the request, not after: once bytes are on the wire a crash fallback can
+  //    no longer honestly claim the file never left the device.
+  markUploadStarted();
   const uploadRes = await fetchImpl(slot.url, {
     method: slot.method,
     headers: slot.headers,
