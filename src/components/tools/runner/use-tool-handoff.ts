@@ -10,6 +10,7 @@ import {
   readHandoffId,
   stripHandoffFromUrl,
 } from "@/lib/handoff";
+import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 
 /**
  * Client hook that lets a tool runner receive files handed off from `/workspace`.
@@ -160,6 +161,13 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
         const claimed = record.files.length;
         const files = handoffEntriesToFiles(eligibleFilesFor(slug, record.files));
         const skipped = claimed - files.length;
+        if (files.length > 0) {
+          // Files are about to repopulate a runner without touching the
+          // Dropzone, so this is the flow's file-pick moment: start the engine
+          // download now rather than paying it at run-click (the one gap the
+          // pdf-lib deferral left open — TASK-05 §3c).
+          warmPdfLib();
+        }
         setState(
           files.length === 0
             ? { status: "incompatible", files: [], skipped, claimed }

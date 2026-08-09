@@ -25,6 +25,8 @@ const PAGES = [
   { name: "merge-pdf (client-side)", html: "tools/merge-pdf.html" },
   { name: "ocr-pdf (worker)", html: "tools/ocr-pdf.html" },
   { name: "summarize-pdf (AI)", html: "tools/summarize-pdf.html" },
+  { name: "pdf-to-jpg (pdfjs)", html: "tools/pdf-to-jpg.html" },
+  { name: "pdf-to-text (pdfjs)", html: "tools/pdf-to-text.html" },
   { name: "workspace", html: "workspace.html" },
 ] as const;
 
