@@ -3,14 +3,14 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Download, Info, Lock, PenLine, TriangleAlert } from "lucide-react";
 import {
-  applyFormValues,
   filledFormsOutputName,
-  inspectFormFields,
   isFillableType,
-  type FieldValue,
-  type FormFieldInfo,
-  type FormInspection,
-  type FillFormsResult,
+} from "@/lib/pdf/forms-meta";
+import type {
+  FieldValue,
+  FormFieldInfo,
+  FormInspection,
+  FillFormsResult,
 } from "@/lib/pdf/forms";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
@@ -56,7 +56,10 @@ function FormInspector({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
 
   useEffect(() => {
     let cancelled = false;
-    inspectFormFields(pdf.bytes)
+    // The class-heavy inspector (and pdf-lib under it) loads at file time,
+    // not page time — this effect only runs once a file exists.
+    import("@/lib/pdf/forms")
+      .then(({ inspectFormFields }) => inspectFormFields(pdf.bytes))
       .then((inspection) => {
         if (!cancelled) setState({ status: "ready", inspection });
       })
@@ -213,7 +216,10 @@ function FieldsEditor({
     setValues((prev) => ({ ...prev, [name]: value }));
 
   const onRun = () => {
-    void run(async () => applyFormValues(pdf.bytes, values, { flatten }));
+    void run(async () => {
+      const { applyFormValues } = await import("@/lib/pdf/forms");
+      return applyFormValues(pdf.bytes, values, { flatten });
+    });
   };
 
   if (result) {

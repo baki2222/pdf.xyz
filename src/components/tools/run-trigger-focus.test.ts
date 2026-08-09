@@ -129,29 +129,31 @@ describe("a run does not blur the user who started it", () => {
     ).toEqual([]);
   });
 
-  it("never lets busy-state remove ANY native control from the focus order", () => {
-    // #46/#47 fixed the trigger; the class survived on the controls BESIDE it —
-    // option chips, the encryption-strength radios, the password field — none of
-    // which carry `aria-busy`, so the check above never saw them (measured
-    // 2026-08-09: three native offenders across the tools sources). A native
-    // `disabled` bound to a busy-flavoured binding drops focus and leaves the
-    // tab order at t=0 exactly like the trigger did; use `aria-disabled` + a
-    // guarded handler (ChipButton in runner-kit is the pattern), or `readOnly`
-    // for an input. `disabled` is in the name family because forwarding a prop
-    // literally named `disabled` onto a native control is how the password
-    // field's copy of the bug was spelled — name the binding for what gates it
-    // (e.g. `atCap`) if it is a genuine idle-gate rather than busy-state.
-    const BUSY_BINDING =
-      /\sdisabled=\{\s*(?:busy|isBusy|running|pending|submitting|uploading|disabled)\s*\}/;
+  it("no native control in the tools sources removes itself from the focus order", () => {
+    // #46/#47 fixed the trigger; the class survived on the controls BESIDE it,
+    // in two flavours: busy-state (option chips, the strength radios, the
+    // password field — disable at t=0 of a run) and bounds-state (TileAction's
+    // move/remove, ai-extract's add/remove field, the OCR language cap, the
+    // add-signer cap — disable at the exact moment the user's own repeated
+    // press reaches the edge). Both eject focus and leave the tab order. After
+    // sweeping every one to `aria-disabled` + a self-guarding handler (or
+    // `readOnly` for an input), NO native form control under these sources
+    // carries the attribute at all, so the rule is total rather than a name
+    // list a new binding could slip past: bind `aria-disabled`, guard the
+    // handler, and move `disabled:` styling to `aria-disabled:` variants
+    // (ChipButton/TileAction in the runner kit are the pattern). Component
+    // PROPS named `disabled` (<ChipButton disabled={…}>, <WorkerRunButton
+    // disabled={…}>) are fine — they render as aria-disabled; this scans
+    // lowercase native tags only.
     const offenders = sourceFiles().flatMap((file) =>
       nativeControlTags(readFileSync(file, "utf8"))
-        .filter((tag) => BUSY_BINDING.test(tag))
+        .filter((tag) => /\sdisabled=/.test(tag))
         .map((tag) => `${relative(file)} — ${tag.replace(/\s+/g, " ").slice(0, 90)}…`),
     );
 
     expect(
       offenders,
-      `these native controls leave the focus order while work runs (or forward a bare 'disabled' binding onto a native element):\n  ${offenders.join("\n  ")}`,
+      `these native controls remove themselves from the focus order (use aria-disabled + a guarded handler, or readOnly for an input):\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
   });
 

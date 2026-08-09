@@ -1,4 +1,5 @@
-import { rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import type { PDFFont, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
@@ -497,9 +498,14 @@ export async function getAnnotatePageSizes(bytes: Uint8Array): Promise<PageSize[
 }
 
 /** Draw a single markup onto its page. Colors/opacity are already validated. */
-function drawAnnotation(page: PDFPage, annotation: Annotation, font: PDFFont): void {
+function drawAnnotation(
+  page: PDFPage,
+  annotation: Annotation,
+  font: PDFFont,
+  rgbFn: (r: number, g: number, b: number) => PdfLibRGB,
+): void {
   const parsed = parseHexColor(annotation.color) ?? { r: 0, g: 0, b: 0 };
-  const color = rgb(parsed.r, parsed.g, parsed.b);
+  const color = rgbFn(parsed.r, parsed.g, parsed.b);
 
   switch (annotation.type) {
     case "highlight": {
@@ -602,6 +608,7 @@ export async function annotatePdf(
     throw new PdfEngineError("Add at least one markup before applying.");
   }
 
+  const { rgb } = await loadPdfLib();
   const doc = await loadPdf(bytes);
   const pages = doc.getPages();
   const pageSizes: PageSize[] = pages.map((page) => {
@@ -631,7 +638,7 @@ export async function annotatePdf(
   for (const annotation of list) {
     const page = pages[annotation.page - 1];
     if (!page) continue;
-    drawAnnotation(page, annotation, font);
+    drawAnnotation(page, annotation, font, rgb);
     counts[annotation.type] += 1;
   }
 

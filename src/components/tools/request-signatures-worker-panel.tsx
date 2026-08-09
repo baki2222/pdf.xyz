@@ -269,8 +269,8 @@ function RequestBuilder() {
           <button
             type="button"
             onClick={addSigner}
-            disabled={signers.length >= MAX_REQUEST_SIGNERS}
-            className="inline-flex items-center gap-1 text-xs font-medium text-violet-300 transition hover:text-violet-200 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-disabled={signers.length >= MAX_REQUEST_SIGNERS || undefined}
+            className="inline-flex items-center gap-1 text-xs font-medium text-violet-300 transition hover:text-violet-200 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
             <Plus className="size-3.5" aria-hidden />
             Add signer
@@ -298,9 +298,9 @@ function RequestBuilder() {
             <button
               type="button"
               onClick={() => removeSigner(index)}
-              disabled={signers.length <= 1}
+              aria-disabled={signers.length <= 1 || undefined}
               aria-label={`Remove signer ${index + 1}`}
-              className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-30"
+              className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:text-red-300 aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
             >
               <Trash2 className="size-4" aria-hidden />
             </button>

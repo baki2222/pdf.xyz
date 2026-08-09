@@ -23,6 +23,7 @@ import { PageRangeError } from "@/lib/pdf/ranges";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import { buttonVariants } from "@/components/ui/button";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
+import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ *
@@ -117,6 +118,11 @@ export function Dropzone({
   const emit = useCallback(
     (list: FileList | null) => {
       if (!list || list.length === 0) return;
+      // The engine downloads the moment files arrive (including a pre-hydration
+      // pick adopted by useEarlyFilePick below), so by the time a hand reaches
+      // the run button the pdf-lib chunk is usually already here. Fire-and-
+      // forget; the operation's own await is the surface that reports failures.
+      warmPdfLib();
       onFiles(Array.from(list));
     },
     [onFiles],

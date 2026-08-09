@@ -8,7 +8,6 @@ import {
   PDFTextField,
   type PDFField,
 } from "pdf-lib";
-import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";
 
 /**
@@ -114,15 +113,11 @@ export interface FillFormsResult {
   flattened: boolean;
 }
 
-/** A sensible download name for a filled form, derived from the source. */
-export function filledFormsOutputName(sourceName: string): string {
-  return outputName(sourceName || "document", "filled");
-}
-
-/** Whether a classified type is one we can actually fill. */
-export function isFillableType(type: FormFieldType): boolean {
-  return type !== "unsupported";
-}
+// The two pdf-lib-free helpers the UI renders with live in ./forms-meta (so the
+// runner's static imports stay light); imported for internal use and re-exported
+// so existing importers and tests see one unchanged surface.
+import { filledFormsOutputName, isFillableType } from "./forms-meta";
+export { filledFormsOutputName, isFillableType };
 
 /** Classify a pdf-lib field into one of our supported kinds. */
 export function classifyField(field: PDFField): FormFieldType {

@@ -681,7 +681,7 @@ function DefaultSelect({
         value={options.includes(value) ? value : ""}
         onChange={(event) => onChange(event.target.value)}
         className={INPUT_CLASS}
-        disabled={options.length === 0}
+        aria-disabled={options.length === 0 || undefined}
       >
         <option value="">— None —</option>
         {options.map((option) => (

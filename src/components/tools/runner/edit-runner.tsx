@@ -418,7 +418,7 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             <button
               type="button"
               onClick={addEdit}
-              disabled={!pageSizes || (draft.type === "image" && !image)}
+              aria-disabled={!pageSizes || (draft.type === "image" && !image) || undefined}
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
               <Plus className="size-4" aria-hidden />

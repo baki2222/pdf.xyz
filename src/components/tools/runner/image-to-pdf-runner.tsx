@@ -153,10 +153,10 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                     <p className="truncate text-sm font-medium text-slate-200">{item.name}</p>
                     <p className="text-xs text-slate-400">Page {index + 1} · {formatBytes(item.size)}</p>
                   </div>
-                  <button type="button" onClick={() => move(index, index - 1)} disabled={index === 0} className={iconButtonClass} title="Move up">
+                  <button type="button" onClick={() => move(index, index - 1)} aria-disabled={index === 0 || undefined} className={iconButtonClass} title="Move up">
                     <ArrowUp className="size-4" aria-hidden />
                   </button>
-                  <button type="button" onClick={() => move(index, index + 1)} disabled={index === items.length - 1} className={iconButtonClass} title="Move down">
+                  <button type="button" onClick={() => move(index, index + 1)} aria-disabled={index === items.length - 1 || undefined} className={iconButtonClass} title="Move down">
                     <ArrowDown className="size-4" aria-hidden />
                   </button>
                   <button type="button" onClick={() => remove(item.id)} className={iconButtonClass} title="Remove">
@@ -188,4 +188,4 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   );
 }
 
-const iconButtonClass = "inline-grid size-8 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40";
+const iconButtonClass = "inline-grid size-8 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 aria-disabled:cursor-not-allowed aria-disabled:opacity-40";

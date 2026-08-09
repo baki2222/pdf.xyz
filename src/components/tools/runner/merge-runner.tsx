@@ -312,18 +312,18 @@ export function MergeRunner() {
                 <button
                   type="button"
                   onClick={() => move(index, index - 1)}
-                  disabled={index === 0}
+                  aria-disabled={index === 0 || undefined}
                   aria-label={`Move ${item.name} up`}
-                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
                 >
                   <ArrowUp className="size-4" aria-hidden />
                 </button>
                 <button
                   type="button"
                   onClick={() => move(index, index + 1)}
-                  disabled={index === items.length - 1}
+                  aria-disabled={index === items.length - 1 || undefined}
                   aria-label={`Move ${item.name} down`}
-                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
                 >
                   <ArrowDown className="size-4" aria-hidden />
                 </button>

@@ -1,4 +1,4 @@
-import { degrees } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import {
@@ -74,7 +74,8 @@ export async function addPageNumbers(
   const startPage = Math.max(1, Math.floor(options.startPage ?? 1));
   const startAt = Math.floor(options.startAt ?? 1);
   const { h, v } = resolveAlign(position);
-  const color = toRgb(options.color ?? INK);
+  const { degrees, rgb } = await loadPdfLib();
+  const color = toRgb(rgb, options.color ?? INK);
 
   const doc = await loadPdf(bytes);
   const font = await embedStampFont(doc);

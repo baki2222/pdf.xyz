@@ -1,4 +1,5 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
+import type { PDFFont } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 
@@ -111,6 +112,7 @@ export async function textToPdf(
   options: TextToPdfOptions = {},
 ): Promise<Uint8Array> {
   validatePlainTextInput(text);
+  const { PDFDocument, StandardFonts, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Courier);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);

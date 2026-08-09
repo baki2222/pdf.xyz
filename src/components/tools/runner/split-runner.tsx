@@ -108,8 +108,10 @@ function SplitEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) 
       >
         <button
           type="button"
-          onClick={() => downloadResult(result)}
-          disabled={zipping}
+          onClick={() => {
+            if (!zipping) downloadResult(result);
+          }}
+          aria-disabled={zipping || undefined}
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           {zipping ? (

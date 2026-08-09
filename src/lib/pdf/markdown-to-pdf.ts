@@ -1,4 +1,5 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import type { PDFDocument, PDFFont, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 
@@ -33,6 +34,8 @@ interface Cursor {
   page: PDFPage;
   y: number;
   fonts: PdfFonts;
+  /** pdf-lib's color factory, threaded so the sync draw helpers stay sync. */
+  rgb: (r: number, g: number, b: number) => PdfLibRGB;
 }
 
 export function validateMarkdownInput(markdown: string): void {
@@ -190,7 +193,7 @@ function ensureSpace(cursor: Cursor, height: number): void {
 function drawLines(
   cursor: Cursor,
   lines: string[],
-  opts: { x: number; size: number; lineHeight: number; font: PDFFont; color?: ReturnType<typeof rgb> },
+  opts: { x: number; size: number; lineHeight: number; font: PDFFont; color?: PdfLibRGB },
 ): void {
   for (const line of lines) {
     ensureSpace(cursor, opts.lineHeight);
@@ -199,7 +202,7 @@ function drawLines(
       y: cursor.y,
       size: opts.size,
       font: opts.font,
-      color: opts.color ?? rgb(0.1, 0.12, 0.18),
+      color: opts.color ?? cursor.rgb(0.1, 0.12, 0.18),
     });
     cursor.y -= opts.lineHeight;
   }
@@ -217,7 +220,7 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
         size,
         lineHeight,
         font: cursor.fonts.bold,
-        color: rgb(0.05, 0.07, 0.14),
+        color: cursor.rgb(0.05, 0.07, 0.14),
       });
       cursor.y -= 4;
       return;
@@ -247,14 +250,14 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
         y: Math.max(MARGIN, cursor.y - BODY_LINE_HEIGHT),
         width: 3,
         height: BODY_LINE_HEIGHT,
-        color: rgb(0.45, 0.36, 0.95),
+        color: cursor.rgb(0.45, 0.36, 0.95),
       });
       drawLines(cursor, wrapText(block.text, cursor.fonts.italic, maxWidth - 18, BODY_SIZE), {
         x: MARGIN + 14,
         size: BODY_SIZE,
         lineHeight: BODY_LINE_HEIGHT,
         font: cursor.fonts.italic,
-        color: rgb(0.24, 0.27, 0.38),
+        color: cursor.rgb(0.24, 0.27, 0.38),
       });
       cursor.y -= 5;
       return;
@@ -265,7 +268,7 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
           size: 8,
           lineHeight: 12,
           font: cursor.fonts.bold,
-          color: rgb(0.37, 0.39, 0.48),
+          color: cursor.rgb(0.37, 0.39, 0.48),
         });
       }
       for (const line of block.text.split("\n")) {
@@ -274,7 +277,7 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
           size: 9,
           lineHeight: 13,
           font: cursor.fonts.mono,
-          color: rgb(0.08, 0.1, 0.16),
+          color: cursor.rgb(0.08, 0.1, 0.16),
         });
       }
       cursor.y -= 8;
@@ -289,6 +292,7 @@ export async function markdownToPdf(
 ): Promise<Uint8Array> {
   validateMarkdownInput(markdown);
   const blocks = parseMarkdownBlocks(markdown);
+  const { PDFDocument, StandardFonts, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
   const fonts: PdfFonts = {
     body: await doc.embedFont(StandardFonts.Helvetica),
@@ -300,13 +304,13 @@ export async function markdownToPdf(
   doc.setTitle(title);
   doc.setCreator(PRODUCER);
   doc.setProducer(PRODUCER);
-  const cursor: Cursor = { doc, page: doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]), y: PAGE_HEIGHT - MARGIN, fonts };
+  const cursor: Cursor = { doc, page: doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]), y: PAGE_HEIGHT - MARGIN, fonts, rgb };
   cursor.page.drawText(title, {
     x: MARGIN,
     y: PAGE_HEIGHT - 34,
     size: 9,
     font: fonts.bold,
-    color: rgb(0.35, 0.38, 0.45),
+    color: cursor.rgb(0.35, 0.38, 0.45),
   });
   cursor.y -= 10;
   for (const block of blocks) drawBlock(cursor, block);
@@ -317,7 +321,7 @@ export async function markdownToPdf(
       y: 28,
       size: 8,
       font: fonts.mono,
-      color: rgb(0.45, 0.48, 0.55),
+      color: cursor.rgb(0.45, 0.48, 0.55),
     });
   });
   return doc.save();

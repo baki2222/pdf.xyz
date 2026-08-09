@@ -276,10 +276,13 @@ function AiExtractBuilder() {
               </select>
               <button
                 type="button"
+                // aria-disabled, never native: this disables at the LOWER bound,
+                // i.e. right after the user removing fields reaches the last one —
+                // the TileAction shape. The setter already no-ops at the bound.
                 onClick={() => setFields((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev))}
-                disabled={fields.length <= 1}
+                aria-disabled={fields.length <= 1 || undefined}
                 aria-label="Remove field"
-                className="grid size-8 shrink-0 place-items-center rounded-lg border border-white/10 text-slate-400 transition hover:text-white disabled:opacity-40"
+                className="grid size-8 shrink-0 place-items-center rounded-lg border border-white/10 text-slate-400 transition hover:text-white aria-disabled:opacity-40"
               >
                 <Trash2 className="size-3.5" aria-hidden />
               </button>
@@ -288,8 +291,8 @@ function AiExtractBuilder() {
           <button
             type="button"
             onClick={() => setFields((prev) => (prev.length < MAX_EXTRACTION_FIELDS ? [...prev, { ...EMPTY_FIELD }] : prev))}
-            disabled={fields.length >= MAX_EXTRACTION_FIELDS}
-            className="inline-flex items-center gap-1.5 self-start rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:text-white disabled:opacity-40"
+            aria-disabled={fields.length >= MAX_EXTRACTION_FIELDS || undefined}
+            className="inline-flex items-center gap-1.5 self-start rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:text-white aria-disabled:opacity-40"
           >
             <Plus className="size-3.5" aria-hidden />
             Add field

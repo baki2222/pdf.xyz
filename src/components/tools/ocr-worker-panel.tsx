@@ -251,8 +251,12 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                   <button
                     key={language.code}
                     type="button"
+                    // aria-disabled, never native: the cap flips exactly while the
+                    // user is picking languages, and a natively disabled chip would
+                    // eject their focus and leave the tab order (the #46 rule).
+                    // toggleLanguage already respects the cap.
                     onClick={() => toggleLanguage(language.code)}
-                    disabled={atCap}
+                    aria-disabled={atCap || undefined}
                     aria-pressed={active}
                     title={
                       atCap
@@ -260,7 +264,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                         : undefined
                     }
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
                       active
                         ? "border-violet-400/50 bg-violet-500/15 text-violet-100"
                         : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25 hover:bg-white/[0.06] hover:text-white",
