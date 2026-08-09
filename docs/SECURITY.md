@@ -84,10 +84,33 @@ The endpoint is public by nature (the browser reads it to send a beacon) and is
 **not** a secret; if it is cross-origin, its origin is added to `connect-src`
 automatically at build time.
 
-**Planned secure workers** (not yet live — pages show an implementation-ready
-overview): Office ⇄ PDF conversions, OCR, repair, web-optimize, PDF/A,
-compare, high-quality compression, irreversible redaction, fillable forms, and
-e-signature workflows.
+**Secure workers, live**: every worker-backed tool in the catalog — Office ⇄
+PDF conversion in both directions, OCR, repair, web-optimize, PDF/A,
+high-quality compression, table extraction, HTML/webpage rendering,
+protect/unlock, and the e-signature request flow — resolves to a registered
+processor (`src/lib/workers/processor/registry.ts`), and two mechanisms keep
+"catalogued" and "capable" from drifting apart: `catalog-coverage.test.ts`
+fails the suite for any worker-backed catalog entry with no processor, and
+`scripts/worker-prove-tools.ts` proves each tool with a real job against a
+deployment (owner-run against production on 2026-08-05, every worker tool
+then shipped; it re-proves any deployment on demand) and reports any
+worker-backed tool that arrives without a proof. Whether a worker is live
+*right now* is observed, never assumed: `/api/worker/status` answers OCR and
+malware scanning from the worker's own liveness heartbeat only.
+
+<!-- true-while-present: /resolves to a processor/ in src/lib/workers/processor/catalog-coverage.test.ts -->
+<!-- The marker above pins the enforcement this paragraph cites: if the
+     catalog↔processor coverage guard is deleted or renamed, the citation goes
+     stale and the docs census fails. It pins the MECHANISM — production
+     liveness itself is re-proven by running worker-prove-tools, not by grep. -->
+
+Compare, redaction, and fillable forms are not pending workers — they shipped
+as in-browser tools, and no processor claims their slugs today.
+
+<!-- gap-while-absent: /compare-pdf|redact-pdf|fill-forms/ in src/lib/workers/processor -->
+<!-- The marker above pins "no processor claims their slugs": the moment a
+     processor (or its tests) names one of these tools, the docs census fails
+     and this sentence must be rewritten rather than silently going stale. -->
 
 **OCR** has a dedicated, honest secure-worker page (`/tools/ocr-pdf`) and a full
 request/capability contract (`src/lib/jobs/ocr.ts`, `src/lib/workers/ocr.ts`): it
