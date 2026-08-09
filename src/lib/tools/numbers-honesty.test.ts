@@ -142,28 +142,35 @@ function relative(file: string): string {
 
 /**
  * Literals that are true, deliberate, and NOT owned by a constant — each with
- * the reason it may stay literal. Keep this list short; growth is drift.
+ * the reason it may stay literal, scoped to ONE file. The file scope is
+ * load-bearing: an unscoped `/^24 hours?$/` would let ANY page claim a
+ * 24-hour window about anything and pass. Keep this list short; growth is
+ * drift.
  */
-const ALLOWED: { literal: RegExp; reason: string }[] = [
+const ALLOWED: { file: string; literal: RegExp; reason: string }[] = [
   {
     // The privacy page's "24 hours"/"~24 hours" job-record window: the real TTL
     // is the queue's env-configured jobTtlSeconds with no compile-time
-    // constant. First-contact finding, reported 2026-08-09 — if an owner wants
-    // it derivable, export a default constant and remove this entry.
+    // constant, and inventing one so a page can derive from it would be a
+    // constant that exists to satisfy a test rather than to govern behaviour
+    // (owner ruling, 2026-08-10). If a real default is ever exported, derive
+    // and delete this entry.
+    file: "src/app/privacy/page.tsx",
     literal: /^24 hours?$/i,
     reason: "queue job TTL is env-configured; no compile-time owner exists yet",
   },
 ];
 
-/** First-contact findings (2026-08-09), reported and awaiting the owner's
- * scoping ruling — each is copy hand-writing a cap its own runner enforces
- * with an inline magic number one line away (consistent today, doubly
- * hardcoded, one edit from drifting apart). Remove entries as fixes land. */
-const BASELINE: { file: string; literal: string }[] = [
-  { file: "src/components/tools/runner/image-to-pdf-runner.tsx", literal: "25 MB" },
-  { file: "src/components/tools/runner/markdown-to-pdf-runner.tsx", literal: "2 MB" },
-  { file: "src/components/tools/runner/text-to-pdf-runner.tsx", literal: "2 MB" },
-];
+/**
+ * EMPTY, and kept that way on purpose (owner ruling, 2026-08-10): the three
+ * first-contact findings (25 MB, 2 MB ×2 — caps doubled by inline magic
+ * numbers in their own runners) were fixed by giving each runner one owning
+ * const that both the size check and the copy derive from. A census that
+ * ships with inherited debt teaches the next person that entries are
+ * furniture; one that ships empty makes the first entry anyone adds a
+ * deliberate act they have to justify.
+ */
+const BASELINE: { file: string; literal: string }[] = [];
 
 function censusFindings(): Finding[] {
   const findings: Finding[] = [];
@@ -174,7 +181,12 @@ function censusFindings(): Finding[] {
       if (!literal || !num || !unitRaw) continue;
       const unit = unitRaw.toLowerCase().replace(/s$/, "");
       const value = Number(num);
-      if (ALLOWED.some((a) => a.literal.test(literal.trim()))) continue;
+      if (
+        ALLOWED.some(
+          (a) => a.file === relative(file) && a.literal.test(literal.trim()),
+        )
+      )
+        continue;
       const owner = OWNED.find(
         (o) =>
           o.value === value &&

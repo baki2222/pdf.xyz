@@ -1,4 +1,5 @@
 import { Cpu, Eye, Lock, ShieldCheck, Timer, Trash2 } from "lucide-react";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
 
@@ -15,8 +16,12 @@ const pillars = [
   },
   {
     icon: Trash2,
-    title: "Auto-deleted, always",
-    body: "Anything sent to a worker is permanently erased minutes after your job finishes. Nothing is retained.",
+    title: "Auto-deleted on a schedule",
+    // Derived and event-precise, like /privacy and the FAQ: the link dying, the
+    // bytes dying, and the job record expiring are three different moments, and
+    // the old card ("permanently erased minutes after… Nothing is retained")
+    // collapsed them into an absolute the guard now forbids in any synonym.
+    body: `Inputs are wiped the moment a job finishes. Downloads stop after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, stored copies are erased by a daily storage rule, and a job record — the file's name, never its contents — lasts about a day.`,
   },
   {
     icon: Eye,

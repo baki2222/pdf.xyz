@@ -17,6 +17,10 @@ import {
 import { HandoffLoadedBadge, HandoffLoading, HandoffProblem } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
 
+/** One owner for the in-browser source cap: the check and the copy both derive. */
+const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
+const MAX_SOURCE_MB = MAX_SOURCE_BYTES / (1024 * 1024);
+
 interface TextSource {
   name: string;
   text: string;
@@ -33,8 +37,8 @@ export function TextToPdfRunner() {
       setLoadError(`"${file.name}" isn't a plain text file — choose a .txt file.`);
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setLoadError(`"${file.name}" is too large for in-browser conversion (max 2 MB).`);
+    if (file.size > MAX_SOURCE_BYTES) {
+      setLoadError(`"${file.name}" is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`);
       return;
     }
     const text = await file.text();
