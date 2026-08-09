@@ -70,6 +70,17 @@ import { describe, expect, it } from "vitest";
 const NEXT_DIR = path.join(process.cwd(), ".next");
 const APP_DIR = path.join(NEXT_DIR, "server", "app");
 
+/** The unique chunk URLs a prerendered page references. */
+function chunkList(htmlRelPath: string): string[] {
+  const html = path.join(APP_DIR, htmlRelPath);
+  if (!existsSync(html)) return [];
+  return [
+    ...new Set(
+      readFileSync(html, "utf8").match(/\/_next\/static\/chunks\/[^"']+?\.js/g) ?? [],
+    ),
+  ];
+}
+
 /** Unique chunks a prerendered page references, and their total size on disk. */
 function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
   const html = path.join(APP_DIR, htmlRelPath);
@@ -126,12 +137,31 @@ describe("client bundle budget", () => {
     const home = weigh("index.html");
     const tool = weigh("tools/rotate-pdf.html");
     if (!home || !tool) return;
-    // The homepage does not touch pdf-lib and must not start. This is a shape
-    // check, not a budget: the gap closing means tool machinery reached the
-    // landing page, which is the one page most visitors ever see.
+    // The homepage does not touch the PDF machinery and must not start. This
+    // used to be a ratio (tool ≥ 1.5× home), written when the gap was a leak
+    // signal — and the 2026-08-09 pdf-lib deferral broke it from the GOOD
+    // direction: tool pages fell toward the homepage, which is the outcome the
+    // ratio could not tell from the homepage rising toward tool pages. The
+    // honest invariant now is direct: the homepage must reference NO chunk
+    // that only tool pages need, expressed as (a) the homepage stays strictly
+    // lighter than a tool page, and (b) the homepage's chunk set adds nothing
+    // beyond the shared baseline — every homepage chunk also appears on a tool
+    // page, so a tool-only chunk can never ride along with the landing page.
+    // The absolute ceilings above do the size bounding.
     expect(
-      home.kb * 1.5,
-      `the homepage (${home.kb} KB) has grown close to a tool page (${tool.kb} KB) — something tool-specific is now imported by a component the landing page renders`,
+      home.kb,
+      `the homepage (${home.kb} KB) now outweighs a tool page (${tool.kb} KB) — something tool-specific is imported by a component the landing page renders`,
     ).toBeLessThan(tool.kb);
+    // Route chunks (`chunks/app/**`) are each page's own by construction; the
+    // machinery a leak would ride in on is the shared/vendor kind.
+    const nonRoute = (c: string) => !c.includes("/chunks/app/");
+    const toolChunks = new Set(chunkList("tools/rotate-pdf.html").filter(nonRoute));
+    const extras = chunkList("index.html")
+      .filter(nonRoute)
+      .filter((c) => !toolChunks.has(c));
+    expect(
+      extras,
+      `the homepage references shared chunks no tool page carries — landing-page-only machinery appeared:\n  ${extras.join("\n  ")}`,
+    ).toEqual([]);
   });
 });
