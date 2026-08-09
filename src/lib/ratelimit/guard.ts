@@ -31,8 +31,53 @@ import { resolveRateLimitConfig } from "./config";
 import { createMemoryRateLimiter } from "./memory";
 import { deriveClientToken } from "./identity";
 import { getRateLimitProvider } from "./provider";
+import { createConfiguredRateLimitProvider } from "./factory";
+import type { RateLimitProvider } from "./provider";
 
 type EnvSource = Record<string, string | undefined>;
+
+/**
+ * The provider this module instance built for itself, because the one the boot
+ * hook registered is not reachable from here.
+ *
+ * WHY THIS EXISTS — measured on production, 2026-08-09.
+ * `instrumentation.ts` calls `registerRateLimitProvider()` at boot and logs
+ * `remote-configured`, and it really did build a provider. But the registry is a
+ * plain module-level `let` in `./provider`, and Vercel bundles the instrumentation
+ * entry separately from each route handler — so `@/lib/ratelimit/provider` exists
+ * TWICE in the deployment. The hook writes to one copy; the guard reads the other,
+ * which is still `null`. Registration was a dead write.
+ *
+ * Nothing failed. The boot line said `remote-configured`, every variable was set
+ * correctly, and 65 rapid uploads all returned 201 while the Redis store recorded
+ * ZERO commands — the tell that the provider was never called at all. The status
+ * was reporting that the environment PARSED, not that the guard could see the
+ * result: the same shape as a `ready: true` derived from a dependency being wired
+ * rather than from it being able to run.
+ *
+ * So the guard no longer depends on cross-bundle module state. It prefers a
+ * registered provider when one is visible (single-process deployments, tests) and
+ * otherwise builds its own from the same environment, once, in whatever module
+ * instance is actually serving the request.
+ */
+let selfBuilt: RateLimitProvider | null = null;
+let selfBuildAttempted = false;
+
+function providerFor(env: EnvSource): RateLimitProvider | null {
+  const registered = getRateLimitProvider();
+  if (registered !== null) return registered;
+  if (!selfBuildAttempted) {
+    selfBuildAttempted = true;
+    selfBuilt = createConfiguredRateLimitProvider(env);
+  }
+  return selfBuilt;
+}
+
+/** Test seam: drop the lazily-built provider so env changes take effect. */
+export function resetSelfBuiltProviderForTests(): void {
+  selfBuilt = null;
+  selfBuildAttempted = false;
+}
 
 // Process-wide singleton so counts accumulate across requests within an instance.
 // Created lazily, and only ever exercised on the `local-memory` path.
@@ -112,7 +157,7 @@ export async function enforceRateLimit(
     // wired, otherwise skip honestly. This build registers none by default, so the
     // status/operations endpoints and every default deployment stay untouched.
     if (config.providerId === "remote-unimplemented") {
-      const provider = getRateLimitProvider();
+      const provider = providerFor(env);
       if (provider === null) {
         return allowUnenforced(action, policy.id, "remote-unimplemented");
       }
