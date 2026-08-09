@@ -60,11 +60,22 @@ test.describe("OCR secure-worker tool page", () => {
     ).toHaveCount(0);
     await expect(page.getByRole("link", { name: /\.pdf$/i })).toHaveCount(0);
 
-    // The notify placeholder acknowledges on-device with no network call.
+    // The notify button discloses what pressing it sends, then sends exactly
+    // that: one beacon to /api/interest carrying the tool's slug and nothing
+    // else. The acknowledgement claims only what happened — no waitlist, no
+    // notification promise.
     const notify = page.getByRole("button", { name: /notify me/i });
     await expect(notify).toBeVisible();
+    await expect(
+      page.getByText(/pressing it sends us the tool's name — nothing about you/i),
+    ).toBeVisible();
+    const beacon = page.waitForRequest(
+      (req) => req.url().includes("/api/interest") && req.method() === "POST",
+    );
     await notify.click();
-    await expect(page.getByText(/waitlist opens/i)).toBeVisible();
+    expect((await beacon).postDataJSON()).toEqual({ slug: "ocr-pdf" });
+    await expect(page.getByText(/one more ask for .+ counted/i)).toBeVisible();
+    await expect(page.getByText(/waitlist/i)).toHaveCount(0);
 
     expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
     expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
