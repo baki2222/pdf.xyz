@@ -1,4 +1,4 @@
-import { Cpu, Eye, Lock, ShieldCheck, Timer, Trash2 } from "lucide-react";
+import { Cpu, Eye, Lock, ShieldCheck, Trash2, UserX } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -7,7 +7,7 @@ const pillars = [
   {
     icon: Cpu,
     title: "In-browser by default",
-    body: "Most tools run with WebAssembly on your own device. Your files are never uploaded to process them.",
+    body: "Most tools run with WebAssembly on your own device. Those tools never upload your files.",
   },
   {
     icon: Lock,
@@ -29,9 +29,9 @@ const pillars = [
     body: "AI tools run on secure infrastructure and your content is never used to train any model.",
   },
   {
-    icon: Timer,
-    title: "No account to start",
-    body: "Open a tool and go. Sign in only when you want to save workspaces and presets.",
+    icon: UserX,
+    title: "No account at all",
+    body: "Open a tool and go. There is no account here — nothing to create, nothing to remember, and nothing locked behind one.",
   },
   {
     icon: ShieldCheck,
