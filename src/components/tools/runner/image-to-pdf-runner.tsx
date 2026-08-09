@@ -10,6 +10,10 @@ import { Dropzone, ErrorNote, ResultPanel, RunButton, RunnerSection, reorder, us
 import { HandoffLoadedBadge, HandoffLoading, HandoffProblem } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
 
+/** One owner for the per-image cap: the size check and the copy both derive. */
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_IMAGE_MB = MAX_IMAGE_BYTES / (1024 * 1024);
+
 interface ImageItem {
   id: string;
   name: string;
@@ -52,8 +56,8 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           rejected.push({ name: file.name, reason: `Choose ${label} images only.` });
         } else if (file.size <= 0) {
           rejected.push({ name: file.name, reason: "File is empty." });
-        } else if (file.size > 25 * 1024 * 1024) {
-          rejected.push({ name: file.name, reason: "Max 25 MB per image." });
+        } else if (file.size > MAX_IMAGE_BYTES) {
+          rejected.push({ name: file.name, reason: `Max ${MAX_IMAGE_MB} MB per image.` });
         } else {
           accepted.push(file);
         }

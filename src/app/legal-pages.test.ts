@@ -165,9 +165,23 @@ describe("the policy pages do not promise what the product does not do", () => {
         "true only of the in-browser tools; the worker tools do receive the file",
     },
     {
-      pattern: /\bpermanently delet/i,
+      // Every verb a writer actually reaches for, not just the one first found.
+      // The original pattern was /\bpermanently delet/i, and the homepage said
+      // "permanently ERASED" — same lie, one synonym over, and the guard read
+      // clean. A guard that misses a synonym does not report "no claim"; it
+      // reports "no claim in the words I know", and the clean result got read
+      // as evidence of honesty. Stemmed so -ed/-es/-ing all match.
+      pattern: /\bpermanently (?:delet|eras|destroy|wip|remov|purg)/i,
       instead:
         "say what is done and when (deleted within the retention window) rather than claiming an absolute",
+    },
+    {
+      // Proposed in TASK-07, built after the homepage proved the need: this is
+      // the rule that catches the instance the file-widening missed. "Nothing
+      // is retained" carries no digits, so the numbers census can never see it.
+      pattern: /\bnothing is (?:retained|stored|kept)\b/i,
+      instead:
+        "the job record (including the filename) is kept ~24 hours; say what is kept and for how long",
     },
     {
       pattern: /\b(?:fully|completely) (?:GDPR|CCPA)[- ]compliant\b/i,
