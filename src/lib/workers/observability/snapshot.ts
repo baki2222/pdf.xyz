@@ -73,6 +73,8 @@ import {
   type CleanupEvidencePosture,
   type CleanupEvidenceState,
 } from "../cleanup-evidence/types";
+import { resolveRateLimitStatus } from "@/lib/ratelimit/status";
+import type { RateLimitStatusCode } from "@/lib/ratelimit/status";
 
 // Re-export the bounded liveness enums the snapshot surfaces, so the UI (and any
 // consumer) can import them alongside the snapshot types from this barrel.
@@ -98,7 +100,7 @@ export type {
 type EnvSource = Record<string, string | undefined>;
 
 /** The bump-on-change schema version, so a metrics/log consumer can evolve safely. */
-export const OPERATIONS_SNAPSHOT_VERSION = 1 as const;
+export const OPERATIONS_SNAPSHOT_VERSION = 2 as const;
 
 /**
  * Where a snapshot was collected — the load-bearing input for honesty. The `web`
@@ -127,11 +129,125 @@ export type SnapshotSubsystemId =
   | "compression-engine"
   | "ocr"
   | "malware-scan"
+  | "rate-limit"
   | "lifecycle"
   | "lifecycle-verification"
   | "cleanup-evidence"
   | "guardrails"
   | "daemon-loop";
+
+/* ------------------------------------------------------------------ *
+ *  Abuse-guard rate-limit posture
+ * ------------------------------------------------------------------ */
+
+/**
+ * The bounded rate-limit posture codes the snapshot can carry: the five
+ * operationally-distinct states the abuse guard's own status layer reports
+ * (`src/lib/ratelimit/status.ts`), plus `unknown` for a vantage that cannot
+ * observe the web tier's guard at all (the worker/probe collectors — the limiter
+ * runs in the web app, so a worker-side snapshot must not claim it is "disabled"
+ * when the truth is "not observable from here").
+ */
+export const SNAPSHOT_RATE_LIMIT_CODES = [
+  "disabled",
+  "local-memory",
+  "remote-missing-config",
+  "remote-configured",
+  "remote-error-fail-open",
+  "unknown",
+] as const;
+export type SnapshotRateLimitCode = (typeof SNAPSHOT_RATE_LIMIT_CODES)[number];
+
+/** `[A] extends [B]` as a compile-time boolean — used for enum-subset assertions. */
+type AssertExtends<A, B> = [A] extends [B] ? true : false;
+
+// Compile-time proof that every status code the ratelimit layer can produce fits this
+// vocabulary, so `rateLimitPostureForCode(status.code)` can never receive a code it
+// does not know. If status.ts adds a code, this fails to type-check until it is listed.
+const _statusCodesAreSnapshotCodes: AssertExtends<
+  RateLimitStatusCode,
+  SnapshotRateLimitCode
+> = true;
+void _statusCodesAreSnapshotCodes;
+
+/**
+ * The abuse guard's posture as the snapshot carries it — a strict content-free
+ * REDUCTION of the ratelimit layer's `RateLimitStatus`. It deliberately does NOT
+ * carry that type's `envVars` field: this snapshot promises to never name an
+ * environment variable, and the runbook — not an unauthenticated endpoint — is
+ * where the variable names belong. `enforced`/`distributed` are pure functions of
+ * `code`; they are carried so a monitor can key on them without a code table.
+ */
+export interface SnapshotRateLimitPosture {
+  readonly code: SnapshotRateLimitCode;
+  /** True only when this state actually throttles requests. */
+  readonly enforced: boolean;
+  /** True only when enforcement is shared across processes (a remote store). */
+  readonly distributed: boolean;
+  /** One-line, content-free explanation authored here. Never an env value or name. */
+  readonly detail: string;
+}
+
+/** Fixed, content-free detail per posture code. Exported so ingest re-authors from it. */
+export const RATE_LIMIT_DETAIL: Record<SnapshotRateLimitCode, string> = {
+  disabled:
+    "Rate limiting is deliberately off (the default): every request is allowed and nothing is throttled. Select a provider to enable it.",
+  "local-memory":
+    "The per-process in-memory limiter is enforcing. It really throttles, but each instance counts independently — a dev/single-process backend, not a distributed production limiter.",
+  "remote-missing-config":
+    "A remote rate-limit provider is selected but its store configuration is missing or incomplete, so nothing is being enforced despite the operator opting in. Fix the store configuration.",
+  "remote-configured":
+    "A distributed rate-limit store is configured and enforcing: fixed-window budgets are shared atomically across every instance.",
+  "remote-error-fail-open":
+    "The distributed limiter is configured, but the most recent request was not enforced — the store is unreachable or erroring and the guard is failing OPEN (allowing traffic). Investigate the store.",
+  unknown:
+    "The abuse guard runs in the web tier and is not observable from this vantage.",
+};
+
+/**
+ * Map a posture code to its SLO health class — the projection the subsystem grid and
+ * the alert fold read. The deliberate off-state and both genuinely-enforcing states
+ * are `ok` (a quiet default must stay quiet; `local-memory` really throttles, per
+ * process); the two configured-but-NOT-enforcing states are `warn` — the operator
+ * opted into throttling and is not getting it, which is the alertable condition the
+ * runbook documents. `unknown` is "not observable from this vantage", never a page.
+ * Exported so the ingest path reuses it verbatim.
+ */
+export function rateLimitHealth(code: SnapshotRateLimitCode): HealthClass {
+  switch (code) {
+    case "disabled":
+    case "local-memory":
+    case "remote-configured":
+      return "ok";
+    case "remote-missing-config":
+    case "remote-error-fail-open":
+      return "warn";
+    case "unknown":
+      return "unknown";
+  }
+}
+
+/**
+ * Build the full posture for a code — the single place `enforced`/`distributed`/
+ * `detail` are derived, shared by the web collector, the operations route (which
+ * refines the code against its live decision first), and the ingest path (which
+ * re-authors an untrusted posture from the validated code alone), so no surface can
+ * drift from another.
+ */
+export function rateLimitPostureForCode(
+  code: SnapshotRateLimitCode,
+): SnapshotRateLimitPosture {
+  return {
+    code,
+    enforced: code === "local-memory" || code === "remote-configured",
+    distributed: code === "remote-configured" || code === "remote-error-fail-open",
+    detail: RATE_LIMIT_DETAIL[code],
+  };
+}
+
+/** The honest posture for a vantage that cannot observe the web tier's guard. */
+export const UNOBSERVED_RATE_LIMIT_POSTURE: SnapshotRateLimitPosture =
+  rateLimitPostureForCode("unknown");
 
 /** One subsystem's SLO classification. Content-free (label + class + generic prose). */
 export interface SnapshotSubsystem {
@@ -265,6 +381,16 @@ export interface WorkerOperationsSnapshot {
    * verifier; it monitors the OUTPUT of the Phase 42/43 cleanup tools.
    */
   readonly cleanupEvidence: CleanupEvidencePosture;
+  /**
+   * The abuse guard's posture — whether request rate limiting is deliberately off,
+   * genuinely enforcing, or (the alertable pair) configured-but-NOT-enforcing
+   * (`remote-missing-config` statically, `remote-error-fail-open` against a live
+   * decision). The web collector resolves it from its own environment (the guard
+   * runs in that very process); the route refines it with the decision it already
+   * made; a worker/probe vantage carries the honest `unknown`. Content-free — it
+   * never names an environment variable (unlike the ratelimit layer's own status).
+   */
+  readonly rateLimit: SnapshotRateLimitPosture;
   /** The last in-process loop outcome, when a run just completed; else `null`. */
   readonly lastLoop: SnapshotLoopOutcome | null;
 }
@@ -296,6 +422,14 @@ export interface OperationsSnapshotInput {
    * (monitoring off). Content-free; the builder folds it into the snapshot and a subsystem verbatim.
    */
   readonly cleanupEvidence?: CleanupEvidencePosture;
+  /**
+   * The abuse guard's resolved posture. Supplied by the web collector (which resolves
+   * it from the environment the guard itself reads) and by the operations route
+   * (which refines it against the live decision it already made). Omit ⇒ the honest
+   * `unknown` — the worker/probe vantage cannot observe the web tier's guard, and
+   * must not claim "disabled" (a deliberate operator choice) on no evidence.
+   */
+  readonly rateLimit?: SnapshotRateLimitPosture;
   /** The last in-process daemon loop outcome, when a run completed. Omit ⇒ `null`. */
   readonly lastLoop?: DaemonRunSummary;
   /**
@@ -347,6 +481,7 @@ export const SUBSYSTEM_LABEL: Record<SnapshotSubsystemId, string> = {
   "compression-engine": "Compression engine",
   ocr: "OCR",
   "malware-scan": "Malware scanning",
+  "rate-limit": "Rate limiting",
   lifecycle: "Lifecycle backstop",
   "lifecycle-verification": "Lifecycle verification",
   "cleanup-evidence": "Cleanup evidence",
@@ -434,6 +569,7 @@ function buildSubsystems(
   input: OperationsSnapshotInput,
   lifecycleVerification: SnapshotLifecycleVerification,
   cleanupEvidence: CleanupEvidencePosture,
+  rateLimit: SnapshotRateLimitPosture,
 ): SnapshotSubsystem[] {
   const { readiness, deployment } = input;
   const engineState = facetOf(deployment, "engine")?.state;
@@ -495,6 +631,10 @@ function buildSubsystems(
       scan.state === "ready" ? "ok" : scan.state === "unavailable" ? "warn" : "ok",
       scan.detail,
     ),
+    // Same shape as malware-scan one line up: an optional request gate where
+    // "not selected" is a fine choice (ok) and "selected but not doing its job"
+    // is the caveat (warn). The posture's own code disambiguates why.
+    sub("rate-limit", rateLimitHealth(rateLimit.code), rateLimit.detail),
     sub("lifecycle", lifecycleHealth(deployment.lifecycle.state), deployment.lifecycle.detail),
     sub("lifecycle-verification", lifecycleVerification.health, lifecycleVerification.detail),
     sub("cleanup-evidence", cleanupEvidenceHealth(cleanupEvidence.state), cleanupEvidence.detail),
@@ -709,7 +849,8 @@ export function buildWorkerOperationsSnapshot(
 ): WorkerOperationsSnapshot {
   const lifecycleVerification = resolveLifecycleVerification(input.lifecycleVerification);
   const cleanupEvidence = input.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE;
-  const subsystems = buildSubsystems(input, lifecycleVerification, cleanupEvidence);
+  const rateLimit = input.rateLimit ?? UNOBSERVED_RATE_LIMIT_POSTURE;
+  const subsystems = buildSubsystems(input, lifecycleVerification, cleanupEvidence, rateLimit);
   const { health, action } = deriveVerdict(input, lifecycleVerification);
   const daemon = resolveDaemonLiveness(input.vantage, input.daemonLiveness);
 
@@ -751,6 +892,7 @@ export function buildWorkerOperationsSnapshot(
     },
     lifecycleVerification,
     cleanupEvidence,
+    rateLimit,
     lastLoop,
   };
 }
@@ -788,6 +930,15 @@ export function collectWebOperationsSnapshot(
     tools?: ToolAvailability;
     daemonLiveness?: HeartbeatLiveness;
     cleanupEvidence?: CleanupEvidencePosture;
+    /**
+     * A decision-refined rate-limit posture, when the caller has one (the operations
+     * route folds the decision its own guard call already made, which is the only
+     * place `remote-error-fail-open` can be observed). Omit ⇒ the static posture is
+     * resolved HERE from the same `env` the guard reads — resolved at the collector,
+     * not left for callers to remember, so a web-vantage snapshot can never silently
+     * omit it. Costs nothing: the resolver reads configuration, never the store.
+     */
+    rateLimit?: SnapshotRateLimitPosture;
   } = {},
 ): WorkerOperationsSnapshot {
   const readiness = resolveDaemonReadiness(env);
@@ -798,11 +949,14 @@ export function collectWebOperationsSnapshot(
     engine ? { engine } : {},
   );
   const guardrails = evaluateGuardrails(env, engine ? { engine } : {});
+  const rateLimit =
+    opts.rateLimit ?? rateLimitPostureForCode(resolveRateLimitStatus(env).code);
   return buildWorkerOperationsSnapshot({
     vantage: "web",
     readiness,
     deployment,
     guardrails,
+    rateLimit,
     ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
     ...(opts.cleanupEvidence ? { cleanupEvidence: opts.cleanupEvidence } : {}),
     // No `ocrEnabled`: the web can't observe the worker's OCR, so OCR stays `unknown`.

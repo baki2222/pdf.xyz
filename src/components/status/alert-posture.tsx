@@ -127,6 +127,10 @@ const REASON_COPY: Record<AlertReason, string> = {
   "engine-degraded": "Deep compression engine is unavailable (lossless-only)",
   "ocr-unavailable": "OCR is opted in but no engine is installed",
   "scanner-unavailable": "A malware scanner is selected but misconfigured",
+  "rate-limit-misconfigured":
+    "A rate-limit provider is selected but its store config is incomplete (nothing throttles)",
+  "rate-limit-fail-open":
+    "The rate limiter's store is failing and the guard is failing open (nothing throttles)",
   "lifecycle-undeclared": "No retention/lifecycle backstop is declared",
   "lifecycle-unverified": "The retention backstop is declared but unverified",
   "lifecycle-drift": "The retention backstop has drifted (objects can outlive the ceiling)",

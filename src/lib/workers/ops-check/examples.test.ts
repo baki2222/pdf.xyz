@@ -38,6 +38,11 @@ const CASES: Array<{ file: string; severity: AlertSeverity; exitCode: number }> 
   { file: "lifecycle-drift.json", severity: "critical", exitCode: 4 },
   { file: "scanner-unavailable-spike.json", severity: "critical", exitCode: 4 },
   { file: "no-config-development.json", severity: "unknown", exitCode: 2 },
+  // A configured distributed limiter whose store is failing OPEN: everything else in
+  // the fixture is healthy, so the WARN verdict can come only from the rate-limit
+  // posture. Before the posture entered the snapshot contract this evaluated to a
+  // flat OK (exit 0) — a monitor saw nothing while traffic passed unthrottled.
+  { file: "rate-limit-fail-open.json", severity: "warn", exitCode: 3 },
 ];
 
 describe("healthcheck examples evaluate to the documented severity + exit code", () => {

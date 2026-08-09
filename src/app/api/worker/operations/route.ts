@@ -24,6 +24,7 @@ import { resolveWorkerMode, type ToolAvailability } from "@/lib/workers";
 import {
   collectWebOperationsSnapshot,
   evaluateOperationsAlerts,
+  rateLimitPostureForCode,
 } from "@/lib/workers/observability";
 import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
 import { readCleanupEvidencePosture } from "@/lib/workers/cleanup-evidence/read";
@@ -68,10 +69,31 @@ export async function GET(request: Request): Promise<Response> {
   // (the default) — it never contacts the cloud, never throws, and never leaks a path.
   const cleanupEvidence = readCleanupEvidencePosture(process.env);
 
+  /**
+   * The abuse guard's own posture, folded from the decision this handler ALREADY
+   * made at the top of this function and, before #54, threw away after reading
+   * `.allowed`. It costs NOTHING extra: the store round trip is already paid by
+   * the guard above; this reads the verdict instead of dropping it. That matters
+   * because this endpoint is unauthenticated — a design that probed the store per
+   * call would have handed an attacker a way to bill the account.
+   *
+   * It rides INSIDE the snapshot (as the bounded `rateLimit` posture + the
+   * `rate-limit` subsystem), not beside it, so `evaluateOperationsAlerts` below —
+   * the verdict the dashboard renders and `pnpm worker:ops-check` exits on —
+   * actually raises `remote-error-fail-open` / `remote-missing-config` instead of
+   * leaving them as a raw field somebody has to know to look at. The published
+   * posture carries no env-var names (the snapshot bans them); the runbook is
+   * where the variable names live.
+   */
+  const rateLimit = rateLimitPostureForCode(
+    statusForDecision(resolveRateLimitStatus(process.env), limit).code,
+  );
+
   const snapshot = collectWebOperationsSnapshot(process.env, {
     tools,
     daemonLiveness,
     cleanupEvidence,
+    rateLimit,
   });
   // Phase 31: attach the content-free alert posture (overall severity + the bounded
   // reasons/actions of each contributing alert) the operator dashboard renders and any
@@ -81,26 +103,5 @@ export async function GET(request: Request): Promise<Response> {
   // supplied metrics series. Every field is a bounded enum or policy-authored prose.
   const alerts = evaluateOperationsAlerts(snapshot);
 
-  /**
-   * The abuse guard's own posture, folded from the decision this handler ALREADY
-   * made on line 42 and, until now, threw away after reading `.allowed`.
-   *
-   * `remote-error-fail-open` is documented as the alertable condition in four
-   * places — OBSERVABILITY.md marks it "no (alert!)", and RUNBOOK.md tells an
-   * operator what to do when they see it. No production code path could emit it:
-   * `statusForDecision` had zero non-test callers. An operator following the
-   * runbook was alerting on a string that could not appear. This makes the
-   * documentation true.
-   *
-   * It costs NOTHING extra. The store round trip is already paid by the guard
-   * above; this reads the verdict instead of dropping it. That matters because
-   * this endpoint is unauthenticated — a design that probed the store per call
-   * would have handed an attacker a way to bill the account.
-   */
-  const rateLimit = statusForDecision(
-    resolveRateLimitStatus(process.env),
-    limit,
-  );
-
-  return respond(ok({ ...snapshot, alerts, rateLimit }));
+  return respond(ok({ ...snapshot, alerts }));
 }

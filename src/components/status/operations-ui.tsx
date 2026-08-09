@@ -32,6 +32,7 @@ import {
   Clock,
   Cpu,
   Database,
+  Gauge,
   Layers,
   Minimize2,
   MinusCircle,
@@ -269,6 +270,12 @@ const SUBSYSTEM_META: Record<
     description: "The optional scan gate applied to inputs before processing.",
     icon: ScanSearch,
   },
+  "rate-limit": {
+    label: "Rate limiting",
+    description:
+      "The optional abuse guard on the public API. Deliberately off is healthy; selected-but-not-enforcing (a bad store config, or a store failing open) is the warning.",
+    icon: Gauge,
+  },
   lifecycle: {
     label: "Lifecycle backstop",
     description:
@@ -309,6 +316,7 @@ const SUBSYSTEM_ORDER: SnapshotSubsystemId[] = [
   "compression-engine",
   "ocr",
   "malware-scan",
+  "rate-limit",
   "lifecycle",
   "lifecycle-verification",
   "cleanup-evidence",

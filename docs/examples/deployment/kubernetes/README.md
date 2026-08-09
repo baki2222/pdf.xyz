@@ -68,7 +68,10 @@ kubectl -n pdfxyz create secret generic pdfxyz-ratelimit \
 
 At boot the web pod logs one content-free line (`[pdf.xyz] rate-limit provider:
 remote-configured`); a `remote-error-fail-open` at runtime means the store is unreachable
-and the guard is failing open. See `docs/DEPLOYMENT.md` and `docs/OBSERVABILITY.md`.
+and the guard is failing open. The operations snapshot alerts on that state
+(`rate-limit-fail-open` / `rate-limit-misconfigured`), so an ops-check evaluating a
+scraped `/api/worker/operations` snapshot exits `3` and the CronJob's failure is what
+your cluster alerting sees. See `docs/DEPLOYMENT.md` and `docs/OBSERVABILITY.md`.
 
 ## Honesty notes
 

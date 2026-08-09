@@ -22,11 +22,13 @@ import type {
   AlertSeverity,
   LivenessAlert,
 } from "../observability/alerts";
+import { rateLimitHealth } from "../observability/snapshot";
 import type {
   HealthClass,
   ProofAvailability,
   RecommendedAction,
   SnapshotLoopOutcome,
+  SnapshotRateLimitCode,
   SnapshotSubsystemId,
   SnapshotVantage,
   CleanupEvidenceState,
@@ -54,6 +56,13 @@ export interface OpsCheckCleanupEvidenceDigest {
   readonly freshness: CleanupEvidenceFreshness;
 }
 
+/** The abuse-guard rate-limit posture, reduced to its bounded load-bearing enums. */
+export interface OpsCheckRateLimitDigest {
+  readonly code: SnapshotRateLimitCode;
+  readonly enforced: boolean;
+  readonly distributed: boolean;
+}
+
 /** A content-free digest of the operations snapshot (enums / booleans / counts only). */
 export interface OpsCheckSnapshotDigest {
   readonly vantage: SnapshotVantage;
@@ -64,6 +73,8 @@ export interface OpsCheckSnapshotDigest {
   readonly proofs: { readonly compressionDeep: ProofAvailability; readonly ocr: ProofAvailability };
   /** The cleanup evidence posture (Phase 44) — bounded enums only. */
   readonly cleanupEvidence: OpsCheckCleanupEvidenceDigest;
+  /** The abuse-guard posture — bounded enums only, never an env-var name. */
+  readonly rateLimit: OpsCheckRateLimitDigest;
   readonly lastLoop: SnapshotLoopOutcome | null;
 }
 
@@ -235,6 +246,14 @@ export function renderOpsCheckPrometheus(
       cleanupEvidenceCode(ce.state),
     ),
   );
+  const rl = outcome.snapshot.rateLimit;
+  lines.push(
+    line(
+      "pdfxyz_ops_check_rate_limit",
+      { code: rl.code, enforced: String(rl.enforced) },
+      healthCode(rateLimitHealth(rl.code)),
+    ),
+  );
   // Reuse the shipped metric-series renderer for any series behind the SLOs.
   const series = metrics ? renderPrometheus(metrics) : "";
   if (series) lines.push(series);
@@ -255,6 +274,9 @@ export function renderOpsCheckText(outcome: OpsCheckOutcome): string {
   lines.push(`  source: ${outcome.source}  vantage: ${outcome.snapshot.vantage}  liveness: ${outcome.liveness.state}`);
   lines.push(
     `  cleanup evidence: ${outcome.snapshot.cleanupEvidence.state} (${outcome.snapshot.cleanupEvidence.reason}, ${outcome.snapshot.cleanupEvidence.freshness})`,
+  );
+  lines.push(
+    `  rate limit: ${outcome.snapshot.rateLimit.code} (${outcome.snapshot.rateLimit.enforced ? "enforcing" : "not enforcing"})`,
   );
   lines.push(`  action: ${outcome.action} — ${outcome.actionDetail}`);
   for (const alert of outcome.alerts) {

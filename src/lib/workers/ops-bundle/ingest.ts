@@ -115,6 +115,7 @@ const SUBSYSTEM_IDS = [
   "compression-engine",
   "ocr",
   "malware-scan",
+  "rate-limit",
   "lifecycle",
   "lifecycle-verification",
   "cleanup-evidence",

@@ -59,6 +59,7 @@ function makeResult(over: Partial<OpsCheckResult> = {}): OpsCheckResult {
         provider: "unknown",
         freshness: "unknown",
       },
+      rateLimit: { code: "disabled", enforced: false, distributed: false },
       lastLoop: null,
     },
     slo: null,
@@ -190,6 +191,7 @@ describe("cleanup evidence rendering (Phase 44)", () => {
         subsystems: [{ id: "cleanup-evidence", health: "warn" }],
         proofs: { compressionDeep: "unknown", ocr: "unknown" },
         cleanupEvidence: ce,
+        rateLimit: { code: "disabled", enforced: false, distributed: false },
         lastLoop: null,
       },
     });

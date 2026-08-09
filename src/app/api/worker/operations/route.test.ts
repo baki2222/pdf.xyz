@@ -8,7 +8,12 @@ import {
 } from "@/lib/workers/heartbeat";
 import type { WorkerOperationsSnapshot } from "@/lib/workers/observability";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
-import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
+import { RATE_LIMIT_REDIS_ENV } from "@/lib/ratelimit/redis-config";
+import {
+  enforceRateLimit,
+  resetRateLimitGuardForTests,
+  resetSelfBuiltProviderForTests,
+} from "@/lib/ratelimit/guard";
 import { GET } from "./route";
 
 async function json(res: Response): Promise<unknown> {
@@ -24,7 +29,7 @@ describe("GET /api/worker/operations", () => {
   it("returns a content-free web-vantage operations snapshot in no-config mode", async () => {
     const body = await json(await GET(opsReq()));
     expect(body).toMatchObject({
-      version: 1,
+      version: 2,
       vantage: "web",
       daemonObserved: false,
       drainable: false,
@@ -264,5 +269,135 @@ describe("GET /api/worker/operations — abuse guard", () => {
     expect(denied.status).toBe(429);
     expect((await denied.json()).error.code).toBe("rate_limited");
     expect(Number(denied.headers.get("retry-after"))).toBeGreaterThan(0);
+  });
+});
+
+describe("GET /api/worker/operations — the rate-limit posture reaches the alert report", () => {
+  const OLD_ENV = { ...process.env };
+  const OLD_FETCH = globalThis.fetch;
+
+  /**
+   * A fully-green stack WITHOUT the heartbeat feature, so no non-rate-limit code path
+   * touches `fetch` and every non-rate-limit subsystem is quiet. Any warn the alert
+   * report carries in these cases can therefore come only from the abuse guard.
+   */
+  const GREEN_ENV: Record<string, string> = {
+    PDFXYZ_STORAGE_PROVIDER: "s3",
+    PDFXYZ_S3_ENDPOINT: "https://s3.example.com",
+    PDFXYZ_S3_REGION: "auto",
+    PDFXYZ_S3_BUCKET: "private-bucket",
+    PDFXYZ_S3_ACCESS_KEY_ID: "AKIAEXAMPLE123",
+    PDFXYZ_S3_SECRET_ACCESS_KEY: "secret-value",
+    PDFXYZ_QUEUE_PROVIDER: "redis",
+    PDFXYZ_REDIS_REST_URL: "https://redis.example.com",
+    PDFXYZ_REDIS_REST_TOKEN: "redis-secret",
+    [LIFECYCLE_ENV.provider]: "aws-s3",
+    [LIFECYCLE_ENV.validated]: "true",
+  };
+
+  /** Exactly what a correctly-configured production deployment has set. */
+  const LIMITER_ENV: Record<string, string> = {
+    [RATE_LIMIT_ENV.provider]: "redis",
+    [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
+    [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
+  };
+
+  type AlertEntry = { source?: string; severity?: string; reason?: string; action?: string };
+  type OpsBody = {
+    rateLimit?: { code?: string; enforced?: boolean };
+    alerts?: { severity?: string; alerts?: AlertEntry[] };
+  };
+
+  beforeEach(() => {
+    resetRateLimitGuardForTests();
+    resetSelfBuiltProviderForTests();
+  });
+  afterEach(() => {
+    process.env = { ...OLD_ENV };
+    globalThis.fetch = OLD_FETCH;
+    resetRateLimitGuardForTests();
+    resetSelfBuiltProviderForTests();
+  });
+
+  it("a configured store failing OPEN raises a warn alert, not just a raw field", async () => {
+    Object.assign(process.env, GREEN_ENV, LIMITER_ENV);
+    // The store is configured and unreachable: every transport call fails, so the
+    // guard fails open. Nothing else in this env fetches (heartbeat is off).
+    globalThis.fetch = (async () => {
+      throw new Error("store unreachable");
+    }) as unknown as typeof fetch;
+
+    const body = (await json(await GET(opsReq()))) as OpsBody;
+
+    // The raw posture (published since #54) tells the truth…
+    expect(body.rateLimit?.code).toBe("remote-error-fail-open");
+    expect(body.rateLimit?.enforced).toBe(false);
+    // …and the ALERT REPORT — what the dashboard renders and what a monitor keyed on
+    // `alerts` (or the ops-check exit code) actually reads — must now say it too.
+    expect(body.alerts?.severity).toBe("warn");
+    expect(body.alerts?.alerts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "rate-limit",
+          severity: "warn",
+          reason: "rate-limit-fail-open",
+        }),
+      ]),
+    );
+    // The store endpoint and token never reach the body.
+    expect(JSON.stringify(body)).not.toMatch(/example-store\.upstash\.io|AAAA/);
+  });
+
+  it("a selected provider with an incomplete store config raises the misconfigured alert", async () => {
+    Object.assign(process.env, GREEN_ENV, {
+      [RATE_LIMIT_ENV.provider]: "redis", // …but no store URL/token: nothing enforces
+    });
+
+    const body = (await json(await GET(opsReq()))) as OpsBody;
+
+    expect(body.rateLimit?.code).toBe("remote-missing-config");
+    expect(body.alerts?.severity).toBe("warn");
+    expect(body.alerts?.alerts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "rate-limit",
+          severity: "warn",
+          reason: "rate-limit-misconfigured",
+        }),
+      ]),
+    );
+  });
+
+  it("an enforcing distributed limiter stays quiet", async () => {
+    Object.assign(process.env, GREEN_ENV, LIMITER_ENV);
+    // A healthy store: the atomic fixed-window EVAL returns { count, pttlMs }.
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { result: [1, 60_000] };
+      },
+    })) as unknown as typeof fetch;
+
+    const body = (await json(await GET(opsReq()))) as OpsBody;
+
+    expect(body.rateLimit?.code).toBe("remote-configured");
+    expect(body.rateLimit?.enforced).toBe(true);
+    expect(body.alerts?.severity).toBe("ok");
+    expect(body.alerts?.alerts ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: "rate-limit" })]),
+    );
+  });
+
+  it("the deliberate off-state (the default) stays quiet", async () => {
+    Object.assign(process.env, GREEN_ENV); // no rate-limit provider selected
+
+    const body = (await json(await GET(opsReq()))) as OpsBody;
+
+    expect(body.rateLimit?.code).toBe("disabled");
+    expect(body.alerts?.severity).toBe("ok");
+    expect(body.alerts?.alerts ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: "rate-limit" })]),
+    );
   });
 });
