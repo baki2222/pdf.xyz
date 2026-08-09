@@ -22,7 +22,6 @@
 
 import { RATE_LIMIT_ENV } from "./config";
 import { resolveRateLimitBackend } from "./factory";
-import { getRateLimitProvider } from "./provider";
 import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import type { RateLimitDecision } from "./types";
 
@@ -52,8 +51,21 @@ export interface RateLimitStatus {
 /** Options for {@link resolveRateLimitStatus}. */
 export interface ResolveRateLimitStatusOptions {
   /**
-   * Whether a provider is registered in this process. Defaults to the live registry
-   * (`getRateLimitProvider() !== null`); injectable so tests need no boot hook.
+   * Whether a provider is available in this process.
+   *
+   * Supply it only to describe a specific process's registry — the boot hook does,
+   * to report what IT wired. Left unset, this no longer consults the registry at
+   * all, and that change is deliberate: the guard stopped depending on
+   * registration. It builds a provider from the same environment on demand, so a
+   * valid store configuration means a provider is obtainable wherever the guard
+   * runs.
+   *
+   * Defaulting to `getRateLimitProvider() !== null` used to be right and became a
+   * lie. On Vercel each route is its own bundle, so the registry the boot hook
+   * writes is not the registry a route reads: the old default reported
+   * "no provider is registered in this process" from a process that would
+   * cheerfully build one and enforce. Reporting a working limiter as unconfigured
+   * is the same error as the reverse, pointed the other way.
    */
   readonly providerRegistered?: boolean;
 }
@@ -73,8 +85,11 @@ export function resolveRateLimitStatus(
   env: EnvSource = process.env,
   opts: ResolveRateLimitStatusOptions = {},
 ): RateLimitStatus {
-  const registered = opts.providerRegistered ?? getRateLimitProvider() !== null;
   const backend = resolveRateLimitBackend(env);
+  // Unset ⇒ a valid store means a provider is obtainable, because the guard builds
+  // one on demand. See the field's docblock for why consulting the registry here
+  // became wrong rather than merely unnecessary.
+  const registered = opts.providerRegistered ?? backend.kind === "redis";
 
   switch (backend.kind) {
     case "disabled":

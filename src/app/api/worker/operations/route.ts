@@ -28,6 +28,7 @@ import {
 import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
 import { readCleanupEvidencePosture } from "@/lib/workers/cleanup-evidence/read";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { resolveRateLimitStatus, statusForDecision } from "@/lib/ratelimit";
 import { respond, respondRateLimited } from "../../_lib/http";
 
 // Reflects live host + config state. Node runtime — the PATH probe uses Node built-ins,
@@ -79,5 +80,27 @@ export async function GET(request: Request): Promise<Response> {
   // no jobs), so this is the snapshot-derived posture only; the CLI folds in SLOs from a
   // supplied metrics series. Every field is a bounded enum or policy-authored prose.
   const alerts = evaluateOperationsAlerts(snapshot);
-  return respond(ok({ ...snapshot, alerts }));
+
+  /**
+   * The abuse guard's own posture, folded from the decision this handler ALREADY
+   * made on line 42 and, until now, threw away after reading `.allowed`.
+   *
+   * `remote-error-fail-open` is documented as the alertable condition in four
+   * places — OBSERVABILITY.md marks it "no (alert!)", and RUNBOOK.md tells an
+   * operator what to do when they see it. No production code path could emit it:
+   * `statusForDecision` had zero non-test callers. An operator following the
+   * runbook was alerting on a string that could not appear. This makes the
+   * documentation true.
+   *
+   * It costs NOTHING extra. The store round trip is already paid by the guard
+   * above; this reads the verdict instead of dropping it. That matters because
+   * this endpoint is unauthenticated — a design that probed the store per call
+   * would have handed an attacker a way to bill the account.
+   */
+  const rateLimit = statusForDecision(
+    resolveRateLimitStatus(process.env),
+    limit,
+  );
+
+  return respond(ok({ ...snapshot, alerts, rateLimit }));
 }
