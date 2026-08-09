@@ -1,0 +1,234 @@
+// @vitest-environment node
+/**
+ * The numbers-drift census: user-facing copy may not hand-write a figure the
+ * code owns.
+ *
+ * The programme's most-repeated defect is copy claiming what code does not do.
+ * Capabilities, prices, and focus-order have guards; NUMBERS drifted free: the
+ * deleted pricing tier hard-coded "Files up to 100 MB each"
+ * (JOB_LIMITS.maxFileBytes), the FAQ said "deleted within minutes" while the
+ * panels derive "output N min" from DEFAULT_RETENTION, and
+ * `use-workspace.ts` carries a comment admitting its 100 MB is "manually kept
+ * in sync". When a constant changes, derived surfaces update and literal ones
+ * lie — in the direction that always embarrasses this product.
+ *
+ * Two rules over every unit-bearing numeric literal in the user-facing copy:
+ *
+ *  1. **A literal equal to a constant's current value must derive instead.**
+ *     `${formatBytes(JOB_LIMITS.maxFileBytes)}` never trips this — the number
+ *     does not appear in source. A hand-written "100 MB" does, and it is a lie
+ *     waiting for the next config change.
+ *  2. **A unit-bearing literal matching NO constant is an unowned claim** —
+ *     copy asserting a figure the code does not define, which nothing can keep
+ *     true. Either derive it from a new constant or stop claiming it.
+ *
+ * v1 scope (the cry-wolf doctrine — narrow and true beats broad and weakened):
+ * data sizes (MB/GB), durations (minutes/hours), and object counts
+ * (files/tools/languages). CSS lengths, DPI, page geometry, percentages, and
+ * key sizes are deliberately out of scope. `BASELINE` records what the census
+ * found on first contact (2026-08-09) that is REPORTED and awaiting an owner
+ * scoping decision — remove entries as they are fixed; never add to ship a new
+ * literal.
+ */
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { MAX_OCR_LANGUAGES, OCR_LANGUAGES } from "@/lib/jobs/ocr";
+import { toolCount } from "@/lib/tools";
+
+const ROOT = process.cwd();
+
+/* ------------------------------------------------------------------ *
+ *  What the code owns (rendered the way copy would write it)
+ * ------------------------------------------------------------------ */
+
+const MB = 1024 * 1024;
+
+/** value+unit pairs the code owns, in every spelling copy plausibly uses. */
+const OWNED: { value: number; units: readonly string[]; source: string }[] = [
+  {
+    value: JOB_LIMITS.maxFileBytes / MB,
+    units: ["mb"],
+    source: "JOB_LIMITS.maxFileBytes",
+  },
+  {
+    value: JOB_LIMITS.maxTotalBytes / MB,
+    units: ["mb"],
+    source: "JOB_LIMITS.maxTotalBytes",
+  },
+  {
+    value: JOB_LIMITS.maxInputFiles,
+    units: ["files", "file"],
+    source: "JOB_LIMITS.maxInputFiles",
+  },
+  {
+    value: DEFAULT_RETENTION.inputTtlMinutes,
+    units: ["minutes", "minute", "min"],
+    source: "DEFAULT_RETENTION.inputTtlMinutes",
+  },
+  {
+    value: DEFAULT_RETENTION.outputTtlMinutes,
+    units: ["minutes", "minute", "min"],
+    source: "DEFAULT_RETENTION.outputTtlMinutes",
+  },
+  {
+    value: toolCount,
+    units: ["tools", "tool"],
+    source: "toolCount",
+  },
+  {
+    value: OCR_LANGUAGES.length,
+    units: ["languages", "language"],
+    source: "OCR_LANGUAGES.length",
+  },
+  {
+    value: MAX_OCR_LANGUAGES,
+    units: ["languages", "language"],
+    source: "MAX_OCR_LANGUAGES",
+  },
+];
+
+const UNIT_PATTERN =
+  /\b(\d+(?:\.\d+)?)\s*(MB|GB|minutes?|hours?|files?|tools?|languages?|min\b)/gi;
+
+/* ------------------------------------------------------------------ *
+ *  The copy surface (same walk as pricing-honesty + the workspace UI)
+ * ------------------------------------------------------------------ */
+
+function copyFiles(): string[] {
+  const roots = [
+    path.join(ROOT, "src", "components", "sections"),
+    path.join(ROOT, "src", "components", "tools"),
+    path.join(ROOT, "src", "app"),
+  ];
+  const out: string[] = [
+    path.join(ROOT, "src", "lib", "tools", "catalog.ts"),
+    path.join(ROOT, "src", "lib", "faq.ts"),
+  ];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
+        out.push(full);
+    }
+  };
+  for (const dir of roots) if (statSync(dir).isDirectory()) walk(dir);
+  return out.filter((file) => {
+    try {
+      return statSync(file).isFile();
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Source with comments removed — a docblock citing a figure is not a claim. */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
+}
+
+interface Finding {
+  file: string;
+  literal: string;
+  rule: "must-derive" | "unowned";
+  detail: string;
+}
+
+function relative(file: string): string {
+  return path.relative(ROOT, file).replace(/\\/g, "/");
+}
+
+/**
+ * Literals that are true, deliberate, and NOT owned by a constant — each with
+ * the reason it may stay literal. Keep this list short; growth is drift.
+ */
+const ALLOWED: { literal: RegExp; reason: string }[] = [
+  {
+    // The privacy page's "24 hours"/"~24 hours" job-record window: the real TTL
+    // is the queue's env-configured jobTtlSeconds with no compile-time
+    // constant. First-contact finding, reported 2026-08-09 — if an owner wants
+    // it derivable, export a default constant and remove this entry.
+    literal: /^24 hours?$/i,
+    reason: "queue job TTL is env-configured; no compile-time owner exists yet",
+  },
+];
+
+/** First-contact findings (2026-08-09), reported and awaiting the owner's
+ * scoping ruling — each is copy hand-writing a cap its own runner enforces
+ * with an inline magic number one line away (consistent today, doubly
+ * hardcoded, one edit from drifting apart). Remove entries as fixes land. */
+const BASELINE: { file: string; literal: string }[] = [
+  { file: "src/components/tools/runner/image-to-pdf-runner.tsx", literal: "25 MB" },
+  { file: "src/components/tools/runner/markdown-to-pdf-runner.tsx", literal: "2 MB" },
+  { file: "src/components/tools/runner/text-to-pdf-runner.tsx", literal: "2 MB" },
+];
+
+function censusFindings(): Finding[] {
+  const findings: Finding[] = [];
+  for (const file of copyFiles()) {
+    const source = withoutComments(readFileSync(file, "utf8"));
+    for (const match of source.matchAll(UNIT_PATTERN)) {
+      const [literal, num, unitRaw] = match;
+      if (!literal || !num || !unitRaw) continue;
+      const unit = unitRaw.toLowerCase().replace(/s$/, "");
+      const value = Number(num);
+      if (ALLOWED.some((a) => a.literal.test(literal.trim()))) continue;
+      const owner = OWNED.find(
+        (o) =>
+          o.value === value &&
+          o.units.some((u) => u.replace(/s$/, "") === unit),
+      );
+      if (owner) {
+        findings.push({
+          file: relative(file),
+          literal,
+          rule: "must-derive",
+          detail: `equals ${owner.source} — derive it so the next config change cannot turn this into a lie`,
+        });
+      } else if (["mb", "gb", "minute", "hour", "file", "tool", "language", "min"].includes(unit)) {
+        findings.push({
+          file: relative(file),
+          literal,
+          rule: "unowned",
+          detail:
+            "no constant owns this figure — derive it from one, or stop claiming it",
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+describe("user-facing copy does not hand-write figures the code owns", () => {
+  it("reads the copy files, so a move cannot quietly empty this census", () => {
+    expect(copyFiles().length).toBeGreaterThanOrEqual(30);
+  });
+
+  it("every unit-bearing literal is derived, allowed, or in the reported baseline", () => {
+    const baselineKey = (f: { file: string; literal: string }) =>
+      `${f.file} :: ${f.literal}`;
+    const known = new Set(BASELINE.map(baselineKey));
+    const fresh = censusFindings().filter((f) => !known.has(baselineKey(f)));
+    expect(
+      fresh,
+      `these figures are hand-written where the code owns (or does not own) them:\n  ${fresh
+        .map((f) => `${f.file}: "${f.literal}" [${f.rule}] — ${f.detail}`)
+        .join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  it("the baseline only shrinks (stale entries are removed as fixes land)", () => {
+    const current = new Set(
+      censusFindings().map((f) => `${f.file} :: ${f.literal}`),
+    );
+    const stale = BASELINE.map((f) => `${f.file} :: ${f.literal}`).filter(
+      (k) => !current.has(k),
+    );
+    expect(
+      stale,
+      `these baseline entries no longer occur — remove them so the debt is visible:\n  ${stale.join("\n  ")}`,
+    ).toEqual([]);
+  });
+});

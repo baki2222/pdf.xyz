@@ -1,3 +1,4 @@
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { toolCount } from "@/lib/tools";
 
 export interface FaqItem {
@@ -32,6 +33,11 @@ export const faqs: FaqItem[] = [
   },
   {
     q: "What happens to files sent to a worker?",
-    a: "They are encrypted in transit, processed on an isolated worker, and permanently deleted within minutes of your job completing. Nothing is retained.",
+    // Derived, not hand-written, for the same reason as /privacy: the FAQ said
+    // "permanently deleted within minutes … nothing is retained", which was
+    // three separate untruths the privacy page already corrects — the link
+    // dying and the bytes dying are different events, and a job record (the
+    // file's name, never its contents) is kept for about a day.
+    a: `They're encrypted in transit and processed on an isolated worker. The input is wiped as soon as the job finishes; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A job record — the file's name, never its contents — is kept for about a day.`,
   },
 ];
