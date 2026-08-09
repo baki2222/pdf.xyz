@@ -16,11 +16,11 @@ export const faqs: FaqItem[] = [
   },
   {
     q: "Do I need to create an account?",
-    a: "No. You can open any tool and start working immediately. An account is only needed if you want to save workspaces, presets, or use signature requests.",
+    a: "No. There is nothing to sign up for — open any tool and start working immediately.",
   },
   {
     q: "How much does it cost?",
-    a: "Every core tool is free. Pro unlocks the full AI suite, batch processing, saved workflows, and higher limits. See pricing above for details.",
+    a: "Nothing right now — every tool is free, with no account and no card. Paid options will come later for the parts that genuinely cost money to run, like AI and large server-side jobs. The in-browser tools stay free.",
   },
   {
     q: "What file types are supported?",

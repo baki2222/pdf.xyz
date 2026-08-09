@@ -4,51 +4,42 @@ import { toolCount } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
-const tiers = [
+/**
+ * The pricing section answers the one question a visitor actually has here —
+ * "will you charge me?" — with what is true today: everything is free, there
+ * is nothing to buy, and nothing to sign up for.
+ *
+ * It deliberately carries NO price, NO named future tier, and NO upgrade CTA.
+ * An earlier version rendered a three-tier price list (a monthly price, an
+ * "Upgrade" button, an enterprise tier with single-sign-on claims) for a
+ * product with no billing system, no accounts, and no way to pay — a promise
+ * about a plan is still a promise. `src/lib/tools/pricing-honesty.test.ts`
+ * fails the build if sell-language for a purchasable product returns while the
+ * repository still cannot take a payment. The `id="pricing"` anchor is load-
+ * bearing: the nav and footer link to `/#pricing` (src/lib/site.ts).
+ */
+
+const groups = [
   {
-    name: "Free",
-    price: "$0",
-    cadence: "forever",
-    tagline: "Everything you need for everyday PDFs.",
-    features: [
-      `All ${toolCount} tools, no paywalls on the basics`,
-      "In-browser processing — unlimited local tasks",
-      "Files up to 100 MB each",
-      "No account required",
+    name: "In your browser",
+    summary:
+      "Merge, split, compress, rotate, convert and more run entirely on your device — your files never leave it.",
+    points: [
+      "No account and no card, ever",
+      "Unlimited local tasks",
+      "These tools stay free",
     ],
-    cta: { label: "Start for free", href: "/workspace" },
-    highlighted: false,
   },
   {
-    name: "Pro",
-    price: "$8",
-    cadence: "per month",
-    tagline: "For heavy documents, AI, and saved workflows.",
-    features: [
-      "Everything in Free",
-      "Batch processing & saved workflow presets",
-      "Higher limits and priority secure workers",
-      "Full AI suite — chat, summarize, translate, extract",
-      "Signature requests & audit trails",
+    name: "On our servers",
+    summary:
+      "The AI tools and heavy jobs run on secure, auto-deleting workers, because a browser alone cannot do them.",
+    points: [
+      "Free to use right now",
+      "Paid options will come for these — they genuinely cost money to run",
+      "No date promised until there is one",
     ],
-    cta: { label: "Upgrade to Pro", href: "/workspace" },
-    highlighted: true,
-  },
-  {
-    name: "Team",
-    price: "Custom",
-    cadence: "contact us",
-    tagline: "SSO, shared workspaces, and admin controls.",
-    features: [
-      "Everything in Pro",
-      "Shared team workspaces & templates",
-      "SSO / SAML and role-based access",
-      "Data residency & compliance support",
-    ],
-    cta: { label: "Talk to us", href: "/#contact" },
-    highlighted: false,
   },
 ];
 
@@ -58,65 +49,56 @@ export function PricingSection() {
       <Container className="flex flex-col gap-14">
         <SectionHeading
           eyebrow="Pricing"
-          title="Start free. Upgrade when you scale."
-          description="Every core tool is free and runs in your browser. Pay only when you need AI, big batches, or team features."
+          title="Free right now. All of it."
+          description={`Every one of the ${toolCount} tools is free to use today — no account, no card, no trial clock. Here is exactly how that works and what will change.`}
         />
 
-        <div className="grid gap-5 lg:grid-cols-3">
-          {tiers.map((tier) => (
+        <div className="grid gap-5 lg:grid-cols-2">
+          {groups.map((group) => (
             <div
-              key={tier.name}
-              className={cn(
-                "relative flex flex-col gap-6 rounded-3xl border p-7",
-                tier.highlighted
-                  ? "border-violet-400/40 bg-gradient-to-b from-violet-500/10 to-transparent shadow-xl shadow-violet-500/10"
-                  : "border-white/10 bg-surface-2",
-              )}
+              key={group.name}
+              className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-surface-2 p-7"
             >
-              {tier.highlighted && (
-                <span className="absolute -top-3 left-7 rounded-full bg-gradient-to-r from-violet-500 to-blue-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-                  Most popular
-                </span>
-              )}
               <div className="flex flex-col gap-2">
-                <h3 className="text-lg font-semibold text-white">{tier.name}</h3>
-                <p className="flex items-baseline gap-1.5">
-                  <span className="text-4xl font-bold tracking-tight text-white">
-                    {tier.price}
-                  </span>
-                  <span className="text-sm text-slate-400">{tier.cadence}</span>
-                </p>
-                <p className="text-sm text-slate-400">{tier.tagline}</p>
+                <h3 className="text-lg font-semibold text-white">{group.name}</h3>
+                <p className="text-sm text-slate-300">{group.summary}</p>
               </div>
 
               <ul className="flex flex-1 flex-col gap-3">
-                {tier.features.map((feature) => (
+                {group.points.map((point) => (
                   <li
-                    key={feature}
+                    key={point}
                     className="flex items-start gap-2.5 text-sm text-slate-300"
                   >
                     <Check
                       className="mt-0.5 size-4 shrink-0 text-emerald-400"
                       aria-hidden
                     />
-                    {feature}
+                    {point}
                   </li>
                 ))}
               </ul>
-
-              <Link
-                href={tier.cta.href}
-                className={buttonVariants({
-                  variant: tier.highlighted ? "primary" : "outline",
-                  size: "md",
-                  className: "w-full",
-                })}
-              >
-                {tier.cta.label}
-                <ArrowRight className="size-4" aria-hidden />
-              </Link>
             </div>
           ))}
+        </div>
+
+        <div className="flex flex-col items-start gap-4 rounded-3xl border border-white/10 bg-surface-2 p-7 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm leading-relaxed text-slate-300">
+            When paid options arrive they will cover the server-side work above —
+            and the in-browser tools stay free. Until then, there is simply
+            nothing to pay for.
+          </p>
+          <Link
+            href="/workspace"
+            className={buttonVariants({
+              variant: "outline",
+              size: "md",
+              className: "shrink-0",
+            })}
+          >
+            Open the workspace
+            <ArrowRight className="size-4" aria-hidden />
+          </Link>
         </div>
       </Container>
     </section>
