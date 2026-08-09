@@ -602,3 +602,67 @@ describe("rate-limit alerting", () => {
     expect(report.alerts.some((a) => a.source === "rate-limit")).toBe(false);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ *  A non-ok report never reassures (the 3am sentence)
+ * ------------------------------------------------------------------ */
+
+describe("a non-ok report never claims healthy or no-action-required", () => {
+  /**
+   * The ranked next-action ladder deliberately does not rank the monitoring
+   * subsystems, so `recommendedAction` can be `none` while an alert warns. The
+   * ENUM disagreement is by design; the PROSE printed from it must never be —
+   * "Everything observable here is healthy; no action is required" directly
+   * above the warning that contradicts it is a false statement of fact an
+   * operator will read first and stop at. Generic over severity: any snapshot
+   * that evaluates non-ok is in scope, not just rate-limit.
+   */
+  const NON_OK_WITH_NO_FIX_TO_OFFER: Array<[string, SnapshotOverrides]> = [
+    ["rate-limit fail-open (warn, action none)", withRateLimit("remote-error-fail-open")],
+    ["rate-limit misconfigured (warn, action none)", withRateLimit("remote-missing-config")],
+    ["cleanup-evidence breach (critical, action none)", withCleanup("critical", "cleanup_breach")],
+    [
+      "cleanup-evidence breach behind the healthy web residual",
+      {
+        ...withCleanup("critical", "cleanup_breach"),
+        recommendedAction: "confirm-worker-deployment",
+      },
+    ],
+    ["indeterminate snapshot (unknown, action none, no alerts)", { health: "unknown" }],
+  ];
+
+  it.each(NON_OK_WITH_NO_FIX_TO_OFFER)("%s", (_label, overrides) => {
+    const report = evaluateOperationsAlerts(makeSnapshot(overrides));
+    expect(report.severity).not.toBe("ok");
+    for (const prose of [report.summary, report.actionDetail]) {
+      expect(prose).not.toMatch(/healthy/i);
+      expect(prose).not.toMatch(/no action is required/i);
+      expect(prose).not.toMatch(/next action: none/i);
+    }
+    // With concrete alerts, the prose points at them instead.
+    if (report.alerts.length > 0) {
+      expect(report.summary).toMatch(/alert row/);
+      expect(report.actionDetail).toMatch(/alert rows/);
+    }
+    // The bounded enum is untouched — only the prose changed.
+    expect(["none", "confirm-worker-deployment"]).toContain(report.action);
+  });
+
+  it("an ok report keeps the canned healthy headline verbatim", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot());
+    expect(report.severity).toBe("ok");
+    expect(report.summary).toBe(
+      "OK — everything observable here is healthy. Next action: none.",
+    );
+    expect(report.actionDetail).toBe(ALERT_ACTION_DETAIL.none);
+  });
+
+  it("a non-ok report whose ranked action IS a fix keeps pointing at it", () => {
+    const report = evaluateOperationsAlerts(
+      makeSnapshot({ health: "warn", recommendedAction: "declare-lifecycle" }),
+    );
+    expect(report.severity).toBe("warn");
+    expect(report.summary).toContain("Next action: declare-lifecycle.");
+    expect(report.actionDetail).toBe(ALERT_ACTION_DETAIL["declare-lifecycle"]);
+  });
+});

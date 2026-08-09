@@ -44,11 +44,16 @@ test.describe("secure-worker AI tool panel", () => {
       page.getByText(/runs in your browser — your file never leaves/i),
     ).toHaveCount(0);
 
-    // The notify placeholder acknowledges on-device with no network call.
+    // The notify button acknowledges the ask and sends one beacon carrying the
+    // tool's slug — the disclosed, user-initiated interest signal.
     const notify = page.getByRole("button", { name: /notify me/i });
     await expect(notify).toBeVisible();
+    const beacon = page.waitForRequest(
+      (req) => req.url().includes("/api/interest") && req.method() === "POST",
+    );
     await notify.click();
-    await expect(page.getByText(/waitlist opens/i)).toBeVisible();
+    await beacon;
+    await expect(page.getByText(/one more ask for .+ counted/i)).toBeVisible();
 
     expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
     expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);

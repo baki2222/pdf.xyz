@@ -890,7 +890,7 @@ validated before any byte is uploaded.
 The app also ships a small, honest **in-app abuse guard** as defense-in-depth
 behind the edge. It is a thin seam with typed per-action policies for every
 public API route (`uploads.create`, `jobs.create`, `jobs.status`, `jobs.delete`,
-`artifacts.fetch`, `worker.status`, `worker.operations`), a pluggable provider,
+`artifacts.fetch`, `worker.status`, `worker.operations`, `interest.note`), a pluggable provider,
 and a **content-free** decision output.
 
 **It is disabled by default and fails open.** With no provider configured the

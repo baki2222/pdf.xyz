@@ -26,6 +26,7 @@ import {
   ALERT_ACTIONS,
   ALERT_REASONS,
   ALERT_SEVERITIES,
+  reportActionDetail,
   type AlertSource,
 } from "../observability/alerts";
 import {
@@ -348,7 +349,10 @@ export function ingestOpsCheckResult(text: string): IngestOperationsResult {
     // No fake liveness: recompute from the bounded liveness state, never trust the input flag.
     daemonObserved: liveness.state === "observed",
     action,
-    actionDetail: RECOMMENDED_ACTION_DETAIL[action],
+    // Re-authored (never echoed), through the same policy helper the alert report
+    // uses — so a non-ok bundle never re-introduces "everything is healthy; no
+    // action is required" beside the alerts that contradict it.
+    actionDetail: reportActionDetail(severity, action, alerts.length),
     liveness,
     subsystems,
     proofs: {

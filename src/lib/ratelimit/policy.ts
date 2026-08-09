@@ -33,6 +33,11 @@ const MINUTE = 60;
  *  - `worker.status` / `worker.operations` — cheap, read-only presence/health
  *    probes the UI, dashboards, and monitors poll; a generous per-minute budget
  *    so enabling the guard never silences a monitor under normal cadence.
+ *  - `interest.note` — the gated-tool "notify me" counter. A person browsing
+ *    every unbuilt tool clicks a handful of times ever; a modest hourly budget
+ *    leaves that untouched while keeping a script from inflating a tool's
+ *    count cheaply (the counter is advisory, not a ballot — this only raises
+ *    the cost of stuffing it).
  */
 export const RATE_LIMIT_POLICIES: Record<RateLimitAction, RateLimitPolicy> = {
   "uploads.create": {
@@ -76,6 +81,12 @@ export const RATE_LIMIT_POLICIES: Record<RateLimitAction, RateLimitPolicy> = {
     action: "worker.operations",
     limit: RATE_LIMITS.statusRequestsPerMinutePerClient,
     windowSeconds: MINUTE,
+  },
+  "interest.note": {
+    id: "interest.note",
+    action: "interest.note",
+    limit: 30,
+    windowSeconds: HOUR,
   },
 };
 

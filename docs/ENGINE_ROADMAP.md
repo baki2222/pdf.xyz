@@ -993,7 +993,8 @@ plug in; they do not provision or fake them.
 
 Phase 33 adds an honest, provider-neutral **abuse guard** (`src/lib/ratelimit`) in front
 of every public API route: typed per-action policies (`uploads.create`, `jobs.create`,
-`jobs.status`, `jobs.delete`, `artifacts.fetch`, `worker.status`, `worker.operations`),
+`jobs.status`, `jobs.delete`, `artifacts.fetch`, `worker.status`, `worker.operations`,
+and later `interest.note`),
 a privacy-safe salted-hash client key that never retains a raw address, and a
 **content-free** decision. On deny it returns `429 rate_limited` with `Retry-After` +
 `RateLimit-*` headers whose values derive only from the policy and clock. It is **off by
@@ -1023,8 +1024,9 @@ backend, while preserving the same content-free response contract and no-config 
   user payloads, or secrets.
 - **Web-safe configuration** (`src/lib/ratelimit/redis-config.ts`, `src/instrumentation.ts`):
   `PDFXYZ_RATE_LIMIT_PROVIDER=redis|upstash|remote` plus
-  `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` auto-registers
-  the provider at boot. These names are deliberately distinct from the worker queue's
+  `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` activates
+  the provider — self-built by the guard per serving bundle since #53 (the boot
+  registration alone was a dead write on Vercel). These names are deliberately distinct from the worker queue's
   `PDFXYZ_REDIS_REST_*` credentials, so the public web pod does not need worker-only
   queue/heartbeat secrets. Missing config resolves to `remote-unimplemented` and skips
   honestly; default builds still do no network work.
