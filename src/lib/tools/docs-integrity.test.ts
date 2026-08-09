@@ -54,6 +54,17 @@
  * an author chose to mark, with a predicate the author expected — it
  * supplements the census and never repairs the confession above.
  *
+ * ACCEPTANCE TEST FOR A NEW MARKER (owner-adopted, 2026-08-10): every marker
+ * is born with one mutate-fire-restore capture — make the predicate true
+ * (or, for true-while-present, remove it) in the real target, run this
+ * census, capture the marker's own failure message verbatim, restore the
+ * target, and verify the restore with git. Foreground, one marker at a
+ * time. A marker that has never been seen to fire is a marker nobody
+ * should trust — and a marker that fires the day it is installed is a
+ * diagnostic that the CLAIM is already false, not a guard: fix the doc
+ * first (that firing caught a live instance before this convention's own
+ * second target was ever marked).
+ *
  * Detector calibration (first contact, 2026-08-10): docs write env and path
  * FAMILIES as `PDFXYZ_X_*` and `ops-bundle*` (a trailing `_`/`-` or a `*`
  * right after the token is a prefix claim — some member must exist, not the
