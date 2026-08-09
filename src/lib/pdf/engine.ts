@@ -1,4 +1,5 @@
-import { degrees, PDFDocument, toDegrees } from "pdf-lib";
+import type { PDFDocument } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import type { NamedBytes, OrganizePlanItem, Rotation, SplitPart } from "./types";
 
 /**
@@ -24,6 +25,7 @@ const PRODUCER = "pdf.xyz";
  * numbers, watermark, header/footer) share one loader and one set of messages.
  */
 export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
+  const { PDFDocument } = await loadPdfLib();
   try {
     return await PDFDocument.load(bytes);
   } catch (err) {
@@ -78,11 +80,13 @@ export async function getPageCount(bytes: Uint8Array): Promise<number> {
 /** Read each page's current rotation, in document order. */
 export async function getPageRotations(bytes: Uint8Array): Promise<Rotation[]> {
   const doc = await load(bytes);
+  const { toDegrees } = await loadPdfLib();
   return doc.getPages().map((page) => normalizeAngle(toDegrees(page.getRotation())));
 }
 
 /** Concatenate several PDFs into one, in the order given. */
 export async function mergePdfs(files: Uint8Array[]): Promise<Uint8Array> {
+  const { PDFDocument } = await loadPdfLib();
   if (files.length === 0) {
     throw new PdfEngineError("Add at least one PDF to merge.");
   }
@@ -101,6 +105,7 @@ export async function extractPages(
   bytes: Uint8Array,
   indices: number[],
 ): Promise<Uint8Array> {
+  const { PDFDocument } = await loadPdfLib();
   const src = await load(bytes);
   const clean = sanitizeIndices(indices, src.getPageCount());
   if (clean.length === 0) {
@@ -118,6 +123,7 @@ export async function deletePages(
   bytes: Uint8Array,
   indices: number[],
 ): Promise<Uint8Array> {
+  const { PDFDocument } = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();
   const remove = new Set(sanitizeIndices(indices, count));
@@ -144,6 +150,7 @@ export async function rotatePages(
   indices: number[],
   turn: number,
 ): Promise<Uint8Array> {
+  const { degrees, toDegrees } = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();
   const target = new Set(sanitizeIndices(indices, count));
@@ -166,6 +173,7 @@ export async function splitPdf(
   bytes: Uint8Array,
   parts: SplitPart[],
 ): Promise<NamedBytes[]> {
+  const { PDFDocument } = await loadPdfLib();
   if (parts.length === 0) {
     throw new PdfEngineError("Nothing to split — add at least one range.");
   }
@@ -195,6 +203,7 @@ export async function organizePages(
   bytes: Uint8Array,
   plan: OrganizePlanItem[],
 ): Promise<Uint8Array> {
+  const { PDFDocument, degrees } = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();
   const valid = plan.filter(

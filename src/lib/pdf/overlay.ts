@@ -1,4 +1,4 @@
-import { type PDFEmbeddedPage } from "pdf-lib";
+import type { PDFEmbeddedPage } from "pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";

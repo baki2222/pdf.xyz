@@ -1,4 +1,4 @@
-import { degrees } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import {
@@ -50,7 +50,8 @@ export async function addWatermark(
   const fontSize = clamp(options.fontSize ?? 60, 8, 240);
   const opacity = clamp(options.opacity ?? 0.18, 0.02, 1);
   const tilt = clamp(options.rotation ?? 45, -90, 90);
-  const color = toRgb(options.color ?? WATERMARK_INK);
+  const { degrees, rgb } = await loadPdfLib();
+  const color = toRgb(rgb, options.color ?? WATERMARK_INK);
 
   const doc = await loadPdf(bytes);
   const font = await embedStampFont(doc, "bold");

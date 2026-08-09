@@ -187,8 +187,14 @@ export function BatchPanel({
             )}
             <button
               type="button"
-              onClick={onAddAll}
-              disabled={files.length === 0 || allQueued}
+              // aria-disabled, never native: this flips to disabled the moment the
+              // user queues the last staged file — their own action, and a native
+              // attribute would eject their focus (the #46 rule; add-to-batch is a
+              // dedupe-safe dispatch, so a guarded click is belt and braces).
+              onClick={() => {
+                if (files.length > 0 && !allQueued) onAddAll();
+              }}
+              aria-disabled={files.length === 0 || allQueued || undefined}
               className={buttonVariants({ variant: "outline", size: "sm" })}
             >
               <Plus className="size-3.5" aria-hidden />

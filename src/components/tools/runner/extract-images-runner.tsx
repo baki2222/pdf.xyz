@@ -10,11 +10,10 @@ import {
   Layers,
   ShieldCheck,
 } from "lucide-react";
-import {
-  extractPdfImages,
-  type ExtractImagesResult,
-  type ExtractedImage,
-  type SkippedImage,
+import type {
+  ExtractImagesResult,
+  ExtractedImage,
+  SkippedImage,
 } from "@/lib/pdf/extract-images";
 import { downloadBlob, downloadBytes, outputName, zipFiles } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
@@ -67,6 +66,8 @@ function ExtractImagesEditor({
 
   const onRun = () => {
     void run(async () => {
+      // The extractor (and pdf-lib under it) loads when the work starts.
+      const { extractPdfImages } = await import("@/lib/pdf/extract-images");
       const extracted = await extractPdfImages(pdf.bytes);
       return {
         ...extracted,

@@ -37,6 +37,22 @@
  * pdf-lib when a file is PICKED rather than when the page loads — a much larger
  * change, not attempted here.
  *
+ * THE LEVER WAS PULLED — 2026-08-09, measured with `pnpm weigh:pages` over both
+ * artifacts:
+ *
+ *     every tool page   1185 KB -> 774 KB   (-411 KB, the pdf-lib chunk)
+ *     homepage           598 KB -> 598 KB   (unchanged)
+ *
+ * Not by splitting runners (see above — measured worse) but by one dynamic
+ * boundary exactly on pdf-lib itself (`src/lib/pdf/pdf-lib.ts`): every op
+ * module takes the engine through `loadPdfLib()` at call time, type imports
+ * stay static and erase, and the Dropzone warms the chunk the moment files
+ * arrive. The two class-heavy modules (`forms`, `extract-images`) flip the
+ * boundary instead: their runners import them dynamically in handlers. The
+ * budgets below were tightened to sit just above the NEW weight, so the old
+ * weight coming back — one careless static `import { PDFDocument }` anywhere
+ * a page reaches — fails this suite rather than shipping unnoticed.
+ *
  * So this file measures and bounds. It does not claim the current weight is
  * good; it stops it getting worse without someone noticing, which is the thing
  * that was missing.
@@ -78,9 +94,9 @@ function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
  */
 const BUDGETS = [
   { name: "homepage", html: "index.html", kb: 700 },
-  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 1300 },
-  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 1300 },
-  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 1300 },
+  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 850 },
+  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 850 },
+  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 850 },
 ] as const;
 
 describe("client bundle budget", () => {

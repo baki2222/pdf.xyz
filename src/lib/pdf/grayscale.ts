@@ -1,4 +1,4 @@
-import { PDFDocument, rgb } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { rasterizePdf, type RasterPage } from "./render";
 
@@ -57,6 +57,7 @@ export async function grayscalePdf(bytes: Uint8Array, options: GrayscaleOptions 
   });
   if (pages.length === 0) throw new Error("No pages could be rendered from this PDF.");
 
+  const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);

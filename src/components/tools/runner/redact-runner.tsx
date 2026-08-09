@@ -227,7 +227,7 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
             <button
               type="button"
               onClick={addBox}
-              disabled={!pageSizes}
+              aria-disabled={!pageSizes || undefined}
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
               <Plus className="size-4" aria-hidden />

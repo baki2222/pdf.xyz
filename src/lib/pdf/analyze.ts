@@ -1,4 +1,5 @@
-import { PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
+import type { PDFDocument, PDFRawStream } from "pdf-lib";
+import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 
 /**
@@ -60,6 +61,7 @@ export interface OptimizationSummary {
 
 async function loadDoc(bytes: Uint8Array): Promise<PDFDocument> {
   try {
+    const { PDFDocument } = await loadPdfLib();
     return await PDFDocument.load(bytes);
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
@@ -74,10 +76,10 @@ async function loadDoc(bytes: Uint8Array): Promise<PDFDocument> {
   }
 }
 
-function isImageStream(obj: unknown): obj is PDFRawStream {
-  if (!(obj instanceof PDFRawStream)) return false;
-  const subtype = obj.dict.get(PDFName.of("Subtype"));
-  return subtype instanceof PDFName && subtype.asString() === "/Image";
+function isImageStream(lib: PdfLibModule, obj: unknown): obj is PDFRawStream {
+  if (!(obj instanceof lib.PDFRawStream)) return false;
+  const subtype = obj.dict.get(lib.PDFName.of("Subtype"));
+  return subtype instanceof lib.PDFName && subtype.asString() === "/Image";
 }
 
 /**
@@ -96,12 +98,13 @@ export async function optimizeLossless(bytes: Uint8Array): Promise<Uint8Array> {
  * and the optimized bytes. Does a single parse for the analysis and one repack.
  */
 export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
+  const lib = await loadPdfLib();
   const doc = await loadDoc(bytes);
 
   let imageCount = 0;
   let imageBytes = 0;
   for (const [, obj] of doc.context.enumerateIndirectObjects()) {
-    if (isImageStream(obj)) {
+    if (isImageStream(lib, obj)) {
       imageCount += 1;
       imageBytes += obj.contents.length;
     }

@@ -1,4 +1,4 @@
-import { PDFDocument, rgb } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { rasterizePdf, type RasterCanvasInfo, type RasterPage } from "./render";
@@ -330,6 +330,7 @@ export async function redactPdf(
     throw new PdfEngineError("No pages could be rendered from this PDF.");
   }
 
+  const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);

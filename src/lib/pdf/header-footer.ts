@@ -1,4 +1,4 @@
-import { degrees } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import {
@@ -90,7 +90,8 @@ export async function addHeaderFooter(
 
   const fontSize = clamp(options.fontSize ?? 10, 6, 72);
   const margin = clamp(options.margin ?? 32, 0, 240);
-  const color = toRgb(options.color ?? INK);
+  const { degrees, rgb } = await loadPdfLib();
+  const color = toRgb(rgb, options.color ?? INK);
   const slots = [
     ...zoneSlots(options.header, "top"),
     ...zoneSlots(options.footer, "bottom"),

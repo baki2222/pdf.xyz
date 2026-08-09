@@ -1,4 +1,4 @@
-import { StandardFonts } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import {
@@ -120,10 +120,7 @@ export function fontSizeForWidth(
   return clamp(targetWidth / unitWidth, min, max);
 }
 
-const TYPED_FONT: Record<SignatureStyle, StandardFonts> = {
-  signature: StandardFonts.TimesRomanItalic,
-  print: StandardFonts.Helvetica,
-};
+
 
 /**
  * Draw a signature onto one page of a PDF and return the new bytes. Typed
@@ -177,7 +174,10 @@ export async function signPdf(
     page.drawImage(image, { x, y, width: boxWidth, height: boxHeight });
   } else {
     const text = input.text.trim();
-    const font = await doc.embedFont(TYPED_FONT[input.style]);
+    const { StandardFonts } = await loadPdfLib();
+    const font = await doc.embedFont(
+      input.style === "signature" ? StandardFonts.TimesRomanItalic : StandardFonts.Helvetica,
+    );
     const size = fontSizeForWidth(font.widthOfTextAtSize(text, 1), targetWidth);
     const boxWidth = font.widthOfTextAtSize(text, size);
     const boxHeight = font.heightAtSize(size);
@@ -190,7 +190,8 @@ export async function signPdf(
       v,
       margin,
     });
-    page.drawText(text, { x, y, size, font, color: toRgb(input.color ?? INK) });
+    const { rgb } = await loadPdfLib();
+    page.drawText(text, { x, y, size, font, color: toRgb(rgb, input.color ?? INK) });
   }
 
   stampProducer(doc);

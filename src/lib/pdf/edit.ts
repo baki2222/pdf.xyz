@@ -1,4 +1,5 @@
-import { rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import type { PDFFont, PDFImage, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import {
   arrowHeadSegments,
   clampOpacity,
@@ -381,14 +382,19 @@ export async function getEditPageSizes(bytes: Uint8Array): Promise<PageSize[]> {
 }
 
 /** Resolve an op's validated hex color into a pdf-lib color. */
-function opColor(color: string) {
+function opColor(rgbFn: (r: number, g: number, b: number) => PdfLibRGB, color: string) {
   const parsed = parseHexColor(color) ?? { r: 0, g: 0, b: 0 };
-  return rgb(parsed.r, parsed.g, parsed.b);
+  return rgbFn(parsed.r, parsed.g, parsed.b);
 }
 
 /** Draw wrapped free text at its baseline anchor. */
-function drawTextOp(page: PDFPage, op: TextEditOp, font: PDFFont): void {
-  const color = opColor(op.color);
+function drawTextOp(
+  page: PDFPage,
+  op: TextEditOp,
+  font: PDFFont,
+  rgbFn: (r: number, g: number, b: number) => PdfLibRGB,
+): void {
+  const color = opColor(rgbFn, op.color);
   const opacity = clampOpacity(op.opacity ?? 1);
   const size = op.size && op.size > 0 ? op.size : DEFAULT_TEXT_SIZE;
   const safe = sanitizeNoteText(op.text);
@@ -410,8 +416,12 @@ function drawTextOp(page: PDFPage, op: TextEditOp, font: PDFFont): void {
 }
 
 /** Draw a filled/outlined rectangle or a line/arrow. Needs no font. */
-function drawShapeOp(page: PDFPage, op: RectEditOp | LineEditOp): void {
-  const color = opColor(op.color);
+function drawShapeOp(
+  page: PDFPage,
+  op: RectEditOp | LineEditOp,
+  rgbFn: (r: number, g: number, b: number) => PdfLibRGB,
+): void {
+  const color = opColor(rgbFn, op.color);
   const opacity = clampOpacity(op.opacity ?? 1);
 
   if (op.type === "rect") {
@@ -468,6 +478,7 @@ function drawShapeOp(page: PDFPage, op: RectEditOp | LineEditOp): void {
  * file can't be read, an edit fails validation, or an image can't be decoded.
  */
 export async function editPdf(bytes: Uint8Array, ops: EditOp[]): Promise<EditResult> {
+  const { rgb } = await loadPdfLib();
   const list = ops ?? [];
   if (list.length === 0) {
     throw new PdfEngineError("Add at least one edit before applying.");
@@ -524,13 +535,13 @@ export async function editPdf(bytes: Uint8Array, ops: EditOp[]): Promise<EditRes
 
     if (op.type === "text") {
       if (font === null) font = await embedStampFont(doc);
-      drawTextOp(page, op, font);
+      drawTextOp(page, op, font, rgb);
       counts.text += 1;
       continue;
     }
 
     // rect | line — no font needed.
-    drawShapeOp(page, op);
+    drawShapeOp(page, op, rgb);
     counts[op.type] += 1;
   }
 

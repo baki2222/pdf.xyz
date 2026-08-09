@@ -1,4 +1,4 @@
-import { PDFDocument, rgb } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 
@@ -72,6 +72,7 @@ export async function imagesToPdf(
   files: ImagePdfInput[],
 ): Promise<Uint8Array> {
   validateImagePdfInputs(kind, files);
+  const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);

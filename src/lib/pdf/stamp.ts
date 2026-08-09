@@ -1,4 +1,5 @@
-import { rgb, StandardFonts, type PDFDocument, type PDFFont } from "pdf-lib";
+import type { PDFDocument, PDFFont, RGB as PdfLibRGB } from "pdf-lib";
+import { loadPdfLib } from "./pdf-lib";
 import { loadPdf } from "./engine";
 
 /**
@@ -67,8 +68,8 @@ export const INK: RGB = { r: 0.28, g: 0.31, b: 0.38 };
 export const WATERMARK_INK: RGB = { r: 0.45, g: 0.47, b: 0.53 };
 
 /** Convert our plain RGB (0–1 channels) into a pdf-lib color. */
-export function toRgb(color: RGB) {
-  return rgb(clamp(color.r, 0, 1), clamp(color.g, 0, 1), clamp(color.b, 0, 1));
+export function toRgb(rgbFn: (r: number, g: number, b: number) => PdfLibRGB, color: RGB) {
+  return rgbFn(clamp(color.r, 0, 1), clamp(color.g, 0, 1), clamp(color.b, 0, 1));
 }
 
 /** Clamp a number into an inclusive range. */
@@ -216,10 +217,11 @@ export function stampProducer(doc: PDFDocument): void {
 }
 
 /** Embed a standard font for stamping; bold reads better for watermarks. */
-export function embedStampFont(
+export async function embedStampFont(
   doc: PDFDocument,
   weight: "regular" | "bold" = "regular",
 ): Promise<PDFFont> {
+  const { StandardFonts } = await loadPdfLib();
   return doc.embedFont(
     weight === "bold" ? StandardFonts.HelveticaBold : StandardFonts.Helvetica,
   );
