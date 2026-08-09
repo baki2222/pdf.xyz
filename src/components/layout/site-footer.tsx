@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { footerNav, siteConfig } from "@/lib/site";
+import { LEGAL_ENTITY } from "@/lib/legal";
 import { toolCount } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { Logo } from "@/components/layout/logo";
@@ -9,7 +10,7 @@ export function SiteFooter() {
   const year = 2026;
 
   return (
-    <footer className="mt-24 border-t border-white/10 bg-ink-2/60">
+    <footer className="bg-ink-2/60 mt-24 border-t border-white/10">
       <Container className="py-14">
         <div className="grid gap-10 lg:grid-cols-[1.5fr_repeat(3,1fr)]">
           <div className="flex flex-col gap-4">
@@ -26,7 +27,7 @@ export function SiteFooter() {
 
           {footerNav.map((column) => (
             <div key={column.title} className="flex flex-col gap-3">
-              <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+              <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
                 {column.title}
               </h3>
               <ul className="flex flex-col gap-2.5">
@@ -53,7 +54,9 @@ export function SiteFooter() {
 
         <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center">
           <p className="text-xs text-slate-400">
-            © {year} {siteConfig.name}. All rights reserved.
+            {/* The operating company, not the product name — a copyright line
+                that names a domain identifies nobody. */}
+            © {year} {LEGAL_ENTITY.name}. All rights reserved.
           </p>
           <div className="flex items-center gap-5 text-xs text-slate-400">
             {/* These pointed at homepage anchors — marketing sections, not

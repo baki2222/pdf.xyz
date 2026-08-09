@@ -4,7 +4,7 @@ import { buildMetadata } from "@/lib/seo";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { tools } from "@/lib/tools";
-import { LEGAL_CONTACT, LEGAL_UPDATED } from "@/lib/legal";
+import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 
 export const metadata: Metadata = buildMetadata({
   title: "Privacy Policy",
@@ -67,8 +67,21 @@ export default function PrivacyPage() {
     >
       <LegalSection id="who-we-are" heading="1. Who we are">
         <p>
-          pdf.xyz (&ldquo;we&rdquo;, &ldquo;us&rdquo;) operates the website at{" "}
-          <span className="text-slate-200">pdf.xyz</span> and the tools on it.
+          pdf.xyz is operated by{" "}
+          <strong className="font-semibold text-white">
+            {LEGAL_ENTITY.name}
+          </strong>
+          , a limited liability company registered in{" "}
+          {`${LEGAL_ENTITY.jurisdiction} `}(&ldquo;we&rdquo;, &ldquo;us&rdquo;).
+        </p>
+        <address className="text-slate-400 not-italic">
+          {LEGAL_ENTITY.address.map((line) => (
+            <span key={line} className="block">
+              {line}
+            </span>
+          ))}
+        </address>
+        <p>
           For anything in this policy, including requests about your data, write
           to{" "}
           <a
@@ -77,12 +90,12 @@ export default function PrivacyPage() {
           >
             {LEGAL_CONTACT}
           </a>
-          .
+          . It is a monitored address, not a formality.
         </p>
         <p>
           Where this policy uses terms from the UK and EU General Data
-          Protection Regulation, we are the <em>controller</em> for the limited
-          personal data described below.
+          Protection Regulation, {LEGAL_ENTITY.name} is the <em>controller</em>{" "}
+          for the limited personal data described below.
         </p>
       </LegalSection>
 
@@ -318,11 +331,18 @@ export default function PrivacyPage() {
 
       <LegalSection id="transfers" heading="8. Where data goes">
         <p>
-          Our providers operate internationally, so your data may be processed
-          outside your country, including in the United States. Where personal
-          data is transferred out of the UK or EEA, we rely on the safeguards
-          those providers offer — typically the UK International Data Transfer
-          Agreement or the EU Standard Contractual Clauses.
+          {LEGAL_ENTITY.name} is established in the United States, and our
+          providers operate internationally. If you are in the UK or the EEA,
+          using this service means your data is processed outside your country —
+          that is not a corner case here, it is the normal path.
+        </p>
+        <p>
+          Where personal data leaves the UK or EEA, we rely on the safeguards
+          our providers offer, typically the UK International Data Transfer
+          Agreement or the EU Standard Contractual Clauses. The practical
+          reduction in exposure is the same one that runs through this whole
+          policy: for most of our tools nothing is transferred at all, because
+          the file never leaves your device.
         </p>
       </LegalSection>
 

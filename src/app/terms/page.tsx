@@ -3,7 +3,7 @@ import Link from "next/link";
 import { buildMetadata } from "@/lib/seo";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
-import { LEGAL_CONTACT, LEGAL_UPDATED } from "@/lib/legal";
+import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 
 export const metadata: Metadata = buildMetadata({
   title: "Terms of Service",
@@ -44,8 +44,13 @@ export default function TermsPage() {
     >
       <LegalSection id="agreement" heading="1. This agreement">
         <p>
-          These terms apply when you use pdf.xyz. By using the service you
-          accept them. If you do not, please do not use it.
+          These terms apply when you use pdf.xyz, which is operated by{" "}
+          <strong className="font-semibold text-white">
+            {LEGAL_ENTITY.name}
+          </strong>
+          , a limited liability company registered in{" "}
+          {LEGAL_ENTITY.jurisdiction}. By using the service you accept them. If
+          you do not, please do not use it.
         </p>
         <p>
           Our{" "}
@@ -234,7 +239,38 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="contact" heading="13. Contact">
+      <LegalSection id="governing-law" heading="13. Governing law">
+        <p>
+          These terms are governed by the laws of {LEGAL_ENTITY.jurisdiction},
+          without regard to its conflict-of-laws rules, and the courts there
+          have jurisdiction over any dispute.
+        </p>
+        <p>
+          <strong className="font-semibold text-white">
+            If you are a consumer, this does not move your protections.
+          </strong>{" "}
+          Where the law of your own country gives you rights that cannot be
+          contracted away — and in the UK, the EEA, and many other places it
+          does — you keep them, and you keep the right to bring proceedings
+          where you live. A governing-law clause settles which law fills the
+          gaps; it cannot take away a right your own law refuses to let you sign
+          away.
+        </p>
+      </LegalSection>
+
+      <LegalSection id="contact" heading="14. Contact">
+        <p>
+          <strong className="font-semibold text-white">
+            {LEGAL_ENTITY.name}
+          </strong>
+        </p>
+        <address className="text-slate-400 not-italic">
+          {LEGAL_ENTITY.address.map((line) => (
+            <span key={line} className="block">
+              {line}
+            </span>
+          ))}
+        </address>
         <p>
           Questions, legal notices, and complaints:{" "}
           <a

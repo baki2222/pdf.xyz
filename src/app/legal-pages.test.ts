@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { JOB_LIMITS } from "@/lib/jobs/types";
-import { LEGAL_CONTACT, LEGAL_UPDATED } from "@/lib/legal";
+import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 import { tools } from "@/lib/tools";
 
 const ROOT = process.cwd();
@@ -106,14 +106,39 @@ describe("the policy pages derive their facts rather than restating them", () =>
     expect(JOB_LIMITS.maxFileBytes).toBeGreaterThan(0);
   });
 
-  it("both carry the same contact address and date, from one source", () => {
+  it("both carry the same entity, contact and date, from one source", () => {
+    // Two policy documents naming different companies is the kind of small
+    // inconsistency that undermines both, and it is invisible to a reader who
+    // only opens one of them.
     for (const file of [PRIVACY, TERMS]) {
       const source = read(file);
       expect(source).toContain("LEGAL_CONTACT");
       expect(source).toContain("LEGAL_UPDATED");
+      expect(source).toContain("LEGAL_ENTITY");
     }
     expect(LEGAL_CONTACT).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
     expect(LEGAL_UPDATED).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("names a real operating company, not a placeholder", () => {
+    // A policy whose controller is "[Company Name]" or just a domain identifies
+    // nobody, and a data-subject request has nowhere to go.
+    expect(LEGAL_ENTITY.name).toMatch(/\S/);
+    expect(LEGAL_ENTITY.name).not.toMatch(/\[|TODO|placeholder|your company/i);
+    expect(LEGAL_ENTITY.name.toLowerCase()).not.toBe("pdf.xyz");
+    expect(LEGAL_ENTITY.address.length).toBeGreaterThanOrEqual(2);
+    expect(LEGAL_ENTITY.jurisdiction).toMatch(/\S/);
+  });
+
+  it("the terms state a governing law", () => {
+    // Without one, every dispute starts with an argument about where it happens.
+    const source = withoutComments(read(TERMS));
+    expect(source).toMatch(/governed by the laws of/i);
+    expect(source).toContain("LEGAL_ENTITY.jurisdiction");
+  });
+
+  it("the footer's copyright names the company", () => {
+    expect(read(FOOTER)).toContain("LEGAL_ENTITY.name");
   });
 });
 
