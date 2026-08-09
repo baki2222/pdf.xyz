@@ -445,6 +445,12 @@ The secure-worker executor now runs a bounded file-soundness gate immediately af
 
 This layer is deliberately distinct from the others: it is not the Phase 35 upload-intake validation (that runs at the public boundary on declared metadata before storage/queue work), not malware scanning (the separate ClamAV gate, which now runs *after* this one), not PDF sanitization, PDF repair, PDF validity proof, OCR correctness, or a decompression/deep parse — deep PDF sanitization/repair remains out-of-band and is not implemented. Scanner and processor claims are made only when their configured backends run. Logs and receipts never include filenames, object keys, signed URLs, bucket names, job/user IDs, scanner signatures, request bodies, or document contents.
 
+<!-- gap-while-absent: /repair|sanitiz/i in src/lib/jobs/capabilities.ts -->
+<!-- The line above pins "deep PDF sanitization/repair … is not implemented":
+     a tool only becomes executable through the capabilities registry, so the
+     docs census fails the moment repair/sanitization lands there — and this
+     sentence must be updated instead of silently going false. -->
+
 ## Worker artifact-manifest / provenance gate (Phase 37)
 
 After a processor produces its outputs — and **before any bytes are persisted or a download URL is minted** — the secure-worker executor validates each output through a bounded artifact-manifest gate, so a malformed or ambiguous output can never be stored or exposed to a client. The gate checks only low-cost, structural facts: at least one non-empty output within the count/size ceilings, a content-type that maps to a recognized output kind, coheres with the filename extension, and is one the producing tool may legitimately emit, and a job that resolves to a usable retention/lifecycle class. An `invalid` verdict terminates the job with the non-retryable `artifact_invalid` error (coarse class `artifact`), emits a content-free rejection receipt, and writes nothing — no artifact, download URL, OCR text, or transformed output is fabricated.

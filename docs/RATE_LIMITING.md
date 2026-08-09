@@ -1,7 +1,7 @@
 # Rate limiting — turning it on
 
-Everything is built. The guard, seven policies, the Redis provider, the boot
-hook, and 14 test files all exist and pass. It is **switched off**, because
+Everything is built. The guard, its policies, the Redis provider, the boot
+hook, and their tests all exist and pass. It is **switched off**, because
 `PDFXYZ_RATE_LIMIT_PROVIDER` is unset and unset means `disabled`.
 
 Turning it on is three environment variables and a redeploy. Two of them are
@@ -126,8 +126,26 @@ removing.
 
 ## What this does not cover
 
-- The presigned R2 `PUT` does not bind `Content-Length`, so a client with a valid
-  slot can upload more bytes than it declared. Separate gap, separate fix.
 - These are per-client limits over fixed windows. They stop casual abuse and
   runaway scripts. They are not a defence against a distributed attack, which
   belongs at the edge/WAF layer.
+
+<!-- gap-while-absent: /sliding[- ]?window/i in src/lib/ratelimit -->
+<!-- The marker above pins "fixed windows": if a sliding-window implementation
+     lands in the limiter, the docs census fails and this bullet must be
+     rewritten rather than silently going stale. -->
+
+One gap previously listed here is closed: since **2026-08-06** the presigned R2
+`PUT` binds `Content-Length` — the signature covers the declared size, so a
+slot admits exactly the bytes it reserved and R2 refuses any other size with
+`403 SignatureDoesNotMatch`. Proven against production R2 before it shipped:
+declared 2048 → PUT 2048 accepted, PUT 6144 refused, PUT 1536 refused — exact
+in both directions. The enforcement and that measurement record live in
+`reserveUpload()` in `src/lib/workers/storage/s3.ts` (the signed
+`content-length` header), so check it there rather than trusting this page.
+
+<!-- true-while-present: /"content-length"/ in src/lib/workers/storage/s3.ts -->
+<!-- The marker above pins the claim of PRESENCE this paragraph makes: if the
+     signed content-length header ever leaves reserveUpload, the docs census
+     fails and this paragraph goes back to being a gap — the exact rot this
+     page carried for three days in the other direction. -->
