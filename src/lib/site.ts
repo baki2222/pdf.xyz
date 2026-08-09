@@ -27,7 +27,7 @@ export const siteConfig = {
     "AI PDF",
     "privacy-first PDF",
   ],
-  /** Where "Contact" and the Team plan's "Talk to us" actually go. */
+  /** Where "Contact" actually goes. */
   contactEmail: "support@pdf.xyz",
   // No social profiles are claimed here on purpose. The placeholders that used
   // to sit in this slot were also emitted as schema.org `sameAs`, which asserts

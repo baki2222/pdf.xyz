@@ -3,10 +3,10 @@
  * The docs census: identifiers the operator docs NAME must still exist.
  *
  * What it checks — env var names in our namespace, `pnpm` script names,
- * repo-rooted file paths, doc-to-doc links, and backticked code identifiers —
- * against the tree they describe. That is where the bulk of doc rot lives:
- * a renamed script, a moved file, a deleted variable, and the doc keeps
- * telling an operator to use it.
+ * repo-rooted file paths, doc-to-doc links, backticked code identifiers, and
+ * verify-markers — against the tree they describe. That is where the bulk of
+ * doc rot lives: a renamed script, a moved file, a deleted variable, and the
+ * doc keeps telling an operator to use it.
  *
  * WHAT IT CANNOT SEE, stated in the same breath: a sentence can become false
  * with every identifier in it intact. The instance that prompted this census
@@ -17,32 +17,55 @@
  * is not a statement about the prose — presenting it as one would be the
  * "no claim in the words I know" failure with a new coat of paint.
  *
- * Scope (cry-wolf doctrine — narrow and true beats broad and weakened):
- *  - env vars: `PDFXYZ_*` only. `UPSTASH_*` etc. name fields in a vendor's
- *    console, not variables this repo reads.
- *  - paths: repo-rooted under src/ scripts/ docs/ e2e/ public/ .github/ —
- *    a VPS path in a runbook (`/opt/...`, `/etc/systemd/...`) describes
- *    another machine and is invisible here.
- *  - symbols: backticked SCREAMING_SNAKE, `name()`-form, and camelCase with
- *    two humps or more. A single lowercase word in backticks (`redis`,
- *    `open`, `disabled`) is usually a VALUE or plain English, not a symbol.
- *  - ground truth is the raw text of the code tree (src, scripts, e2e,
- *    .github, root config files), comments included: "exists in the repo"
- *    is the claim being checked, nothing finer.
+ * THE CORPUS IS THE LOAD-BEARING PART, and the first shipped version proved
+ * it by failing: it walked TypeScript-and-config under src/scripts/e2e, and
+ * its one finding — `PDFXYZ_CLEANUP_RAW_EXPORT`, "no code reads or names
+ * this variable" — was a false positive, because the consumer is
+ * `cleanup-evidence-notify.sh`, a SHELL SCRIPT under `docs/examples/`,
+ * outside both the extension list and the roots. The message reported the
+ * guard's reach as the world's state. Three rules came out of that:
+ *   1. the corpus includes every file type a consumer can live in here
+ *      (.sh, .yml/.yaml, .cron, Dockerfile*, .mjs/.cjs, .json, and the
+ *      docs/examples tree itself — templates are consumers);
+ *   2. every failure message names the ground truth it checked, so it makes
+ *      a claim a reader can disprove instead of unfalsifiable praise;
+ *   3. a corpus-proof test asserts the walk really reaches a shell script
+ *      and a yaml, so a glob that silently stops matching collapses loudly
+ *      instead of turning every finding into a false positive.
+ * Markdown is never corpus: prose must not certify prose, and this census's
+ * own file is excluded — its BASELINE names identifiers precisely BECAUSE
+ * they are missing, and a ground truth containing the instrument's records
+ * would certify them into existence (which happened: the finding vanished
+ * the moment it was recorded).
  *
- * Calibrated against the real docs on first contact, because a detector that
- * has never seen its corpus reports its own assumptions: docs write env and
- * path FAMILIES as `PDFXYZ_X_*` and `ops-bundle*` (a trailing `_`/`-` or a
- * `*` right after the token is a prefix claim — some member must exist, not
- * the literal); WORKER_ARCHITECTURE references modules extensionlessly
+ * VERIFY-MARKERS — the narrow mechanism for the prose problem, per-claim and
+ * opt-in. A doc may pin a claim to a greppable predicate with an adjacent
+ * HTML comment:
+ *
+ *     <!-- gap-while-absent: /pattern/flags in relative/path -->
+ *     <!-- true-while-present: /pattern/flags in relative/path -->
+ *
+ * gap-while-absent guards a claim of ABSENCE ("X is not implemented") and
+ * fires when the pattern APPEARS; true-while-present guards a claim of
+ * PRESENCE ("X is enforced") and fires when the pattern DISAPPEARS. The
+ * marker firing means "re-read the claim above it", not "the claim is
+ * false" — a deliberate comment can trip a pattern, and adjusting the
+ * marker is part of the convention. Its honest limit: it covers only claims
+ * an author chose to mark, with a predicate the author expected — it
+ * supplements the census and never repairs the confession above.
+ *
+ * Detector calibration (first contact, 2026-08-10): docs write env and path
+ * FAMILIES as `PDFXYZ_X_*` and `ops-bundle*` (a trailing `_`/`-` or a `*`
+ * right after the token is a prefix claim — some member must exist, not the
+ * literal); WORKER_ARCHITECTURE references modules extensionlessly
  * (`storage/s3` means `storage/s3.ts`); `pnpm` appears as an English noun in
- * prose ("pnpm is pinned"), so commands are only read from code spans; and a
+ * prose ("pnpm is pinned"), so commands are only read from code spans; a
  * table introducing `PDFXYZ_..._FAIL_MODE` then abbreviates to `FAIL_MODE`,
  * so a SNAKE token that is the suffix of a real identifier passes.
  *
- * `BASELINE` records what the census found on first contact (2026-08-10),
- * REPORTED and awaiting an owner scoping decision — remove entries as they
- * are fixed; never add one to ship a new stale reference.
+ * `BASELINE` records findings REPORTED and awaiting an owner scoping
+ * decision — remove entries as they are fixed; never add one to ship a new
+ * stale reference.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -52,27 +75,34 @@ import { operatorDocs } from "./copy-surface";
 const ROOT = process.cwd();
 
 /* ------------------------------------------------------------------ *
- *  Ground truth: the code tree the docs describe.
+ *  Ground truth: the tree the docs describe.
  * ------------------------------------------------------------------ */
 
-const CODE_ROOTS = ["src", "scripts", "e2e", ".github"];
-const CODE_FILE = /\.(?:ts|tsx|js|mjs|cjs|json|ya?ml)$/;
+const CODE_ROOTS = ["src", "scripts", "e2e", ".github", path.join("docs", "examples")];
+const CODE_FILE = /\.(?:ts|tsx|js|mjs|cjs|json|ya?ml|sh|cron)$/;
+const isCorpusFile = (name: string) => CODE_FILE.test(name) || name.startsWith("Dockerfile");
 
-/** This census's own file. Excluded from the corpus: its BASELINE names
- *  identifiers precisely BECAUSE they are missing, and a ground truth that
- *  includes the instrument's records would certify them into existence —
- *  the finding vanished the moment it was recorded. */
+/** The ground truth every failure message cites — derived from the real
+ *  config above so the description cannot drift from the walk. */
+const CORPUS_DESCRIPTION = `${CODE_ROOTS.join(", ")} and the repo root — files matching ${String(CODE_FILE)} or Dockerfile*`;
+
+/** This census's own file. Excluded from the corpus: see the docblock. */
 const SELF = path.join(ROOT, "src", "lib", "tools", "docs-integrity.test.ts");
 
-/** Raw text of every code file, concatenated once for word-boundary lookups. */
-function codeCorpus(): string {
-  const chunks: string[] = [];
+interface Corpus {
+  files: string[];
+  /** Every identifier-shaped token in the corpus, for word-exact lookups. */
+  tokens: Set<string>;
+  tokenList: string[];
+}
+
+function codeCorpus(): Corpus {
+  const files: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (CODE_FILE.test(entry.name) && full !== SELF)
-        chunks.push(readFileSync(full, "utf8"));
+      else if (isCorpusFile(entry.name) && full !== SELF) files.push(full);
     }
   };
   for (const root of CODE_ROOTS) {
@@ -80,15 +110,15 @@ function codeCorpus(): string {
     if (existsSync(dir) && statSync(dir).isDirectory()) walk(dir);
   }
   for (const entry of readdirSync(ROOT, { withFileTypes: true })) {
-    if (entry.isFile() && (CODE_FILE.test(entry.name) || entry.name.startsWith("Dockerfile"))) {
-      chunks.push(readFileSync(path.join(ROOT, entry.name), "utf8"));
+    if (entry.isFile() && isCorpusFile(entry.name)) files.push(path.join(ROOT, entry.name));
+  }
+  const tokens = new Set<string>();
+  for (const file of files) {
+    for (const match of readFileSync(file, "utf8").matchAll(/[A-Za-z_$][\w$]*/g)) {
+      tokens.add(match[0]);
     }
   }
-  return chunks.join("\n");
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return { files, tokens, tokenList: [...tokens] };
 }
 
 /* ------------------------------------------------------------------ *
@@ -118,17 +148,34 @@ function codeSpans(text: string): string {
   return [...fences, ...inline].join("\n");
 }
 
+/** A verify-marker's target: a file's text, a directory's corpus-file text
+ *  concatenated, or null when the path names nothing. */
+function markerTargetText(full: string): string | null {
+  if (!existsSync(full)) return null;
+  if (statSync(full).isFile()) return readFileSync(full, "utf8");
+  const chunks: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const sub = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(sub);
+      else if (isCorpusFile(entry.name) && sub !== SELF)
+        chunks.push(readFileSync(sub, "utf8"));
+    }
+  };
+  walk(full);
+  return chunks.join("\n");
+}
+
 interface DocFinding {
   doc: string;
-  kind: "env" | "script" | "path" | "link" | "symbol";
+  kind: "env" | "script" | "path" | "link" | "symbol" | "marker";
   token: string;
   detail: string;
 }
 
 function censusFindings(): { findings: DocFinding[]; checked: number } {
   const corpus = codeCorpus();
-  const corpusHas = (word: string) =>
-    new RegExp(`\\b${escapeRegExp(word)}\\b`).test(corpus);
+  const corpusHas = (word: string) => corpus.tokens.has(word);
 
   const pkg = JSON.parse(
     readFileSync(path.join(ROOT, "package.json"), "utf8"),
@@ -144,22 +191,24 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
     const push = (kind: DocFinding["kind"], token: string, detail: string) =>
       findings.push({ doc, kind, token, detail });
 
-    // 1. Env vars in our namespace must be read somewhere in the tree. A
+    // 1. Env vars in our namespace must be named somewhere in the corpus. A
     //    trailing underscore (docs write `PDFXYZ_X_*` for a family) is a
     //    prefix claim: some member must exist.
     for (const match of text.matchAll(/\bPDFXYZ_[A-Z0-9_]+\b/g)) {
       const token = match[0];
       checked += 1;
       const exists = token.endsWith("_")
-        ? new RegExp(`\\b${escapeRegExp(token)}[A-Z0-9]`).test(corpus)
+        ? corpus.tokenList.some(
+            (t) => t.startsWith(token) && t.length > token.length,
+          )
         : corpusHas(token);
       if (!exists) {
         push(
           "env",
           token,
           token.endsWith("_")
-            ? "no variable in this family exists in the code"
-            : "no code reads or names this variable",
+            ? `no variable in this family is named by any file in the corpus (${CORPUS_DESCRIPTION})`
+            : `not named by any file in the corpus (${CORPUS_DESCRIPTION})`,
         );
       }
     }
@@ -171,7 +220,11 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
       const name = match[1] ?? "";
       checked += 1;
       if (!scripts.has(name) && !PNPM_BUILTINS.has(name) && !LOCAL_BINS.has(name)) {
-        push("script", `pnpm ${name}`, "package.json has no such script");
+        push(
+          "script",
+          `pnpm ${name}`,
+          `not a package.json script, a pnpm builtin, or a known local bin (${[...LOCAL_BINS].join(", ")})`,
+        );
       }
     }
 
@@ -195,7 +248,11 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
           existsSync(dir) &&
           readdirSync(dir).some((entry) => entry.startsWith(prefix));
         if (!hasMember) {
-          push("path", `${token}*`, "no entry with this prefix exists");
+          push(
+            "path",
+            `${token}*`,
+            "no directory entry with this prefix exists (checked from the repo root)",
+          );
         }
         continue;
       }
@@ -204,7 +261,11 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
         (!path.basename(full).includes(".") &&
           (existsSync(`${full}.ts`) || existsSync(`${full}.tsx`)));
       if (!resolves) {
-        push("path", token, "this path does not exist in the repo");
+        push(
+          "path",
+          token,
+          "nothing exists at this path from the repo root (module resolution tried .ts/.tsx)",
+        );
       }
     }
 
@@ -215,13 +276,13 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
       checked += 1;
       const file = target.split("#")[0] ?? "";
       if (file && !existsSync(path.resolve(path.dirname(docPath), file))) {
-        push("link", target, "the linked file does not exist");
+        push("link", target, `no file at this target relative to ${doc}`);
       }
     }
 
-    // 5. Backticked identifiers must exist in the code tree. A SNAKE token
-    //    also passes as the SUFFIX of a real identifier (`FAIL_MODE` right
-    //    after a table introduces `PDFXYZ_..._FAIL_MODE`).
+    // 5. Backticked identifiers must exist in the corpus. A SNAKE token also
+    //    passes as the SUFFIX of a real identifier (`FAIL_MODE` right after
+    //    a table introduces `PDFXYZ_..._FAIL_MODE`).
     for (const match of text.matchAll(/`([^`\n]+)`/g)) {
       const span = match[1] ?? "";
       let name: string | null = null;
@@ -238,11 +299,50 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
       }
       if (!name) continue;
       checked += 1;
+      const wanted = name;
       const exists =
-        corpusHas(name) ||
-        (allowSuffix && new RegExp(`\\w_${escapeRegExp(name)}\\b`).test(corpus));
+        corpusHas(wanted) ||
+        (allowSuffix &&
+          corpus.tokenList.some((t) => t.endsWith(`_${wanted}`)));
       if (!exists) {
-        push("symbol", span, "no code defines or mentions this identifier");
+        push(
+          "symbol",
+          span,
+          `no file in the corpus (${CORPUS_DESCRIPTION}) mentions this identifier`,
+        );
+      }
+    }
+
+    // 6. Verify-markers: a claim pinned to a greppable predicate. A marker
+    //    watching a missing path is itself a finding — a tripwire pointing
+    //    at nothing guards nothing.
+    for (const match of text.matchAll(
+      /<!--\s*(gap-while-absent|true-while-present):\s*\/(.+?)\/([a-z]*)\s+in\s+([^\s>]+)\s*-->/g,
+    )) {
+      const kind = match[1];
+      const body = match[2];
+      const flags = match[3] ?? "";
+      const target = match[4];
+      if (!kind || !body || !target) continue;
+      checked += 1;
+      const targetText = markerTargetText(path.join(ROOT, target));
+      if (targetText === null) {
+        push("marker", `${kind} in ${target}`, "the marker's target path does not exist — it guards nothing");
+        continue;
+      }
+      const hit = new RegExp(body, flags).test(targetText);
+      if (kind === "gap-while-absent" && hit) {
+        push(
+          "marker",
+          `/${body}/${flags} in ${target}`,
+          "the guarded absence has appeared — re-read the claim above this marker and update the doc",
+        );
+      } else if (kind === "true-while-present" && !hit) {
+        push(
+          "marker",
+          `/${body}/${flags} in ${target}`,
+          "the claimed presence has disappeared — the sentence above this marker may have gone false",
+        );
       }
     }
   }
@@ -253,17 +353,13 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
 const findingKey = (f: { doc: string; token: string }) => `${f.doc} :: ${f.token}`;
 
 /**
- * First contact (2026-08-10): reported, awaiting owner scoping. Remove
- * entries as fixes land; the shrink test below makes a lingering entry loud.
- *
- * The one entry: DEPLOYMENT.md's cleanup example tells the operator to set
- * `PDFXYZ_CLEANUP_RAW_EXPORT`, and no code reads it — the variables that
- * exist are the `PDFXYZ_CLEANUP_EVIDENCE_*` family. An operator following
- * the worked example sets a variable nothing honors.
+ * Empty. The single first-contact entry (`PDFXYZ_CLEANUP_RAW_EXPORT`) was a
+ * FALSE POSITIVE of the narrow corpus — `cleanup-evidence-notify.sh` reads
+ * it — and was removed when the corpus learned shell (owner ruling,
+ * 2026-08-10). Entries here are REPORTED findings awaiting scoping; remove
+ * them as fixes land, and never add one to ship a new stale reference.
  */
-const BASELINE: { doc: string; token: string }[] = [
-  { doc: "docs/DEPLOYMENT.md", token: "PDFXYZ_CLEANUP_RAW_EXPORT" },
-];
+const BASELINE: { doc: string; token: string }[] = [];
 
 describe("the operator docs name identifiers that exist", () => {
   it("reads the docs and actually parses identifiers from them", () => {
@@ -275,12 +371,25 @@ describe("the operator docs name identifiers that exist", () => {
     expect(checked).toBeGreaterThanOrEqual(40);
   });
 
+  it("the corpus really reaches beyond TypeScript (a glob that stops matching collapses here)", () => {
+    // The load-bearing part, proven fixture-free: the first corpus missed a
+    // shell-script consumer and turned its one finding into a false
+    // positive. If these ever fail, every finding is suspect — fix the walk
+    // before reading any report.
+    const { files } = codeCorpus();
+    expect(files.some((f) => f.endsWith(".sh"))).toBe(true);
+    expect(files.some((f) => /\.ya?ml$/.test(f))).toBe(true);
+    expect(
+      files.some((f) => f.includes(path.join("docs", "examples"))),
+    ).toBe(true);
+  });
+
   it("every named identifier exists, or is in the reported baseline", () => {
     const known = new Set(BASELINE.map(findingKey));
     const fresh = censusFindings().findings.filter((f) => !known.has(findingKey(f)));
     expect(
       fresh,
-      `these are named by a doc and exist nowhere in the tree it describes:\n  ${fresh
+      `these doc references failed their existence check (each message names the ground truth it checked):\n  ${fresh
         .map((f) => `${f.doc}: [${f.kind}] "${f.token}" — ${f.detail}`)
         .join("\n  ")}`,
     ).toEqual([]);
