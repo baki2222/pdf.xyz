@@ -118,8 +118,12 @@ describe("guard degrade behavior with a down store", () => {
     const decision = await enforceRateLimit("jobs.create", req());
     expect(decision.allowed).toBe(true);
     expect(decision.enforced).toBe(false);
-    // The guard attributes a fail-open pass to `disabled`, never faking `remote`.
-    expect(decision.provider).toBe("disabled");
+    // Never faked as `remote` — but no longer flattened into `disabled` either.
+    // A store that is DOWN and a limiter that is OFF are the same to a user and
+    // opposite to an operator: one is an incident, the other is a decision. This
+    // assertion used to hide that difference, which is why an outage looked like
+    // a configuration choice for as long as anyone cared to look.
+    expect(decision.provider).toBe("remote-error");
   });
 
   it("fails CLOSED (enforced 429) when configured fail-closed", async () => {

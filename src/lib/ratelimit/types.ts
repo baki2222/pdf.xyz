@@ -91,7 +91,23 @@ export type RateLimitProviderId =
    */
   | "remote"
   /** A remote provider is selected but no backend is registered: skip honestly. */
-  | "remote-unimplemented";
+  | "remote-unimplemented"
+  /**
+   * A remote provider is selected and a backend exists, but the check FAILED and
+   * the guard allowed the request rather than take the API down. Traffic is
+   * passing unthrottled right now, and that is an incident.
+   *
+   * This exists because `enforced: false` is one bit collapsing four
+   * operationally distinct states — deliberately off, selected-but-unwired, a
+   * guard bug, and a store outage. The first two need no action; the last two
+   * do. Before this member, a live store outage reported `provider: "disabled"`:
+   * the same value the default off-state emits.
+   *
+   * That conflation has already cost real time twice. It is why the fixture in
+   * `guard-selfbuild.test.ts` read a DNS failure as "the guard is switched off"
+   * and produced, in that file's own words, a confident wrong answer.
+   */
+  | "remote-error";
 
 /**
  * The content-free outcome of a guard check. This is the ONLY thing the guard

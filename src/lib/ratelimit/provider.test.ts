@@ -122,7 +122,11 @@ describe("rate-limit provider seam", () => {
     const decision = await enforceRateLimit("jobs.create", req());
     expect(decision.allowed).toBe(true);
     expect(decision.enforced).toBe(false);
-    expect(decision.provider).toBe("disabled");
+    // Was `"disabled"`, which is what made this test part of the problem: it
+    // asserted that a store outage is indistinguishable from the limiter being
+    // switched off. Failing open is still right; reporting it as the deliberate
+    // off-state was not, and it sent a debugging session down the wrong path.
+    expect(decision.provider).toBe("remote-error");
   });
 
   it("never leaks the request identity into a remote decision", async () => {

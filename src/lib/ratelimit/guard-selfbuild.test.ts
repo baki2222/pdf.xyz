@@ -32,6 +32,7 @@ import { RATE_LIMIT_ENV } from "./config";
 import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import {
   enforceRateLimit,
+  resetFailOpenLogForTests,
   resetRateLimitGuardForTests,
   resetSelfBuiltProviderForTests,
 } from "./guard";
@@ -67,6 +68,7 @@ const ENV_KEYS = [
 function clear(): void {
   resetRateLimitGuardForTests();
   resetSelfBuiltProviderForTests();
+  resetFailOpenLogForTests();
   clearRateLimitProviderForTests();
   vi.unstubAllGlobals();
   for (const key of ENV_KEYS) delete process.env[key];
@@ -163,5 +165,81 @@ describe("the guard enforces from the environment, not from a registration", () 
     expect(decision.provider).toBe("remote");
     expect(registeredCalls).toBe(1);
     expect(store.calls, "the registered provider must be used as-is").toBe(0);
+  });
+});
+
+describe("a limiter that stops enforcing says which failure it is", () => {
+  /**
+   * `enforced: false` is one bit collapsing four operationally distinct states:
+   * deliberately off, selected-but-unwired, a guard bug, and a store outage. The
+   * first two need nobody; the last two are incidents. Before `remote-error`, a
+   * live store outage reported `provider: "disabled"` — the value the default
+   * off-state emits — so the endpoint, the log, and a human debugging all saw the
+   * same answer for "switched off" and "silently broken".
+   */
+  it("reports a store outage as remote-error, not as disabled", async () => {
+    configuredEnv();
+    // A store that is reachable and answers with an error, which is what an
+    // outage looks like from here.
+    vi.stubGlobal("fetch", async () => new Response("nope", { status: 503 }));
+
+    const decision = await enforceRateLimit("uploads.create", req());
+
+    expect(
+      decision.provider,
+      "an erroring store must be distinguishable from the limiter being switched off",
+    ).toBe("remote-error");
+    expect(decision.allowed, "fail OPEN — an outage must not take the API down").toBe(
+      true,
+    );
+    expect(decision.enforced).toBe(false);
+  });
+
+  it("says out loud that it is failing open, on BOTH unenforced paths", async () => {
+    // The log line is the channel that still works when the store — the only other
+    // place a "the store is down" note could live — is the thing that is down.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Path 1: configured, but no provider could be produced. This is exactly the
+    // state the 2026-08-09 incident sat in, and nothing threw during it — a line
+    // emitted only from a catch would have stayed silent the whole time.
+    resetFailOpenLogForTests();
+    process.env[RATE_LIMIT_ENV.provider] = "redis";
+    await enforceRateLimit("uploads.create", req());
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/failing open/i);
+
+    // Path 2: a provider exists and the store errors.
+    warn.mockClear();
+    resetFailOpenLogForTests();
+    configuredEnv();
+    vi.stubGlobal("fetch", async () => new Response("nope", { status: 503 }));
+    await enforceRateLimit("uploads.create", req());
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
+  });
+
+  it("throttles the fail-open line instead of one per request", async () => {
+    // An outage must not turn every request into a log entry and bill for it.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    resetFailOpenLogForTests();
+    process.env[RATE_LIMIT_ENV.provider] = "redis";
+
+    for (let i = 0; i < 5; i += 1) await enforceRateLimit("uploads.create", req());
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("stays silent when the limiter is deliberately off", async () => {
+    // The quiet default must remain quiet: nobody set anything, nothing is wrong.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    resetFailOpenLogForTests();
+
+    await enforceRateLimit("uploads.create", req());
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

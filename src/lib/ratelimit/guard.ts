@@ -79,6 +79,42 @@ export function resetSelfBuiltProviderForTests(): void {
   selfBuildAttempted = false;
 }
 
+/**
+ * Say out loud that the limiter is configured and is NOT throttling right now.
+ *
+ * This is the channel that survives everything else. The operations endpoint
+ * reports the same condition, but only when somebody asks; a log line reaches an
+ * alert rule at 3am with nobody looking, and it still works when the store — the
+ * one place a "the store is down" note could otherwise be written — is the thing
+ * that is down.
+ *
+ * It fires on BOTH unenforced-but-configured paths, and the second one is the
+ * point: on 2026-08-09 the provider was `null` in the route's bundle while the
+ * environment was complete, so nothing ever threw. A line emitted only from a
+ * catch would have stayed silent through the entire incident.
+ *
+ * Content-free (a bounded reason code, nothing else) and throttled to at most one
+ * line a minute per instance, so a store outage cannot turn every request into a
+ * log entry and bill for the privilege.
+ */
+const FAIL_OPEN_LOG_INTERVAL_MS = 60_000;
+let lastFailOpenLogMs = 0;
+
+type FailOpenReason = "store-error" | "provider-unreachable";
+
+function noteFailOpen(reason: FailOpenReason, nowMs: number = Date.now()): void {
+  if (nowMs - lastFailOpenLogMs < FAIL_OPEN_LOG_INTERVAL_MS) return;
+  lastFailOpenLogMs = nowMs;
+  console.warn(
+    `[pdf.xyz] rate-limit FAILING OPEN (${reason}) — requests are not being throttled`,
+  );
+}
+
+/** Test seam: forget the throttle so a case can assert the line is emitted. */
+export function resetFailOpenLogForTests(): void {
+  lastFailOpenLogMs = 0;
+}
+
 // Process-wide singleton so counts accumulate across requests within an instance.
 // Created lazily, and only ever exercised on the `local-memory` path.
 let memoryLimiter: RateLimiterCore | null = null;
@@ -159,11 +195,25 @@ export async function enforceRateLimit(
     if (config.providerId === "remote-unimplemented") {
       const provider = providerFor(env);
       if (provider === null) {
+        // A remote backend was ASKED for and could not be produced. That is not
+        // the quiet default — somebody set the variable expecting throttling.
+        // This is the exact state the 2026-08-09 incident sat in for hours.
+        noteFailOpen("provider-unreachable");
         return allowUnenforced(action, policy.id, "remote-unimplemented");
       }
       const token = deriveClientToken(request.headers, config);
-      const verdict = await provider.check(policy, token, nowMs);
-      return enforcedDecision(action, policy.id, "remote", verdict);
+      try {
+        const verdict = await provider.check(policy, token, nowMs);
+        return enforcedDecision(action, policy.id, "remote", verdict);
+      } catch {
+        // The store is configured and unreachable/erroring. Fail OPEN — a limiter
+        // outage must never take the API down — but say WHICH failure this is.
+        // Reported as `remote-error`, not `disabled`: traffic is passing
+        // unthrottled right now and somebody needs to know, whereas `disabled` is
+        // a deliberate state that needs nobody.
+        noteFailOpen("store-error");
+        return allowUnenforced(action, policy.id, "remote-error");
+      }
     }
 
     // local-memory: the per-process dev limiter actually counts.
