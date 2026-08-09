@@ -5,6 +5,7 @@ import { useState } from "react";
 import { UploadCloud } from "lucide-react";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import {
+  ChipButton,
   ErrorNote,
   ResultCard,
   ResultPanel,
@@ -382,6 +383,67 @@ describe("a failed run", () => {
     render(<ErrorNote message="The worker could not read this PDF." />);
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The worker could not read this PDF.",
+    );
+  });
+});
+
+describe("ChipButton — the controls beside the trigger", () => {
+  /**
+   * #46 fixed the trigger; these chips carried the same defect: option and
+   * history controls that flip to `disabled` exactly when the user is
+   * interacting nearby (a quality chip the moment a run starts, undo the
+   * moment history empties). The discriminators are the two jsdom CAN model
+   * (measured in #46): jest-dom's `toBeDisabled` reads the native attribute,
+   * and jsdom refuses to focus a natively disabled element.
+   */
+  it("stays in the focus order while unavailable", () => {
+    render(
+      <ChipButton onClick={() => {}} disabled title="150 DPI">
+        Balanced
+      </ChipButton>,
+    );
+    const chip = screen.getByRole("button", { name: "Balanced" });
+    expect(chip).not.toBeDisabled();
+    expect(chip).toHaveAttribute("aria-disabled", "true");
+    chip.focus();
+    expect(chip).toHaveFocus();
+  });
+
+  it("refuses the click instead of removing itself", () => {
+    const clicks = vi.fn();
+    render(
+      <ChipButton onClick={clicks} disabled>
+        Balanced
+      </ChipButton>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Balanced" }));
+    expect(clicks).not.toHaveBeenCalled();
+  });
+
+  it("still works — and looks available — when enabled", () => {
+    const clicks = vi.fn();
+    render(
+      <ChipButton onClick={clicks} active>
+        Balanced
+      </ChipButton>,
+    );
+    const chip = screen.getByRole("button", { name: "Balanced" });
+    expect(chip).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(chip);
+    expect(clicks).toHaveBeenCalledTimes(1);
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps looking unavailable without the native attribute", () => {
+    // `disabled:opacity-40` stops applying the moment the native attribute goes
+    // away, and nothing else would notice — the same trap RunButton documented.
+    render(
+      <ChipButton onClick={() => {}} disabled>
+        Balanced
+      </ChipButton>,
+    );
+    expect(screen.getByRole("button", { name: "Balanced" }).className).toContain(
+      "aria-disabled:opacity-40",
     );
   });
 });

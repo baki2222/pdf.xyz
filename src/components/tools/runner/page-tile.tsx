@@ -239,7 +239,15 @@ export function PageTile({
   );
 }
 
-/** Small square icon button used inside a tile's action row. */
+/**
+ * Small square icon button used inside a tile's action row.
+ *
+ * `disabled` renders as `aria-disabled` + a guarded click, never the native
+ * attribute — the ChipButton rule (#46), and these are its sharpest case:
+ * "move left" disables at index 0, i.e. exactly when the user pressing it
+ * repeatedly has just moved the page to the edge, so the native attribute
+ * would throw THEIR OWN focus to `<body>` mid-interaction.
+ */
 export function TileAction({
   onClick,
   title,
@@ -258,13 +266,13 @@ export function TileAction({
       type="button"
       title={title}
       aria-label={title}
-      disabled={disabled}
+      aria-disabled={disabled || undefined}
       onClick={(e) => {
         e.stopPropagation();
-        onClick();
+        if (!disabled) onClick();
       }}
       className={cn(
-        "grid size-7 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30",
+        "grid size-7 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-300 transition hover:bg-white/10 hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
         danger && "hover:border-red-400/40 hover:bg-red-500/15 hover:text-red-200",
       )}
     >

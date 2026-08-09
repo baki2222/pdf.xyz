@@ -55,17 +55,19 @@ function sourceFiles(): string[] {
 }
 
 /**
- * Every `<button …>` opening tag in a source file.
+ * Every `<tagName …>` opening tag in a source file.
  *
  * Deliberately not `/<button[^>]*>/`: attribute values contain `>` all over this
  * codebase (`disabled={fields.length >= MAX_EXTRACTION_FIELDS}`), so that regex
  * truncates the tag mid-attribute and silently stops seeing the ones after it —
  * a scanner that finds nothing looks exactly like a clean repo. This tracks
- * brace and quote depth and ends the tag at a `>` outside both.
+ * brace and quote depth and ends the tag at a `>` outside both. Lowercase tag
+ * names only, so `<ChipButton disabled={busy}>` (a component whose PROP renders
+ * as aria-disabled) is never mistaken for a native element.
  */
-function buttonTags(source: string): string[] {
+function openingTags(source: string, tagName: string): string[] {
   const tags: string[] = [];
-  const OPEN = /<button\b/g;
+  const OPEN = new RegExp(`<${tagName}\\b`, "g");
   let match: RegExpExecArray | null;
   while ((match = OPEN.exec(source)) !== null) {
     let depth = 0;
@@ -86,6 +88,17 @@ function buttonTags(source: string): string[] {
     }
   }
   return tags;
+}
+
+function buttonTags(source: string): string[] {
+  return openingTags(source, "button");
+}
+
+/** Every native form-control opening tag (`button`, `input`, `select`, `textarea`). */
+function nativeControlTags(source: string): string[] {
+  return ["button", "input", "select", "textarea"].flatMap((tag) =>
+    openingTags(source, tag),
+  );
 }
 
 function relative(file: string): string {
@@ -113,6 +126,32 @@ describe("a run does not blur the user who started it", () => {
     expect(
       offenders,
       `these buttons announce they are busy and then remove themselves from the focus order, dropping the user to <body> for the duration:\n  ${offenders.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  it("never lets busy-state remove ANY native control from the focus order", () => {
+    // #46/#47 fixed the trigger; the class survived on the controls BESIDE it —
+    // option chips, the encryption-strength radios, the password field — none of
+    // which carry `aria-busy`, so the check above never saw them (measured
+    // 2026-08-09: three native offenders across the tools sources). A native
+    // `disabled` bound to a busy-flavoured binding drops focus and leaves the
+    // tab order at t=0 exactly like the trigger did; use `aria-disabled` + a
+    // guarded handler (ChipButton in runner-kit is the pattern), or `readOnly`
+    // for an input. `disabled` is in the name family because forwarding a prop
+    // literally named `disabled` onto a native control is how the password
+    // field's copy of the bug was spelled — name the binding for what gates it
+    // (e.g. `atCap`) if it is a genuine idle-gate rather than busy-state.
+    const BUSY_BINDING =
+      /\sdisabled=\{\s*(?:busy|isBusy|running|pending|submitting|uploading|disabled)\s*\}/;
+    const offenders = sourceFiles().flatMap((file) =>
+      nativeControlTags(readFileSync(file, "utf8"))
+        .filter((tag) => BUSY_BINDING.test(tag))
+        .map((tag) => `${relative(file)} — ${tag.replace(/\s+/g, " ").slice(0, 90)}…`),
+    );
+
+    expect(
+      offenders,
+      `these native controls leave the focus order while work runs (or forward a bare 'disabled' binding onto a native element):\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
   });
 
