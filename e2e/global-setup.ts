@@ -1,4 +1,6 @@
+import path from "node:path";
 import type { FullConfig } from "@playwright/test";
+import { verifyAdoptedServerBuild } from "../src/tests/build-identity";
 
 /**
  * Next.js serves its debugging endpoints only in development: a dev server
@@ -39,7 +41,33 @@ export default async function guardProductionServer(
     return;
   }
 
-  if (status === 404) return;
+  if (status === 404) {
+    // A PRODUCTION server is listening and about to be adopted. Refuse it unless
+    // it serves THIS checkout's build: `reuseExistingServer` happily adopts a
+    // leftover `next start` from another checkout, and a suite that silently
+    // tests last week's code is the worst failure mode — it reports success.
+    // (Measured 2026-08-09: a worktree run adopted the main tree's stale server
+    // on the shared port and failed brand-new specs against old code.) The
+    // discriminator is the local build's newest content-hashed chunk — served
+    // 200 iff the adopted server runs the same bytes.
+    const verdict = await verifyAdoptedServerBuild(
+      baseURL,
+      path.join(process.cwd(), ".next"),
+    );
+    if (verdict.ok) return;
+    throw new Error(
+      [
+        `A production server is already listening on ${baseURL}, but it is not serving THIS checkout's build.`,
+        verdict.reason === "no-local-build"
+          ? "This checkout has no local .next build to compare against, so the adopted server's code is unknown."
+          : "The freshest locally built chunk is not served there (404) — it is another checkout's or an older build.",
+        "",
+        "Adopting it would run the suite against different code than you think you are testing.",
+        "Stop that server (or free the port via E2E_PORT), then re-run:",
+        "  pnpm build && pnpm exec playwright test",
+      ].join("\n"),
+    );
+  }
 
   throw new Error(
     [

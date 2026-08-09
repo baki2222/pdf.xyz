@@ -290,20 +290,31 @@ function SecurityUnavailable({
   );
 }
 
-/** A masked password input with an accessible show/hide toggle. */
-function PasswordField({
+/**
+ * A masked password input with an accessible show/hide toggle.
+ *
+ * While the run is busy the input goes `readOnly`, never `disabled`: a
+ * natively disabled input cannot hold focus, so a user whose caret was still
+ * in the field when the run started (click the Run button in a browser that
+ * does not focus buttons on click, and the caret never left) would be thrown
+ * to `<body>` at t=0 — the #46 defect on an input. Read-only keeps the field
+ * focusable and its value visible/selectable while refusing edits, and the
+ * reveal toggle stays functional throughout (showing your own password mid-run
+ * changes nothing about the job).
+ */
+export function PasswordField({
   id,
   label,
   value,
   onChange,
-  disabled,
+  busy,
   autoComplete,
 }: {
   id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
-  disabled: boolean;
+  busy: boolean;
   autoComplete: string;
 }) {
   const [reveal, setReveal] = useState(false);
@@ -319,20 +330,22 @@ function PasswordField({
           type={reveal ? "text" : "password"}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          disabled={disabled}
+          readOnly={busy}
           autoComplete={autoComplete}
           spellCheck={false}
           aria-describedby={`${id}-hint`}
-          className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 pr-11 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:bg-white/[0.05] disabled:opacity-50"
+          className={cn(
+            "w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 pr-11 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:bg-white/[0.05]",
+            busy && "opacity-50",
+          )}
           placeholder="••••••••"
         />
         <button
           type="button"
           onClick={() => setReveal((v) => !v)}
-          disabled={disabled}
           aria-label={reveal ? "Hide password" : "Show password"}
           aria-pressed={reveal}
-          className="absolute inset-y-0 right-0 grid w-11 place-items-center text-slate-400 transition hover:text-slate-200 disabled:opacity-50"
+          className="absolute inset-y-0 right-0 grid w-11 place-items-center text-slate-400 transition hover:text-slate-200"
         >
           {reveal ? (
             <EyeOff className="size-4" aria-hidden />
@@ -442,7 +455,7 @@ function SecurityRunArea({
         label={mode === "protect" ? "New password" : "Current password"}
         value={password}
         onChange={setPassword}
-        disabled={busy}
+        busy={busy}
         // "new-password" avoids the browser offering a saved login for unlock, and
         // avoids prompting to save the just-set encryption password for protect.
         autoComplete="new-password"
@@ -476,11 +489,16 @@ function SecurityRunArea({
                   type="button"
                   role="radio"
                   aria-checked={active}
-                  onClick={() => setKeyLength(level.keyLength)}
-                  disabled={busy}
+                  // aria-disabled + a guarded click, never the native attribute —
+                  // a disabled radio drops focus and leaves the tab order mid-run
+                  // (the #46 rule; see ChipButton in runner-kit).
+                  onClick={() => {
+                    if (!busy) setKeyLength(level.keyLength);
+                  }}
+                  aria-disabled={busy || undefined}
                   title={level.description}
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50",
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition aria-disabled:opacity-50",
                     active
                       ? "border-violet-400/50 bg-violet-500/15 text-violet-100"
                       : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25 hover:bg-white/[0.06] hover:text-white",

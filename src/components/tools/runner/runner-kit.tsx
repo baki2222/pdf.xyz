@@ -540,7 +540,19 @@ export function ResultCard({
   );
 }
 
-/** A compact toolbar chip button used across runner controls. */
+/**
+ * A compact toolbar chip button used across runner controls.
+ *
+ * `disabled` renders as `aria-disabled` + a guarded click, never the native
+ * attribute — the same rule as {@link RunButton}/{@link WorkerRunButton} (#46),
+ * for the same reason: these chips are option/history controls that flip
+ * state exactly when the user is interacting nearby (a quality chip disables
+ * the moment a run starts; undo disables the moment history empties), and a
+ * natively disabled element cannot hold focus, so the flip would throw a
+ * keyboard user's place away at the worst moment. `aria-disabled` keeps the
+ * chip in the tab order, announces it as unavailable, and the guard makes a
+ * click a no-op.
+ */
 export function ChipButton({
   onClick,
   disabled,
@@ -557,12 +569,14 @@ export function ChipButton({
   return (
     <button
       type="button"
-      onClick={onClick}
-      disabled={disabled}
+      onClick={() => {
+        if (!disabled) onClick();
+      }}
+      aria-disabled={disabled || undefined}
       title={title}
       aria-pressed={active}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
         active
           ? "border-violet-400/50 bg-violet-500/15 text-violet-100"
           : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25 hover:bg-white/[0.06] hover:text-white",

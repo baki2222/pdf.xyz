@@ -27,9 +27,15 @@ export function resolvePnpmInvocation(): PnpmInvocation {
   }
 
   // Launched some other way (e.g. the compiled binary invoked directly): fall back to a `pnpm`
-  // already on PATH.
+  // already on PATH. On Windows the PATH entry is `pnpm.CMD`, which `execFileSync` cannot
+  // execute without a shell — without this flag the probe always threw here and fell through
+  // to the corepack fallback, which is dead under Node >= 24 (corepack no longer ships with
+  // Node), so a machine with a perfectly good `pnpm` on PATH reported it unfindable.
   try {
-    execFileSync("pnpm", ["--version"], { stdio: "ignore" });
+    execFileSync("pnpm", ["--version"], {
+      stdio: "ignore",
+      shell: process.platform === "win32",
+    });
     cachedInvocation = { command: "pnpm", prefixArgs: [] };
     return cachedInvocation;
   } catch {
