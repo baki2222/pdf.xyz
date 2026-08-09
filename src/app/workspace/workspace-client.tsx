@@ -23,7 +23,7 @@ import { FILE_FAMILIES, type FileFamily, type WorkspaceAction } from "@/lib/work
 import { BatchPanel } from "./batch-panel";
 import type { WorkspaceToolSummary } from "./summary";
 import { SuggestedTools } from "./suggested-tools";
-import { useWorkspace } from "./use-workspace";
+import { MAX_FILE_MB, useWorkspace } from "./use-workspace";
 
 const FAMILY_LABEL: Record<FileFamily, string> = {
   pdf: "PDF",
@@ -153,7 +153,7 @@ export function WorkspaceClient({
                   </span>
                 </span>
                 <span className="text-sm text-slate-400">
-                  PDF, images, Word, Excel, PowerPoint, text · Max 100 MB per file
+                  PDF, images, Word, Excel, PowerPoint, text · Max {MAX_FILE_MB} MB per file
                 </span>
               </span>
             </label>

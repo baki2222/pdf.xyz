@@ -1,3 +1,4 @@
+import { JOB_LIMITS } from "@/lib/jobs/types";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -292,7 +293,7 @@ export default async function ToolPage({
                     <UploadZone
                       ctaLabel={`Run ${tool.name}`}
                       ctaHref={`/workspace?tool=${tool.slug}`}
-                      hint={`Accepts ${tool.accept.join(", ")} · Max 100 MB per file`}
+                      hint={`Accepts ${tool.accept.join(", ")} · Max ${JOB_LIMITS.maxFileBytes / (1024 * 1024)} MB per file`}
                     />
                   </div>
                 </div>

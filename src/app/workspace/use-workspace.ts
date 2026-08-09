@@ -29,9 +29,12 @@ import {
 } from "@/lib/workspace";
 import { indexSummaries, type WorkspaceToolSummary } from "./summary";
 
-/** In-browser tools never load files larger than this (matches the "100 MB" copy). */
+/** In-browser tools never load files larger than this. Exported so the copy
+ * DERIVES the figure — the old comment admitted it was "manually kept in
+ * sync" with a hand-written "100 MB", which is a lie waiting for a config
+ * change (the numbers-honesty census now forbids the hand-written form). */
 const MAX_FILE_BYTES = MAX_PDF_BYTES;
-const MAX_FILE_MB = Math.round(MAX_FILE_BYTES / (1024 * 1024));
+export const MAX_FILE_MB = Math.round(MAX_FILE_BYTES / (1024 * 1024));
 
 /** A file the workspace declined to stage, with a user-facing reason. */
 export interface RejectedFile {

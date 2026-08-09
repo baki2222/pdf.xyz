@@ -14,7 +14,7 @@
  * guard checks that they still do. Hard-coding "60 minutes" into the page would
  * pass a reader's eye and silently become false the day the constant changes.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { JOB_LIMITS } from "@/lib/jobs/types";
@@ -205,6 +205,38 @@ describe("the policy pages do not promise what the product does not do", () => {
     expect(
       found,
       `${name} contains a claim this product cannot support:\n  ${found.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  it("neither does the marketing copy the legal pages sit one click from", () => {
+    // The guard above was scoped to where the overclaims were FOUND, not to
+    // where they can APPEAR — and the FAQ proved the difference on 2026-08-09:
+    // it said "permanently deleted within minutes … nothing is retained" while
+    // /privacy, one click away, stated the truth this list encodes. The FAQ
+    // also feeds the FAQPage JSON-LD, so the overclaim shipped to crawlers as
+    // structured data. Same walk as the marketing-honesty guards: every
+    // sections component plus the FAQ source.
+    const sectionsDir = path.join(ROOT, "src", "components", "sections");
+    const targets = [
+      path.join(ROOT, "src", "lib", "faq.ts"),
+      ...readdirSync(sectionsDir)
+        .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."))
+        .map((f) => path.join(sectionsDir, f)),
+    ];
+    const offenders: string[] = [];
+    for (const file of targets) {
+      const source = withoutComments(read(file));
+      for (const o of OVERCLAIMS) {
+        if (o.pattern.test(source)) {
+          offenders.push(
+            `${path.relative(ROOT, file).replace(/\\/g, "/")}: ${String(o.pattern)} — ${o.instead}`,
+          );
+        }
+      }
+    }
+    expect(
+      offenders,
+      `marketing copy contains a claim the legal pages are forbidden from making:\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
   });
 });
