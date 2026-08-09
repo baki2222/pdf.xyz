@@ -433,7 +433,9 @@ remote processing production-ready:
   only** (behind N instances the budget is N×; a restart resets windows). Phase 34 ships
   a real **distributed** provider backed by a Redis/Upstash-REST store with an atomic
   fixed-window `EVAL`: set `PDFXYZ_RATE_LIMIT_PROVIDER=redis` and the web-tier store
-  (`PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `..._TOKEN`) and it auto-registers at boot, so a
+  (`PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `..._TOKEN`) and the guard builds the provider
+  from the environment in whichever bundle serves the request (do NOT rely on the boot
+  hook's registration — on Vercel that write never reaches the routes; #53), so a
   policy's budget is shared across the fleet. It is still **defense-in-depth**: a real
   **edge/WAF/CDN rate-limit rule** in front of the app remains the first line before a
   high-traffic launch. Confirm status via the boot log, `resolveRateLimitStatus()`, or

@@ -226,6 +226,14 @@ describe("OperationsSnapshotView — honest end-to-end states", () => {
     ).toBeInTheDocument();
     // The server-authored posture detail never reaches the DOM.
     expect(screen.queryByText("server-detail-should-not-render")).toBeNull();
+    // The action callout must not reassure beside a warning: the ranked action is
+    // `none` here, and "No action required / everything healthy" printed above an
+    // amber alert posture is a false statement of fact, not a tone choice.
+    expect(screen.queryByText("No action required")).toBeNull();
+    expect(
+      screen.queryByText(/Everything observable from this vantage is healthy/),
+    ).toBeNull();
+    expect(screen.getByText("Start with the alert posture above")).toBeInTheDocument();
   });
 
   it("renders a lifecycle-drift snapshot: reconcile action + drift verdict", () => {

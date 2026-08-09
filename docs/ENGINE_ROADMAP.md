@@ -1023,8 +1023,9 @@ backend, while preserving the same content-free response contract and no-config 
   user payloads, or secrets.
 - **Web-safe configuration** (`src/lib/ratelimit/redis-config.ts`, `src/instrumentation.ts`):
   `PDFXYZ_RATE_LIMIT_PROVIDER=redis|upstash|remote` plus
-  `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` auto-registers
-  the provider at boot. These names are deliberately distinct from the worker queue's
+  `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` activates
+  the provider — self-built by the guard per serving bundle since #53 (the boot
+  registration alone was a dead write on Vercel). These names are deliberately distinct from the worker queue's
   `PDFXYZ_REDIS_REST_*` credentials, so the public web pod does not need worker-only
   queue/heartbeat secrets. Missing config resolves to `remote-unimplemented` and skips
   honestly; default builds still do no network work.

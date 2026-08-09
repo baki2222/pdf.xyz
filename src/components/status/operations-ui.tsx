@@ -66,7 +66,7 @@ import type {
 } from "@/lib/workers/observability";
 import { cn } from "@/lib/utils";
 import { StatusBadge, StatusCard, type StatusTone } from "./status-ui";
-import { AlertPostureCallout } from "./alert-posture";
+import { AlertPostureCallout, normalizeAlertPosture } from "./alert-posture";
 
 /* ------------------------------------------------------------------ *
  *  Safe, normalized view model (the privacy choke point)
@@ -741,15 +741,43 @@ const TILE_TONE: Record<StatusTone, string> = {
  * an operator is pointed at *one* step rather than a wall of facets. Toned by the
  * overall health: a `blocked` stack shows red, a `warn` shows amber, and the healthy
  * "confirm a worker is deployed" residual shows as a calm informational note.
+ *
+ * `alertsOutstanding` is the same honesty rule the CLI report applies: the ranked
+ * ladder deliberately does not rank the monitoring subsystems (cleanup evidence,
+ * rate limiting), so its action can be `none` while the alert posture directly
+ * above warns. When that happens this callout must not assert that everything is
+ * healthy — it points at the alert posture instead.
  */
-export function RecommendedActionCallout({ view }: { view: SafeOperationsView }) {
-  const copy = view.recommendedAction
-    ? RECOMMENDED_ACTION_COPY[view.recommendedAction]
-    : GENERIC_ACTION_COPY;
+const NO_FIX_TO_OFFER_COPY = {
+  title: "Start with the alert posture above",
+  detail:
+    "The ranked next action has no further fix to add here — the alert posture lists what needs attention.",
+} as const;
 
-  // The healthy web residual is informational, not a problem to fix.
-  const tone: StatusTone =
-    view.recommendedAction === "none"
+export function RecommendedActionCallout({
+  view,
+  alertsOutstanding = false,
+}: {
+  view: SafeOperationsView;
+  /** True when the attached alert report's severity is warn/critical. */
+  alertsOutstanding?: boolean;
+}) {
+  const healthyClaim =
+    view.recommendedAction === "none" ||
+    view.recommendedAction === "confirm-worker-deployment";
+  const overridden = alertsOutstanding && healthyClaim;
+
+  const copy = overridden
+    ? NO_FIX_TO_OFFER_COPY
+    : view.recommendedAction
+      ? RECOMMENDED_ACTION_COPY[view.recommendedAction]
+      : GENERIC_ACTION_COPY;
+
+  // The healthy web residual is informational, not a problem to fix — unless
+  // alerts are outstanding, in which case reassurance would be a false claim.
+  const tone: StatusTone = overridden
+    ? "warn"
+    : view.recommendedAction === "none"
       ? "ok"
       : view.recommendedAction === "confirm-worker-deployment"
         ? "info"
@@ -1146,11 +1174,16 @@ export function OperationsSnapshotView({
   header?: ReactNode;
 }) {
   const view = normalizeSnapshot(snapshot);
+  // The same normalized posture the callout below renders — so the action callout
+  // can refuse a healthy claim exactly when the posture beside it warns.
+  const posture = normalizeAlertPosture(snapshot);
+  const alertsOutstanding =
+    posture !== null && (posture.severity === "warn" || posture.severity === "critical");
   return (
     <div className="flex flex-col gap-5">
       {header}
       <OperationsHealthCard view={view} />
-      <RecommendedActionCallout view={view} />
+      <RecommendedActionCallout view={view} alertsOutstanding={alertsOutstanding} />
       <AlertPostureCallout snapshot={snapshot} />
       <DaemonObservabilityCaveat daemon={view.daemon} />
       <SubsystemGrid subsystems={view.subsystems} />

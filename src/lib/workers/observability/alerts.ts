@@ -472,6 +472,63 @@ const SEVERITY_SUMMARY: Record<AlertSeverity, string> = {
 };
 
 /**
+ * The actions whose canned {@link RECOMMENDED_ACTION_DETAIL} asserts a healthy,
+ * nothing-to-do state. On an `ok` report that is exactly right. On a non-ok
+ * report it is a false statement of fact printed directly above the alert that
+ * contradicts it — "Everything observable here is healthy; no action is
+ * required" on a snapshot whose abuse guard has stopped enforcing. An operator
+ * scanning at 3am reads the reassuring sentence and stops. The snapshot's
+ * ranked next-action ladder deliberately does not rank monitoring subsystems
+ * (see the cleanup-evidence precedent), so severity and `recommendedAction`
+ * can legitimately disagree — but the PROSE must never reassure.
+ */
+const HEALTHY_CLAIM_ACTIONS: ReadonlySet<RecommendedAction> = new Set([
+  "none",
+  "confirm-worker-deployment",
+]);
+
+/**
+ * The report headline. Verbatim severity + "Next action" when that pairing is
+ * honest; when the severity is not `ok` and the ranked action has no fix to
+ * offer, it points at the alert rows instead of printing "Next action: none".
+ * Pure and content-free; exported so any surface that re-authors a headline
+ * from bounded enums (the evidence bundle) says the same thing.
+ */
+export function reportSummary(
+  severity: AlertSeverity,
+  action: RecommendedAction,
+  alertCount: number,
+): string {
+  if (severity === "ok" || !HEALTHY_CLAIM_ACTIONS.has(action)) {
+    return `${SEVERITY_SUMMARY[severity]}. Next action: ${action}.`;
+  }
+  if (alertCount > 0) {
+    const rows = alertCount === 1 ? "the alert row" : `the ${alertCount} alert rows`;
+    return `${SEVERITY_SUMMARY[severity]}. Start with ${rows} below.`;
+  }
+  return `${SEVERITY_SUMMARY[severity]}. No concrete alert accompanies it — treat this as unconfirmed, never as a pass.`;
+}
+
+/**
+ * The prose for the report's `action` line. The canned per-action detail when
+ * that is honest; on a non-ok report whose ranked action would assert health,
+ * authored copy that points at the alert rows (or, with none, refuses the
+ * clean bill) — the bounded `action` enum itself is untouched.
+ */
+export function reportActionDetail(
+  severity: AlertSeverity,
+  action: RecommendedAction,
+  alertCount: number,
+): string {
+  if (severity === "ok" || !HEALTHY_CLAIM_ACTIONS.has(action)) {
+    return RECOMMENDED_ACTION_DETAIL[action];
+  }
+  return alertCount > 0
+    ? "The ranked next-action ladder has no further fix to add here — the outstanding alert rows carry the specific actions to take."
+    : "The ranked next-action ladder has no further fix to add here, and worker health could not be determined from this evidence — do not read this as a clean bill.";
+}
+
+/**
  * Evaluate the full alert report for a snapshot and an optional SLO report. Pure and
  * deterministic. The overall severity is the worst of the snapshot's own health class,
  * the liveness verdict, every non-healthy subsystem, and every warned/breached SLO —
@@ -525,10 +582,10 @@ export function evaluateOperationsAlerts(
   return {
     severity,
     action: snapshot.recommendedAction,
-    actionDetail: RECOMMENDED_ACTION_DETAIL[snapshot.recommendedAction],
+    actionDetail: reportActionDetail(severity, snapshot.recommendedAction, alerts.length),
     liveness,
     alerts,
-    summary: `${SEVERITY_SUMMARY[severity]}. Next action: ${snapshot.recommendedAction}.`,
+    summary: reportSummary(severity, snapshot.recommendedAction, alerts.length),
   };
 }
 

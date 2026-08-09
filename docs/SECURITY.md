@@ -263,8 +263,12 @@ caller). It is **defense-in-depth behind the edge, not the primary control.**
   **skips honestly** as `remote-unimplemented` when it is not — it never fabricates
   distributed enforcement).
 - **Distributed enforcement ships (Phase 34).** A real `RateLimitProvider` backed by
-  a Redis/Upstash-REST store (`src/lib/ratelimit/redis.ts`) is auto-registered at boot
-  (`src/instrumentation.ts`) when a remote provider is selected AND the store is wired.
+  a Redis/Upstash-REST store (`src/lib/ratelimit/redis.ts`) is built by the guard from
+  the environment when a remote provider is selected AND the store is wired — in
+  whichever bundle actually serves the request. (The `src/instrumentation.ts` boot
+  registration additionally covers single-process deployments; on Vercel it cannot
+  reach the routes' bundles — measured 2026-08-09, fixed in #53 — so it is a
+  convenience, never the mechanism.)
   Each check is a single **atomic** server-side Lua `EVAL` (fixed-window `INCR` +
   first-hit `PEXPIRE` + `PTTL`) — never a race-prone get-then-set — so every web replica
   shares one budget. It runs on the **web tier** and reads its own web-safe credentials
