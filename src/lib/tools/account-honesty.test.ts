@@ -45,9 +45,10 @@
  * in the copy walk today, and the honest reword when one wants to is to name
  * the object ("sign a PDF in seconds"), which reads better anyway.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { copyFiles, withoutComments } from "./copy-surface";
 
 const ROOT = process.cwd();
 
@@ -126,42 +127,6 @@ const FORBIDDEN = [
     pattern: /\byour account\b/i,
   },
 ] as const;
-
-/** Every user-facing source file whose text a visitor can read (same walk as
- *  pricing-honesty.test.ts and marketing-honesty.test.ts, so the guards can
- *  never cover different pages). */
-function copyFiles(): string[] {
-  const roots = [
-    path.join(ROOT, "src", "components", "sections"),
-    path.join(ROOT, "src", "app"),
-  ];
-  const out: string[] = [
-    path.join(ROOT, "src", "lib", "tools", "catalog.ts"),
-    path.join(ROOT, "src", "lib", "faq.ts"),
-    path.join(ROOT, "src", "lib", "site.ts"),
-  ];
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
-        out.push(full);
-    }
-  };
-  for (const dir of roots) if (statSync(dir).isDirectory()) walk(dir);
-  return out.filter((file) => {
-    try {
-      return statSync(file).isFile();
-    } catch {
-      return false;
-    }
-  });
-}
-
-/** Source with comments removed — a docblock citing the old defect is not a claim. */
-function withoutComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
-}
 
 describe("marketing copy does not invite a sign-in the product does not have", () => {
   it("reads the copy files, so a move cannot quietly empty this suite", () => {

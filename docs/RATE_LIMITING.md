@@ -126,8 +126,15 @@ removing.
 
 ## What this does not cover
 
-- The presigned R2 `PUT` does not bind `Content-Length`, so a client with a valid
-  slot can upload more bytes than it declared. Separate gap, separate fix.
 - These are per-client limits over fixed windows. They stop casual abuse and
   runaway scripts. They are not a defence against a distributed attack, which
   belongs at the edge/WAF layer.
+
+One gap previously listed here is closed: since **2026-08-06** the presigned R2
+`PUT` binds `Content-Length` — the signature covers the declared size, so a
+slot admits exactly the bytes it reserved and R2 refuses any other size with
+`403 SignatureDoesNotMatch`. Proven against production R2 before it shipped:
+declared 2048 → PUT 2048 accepted, PUT 6144 refused, PUT 1536 refused — exact
+in both directions. The enforcement and that measurement record live in
+`reserveUpload()` in `src/lib/workers/storage/s3.ts` (the signed
+`content-length` header), so check it there rather than trusting this page.
