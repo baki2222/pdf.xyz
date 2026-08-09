@@ -37,6 +37,7 @@ the rendered output stays content-free.
 | `lifecycle-drift.json` | A verified retention-backstop drift: the snapshot flags it and the `metrics` series carries the drifted-rule count, so the SLO breaches. | `critical` | `4` |
 | `scanner-unavailable-spike.json` | A malware scanner is selected but a spike of engaged scans could not complete (`worker_scan_total{verdict=error}` dominates), so the scanner-unavailable SLO breaches. | `critical` | `4` |
 | `no-config-development.json` | A development / disabled-mode context where nothing is configured and no worker is observable, so health is genuinely indeterminate. | `unknown` | `2` |
+| `rate-limit-fail-open.json` | Everything else is healthy, but the configured distributed rate limiter's store is failing and the guard is failing OPEN (`rateLimit.code: "remote-error-fail-open"`) — traffic passes unthrottled, so the abuse guard raises the documented alert. | `warn` | `3` |
 
 ## Exit-code contract
 

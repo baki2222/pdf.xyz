@@ -436,10 +436,14 @@ remote processing production-ready:
   (`PDFXYZ_RATE_LIMIT_REDIS_REST_URL` / `..._TOKEN`) and it auto-registers at boot, so a
   policy's budget is shared across the fleet. It is still **defense-in-depth**: a real
   **edge/WAF/CDN rate-limit rule** in front of the app remains the first line before a
-  high-traffic launch. Confirm status via the boot log or `resolveRateLimitStatus()`
-  (see [OBSERVABILITY.md](OBSERVABILITY.md)); a `remote-error-fail-open` status means the
-  store is unreachable and the guard is failing open (not enforcing) — investigate the
-  store, not the app.
+  high-traffic launch. Confirm status via the boot log, `resolveRateLimitStatus()`, or
+  `GET /api/worker/operations` — the snapshot carries a bounded `rateLimit` posture and
+  a `rate-limit` subsystem, and its `alerts` report (the same verdict
+  `pnpm worker:ops-check` exits on, and what the operator dashboard renders) raises
+  `rate-limit-fail-open` / `rate-limit-misconfigured` when the limiter is configured
+  but not enforcing (see [OBSERVABILITY.md](OBSERVABILITY.md)). A
+  `remote-error-fail-open` posture means the store is unreachable and the guard is
+  failing open (not enforcing) — investigate the store, not the app.
 - **Lifecycle-enforced deletion — generate + verify ship, applying is operator-owned.**
   The daemon can **generate** a retention policy
   (`pnpm worker:daemon --lifecycle-policy --provider=aws-s3|cloudflare-r2|minio|generic`)

@@ -11,11 +11,16 @@ import { describe, expect, it } from "vitest";
 import {
   cleanupEvidenceHealth,
   OPERATIONS_SNAPSHOT_VERSION,
+  rateLimitHealth,
+  rateLimitPostureForCode,
+  UNOBSERVED_RATE_LIMIT_POSTURE,
   type CleanupEvidenceReason,
   type CleanupEvidenceState,
   type DaemonLivenessState,
   type HealthClass,
   type RecommendedAction,
+  type SnapshotRateLimitCode,
+  type SnapshotRateLimitPosture,
   type SnapshotSubsystem,
   type SnapshotSubsystemId,
   type WorkerOperationsSnapshot,
@@ -51,6 +56,7 @@ interface SnapshotOverrides {
   drainable?: boolean;
   subsystems?: SnapshotSubsystem[];
   cleanupEvidence?: CleanupEvidencePosture;
+  rateLimit?: SnapshotRateLimitPosture;
   poisonProse?: boolean;
 }
 
@@ -85,6 +91,7 @@ function makeSnapshot(o: SnapshotOverrides = {}): WorkerOperationsSnapshot {
     proofs: { compressionDeep: "unknown", ocr: "unknown" },
     lifecycleVerification: { known: false, verdict: "unknown", health: "unknown", detail: prose },
     cleanupEvidence: o.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE,
+    rateLimit: o.rateLimit ?? UNOBSERVED_RATE_LIMIT_POSTURE,
     lastLoop: null,
   };
 }
@@ -547,5 +554,51 @@ describe("cleanup evidence alerting", () => {
     const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
     expect(alert?.detail.length).toBeGreaterThan(0);
     expect(alert?.detail).not.toContain(HOSTILE_LOCATOR_FIXTURE);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Abuse-guard rate limiting
+ * ------------------------------------------------------------------ */
+
+/** Build the overrides for a rate-limit posture + its derived subsystem. */
+function withRateLimit(code: SnapshotRateLimitCode): SnapshotOverrides {
+  return {
+    rateLimit: rateLimitPostureForCode(code),
+    subsystems: [sub("rate-limit", rateLimitHealth(code))],
+  };
+}
+
+describe("rate-limit alerting", () => {
+  it("a configured store failing OPEN warns (exit 3) with investigate-rate-limit-store", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withRateLimit("remote-error-fail-open")));
+    expect(report.severity).toBe("warn");
+    expect(exitCodeForSeverity(report.severity)).toBe(OPS_CHECK_EXIT.WARN);
+    const alert = report.alerts.find((a) => a.source === "rate-limit");
+    expect(alert?.reason).toBe("rate-limit-fail-open");
+    expect(alert?.action).toBe("investigate-rate-limit-store");
+    expect(alert?.detail).toBe(ALERT_ACTION_DETAIL["investigate-rate-limit-store"]);
+  });
+
+  it("a selected provider with an incomplete store config warns with fix-rate-limit-config", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withRateLimit("remote-missing-config")));
+    expect(report.severity).toBe("warn");
+    const alert = report.alerts.find((a) => a.source === "rate-limit");
+    expect(alert?.reason).toBe("rate-limit-misconfigured");
+    expect(alert?.action).toBe("fix-rate-limit-config");
+  });
+
+  it("enforcing states and the deliberate off-state add no alert (a quiet default stays quiet)", () => {
+    for (const code of ["disabled", "local-memory", "remote-configured"] as const) {
+      const report = evaluateOperationsAlerts(makeSnapshot(withRateLimit(code)));
+      expect(report.severity, code).toBe("ok");
+      expect(report.alerts.some((a) => a.source === "rate-limit"), code).toBe(false);
+    }
+  });
+
+  it("an unobservable posture (worker vantage) never pages", () => {
+    const report = evaluateOperationsAlerts(makeSnapshot(withRateLimit("unknown")));
+    expect(report.severity).toBe("ok");
+    expect(report.alerts.some((a) => a.source === "rate-limit")).toBe(false);
   });
 });

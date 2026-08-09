@@ -8,8 +8,10 @@ import {
   collectRuntimeOperationsSnapshot,
   collectWebOperationsSnapshot,
   engineHealthFromTools,
+  rateLimitPostureForCode,
   type CleanupEvidencePosture,
   type RuntimeSnapshotSource,
+  type SnapshotRateLimitCode,
 } from "./index";
 
 /** Build a content-free {@link HeartbeatLiveness} fixture for a given state. */
@@ -290,5 +292,95 @@ describe("worker operations snapshot — cleanup evidence (Phase 44)", () => {
     });
     expect(snap.cleanupEvidence.reason).toBe("cleanup_drift");
     expect(snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("warn");
+  });
+});
+
+describe("worker operations snapshot — abuse-guard rate-limit posture", () => {
+  const rateLimitSub = (snap: { subsystems: { id: string; health: string }[] }) =>
+    snap.subsystems.find((s) => s.id === "rate-limit");
+
+  it("the web collector resolves the posture itself: the quiet default reads disabled/ok", () => {
+    const snap = collectWebOperationsSnapshot({});
+    expect(snap.rateLimit.code).toBe("disabled");
+    expect(snap.rateLimit.enforced).toBe(false);
+    expect(rateLimitSub(snap)?.health).toBe("ok");
+  });
+
+  it("a valid remote store reads remote-configured/ok from the web env", () => {
+    const snap = collectWebOperationsSnapshot({
+      ...DRAINABLE_ENV,
+      PDFXYZ_RATE_LIMIT_PROVIDER: "redis",
+      PDFXYZ_RATE_LIMIT_REDIS_REST_URL: "https://example-store.upstash.io",
+      PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN: "A".repeat(48),
+    });
+    expect(snap.rateLimit.code).toBe("remote-configured");
+    expect(snap.rateLimit.enforced).toBe(true);
+    expect(snap.rateLimit.distributed).toBe(true);
+    expect(rateLimitSub(snap)?.health).toBe("ok");
+  });
+
+  it("a selected provider with no valid store is the alertable warn (configured, not enforcing)", () => {
+    const snap = collectWebOperationsSnapshot({
+      ...DRAINABLE_ENV,
+      PDFXYZ_RATE_LIMIT_PROVIDER: "redis",
+    });
+    expect(snap.rateLimit.code).toBe("remote-missing-config");
+    expect(snap.rateLimit.enforced).toBe(false);
+    expect(rateLimitSub(snap)?.health).toBe("warn");
+  });
+
+  it("a caller-supplied decision-refined posture (the route's fail-open) wins over the static read", () => {
+    const snap = collectWebOperationsSnapshot(
+      {
+        ...DRAINABLE_ENV,
+        PDFXYZ_RATE_LIMIT_PROVIDER: "redis",
+        PDFXYZ_RATE_LIMIT_REDIS_REST_URL: "https://example-store.upstash.io",
+        PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN: "A".repeat(48),
+      },
+      { rateLimit: rateLimitPostureForCode("remote-error-fail-open") },
+    );
+    expect(snap.rateLimit.code).toBe("remote-error-fail-open");
+    expect(snap.rateLimit.enforced).toBe(false);
+    expect(snap.rateLimit.distributed).toBe(true);
+    expect(rateLimitSub(snap)?.health).toBe("warn");
+  });
+
+  it("maps every posture code to its documented health class", () => {
+    const matrix: Array<[SnapshotRateLimitCode, string]> = [
+      ["disabled", "ok"],
+      ["local-memory", "ok"],
+      ["remote-configured", "ok"],
+      ["remote-missing-config", "warn"],
+      ["remote-error-fail-open", "warn"],
+      ["unknown", "unknown"],
+    ];
+    for (const [code, health] of matrix) {
+      const snap = collectWebOperationsSnapshot({}, { rateLimit: rateLimitPostureForCode(code) });
+      expect(snap.rateLimit.code, code).toBe(code);
+      expect(rateLimitSub(snap)?.health, code).toBe(health);
+    }
+  });
+
+  it("the worker vantage carries the honest unknown — never 'disabled' on no evidence", () => {
+    const runtime: RuntimeSnapshotSource = {
+      readiness: resolveDaemonReadiness(DRAINABLE_ENV),
+      deployment: resolveDeploymentReadiness(resolveDaemonReadiness(DRAINABLE_ENV), DRAINABLE_ENV, {}),
+      ocr: { enabled: false },
+      guardrails: { ok: true, strict: false, violations: [] },
+    };
+    const snap = collectRuntimeOperationsSnapshot(runtime);
+    expect(snap.rateLimit.code).toBe("unknown");
+    expect(rateLimitSub(snap)?.health).toBe("unknown");
+  });
+
+  it("never carries an environment variable name — unlike the ratelimit layer's own status", () => {
+    // The raw `RateLimitStatus` names env VARIABLES in `envVars`; the snapshot bans
+    // variable names, so the posture must be the reduced projection.
+    const snap = collectWebOperationsSnapshot({
+      PDFXYZ_RATE_LIMIT_PROVIDER: "redis",
+    });
+    const text = JSON.stringify(snap);
+    expect(text).not.toContain("PDFXYZ_RATE_LIMIT");
+    expect(text).not.toContain("envVars");
   });
 });

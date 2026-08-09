@@ -111,6 +111,11 @@ function buildResult(
         provider: snapshot.cleanupEvidence.provider,
         freshness: snapshot.cleanupEvidence.freshness,
       },
+      rateLimit: {
+        code: snapshot.rateLimit.code,
+        enforced: snapshot.rateLimit.enforced,
+        distributed: snapshot.rateLimit.distributed,
+      },
       lastLoop: snapshot.lastLoop,
     },
     slo: sloDigest(collected),

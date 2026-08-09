@@ -105,8 +105,13 @@ machine that is not about to need the service.
 **Enabling this cannot lock users out.** The fail mode defaults to `open`: if the
 Upstash store is unreachable or the credentials are wrong, the guard allows the
 request and records the degrade rather than refusing traffic. The worst outcome
-of a bad value is that rate limiting silently does nothing — which is exactly
-today's behaviour, and is why Step 4 is not optional.
+of a bad value is that rate limiting does nothing — and since 2026-08-09 that
+state is no longer silent: `GET /api/worker/operations` folds the guard's own
+posture into its snapshot and alert report, so a configured-but-not-enforcing
+limiter (`remote-missing-config`, or a live store failure surfacing as
+`remote-error-fail-open`) raises a warn on the operator dashboard and makes
+`pnpm worker:ops-check` exit `3`. That is monitoring, not proof of enforcement —
+Step 4 is still not optional.
 
 A wrong or partial configuration is also detected at boot: a remote provider
 selected with no valid store resolves to `unconfigured`, an honest skip, never

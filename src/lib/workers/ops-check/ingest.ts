@@ -31,6 +31,9 @@ import {
   HEALTH_SUMMARY,
   OPERATIONS_SNAPSHOT_VERSION,
   RECOMMENDED_ACTION_DETAIL,
+  rateLimitHealth,
+  rateLimitPostureForCode,
+  SNAPSHOT_RATE_LIMIT_CODES,
   SUBSYSTEM_LABEL,
   type HealthClass,
   type ProofAvailability,
@@ -38,6 +41,7 @@ import {
   type SnapshotDaemonLiveness,
   type SnapshotLifecycleVerification,
   type SnapshotLoopOutcome,
+  type SnapshotRateLimitPosture,
   type SnapshotSubsystem,
   type SnapshotSubsystemId,
   type SnapshotVantage,
@@ -153,6 +157,7 @@ const SUBSYSTEM_IDS = [
   "compression-engine",
   "ocr",
   "malware-scan",
+  "rate-limit",
   "lifecycle",
   "lifecycle-verification",
   "cleanup-evidence",
@@ -363,6 +368,21 @@ function normalizeProofs(raw: unknown): { compressionDeep: ProofAvailability; oc
 }
 
 /**
+ * Rebuild a content-free {@link SnapshotRateLimitPosture} from an untrusted value. Only the
+ * bounded `code` is read; `enforced`/`distributed`/`detail` are RECOMPUTED from it via
+ * {@link rateLimitPostureForCode} — never copied — so a forged `enforced: true` on a fail-open
+ * code, or a secret smuggled into `detail`, cannot survive ingestion. A missing/garbage posture
+ * yields the honest `unknown` (not observable from this evidence), NOT `disabled`: an absent
+ * field — e.g. a snapshot from a pre-rate-limit build — is no proof the operator chose off.
+ */
+function normalizeRateLimit(raw: unknown): SnapshotRateLimitPosture {
+  const code = isObject(raw)
+    ? (oneOf(raw.code, SNAPSHOT_RATE_LIMIT_CODES) ?? "unknown")
+    : "unknown";
+  return rateLimitPostureForCode(code);
+}
+
+/**
  * Rebuild a content-free {@link CleanupEvidencePosture} from an untrusted value (Phase 44). Each
  * field is validated against its bounded enum and defaulted safely; the detail is RE-AUTHORED from
  * {@link CLEANUP_EVIDENCE_DETAIL} by the resolved reason — never copied from the input — so a
@@ -416,19 +436,27 @@ export function normalizeOperationsSnapshot(
 
   const lifecycleVerification = normalizeLifecycleVerification(raw.lifecycleVerification);
   const cleanupEvidence = normalizeCleanupEvidence(raw.cleanupEvidence);
-  // Derive the cleanup-evidence subsystem from the normalized posture (health from state) and
-  // ensure it is present regardless of what the input's `subsystems` array carried — so a
-  // monitor-supplied snapshot's alert severity / exit code always reflects cleanup evidence,
-  // even if the input omitted or forged the subsystem entry.
+  const rateLimit = normalizeRateLimit(raw.rateLimit);
+  // Derive the cleanup-evidence and rate-limit subsystems from their normalized postures
+  // and ensure they are present regardless of what the input's `subsystems` array carried —
+  // so a monitor-supplied snapshot's alert severity / exit code always reflects them, even
+  // if the input omitted or forged the subsystem entries.
   const cleanupEvidenceHealthClass = cleanupEvidenceHealth(cleanupEvidence.state);
+  const rateLimitHealthClass = rateLimitHealth(rateLimit.code);
   const subsystems = normalizeSubsystems(raw.subsystems).filter(
-    (s) => s.id !== "cleanup-evidence",
+    (s) => s.id !== "cleanup-evidence" && s.id !== "rate-limit",
   );
   subsystems.push({
     id: "cleanup-evidence",
     label: SUBSYSTEM_LABEL["cleanup-evidence"],
     health: cleanupEvidenceHealthClass,
     detail: subsystemDetail("cleanup-evidence", cleanupEvidenceHealthClass),
+  });
+  subsystems.push({
+    id: "rate-limit",
+    label: SUBSYSTEM_LABEL["rate-limit"],
+    health: rateLimitHealthClass,
+    detail: subsystemDetail("rate-limit", rateLimitHealthClass),
   });
 
   const snapshot: WorkerOperationsSnapshot = {
@@ -447,6 +475,7 @@ export function normalizeOperationsSnapshot(
     proofs: normalizeProofs(raw.proofs),
     lifecycleVerification,
     cleanupEvidence,
+    rateLimit,
     lastLoop: normalizeLastLoop(raw.lastLoop),
   };
   return { ok: true, snapshot };

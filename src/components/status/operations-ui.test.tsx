@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
-import { collectWebOperationsSnapshot } from "@/lib/workers/observability";
+import {
+  collectWebOperationsSnapshot,
+  evaluateOperationsAlerts,
+} from "@/lib/workers/observability";
 import type { WorkerOperationsSnapshot } from "@/lib/workers/observability";
 import { OperationsSnapshotView, normalizeSnapshot } from "./operations-ui";
 
@@ -24,7 +27,7 @@ function makeSnapshot(
   overrides: Partial<WorkerOperationsSnapshot> = {},
 ): WorkerOperationsSnapshot {
   const base: WorkerOperationsSnapshot = {
-    version: 1,
+    version: 2,
     vantage: "web",
     mode: "disabled",
     drainable: false,
@@ -55,6 +58,12 @@ function makeSnapshot(
       freshness: "unknown",
       age: "unknown",
       reportKind: "none",
+      detail: "server-detail-should-not-render",
+    },
+    rateLimit: {
+      code: "unknown",
+      enforced: false,
+      distributed: false,
       detail: "server-detail-should-not-render",
     },
     lastLoop: null,
@@ -189,6 +198,36 @@ describe("OperationsSnapshotView — honest end-to-end states", () => {
     expect(screen.getAllByText("Blocked").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("renders a rate-limit fail-open snapshot: the warn tile and the alert reason chip", () => {
+    const snap = makeSnapshot({
+      drainable: true,
+      health: "ok",
+      rateLimit: {
+        code: "remote-error-fail-open",
+        enforced: false,
+        distributed: true,
+        detail: "server-detail-should-not-render",
+      },
+      subsystems: [{ id: "rate-limit", label: "x", health: "warn", detail: "x" }],
+    });
+    // Attach the alert report exactly as the route does, so the posture callout —
+    // the surface a monitor's verdict is rendered on — is exercised end to end.
+    const body = { ...snap, alerts: evaluateOperationsAlerts(snap) };
+    render(<OperationsSnapshotView snapshot={body as WorkerOperationsSnapshot} />);
+
+    // The subsystem tile renders (this pins SUBSYSTEM_ORDER, which no type forces)…
+    expect(screen.getByText("Rate limiting")).toBeInTheDocument();
+    expect(screen.getAllByText("Degraded").length).toBeGreaterThanOrEqual(1);
+    // …and the alert posture surfaces the bounded reason as client-authored copy.
+    expect(
+      screen.getByText(
+        "The rate limiter's store is failing and the guard is failing open (nothing throttles)",
+      ),
+    ).toBeInTheDocument();
+    // The server-authored posture detail never reaches the DOM.
+    expect(screen.queryByText("server-detail-should-not-render")).toBeNull();
+  });
+
   it("renders a lifecycle-drift snapshot: reconcile action + drift verdict", () => {
     render(
       <OperationsSnapshotView
@@ -298,7 +337,7 @@ describe("OperationsSnapshotView — healthy / unknown / disabled states", () =>
     const text = container.textContent ?? "";
     expect(text).toMatch(/Source: live, point-in-time/);
     expect(text).toMatch(/web-vantage/);
-    expect(text).toMatch(/schema v1/);
+    expect(text).toMatch(/schema v2/);
   });
 });
 

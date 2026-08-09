@@ -676,6 +676,30 @@ or endpoint:
 | `remote-configured` | Remote selected, store valid, provider registered — distributed enforcement. | yes (distributed) |
 | `remote-error-fail-open` | Configured, but the last request came back unenforced — the store is erroring and the guard is failing **open**. | no (alert!) |
 
+Since 2026-08-09 the posture also rides **inside the operations snapshot** rather
+than beside it, so the alert pipeline sees it end to end. `GET
+/api/worker/operations` folds the decision its own guard call already made (zero
+extra store commands — the endpoint is unauthenticated, so it deliberately never
+probes the store per call) into a bounded `rateLimit` field (`code` / `enforced` /
+`distributed` — no env-var names; the snapshot bans them) plus a `rate-limit`
+subsystem, and `evaluateOperationsAlerts` raises the two configured-but-NOT-
+enforcing codes as real alerts:
+
+| Posture code | Subsystem health | Alert reason | Alert action |
+| --- | --- | --- | --- |
+| `disabled` / `local-memory` / `remote-configured` | `ok` | — (quiet) | — |
+| `remote-missing-config` | `warn` | `rate-limit-misconfigured` | `fix-rate-limit-config` |
+| `remote-error-fail-open` | `warn` | `rate-limit-fail-open` | `investigate-rate-limit-store` |
+| not observable (worker/probe vantage, or an old snapshot) | `unknown` | — (never a page) | — |
+
+So the operator dashboard's alert posture, the subsystem grid, and `pnpm
+worker:ops-check` (exit `3` — see
+`docs/examples/observability/healthcheck/rate-limit-fail-open.json`) all surface a
+limiter that is configured and not throttling, without anyone having to know to
+read a raw field. A monitor keying on the snapshot's `alerts.severity` or the CLI
+exit code now catches it; `pdfxyz_ops_check_rate_limit{code,enforced}` carries the
+same posture as a Prometheus gauge.
+
 Confirming and monitoring, without any secret ever crossing the wire:
 
 - **At boot**, `src/instrumentation.ts` logs one content-free line — e.g.
@@ -692,9 +716,13 @@ Confirming and monitoring, without any secret ever crossing the wire:
   for i in $(seq 1 200); do curl -s -o /dev/null -w "%{http_code}\n" \
     https://<your-host>/api/worker/status; done | sort | uniq -c
   ```
-- **Alert** on a sustained `remote-error-fail-open` (fail-open: not enforcing) or, when
-  `PDFXYZ_RATE_LIMIT_FAIL_MODE=closed`, on a `429` spike on the guarded actions (a
-  fail-closed store outage sheds load as denials rather than surfacing as fail-open).
+- **Alert** on the `rate-limit-fail-open` / `rate-limit-misconfigured` alert reasons (or
+  simply on `alerts.severity` ≠ `ok` / a non-zero `worker:ops-check` exit) from
+  `GET /api/worker/operations` — the fold above makes `remote-error-fail-open`
+  reachable and monitored, not just documented. When
+  `PDFXYZ_RATE_LIMIT_FAIL_MODE=closed`, also alert on a `429` spike on the guarded
+  actions (a fail-closed store outage sheds load as denials rather than surfacing
+  as fail-open).
 
 ## Upload intake metrics and alerts
 

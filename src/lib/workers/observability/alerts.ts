@@ -84,6 +84,8 @@ export const ALERT_REASONS = [
   "engine-degraded",
   "ocr-unavailable",
   "scanner-unavailable",
+  "rate-limit-misconfigured",
+  "rate-limit-fail-open",
   "lifecycle-undeclared",
   "lifecycle-unverified",
   "lifecycle-drift",
@@ -130,6 +132,8 @@ export const ALERT_ACTIONS = [
   "investigate-retries", // retry-rate SLO warn/breach
   "reconcile-cleanup", // cleanup evidence report shows drift/breach
   "refresh-cleanup-evidence", // cleanup evidence report is stale/missing/unreadable/malformed
+  "fix-rate-limit-config", // a remote limiter is selected but its store config is incomplete
+  "investigate-rate-limit-store", // a configured limiter's store is erroring; guard failing open
   "monitor", // informational; nothing to fix, keep observing
 ] as const;
 export type AlertAction = (typeof ALERT_ACTIONS)[number];
@@ -157,6 +161,10 @@ const EXTRA_ACTION_DETAIL: Record<
     "A cleanup evidence report shows drift or a breach: an artifact is still present past its retention window + reap grace, or a positively should-be-gone object remains. Reconcile it out-of-band and confirm active deletion and the bucket lifecycle backstop are removing objects. This is a monitoring signal from an operator's own content-free report — never a claim the app deleted bytes.",
   "refresh-cleanup-evidence":
     "The configured cleanup evidence report is stale, missing, unreadable, or not a recognized content-free summary. Confirm the generating job (worker:cleanup-check / worker:artifact-cleanup) is running on schedule and that the monitor points at its JSON summary — never a raw provider export.",
+  "fix-rate-limit-config":
+    "A remote rate-limit provider is selected but its store configuration is missing or incomplete, so nothing is throttling despite the operator opting in. Fix the store configuration (see the rate-limiting runbook) or deliberately disable the provider.",
+  "investigate-rate-limit-store":
+    "The distributed rate limiter is configured, but the store is unreachable or erroring and the guard is failing OPEN — traffic is passing unthrottled right now. Investigate the store's health and quota; the app itself needs no fix.",
   monitor:
     "No fix is required right now; this is informational. Keep the monitor in place so a change is caught.",
 };
@@ -339,6 +347,14 @@ function subsystemReasonAction(
       return { reason: "ocr-unavailable", action: "install-ocr-engine" };
     case "malware-scan":
       return { reason: "scanner-unavailable", action: "fix-scanner" };
+    case "rate-limit":
+      // Only reachable on a warn health, i.e. one of the two configured-but-NOT-
+      // enforcing codes. The posture disambiguates which, so the alert and the
+      // posture can never disagree: a failing store is investigated, a missing
+      // config is fixed.
+      return snapshot.rateLimit.code === "remote-error-fail-open"
+        ? { reason: "rate-limit-fail-open", action: "investigate-rate-limit-store" }
+        : { reason: "rate-limit-misconfigured", action: "fix-rate-limit-config" };
     case "lifecycle":
       // undeclared (warn, no backstop) vs declared-but-unverified vs invalid (blocked).
       if (snapshot.recommendedAction === "declare-lifecycle") {

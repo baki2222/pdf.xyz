@@ -51,11 +51,16 @@ describe("normalizeOperationsSnapshot — valid input", () => {
     expect(r.snapshot.daemon.source).toBe("queue-broker");
     expect(r.snapshot.daemon.lastSeen).toBe("under-30s");
     expect(r.snapshot.daemonObserved).toBe(true);
-    // The cleanup-evidence subsystem is always surfaced (derived from the posture), so a
-    // monitor-supplied snapshot's exit code always reflects cleanup evidence (Phase 44).
-    expect(r.snapshot.subsystems.map((s) => s.id)).toEqual(["storage", "queue", "cleanup-evidence"]);
+    // The cleanup-evidence and rate-limit subsystems are always surfaced (derived from
+    // their postures), so a monitor-supplied snapshot's exit code always reflects them.
+    expect(r.snapshot.subsystems.map((s) => s.id)).toEqual([
+      "storage",
+      "queue",
+      "cleanup-evidence",
+      "rate-limit",
+    ]);
     expect(r.snapshot.proofs).toEqual({ compressionDeep: "available", ocr: "unavailable" });
-    expect(r.snapshot.version).toBe(1);
+    expect(r.snapshot.version).toBe(2);
   });
 
   it("round-trips a real web snapshot through JSON with enums intact", () => {
@@ -105,7 +110,11 @@ describe("normalizeOperationsSnapshot — valid input", () => {
     expect(r.snapshot.daemon.lastSeen).toBeNull();
     expect(r.snapshot.daemon.mode).toBeNull();
     expect(r.snapshot.proofs.compressionDeep).toBe("unknown"); // defaulted
-    expect(r.snapshot.subsystems.map((s) => s.id)).toEqual(["storage", "cleanup-evidence"]);
+    expect(r.snapshot.subsystems.map((s) => s.id)).toEqual([
+      "storage",
+      "cleanup-evidence",
+      "rate-limit",
+    ]);
     expect(r.snapshot.subsystems[0]?.health).toBe("warn");
   });
 
@@ -264,7 +273,12 @@ describe("no-leak sanitization — end to end", () => {
     expect(serialized).not.toContain("hostileExtra");
     // The validated enums still made it through.
     expect(r.value.snapshot.daemon.state).toBe("stale");
-    expect(r.value.snapshot.subsystems.map((s) => s.id)).toEqual(["storage", "malware-scan", "cleanup-evidence"]);
+    expect(r.value.snapshot.subsystems.map((s) => s.id)).toEqual([
+      "storage",
+      "malware-scan",
+      "cleanup-evidence",
+      "rate-limit",
+    ]);
   });
 });
 
@@ -321,5 +335,74 @@ describe("normalizeOperationsSnapshot — cleanup evidence (Phase 44)", () => {
     const subs = r.snapshot.subsystems.filter((s) => s.id === "cleanup-evidence");
     expect(subs).toHaveLength(1);
     expect(subs[0]?.health).toBe("blocked");
+  });
+});
+
+describe("normalizeOperationsSnapshot — abuse-guard rate limit", () => {
+  it("defaults to the honest unknown when absent — an old snapshot proves nothing about the guard", () => {
+    const r = normalizeOperationsSnapshot(validSnapshot());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.snapshot.rateLimit.code).toBe("unknown");
+    expect(r.snapshot.subsystems.find((s) => s.id === "rate-limit")?.health).toBe("unknown");
+  });
+
+  it("rebuilds a supplied posture from its code and derives the subsystem health", () => {
+    const r = normalizeOperationsSnapshot(
+      validSnapshot({ rateLimit: { code: "remote-error-fail-open" } }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.snapshot.rateLimit.code).toBe("remote-error-fail-open");
+    expect(r.snapshot.rateLimit.enforced).toBe(false);
+    expect(r.snapshot.rateLimit.distributed).toBe(true);
+    expect(r.snapshot.subsystems.find((s) => s.id === "rate-limit")?.health).toBe("warn");
+  });
+
+  it("recomputes enforced/distributed from the code — a forged enforced:true cannot survive", () => {
+    const r = normalizeOperationsSnapshot(
+      validSnapshot({
+        rateLimit: { code: "remote-error-fail-open", enforced: true, distributed: false },
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.snapshot.rateLimit.enforced).toBe(false);
+    expect(r.snapshot.rateLimit.distributed).toBe(true);
+  });
+
+  it("re-authors the detail — a hostile string in the posture is never echoed", () => {
+    const r = normalizeOperationsSnapshot(
+      validSnapshot({
+        rateLimit: { code: "remote-missing-config", detail: HOSTILE_LOCATOR_FIXTURE },
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(JSON.stringify(r.snapshot)).not.toContain(HOSTILE_LOCATOR_FIXTURE);
+    expect(r.snapshot.rateLimit.detail.length).toBeGreaterThan(0);
+  });
+
+  it("treats a garbage code as unknown, never as a fabricated posture", () => {
+    const r = normalizeOperationsSnapshot(
+      validSnapshot({ rateLimit: { code: "root-mode-engaged" } }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.snapshot.rateLimit.code).toBe("unknown");
+  });
+
+  it("derives the subsystem from the posture even if the input forged the subsystem entry", () => {
+    const r = normalizeOperationsSnapshot(
+      validSnapshot({
+        subsystems: [{ id: "rate-limit", health: "ok" }],
+        rateLimit: { code: "remote-error-fail-open" },
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const subs = r.snapshot.subsystems.filter((s) => s.id === "rate-limit");
+    expect(subs).toHaveLength(1);
+    expect(subs[0]?.health).toBe("warn");
   });
 });
