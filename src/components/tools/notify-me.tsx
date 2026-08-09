@@ -4,7 +4,6 @@ import { useState } from "react";
 import { BellRing, Check } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { isTelemetryEnabled } from "@/lib/telemetry/config";
 import { track } from "@/lib/telemetry/track";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
@@ -12,17 +11,23 @@ import { getToolBySlug } from "@/lib/tools";
 /**
  * "Tell me when this ships", for a tool that is not enabled in this deployment.
  *
- * There is still no waitlist backend and this collects nothing about the person
- * clicking — no address, no identifier, no per-visitor record. What it does now
- * emit is one bounded product event naming the tool, because the click is the
- * only signal that separates *traffic* on a gated tool page from *demand* for
- * the tool, and without it there is no basis for choosing which gated tool to
- * unblock first.
+ * The click is an act of communication — the one signal that separates
+ * *traffic* on a gated tool page from *demand* for the tool — and since the
+ * interest counter shipped it is treated as exactly that: pressing the button
+ * sends `POST /api/interest` carrying the tool's slug and nothing else, which
+ * adds one to a per-tool count (`/privacy` §4 discloses this in the same
+ * words). The disclosure line under the button is load-bearing: the user must
+ * know what pressing sends BEFORE they press, in plain sight — not behind a
+ * hover or a link — because the whole distinction between a request and
+ * analytics is that the person knowingly made it.
  *
- * The acknowledgement tells the truth about what just happened, which depends
- * on whether this build actually has a telemetry destination configured. With
- * none — the default — the event is dropped on-device and nothing leaves at
- * all, so it says so.
+ * The beacon is fire-and-forget (`keepalive`, errors swallowed): it must
+ * never delay, block, or change what the user sees. There is still no
+ * waitlist backend and no way to actually notify anyone — the copy promises
+ * only what exists: the ask was counted.
+ *
+ * The dev-only `track()` event keeps its extra capability dimension for local
+ * console visibility; the beacon deliberately carries the slug alone.
  */
 export function NotifyMe({
   toolName,
@@ -47,31 +52,44 @@ export function NotifyMe({
         )}
       >
         <Check className="size-4 shrink-0" aria-hidden />
-        Noted — the {toolName} waitlist opens when the secure worker ships.
-        {isTelemetryEnabled()
-          ? " Only the tool name was counted; nothing about you or your files."
+        Noted — one more ask for {toolName} counted.
+        {tool
+          ? " Only the tool's name was sent; nothing about you or your files."
           : " Nothing was sent from your device."}
       </p>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (tool) {
-          track({
-            name: "gated_tool_interest",
-            toolSlug,
-            capability: capabilityForMode(tool.processing),
-          });
-        }
-        setAcknowledged(true);
-      }}
-      className={buttonVariants({ variant: "secondary", size: "sm" })}
-    >
-      <BellRing className="size-4" aria-hidden />
-      Notify me when this ships
-    </button>
+    <div className="flex flex-col items-start gap-1.5">
+      <button
+        type="button"
+        onClick={() => {
+          if (tool) {
+            // The beacon: the slug, nothing else. Fire-and-forget — a failed
+            // count must never surface to the person asking.
+            void fetch("/api/interest", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ slug: tool.slug }),
+              keepalive: true,
+            }).catch(() => {});
+            track({
+              name: "gated_tool_interest",
+              toolSlug,
+              capability: capabilityForMode(tool.processing),
+            });
+          }
+          setAcknowledged(true);
+        }}
+        className={buttonVariants({ variant: "secondary", size: "sm" })}
+      >
+        <BellRing className="size-4" aria-hidden />
+        Notify me when this ships
+      </button>
+      <p className="text-xs leading-relaxed text-slate-400">
+        Pressing it sends us the tool&apos;s name — nothing about you.
+      </p>
+    </div>
   );
 }

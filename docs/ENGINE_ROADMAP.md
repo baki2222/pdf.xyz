@@ -993,7 +993,8 @@ plug in; they do not provision or fake them.
 
 Phase 33 adds an honest, provider-neutral **abuse guard** (`src/lib/ratelimit`) in front
 of every public API route: typed per-action policies (`uploads.create`, `jobs.create`,
-`jobs.status`, `jobs.delete`, `artifacts.fetch`, `worker.status`, `worker.operations`),
+`jobs.status`, `jobs.delete`, `artifacts.fetch`, `worker.status`, `worker.operations`,
+and later `interest.note`),
 a privacy-safe salted-hash client key that never retains a raw address, and a
 **content-free** decision. On deny it returns `429 rate_limited` with `Retry-After` +
 `RateLimit-*` headers whose values derive only from the policy and clock. It is **off by

@@ -34,7 +34,8 @@ export type RateLimitAction =
   | "jobs.delete" // DELETE /api/jobs/[id] — cancel / delete-now
   | "artifacts.fetch" // GET /api/artifacts/local/[id] — download a dev output
   | "worker.status" // GET /api/worker/status — presence probe
-  | "worker.operations"; // GET /api/worker/operations — ops/SLO snapshot
+  | "worker.operations" // GET /api/worker/operations — ops/SLO snapshot
+  | "interest.note"; // POST /api/interest — count a gated-tool "notify me" click
 
 /** Every action, in a stable order, for exhaustive iteration in tests/docs. */
 export const RATE_LIMIT_ACTIONS = [
@@ -45,6 +46,7 @@ export const RATE_LIMIT_ACTIONS = [
   "artifacts.fetch",
   "worker.status",
   "worker.operations",
+  "interest.note",
 ] as const satisfies readonly RateLimitAction[];
 
 /**

@@ -724,6 +724,35 @@ Confirming and monitoring, without any secret ever crossing the wire:
   actions (a fail-closed store outage sheds load as denials rather than surfacing
   as fail-open).
 
+### Gated-tool interest counter
+
+The one product signal that leaves a device, because the user sends it: pressing
+"Notify me" on an unbuilt tool POSTs `{ slug }` to `/api/interest`, which
+validates the slug against the compiled catalogue and runs one `INCR` on
+`{prefix}:interest:{slug}` in the web-tier rate-limit store. That is the whole
+schema — a slug and a number. No identifier, no timestamp-per-click, no second
+dimension (adding one is an owner decision, not a code change). `/privacy` §4
+discloses it in exactly those terms, and `interest-disclosure.test.ts` fails the
+build if the capability exists without the disclosure (or the disclosure without
+the capability's context).
+
+Operationally:
+
+- The endpoint is guarded (`interest.note`, 30/hour per client bucket) and can
+  only ever write catalogue-slug keys — it is not an amplifier and cannot write
+  an arbitrary key.
+- The write **fails open and silent to the user** (202 regardless of store
+  state) but **never silently to the operator**: a store failure emits the same
+  throttled, content-free line the abuse guard uses —
+  `[pdf.xyz] tool-interest counter FAILING OPEN (store-error) — clicks are not
+  being counted` — at most once a minute per instance. Alert on it like the
+  guard's line; a counter that quietly stops counting is the defect class this
+  repo exists to kill.
+- Read it back with **`pnpm interest:report`** (the same two
+  `PDFXYZ_RATE_LIMIT_REDIS_REST_*` variables the limiter uses): one MGET over
+  the known catalogue keys — never a SCAN — printed as slug → count, sorted by
+  demand.
+
 ## Upload intake metrics and alerts
 
 Phase 35 intake rejections are safe to count by stable code (`invalid_upload_request`, `unsupported_file_type`, `too_many_files`, `file_too_large`, `request_too_large`, `malformed_pdf`) and optional positional index/limit buckets. Do not attach filenames, object keys, signed URLs, request bodies, content bytes, scanner signatures, or raw client identity. A spike in `file_too_large` or `request_too_large` usually indicates client-side declaration drift or a limit change; a spike in `malformed_pdf` means optional envelope sniffing is rejecting files and does not prove malware or sanitization outcomes.

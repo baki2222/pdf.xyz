@@ -238,6 +238,16 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="font-semibold text-white">
+              One thing you can choose to send us.
+            </strong>{" "}
+            Some tools in our catalogue are not built yet. If you press
+            &ldquo;Notify me&rdquo; on one, that tells us which tool you wanted
+            — the tool&apos;s name, and nothing else. No identifier, no time,
+            nothing about you or your device. We add one to a count so we know
+            what to build next. Pressing nothing sends nothing.
+          </li>
+          <li>
+            <strong className="font-semibold text-white">
               Page-performance and error reports, only if we switch them on.
             </strong>{" "}
             There is one optional channel for load-speed measurements and crash

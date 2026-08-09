@@ -27,8 +27,8 @@ describe("retryAfterBucket", () => {
 });
 
 describe("RATE_LIMIT_ACTIONS", () => {
-  it("has the seven guarded actions, unique and stable", () => {
-    expect(RATE_LIMIT_ACTIONS).toHaveLength(7);
-    expect(new Set(RATE_LIMIT_ACTIONS).size).toBe(7);
+  it("has the eight guarded actions, unique and stable", () => {
+    expect(RATE_LIMIT_ACTIONS).toHaveLength(8);
+    expect(new Set(RATE_LIMIT_ACTIONS).size).toBe(8);
   });
 });

@@ -251,7 +251,7 @@ secret manager or out-of-band deploy tooling, never by committing real values.
 The public API ships an in-app **abuse guard** (`src/lib/ratelimit`) with typed
 per-action policies for every route (`uploads.create`, `jobs.create`,
 `jobs.status`, `jobs.delete`, `artifacts.fetch`, `worker.status`,
-`worker.operations`). On deny it returns `429 rate_limited` with `Retry-After` and
+`worker.operations`, `interest.note`). On deny it returns `429 rate_limited` with `Retry-After` and
 standard `RateLimit-*` headers (all derived from the policy + clock, never the
 caller). It is **defense-in-depth behind the edge, not the primary control.**
 
