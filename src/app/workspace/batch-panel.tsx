@@ -64,7 +64,10 @@ function statusContent(
       return {
         tone: "worker",
         title: "Runs on a secure worker",
-        body: `${name} needs an encrypted worker that isn't enabled in this environment yet. See exactly what will happen to your files first.`,
+        // Says what is TRUE from here (this tool uploads; the batch path is
+        // browser-only) instead of asserting the worker is off, which this
+        // component cannot observe — see the optgroup comment below.
+        body: `${name} runs on an encrypted worker, so your file is uploaded rather than processed on your device. Open the tool to see exactly what happens to your files first.`,
       };
     default:
       return {
@@ -108,6 +111,12 @@ export function BatchPanel({
   const bySlug = useMemo(() => indexSummaries(summaries), [summaries]);
   const fileById = useMemo(() => new Map(files.map((f) => [f.id, f])), [files]);
 
+  // `live` means "has an in-browser runner", which is NOT the same question as
+  // "runs entirely in your browser" — that mismatch is what put an uploading
+  // tool under a never-leaves-your-device promise on /status. It is currently
+  // true here only because the batch path really is browser-local (the hybrid
+  // compress runner is lossless-in-browser only). A future non-client tool that
+  // gains a runner lands in this group silently.
   const liveTools = useMemo(() => summaries.filter((s) => s.live), [summaries]);
   const workerTools = useMemo(
     () => summaries.filter((s) => !s.live && s.uploadsFiles),
@@ -167,7 +176,19 @@ export function BatchPanel({
               </option>
             ))}
           </optgroup>
-          <optgroup label="Secure worker · not enabled here">
+          {/*
+            "Secure worker" states WHERE the tool runs — a catalogue fact this
+            component has. It deliberately no longer says "not enabled here":
+            the predicate behind this list (`!s.live && s.uploadsFiles`) is two
+            static catalogue lookups and never observes the environment, while
+            the worker IS enabled on this deployment. Twenty tools were labelled
+            "not enabled" at the exact moment a user picks one — and picking one
+            uploads their file, so a reader could reasonably conclude nothing
+            would leave their machine. A label may not claim an environment
+            state its predicate cannot see; the enablement question belongs to
+            the live worker status this component does not fetch.
+          */}
+          <optgroup label="Secure worker · your file is uploaded">
             {workerTools.map((t) => (
               <option key={t.slug} value={t.slug}>
                 {t.name}

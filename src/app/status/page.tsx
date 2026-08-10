@@ -108,9 +108,15 @@ export default function StatusPage() {
             })}
           </div>
           <p className="text-xs leading-relaxed text-slate-400">
-            Secure-worker, hybrid, and AI tools show an honest,
-            implementation-ready preview until their backend is enabled —
-            pdf.xyz never fakes processing in the browser. See the{" "}
+            {/* Was: "show an honest, implementation-ready preview until their
+                backend is enabled" — false for all 21. Every server and AI slug
+                has a dedicated worker panel and the one hybrid tool renders the
+                interactive workbench, so a reader was told a live page was
+                inert. The true part is the one worth keeping: nothing is faked
+                locally. */}
+            Secure-worker, hybrid, and AI tools upload your file to an encrypted
+            worker and tell you so before you run them — pdf.xyz never fakes
+            processing in the browser. See the{" "}
             <span className="text-slate-400">
               worker architecture and security docs
             </span>{" "}
