@@ -72,7 +72,9 @@ describe("sanitizeDisplayFilename", () => {
     expect(out).toBe("annexefdp.exe");
     expect(out).not.toContain(RLO);
     // Zero-width space and BOM are removed with no placeholder.
-    expect(sanitizeDisplayFilename("in" + ZWSP + "voice.pdf")).toBe("invoice.pdf");
+    expect(sanitizeDisplayFilename("in" + ZWSP + "voice.pdf")).toBe(
+      "invoice.pdf",
+    );
     expect(sanitizeDisplayFilename(BOM + "report.pdf")).toBe("report.pdf");
     // A name of only invisible format characters collapses to the fallback.
     expect(sanitizeDisplayFilename(ZWSP + BOM + RLO)).toBe("document");
@@ -146,7 +148,9 @@ describe("sanitizeDisplayFilename", () => {
   });
 
   it("honors a custom fallback stem and max length", () => {
-    expect(sanitizeDisplayFilename("", { fallbackStem: "input" })).toBe("input");
+    expect(sanitizeDisplayFilename("", { fallbackStem: "input" })).toBe(
+      "input",
+    );
     const out = sanitizeDisplayFilename("longname.pdf", { maxLength: 8 });
     expect(out.length).toBeLessThanOrEqual(8);
     expect(out.endsWith(".pdf")).toBe(true);

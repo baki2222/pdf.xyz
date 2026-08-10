@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createThumbnailRenderer, type ThumbnailRenderer } from "@/lib/pdf/render";
+import {
+  createThumbnailRenderer,
+  type ThumbnailRenderer,
+} from "@/lib/pdf/render";
 import { clampPixelRatio, type Thumbnail } from "@/lib/pdf/render-utils";
 
 export type ThumbnailStatus = "idle" | "rendering" | "done" | "error";
@@ -115,7 +118,10 @@ export function usePdfThumbnails(
           const index = queue.shift()!;
           const isEager = index < eagerCount;
           const thumb = renderer
-            ? await renderer.renderPage(index, { pixelRatio, signal: controller.signal })
+            ? await renderer.renderPage(index, {
+                pixelRatio,
+                signal: controller.signal,
+              })
             : null;
           if (thumb) write(thumb);
           // Count every eager page we *attempt*, so a single failed page can't

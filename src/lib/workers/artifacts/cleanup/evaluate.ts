@@ -249,7 +249,8 @@ export function evaluateArtifactInventory(
     categories[category] += 1;
     severities[severity] += 1;
     verdict = worseSeverity(verdict, severity);
-    if (CLEANUP_ACTION_BY_CATEGORY[category] === "delete") cleanupRecommended += 1;
+    if (CLEANUP_ACTION_BY_CATEGORY[category] === "delete")
+      cleanupRecommended += 1;
 
     providers[record.provider] += 1;
     kinds[record.kind] += 1;

@@ -73,8 +73,7 @@ export interface ApiResult<T> {
  * fully-formed error result ready to return to the client.
  */
 export type ParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: ApiResult<ApiError> };
+  { ok: true; value: T } | { ok: false; error: ApiResult<ApiError> };
 
 /** In-repo pointer to the endpoint contract. Honest and stable. */
 export const CONTRACT_DOCS = "docs/WORKER_ARCHITECTURE.md";

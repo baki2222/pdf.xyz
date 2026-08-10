@@ -54,7 +54,10 @@ export interface PlacedField {
 /** Inspect a PDF's page geometry; throws on an unreadable PDF. */
 export type PdfInspector = (bytes: Uint8Array) => Promise<PdfGeometry>;
 /** Add the named fillable fields and return the prepared PDF bytes; throws on failure. */
-export type PdfFieldPlacer = (bytes: Uint8Array, fields: PlacedField[]) => Promise<Uint8Array>;
+export type PdfFieldPlacer = (
+  bytes: Uint8Array,
+  fields: PlacedField[],
+) => Promise<Uint8Array>;
 /** Hash bytes to a lowercase hex SHA-256 string. */
 export type Sha256Hex = (bytes: Uint8Array) => Promise<string>;
 
@@ -100,7 +103,12 @@ export type SignatureRequestRun =
     }
   | {
       ok: false;
-      kind: "unsupported" | "invalid_request" | "too_large" | "delivery_unconfigured" | "failed";
+      kind:
+        | "unsupported"
+        | "invalid_request"
+        | "too_large"
+        | "delivery_unconfigured"
+        | "failed";
       limitBytes?: number;
       message: string;
     };
@@ -124,7 +132,11 @@ async function defaultDigest(bytes: Uint8Array): Promise<string> {
 }
 
 /** Build a unique, viewer-safe AcroForm field name (no dots — pdf-lib treats them as hierarchy). */
-function fieldName(signerOrder: number, type: RequestSignatureFieldType, seq: number): string {
+function fieldName(
+  signerOrder: number,
+  type: RequestSignatureFieldType,
+  seq: number,
+): string {
   return `Signer${signerOrder}-${FIELD_TYPE_LABEL[type]}-${seq}`;
 }
 
@@ -146,7 +158,8 @@ export async function runSignatureRequest(
     return {
       ok: false,
       kind: "unsupported",
-      message: "Signature request preparation requires the PDF form preparer, which is not available in this environment.",
+      message:
+        "Signature request preparation requires the PDF form preparer, which is not available in this environment.",
     };
   }
 
@@ -212,7 +225,12 @@ export async function runSignatureRequest(
         type: field.type,
         page: field.page,
         required: field.required,
-        rect: { x: field.x, y: field.y, width: field.width, height: field.height },
+        rect: {
+          x: field.x,
+          y: field.y,
+          width: field.width,
+          height: field.height,
+        },
         ...(field.label !== undefined ? { label: field.label } : {}),
       });
     }
@@ -228,14 +246,20 @@ export async function runSignatureRequest(
     for (let i = 0; i < options.signers.length; i += 1) {
       const signer = options.signers[i]!;
       const token = (
-        await digest(new TextEncoder().encode(`${documentSha256}:${i + 1}:${signer.email}`))
+        await digest(
+          new TextEncoder().encode(
+            `${documentSha256}:${i + 1}:${signer.email}`,
+          ),
+        )
       ).slice(0, 32);
       signers.push({
         order: i + 1,
         name: signer.name,
         email: signer.email,
         token,
-        fields: manifestFields.filter((f) => f.signer === i + 1).map((f) => f.name),
+        fields: manifestFields
+          .filter((f) => f.signer === i + 1)
+          .map((f) => f.name),
       });
     }
 
@@ -346,7 +370,12 @@ interface ManifestSigner {
 
 type ManifestDelivery =
   | { mode: "manual"; status: "not_delivered"; detail: string }
-  | { mode: "provider"; provider: string; status: "handed_off"; detail: string };
+  | {
+      mode: "provider";
+      provider: string;
+      status: "handed_off";
+      detail: string;
+    };
 
 interface RequestManifest {
   schema: string;
@@ -394,20 +423,32 @@ function renderReadme(manifest: RequestManifest): string {
   lines.push("");
   lines.push("Signers (in order):");
   for (const signer of manifest.signers) {
-    lines.push(`  ${signer.order}. ${signer.name} <${signer.email}> — fields: ${signer.fields.join(", ")}`);
+    lines.push(
+      `  ${signer.order}. ${signer.name} <${signer.email}> — fields: ${signer.fields.join(", ")}`,
+    );
   }
   lines.push("");
   lines.push("Contents:");
-  lines.push("  prepared.pdf     The document with real, named fillable fields for each signer.");
-  lines.push("  manifest.json    A structured record of the request (signers, fields, routing).");
-  lines.push("  audit-trail.json The request's audit trail — one 'request.prepared' event.");
+  lines.push(
+    "  prepared.pdf     The document with real, named fillable fields for each signer.",
+  );
+  lines.push(
+    "  manifest.json    A structured record of the request (signers, fields, routing).",
+  );
+  lines.push(
+    "  audit-trail.json The request's audit trail — one 'request.prepared' event.",
+  );
   lines.push("");
   lines.push("HONEST SCOPE:");
   lines.push("  " + manifest.notice);
   lines.push("  " + manifest.delivery.detail);
   lines.push("");
-  lines.push("To complete the signatures, open prepared.pdf and fill each signer's fields");
-  lines.push("(use the pdf.xyz Sign PDF tool or any PDF viewer that supports form fields).");
+  lines.push(
+    "To complete the signatures, open prepared.pdf and fill each signer's fields",
+  );
+  lines.push(
+    "(use the pdf.xyz Sign PDF tool or any PDF viewer that supports form fields).",
+  );
   return lines.join("\n");
 }
 

@@ -10,8 +10,14 @@
       "unit": "ratio",
       "slo": "job_success_rate",
       "series": [
-        { "metric": "worker_job_terminal_total", "labels": { "outcome": "completed" } },
-        { "metric": "worker_job_terminal_total", "labels": { "outcome": "failed" } }
+        {
+          "metric": "worker_job_terminal_total",
+          "labels": { "outcome": "completed" }
+        },
+        {
+          "metric": "worker_job_terminal_total",
+          "labels": { "outcome": "failed" }
+        }
       ],
       "note": "completed / (completed + failed); canceled is user-initiated and excluded."
     },
@@ -22,10 +28,22 @@
       "unit": "ratio",
       "slo": "job_success_rate_compress",
       "series": [
-        { "metric": "worker_processor_total", "labels": { "processor": "compress", "outcome": "completed" } },
-        { "metric": "worker_processor_total", "labels": { "processor": "compress", "outcome": "failed" } },
-        { "metric": "worker_processor_total", "labels": { "processor": "ocr", "outcome": "completed" } },
-        { "metric": "worker_processor_total", "labels": { "processor": "ocr", "outcome": "failed" } }
+        {
+          "metric": "worker_processor_total",
+          "labels": { "processor": "compress", "outcome": "completed" }
+        },
+        {
+          "metric": "worker_processor_total",
+          "labels": { "processor": "compress", "outcome": "failed" }
+        },
+        {
+          "metric": "worker_processor_total",
+          "labels": { "processor": "ocr", "outcome": "completed" }
+        },
+        {
+          "metric": "worker_processor_total",
+          "labels": { "processor": "ocr", "outcome": "failed" }
+        }
       ]
     },
     {
@@ -35,8 +53,14 @@
       "unit": "seconds",
       "slo": "processor_latency_p95",
       "series": [
-        { "metric": "worker_processor_latency_seconds", "labels": { "processor": "compress" } },
-        { "metric": "worker_processor_latency_seconds", "labels": { "processor": "ocr" } }
+        {
+          "metric": "worker_processor_latency_seconds",
+          "labels": { "processor": "compress" }
+        },
+        {
+          "metric": "worker_processor_latency_seconds",
+          "labels": { "processor": "ocr" }
+        }
       ],
       "note": "Prometheus-style le buckets; p95/p99 resolve to a bucket upper bound, not an exact value."
     },
@@ -90,11 +114,26 @@
       "unit": "count",
       "slo": "scanner_unavailable_rate",
       "series": [
-        { "metric": "worker_scan_total", "labels": { "verdict": "clean", "scanned": "true" } },
-        { "metric": "worker_scan_total", "labels": { "verdict": "infected", "scanned": "true" } },
-        { "metric": "worker_scan_total", "labels": { "verdict": "error", "scanned": "false" } },
-        { "metric": "worker_scan_total", "labels": { "verdict": "invalid", "scanned": "false" } },
-        { "metric": "worker_scan_total", "labels": { "verdict": "skipped", "scanned": "false" } }
+        {
+          "metric": "worker_scan_total",
+          "labels": { "verdict": "clean", "scanned": "true" }
+        },
+        {
+          "metric": "worker_scan_total",
+          "labels": { "verdict": "infected", "scanned": "true" }
+        },
+        {
+          "metric": "worker_scan_total",
+          "labels": { "verdict": "error", "scanned": "false" }
+        },
+        {
+          "metric": "worker_scan_total",
+          "labels": { "verdict": "invalid", "scanned": "false" }
+        },
+        {
+          "metric": "worker_scan_total",
+          "labels": { "verdict": "skipped", "scanned": "false" }
+        }
       ],
       "note": "Verdict category and the honesty bit only; never a signature, filename, or byte."
     },
@@ -104,11 +143,26 @@
       "type": "timeseries",
       "unit": "count",
       "series": [
-        { "metric": "worker_storage_ops_total", "labels": { "op": "read", "result": "success" } },
-        { "metric": "worker_storage_ops_total", "labels": { "op": "read", "result": "missing" } },
-        { "metric": "worker_storage_ops_total", "labels": { "op": "write", "result": "success" } },
-        { "metric": "worker_storage_ops_total", "labels": { "op": "write", "result": "failure" } },
-        { "metric": "worker_storage_ops_total", "labels": { "op": "delete", "result": "success" } }
+        {
+          "metric": "worker_storage_ops_total",
+          "labels": { "op": "read", "result": "success" }
+        },
+        {
+          "metric": "worker_storage_ops_total",
+          "labels": { "op": "read", "result": "missing" }
+        },
+        {
+          "metric": "worker_storage_ops_total",
+          "labels": { "op": "write", "result": "success" }
+        },
+        {
+          "metric": "worker_storage_ops_total",
+          "labels": { "op": "write", "result": "failure" }
+        },
+        {
+          "metric": "worker_storage_ops_total",
+          "labels": { "op": "delete", "result": "success" }
+        }
       ]
     },
     {
@@ -117,10 +171,25 @@
       "type": "state",
       "slo": "engine_readiness",
       "series": [
-        { "metric": "worker_engine_capability", "labels": { "capability": "compression_lossless", "available": "true" } },
-        { "metric": "worker_engine_capability", "labels": { "capability": "compression_deep", "available": "true" } },
-        { "metric": "worker_engine_capability", "labels": { "capability": "ocr", "available": "true" } },
-        { "metric": "worker_engine_capability", "labels": { "capability": "scanner", "available": "true" } }
+        {
+          "metric": "worker_engine_capability",
+          "labels": {
+            "capability": "compression_lossless",
+            "available": "true"
+          }
+        },
+        {
+          "metric": "worker_engine_capability",
+          "labels": { "capability": "compression_deep", "available": "true" }
+        },
+        {
+          "metric": "worker_engine_capability",
+          "labels": { "capability": "ocr", "available": "true" }
+        },
+        {
+          "metric": "worker_engine_capability",
+          "labels": { "capability": "scanner", "available": "true" }
+        }
       ]
     },
     {
@@ -128,12 +197,30 @@
       "title": "Deployment facet readiness",
       "type": "state",
       "series": [
-        { "metric": "worker_readiness", "labels": { "facet": "storage", "state": "ready" } },
-        { "metric": "worker_readiness", "labels": { "facet": "queue", "state": "ready" } },
-        { "metric": "worker_readiness", "labels": { "facet": "engine", "state": "ready" } },
-        { "metric": "worker_readiness", "labels": { "facet": "lifecycle", "state": "ready" } },
-        { "metric": "worker_readiness", "labels": { "facet": "malware-scan", "state": "ready" } },
-        { "metric": "worker_readiness", "labels": { "facet": "ocr", "state": "ready" } }
+        {
+          "metric": "worker_readiness",
+          "labels": { "facet": "storage", "state": "ready" }
+        },
+        {
+          "metric": "worker_readiness",
+          "labels": { "facet": "queue", "state": "ready" }
+        },
+        {
+          "metric": "worker_readiness",
+          "labels": { "facet": "engine", "state": "ready" }
+        },
+        {
+          "metric": "worker_readiness",
+          "labels": { "facet": "lifecycle", "state": "ready" }
+        },
+        {
+          "metric": "worker_readiness",
+          "labels": { "facet": "malware-scan", "state": "ready" }
+        },
+        {
+          "metric": "worker_readiness",
+          "labels": { "facet": "ocr", "state": "ready" }
+        }
       ]
     },
     {
@@ -142,8 +229,14 @@
       "type": "state",
       "slo": "lifecycle_drift",
       "series": [
-        { "metric": "worker_lifecycle_verification_total", "labels": { "verdict": "verified" } },
-        { "metric": "worker_lifecycle_verification_total", "labels": { "verdict": "drift" } },
+        {
+          "metric": "worker_lifecycle_verification_total",
+          "labels": { "verdict": "verified" }
+        },
+        {
+          "metric": "worker_lifecycle_verification_total",
+          "labels": { "verdict": "drift" }
+        },
         { "metric": "worker_lifecycle_drift_rules" }
       ]
     }

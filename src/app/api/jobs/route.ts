@@ -55,6 +55,8 @@ export async function POST(request: Request): Promise<Response> {
   const adapter = await getWorkerAdapter();
   const outcome = await adapter.createJob(parsed.value);
   return respond(
-    outcome.ok ? { status: outcome.status, body: outcome.value } : outcome.error,
+    outcome.ok
+      ? { status: outcome.status, body: outcome.value }
+      : outcome.error,
   );
 }

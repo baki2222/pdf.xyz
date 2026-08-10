@@ -66,7 +66,9 @@ export interface ConsoleLike {
  * A sink that logs each event to the console under a stable prefix — the default
  * only in development, so events are visible while building locally.
  */
-export function createConsoleSink(target: ConsoleLike = console): TelemetrySink {
+export function createConsoleSink(
+  target: ConsoleLike = console,
+): TelemetrySink {
   return (event) => {
     (target.debug ?? target.log)?.("[telemetry]", event);
   };

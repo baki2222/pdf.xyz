@@ -33,9 +33,21 @@ function cfg(over: Partial<NativeOcrConfig> = {}): NativeOcrConfig {
   };
 }
 
-const BOTH: OcrOptions = { languages: ["eng", "spa"], outputMode: "both", skipTextPages: false };
-const PDF_ONLY: OcrOptions = { languages: ["eng"], outputMode: "searchable-pdf", skipTextPages: false };
-const TEXT_ONLY: OcrOptions = { languages: ["eng"], outputMode: "text", skipTextPages: false };
+const BOTH: OcrOptions = {
+  languages: ["eng", "spa"],
+  outputMode: "both",
+  skipTextPages: false,
+};
+const PDF_ONLY: OcrOptions = {
+  languages: ["eng"],
+  outputMode: "searchable-pdf",
+  skipTextPages: false,
+};
+const TEXT_ONLY: OcrOptions = {
+  languages: ["eng"],
+  outputMode: "text",
+  skipTextPages: false,
+};
 
 const scan: ProcessorInputFile = {
   fileId: "f_1234567890",
@@ -45,7 +57,9 @@ const scan: ProcessorInputFile = {
 };
 
 /** Minimal bytes that satisfy the structural PDF check (header + trailer). */
-const VALID_PDF = new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(64)}\n%%EOF\n`);
+const VALID_PDF = new TextEncoder().encode(
+  `%PDF-1.7\n${"x".repeat(64)}\n%%EOF\n`,
+);
 const NOT_PDF = new TextEncoder().encode("this is plainly not a pdf document");
 const TEXT_OUT = new TextEncoder().encode("Recognized text from the scan.");
 
@@ -57,7 +71,10 @@ interface FsCalls {
 }
 
 /** A recording fake fs whose readFile returns bytes chosen per path (pdf vs txt). */
-function fakeFs(read: (file: string) => Uint8Array): { fs: NativeOcrFs; calls: FsCalls } {
+function fakeFs(read: (file: string) => Uint8Array): {
+  fs: NativeOcrFs;
+  calls: FsCalls;
+} {
   const calls: FsCalls = { mkdtemp: [], writeFile: [], readFile: [], rm: [] };
   const fs: NativeOcrFs = {
     async mkdtemp(prefix) {
@@ -83,7 +100,10 @@ const pdfOrText = (file: string): Uint8Array =>
   file.endsWith(".txt") ? TEXT_OUT : VALID_PDF;
 
 /** Force one engine "present" so engine selection is deterministic in tests. */
-const onlyEngine = (present: string): NativeOcrSeams["resolveOnPath"] => (bin) => bin === present;
+const onlyEngine =
+  (present: string): NativeOcrSeams["resolveOnPath"] =>
+  (bin) =>
+    bin === present;
 
 describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
   it("builds OCRmyPDF args: joined languages, sidecar, and separate input/output paths", () => {
@@ -158,16 +178,21 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
 
 describe("inputExtension — safe, fixed temp extension by content type", () => {
   it("maps common types and defaults unknown to pdf", () => {
-    expect(inputExtension({ ...scan, contentType: "application/pdf" })).toBe("pdf");
+    expect(inputExtension({ ...scan, contentType: "application/pdf" })).toBe(
+      "pdf",
+    );
     expect(inputExtension({ ...scan, contentType: "image/png" })).toBe("png");
     expect(inputExtension({ ...scan, contentType: "image/jpeg" })).toBe("jpg");
-    expect(inputExtension({ ...scan, contentType: "application/octet-stream" })).toBe("pdf");
+    expect(
+      inputExtension({ ...scan, contentType: "application/octet-stream" }),
+    ).toBe("pdf");
   });
 });
 
 describe("createNativeOcrRunner — success paths", () => {
   it("writes input, runs OCRmyPDF by argv, returns validated PDF + text artifacts, cleans up", async () => {
-    const execCalls: { command: string; args: string[]; options: unknown }[] = [];
+    const execCalls: { command: string; args: string[]; options: unknown }[] =
+      [];
     const exec: NativeOcrExec = async (command, args, options) => {
       execCalls.push({ command, args: [...args], options });
     };
@@ -181,7 +206,10 @@ describe("createNativeOcrRunner — success paths", () => {
 
     const { artifacts, meta } = await runner({ options: BOTH, inputs: [scan] });
 
-    expect(artifacts.map((a) => a.filename)).toEqual(["Client Scan-ocr.pdf", "Client Scan.txt"]);
+    expect(artifacts.map((a) => a.filename)).toEqual([
+      "Client Scan-ocr.pdf",
+      "Client Scan.txt",
+    ]);
     expect(artifacts[0]?.contentType).toBe("application/pdf");
     expect(artifacts[0]?.bytes).toEqual(VALID_PDF);
     expect(artifacts[1]?.contentType).toContain("text/plain");
@@ -192,7 +220,10 @@ describe("createNativeOcrRunner — success paths", () => {
     expect(calls.rm).toHaveLength(1);
     // The subprocess was invoked by argv with the configured timeout.
     expect(execCalls[0]!.command).toBe("ocrmypdf");
-    expect(execCalls[0]!.options).toMatchObject({ timeout: 300_000, windowsHide: true });
+    expect(execCalls[0]!.options).toMatchObject({
+      timeout: 300_000,
+      windowsHide: true,
+    });
 
     // Metadata is derived from the ACTUAL run: engine family, validated languages,
     // produced artifact kinds, and real COUNTS — never invented, never leaking text.
@@ -223,7 +254,10 @@ describe("createNativeOcrRunner — success paths", () => {
       resolveOnPath: onlyEngine("ocrmypdf"),
       countPages: async () => 2,
     });
-    const { artifacts, meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
+    const { artifacts, meta } = await runner({
+      options: PDF_ONLY,
+      inputs: [scan],
+    });
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]?.filename).toBe("Client Scan-ocr.pdf");
     expect(meta.producedSearchablePdf).toBe(true);
@@ -244,7 +278,10 @@ describe("createNativeOcrRunner — success paths", () => {
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
     });
-    const { artifacts, meta } = await runner({ options: TEXT_ONLY, inputs: [scan] });
+    const { artifacts, meta } = await runner({
+      options: TEXT_ONLY,
+      inputs: [scan],
+    });
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]?.filename).toBe("Client Scan.txt");
     // The PDF output is never read in text-only mode.
@@ -269,8 +306,15 @@ describe("createNativeOcrRunner — success paths", () => {
       resolveOnPath: () => true, // BOTH engines present
       countPages: async () => 1,
     });
-    const png: ProcessorInputFile = { ...scan, filename: "Client Scan.png", contentType: "image/png" };
-    const { artifacts, meta } = await runner({ options: PDF_ONLY, inputs: [png] });
+    const png: ProcessorInputFile = {
+      ...scan,
+      filename: "Client Scan.png",
+      contentType: "image/png",
+    };
+    const { artifacts, meta } = await runner({
+      options: PDF_ONLY,
+      inputs: [png],
+    });
     expect(artifacts).toHaveLength(1);
     // tesseract argv shape: input, base, -l, lang, pdf
     expect(execCalls[0]?.[2]).toBe("-l");
@@ -307,7 +351,11 @@ describe("createNativeOcrRunner — success paths", () => {
       resolveOnPath: onlyEngine("ocrmypdf"),
       countPages: async () => 1,
     });
-    const png: ProcessorInputFile = { ...scan, filename: "scan.png", contentType: "image/png" };
+    const png: ProcessorInputFile = {
+      ...scan,
+      filename: "scan.png",
+      contentType: "image/png",
+    };
     await expect(runner({ options: PDF_ONLY, inputs: [png] })).rejects.toThrow(
       /no ocr engine .* can read an image/i,
     );
@@ -333,41 +381,57 @@ describe("createNativeOcrRunner — failure paths always clean up and never leak
       throw new Error("Command failed: ETIMEDOUT /tmp/pdfxyz-ocr-xy/input.pdf");
     };
     const { fs, calls } = fakeFs(pdfOrText);
-    const runner = createNativeOcrRunner(cfg(), { exec, fs, resolveOnPath: onlyEngine("ocrmypdf") });
+    const runner = createNativeOcrRunner(cfg(), {
+      exec,
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+    });
     await expect(runner({ options: BOTH, inputs: [scan] })).rejects.toThrow();
     expect(calls.rm).toHaveLength(1); // cleanup on failure is load-bearing
   });
 
   it("throws when the engine produces non-PDF output, and cleans up", async () => {
-    const { fs, calls } = fakeFs((file) => (file.endsWith(".txt") ? TEXT_OUT : NOT_PDF));
+    const { fs, calls } = fakeFs((file) =>
+      file.endsWith(".txt") ? TEXT_OUT : NOT_PDF,
+    );
     const runner = createNativeOcrRunner(cfg(), {
       exec: async () => {},
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
     });
-    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow(/usable PDF/i);
+    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow(
+      /usable PDF/i,
+    );
     expect(calls.rm).toHaveLength(1);
   });
 
   it("throws when the text output is empty", async () => {
-    const { fs } = fakeFs((file) => (file.endsWith(".txt") ? new Uint8Array(0) : VALID_PDF));
+    const { fs } = fakeFs((file) =>
+      file.endsWith(".txt") ? new Uint8Array(0) : VALID_PDF,
+    );
     const runner = createNativeOcrRunner(cfg(), {
       exec: async () => {},
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
     });
-    await expect(runner({ options: TEXT_ONLY, inputs: [scan] })).rejects.toThrow(/text output/i);
+    await expect(
+      runner({ options: TEXT_ONLY, inputs: [scan] }),
+    ).rejects.toThrow(/text output/i);
   });
 
   it("throws when the PDF output exceeds the configured max output bytes", async () => {
-    const big = new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(4096)}\n%%EOF\n`);
+    const big = new TextEncoder().encode(
+      `%PDF-1.7\n${"x".repeat(4096)}\n%%EOF\n`,
+    );
     const { fs } = fakeFs(() => big);
     const runner = createNativeOcrRunner(cfg({ maxOutputBytes: 1024 }), {
       exec: async () => {},
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
     });
-    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow();
+    await expect(
+      runner({ options: PDF_ONLY, inputs: [scan] }),
+    ).rejects.toThrow();
   });
 
   it("rejects an oversized input before spawning or touching the filesystem", async () => {
@@ -381,7 +445,10 @@ describe("createNativeOcrRunner — failure paths always clean up and never leak
       resolveOnPath: onlyEngine("ocrmypdf"),
     });
     await expect(
-      runner({ options: PDF_ONLY, inputs: [{ ...scan, bytes: new Uint8Array([1, 2, 3, 4]) }] }),
+      runner({
+        options: PDF_ONLY,
+        inputs: [{ ...scan, bytes: new Uint8Array([1, 2, 3, 4]) }],
+      }),
     ).rejects.toThrow(/maximum size/i);
     expect(spawned).toBe(false);
     expect(calls.mkdtemp).toHaveLength(0);
@@ -394,7 +461,9 @@ describe("createNativeOcrRunner — failure paths always clean up and never leak
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
     });
-    await expect(runner({ options: PDF_ONLY, inputs: [scan, scan] })).rejects.toThrow(/one input/i);
+    await expect(
+      runner({ options: PDF_ONLY, inputs: [scan, scan] }),
+    ).rejects.toThrow(/one input/i);
   });
 
   it("throws content-free when no engine is available (defensive backstop)", async () => {
@@ -404,33 +473,57 @@ describe("createNativeOcrRunner — failure paths always clean up and never leak
       fs,
       resolveOnPath: () => false, // nothing installed
     });
-    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow(/no ocr engine/i);
+    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow(
+      /no ocr engine/i,
+    );
   });
 });
 
 describe("probeNativeOcrEnginesFromConfig / firstUsableOcrEngine — config-aware detection", () => {
-  const seams = (onPath: (b: string) => boolean, fileExists?: (p: string) => boolean): NativeOcrSeams => ({
+  const seams = (
+    onPath: (b: string) => boolean,
+    fileExists?: (p: string) => boolean,
+  ): NativeOcrSeams => ({
     resolveOnPath: onPath,
     ...(fileExists ? { fileExists } : {}),
   });
 
   it("reports nothing when OCR is disabled, even if binaries are on PATH", () => {
-    const engines = probeNativeOcrEnginesFromConfig(cfg({ enabled: false }), seams(() => true));
+    const engines = probeNativeOcrEnginesFromConfig(
+      cfg({ enabled: false }),
+      seams(() => true),
+    );
     expect(engines).toEqual({ ocrmypdf: false, tesseract: false });
-    expect(firstUsableOcrEngine(cfg({ enabled: false }), seams(() => true))).toBeNull();
+    expect(
+      firstUsableOcrEngine(
+        cfg({ enabled: false }),
+        seams(() => true),
+      ),
+    ).toBeNull();
   });
 
   it("auto-detects by PATH for non-overridden engines", () => {
-    const engines = probeNativeOcrEnginesFromConfig(cfg(), seams((bin) => bin === "tesseract"));
+    const engines = probeNativeOcrEnginesFromConfig(
+      cfg(),
+      seams((bin) => bin === "tesseract"),
+    );
     expect(engines).toEqual({ ocrmypdf: false, tesseract: true });
   });
 
   it("prefers ocrmypdf over tesseract when both are present", () => {
-    expect(firstUsableOcrEngine(cfg(), seams(() => true))).toBe("ocrmypdf");
+    expect(
+      firstUsableOcrEngine(
+        cfg(),
+        seams(() => true),
+      ),
+    ).toBe("ocrmypdf");
   });
 
   it("considers only the pinned engine", () => {
-    const engines = probeNativeOcrEnginesFromConfig(cfg({ engine: "tesseract" }), seams(() => true));
+    const engines = probeNativeOcrEnginesFromConfig(
+      cfg({ engine: "tesseract" }),
+      seams(() => true),
+    );
     expect(engines).toEqual({ ocrmypdf: false, tesseract: true });
   });
 
@@ -467,7 +560,10 @@ describe("nativeOcrDeps / probeNativeOcrEngines — from the environment", () =>
   });
 
   it("reports no engines from the env when OCR is disabled", () => {
-    const engines = probeNativeOcrEngines({ PDFXYZ_OCR: "off" }, { resolveOnPath: () => true });
+    const engines = probeNativeOcrEngines(
+      { PDFXYZ_OCR: "off" },
+      { resolveOnPath: () => true },
+    );
     expect(engines).toEqual({ ocrmypdf: false, tesseract: false });
   });
 });
@@ -482,9 +578,13 @@ describe("countPdfPages — bounded, best-effort, never throws", () => {
 
   it("returns null for empty or non-PDF bytes rather than throwing", async () => {
     expect(await countPdfPages(new Uint8Array(0))).toBeNull();
-    expect(await countPdfPages(new TextEncoder().encode("not a pdf"))).toBeNull();
+    expect(
+      await countPdfPages(new TextEncoder().encode("not a pdf")),
+    ).toBeNull();
     // A minimal %PDF header with no object structure is not parseable → null, not a guess.
-    expect(await countPdfPages(new TextEncoder().encode("%PDF-1.7\n%%EOF\n"))).toBeNull();
+    expect(
+      await countPdfPages(new TextEncoder().encode("%PDF-1.7\n%%EOF\n")),
+    ).toBeNull();
   });
 });
 
@@ -510,7 +610,10 @@ describe("OCRmyPDF searchable-PDF metadata fidelity (Phase 27)", () => {
       resolveOnPath: onlyEngine("ocrmypdf"),
       countPages: async () => 7,
     });
-    const { artifacts, meta } = await runner({ options: PDF_ONLY, inputs: [scan] });
+    const { artifacts, meta } = await runner({
+      options: PDF_ONLY,
+      inputs: [scan],
+    });
     // The only artifact kind is a searchable PDF, and the meta reflects exactly that.
     expect(artifacts.map((a) => a.contentType)).toEqual(["application/pdf"]);
     expect(meta.engine).toBe("ocrmypdf");
@@ -546,9 +649,12 @@ describe("OCRmyPDF searchable-PDF metadata fidelity (Phase 27)", () => {
   });
 
   it("both mode: bounded sidecar character count with NO recognized text leaking into meta", async () => {
-    const recognized = "TOPSECRET recognized words that must never ride in metadata";
+    const recognized =
+      "TOPSECRET recognized words that must never ride in metadata";
     const sidecarBytes = new TextEncoder().encode(recognized);
-    const { fs } = fakeFs((file) => (file.endsWith(".txt") ? sidecarBytes : VALID_PDF));
+    const { fs } = fakeFs((file) =>
+      file.endsWith(".txt") ? sidecarBytes : VALID_PDF,
+    );
     const runner = createNativeOcrRunner(cfg(), {
       exec: async () => {},
       fs,
@@ -569,14 +675,18 @@ describe("OCRmyPDF searchable-PDF metadata fidelity (Phase 27)", () => {
     // A missing/invalid searchable-PDF output is a failure: the runner throws and returns
     // NO artifacts and NO metadata, so nothing downstream can imply a searchable PDF that
     // was never produced — even though the page counter would gladly return a number.
-    const { fs, calls } = fakeFs((file) => (file.endsWith(".txt") ? TEXT_OUT : NOT_PDF));
+    const { fs, calls } = fakeFs((file) =>
+      file.endsWith(".txt") ? TEXT_OUT : NOT_PDF,
+    );
     const runner = createNativeOcrRunner(cfg(), {
       exec: async () => {},
       fs,
       resolveOnPath: onlyEngine("ocrmypdf"),
       countPages: async () => 9,
     });
-    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow(/usable PDF/i);
+    await expect(runner({ options: PDF_ONLY, inputs: [scan] })).rejects.toThrow(
+      /usable PDF/i,
+    );
     expect(calls.rm).toHaveLength(1); // cleanup still runs; no fabricated success
   });
 });

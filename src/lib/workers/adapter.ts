@@ -98,7 +98,8 @@ function composedAdapter(
           contentType: file.contentType,
           declaredBytes: file.bytes,
         });
-        if (!reserved.ok) return adapterError(mapStorageFailure(reserved.error));
+        if (!reserved.ok)
+          return adapterError(mapStorageFailure(reserved.error));
         slots.push({
           fileId: reserved.value.fileId,
           filename: reserved.value.filename,
@@ -131,12 +132,14 @@ function composedAdapter(
       // The queue is the gate: a not-configured queue (disabled/remote) denies
       // here with the honest typed failure. A ready broker proceeds.
       const queueProbe = queue.probe();
-      if (!queueProbe.ok) return adapterError(mapQueueFailure(queueProbe.error));
+      if (!queueProbe.ok)
+        return adapterError(mapQueueFailure(queueProbe.error));
 
       // A job's inputs live in object storage, so enqueue only when storage is
       // ready too — otherwise there is nowhere the client could have uploaded them.
       const storageProbe = storage.probe();
-      if (!storageProbe.ok) return adapterError(mapStorageFailure(storageProbe.error));
+      if (!storageProbe.ok)
+        return adapterError(mapStorageFailure(storageProbe.error));
 
       // Idempotent replay: return the prior job rather than enqueuing a duplicate.
       if (request.idempotencyKey) {
@@ -257,10 +260,8 @@ export async function getWorkerAdapter(
     const { createLocalDevAdapter } = await import("./local-dev");
     return createLocalDevAdapter();
   }
-  const [{ createStorageProvider }, { createQueueProvider }] = await Promise.all([
-    import("./storage/factory"),
-    import("./queue/factory"),
-  ]);
+  const [{ createStorageProvider }, { createQueueProvider }] =
+    await Promise.all([import("./storage/factory"), import("./queue/factory")]);
   return composedAdapter(
     mode,
     createStorageProvider(env, deps.storage),

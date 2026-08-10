@@ -90,7 +90,10 @@ async function runArm(
   let code: number;
   let projected: boolean;
   if (projection.exitCode === PIPELINE_EXIT.OK) {
-    const lens = arm === "verify" ? await stages.verify(projection.projected) : stages.sweep(projection.projected);
+    const lens =
+      arm === "verify"
+        ? await stages.verify(projection.projected)
+        : stages.sweep(projection.projected);
     code = lens.exitCode;
     projected = true;
   } else {
@@ -132,7 +135,9 @@ export async function runPipeline(
   } catch {
     // A collector fault must never turn a valid pipeline run into a crash.
   }
-  const receipt = emitPipelineReceipt(buildPipelineReceipt(severity, exitCode, arms, generatedAt));
+  const receipt = emitPipelineReceipt(
+    buildPipelineReceipt(severity, exitCode, arms, generatedAt),
+  );
 
   const result: PipelineResult = { severity, exitCode, arms, receipt };
   return { exitCode, output: render(result, generatedAt, format), result };
@@ -175,6 +180,12 @@ function renderText(result: PipelineResult): string {
 }
 
 /** Render the result in the chosen format. */
-export function render(result: PipelineResult, generatedAt: string, format: PipelineFormat): string {
-  return format === "text" ? renderText(result) : renderJson(result, generatedAt);
+export function render(
+  result: PipelineResult,
+  generatedAt: string,
+  format: PipelineFormat,
+): string {
+  return format === "text"
+    ? renderText(result)
+    : renderJson(result, generatedAt);
 }

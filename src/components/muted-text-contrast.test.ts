@@ -161,8 +161,7 @@ describe("muted text meets WCAG AA on the app's own background", () => {
       for (const step of entry.steps) {
         expect(
           usages.some(
-            (usage) =>
-              usage.file.endsWith(entry.file) && usage.step === step,
+            (usage) => usage.file.endsWith(entry.file) && usage.step === step,
           ),
           `${entry.file} no longer uses text-slate-${step}`,
         ).toBe(true);

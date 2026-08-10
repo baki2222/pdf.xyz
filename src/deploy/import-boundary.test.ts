@@ -78,7 +78,10 @@ function walk(dir: string): string[] {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       out.push(...walk(full));
-    } else if (/\.tsx?$/.test(entry.name) && !/\.(test|spec)\.tsx?$/.test(entry.name)) {
+    } else if (
+      /\.tsx?$/.test(entry.name) &&
+      !/\.(test|spec)\.tsx?$/.test(entry.name)
+    ) {
       out.push(full);
     }
   }
@@ -107,7 +110,10 @@ function staticImportSpecifiers(source: string): string[] {
 /** Match a forbidden static import without flagging node-free config modules. */
 function matchesForbiddenImport(spec: string, forbidden: string): boolean {
   if (forbidden === "compression/native") {
-    return spec === "@/lib/workers/compression/native" || spec.endsWith("/compression/native");
+    return (
+      spec === "@/lib/workers/compression/native" ||
+      spec.endsWith("/compression/native")
+    );
   }
   if (forbidden === "ocr-native") {
     // Exact leaf only — the node-free `ocr-native-config` (which ends with
@@ -118,7 +124,8 @@ function matchesForbiddenImport(spec: string, forbidden: string): boolean {
     // Exact leaf only — `pdf-text/native-config` and `pdf-text/parse` are
     // node-free and safe to import eagerly.
     return (
-      spec === "@/lib/workers/pdf-text/native" || spec.endsWith("/pdf-text/native")
+      spec === "@/lib/workers/pdf-text/native" ||
+      spec.endsWith("/pdf-text/native")
     );
   }
   return spec.includes(forbidden);
@@ -150,7 +157,9 @@ describe("web-eager modules do not statically import Node-only worker internals"
     const specs = staticImportSpecifiers(barrel);
     expect(specs.some((s) => s.includes("daemon/runtime"))).toBe(false);
     expect(specs.some((s) => s.includes("compression/native"))).toBe(false);
-    expect(specs.some((s) => matchesForbiddenImport(s, "ocr-native"))).toBe(false);
+    expect(specs.some((s) => matchesForbiddenImport(s, "ocr-native"))).toBe(
+      false,
+    );
     expect(specs.some((s) => s.startsWith("node:"))).toBe(false);
   });
 
@@ -158,7 +167,10 @@ describe("web-eager modules do not statically import Node-only worker internals"
     // The status route + page read presence-only readiness; they must reach it
     // through the node-free `daemon` barrel (args/daemon/readiness), never the
     // Node-only `daemon/runtime` wiring.
-    const route = readFileSync(path.join(SRC, "app/api/worker/status/route.ts"), "utf8");
+    const route = readFileSync(
+      path.join(SRC, "app/api/worker/status/route.ts"),
+      "utf8",
+    );
     const specs = staticImportSpecifiers(route);
     expect(specs.some((s) => s.includes("daemon/runtime"))).toBe(false);
     expect(specs.some((s) => s.includes("compression/native"))).toBe(false);

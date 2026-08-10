@@ -37,14 +37,19 @@ describe("parseChatOptions — question", () => {
   });
 
   it("allows newlines/tabs in the question but rejects other control characters", () => {
-    expect(parseChatOptions({ question: "Line one\n\tLine two?" }).ok).toBe(true);
+    expect(parseChatOptions({ question: "Line one\n\tLine two?" }).ok).toBe(
+      true,
+    );
     const bad = parseChatOptions({ question: `a${String.fromCharCode(7)}b` });
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.error.body.error.details?.[0]?.field).toBe("question");
+    if (!bad.ok)
+      expect(bad.error.body.error.details?.[0]?.field).toBe("question");
   });
 
   it("rejects an over-long question", () => {
-    const r = parseChatOptions({ question: "x".repeat(MAX_QUESTION_CHARS + 1) });
+    const r = parseChatOptions({
+      question: "x".repeat(MAX_QUESTION_CHARS + 1),
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.body.error.details?.[0]?.field).toBe("question");
   });
@@ -79,12 +84,16 @@ describe("parseChatOptions — conversation context", () => {
       context: [{ role: "system", content: "hi" }],
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.body.error.details?.[0]?.field).toContain("context");
+    if (!r.ok)
+      expect(r.error.body.error.details?.[0]?.field).toContain("context");
   });
 
   it("rejects an empty or control-character turn", () => {
     expect(
-      parseChatOptions({ question: "q?", context: [{ role: "user", content: "  " }] }).ok,
+      parseChatOptions({
+        question: "q?",
+        context: [{ role: "user", content: "  " }],
+      }).ok,
     ).toBe(false);
     expect(
       parseChatOptions({
@@ -135,7 +144,9 @@ describe("parseChatOptions — conversation context", () => {
 
 describe("describeChatRequest", () => {
   it("renders human copy for the UI", () => {
-    expect(describeChatRequest({ question: "What is the total?" })).toMatch(/question/i);
+    expect(describeChatRequest({ question: "What is the total?" })).toMatch(
+      /question/i,
+    );
     expect(
       describeChatRequest({
         question: "And the date?",
@@ -150,7 +161,9 @@ describe("describeChatRequest", () => {
 
 describe("chatAnswerOutputName", () => {
   it("derives an -answer.zip name from the source PDF", () => {
-    expect(chatAnswerOutputName("Invoice 42.pdf")).toBe("Invoice 42-answer.zip");
+    expect(chatAnswerOutputName("Invoice 42.pdf")).toBe(
+      "Invoice 42-answer.zip",
+    );
   });
 
   it("falls back to a neutral stem for unusable names", () => {

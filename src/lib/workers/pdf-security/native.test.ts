@@ -18,7 +18,9 @@ function pdf(pad = 40): Uint8Array {
   return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
 }
 
-function config(over: Partial<NativePdfSecurityConfig> = {}): NativePdfSecurityConfig {
+function config(
+  over: Partial<NativePdfSecurityConfig> = {},
+): NativePdfSecurityConfig {
   return {
     enabled: true,
     binary: "qpdf",
@@ -120,7 +122,9 @@ describe("createNativeQpdfRunner — protect", () => {
     expect(JSON.stringify(calls[0]!.args)).not.toContain("S3CRET");
 
     // The password only ever lives in the at-file, which is in the wiped temp dir.
-    const argfile = [...writes.entries()].find(([p]) => p.endsWith("qpdf.args"));
+    const argfile = [...writes.entries()].find(([p]) =>
+      p.endsWith("qpdf.args"),
+    );
     expect(argfile).toBeTruthy();
     const content = new TextDecoder().decode(argfile![1]);
     const tokens = content.split("\n");
@@ -137,7 +141,11 @@ describe("createNativeQpdfRunner — protect", () => {
     const { exec } = fakeExec({ code: 3, timedOut: false });
     const runner = createNativeQpdfRunner(config(), { exec, fs });
     await expect(
-      runner.protect(pdf(), { userPassword: "u", ownerPassword: "o", keyLength: 256 }),
+      runner.protect(pdf(), {
+        userPassword: "u",
+        ownerPassword: "o",
+        keyLength: 256,
+      }),
     ).rejects.toThrow();
     expect(rmCount()).toBe(1);
   });
@@ -147,7 +155,11 @@ describe("createNativeQpdfRunner — protect", () => {
     const { exec } = fakeExec({ code: -1, timedOut: true });
     const runner = createNativeQpdfRunner(config(), { exec, fs });
     await expect(
-      runner.protect(pdf(), { userPassword: "u", ownerPassword: "o", keyLength: 256 }),
+      runner.protect(pdf(), {
+        userPassword: "u",
+        ownerPassword: "o",
+        keyLength: 256,
+      }),
     ).rejects.toThrow();
   });
 
@@ -156,16 +168,27 @@ describe("createNativeQpdfRunner — protect", () => {
     const { exec } = fakeExec(OK);
     const runner = createNativeQpdfRunner(config(), { exec, fs });
     await expect(
-      runner.protect(pdf(), { userPassword: "u", ownerPassword: "o", keyLength: 256 }),
+      runner.protect(pdf(), {
+        userPassword: "u",
+        ownerPassword: "o",
+        keyLength: 256,
+      }),
     ).rejects.toThrow();
   });
 
   it("rejects an oversized input before spawning anything", async () => {
     const { fs, rmCount } = fakeFs(pdf());
     const { exec, calls } = fakeExec(OK);
-    const runner = createNativeQpdfRunner(config({ maxInputBytes: 4 }), { exec, fs });
+    const runner = createNativeQpdfRunner(config({ maxInputBytes: 4 }), {
+      exec,
+      fs,
+    });
     await expect(
-      runner.protect(pdf(64), { userPassword: "u", ownerPassword: "o", keyLength: 256 }),
+      runner.protect(pdf(64), {
+        userPassword: "u",
+        ownerPassword: "o",
+        keyLength: 256,
+      }),
     ).rejects.toThrow();
     expect(calls).toHaveLength(0);
     expect(rmCount()).toBe(0);
@@ -205,8 +228,12 @@ describe("createNativeQpdfRunner — unlock", () => {
     const res = await runner.unlock(pdf(), { password: "P4SS-SENTINEL" });
     expect(res).toEqual({ ok: true, output: pdf(64) });
     expect(JSON.stringify(calls[0]!.args)).not.toContain("P4SS");
-    const argfile = [...writes.entries()].find(([p]) => p.endsWith("qpdf.args"));
-    expect(new TextDecoder().decode(argfile![1])).toContain("--password=P4SS-SENTINEL");
+    const argfile = [...writes.entries()].find(([p]) =>
+      p.endsWith("qpdf.args"),
+    );
+    expect(new TextDecoder().decode(argfile![1])).toContain(
+      "--password=P4SS-SENTINEL",
+    );
   });
 
   it("maps exit 2 → wrong password (not a throw)", async () => {
@@ -230,13 +257,19 @@ describe("createNativeQpdfRunner — unlock", () => {
 describe("probeQpdfFromConfig", () => {
   it("is false when disabled (the kill switch)", () => {
     expect(
-      probeQpdfFromConfig(config({ enabled: false }), { resolveOnPath: () => true }),
+      probeQpdfFromConfig(config({ enabled: false }), {
+        resolveOnPath: () => true,
+      }),
     ).toBe(false);
   });
 
   it("probes PATH for the default command", () => {
-    expect(probeQpdfFromConfig(config(), { resolveOnPath: () => true })).toBe(true);
-    expect(probeQpdfFromConfig(config(), { resolveOnPath: () => false })).toBe(false);
+    expect(probeQpdfFromConfig(config(), { resolveOnPath: () => true })).toBe(
+      true,
+    );
+    expect(probeQpdfFromConfig(config(), { resolveOnPath: () => false })).toBe(
+      false,
+    );
   });
 
   it("probes existence for an absolute-path override", () => {

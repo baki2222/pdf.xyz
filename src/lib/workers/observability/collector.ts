@@ -229,9 +229,13 @@ export function renderPrometheus(snapshot: WorkerMetricsSnapshot): string {
     let cumulative = 0;
     for (const le of LATENCY_LE_LABELS) {
       cumulative += buckets.get(le) ?? 0;
-      lines.push(renderLine(`${LATENCY_METRIC}_bucket`, { processor, le }, cumulative));
+      lines.push(
+        renderLine(`${LATENCY_METRIC}_bucket`, { processor, le }, cumulative),
+      );
     }
-    lines.push(renderLine(`${LATENCY_METRIC}_count`, { processor }, cumulative));
+    lines.push(
+      renderLine(`${LATENCY_METRIC}_count`, { processor }, cumulative),
+    );
   }
 
   return lines.join("\n");

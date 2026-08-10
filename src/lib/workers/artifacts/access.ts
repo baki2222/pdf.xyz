@@ -180,9 +180,10 @@ export interface ArtifactAccessPolicy {
 }
 
 /** The shipped default: do not hard-require a manifest (intrinsic checks are the floor). */
-export const DEFAULT_ARTIFACT_ACCESS_POLICY: ArtifactAccessPolicy = Object.freeze({
-  requireManifest: false,
-});
+export const DEFAULT_ARTIFACT_ACCESS_POLICY: ArtifactAccessPolicy =
+  Object.freeze({
+    requireManifest: false,
+  });
 
 /** The safe, deterministic response headers a served artifact is streamed with. */
 export type ArtifactDownloadHeaders = Readonly<Record<string, string>>;
@@ -212,24 +213,27 @@ export type ArtifactAccessDecision =
     };
 
 /** Content-free explanations per denial reason. Never names a file, size, key, or content. */
-export const ARTIFACT_ACCESS_DETAIL: Record<ArtifactAccessDenyReason, string> = {
-  malformed_handle: "The artifact handle is malformed.",
-  storage_unavailable:
-    "The artifact storage backend is not available to serve downloads in this environment.",
-  storage_error:
-    "The artifact storage backend could not be reached to serve this download. Please try again.",
-  policy_unavailable:
-    "The artifact-retrieval guardrail could not resolve a usable policy, so it failed closed.",
-  not_found: "No such artifact (it may have expired).",
-  deleted: "This artifact was deleted and is no longer available.",
-  not_ready: "The artifact is not ready for download.",
-  expired: "This artifact is no longer available; its retention window has passed.",
-  job_mismatch: "The artifact does not belong to the job asserted by the request.",
-  missing_manifest: "This artifact is not available for download.",
-  invalid_manifest: "This artifact is not available for download.",
-  unsupported_kind: "This artifact is not available for download.",
-  empty_artifact: "This artifact is not available for download.",
-};
+export const ARTIFACT_ACCESS_DETAIL: Record<ArtifactAccessDenyReason, string> =
+  {
+    malformed_handle: "The artifact handle is malformed.",
+    storage_unavailable:
+      "The artifact storage backend is not available to serve downloads in this environment.",
+    storage_error:
+      "The artifact storage backend could not be reached to serve this download. Please try again.",
+    policy_unavailable:
+      "The artifact-retrieval guardrail could not resolve a usable policy, so it failed closed.",
+    not_found: "No such artifact (it may have expired).",
+    deleted: "This artifact was deleted and is no longer available.",
+    not_ready: "The artifact is not ready for download.",
+    expired:
+      "This artifact is no longer available; its retention window has passed.",
+    job_mismatch:
+      "The artifact does not belong to the job asserted by the request.",
+    missing_manifest: "This artifact is not available for download.",
+    invalid_manifest: "This artifact is not available for download.",
+    unsupported_kind: "This artifact is not available for download.",
+    empty_artifact: "This artifact is not available for download.",
+  };
 
 /**
  * The client-facing {@link ApiErrorCode} each denial maps to. Every code is content-free
@@ -270,7 +274,10 @@ export function httpErrorForAccessReason(reason: ArtifactAccessDenyReason): {
   code: ApiErrorCode;
   message: string;
 } {
-  return { code: CODE_BY_REASON[reason], message: ARTIFACT_ACCESS_DETAIL[reason] };
+  return {
+    code: CODE_BY_REASON[reason],
+    message: ARTIFACT_ACCESS_DETAIL[reason],
+  };
 }
 
 /**
@@ -278,18 +285,25 @@ export function httpErrorForAccessReason(reason: ArtifactAccessDenyReason): {
  * artifact that classifies to it is denied `unsupported_kind`, so the boundary only
  * ever streams a recognized kind. Kept as a set so it stays closed as kinds grow.
  */
-const DOWNLOADABLE_KINDS: ReadonlySet<ArtifactOutputKind> = new Set<ArtifactOutputKind>(
-  ["pdf", "text-sidecar", "archive", "office-document", "image"],
-);
+const DOWNLOADABLE_KINDS: ReadonlySet<ArtifactOutputKind> =
+  new Set<ArtifactOutputKind>([
+    "pdf",
+    "text-sidecar",
+    "archive",
+    "office-document",
+    "image",
+  ]);
 
 /** Canonical file extension per bare content-type (inverse of the manifest's kind map). */
 const EXTENSION_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
   "application/pdf": "pdf",
   "text/plain": "txt",
   "application/zip": "zip",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "docx",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+    "pptx",
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/jpg": "jpg", // non-standard JPEG alias some toolchains emit (mirrors the manifest map)
@@ -351,7 +365,9 @@ export function downloadFilenameFor(
  * bytes are text). Never the raw stored value, which may carry an unbounded parameter.
  */
 function servedContentType(contentType: string): string {
-  return contentType === "text/plain" ? "text/plain; charset=utf-8" : contentType;
+  return contentType === "text/plain"
+    ? "text/plain; charset=utf-8"
+    : contentType;
 }
 
 /**
@@ -436,9 +452,11 @@ export function decideArtifactAccess(
   policy: ArtifactAccessPolicy = DEFAULT_ARTIFACT_ACCESS_POLICY,
 ): ArtifactAccessDecision {
   // Fail closed if the policy could not be resolved (defense-in-depth).
-  if (!policy || typeof policy !== "object") return denied("policy_unavailable");
+  if (!policy || typeof policy !== "object")
+    return denied("policy_unavailable");
   // The storage backend must be able to serve a download here at all (when reported).
-  if (input.storage && !input.storage.ready) return denied("storage_unavailable");
+  if (input.storage && !input.storage.ready)
+    return denied("storage_unavailable");
   // Lifecycle: a handle that provably mapped to something now gone is `deleted`/`expired`
   // (410); an unknown/reaped handle is `not_found` (404).
   if (input.lifecycle === "absent") return denied("not_found");
@@ -448,7 +466,10 @@ export function decideArtifactAccess(
   // artifact is only ever stored for a completed job, so this normally holds).
   if (!input.jobCompleted) return denied("not_ready");
   // Job binding (when asserted): the artifact must belong to the asserted job.
-  if (input.jobBinding?.asserted === true && input.jobBinding.matches !== true) {
+  if (
+    input.jobBinding?.asserted === true &&
+    input.jobBinding.matches !== true
+  ) {
     return denied("job_mismatch");
   }
 

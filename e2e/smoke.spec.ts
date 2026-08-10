@@ -33,19 +33,28 @@ test.describe("core pages", () => {
     expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
   });
 
-  test("tools catalog lists tools and filters by category", async ({ page }) => {
+  test("tools catalog lists tools and filters by category", async ({
+    page,
+  }) => {
     const guard = attachConsoleGuard(page);
     await page.goto("/tools");
 
     await expect(
-      page.getByRole("heading", { level: 1, name: /every pdf tool.*one place/i }),
+      page.getByRole("heading", {
+        level: 1,
+        name: /every pdf tool.*one place/i,
+      }),
     ).toBeVisible();
-    await expect(page.getByRole("searchbox", { name: /search tools/i })).toBeVisible();
+    await expect(
+      page.getByRole("searchbox", { name: /search tools/i }),
+    ).toBeVisible();
 
     // The catalog is data-driven; expect a healthy number of tool links.
     const toolLinks = page.locator('a[href^="/tools/"]');
     expect(await toolLinks.count()).toBeGreaterThanOrEqual(20);
-    await expect(page.getByRole("link", { name: "Merge PDF" }).first()).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Merge PDF" }).first(),
+    ).toBeVisible();
 
     // Filtering updates the shareable URL and narrows results.
     await page.getByRole("button", { name: /^AI/ }).click();
@@ -66,9 +75,13 @@ test.describe("core pages", () => {
       page.getByRole("heading", { level: 1, name: "Merge PDF" }),
     ).toBeVisible();
     await expect(page.getByText(/runs in your browser/i).first()).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Breadcrumb" }),
+    ).toBeVisible();
     // The client runner exposes a file input for staging PDFs locally.
-    expect(await page.locator('input[type="file"]').count()).toBeGreaterThanOrEqual(1);
+    expect(
+      await page.locator('input[type="file"]').count(),
+    ).toBeGreaterThanOrEqual(1);
 
     const ldJson = (
       await page.locator('script[type="application/ld+json"]').allTextContents()
@@ -88,7 +101,9 @@ test.describe("core pages", () => {
       page.getByRole("heading", { level: 1, name: /your workspace/i }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Add files" })).toBeVisible();
-    expect(await page.locator('input[type="file"]').count()).toBeGreaterThanOrEqual(1);
+    expect(
+      await page.locator('input[type="file"]').count(),
+    ).toBeGreaterThanOrEqual(1);
 
     const robots = await page
       .locator('meta[name="robots"]')
@@ -137,7 +152,10 @@ test.describe("production hardening", () => {
     expect(Array.isArray(manifestJson.icons)).toBe(true);
   });
 
-  test("the OpenGraph share image is wired and generated", async ({ page, request }) => {
+  test("the OpenGraph share image is wired and generated", async ({
+    page,
+    request,
+  }) => {
     await page.goto("/");
     const ogUrl = await page
       .locator('meta[property="og:image"]')

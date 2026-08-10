@@ -185,12 +185,7 @@ describe("worker executor — local-dev integration", () => {
       log: (e) => seen.push(e.event),
     });
     await exec.runOnce();
-    expect(seen).toEqual([
-      "claimed",
-      "scanning",
-      "processing",
-      "completed",
-    ]);
+    expect(seen).toEqual(["claimed", "scanning", "processing", "completed"]);
   });
 });
 
@@ -235,7 +230,12 @@ function fakeProcessor(tool: string, run: Processor["process"]): Processor {
     id: `fake-${tool}`,
     tools: [tool],
     supports: (t) => t === tool,
-    capability: () => ({ id: `fake-${tool}`, tools: [tool], ready: true, detail: "" }),
+    capability: () => ({
+      id: `fake-${tool}`,
+      tools: [tool],
+      ready: true,
+      detail: "",
+    }),
     process: run,
   };
 }
@@ -250,7 +250,11 @@ const oneInput: Record<string, ProcessorInputFile> = {
 };
 
 const okArtifact = [
-  { filename: "out.pdf", contentType: "application/pdf", bytes: new Uint8Array([9]) },
+  {
+    filename: "out.pdf",
+    contentType: "application/pdf",
+    bytes: new Uint8Array([9]),
+  },
 ];
 
 describe("worker executor — orchestration", () => {
@@ -287,7 +291,12 @@ describe("worker executor — orchestration", () => {
     const registry = new ProcessorRegistry().register(
       fakeProcessor("t", async () => processorOk(okArtifact)),
     );
-    const exec = createWorkerExecutor({ queue, storage, registry, leaseMs: LEASE_MS });
+    const exec = createWorkerExecutor({
+      queue,
+      storage,
+      registry,
+      leaseMs: LEASE_MS,
+    });
     const [tick] = await exec.drain();
     expect(tick?.outcome).toBe("failed");
     expect(store.getJob("job_noinput000")?.error?.code).toBe("not_found");
@@ -350,7 +359,11 @@ describe("worker executor — orchestration", () => {
       fakeProcessor("t", async () => {
         calls += 1;
         return calls === 1
-          ? processorFail({ code: "internal_error", message: "transient", retryable: true })
+          ? processorFail({
+              code: "internal_error",
+              message: "transient",
+              retryable: true,
+            })
           : processorOk(okArtifact);
       }),
     );
@@ -376,7 +389,11 @@ describe("worker executor — orchestration", () => {
     await submit("job_exhaust000", "t");
     const registry = new ProcessorRegistry().register(
       fakeProcessor("t", async () =>
-        processorFail({ code: "internal_error", message: "always", retryable: true }),
+        processorFail({
+          code: "internal_error",
+          message: "always",
+          retryable: true,
+        }),
       ),
     );
     const ticks = await createWorkerExecutor({
@@ -386,11 +403,7 @@ describe("worker executor — orchestration", () => {
       leaseMs: LEASE_MS,
       maxAttempts: 2,
     }).drain();
-    expect(ticks.map((t) => t.outcome)).toEqual([
-      "requeued",
-      "failed",
-      "idle",
-    ]);
+    expect(ticks.map((t) => t.outcome)).toEqual(["requeued", "failed", "idle"]);
     expect(store.getJob("job_exhaust000")?.status).toBe("failed");
   });
 
@@ -399,7 +412,11 @@ describe("worker executor — orchestration", () => {
     await submit("job_terminal00", "t");
     const registry = new ProcessorRegistry().register(
       fakeProcessor("t", async () =>
-        processorFail({ code: "unprocessable_entity", message: "bad", retryable: false }),
+        processorFail({
+          code: "unprocessable_entity",
+          message: "bad",
+          retryable: false,
+        }),
       ),
     );
     const ticks = await createWorkerExecutor({
@@ -507,7 +524,9 @@ describe("worker executor — malware scan gate", () => {
       registry: okProcessor(),
       leaseMs: LEASE_MS,
       // A deliberately noisy provider detail — it must never escape the executor.
-      scanner: fakeScanner(scanInfected("EICAR-Test-Signature in /tmp/report.pdf")),
+      scanner: fakeScanner(
+        scanInfected("EICAR-Test-Signature in /tmp/report.pdf"),
+      ),
       log: (e) => events.push(e),
     }).drain();
 
@@ -576,7 +595,9 @@ describe("worker executor — malware scan gate", () => {
     const { storage, artifacts } = recordingStorage(oneInput);
     await submit("job_scanret00");
     let calls = 0;
-    const scanner = fakeScanner(() => (++calls === 1 ? scanError() : scanClean()));
+    const scanner = fakeScanner(() =>
+      ++calls === 1 ? scanError() : scanClean(),
+    );
     const ticks = await createWorkerExecutor({
       queue,
       storage,
@@ -586,7 +607,11 @@ describe("worker executor — malware scan gate", () => {
       scanner,
     }).drain();
 
-    expect(ticks.map((t) => t.outcome)).toEqual(["requeued", "completed", "idle"]);
+    expect(ticks.map((t) => t.outcome)).toEqual([
+      "requeued",
+      "completed",
+      "idle",
+    ]);
     expect(artifacts.size).toBe(1);
     expect(calls).toBe(2);
     expect(store.getJob("job_scanret00")?.status).toBe("completed");

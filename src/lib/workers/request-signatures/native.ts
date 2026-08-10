@@ -1,5 +1,9 @@
 import { loadPdf, stampProducer } from "@/lib/pdf/stamp";
-import type { PdfFieldPlacer, PdfInspector, SignatureRequestDeps } from "./engine";
+import type {
+  PdfFieldPlacer,
+  PdfInspector,
+  SignatureRequestDeps,
+} from "./engine";
 
 /**
  * Production signature-request preparation deps: pdf-lib page inspection + real
@@ -52,6 +56,9 @@ export function signatureRequestDeps(): SignatureRequestDeps {
   return {
     inspect,
     place,
-    limits: { maxInputBytes: 100 * 1024 * 1024, maxOutputBytes: 100 * 1024 * 1024 },
+    limits: {
+      maxInputBytes: 100 * 1024 * 1024,
+      maxOutputBytes: 100 * 1024 * 1024,
+    },
   };
 }

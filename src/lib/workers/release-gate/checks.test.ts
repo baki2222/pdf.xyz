@@ -17,7 +17,9 @@ import { RELEASE_CHECK_IDS } from "./types";
 describe("release-gate check catalog", () => {
   it("covers exactly the bounded check ids, in order, with no duplicates", () => {
     expect(RELEASE_CHECKS.map((c) => c.id)).toEqual([...RELEASE_CHECK_IDS]);
-    expect(new Set(RELEASE_CHECKS.map((c) => c.id)).size).toBe(RELEASE_CHECKS.length);
+    expect(new Set(RELEASE_CHECKS.map((c) => c.id)).size).toBe(
+      RELEASE_CHECKS.length,
+    );
   });
 
   it("every check has a sane expected exit and a bounded severity", () => {
@@ -33,7 +35,9 @@ describe("release-gate check catalog", () => {
   });
 
   it("only the native-engine preflight is advisory (warn); everything else blocks", () => {
-    const advisory = RELEASE_CHECKS.filter((c) => c.severity === "warn").map((c) => c.id);
+    const advisory = RELEASE_CHECKS.filter((c) => c.severity === "warn").map(
+      (c) => c.id,
+    );
     expect(advisory).toEqual(["worker-engines"]);
   });
 
@@ -59,6 +63,7 @@ describe("release-gate check catalog", () => {
       })
       .filter((v) => v.includes("/")); // path-shaped values only (skip flags/epochs)
     expect(paths.length).toBeGreaterThan(0);
-    for (const p of paths) expect(existsSync(join(root, p)), `missing fixture: ${p}`).toBe(true);
+    for (const p of paths)
+      expect(existsSync(join(root, p)), `missing fixture: ${p}`).toBe(true);
   });
 });

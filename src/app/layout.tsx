@@ -80,10 +80,10 @@ export default function RootLayout({
        * `metadata.title.default` covers the root and `.template` wraps every
        * page title, so the export is the single source. See metadata.spec.ts.
        */}
-      <body className="min-h-dvh bg-ink font-sans text-slate-200 antialiased">
+      <body className="bg-ink min-h-dvh font-sans text-slate-200 antialiased">
         <a
           href="#main"
-          className="sr-only rounded-full bg-white px-4 py-2 text-sm font-semibold text-ink focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100]"
+          className="text-ink sr-only rounded-full bg-white px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]"
         >
           Skip to content
         </a>

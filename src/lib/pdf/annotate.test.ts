@@ -130,49 +130,137 @@ describe("validateAnnotations", () => {
     { width: 400, height: 300 },
   ];
   const highlight = (over: Partial<Annotation> = {}): Annotation =>
-    ({ type: "highlight", page: 1, x: 100, y: 100, width: 200, height: 50, color: "#ffff00", ...over } as Annotation);
+    ({
+      type: "highlight",
+      page: 1,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 50,
+      color: "#ffff00",
+      ...over,
+    }) as Annotation;
 
   it("returns no issues for a valid set across the four types", () => {
     const annotations: Annotation[] = [
-      { type: "highlight", page: 1, x: 10, y: 10, width: 50, height: 12, color: "#ff0" },
-      { type: "rect", page: 1, x: 10, y: 30, width: 100, height: 40, color: "#3b82f6" },
-      { type: "note", page: 2, x: 20, y: 200, text: "See here", color: "#111111", size: 12 },
-      { type: "line", page: 2, x1: 0, y1: 0, x2: 100, y2: 80, color: "#ef4444", arrow: true },
+      {
+        type: "highlight",
+        page: 1,
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 12,
+        color: "#ff0",
+      },
+      {
+        type: "rect",
+        page: 1,
+        x: 10,
+        y: 30,
+        width: 100,
+        height: 40,
+        color: "#3b82f6",
+      },
+      {
+        type: "note",
+        page: 2,
+        x: 20,
+        y: 200,
+        text: "See here",
+        color: "#111111",
+        size: 12,
+      },
+      {
+        type: "line",
+        page: 2,
+        x1: 0,
+        y1: 0,
+        x2: 100,
+        y2: 80,
+        color: "#ef4444",
+        arrow: true,
+      },
     ];
     expect(validateAnnotations(annotations, pages)).toEqual([]);
   });
 
   it("flags out-of-range and non-integer pages", () => {
-    expect(validateAnnotations([highlight({ page: 0 })], pages)[0]?.code).toBe("page-out-of-range");
-    expect(validateAnnotations([highlight({ page: 3 })], pages)[0]?.code).toBe("page-out-of-range");
-    expect(validateAnnotations([highlight({ page: 1.5 })], pages)[0]?.code).toBe("page-out-of-range");
+    expect(validateAnnotations([highlight({ page: 0 })], pages)[0]?.code).toBe(
+      "page-out-of-range",
+    );
+    expect(validateAnnotations([highlight({ page: 3 })], pages)[0]?.code).toBe(
+      "page-out-of-range",
+    );
+    expect(
+      validateAnnotations([highlight({ page: 1.5 })], pages)[0]?.code,
+    ).toBe("page-out-of-range");
   });
 
   it("flags invalid colors and out-of-range opacity", () => {
-    expect(validateAnnotations([highlight({ color: "not-a-color" })], pages)[0]?.code).toBe("invalid-color");
-    expect(validateAnnotations([highlight({ opacity: 2 })], pages)[0]?.code).toBe("invalid-opacity");
-    expect(validateAnnotations([highlight({ opacity: -0.1 })], pages)[0]?.code).toBe("invalid-opacity");
+    expect(
+      validateAnnotations([highlight({ color: "not-a-color" })], pages)[0]
+        ?.code,
+    ).toBe("invalid-color");
+    expect(
+      validateAnnotations([highlight({ opacity: 2 })], pages)[0]?.code,
+    ).toBe("invalid-opacity");
+    expect(
+      validateAnnotations([highlight({ opacity: -0.1 })], pages)[0]?.code,
+    ).toBe("invalid-opacity");
   });
 
   it("flags non-finite, empty, and out-of-bounds rectangles", () => {
-    expect(validateAnnotations([highlight({ x: Number.NaN })], pages)[0]?.code).toBe("invalid");
-    expect(validateAnnotations([highlight({ width: 0 })], pages)[0]?.code).toBe("empty");
-    expect(validateAnnotations([highlight({ x: 500, width: 200 })], pages)[0]?.code).toBe("out-of-bounds");
+    expect(
+      validateAnnotations([highlight({ x: Number.NaN })], pages)[0]?.code,
+    ).toBe("invalid");
+    expect(validateAnnotations([highlight({ width: 0 })], pages)[0]?.code).toBe(
+      "empty",
+    );
+    expect(
+      validateAnnotations([highlight({ x: 500, width: 200 })], pages)[0]?.code,
+    ).toBe("out-of-bounds");
   });
 
   it("flags empty note text and a note off the page", () => {
     const note = (over: Partial<Annotation>): Annotation =>
-      ({ type: "note", page: 1, x: 10, y: 10, text: "hi", color: "#000", ...over } as Annotation);
-    expect(validateAnnotations([note({ text: "   " })], pages)[0]?.code).toBe("empty");
-    expect(validateAnnotations([note({ x: 700 })], pages)[0]?.code).toBe("out-of-bounds");
-    expect(validateAnnotations([note({ size: 0 })], pages)[0]?.code).toBe("invalid");
+      ({
+        type: "note",
+        page: 1,
+        x: 10,
+        y: 10,
+        text: "hi",
+        color: "#000",
+        ...over,
+      }) as Annotation;
+    expect(validateAnnotations([note({ text: "   " })], pages)[0]?.code).toBe(
+      "empty",
+    );
+    expect(validateAnnotations([note({ x: 700 })], pages)[0]?.code).toBe(
+      "out-of-bounds",
+    );
+    expect(validateAnnotations([note({ size: 0 })], pages)[0]?.code).toBe(
+      "invalid",
+    );
   });
 
   it("flags a zero-length line and endpoints off the page", () => {
     const line = (over: Partial<Annotation>): Annotation =>
-      ({ type: "line", page: 1, x1: 0, y1: 0, x2: 100, y2: 100, color: "#000", ...over } as Annotation);
-    expect(validateAnnotations([line({ x2: 0, y2: 0 })], pages)[0]?.code).toBe("empty");
-    expect(validateAnnotations([line({ x2: 900 })], pages)[0]?.code).toBe("out-of-bounds");
+      ({
+        type: "line",
+        page: 1,
+        x1: 0,
+        y1: 0,
+        x2: 100,
+        y2: 100,
+        color: "#000",
+        ...over,
+      }) as Annotation;
+    expect(validateAnnotations([line({ x2: 0, y2: 0 })], pages)[0]?.code).toBe(
+      "empty",
+    );
+    expect(validateAnnotations([line({ x2: 900 })], pages)[0]?.code).toBe(
+      "out-of-bounds",
+    );
   });
 
   it("reports the offending index for each issue", () => {
@@ -192,10 +280,46 @@ describe("annotatePdf", () => {
     ];
     const base = await blankPdf(sizes);
     const annotations: Annotation[] = [
-      { type: "highlight", page: 1, x: 72, y: 700, width: 200, height: 16, color: "#ffee00", opacity: 0.4 },
-      { type: "rect", page: 1, x: 60, y: 600, width: 240, height: 80, color: "#3b82f6", borderWidth: 2 },
-      { type: "note", page: 2, x: 24, y: 260, text: "Reviewed — looks good", color: "#111111", size: 12 },
-      { type: "line", page: 2, x1: 20, y1: 40, x2: 300, y2: 200, color: "#ef4444", thickness: 2, arrow: true },
+      {
+        type: "highlight",
+        page: 1,
+        x: 72,
+        y: 700,
+        width: 200,
+        height: 16,
+        color: "#ffee00",
+        opacity: 0.4,
+      },
+      {
+        type: "rect",
+        page: 1,
+        x: 60,
+        y: 600,
+        width: 240,
+        height: 80,
+        color: "#3b82f6",
+        borderWidth: 2,
+      },
+      {
+        type: "note",
+        page: 2,
+        x: 24,
+        y: 260,
+        text: "Reviewed — looks good",
+        color: "#111111",
+        size: 12,
+      },
+      {
+        type: "line",
+        page: 2,
+        x1: 20,
+        y1: 40,
+        x2: 300,
+        y2: 200,
+        color: "#ef4444",
+        thickness: 2,
+        arrow: true,
+      },
     ];
 
     const result = await annotatePdf(base, annotations);
@@ -218,7 +342,15 @@ describe("annotatePdf", () => {
   it("draws a note with non-WinAnsi characters without throwing", async () => {
     const base = await blankPdf([[300, 300]]);
     const result = await annotatePdf(base, [
-      { type: "note", page: 1, x: 20, y: 150, text: "Emoji 😀 and 日本語 note", color: "#000000", maxWidth: 260 },
+      {
+        type: "note",
+        page: 1,
+        x: 20,
+        y: 150,
+        text: "Emoji 😀 and 日本語 note",
+        color: "#000000",
+        maxWidth: 260,
+      },
     ]);
     expect(result.counts.note).toBe(1);
     const out = await PDFDocument.load(result.bytes);
@@ -234,7 +366,15 @@ describe("annotatePdf", () => {
     const base = await blankPdf([[200, 100]]);
     await expect(
       annotatePdf(base, [
-        { type: "highlight", page: 2, x: 0, y: 0, width: 10, height: 10, color: "#000" },
+        {
+          type: "highlight",
+          page: 2,
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          color: "#000",
+        },
       ]),
     ).rejects.toThrow(/page 2 is out of range/);
   });
@@ -243,7 +383,15 @@ describe("annotatePdf", () => {
     const notPdf = new TextEncoder().encode("this is not a pdf");
     await expect(
       annotatePdf(notPdf, [
-        { type: "rect", page: 1, x: 0, y: 0, width: 10, height: 10, color: "#000" },
+        {
+          type: "rect",
+          page: 1,
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          color: "#000",
+        },
       ]),
     ).rejects.toBeInstanceOf(PdfEngineError);
   });

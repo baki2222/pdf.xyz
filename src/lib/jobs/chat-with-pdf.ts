@@ -27,7 +27,10 @@
  */
 
 import { apiError, type ParseResult } from "./responses";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "./filenames";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "./filenames";
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -78,13 +81,23 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** Validate one context turn at `index`, given the role its position requires. */
-function parseTurn(raw: unknown, index: number, expectedRole: ChatRole): ParseResult<ChatTurn> {
+function parseTurn(
+  raw: unknown,
+  index: number,
+  expectedRole: ChatRole,
+): ParseResult<ChatTurn> {
   const at = `context[${index}]`;
   if (!isObject(raw)) {
-    return invalid(`\`${at}\` must be an object with a \`role\` and \`content\`.`, at);
+    return invalid(
+      `\`${at}\` must be an object with a \`role\` and \`content\`.`,
+      at,
+    );
   }
   if (typeof raw.role !== "string" || !ROLE_SET.has(raw.role)) {
-    return invalid(`\`${at}.role\` must be one of ${CHAT_ROLES.join(", ")}.`, `${at}.role`);
+    return invalid(
+      `\`${at}.role\` must be one of ${CHAT_ROLES.join(", ")}.`,
+      `${at}.role`,
+    );
   }
   if (raw.role !== expectedRole) {
     return invalid(
@@ -97,10 +110,16 @@ function parseTurn(raw: unknown, index: number, expectedRole: ChatRole): ParseRe
   }
   const content = raw.content.trim();
   if (CONTROL_CHAR_ALLOW_WS.test(content)) {
-    return invalid(`\`${at}.content\` cannot contain control characters.`, `${at}.content`);
+    return invalid(
+      `\`${at}.content\` cannot contain control characters.`,
+      `${at}.content`,
+    );
   }
   if (content.length > MAX_TURN_CHARS) {
-    return invalid(`\`${at}.content\` is too long (max ${MAX_TURN_CHARS} characters).`, `${at}.content`);
+    return invalid(
+      `\`${at}.content\` is too long (max ${MAX_TURN_CHARS} characters).`,
+      `${at}.content`,
+    );
   }
   return { ok: true, value: { role: raw.role as ChatRole, content } };
 }
@@ -113,20 +132,31 @@ function parseTurn(raw: unknown, index: number, expectedRole: ChatRole): ParseRe
  * yields a valid conversation the provider can run. A request without a question is
  * rejected — the engine never invents one.
  */
-export function parseChatOptions(options: Record<string, unknown>): ParseResult<ChatOptions> {
+export function parseChatOptions(
+  options: Record<string, unknown>,
+): ParseResult<ChatOptions> {
   if (!isObject(options)) {
     return invalid("`options` must be an object.", "options");
   }
 
-  if (typeof options.question !== "string" || options.question.trim().length === 0) {
-    return invalid("`question` is required — ask what you want to know about the PDF.", "question");
+  if (
+    typeof options.question !== "string" ||
+    options.question.trim().length === 0
+  ) {
+    return invalid(
+      "`question` is required — ask what you want to know about the PDF.",
+      "question",
+    );
   }
   const question = options.question.trim();
   if (CONTROL_CHAR_ALLOW_WS.test(question)) {
     return invalid("`question` cannot contain control characters.", "question");
   }
   if (question.length > MAX_QUESTION_CHARS) {
-    return invalid(`\`question\` is too long (max ${MAX_QUESTION_CHARS} characters).`, "question");
+    return invalid(
+      `\`question\` is too long (max ${MAX_QUESTION_CHARS} characters).`,
+      "question",
+    );
   }
 
   if (options.context === undefined) {
@@ -134,10 +164,16 @@ export function parseChatOptions(options: Record<string, unknown>): ParseResult<
   }
 
   if (!Array.isArray(options.context)) {
-    return invalid("`context` must be an array of prior conversation turns.", "context");
+    return invalid(
+      "`context` must be an array of prior conversation turns.",
+      "context",
+    );
   }
   if (options.context.length > MAX_CONTEXT_TURNS) {
-    return invalid(`\`context\` has too many turns (max ${MAX_CONTEXT_TURNS}).`, "context");
+    return invalid(
+      `\`context\` has too many turns (max ${MAX_CONTEXT_TURNS}).`,
+      "context",
+    );
   }
   if (options.context.length % 2 !== 0) {
     return invalid(
@@ -172,6 +208,8 @@ export function chatAnswerOutputName(originalName: unknown): string {
   const tail = "-answer.zip";
   const budget = Math.max(1, MAX_DISPLAY_FILENAME_LENGTH - tail.length);
   const stem =
-    sanitizeDisplayFilename(originalName).replace(/\.[^.]+$/, "").trim() || FALLBACK_STEM;
+    sanitizeDisplayFilename(originalName)
+      .replace(/\.[^.]+$/, "")
+      .trim() || FALLBACK_STEM;
   return `${stem.length > budget ? stem.slice(0, budget).trim() : stem}${tail}`;
 }

@@ -12,17 +12,17 @@ part of this repository or its tooling reads, stores, or transmits them.
 
 ## What is already enforced the moment it is on
 
-| Policy | Limit | Window |
-| --- | --- | --- |
-| `uploads.create` | 60 | per hour |
-| `jobs.create` | 60 | per hour |
-| `jobs.delete` | 60 | per hour |
-| `jobs.status` | 120 | per minute |
-| `artifacts.fetch` | 120 | per minute |
-| `worker.status` | 120 | per minute |
-| `worker.operations` | 120 | per minute |
-| `interest.note` | 30 | per hour |
-| `ai.run` | 3 | per day |
+| Policy              | Limit | Window     |
+| ------------------- | ----- | ---------- |
+| `uploads.create`    | 60    | per hour   |
+| `jobs.create`       | 60    | per hour   |
+| `jobs.delete`       | 60    | per hour   |
+| `jobs.status`       | 120   | per minute |
+| `artifacts.fetch`   | 120   | per minute |
+| `worker.status`     | 120   | per minute |
+| `worker.operations` | 120   | per minute |
+| `interest.note`     | 30    | per hour   |
+| `ai.run`            | 3     | per day    |
 
 Per client, identified from the request. A refused request gets `429` with a
 `Retry-After`, not a silent drop.
@@ -54,10 +54,10 @@ Project → **Settings** → **Environment Variables**. Set the scope to
 production storage config; giving them the same rate-limit store would let
 preview traffic consume the production budget.)
 
-| Name | Value |
-| --- | --- |
-| `PDFXYZ_RATE_LIMIT_PROVIDER` | `redis` |
-| `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` | the Upstash REST URL |
+| Name                                 | Value                  |
+| ------------------------------------ | ---------------------- |
+| `PDFXYZ_RATE_LIMIT_PROVIDER`         | `redis`                |
+| `PDFXYZ_RATE_LIMIT_REDIS_REST_URL`   | the Upstash REST URL   |
 | `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` | the Upstash REST token |
 
 Only the first is written out here because only the first is not a secret.

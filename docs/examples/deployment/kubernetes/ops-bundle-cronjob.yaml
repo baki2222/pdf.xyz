@@ -30,7 +30,11 @@ spec:
               # aggregator. A POSIX pipeline exits with the last command's status, so the Job's
               # exit code is the bundle's composite posture (0 ok / 2 unknown / 3 warn / 4 critical).
               command:
-                ["sh", "-c", "pnpm -s worker:ops-check --runtime --json | pnpm -s worker:ops-bundle --json"]
+                [
+                  "sh",
+                  "-c",
+                  "pnpm -s worker:ops-check --runtime --json | pnpm -s worker:ops-bundle --json",
+                ]
               envFrom:
                 - configMapRef:
                     name: pdfxyz-config

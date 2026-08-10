@@ -19,7 +19,13 @@ export async function runWorkerPdfToPdfA(
   input: PdfArchiveWorkerInput,
   options: PdfSecurityWorkerOptions = {},
 ): Promise<PdfArchiveWorkerResult> {
-  return runSecurityJob(PDF_TO_PDFA_TOOL, input.filename, input.bytes, {}, options);
+  return runSecurityJob(
+    PDF_TO_PDFA_TOOL,
+    input.filename,
+    input.bytes,
+    {},
+    options,
+  );
 }
 
 /**
@@ -33,7 +39,9 @@ export async function runWorkerPdfToPdfA(
  * the tool as available on any dev box with qpdf installed, only to reject the job after
  * the user picked a file.
  */
-export function canRunPdfArchive(status: WorkerStatus | null | undefined): boolean {
+export function canRunPdfArchive(
+  status: WorkerStatus | null | undefined,
+): boolean {
   if (!status) return false;
   if (status.localDevOnly) return false;
   return canRunPdfSecurity(status);

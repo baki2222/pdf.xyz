@@ -42,10 +42,7 @@
 
 import { isWorkerBackendConfigured } from "@/lib/jobs";
 import { buildObjectKey, signingTarget } from "../storage/s3-keys";
-import {
-  parseS3Config,
-  type S3StorageConfig,
-} from "../storage/s3-config";
+import { parseS3Config, type S3StorageConfig } from "../storage/s3-config";
 import {
   ARTIFACT_MANIFEST_METADATA_HEADER,
   decodeArtifactManifestMetadata,
@@ -55,12 +52,18 @@ import {
   decodeArtifactLifecycleMetadata,
 } from "../storage/s3-lifecycle-metadata";
 import { presignS3Url } from "../storage/s3-signer";
-import { evaluateArtifactLifecycle, type StorageArtifactLifecycle } from "./lifecycle";
+import {
+  evaluateArtifactLifecycle,
+  type StorageArtifactLifecycle,
+} from "./lifecycle";
 import { recordArtifactExpiry } from "./expiry-metrics";
 import { emitArtifactExpiryReceipt } from "./expiry-receipt";
 import type { ArtifactManifest } from "./types";
 import type { RetrievalStorageCapability } from "./access";
-import type { ArtifactRetrievalBackend, ArtifactRetrievalResult } from "./retrieval";
+import type {
+  ArtifactRetrievalBackend,
+  ArtifactRetrievalResult,
+} from "./retrieval";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -124,7 +127,10 @@ export type S3ArtifactRead =
        * emit the bounded lifecycle observation distinguishing "served fresh" from "served
        * with no evidence" (the missing-metadata drift signal); it never gates delivery.
        */
-      readonly lifecycleState: Extract<StorageArtifactLifecycle, "live" | "unknown">;
+      readonly lifecycleState: Extract<
+        StorageArtifactLifecycle,
+        "live" | "unknown"
+      >;
     }
   | { readonly status: "expired" }
   | { readonly status: "deleted" }
@@ -137,7 +143,9 @@ export interface S3ArtifactReader {
 }
 
 const defaultFetch: S3ArtifactFetch = (url, init) =>
-  fetch(url, { method: init.method }) as unknown as Promise<S3ArtifactObjectResponse>;
+  fetch(url, {
+    method: init.method,
+  }) as unknown as Promise<S3ArtifactObjectResponse>;
 
 /**
  * Parse a raw `Content-Length` response header into a bounded, non-negative integer
@@ -234,10 +242,19 @@ export function createS3ArtifactReader(
       );
       // Capture the bucket's declared length for the delivery layer to verify against
       // the actual bytes (never emitted verbatim; only cross-checked).
-      const reportedLength = parseContentLength(res.headers.get("content-length"));
+      const reportedLength = parseContentLength(
+        res.headers.get("content-length"),
+      );
       // `lifecycle` is narrowed to `live` | `unknown` here (expired/deleted returned above);
       // carry it so the backend can distinguish "served fresh" from "served with no evidence".
-      return { status: "ok", bytes, contentType, manifest, reportedLength, lifecycleState: lifecycle };
+      return {
+        status: "ok",
+        bytes,
+        contentType,
+        manifest,
+        reportedLength,
+        lifecycleState: lifecycle,
+      };
     },
   };
 }
@@ -298,7 +315,10 @@ export function createStorageArtifactBackend(
       if (observed !== null) {
         try {
           recordArtifactExpiry(observed, capability.provider);
-          emitArtifactExpiryReceipt({ state: observed, provider: capability.provider });
+          emitArtifactExpiryReceipt({
+            state: observed,
+            provider: capability.provider,
+          });
         } catch {
           // A misbehaving metrics collector can never break the download.
         }
@@ -335,7 +355,9 @@ export function createStorageArtifactBackend(
  */
 function notConfiguredBackend(env: EnvSource): ArtifactRetrievalBackend {
   const capability: RetrievalStorageCapability = {
-    provider: isWorkerBackendConfigured(env) ? "remote-configured" : "not-configured",
+    provider: isWorkerBackendConfigured(env)
+      ? "remote-configured"
+      : "not-configured",
     ready: false,
   };
   return {

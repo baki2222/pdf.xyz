@@ -10,7 +10,8 @@ function file(name: string, type = ""): WorkspaceFile {
   return createWorkspaceFile({ name, size: 1000, type }, `id-${seq}`, seq);
 }
 
-const slugs = (files: WorkspaceFile[]) => suggestTools(files).map((s) => s.slug);
+const slugs = (files: WorkspaceFile[]) =>
+  suggestTools(files).map((s) => s.slug);
 
 describe("suggestTools", () => {
   it("returns nothing when no files are staged", () => {
@@ -48,7 +49,13 @@ describe("suggestTools", () => {
   });
 
   it("is deterministic, bounded, and only ever suggests real catalog tools", () => {
-    const mix = [file("a.pdf"), file("b.pdf"), file("c.png"), file("d.docx"), file("e.txt")];
+    const mix = [
+      file("a.pdf"),
+      file("b.pdf"),
+      file("c.png"),
+      file("d.docx"),
+      file("e.txt"),
+    ];
     const a = suggestTools(mix, 4);
     const b = suggestTools(mix, 4);
     expect(a).toEqual(b); // stable ordering

@@ -28,7 +28,10 @@ import {
   type ChatExchange,
 } from "./chat-with-pdf-conversation";
 
-const exchange = (question: string, answer: string): ChatExchange => ({ question, answer });
+const exchange = (question: string, answer: string): ChatExchange => ({
+  question,
+  answer,
+});
 
 /** Round-trip the built context through the contract exactly as the worker will. */
 function validate(question: string, exchanges: readonly ChatExchange[]) {
@@ -120,7 +123,11 @@ function extractor(pages: string[]) {
   const joined = pages.join("\n\n");
   const extracted: ExtractedPdfText = {
     pageCount: pages.length,
-    pages: pages.map((text, i) => ({ pageNumber: i + 1, text, characterCount: text.length })),
+    pages: pages.map((text, i) => ({
+      pageNumber: i + 1,
+      text,
+      characterCount: text.length,
+    })),
     text: joined,
     characterCount: joined.length,
     hasText: true,
@@ -133,17 +140,29 @@ function provider(text: string): AiProvider {
     id: "anthropic",
     model: "claude-sonnet-5",
     async complete() {
-      return { ok: true, text, model: "claude-sonnet-5", usage: { inputTokens: 9, outputTokens: 4 } };
+      return {
+        ok: true,
+        text,
+        model: "claude-sonnet-5",
+        usage: { inputTokens: 9, outputTokens: 4 },
+      };
     },
   };
 }
 
 /** Run the real engine and hand back the real ZIP it packaged. */
-async function realPackage(question: string, answer = ANSWER): Promise<Uint8Array> {
-  const run = await runChatWithPdf(new Uint8Array([1, 2, 3]), { question }, {
-    extract: extractor(["Invoice total: $1,240.00"]),
-    provider: provider(answer),
-  });
+async function realPackage(
+  question: string,
+  answer = ANSWER,
+): Promise<Uint8Array> {
+  const run = await runChatWithPdf(
+    new Uint8Array([1, 2, 3]),
+    { question },
+    {
+      extract: extractor(["Invoice total: $1,240.00"]),
+      provider: provider(answer),
+    },
+  );
   if (!run.ok) throw new Error(`engine failed: ${run.message}`);
   return run.output;
 }
@@ -151,27 +170,40 @@ async function realPackage(question: string, answer = ANSWER): Promise<Uint8Arra
 describe("readAnswerFromPackage — recovers the answer the engine actually shipped", () => {
   it("reads the answer back out of a real engine package", async () => {
     const question = "What is the total?";
-    expect(await readAnswerFromPackage(await realPackage(question), question)).toBe(ANSWER);
+    expect(
+      await readAnswerFromPackage(await realPackage(question), question),
+    ).toBe(ANSWER);
   });
 
   it("survives an answer spanning several lines", async () => {
     const question = "Summarise the charges.";
     const multi = "Line one [p.1].\n\nLine two [p.2].\n- a bullet";
-    expect(await readAnswerFromPackage(await realPackage(question, multi), question)).toBe(multi);
+    expect(
+      await readAnswerFromPackage(await realPackage(question, multi), question),
+    ).toBe(multi);
   });
 
   it("is not fooled by a question that itself looks like the delimiter", async () => {
     // The prefix is KNOWN, not sniffed — a question containing "A:" cannot forge it.
     const question = "In the table, what does row A: Freight say?";
-    expect(await readAnswerFromPackage(await realPackage(question), question)).toBe(ANSWER);
+    expect(
+      await readAnswerFromPackage(await realPackage(question), question),
+    ).toBe(ANSWER);
   });
 
   it("returns null when the package is not the shape we think it is", async () => {
     // Better to stop the conversation than to carry a mis-parsed turn into the next
     // prompt, where it would look exactly like something the model really said.
-    expect(await readAnswerFromPackage(new Uint8Array([0, 1, 2]), "q")).toBeNull();
+    expect(
+      await readAnswerFromPackage(new Uint8Array([0, 1, 2]), "q"),
+    ).toBeNull();
     const question = "What is the total?";
-    expect(await readAnswerFromPackage(await realPackage(question), "a different question")).toBeNull();
+    expect(
+      await readAnswerFromPackage(
+        await realPackage(question),
+        "a different question",
+      ),
+    ).toBeNull();
   });
 });
 
@@ -181,7 +213,9 @@ describe("the whole follow-up round trip", () => {
     const answer = await readAnswerFromPackage(await realPackage(first), first);
     expect(answer).not.toBeNull();
 
-    const { context, parsed } = validate("And when is it due?", [exchange(first, answer!)]);
+    const { context, parsed } = validate("And when is it due?", [
+      exchange(first, answer!),
+    ]);
 
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
@@ -218,7 +252,10 @@ describe("context fits the request the API will actually accept", () => {
     });
 
   const exchanges = (count: number, text: string) =>
-    Array.from({ length: count }, (_, i) => ({ question: `Question ${i}? ${text}`, answer: text }));
+    Array.from({ length: count }, (_, i) => ({
+      question: `Question ${i}? ${text}`,
+      answer: text,
+    }));
 
   it.each([
     ["a long English conversation", 12, "x".repeat(MAX_TURN_CHARS)],

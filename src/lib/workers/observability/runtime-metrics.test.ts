@@ -52,7 +52,11 @@ function queuedJob(jobId: string, tool: string, createdAtMs: number): Job {
 function fixedScanner(verdict: "infected" | "error"): MalwareScanner {
   return {
     scan: async () => (verdict === "infected" ? scanInfected() : scanError()),
-    capability: () => ({ active: true, provider: "fake", detail: "test scanner" }),
+    capability: () => ({
+      active: true,
+      provider: "fake",
+      detail: "test scanner",
+    }),
   };
 }
 
@@ -113,11 +117,24 @@ describe("executor metric emission", () => {
     expect(tick?.outcome).toBe("completed");
 
     const snap = metrics.snapshot();
-    expect(sumSeries(snap, "worker_job_terminal_total", { outcome: "completed" })).toBe(1);
-    expect(sumSeries(snap, "worker_processor_total", { processor: "compress", outcome: "completed" })).toBe(1);
-    expect(sumSeries(snap, "worker_processor_latency_seconds", { processor: "compress" })).toBe(1);
+    expect(
+      sumSeries(snap, "worker_job_terminal_total", { outcome: "completed" }),
+    ).toBe(1);
+    expect(
+      sumSeries(snap, "worker_processor_total", {
+        processor: "compress",
+        outcome: "completed",
+      }),
+    ).toBe(1);
+    expect(
+      sumSeries(snap, "worker_processor_latency_seconds", {
+        processor: "compress",
+      }),
+    ).toBe(1);
     // 250ms elapsed between the two clock reads → the 0.25s bucket.
-    expect(seriesFor(snap, "worker_processor_latency_seconds")[0]!.labels.le).toBe("0.25");
+    expect(
+      seriesFor(snap, "worker_processor_latency_seconds")[0]!.labels.le,
+    ).toBe("0.25");
   });
 
   it("terminal failure path: deep-without-engine → processor + terminal failed", async () => {
@@ -130,8 +147,18 @@ describe("executor metric emission", () => {
     await executor().drain();
 
     const snap = metrics.snapshot();
-    expect(sumSeries(snap, "worker_processor_total", { processor: "compress", outcome: "failed" })).toBe(1);
-    expect(sumSeries(snap, "worker_job_terminal_total", { outcome: "failed", failure_class: "unsupported" })).toBe(1);
+    expect(
+      sumSeries(snap, "worker_processor_total", {
+        processor: "compress",
+        outcome: "failed",
+      }),
+    ).toBe(1);
+    expect(
+      sumSeries(snap, "worker_job_terminal_total", {
+        outcome: "failed",
+        failure_class: "unsupported",
+      }),
+    ).toBe(1);
   });
 
   it("infected path: scan blocked before processing, no processor metric", async () => {
@@ -144,8 +171,18 @@ describe("executor metric emission", () => {
     await executor(fixedScanner("infected")).drain();
 
     const snap = metrics.snapshot();
-    expect(sumSeries(snap, "worker_scan_total", { verdict: "infected", scanned: "true" })).toBe(1);
-    expect(sumSeries(snap, "worker_job_terminal_total", { outcome: "failed", failure_class: "blocked" })).toBe(1);
+    expect(
+      sumSeries(snap, "worker_scan_total", {
+        verdict: "infected",
+        scanned: "true",
+      }),
+    ).toBe(1);
+    expect(
+      sumSeries(snap, "worker_job_terminal_total", {
+        outcome: "failed",
+        failure_class: "blocked",
+      }),
+    ).toBe(1);
     // The processor never ran, so there is no processor metric.
     expect(sumSeries(snap, "worker_processor_total")).toBe(0);
   });
@@ -161,15 +198,28 @@ describe("executor metric emission", () => {
     await executor(fixedScanner("error")).drain();
 
     const snap = metrics.snapshot();
-    expect(sumSeries(snap, "worker_scan_total", { verdict: "error", scanned: "false" })).toBe(3);
+    expect(
+      sumSeries(snap, "worker_scan_total", {
+        verdict: "error",
+        scanned: "false",
+      }),
+    ).toBe(3);
     expect(sumSeries(snap, "worker_retry_total")).toBe(2);
     expect(sumSeries(snap, "worker_dead_letter_total")).toBe(1);
     expect(sumSeries(snap, "worker_redelivery_total")).toBe(2); // attempts 2 and 3
-    expect(sumSeries(snap, "worker_job_terminal_total", { outcome: "failed", failure_class: "scan_unavailable" })).toBe(1);
+    expect(
+      sumSeries(snap, "worker_job_terminal_total", {
+        outcome: "failed",
+        failure_class: "scan_unavailable",
+      }),
+    ).toBe(1);
   });
 
   it("never leaks a filename, byte, or key into the metric snapshot", async () => {
-    const fileId = await seedInput(await makePdf(2), "Q3 Confidential Report.pdf");
+    const fileId = await seedInput(
+      await makePdf(2),
+      "Q3 Confidential Report.pdf",
+    );
     await queue.submit({
       job: queuedJob("job_leak000000", "compress-pdf", clock),
       inputs: [fileId],
@@ -181,7 +231,13 @@ describe("executor metric emission", () => {
     // The opaque job/session ids and the filename must never appear. (Note "job_"
     // alone is a substring of the metric NAME worker_job_terminal_total, so we assert
     // the specific opaque ids, which are what the executor deliberately omits.)
-    for (const bad of ["confidential", "report", ".pdf", "job_leak", "sess_test"]) {
+    for (const bad of [
+      "confidential",
+      "report",
+      ".pdf",
+      "job_leak",
+      "sess_test",
+    ]) {
       expect(text, `leaked ${bad}`).not.toContain(bad.toLowerCase());
     }
   });
@@ -206,10 +262,21 @@ describe("daemon metric emission", () => {
     expect(summary.reason).toBe("drained");
 
     const snap = metrics.snapshot();
-    expect(sumSeries(snap, "worker_tick_total", { mode: "drain", outcome: "completed" })).toBe(1);
-    expect(sumSeries(snap, "worker_tick_total", { mode: "drain", outcome: "idle" })).toBe(1);
-    expect(sumSeries(snap, "worker_claim_total", { result: "claimed" })).toBe(1);
+    expect(
+      sumSeries(snap, "worker_tick_total", {
+        mode: "drain",
+        outcome: "completed",
+      }),
+    ).toBe(1);
+    expect(
+      sumSeries(snap, "worker_tick_total", { mode: "drain", outcome: "idle" }),
+    ).toBe(1);
+    expect(sumSeries(snap, "worker_claim_total", { result: "claimed" })).toBe(
+      1,
+    );
     expect(sumSeries(snap, "worker_claim_total", { result: "empty" })).toBe(1);
-    expect(sumSeries(snap, "worker_run_total", { mode: "drain", reason: "drained" })).toBe(1);
+    expect(
+      sumSeries(snap, "worker_run_total", { mode: "drain", reason: "drained" }),
+    ).toBe(1);
   });
 });

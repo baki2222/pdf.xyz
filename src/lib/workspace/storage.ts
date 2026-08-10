@@ -166,7 +166,9 @@ function resolveStorage(explicit?: StorageLike): StorageLike | null {
 }
 
 /** Read + migrate the persisted workspace, or null if absent/unreadable. */
-export function loadPersisted(storage?: StorageLike): PersistedWorkspace | null {
+export function loadPersisted(
+  storage?: StorageLike,
+): PersistedWorkspace | null {
   const store = resolveStorage(storage);
   if (!store) return null;
   let raw: string | null;

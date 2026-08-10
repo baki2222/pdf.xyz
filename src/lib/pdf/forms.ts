@@ -31,12 +31,7 @@ import { loadPdf, stampProducer } from "./stamp";
 
 /** The field kinds we can classify. Everything else is `unsupported`. */
 export type FormFieldType =
-  | "text"
-  | "checkbox"
-  | "radio"
-  | "dropdown"
-  | "optionlist"
-  | "unsupported";
+  "text" | "checkbox" | "radio" | "dropdown" | "optionlist" | "unsupported";
 
 /** Safe, display-ready metadata for a single AcroForm field. */
 export interface FormFieldInfo {
@@ -182,7 +177,10 @@ function describeField(field: PDFField): FormFieldInfo {
     info.checked = safe(() => field.isChecked(), false);
   } else if (field instanceof PDFRadioGroup) {
     info.options = safe(() => field.getOptions(), []);
-    const selected = safe<string | undefined>(() => field.getSelected(), undefined);
+    const selected = safe<string | undefined>(
+      () => field.getSelected(),
+      undefined,
+    );
     info.selected = selected ? [selected] : [];
   } else if (field instanceof PDFDropdown) {
     info.options = safe(() => field.getOptions(), []);
@@ -203,7 +201,9 @@ function describeField(field: PDFField): FormFieldInfo {
  * no form yields `hasFields: false` and an empty list — the caller must not
  * pretend otherwise.
  */
-export async function inspectFormFields(bytes: Uint8Array): Promise<FormInspection> {
+export async function inspectFormFields(
+  bytes: Uint8Array,
+): Promise<FormInspection> {
   const doc = await loadPdf(bytes);
   const fields = doc.getForm().getFields().map(describeField);
   const fillableCount = fields.filter((f) => isFillableType(f.type)).length;
@@ -229,13 +229,16 @@ function toText(value: FieldValue): string {
 function toBool(value: FieldValue): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
-    return ["true", "on", "yes", "checked", "1"].includes(value.trim().toLowerCase());
+    return ["true", "on", "yes", "checked", "1"].includes(
+      value.trim().toLowerCase(),
+    );
   }
   return value.length > 0;
 }
 
 function toChoices(value: FieldValue): string[] {
-  if (Array.isArray(value)) return value.map(String).filter((v) => v.length > 0);
+  if (Array.isArray(value))
+    return value.map(String).filter((v) => v.length > 0);
   if (typeof value === "string") return value.length > 0 ? [value] : [];
   return [];
 }
@@ -249,7 +252,12 @@ function applyToField(
   const { name, type } = info;
 
   if (type === "unsupported") {
-    return { name, type, status: "skipped", detail: `${info.widgetLabel} can't be filled` };
+    return {
+      name,
+      type,
+      status: "skipped",
+      detail: `${info.widgetLabel} can't be filled`,
+    };
   }
   if (info.readOnly) {
     return { name, type, status: "skipped", detail: "Read-only field" };
@@ -286,7 +294,12 @@ function applyToField(
           return { name, type, status: "applied" };
         }
         if (!options.includes(choice)) {
-          return { name, type, status: "invalid", detail: `"${choice}" is not an option` };
+          return {
+            name,
+            type,
+            status: "invalid",
+            detail: `"${choice}" is not an option`,
+          };
         }
         group.select(choice);
         return { name, type, status: "applied" };
@@ -294,7 +307,8 @@ function applyToField(
       case "dropdown": {
         const dropdown = field as PDFDropdown;
         let choices = toChoices(value);
-        if (!info.multiselect && choices.length > 1) choices = choices.slice(0, 1);
+        if (!info.multiselect && choices.length > 1)
+          choices = choices.slice(0, 1);
         if (choices.length === 0) {
           dropdown.clear();
           return { name, type, status: "applied" };
@@ -304,7 +318,12 @@ function applyToField(
         if (!info.editable) {
           const unknown = choices.filter((c) => !options.includes(c));
           if (unknown.length > 0) {
-            return { name, type, status: "invalid", detail: `Not an option: ${unknown.join(", ")}` };
+            return {
+              name,
+              type,
+              status: "invalid",
+              detail: `Not an option: ${unknown.join(", ")}`,
+            };
           }
         }
         dropdown.select(choices);
@@ -313,14 +332,20 @@ function applyToField(
       case "optionlist": {
         const list = field as PDFOptionList;
         let choices = toChoices(value);
-        if (!info.multiselect && choices.length > 1) choices = choices.slice(0, 1);
+        if (!info.multiselect && choices.length > 1)
+          choices = choices.slice(0, 1);
         if (choices.length === 0) {
           list.clear();
           return { name, type, status: "applied" };
         }
         const unknown = choices.filter((c) => !options.includes(c));
         if (unknown.length > 0) {
-          return { name, type, status: "invalid", detail: `Not an option: ${unknown.join(", ")}` };
+          return {
+            name,
+            type,
+            status: "invalid",
+            detail: `Not an option: ${unknown.join(", ")}`,
+          };
         }
         list.select(choices);
         return { name, type, status: "applied" };
@@ -354,14 +379,22 @@ export async function applyFormValues(
   const form = doc.getForm();
   const fields = form.getFields();
   const byName = new Map(
-    fields.map((field) => [field.getName(), { field, info: describeField(field) }]),
+    fields.map((field) => [
+      field.getName(),
+      { field, info: describeField(field) },
+    ]),
   );
 
   const outcomes: FieldApplyOutcome[] = [];
   for (const [name, value] of Object.entries(values)) {
     const entry = byName.get(name);
     if (!entry) {
-      outcomes.push({ name, type: "unsupported", status: "missing", detail: "No such field" });
+      outcomes.push({
+        name,
+        type: "unsupported",
+        status: "missing",
+        detail: "No such field",
+      });
       continue;
     }
     outcomes.push(applyToField(entry.field, entry.info, value));
@@ -378,7 +411,12 @@ export async function applyFormValues(
       const flatDoc = await loadPdf(filledBytes);
       flatDoc.getForm().flatten();
       stampProducer(flatDoc);
-      return { bytes: await flatDoc.save(), outcomes, appliedCount, flattened: true };
+      return {
+        bytes: await flatDoc.save(),
+        outcomes,
+        appliedCount,
+        flattened: true,
+      };
     } catch {
       return { bytes: filledBytes, outcomes, appliedCount, flattened: false };
     }

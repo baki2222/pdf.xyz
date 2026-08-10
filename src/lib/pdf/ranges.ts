@@ -97,7 +97,9 @@ export function parseRanges(input: string, pageCount: number): PageRange[] {
 /** Split a document into fixed-size chunks of `size` pages each. */
 export function rangesEveryN(pageCount: number, size: number): PageRange[] {
   if (!Number.isInteger(size) || size < 1) {
-    throw new PageRangeError("Pages per file must be a whole number of 1 or more.");
+    throw new PageRangeError(
+      "Pages per file must be a whole number of 1 or more.",
+    );
   }
   const ranges: PageRange[] = [];
   for (let start = 0; start < pageCount; start += size) {
@@ -125,14 +127,21 @@ export function formatRange({ start, end }: PageRange): string {
  * Build named split parts from ranges. Names are zero-padded and carry the page
  * range so a folder of outputs sorts and reads sensibly.
  */
-export function buildSplitParts(base: string, ranges: PageRange[]): SplitPart[] {
+export function buildSplitParts(
+  base: string,
+  ranges: PageRange[],
+): SplitPart[] {
   const safeBase = base.trim() || "document";
   const pad = String(ranges.length).length;
   return ranges.map((range, i) => {
     const seq = String(i + 1).padStart(pad, "0");
-    const label = range.start === range.end
-      ? `page-${range.start + 1}`
-      : `pages-${range.start + 1}-${range.end + 1}`;
-    return { name: `${safeBase}-${seq}-${label}.pdf`, indices: rangeToIndices(range) };
+    const label =
+      range.start === range.end
+        ? `page-${range.start + 1}`
+        : `pages-${range.start + 1}-${range.end + 1}`;
+    return {
+      name: `${safeBase}-${seq}-${label}.pdf`,
+      indices: rangeToIndices(range),
+    };
   });
 }

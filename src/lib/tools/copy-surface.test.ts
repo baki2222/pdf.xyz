@@ -16,7 +16,9 @@ import { copyFiles } from "./copy-surface";
 
 describe("the copy surface reaches what the guards must read", () => {
   it("includes the load-bearing copy sources", () => {
-    const files = copyFiles().map((f) => path.relative(process.cwd(), f).replace(/\\/g, "/"));
+    const files = copyFiles().map((f) =>
+      path.relative(process.cwd(), f).replace(/\\/g, "/"),
+    );
     for (const expected of [
       "src/lib/tools/tool-facts.ts",
       "src/lib/tools/catalog.ts",
@@ -25,7 +27,10 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/faq.ts",
       "src/lib/site.ts",
     ]) {
-      expect(files, `the walk no longer reaches ${expected} — the guards are blind to it`).toContain(expected);
+      expect(
+        files,
+        `the walk no longer reaches ${expected} — the guards are blind to it`,
+      ).toContain(expected);
     }
   });
 

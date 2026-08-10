@@ -33,7 +33,10 @@ export interface QpdfStructureFs {
   mkdtemp: (prefix: string) => Promise<string>;
   writeFile: (file: string, data: Uint8Array) => Promise<void>;
   readFile: (file: string) => Promise<Uint8Array>;
-  rm: (dir: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  rm: (
+    dir: string,
+    options: { recursive: boolean; force: boolean },
+  ) => Promise<void>;
 }
 
 export interface QpdfStructureSeams {
@@ -49,7 +52,9 @@ const defaultExec: QpdfStructureExec = (command, args, options) =>
       command,
       [...args],
       { ...options, encoding: "buffer" },
-      (error: (Error & { code?: number | string; killed?: boolean }) | null) => {
+      (
+        error: (Error & { code?: number | string; killed?: boolean }) | null,
+      ) => {
         if (!error) {
           resolve({ code: 0, timedOut: false });
           return;
@@ -58,7 +63,10 @@ const defaultExec: QpdfStructureExec = (command, args, options) =>
           resolve({ code: -1, timedOut: true });
           return;
         }
-        resolve({ code: typeof error.code === "number" ? error.code : -1, timedOut: false });
+        resolve({
+          code: typeof error.code === "number" ? error.code : -1,
+          timedOut: false,
+        });
       },
     );
   });
@@ -133,7 +141,8 @@ export function createNativeQpdfStructureRunner(
         throw new Error("qpdf structure operation failed.");
       }
       const output = await fs.readFile(outputPath);
-      const bytes = output instanceof Uint8Array ? output : new Uint8Array(output);
+      const bytes =
+        output instanceof Uint8Array ? output : new Uint8Array(output);
       if (
         bytes.byteLength === 0 ||
         bytes.byteLength > config.maxOutputBytes ||
@@ -170,7 +179,9 @@ export function nativePdfStructureDeps(
   const config = resolveNativePdfStructureConfig(env);
   const available = probeQpdfStructureFromConfig(config, seams);
   return {
-    ...(available ? { qpdf: createNativeQpdfStructureRunner(config, seams) } : {}),
+    ...(available
+      ? { qpdf: createNativeQpdfStructureRunner(config, seams) }
+      : {}),
     limits: { maxInputBytes: config.maxInputBytes },
   };
 }

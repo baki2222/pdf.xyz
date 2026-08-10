@@ -31,7 +31,10 @@ describe("parseExtractOptions — mode", () => {
 
 describe("parseExtractOptions — prompt mode", () => {
   it("accepts a bounded free-text extraction prompt", () => {
-    const r = parseExtractOptions({ mode: "prompt", prompt: "Extract the invoice number and total." });
+    const r = parseExtractOptions({
+      mode: "prompt",
+      prompt: "Extract the invoice number and total.",
+    });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.mode).toBe("prompt");
@@ -53,15 +56,25 @@ describe("parseExtractOptions — prompt mode", () => {
   });
 
   it("allows newlines/tabs in the prompt but rejects other control characters", () => {
-    const ok = parseExtractOptions({ mode: "prompt", prompt: "Line one\n\tLine two" });
+    const ok = parseExtractOptions({
+      mode: "prompt",
+      prompt: "Line one\n\tLine two",
+    });
     expect(ok.ok).toBe(true);
-    const bad = parseExtractOptions({ mode: "prompt", prompt: `a${String.fromCharCode(7)}b` });
+    const bad = parseExtractOptions({
+      mode: "prompt",
+      prompt: `a${String.fromCharCode(7)}b`,
+    });
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.error.body.error.details?.[0]?.field).toBe("prompt");
+    if (!bad.ok)
+      expect(bad.error.body.error.details?.[0]?.field).toBe("prompt");
   });
 
   it("rejects an over-long prompt", () => {
-    const r = parseExtractOptions({ mode: "prompt", prompt: "x".repeat(MAX_EXTRACTION_PROMPT_CHARS + 1) });
+    const r = parseExtractOptions({
+      mode: "prompt",
+      prompt: "x".repeat(MAX_EXTRACTION_PROMPT_CHARS + 1),
+    });
     expect(r.ok).toBe(false);
   });
 });
@@ -80,7 +93,11 @@ describe("parseExtractOptions — schema mode", () => {
     if (r.ok) {
       expect(r.value.mode).toBe("schema");
       expect(r.value.schema).toHaveLength(3);
-      expect(r.value.schema?.[1]).toEqual({ name: "total", type: "number", description: "grand total incl. tax" });
+      expect(r.value.schema?.[1]).toEqual({
+        name: "total",
+        type: "number",
+        description: "grand total incl. tax",
+      });
       expect(r.value.prompt).toBeUndefined();
     }
   });
@@ -88,40 +105,71 @@ describe("parseExtractOptions — schema mode", () => {
   it("requires a non-empty schema when mode is schema", () => {
     const empty = parseExtractOptions({ mode: "schema", schema: [] });
     expect(empty.ok).toBe(false);
-    if (!empty.ok) expect(empty.error.body.error.details?.[0]?.field).toBe("schema");
+    if (!empty.ok)
+      expect(empty.error.body.error.details?.[0]?.field).toBe("schema");
     const missing = parseExtractOptions({ mode: "schema" });
     expect(missing.ok).toBe(false);
   });
 
   it("names every supported field type", () => {
-    expect([...EXTRACTION_FIELD_TYPES]).toEqual(["string", "number", "boolean", "date", "array"]);
+    expect([...EXTRACTION_FIELD_TYPES]).toEqual([
+      "string",
+      "number",
+      "boolean",
+      "date",
+      "array",
+    ]);
   });
 
   it("defaults a field type to string when omitted", () => {
-    const r = parseExtractOptions({ mode: "schema", schema: [{ name: "vendor" }] });
+    const r = parseExtractOptions({
+      mode: "schema",
+      schema: [{ name: "vendor" }],
+    });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.schema?.[0]).toEqual({ name: "vendor", type: "string" });
+    if (r.ok)
+      expect(r.value.schema?.[0]).toEqual({ name: "vendor", type: "string" });
   });
 
   it("rejects an unknown field type", () => {
-    const r = parseExtractOptions({ mode: "schema", schema: [{ name: "x", type: "money" }] });
+    const r = parseExtractOptions({
+      mode: "schema",
+      schema: [{ name: "x", type: "money" }],
+    });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.body.error.details?.[0]?.field).toContain("schema");
+    if (!r.ok)
+      expect(r.error.body.error.details?.[0]?.field).toContain("schema");
   });
 
   it("rejects a field with a missing/empty name", () => {
-    expect(parseExtractOptions({ mode: "schema", schema: [{ type: "string" }] }).ok).toBe(false);
-    expect(parseExtractOptions({ mode: "schema", schema: [{ name: "  ", type: "string" }] }).ok).toBe(false);
-  });
-
-  it("rejects a control character in a field name or description", () => {
     expect(
-      parseExtractOptions({ mode: "schema", schema: [{ name: `a${String.fromCharCode(0)}b`, type: "string" }] }).ok,
+      parseExtractOptions({ mode: "schema", schema: [{ type: "string" }] }).ok,
     ).toBe(false);
     expect(
       parseExtractOptions({
         mode: "schema",
-        schema: [{ name: "ok", type: "string", description: `d${String.fromCharCode(7)}e` }],
+        schema: [{ name: "  ", type: "string" }],
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("rejects a control character in a field name or description", () => {
+    expect(
+      parseExtractOptions({
+        mode: "schema",
+        schema: [{ name: `a${String.fromCharCode(0)}b`, type: "string" }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      parseExtractOptions({
+        mode: "schema",
+        schema: [
+          {
+            name: "ok",
+            type: "string",
+            description: `d${String.fromCharCode(7)}e`,
+          },
+        ],
       }).ok,
     ).toBe(false);
   });
@@ -139,35 +187,58 @@ describe("parseExtractOptions — schema mode", () => {
 
   it("rejects an over-long field name or description", () => {
     expect(
-      parseExtractOptions({ mode: "schema", schema: [{ name: "x".repeat(MAX_FIELD_NAME_CHARS + 1), type: "string" }] })
-        .ok,
+      parseExtractOptions({
+        mode: "schema",
+        schema: [
+          { name: "x".repeat(MAX_FIELD_NAME_CHARS + 1), type: "string" },
+        ],
+      }).ok,
     ).toBe(false);
     expect(
       parseExtractOptions({
         mode: "schema",
-        schema: [{ name: "x", type: "string", description: "y".repeat(MAX_FIELD_DESCRIPTION_CHARS + 1) }],
+        schema: [
+          {
+            name: "x",
+            type: "string",
+            description: "y".repeat(MAX_FIELD_DESCRIPTION_CHARS + 1),
+          },
+        ],
       }).ok,
     ).toBe(false);
   });
 
   it("rejects too many fields", () => {
-    const schema = Array.from({ length: MAX_EXTRACTION_FIELDS + 1 }, (_, i) => ({ name: `f${i}`, type: "string" }));
+    const schema = Array.from(
+      { length: MAX_EXTRACTION_FIELDS + 1 },
+      (_, i) => ({ name: `f${i}`, type: "string" }),
+    );
     expect(parseExtractOptions({ mode: "schema", schema }).ok).toBe(false);
   });
 });
 
 describe("describeExtractRequest", () => {
   it("renders human copy for the UI", () => {
-    expect(describeExtractRequest({ mode: "prompt", prompt: "Extract totals" })).toMatch(/prompt/i);
     expect(
-      describeExtractRequest({ mode: "schema", schema: [{ name: "a", type: "string" }, { name: "b", type: "number" }] }),
+      describeExtractRequest({ mode: "prompt", prompt: "Extract totals" }),
+    ).toMatch(/prompt/i);
+    expect(
+      describeExtractRequest({
+        mode: "schema",
+        schema: [
+          { name: "a", type: "string" },
+          { name: "b", type: "number" },
+        ],
+      }),
     ).toMatch(/2 fields/i);
   });
 });
 
 describe("extractionOutputName", () => {
   it("derives a -extraction.zip name from the source PDF", () => {
-    expect(extractionOutputName("Invoice 42.pdf")).toBe("Invoice 42-extraction.zip");
+    expect(extractionOutputName("Invoice 42.pdf")).toBe(
+      "Invoice 42-extraction.zip",
+    );
   });
 
   it("falls back to a neutral stem for unusable names", () => {

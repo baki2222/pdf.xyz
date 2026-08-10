@@ -21,7 +21,10 @@
  */
 
 import { getAllToolSlugs } from "@/lib/tools";
-import { parseRateLimitRedisConfig, RATE_LIMIT_REDIS_ENV } from "@/lib/ratelimit/redis-config";
+import {
+  parseRateLimitRedisConfig,
+  RATE_LIMIT_REDIS_ENV,
+} from "@/lib/ratelimit/redis-config";
 import { createRedisClient } from "@/lib/workers/queue/redis-client";
 import { interestCounterKey } from "@/lib/interest/store";
 
@@ -41,7 +44,9 @@ async function main(): Promise<number> {
     baseUrl: parsed.config.baseUrl,
     token: parsed.config.token,
   });
-  const keys = slugs.map((slug) => interestCounterKey(parsed.config.keyPrefix, slug));
+  const keys = slugs.map((slug) =>
+    interestCounterKey(parsed.config.keyPrefix, slug),
+  );
   const res = await client.command(["MGET", ...keys]);
   if (!res.ok) {
     process.stderr.write(
@@ -87,7 +92,9 @@ main()
   .then((code) => process.exit(code))
   .catch(() => {
     // Never print the raw error — it could carry an endpoint or a header.
-    process.stderr.write("interest:report: unexpected failure (nothing printed from the error).\n");
+    process.stderr.write(
+      "interest:report: unexpected failure (nothing printed from the error).\n",
+    );
     process.exit(1);
   });
 

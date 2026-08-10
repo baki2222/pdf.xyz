@@ -51,7 +51,9 @@ describe("createRedisHeartbeatPublisher", () => {
 
     // Exactly one liveness key, namespaced under the queue prefix, no worker id.
     expect(fake.keys()).toEqual(["pdfxyz:heartbeat:secure-worker"]);
-    expect(heartbeatKey(CONFIG.keyPrefix)).toBe("pdfxyz:heartbeat:secure-worker");
+    expect(heartbeatKey(CONFIG.keyPrefix)).toBe(
+      "pdfxyz:heartbeat:secure-worker",
+    );
 
     // The write is a SET … EX <ttl> with the exact TTL derived from the interval.
     const set = fake.calls.find((cmd) => cmd[0] === "SET");
@@ -62,11 +64,22 @@ describe("createRedisHeartbeatPublisher", () => {
 
     // The stored value parses back to a valid, bounded heartbeat.
     const stored = parseHeartbeat(set?.[2]);
-    expect(stored).toMatchObject({ v: 1, role: "secure-worker", mode: "loop", release: "1.2", capabilities: CAPS });
+    expect(stored).toMatchObject({
+      v: 1,
+      role: "secure-worker",
+      mode: "loop",
+      release: "1.2",
+      capabilities: CAPS,
+    });
 
     // Nothing content-bearing leaks into the stored value: no token, endpoint, or id.
     const value = set?.[2] ?? "";
-    for (const forbidden of ["REDIS_SECRET_TOKEN_VALUE", "redis.example.com", "https://", "1.2.3"]) {
+    for (const forbidden of [
+      "REDIS_SECRET_TOKEN_VALUE",
+      "redis.example.com",
+      "https://",
+      "1.2.3",
+    ]) {
       expect(value).not.toContain(forbidden);
     }
   });
@@ -116,7 +129,10 @@ describe("createRedisHeartbeatReader", () => {
       { mode: "loop", capabilities: CAPS },
       { client: fake, now: c.now },
     );
-    const reader = createRedisHeartbeatReader(CONFIG, INTERVAL, { client: fake, now: c.now });
+    const reader = createRedisHeartbeatReader(CONFIG, INTERVAL, {
+      client: fake,
+      now: c.now,
+    });
 
     await publisher.beat();
     const live = await reader.read();
@@ -137,7 +153,10 @@ describe("createRedisHeartbeatReader", () => {
       { mode: "loop", capabilities: CAPS },
       { client: fake, now: c.now },
     );
-    const reader = createRedisHeartbeatReader(CONFIG, INTERVAL, { client: fake, now: c.now });
+    const reader = createRedisHeartbeatReader(CONFIG, INTERVAL, {
+      client: fake,
+      now: c.now,
+    });
 
     await publisher.beat();
     c.advance(45_000); // > 30s fresh window (but the fake does not enforce the TTL)
@@ -149,7 +168,10 @@ describe("createRedisHeartbeatReader", () => {
 
   it("classifies a missing key (e.g. swept by TTL) as unknown", async () => {
     const fake = createFakeRedis();
-    const reader = createRedisHeartbeatReader(CONFIG, INTERVAL, { client: fake, now: () => 5 });
+    const reader = createRedisHeartbeatReader(CONFIG, INTERVAL, {
+      client: fake,
+      now: () => 5,
+    });
     const live = await reader.read();
     expect(live.state).toBe("unknown");
     expect(live.observed).toBe(false);
@@ -159,7 +181,10 @@ describe("createRedisHeartbeatReader", () => {
   it("classifies a broker outage as unknown without throwing", async () => {
     const fake = createFakeRedis();
     fake.failing = true;
-    const reader = createRedisHeartbeatReader(CONFIG, INTERVAL, { client: fake, now: () => 5 });
+    const reader = createRedisHeartbeatReader(CONFIG, INTERVAL, {
+      client: fake,
+      now: () => 5,
+    });
     const live = await reader.read();
     expect(live.state).toBe("unknown");
   });

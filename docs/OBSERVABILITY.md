@@ -39,15 +39,15 @@ Source: [`src/lib/telemetry/`](../src/lib/telemetry/)
 `name`), so adding an event or a field is a type-checked, reviewable change — not
 a free-form string. The events today:
 
-| Event                        | Fields (all privacy-safe)                                     |
-| ---------------------------- | ------------------------------------------------------------- |
-| `tool_viewed`                | `toolSlug` (route id), `capability`                           |
-| `tool_completed`             | `toolSlug`, `capability`, `inputCount`, `outputSize?`, `duration?` |
-| `tool_failed`                | `toolSlug`, `capability`, `reason` (coarse category)          |
-| `workspace_handoff_created`  | `toolSlug`, `mode`, `fileCount`                               |
-| `worker_status_checked`      | `mode`, `enabled`                                             |
-| `worker_operations_checked`  | `mode`, `health` (SLO class), `recommendedAction`, `drainable`, `daemonObserved` |
-| `worker_contract_hit`        | `capability`, `ok`, `code?` (contract/job error code)         |
+| Event                       | Fields (all privacy-safe)                                                        |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `tool_viewed`               | `toolSlug` (route id), `capability`                                              |
+| `tool_completed`            | `toolSlug`, `capability`, `inputCount`, `outputSize?`, `duration?`               |
+| `tool_failed`               | `toolSlug`, `capability`, `reason` (coarse category)                             |
+| `workspace_handoff_created` | `toolSlug`, `mode`, `fileCount`                                                  |
+| `worker_status_checked`     | `mode`, `enabled`                                                                |
+| `worker_operations_checked` | `mode`, `health` (SLO class), `recommendedAction`, `drainable`, `daemonObserved` |
+| `worker_contract_hit`       | `capability`, `ok`, `code?` (contract/job error code)                            |
 
 Every field is one of: a **public route slug**, a **fixed enum**, a **boolean**,
 or a **coarse bucket label**. No field is a filename, a raw byte count, a raw
@@ -64,14 +64,15 @@ Three layers keep the schema honest:
    (`toolCompletedEvent`, `handoffCreatedEvent`), so a raw measurement never even
    becomes an event field. The buckets are low-cardinality:
 
-   | Helper             | Example tiers                                                    |
-   | ------------------ | ---------------------------------------------------------------- |
-   | `countBucket`      | `0`, `1`, `2-5`, `6-20`, `21-50`, `50+`                          |
-   | `sizeBucket`       | `<100KB`, `100KB-1MB`, `1-10MB`, `10-50MB`, `50-100MB`, `100MB+` |
-   | `durationBucket`   | `<250ms`, `250ms-1s`, `1-5s`, `5-30s`, `30s+`                    |
+   | Helper           | Example tiers                                                    |
+   | ---------------- | ---------------------------------------------------------------- |
+   | `countBucket`    | `0`, `1`, `2-5`, `6-20`, `21-50`, `50+`                          |
+   | `sizeBucket`     | `<100KB`, `100KB-1MB`, `1-10MB`, `10-50MB`, `50-100MB`, `100MB+` |
+   | `durationBucket` | `<250ms`, `250ms-1s`, `1-5s`, `5-30s`, `30s+`                    |
 
    Non-finite or negative inputs bucket to `unknown` — a bad measurement can
    never masquerade as a real value.
+
 3. **Redaction as defense in depth.** Before any payload reaches a sink, `track()`
    runs it through `redactValue` (from `redact.ts`), which strips handoff tokens
    (`h_…`), `data:`/`blob:` URLs, query strings from `http(s)` URLs, and
@@ -253,7 +254,7 @@ the operations fetch.
 **Interpreting the states.** `ok` (green) means everything observable from this vantage is
 healthy; `warn` (amber) means a recommended fix is outstanding but a worker can still run;
 `blocked` (red) means a worker cannot run correctly here until the recommended action is
-taken; `unknown` (grey) means *not observable from this vantage / not declared* — it is
+taken; `unknown` (grey) means _not observable from this vantage / not declared_ — it is
 never a green default and never implies failure. A `disabled` worker mode resolves to the
 same honest `blocked` "configure the queue and storage" verdict — nothing is faked. The
 dashboard reports **health posture, not timeseries**: live SLO **rates** (job success rate,
@@ -265,13 +266,13 @@ fabricates them.
 
 Suggested alerts:
 
-| Signal | Alert posture |
-|---|---|
-| `operations.health=blocked` | page/operator action required before workers can drain |
-| `recommendedAction=fix-guardrail` | deployment should not start; inspect `worker:daemon --check` codes |
-| `lifecycleVerification.verdict=drift` | retention backstop is not enforced as generated |
-| SLO `dead_letter_rate=breach` or `retry_rate=breach` | queue/processor reliability incident |
-| SLO `scanner_unavailable_rate=breach` when scanner required | fail-closed scan dependency incident |
+| Signal                                                      | Alert posture                                                      |
+| ----------------------------------------------------------- | ------------------------------------------------------------------ |
+| `operations.health=blocked`                                 | page/operator action required before workers can drain             |
+| `recommendedAction=fix-guardrail`                           | deployment should not start; inspect `worker:daemon --check` codes |
+| `lifecycleVerification.verdict=drift`                       | retention backstop is not enforced as generated                    |
+| SLO `dead_letter_rate=breach` or `retry_rate=breach`        | queue/processor reliability incident                               |
+| SLO `scanner_unavailable_rate=breach` when scanner required | fail-closed scan dependency incident                               |
 
 ### Export & examples (bring your own backend)
 
@@ -291,7 +292,7 @@ content-free, so an example can never drift from the code.
 
 ## Operator healthcheck & alert evaluation (Phase 31)
 
-The snapshot + SLO layers above answer "is the stack healthy?" as *data*. Phase 31 adds
+The snapshot + SLO layers above answer "is the stack healthy?" as _data_. Phase 31 adds
 the piece that turns that data into a **decision a monitor keys on**, with no metrics
 backend and no pager: a pure alert policy (`src/lib/workers/observability/alerts.ts`) and
 a CLI over it (`pnpm worker:ops-check`, `scripts/worker-ops-check.ts`).
@@ -326,7 +327,7 @@ pnpm worker:ops-check --file=snapshot.json --prometheus                # gauges 
 
 A sibling CLI, `pnpm worker:cleanup-check` (Phase 42), keys on the same exit-code ladder
 but answers a different question — whether storage artifacts that should be gone are
-actually *absent* (deleted or reaped) rather than only retrieval-denied — by evaluating
+actually _absent_ (deleted or reaped) rather than only retrieval-denied — by evaluating
 content-free cleanup evidence you export out-of-band (`--stdin`/`--file`; `--grace-hours=N`,
 default 48; exits `0` verified / `1` usage / `2` unknown·unavailable·not-configured / `3`
 drift). It emits the `worker_cleanup_verification_total` metric documented below and never
@@ -345,13 +346,13 @@ misconfigured monitor is never mistaken for a (un)healthy worker. **These are th
 ops-check codes and differ from the daemon's** (`worker:daemon`, documented in the
 runbook).
 
-| Code | Meaning |
-| ---- | ------- |
-| `0` | OK — everything observable is healthy |
-| `1` | usage — a bad flag, or unreadable/malformed input |
-| `2` | UNKNOWN — worker health could not be determined (no data) |
-| `3` | WARNING — a recommended fix is outstanding (a worker can still run) |
-| `4` | CRITICAL — a worker cannot run correctly, or an SLO breached |
+| Code | Meaning                                                             |
+| ---- | ------------------------------------------------------------------- |
+| `0`  | OK — everything observable is healthy                               |
+| `1`  | usage — a bad flag, or unreadable/malformed input                   |
+| `2`  | UNKNOWN — worker health could not be determined (no data)           |
+| `3`  | WARNING — a recommended fix is outstanding (a worker can still run) |
+| `4`  | CRITICAL — a worker cannot run correctly, or an SLO breached        |
 
 ### Safe output contract
 
@@ -428,7 +429,7 @@ bounded verdict + exit code they consume.
 
 ## Worker provider status fields
 
-`/api/worker/status` includes presence-only readiness for `storage`, `queue`, and `processor`. These fields are safe to expose: they report provider class/capability and readiness, never variable names, secret values, bucket names, queue names, object keys, file names, or paths. With Phase 14, `storage.provider` may be `s3` and `ready: true` when S3/R2-compatible storage is fully configured; that still does **not** expose endpoint, region, bucket, prefix, key id, or any `PDFXYZ_*` variable. With Phase 15, `queue.provider` may likewise be `redis` with `ready: true`/`configured: true` when a Redis/Upstash broker is fully configured — independently of storage — and it exposes no endpoint, token, prefix, key name, or variable. The web app never processes jobs itself, so in every non-dev mode `processor.ready` stays `false` — that alone is expected, not an alert. With Phase 16, a separate `daemon` field reports the out-of-band worker daemon's readiness: `drainable` (queue + storage both configured, so a deployed worker *could* drain here), `queueConfigured`/`storageConfigured`, and `runsInThisProcess` (always `false` — the app can never observe whether a worker is actually running). It exposes no endpoint, token, prefix, key, or variable. **What is worth alerting on** is the queue backlog: `daemon.drainable: true` while queued jobs are not decreasing for a sustained period means the queue and storage are wired but no worker daemon is actually draining them (deploy or restart it). Telemetry should record only coarse mode/readiness booleans if these fields are wired into events. The `processor.executor` field (Phase 13) is the same shape of promise: it reports the execution-loop mode (`in-process` / `not-implemented` / `none`) and a client-safe detail, never a broker name or worker URL.
+`/api/worker/status` includes presence-only readiness for `storage`, `queue`, and `processor`. These fields are safe to expose: they report provider class/capability and readiness, never variable names, secret values, bucket names, queue names, object keys, file names, or paths. With Phase 14, `storage.provider` may be `s3` and `ready: true` when S3/R2-compatible storage is fully configured; that still does **not** expose endpoint, region, bucket, prefix, key id, or any `PDFXYZ_*` variable. With Phase 15, `queue.provider` may likewise be `redis` with `ready: true`/`configured: true` when a Redis/Upstash broker is fully configured — independently of storage — and it exposes no endpoint, token, prefix, key name, or variable. The web app never processes jobs itself, so in every non-dev mode `processor.ready` stays `false` — that alone is expected, not an alert. With Phase 16, a separate `daemon` field reports the out-of-band worker daemon's readiness: `drainable` (queue + storage both configured, so a deployed worker _could_ drain here), `queueConfigured`/`storageConfigured`, and `runsInThisProcess` (always `false` — the app can never observe whether a worker is actually running). It exposes no endpoint, token, prefix, key, or variable. **What is worth alerting on** is the queue backlog: `daemon.drainable: true` while queued jobs are not decreasing for a sustained period means the queue and storage are wired but no worker daemon is actually draining them (deploy or restart it). Telemetry should record only coarse mode/readiness booleans if these fields are wired into events. The `processor.executor` field (Phase 13) is the same shape of promise: it reports the execution-loop mode (`in-process` / `not-implemented` / `none`) and a client-safe detail, never a broker name or worker URL.
 
 ## Worker executor logs (Phase 13)
 
@@ -443,7 +444,7 @@ only:
 - `jobId` — an opaque, server-minted id (`job_…`);
 - `tool` — the public tool slug;
 - `attempt` — the delivery attempt number;
-- `errorCode?` — a coarse, typed error *code* (never a message with detail).
+- `errorCode?` — a coarse, typed error _code_ (never a message with detail).
 
 It **never** receives file bytes, a file **name**, an object key, a temp path, an
 option value, or document text — the same invariant the product-analytics and
@@ -452,7 +453,7 @@ events straight to stdout as structured JSON (queue depth from `claimed` vs term
 counts, failure rate by `tool` + `errorCode`, redelivery rate from `requeued`)
 without any additional scrubbing, and adds its own equally content-free
 `DaemonLogEvent` layer — a run `mode`, a `tick` counter, the per-tick `outcome`, an
-opaque `jobId`/`attempt`, an error *code*, a `sleepMs` back-off, and a terminal
+opaque `jobId`/`attempt`, an error _code_, a `sleepMs` back-off, and a terminal
 `reason` — plus a final run `summary` of counters (completed / failed / requeued /
 canceled / idle / errors). Nothing in either layer carries a secret, byte, key, URL,
 or filename, so the daemon's stdout can be shipped verbatim to a log sink. Phase 18
@@ -497,9 +498,9 @@ injected provider), two events appear:
   `scan_blocked` rate on a worker with an active scanner means real detections (or a
   size-limit misconfiguration) — investigate.
 
-A scan that could not complete (clamd unreachable/timed out for a *required* scanner)
+A scan that could not complete (clamd unreachable/timed out for a _required_ scanner)
 reuses `requeued`/`failed` with the `scan_unavailable` error code — retryable, never
-downgraded to "clean" (an *optional* scanner degrades to `skipped` instead). None of
+downgraded to "clean" (an _optional_ scanner degrades to `skipped` instead). None of
 these carry a filename, a scanner **signature name**, an endpoint, a byte, or a value:
 clamd's reply is classified so the signature is dropped at the protocol layer, and the
 scanner's own `detail` is deliberately **not** propagated into the job error or the
@@ -519,9 +520,9 @@ The daemon likewise emits a content-free **`ocr_health`** line (Phase 23) —
 `{ enabled, engine, ready, detail }` — alongside `compression_health`/`scanner_health`.
 It fuses the config opt-in (`enabled`, from `PDFXYZ_OCR`) with the runtime engine probe
 (`ready`), so the four honest OCR states are unambiguous: `enabled: false` ⇒
-disabled/not-configured (the safe default); `enabled: true, ready: false` ⇒ *unavailable*
-(opted in, but no OCRmyPDF/Tesseract installed); `enabled: true, ready: true` ⇒ *ready*.
-`engine` is the pinned engine *family* name (or `null` for auto-detect), never a path,
+disabled/not-configured (the safe default); `enabled: true, ready: false` ⇒ _unavailable_
+(opted in, but no OCRmyPDF/Tesseract installed); `enabled: true, ready: true` ⇒ _ready_.
+`engine` is the pinned engine _family_ name (or `null` for auto-detect), never a path,
 binary, language, or value. Recognized text never appears here (or anywhere in the log
 stream) — it lives only in the downloaded artifact. Alert on `enabled: true, ready:
 false` on a worker you intend to run OCR (the engine isn't installed); `enabled: false`
@@ -531,7 +532,7 @@ on a worker that isn't meant to do OCR is the honest baseline, not an incident.
 
 The worker image's `HEALTHCHECK` (and the `docker-compose.worker.yml` example) runs
 `pnpm worker:daemon --dry-run-status`, whose **exit code is the health signal**: `0`
-when the queue *and* storage are configured (drainable), `2` when they are not. The
+when the queue _and_ storage are configured (drainable), `2` when they are not. The
 probe claims no job and processes nothing; it emits the same content-free `readiness`
 and `compression_health` lines described above and then exits. So an orchestrator's
 liveness/readiness gate is driven entirely by presence-only signals — never a secret,
@@ -549,7 +550,7 @@ and processing no document. Where `worker:smoke` proves the offline, no-config
 exit-code contract, `worker:image-smoke` is its image counterpart — proof the
 packaged engines report ready, never that any document was recognized. Phase 25 adds a
 **behavior** counterpart to that same workflow, `pnpm worker:ocr-proof`, which runs
-inside the built worker image *after* the presence checks: it OCRs a generated sentinel
+inside the built worker image _after_ the presence checks: it OCRs a generated sentinel
 raster with the Tesseract baseline and asserts the sidecar contains the sentinel —
 genuine recognition on a synthetic, non-user-document fixture. Its output is likewise
 presence-only and content-free (it never prints a temp path or the recognized text), and
@@ -572,7 +573,7 @@ it is presence-only and content-free: it carries no recognized text, filename, o
 key, signed URL, temp path, or secret, and it is written only on a genuinely completed
 job and dropped when the outputs are deleted. There is still **no OCR-specific executor
 log field** — the per-job log line remains `claimed → scanning → [scan_clean] →
-processing → completed` with an error *code* only — so no recognition detail can leak
+processing → completed` with an error _code_ only — so no recognition detail can leak
 through the log stream; the structural metadata lives on the job record alone.
 
 ## Deployment readiness & guardrail events (Phase 19)
@@ -581,16 +582,16 @@ through the log stream; the structural metadata lives on the job record alone.
 composed deployment picture. All fields are presence-only — booleans, typed states,
 and generic prose — with **no** variable name, value, path, object key, or signed URL.
 
-| `event` | Fields | Meaning |
-| --- | --- | --- |
-| `deployment_readiness` | `posture` (`ready`\|`degraded`\|`blocked`), `drainable`, `detail` | Overall posture. `blocked` = not drainable; `ready` = drainable + validated lifecycle; else `degraded`. |
-| `facet` | `id`, `state`, `detail` | One per facet: `storage`, `queue`, `engine`, `lifecycle`, `malware-scan`, `ocr`. `state` ∈ `ready`\|`degraded`\|`not-configured`\|`not-implemented`\|`unknown`. |
-| `guardrails` | `ok`, `strict`, `errors`, `warnings` | Guardrail summary. `ok:false` ⇒ the daemon exits `4` before claiming work. |
-| `guardrail` | `code`, `severity`, `message` | One per violation. `code` is typed; `message` is content-free and names no variable. |
-| `lifecycle_policy` | `provider`, `versioned`, `filename`, `applyHint`, `derivedFrom`, `ruleCount`, `notes`, `document` | Emitted by `--lifecycle-policy`. `document` is the content-free policy JSON; `applyHint` uses a `<bucket>` placeholder. |
-| `lifecycle_policy_error` | `reason` (`retention_invalid`\|`policy_invalid`) | Generation refused (exit `1`) rather than emitting from silent defaults. |
-| `lifecycle_verify` | `configured`, `verdict` (`verified`\|`drift`\|`unknown`), `provider`, `versioned`, `declaredReadiness`, and (when `configured`) `checks[]`, `plan[]`, `unmatchedObservedRules`, `summary` | Emitted by `--lifecycle-verify`. `verdict` ⇒ exit `0` verified · `2` unknown (no `--observed` doc) · `4` drift. `checks[].ruleId` are the app's own `pdfxyz-*` ids; `status` ∈ `satisfied`\|`stricter`\|`weaker`\|`disabled`\|`missing`; `plan[].action` ∈ `create`\|`update`\|`review`. `unmatchedObservedRules` is a **count** — no observed rule id, prefix, or value is echoed. |
-| `lifecycle_verify_error` | `reason` (`retention_invalid`\|`policy_invalid`\|`observed_unreadable`\|`observed_too_large`\|`observed_malformed`), optional `issues[]` (parse codes) | `--lifecycle-verify` refused (exit `1` for retention/policy, `4` for an unreadable/oversized/malformed observed document). Names no path or document content. |
+| `event`                  | Fields                                                                                                                                                                                    | Meaning                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deployment_readiness`   | `posture` (`ready`\|`degraded`\|`blocked`), `drainable`, `detail`                                                                                                                         | Overall posture. `blocked` = not drainable; `ready` = drainable + validated lifecycle; else `degraded`.                                                                                                                                                                                                                                                                             |
+| `facet`                  | `id`, `state`, `detail`                                                                                                                                                                   | One per facet: `storage`, `queue`, `engine`, `lifecycle`, `malware-scan`, `ocr`. `state` ∈ `ready`\|`degraded`\|`not-configured`\|`not-implemented`\|`unknown`.                                                                                                                                                                                                                     |
+| `guardrails`             | `ok`, `strict`, `errors`, `warnings`                                                                                                                                                      | Guardrail summary. `ok:false` ⇒ the daemon exits `4` before claiming work.                                                                                                                                                                                                                                                                                                          |
+| `guardrail`              | `code`, `severity`, `message`                                                                                                                                                             | One per violation. `code` is typed; `message` is content-free and names no variable.                                                                                                                                                                                                                                                                                                |
+| `lifecycle_policy`       | `provider`, `versioned`, `filename`, `applyHint`, `derivedFrom`, `ruleCount`, `notes`, `document`                                                                                         | Emitted by `--lifecycle-policy`. `document` is the content-free policy JSON; `applyHint` uses a `<bucket>` placeholder.                                                                                                                                                                                                                                                             |
+| `lifecycle_policy_error` | `reason` (`retention_invalid`\|`policy_invalid`)                                                                                                                                          | Generation refused (exit `1`) rather than emitting from silent defaults.                                                                                                                                                                                                                                                                                                            |
+| `lifecycle_verify`       | `configured`, `verdict` (`verified`\|`drift`\|`unknown`), `provider`, `versioned`, `declaredReadiness`, and (when `configured`) `checks[]`, `plan[]`, `unmatchedObservedRules`, `summary` | Emitted by `--lifecycle-verify`. `verdict` ⇒ exit `0` verified · `2` unknown (no `--observed` doc) · `4` drift. `checks[].ruleId` are the app's own `pdfxyz-*` ids; `status` ∈ `satisfied`\|`stricter`\|`weaker`\|`disabled`\|`missing`; `plan[].action` ∈ `create`\|`update`\|`review`. `unmatchedObservedRules` is a **count** — no observed rule id, prefix, or value is echoed. |
+| `lifecycle_verify_error` | `reason` (`retention_invalid`\|`policy_invalid`\|`observed_unreadable`\|`observed_too_large`\|`observed_malformed`), optional `issues[]` (parse codes)                                    | `--lifecycle-verify` refused (exit `1` for retention/policy, `4` for an unreadable/oversized/malformed observed document). Names no path or document content.                                                                                                                                                                                                                       |
 
 **What to watch.** The `malware-scan` facet is `not-configured`/`disabled` until an
 operator configures the optional ClamAV backend, and the `ocr` facet is
@@ -641,14 +642,14 @@ fold into ordinary server logs or an edge metric without any redaction step. Eve
 field on a `RateLimitDecision` is a fixed enum, a stable policy id, or an integer
 derived purely from the policy window + clock:
 
-| Dimension          | Values                                                              |
-| ------------------ | ------------------------------------------------------------------- |
-| `action`           | the guarded route capability (e.g. `jobs.create`)                   |
-| `policyId`         | the stable policy label that fired                                  |
-| `provider`         | `disabled` \| `local-memory` \| `remote` \| `remote-unimplemented`  |
-| `enforced`         | boolean — `false` for every fail-open / not-configured allow        |
-| `allowed`          | boolean                                                             |
-| `retryAfterBucket` | coarse wait bucket (`none`/`<10s`/`10-60s`/`1-5m`/`5-15m`/`15m+`)    |
+| Dimension          | Values                                                             |
+| ------------------ | ------------------------------------------------------------------ |
+| `action`           | the guarded route capability (e.g. `jobs.create`)                  |
+| `policyId`         | the stable policy label that fired                                 |
+| `provider`         | `disabled` \| `local-memory` \| `remote` \| `remote-unimplemented` |
+| `enforced`         | boolean — `false` for every fail-open / not-configured allow       |
+| `allowed`          | boolean                                                            |
+| `retryAfterBucket` | coarse wait bucket (`none`/`<10s`/`10-60s`/`1-5m`/`5-15m`/`15m+`)  |
 
 None of these is an IP, user agent, filename, token, object key, job id, env value,
 or request body — the same no-leak posture as `/api/worker/status` and
@@ -668,13 +669,13 @@ status taxonomy** for confirming that cross-instance enforcement is actually run
 of five bounded codes — diagnostics name environment **variables** only, never a value
 or endpoint:
 
-| Status code | Meaning | Enforcing? |
-| --- | --- | --- |
-| `disabled` | No provider selected (the default). | no |
-| `local-memory` | Per-process dev limiter — real, not distributed. | yes (per process) |
-| `remote-missing-config` | Remote selected, but no valid store / no provider registered — skips honestly. | no |
-| `remote-configured` | Remote selected, store valid, provider registered — distributed enforcement. | yes (distributed) |
-| `remote-error-fail-open` | Configured, but the last request came back unenforced — the store is erroring and the guard is failing **open**. | no (alert!) |
+| Status code              | Meaning                                                                                                          | Enforcing?        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `disabled`               | No provider selected (the default).                                                                              | no                |
+| `local-memory`           | Per-process dev limiter — real, not distributed.                                                                 | yes (per process) |
+| `remote-missing-config`  | Remote selected, but no valid store / no provider registered — skips honestly.                                   | no                |
+| `remote-configured`      | Remote selected, store valid, provider registered — distributed enforcement.                                     | yes (distributed) |
+| `remote-error-fail-open` | Configured, but the last request came back unenforced — the store is erroring and the guard is failing **open**. | no (alert!)       |
 
 Since 2026-08-09 the posture also rides **inside the operations snapshot** rather
 than beside it, so the alert pipeline sees it end to end. `GET
@@ -685,12 +686,12 @@ probes the store per call) into a bounded `rateLimit` field (`code` / `enforced`
 subsystem, and `evaluateOperationsAlerts` raises the two configured-but-NOT-
 enforcing codes as real alerts:
 
-| Posture code | Subsystem health | Alert reason | Alert action |
-| --- | --- | --- | --- |
-| `disabled` / `local-memory` / `remote-configured` | `ok` | — (quiet) | — |
-| `remote-missing-config` | `warn` | `rate-limit-misconfigured` | `fix-rate-limit-config` |
-| `remote-error-fail-open` | `warn` | `rate-limit-fail-open` | `investigate-rate-limit-store` |
-| not observable (worker/probe vantage, or an old snapshot) | `unknown` | — (never a page) | — |
+| Posture code                                              | Subsystem health | Alert reason               | Alert action                   |
+| --------------------------------------------------------- | ---------------- | -------------------------- | ------------------------------ |
+| `disabled` / `local-memory` / `remote-configured`         | `ok`             | — (quiet)                  | —                              |
+| `remote-missing-config`                                   | `warn`           | `rate-limit-misconfigured` | `fix-rate-limit-config`        |
+| `remote-error-fail-open`                                  | `warn`           | `rate-limit-fail-open`     | `investigate-rate-limit-store` |
+| not observable (worker/probe vantage, or an old snapshot) | `unknown`        | — (never a page)           | —                              |
 
 So the operator dashboard's alert posture, the subsystem grid, and `pnpm
 worker:ops-check` (exit `3` — see
@@ -745,7 +746,7 @@ Operationally:
   state) but **never silently to the operator**: a store failure emits the same
   throttled, content-free line the abuse guard uses —
   `[pdf.xyz] tool-interest counter FAILING OPEN (store-error) — clicks are not
-  being counted` — at most once a minute per instance. Alert on it like the
+being counted` — at most once a minute per instance. Alert on it like the
   guard's line; a counter that quietly stops counting is the defect class this
   repo exists to kill.
 - Read it back with **`pnpm interest:report`** (the same two
@@ -767,19 +768,19 @@ Phase 37 adds content-free artifact-manifest signals. `worker_artifact_manifest_
 
 Phase 38 adds a content-free **retrieval-decision** signal for the client-facing download boundary, extended by Phase 39 with a storage-provider dimension. `worker_artifact_retrieval_total` counts each download decision by four bounded enum labels only — `outcome` (`served`/`denied`), `reason` (the closed retrieval-access taxonomy: `ok`, `malformed_handle`, `storage_unavailable`, `storage_error`, `policy_unavailable`, `not_found`, `deleted`, `not_ready`, `expired`, `job_mismatch`, `missing_manifest`, `invalid_manifest`, `unsupported_kind`, `empty_artifact`), `kind` (the served output kind, or `unknown` for a denial), and — as of Phase 39 — `provider` (`local-dev` / `remote-configured` / `not-configured`, so a dashboard can split local-dev from storage-backed retrieval); never a handle, filename, object key, bucket name, signed URL, job ID, byte count, or document text. Because the download route is a web endpoint rather than part of the DI'd executor, it emits through an injectable sink (`src/lib/workers/artifacts/retrieval-metrics.ts`) that DEFAULTS to a no-op — the honest "not collected" — so a deployment opts in by pointing it at a collector. A parallel per-attempt **retrieval receipt** (`src/lib/workers/artifacts/retrieval-receipt.ts`) carries the same bounded outcome/reason/kind/provider plus the stable policy id/version to an OPTIONAL operator observer (default none) for an audit trail — never content. Alert on sustained `denied` spikes by reason: `invalid_manifest` (a provenance/byte desync between the manifest and stored bytes), `expired`/`deleted` (clients retrying past the retention window or after an explicit delete), `unsupported_kind` (a producer emitting an unrecognized kind), or — on the `remote-configured` provider — `storage_error` (transient bucket read failures: a retryable `503`, distinct from `storage_unavailable`'s "no backend at all", so a sustained `storage_error{provider="remote-configured"}` spike means the bucket is reachable-but-flaky, not misconfigured). This is a bounded structural + lifecycle eligibility signal only; do not read authentication, authorization, malware, sanitization, or deletion outcomes from it — the boundary has no auth model (`job_mismatch` is a caller-opted `?job=` integrity mismatch, not an access-control verdict).
 
-Phase 40 adds a **second** content-free download signal, `worker_artifact_delivery_total`, for the *delivery* gate that runs after access is granted (`src/lib/workers/artifacts/delivery-metrics.ts` → `delivery-receipt.ts`, same injectable sink pattern, default no-op/none). The access metric above answers "was the handle granted"; this one answers "given access, were the bytes then safely delivered". Same four bounded enum labels — `outcome` (`delivered`/`denied`), `reason` (the closed delivery taxonomy: `ok`, `size_mismatch`, `oversize`, `stream_error`), `kind`, and `provider` — never a handle, key, bucket, URL, byte range, size, or byte. The per-attempt **delivery receipt** additionally records the bounded HTTP `method` (`GET`/`HEAD`) and `range` disposition (`none`/`ignored` — a whole-file serve of a request that carried a `Range` this proxy does not honor), so "how are clients probing this endpoint — `HEAD` checks, range requests we do not serve" is auditable without any high-cardinality value. Alert on sustained `denied` spikes by reason: `size_mismatch` (the emitted `Content-Length` could not be verified against the stored bytes or an upstream provider's declared length — a truncated/over-declared/desynced object, refused rather than streamed under a lying header), `oversize` (an artifact past the fixed 1 GiB delivery ceiling — normally impossible, so investigate a tampered or pathological object), or `stream_error` (an unexpected serve failure — a backend that threw or a body that could not be built, caught and closed to a safe `503` rather than a framework `500`). Every delivery denial is a single client-facing `503 service_unavailable`; the precise reason lives only here and in the receipt. Like the access signal this is a bounded byte-consistency + method/range check only — **not** authentication, resumable serving, or content scanning. (Unsupported HTTP methods are refused a content-free `405` before any delivery decision is reached, so they do not appear in this metric.)
+Phase 40 adds a **second** content-free download signal, `worker_artifact_delivery_total`, for the _delivery_ gate that runs after access is granted (`src/lib/workers/artifacts/delivery-metrics.ts` → `delivery-receipt.ts`, same injectable sink pattern, default no-op/none). The access metric above answers "was the handle granted"; this one answers "given access, were the bytes then safely delivered". Same four bounded enum labels — `outcome` (`delivered`/`denied`), `reason` (the closed delivery taxonomy: `ok`, `size_mismatch`, `oversize`, `stream_error`), `kind`, and `provider` — never a handle, key, bucket, URL, byte range, size, or byte. The per-attempt **delivery receipt** additionally records the bounded HTTP `method` (`GET`/`HEAD`) and `range` disposition (`none`/`ignored` — a whole-file serve of a request that carried a `Range` this proxy does not honor), so "how are clients probing this endpoint — `HEAD` checks, range requests we do not serve" is auditable without any high-cardinality value. Alert on sustained `denied` spikes by reason: `size_mismatch` (the emitted `Content-Length` could not be verified against the stored bytes or an upstream provider's declared length — a truncated/over-declared/desynced object, refused rather than streamed under a lying header), `oversize` (an artifact past the fixed 1 GiB delivery ceiling — normally impossible, so investigate a tampered or pathological object), or `stream_error` (an unexpected serve failure — a backend that threw or a body that could not be built, caught and closed to a safe `503` rather than a framework `500`). Every delivery denial is a single client-facing `503 service_unavailable`; the precise reason lives only here and in the receipt. Like the access signal this is a bounded byte-consistency + method/range check only — **not** authentication, resumable serving, or content scanning. (Unsupported HTTP methods are refused a content-free `405` before any delivery decision is reached, so they do not appear in this metric.)
 
 Phase 41 adds a **third** content-free download signal, `worker_artifact_expiry_total`, for the storage-backed **lifecycle/expiry** evaluation that runs on every present-object read (`src/lib/workers/artifacts/expiry-metrics.ts` → `expiry-receipt.ts`, same injectable sink pattern, default no-op/none). Where the access metric answers "was the handle granted" and the delivery metric "were the bytes safely delivered", this one answers "what did the object's signed lifecycle evidence say". Two bounded enum labels only — `state` (`live` = a recorded retention window that has not passed, served as before; `expired` = the window has passed while the object is **still present** in the bucket; `deleted` = an explicit tombstone; `unknown` = the present object carries no usable lifecycle evidence) and `provider` (`local-dev`/`remote-configured`/`not-configured`) — never a handle, key, bucket, URL, expiry instant, size, or byte. It is emitted **only** on a read that saw a present object (a `404`/transient read has nothing to evaluate), so `state=expired`/`deleted` is by construction **lifecycle drift**: the bucket served an object the app no longer considers downloadable (and denied it `410`), because the bucket's own lifecycle rule has not yet reaped it. A parallel per-read **drift receipt** carries the same `state`/`provider` plus the stable policy id/version to an OPTIONAL operator observer (default none). Alert on: a sustained `state=expired`/`deleted` rate on `remote-configured` (lifecycle drift — the bucket lifecycle policy is lagging or missing; the app is enforcing the window itself, but investigate the bucket rule since it is the deletion backstop), or a persistently high `state=unknown` rate (objects are being served without lifecycle evidence — a legacy backlog, or storage that strips user-metadata, so retrieval-time expiry cannot be enforced for them and they rely on the bucket backstop alone). Read this only as a **drift** and **coverage** signal: `state=expired`/`deleted` is **not** proof the bytes were deleted, and `worker_artifact_expiry_total` says nothing about whether the bucket lifecycle policy is actually applied — that stays operator-declared (see `worker_lifecycle_verification_total`, a distinct policy-drift signal) and is never inspected by the app.
 
-Phase 42 adds `worker_cleanup_verification_total`, for the out-of-band **cleanup verification** run (`src/lib/workers/cleanup/metrics.ts` → `receipt.ts`, same injectable sink pattern, default no-op/none). Where `worker_artifact_expiry_total` observes what the *retrieval boundary* saw on live traffic, this observes whether an operator's out-of-band cleanup check could *prove* those denied objects' bytes are actually gone. Two bounded enum labels only — `verdict` (`verified` = every should-be-gone artifact confirmed absent from object storage via active delete-now and/or the bucket lifecycle backstop; `drift` = an artifact is still present past its retention window + reap grace; `unknown` = cleanup could not be proven — present-but-denied awaiting reap, no evidence, or nothing to verify; `unavailable` = a probe could not complete; `not-configured` = no storage wired) and `provider` (`local-dev`/`remote-configured`/`not-configured`) — never a handle, key, bucket, URL, expiry instant, count of a specific object, size, or byte. It is emitted once per verification run (the CLI, or any wired caller of `verifyArtifactCleanup`), with a per-run **receipt** carrying the verdict, small counts (`total`/`reaped`/`drift`), and the stable policy id/version to an OPTIONAL observer (default none). Alert on: a sustained `verdict=drift` on `remote-configured` (an artifact has outlived its retention window + grace and the bucket lifecycle backstop has not reaped it — a cleanup gap, though Phase 41 still denies the download, so it is not a disclosure), and treat a persistent `verdict=unknown` when you expect `verified` as a signal that cleanup evidence is missing or reap is chronically lagging. Read this as a **verification** signal, distinct from `worker_artifact_expiry_total` (drift the boundary *saw*) and `worker_lifecycle_verification_total` (whether the lifecycle *rules* are configured): a `verified` verdict is the only one of the three that asserts bytes are actually gone, and even it is derived from operator-supplied evidence — the app never scans the bucket, and the tool never deletes anything itself. Every `verdict`×`provider` label is redaction-stable, so `sanitizeMetric` never silently drops a cleanup sample.
+Phase 42 adds `worker_cleanup_verification_total`, for the out-of-band **cleanup verification** run (`src/lib/workers/cleanup/metrics.ts` → `receipt.ts`, same injectable sink pattern, default no-op/none). Where `worker_artifact_expiry_total` observes what the _retrieval boundary_ saw on live traffic, this observes whether an operator's out-of-band cleanup check could _prove_ those denied objects' bytes are actually gone. Two bounded enum labels only — `verdict` (`verified` = every should-be-gone artifact confirmed absent from object storage via active delete-now and/or the bucket lifecycle backstop; `drift` = an artifact is still present past its retention window + reap grace; `unknown` = cleanup could not be proven — present-but-denied awaiting reap, no evidence, or nothing to verify; `unavailable` = a probe could not complete; `not-configured` = no storage wired) and `provider` (`local-dev`/`remote-configured`/`not-configured`) — never a handle, key, bucket, URL, expiry instant, count of a specific object, size, or byte. It is emitted once per verification run (the CLI, or any wired caller of `verifyArtifactCleanup`), with a per-run **receipt** carrying the verdict, small counts (`total`/`reaped`/`drift`), and the stable policy id/version to an OPTIONAL observer (default none). Alert on: a sustained `verdict=drift` on `remote-configured` (an artifact has outlived its retention window + grace and the bucket lifecycle backstop has not reaped it — a cleanup gap, though Phase 41 still denies the download, so it is not a disclosure), and treat a persistent `verdict=unknown` when you expect `verified` as a signal that cleanup evidence is missing or reap is chronically lagging. Read this as a **verification** signal, distinct from `worker_artifact_expiry_total` (drift the boundary _saw_) and `worker_lifecycle_verification_total` (whether the lifecycle _rules_ are configured): a `verified` verdict is the only one of the three that asserts bytes are actually gone, and even it is derived from operator-supplied evidence — the app never scans the bucket, and the tool never deletes anything itself. Every `verdict`×`provider` label is redaction-stable, so `sanitizeMetric` never silently drops a cleanup sample.
 
 Phase 42 also adds `worker_artifact_cleanup_total`, the **per-category** complement for the dry-run **sweeper** lens (`pnpm worker:artifact-cleanup`, `src/lib/workers/artifacts/cleanup/`). Where `worker_cleanup_verification_total` folds a should-be-gone probe set to ONE run verdict, this counts an offline **inventory** of PRESENT objects by the sweep category each fell into. Two bounded enum labels only — `category` (`ok` · `expired-but-present` · `deleted-but-present` · `missing-lifecycle` · `missing-manifest` · `unsupported-kind` · `storage-unavailable` · `invalid-record`) and `severity` (`ok`/`unknown`/`drift`/`breach`, monotonic with the CLI exit code `0`/`2`/`3`/`4`) — never a handle, key, bucket, URL, expiry instant, filename, size, or byte. `severity` is a fixed function of `category`, carried so a dashboard can roll up by severity. The derivation (`deriveArtifactCleanupMetrics`) emits one sample per NON-empty category, its value the object COUNT, so the collector sums it into a running "objects observed in category" counter; a per-run **receipt** (`category:"artifact-cleanup"`) carries the verdict, `total`, `cleanupRecommended`, and per-severity counts to an OPTIONAL observer (default none). Alert on: `category=expired-but-present` > 0 on `remote-configured` (sweep candidates — objects past retention still present) and any `severity=breach` (a tombstoned-but-present object, or a structurally invalid inventory record). This is a **sweep** signal — a dry-run finding over a present-object inventory — NOT a deletion and NOT a claim the bytes were removed; the tool never lists a real bucket and never deletes. Every `category`×`severity` label is redaction-stable, so `sanitizeMetric` never silently drops a sweep sample.
 
-Phase 43 adds `worker_cleanup_projection_total`, the run-level counter for the offline **cleanup evidence exporter / projector** (`pnpm worker:cleanup-project`, `src/lib/workers/cleanup/project/metrics.ts` → `receipt.ts`, same injectable sink pattern, default no-op/none). Where the two Phase 42 metrics observe *verification* of should-be-gone objects, this observes the **input-side** redaction step that produces their content-free inputs from a raw provider capture. Two bounded enum labels only — `target` (`evidence` = a document for `worker:cleanup-check`; `inventory` = a document for `worker:artifact-cleanup`) and `verdict` (`projected` = usable records emitted, no unsafe signal; `insufficient` = a metadata-thin export, not enough to project; `unsafe` = a present-but-tombstoned object or a structurally-invalid record) — never a handle, key, bucket, URL, endpoint, region, filename, expiry instant, size, or byte. It is emitted once per projection run (the CLI, or any wired caller of `runProject`) as the run-level complement to the richer per-run **projection receipt** (`category:"cleanup-projection"`), which carries the same target/verdict plus record counts, dropped-field counts by category (`locator`/`url`/`identity`/`integrity`/`metadata-blob`/`other`), and warning counts by bounded reason — to an OPTIONAL observer (default none). Alert on: any `verdict=unsafe` (a projected export shows a present-but-tombstoned object — cross-check with `worker:artifact-cleanup`), and treat a persistent `verdict=insufficient` when you expect `projected` as a signal your capture is missing lifecycle/manifest metadata. Read this as a **redaction/normalization** signal, distinct from the three verification signals above: it counts what the projector *reshaped*, NOT a verification, a deletion, or a claim the bytes were removed — the projector makes no cloud call and never deletes. Every `target`×`verdict` label is redaction-stable, so `sanitizeMetric` never silently drops a projection sample.
+Phase 43 adds `worker_cleanup_projection_total`, the run-level counter for the offline **cleanup evidence exporter / projector** (`pnpm worker:cleanup-project`, `src/lib/workers/cleanup/project/metrics.ts` → `receipt.ts`, same injectable sink pattern, default no-op/none). Where the two Phase 42 metrics observe _verification_ of should-be-gone objects, this observes the **input-side** redaction step that produces their content-free inputs from a raw provider capture. Two bounded enum labels only — `target` (`evidence` = a document for `worker:cleanup-check`; `inventory` = a document for `worker:artifact-cleanup`) and `verdict` (`projected` = usable records emitted, no unsafe signal; `insufficient` = a metadata-thin export, not enough to project; `unsafe` = a present-but-tombstoned object or a structurally-invalid record) — never a handle, key, bucket, URL, endpoint, region, filename, expiry instant, size, or byte. It is emitted once per projection run (the CLI, or any wired caller of `runProject`) as the run-level complement to the richer per-run **projection receipt** (`category:"cleanup-projection"`), which carries the same target/verdict plus record counts, dropped-field counts by category (`locator`/`url`/`identity`/`integrity`/`metadata-blob`/`other`), and warning counts by bounded reason — to an OPTIONAL observer (default none). Alert on: any `verdict=unsafe` (a projected export shows a present-but-tombstoned object — cross-check with `worker:artifact-cleanup`), and treat a persistent `verdict=insufficient` when you expect `projected` as a signal your capture is missing lifecycle/manifest metadata. Read this as a **redaction/normalization** signal, distinct from the three verification signals above: it counts what the projector _reshaped_, NOT a verification, a deletion, or a claim the bytes were removed — the projector makes no cloud call and never deletes. Every `target`×`verdict` label is redaction-stable, so `sanitizeMetric` never silently drops a projection sample.
 
 Phase 44 adds `worker_cleanup_pipeline_total`, the run-level composite counter for the one-command **cleanup evidence pipeline** (`pnpm worker:cleanup-pipeline`, `src/lib/workers/cleanup/pipeline/metrics.ts`, same injectable sink pattern, default no-op/none). The pipeline composes the projector and the two Phase 42 lenses, so it emits one sample PER ARM. Two bounded enum labels only — `arm` (`verify` = project → the absence verifier; `sweep` = project → the dry-run sweeper) and `severity` (`ok` · `usage` · `unknown` · `drift` · `breach`) — never a handle, key, bucket, URL, endpoint, region, filename, expiry instant, size, or byte. The rolled-up run exit is the WORST arm's code (`0` ok / `1` usage / `2` unknown / `3` drift / `4` breach), carried alongside a per-run **pipeline receipt** (`category:"cleanup-pipeline"`, per-arm severity + exit code) to an OPTIONAL observer (default none). Because the pipeline runs the projector and verifier in-process, a run ALSO emits `worker_cleanup_projection_total` (×2, one per target) and `worker_cleanup_verification_total`, so a dashboard sees the composite severity here and the per-stage detail there. Alert on: any `severity=breach` (a tombstoned-but-present object or an unsafe export — page), a sustained `severity=drift` (an artifact lingers past retention + grace), and treat a persistent `severity=usage` as a broken schedule (the export is unreadable — the pipeline fails closed to non-zero, never a silent pass). Read this as a **composite evaluation** signal, NOT a deletion: the pipeline reshapes + evaluates an operator's own out-of-band export and deletes nothing. Every `arm`×`severity` label is redaction-stable, so `sanitizeMetric` never silently drops a pipeline sample.
 
-Phase 44 also adds `worker_cleanup_evidence_posture`, a presence **gauge** for the passive **cleanup evidence posture monitor** (`src/lib/workers/cleanup-evidence/`), the complement that reads the content-free report SUMMARIES a scheduled cleanup job already wrote and folds them — with a freshness threshold — into the secure-worker operations posture (`/status`, `worker:ops-check`). Where the four counters above observe *individual runs* of the tools, this observes whether cleanup monitoring is **configured, fresh, and healthy** at a glance. Three bounded enum labels only — `state` (`disabled` · `not-configured` · `healthy` · `stale` · `warning` · `critical` · `unknown` · `invalid`), `reason` (the bounded token the state resolved from: `no_report_configured` · `report_missing` · `report_unreadable` · `report_malformed` · `report_stale` · `cleanup_verified` · `cleanup_drift` · `cleanup_unknown` · `cleanup_breach`), and `provider` (`local-dev`/`remote-configured`/`not-configured`/`unknown`) — never a filename, path, key, bucket, URL, endpoint, region, instant, size, or byte. The value is the presence flag `1`; the operations-snapshot `cleanupEvidence` field carries the same bounded fields plus one authored, content-free detail line (there is no separate receipt sink — the gauge and that snapshot field ARE the record). Alert on: `state=critical` (a fresh `breach`, OR an `invalid` report — an unreadable/malformed summary or a RAW export pointed at by mistake, a misconfiguration to fix immediately), `state=warning` (a fresh `drift`), and a sustained `state=stale` (the generating job is not running on schedule, so there is no FRESH proof of cleanup — never treated as healthy). `state=disabled` is the honest default until `PDFXYZ_CLEANUP_EVIDENCE_CHECK_REPORT` / `_SWEEP_REPORT` is set. Read this as a **freshness + posture** signal over evidence the operator already produced: it reads no bytes, calls no cloud, and never fabricates a healthy claim from missing/stale evidence. Every `state`×`reason`×`provider` label is redaction-stable, so `sanitizeMetric` never silently drops a posture sample.
+Phase 44 also adds `worker_cleanup_evidence_posture`, a presence **gauge** for the passive **cleanup evidence posture monitor** (`src/lib/workers/cleanup-evidence/`), the complement that reads the content-free report SUMMARIES a scheduled cleanup job already wrote and folds them — with a freshness threshold — into the secure-worker operations posture (`/status`, `worker:ops-check`). Where the four counters above observe _individual runs_ of the tools, this observes whether cleanup monitoring is **configured, fresh, and healthy** at a glance. Three bounded enum labels only — `state` (`disabled` · `not-configured` · `healthy` · `stale` · `warning` · `critical` · `unknown` · `invalid`), `reason` (the bounded token the state resolved from: `no_report_configured` · `report_missing` · `report_unreadable` · `report_malformed` · `report_stale` · `cleanup_verified` · `cleanup_drift` · `cleanup_unknown` · `cleanup_breach`), and `provider` (`local-dev`/`remote-configured`/`not-configured`/`unknown`) — never a filename, path, key, bucket, URL, endpoint, region, instant, size, or byte. The value is the presence flag `1`; the operations-snapshot `cleanupEvidence` field carries the same bounded fields plus one authored, content-free detail line (there is no separate receipt sink — the gauge and that snapshot field ARE the record). Alert on: `state=critical` (a fresh `breach`, OR an `invalid` report — an unreadable/malformed summary or a RAW export pointed at by mistake, a misconfiguration to fix immediately), `state=warning` (a fresh `drift`), and a sustained `state=stale` (the generating job is not running on schedule, so there is no FRESH proof of cleanup — never treated as healthy). `state=disabled` is the honest default until `PDFXYZ_CLEANUP_EVIDENCE_CHECK_REPORT` / `_SWEEP_REPORT` is set. Read this as a **freshness + posture** signal over evidence the operator already produced: it reads no bytes, calls no cloud, and never fabricates a healthy claim from missing/stale evidence. Every `state`×`reason`×`provider` label is redaction-stable, so `sanitizeMetric` never silently drops a posture sample.
 
 Phase 45 adds `worker_ops_bundle_total`, the run-level counter for the **operations evidence bundle** (`pnpm worker:ops-bundle`, `src/lib/workers/ops-bundle/metrics.ts`, default-off sink pattern). It emits one sample per bundle with a single bounded label, `severity` (`ok`/`usage`/`unknown`/`warn`/`critical`), matching the bundle's exit ladder (`0`/`1`/`2`/`3`/`4`). The bundle is an incident/support artifact that composes existing content-free summaries (`pdfxyz.ops-check/1`, optionally `pdfxyz.cleanup-pipeline/1`); it is not a new proof and not a cloud scanner. Alerting should key on the same rollup severity: `critical` means a composed signal is critical/breached, `warn` means degraded/drift, `unknown` means evidence is incomplete, and `usage` means the aggregation itself is miswired. Never attach the bundle output path, source file path, raw provider export, bucket, key, signed URL, provider error, filename, env value, document/OCR text, byte snippet, or raw metadata to this metric or a ticket; the bundle itself reconstructs from bounded enums and drops hostile strings before rendering. Every `severity` label is redaction-stable, so `sanitizeMetric` never silently drops a bundle sample.
 

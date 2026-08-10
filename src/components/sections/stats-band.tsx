@@ -20,7 +20,7 @@ export function StatsBand() {
           {stats.map((stat) => (
             <div
               key={stat.label}
-              className="flex flex-col items-center gap-1 bg-ink px-6 py-8 text-center"
+              className="bg-ink flex flex-col items-center gap-1 px-6 py-8 text-center"
             >
               <dt className="order-2 text-sm text-slate-400">{stat.label}</dt>
               <dd className="order-1 bg-gradient-to-br from-white to-slate-400 bg-clip-text text-4xl font-bold tracking-tight text-transparent sm:text-5xl">

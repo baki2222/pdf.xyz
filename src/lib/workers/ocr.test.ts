@@ -14,7 +14,11 @@ const noEngines: OcrEngineAvailability = {
 
 describe("buildOcrCapability", () => {
   it("reports OCR unavailable in every mode this build runs in", () => {
-    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+    for (const mode of [
+      "disabled",
+      "remote-configured",
+      "local-dev",
+    ] as const) {
       const ocr = buildOcrCapability(mode);
       expect(ocr.available).toBe(false);
       expect(ocr.engine).toBeNull();
@@ -24,9 +28,7 @@ describe("buildOcrCapability", () => {
   });
 
   it("gives a mode-specific, honest reason when unavailable", () => {
-    expect(buildOcrCapability("disabled").detail).toMatch(
-      /native ocr engine/i,
-    );
+    expect(buildOcrCapability("disabled").detail).toMatch(/native ocr engine/i);
     // Phase 23: OCR is a real, optional out-of-band backend — the copy no longer
     // implies it is future/vaporware, but still honestly says it can't run *here*.
     expect(buildOcrCapability("remote-configured").detail).toMatch(

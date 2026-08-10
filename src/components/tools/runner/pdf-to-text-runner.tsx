@@ -1,7 +1,11 @@
 "use client";
 
 import { Download, FileText, Search, ShieldCheck } from "lucide-react";
-import { extractPdfText, textOutputName, type ExtractedPdfText } from "@/lib/pdf/text";
+import {
+  extractPdfText,
+  textOutputName,
+  type ExtractedPdfText,
+} from "@/lib/pdf/text";
 import { downloadBlob } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
@@ -51,7 +55,7 @@ function PdfToTextEditor({
       >
         {result.hasText ? (
           <div className="flex flex-col gap-4">
-            <div className="max-h-72 overflow-auto rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-200 whitespace-pre-wrap">
+            <div className="max-h-72 overflow-auto rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 whitespace-pre-wrap text-slate-200">
               {result.text}
             </div>
             <button
@@ -65,13 +69,14 @@ function PdfToTextEditor({
               className={buttonVariants({ variant: "primary", size: "lg" })}
             >
               <Download className="size-4" aria-hidden />
-              Download TXT ({formatBytes(new TextEncoder().encode(result.text).byteLength)})
+              Download TXT (
+              {formatBytes(new TextEncoder().encode(result.text).byteLength)})
             </button>
           </div>
         ) : (
           <p className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-100">
-            This PDF does not contain selectable text. Use OCR PDF when OCR is enabled
-            to recognize text from scanned pages or photos.
+            This PDF does not contain selectable text. Use OCR PDF when OCR is
+            enabled to recognize text from scanned pages or photos.
           </p>
         )}
       </ResultPanel>
@@ -84,7 +89,11 @@ function PdfToTextEditor({
 
       <RunnerSection
         title="Extract text"
-        aside={<span className="text-xs text-slate-400">{pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}</span>}
+        aside={
+          <span className="text-xs text-slate-400">
+            {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}
+          </span>
+        }
       >
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile

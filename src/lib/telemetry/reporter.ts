@@ -14,10 +14,7 @@
  * to the user. See `./config` for the presence-only activation model.
  */
 
-import {
-  getTelemetryConfig,
-  type TelemetryConfig,
-} from "./config";
+import { getTelemetryConfig, type TelemetryConfig } from "./config";
 import { redactText, redactUrl, redactValue } from "./redact";
 
 /** Where/how an error was caught, for coarse triage (never user data). */
@@ -98,7 +95,10 @@ function errorMessageText(error: unknown): string {
 }
 
 /** A safe, opaque digest string if the error/context carries one. */
-function digestOf(error: unknown, context?: ClientErrorContext): string | undefined {
+function digestOf(
+  error: unknown,
+  context?: ClientErrorContext,
+): string | undefined {
   if (context?.digest) return String(context.digest);
   if (error && typeof error === "object" && "digest" in error) {
     const digest = (error as { digest?: unknown }).digest;
@@ -181,7 +181,9 @@ let configOverride: TelemetryConfig | null = null;
 let transportOverride: TelemetryTransport | null = null;
 
 /** Override the active config in tests (null restores env-derived config). */
-export function __setTelemetryConfigForTests(config: TelemetryConfig | null): void {
+export function __setTelemetryConfigForTests(
+  config: TelemetryConfig | null,
+): void {
   configOverride = config;
 }
 /** Override the transport in tests (null restores the beacon/fetch default). */

@@ -16,7 +16,9 @@ afterEach(resetCleanupVerificationSink);
 
 describe("recordCleanupVerification", () => {
   it("is a no-op by default (never throws with no sink wired)", () => {
-    expect(() => recordCleanupVerification("verified", "remote-configured")).not.toThrow();
+    expect(() =>
+      recordCleanupVerification("verified", "remote-configured"),
+    ).not.toThrow();
   });
 
   it("forwards one bounded sample per call to a wired sink", () => {

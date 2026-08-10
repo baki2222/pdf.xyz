@@ -15,14 +15,22 @@ import { runOpsCheck, type OpsCheckProvider } from "./run";
 import { isUsageError, type OpsCheckResult } from "./render";
 import type { AlertSeverity } from "../observability/alerts";
 
-const DIR = join(process.cwd(), "docs", "examples", "observability", "healthcheck");
+const DIR = join(
+  process.cwd(),
+  "docs",
+  "examples",
+  "observability",
+  "healthcheck",
+);
 const read = (f: string): string => readFileSync(join(DIR, f), "utf8");
 
 /** A provider that feeds fixed ingest text; `collectLive` is never used by these tests. */
 function fixtureProvider(text: string): OpsCheckProvider {
   return {
     collectLive() {
-      return Promise.reject(new Error("collectLive is not used for ingest fixtures"));
+      return Promise.reject(
+        new Error("collectLive is not used for ingest fixtures"),
+      );
     },
     readInput() {
       return Promise.resolve(text);
@@ -32,7 +40,11 @@ function fixtureProvider(text: string): OpsCheckProvider {
 }
 
 /** The documented severity + exit code for each committed fixture. */
-const CASES: Array<{ file: string; severity: AlertSeverity; exitCode: number }> = [
+const CASES: Array<{
+  file: string;
+  severity: AlertSeverity;
+  exitCode: number;
+}> = [
   { file: "healthy.json", severity: "ok", exitCode: 0 },
   { file: "stale-heartbeat.json", severity: "warn", exitCode: 3 },
   { file: "lifecycle-drift.json", severity: "critical", exitCode: 4 },
@@ -109,7 +121,9 @@ describe("healthcheck examples are content-free", () => {
       );
       const out = run.output.toLowerCase();
       for (const leak of FORBIDDEN) {
-        expect(out, `${c.file} output must not leak ${leak}`).not.toContain(leak);
+        expect(out, `${c.file} output must not leak ${leak}`).not.toContain(
+          leak,
+        );
       }
     }
   });

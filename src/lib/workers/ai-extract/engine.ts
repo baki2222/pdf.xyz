@@ -131,7 +131,9 @@ function buildSystemPrompt(options: ExtractOptions): string {
     "Return ONLY a single JSON object. No prose, no explanation, no markdown, no code fences.",
   ];
   if (options.mode === "schema" && options.schema) {
-    parts.push("Extract exactly these fields, using the given names verbatim as JSON keys:");
+    parts.push(
+      "Extract exactly these fields, using the given names verbatim as JSON keys:",
+    );
     parts.push(options.schema.map(describeField).join("\n"));
     parts.push(
       "Coerce each value to the stated type where the text supports it; use null when a field is absent.",
@@ -151,11 +153,26 @@ function mapProviderFailure(
 ): Extract<AiExtractRun, { ok: false }> {
   switch (result.kind) {
     case "not_configured":
-      return { ok: false, kind: "ai_unconfigured", retryable: false, message: result.message };
+      return {
+        ok: false,
+        kind: "ai_unconfigured",
+        retryable: false,
+        message: result.message,
+      };
     case "rate_limited":
-      return { ok: false, kind: "rate_limited", retryable: true, message: result.message };
+      return {
+        ok: false,
+        kind: "rate_limited",
+        retryable: true,
+        message: result.message,
+      };
     case "content_filtered":
-      return { ok: false, kind: "content_filtered", retryable: false, message: result.message };
+      return {
+        ok: false,
+        kind: "content_filtered",
+        retryable: false,
+        message: result.message,
+      };
     case "too_long":
       return {
         ok: false,
@@ -168,7 +185,12 @@ function mapProviderFailure(
     case "invalid_response":
     case "provider_error":
     default:
-      return { ok: false, kind: "failed", retryable: result.retryable, message: result.message };
+      return {
+        ok: false,
+        kind: "failed",
+        retryable: result.retryable,
+        message: result.message,
+      };
   }
 }
 
@@ -177,7 +199,9 @@ function mapProviderFailure(
  * code fence the model may wrap it in. Returns the parsed value (must be a non-null
  * object or array — a bare primitive is not a usable extraction) or `null` on failure.
  */
-function parseModelJson(text: string): Record<string, unknown> | unknown[] | null {
+function parseModelJson(
+  text: string,
+): Record<string, unknown> | unknown[] | null {
   let body = text.trim();
   const fence = body.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   if (fence) body = fence[1]!.trim();
@@ -243,7 +267,12 @@ export async function runAiExtract(
   try {
     extracted = await extract(input);
   } catch {
-    return { ok: false, kind: "failed", retryable: false, message: "The PDF could not be read for text extraction." };
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: "The PDF could not be read for text extraction.",
+    };
   }
 
   const sourceText = extracted.text.trim();
@@ -261,7 +290,8 @@ export async function runAiExtract(
   const truncated = sourceText.length > maxChars;
   const promptText = truncated ? sourceText.slice(0, maxChars) : sourceText;
 
-  const maxOutputTokens = deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  const maxOutputTokens =
+    deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
   const completion = await provider.complete({
     system: buildSystemPrompt(options),
@@ -289,7 +319,9 @@ export async function runAiExtract(
     };
   }
 
-  const extractedKeys = Array.isArray(data) ? data.length : Object.keys(data).length;
+  const extractedKeys = Array.isArray(data)
+    ? data.length
+    : Object.keys(data).length;
 
   const createdAt = now();
   const manifest: ExtractionManifest = {
@@ -316,7 +348,12 @@ export async function runAiExtract(
   const output = await buildPackage(data, manifest);
   const maxOutput = deps.limits?.maxOutputBytes;
   if (maxOutput !== undefined && output.byteLength > maxOutput) {
-    return { ok: false, kind: "failed", retryable: false, message: "The extraction package exceeds the worker size limit." };
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: "The extraction package exceeds the worker size limit.",
+    };
   }
 
   return {
@@ -357,7 +394,11 @@ interface ExtractionManifest {
   provider: string;
   model: string;
   options: ExtractionManifestOptions;
-  source: { pageCount: number; characters: number; truncatedToCharacters: number | null };
+  source: {
+    pageCount: number;
+    characters: number;
+    truncatedToCharacters: number | null;
+  };
   extraction: { keys: number };
   notice: string;
 }
@@ -371,11 +412,16 @@ function renderValue(value: unknown): string {
 }
 
 /** Render the extraction.md with a provenance header + a key/value rendering of the data. */
-function renderMarkdown(data: Record<string, unknown> | unknown[], manifest: ExtractionManifest): string {
+function renderMarkdown(
+  data: Record<string, unknown> | unknown[],
+  manifest: ExtractionManifest,
+): string {
   const lines: string[] = [];
   lines.push("# Extracted Data");
   lines.push("");
-  lines.push(`> Generated by ${manifest.provider} (${manifest.model}) from the selectable text of the source PDF.`);
+  lines.push(
+    `> Generated by ${manifest.provider} (${manifest.model}) from the selectable text of the source PDF.`,
+  );
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for extraction)` : ""}`,
   );
@@ -409,7 +455,9 @@ function renderReadme(manifest: ExtractionManifest): string {
   if (manifest.options.mode === "schema") {
     lines.push(`Request: schema (${manifest.options.schema.length} field(s))`);
     for (const field of manifest.options.schema) {
-      lines.push(`  - ${field.name} (${field.type})${field.description ? ` — ${field.description}` : ""}`);
+      lines.push(
+        `  - ${field.name} (${field.type})${field.description ? ` — ${field.description}` : ""}`,
+      );
     }
   } else {
     lines.push("Request: prompt");
@@ -417,9 +465,15 @@ function renderReadme(manifest: ExtractionManifest): string {
   }
   lines.push("");
   lines.push("Contents:");
-  lines.push("  extraction.json  The AI-extracted structured data (exactly the model's JSON output).");
-  lines.push("  extraction.md    A human-readable rendering with a provenance header.");
-  lines.push("  manifest.json    A structured record of the request (provider, model, request, source stats).");
+  lines.push(
+    "  extraction.json  The AI-extracted structured data (exactly the model's JSON output).",
+  );
+  lines.push(
+    "  extraction.md    A human-readable rendering with a provenance header.",
+  );
+  lines.push(
+    "  manifest.json    A structured record of the request (provider, model, request, source stats).",
+  );
   lines.push("");
   lines.push("HONEST SCOPE:");
   lines.push("  " + manifest.notice);

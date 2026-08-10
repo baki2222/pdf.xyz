@@ -54,7 +54,13 @@ function seams(stdout: string, over: Partial<PdfTextSeams> = {}): PdfTextSeams {
 describe("pdfTextArgs", () => {
   it("asks for column-preserving plain text and writes to stdout", () => {
     const input = join("tmp", "d", "input.pdf");
-    expect(pdfTextArgs("layout", input)).toEqual(["-layout", "-q", "--", input, "-"]);
+    expect(pdfTextArgs("layout", input)).toEqual([
+      "-layout",
+      "-q",
+      "--",
+      input,
+      "-",
+    ]);
   });
 
   it("asks for per-word bounding boxes in bbox mode", () => {
@@ -70,7 +76,9 @@ describe("pdfTextArgs", () => {
 
   it("ends option parsing before the path, so a path can never read as a flag", () => {
     const args = pdfTextArgs("layout", join("tmp", "-oops.pdf"));
-    expect(args.indexOf("--")).toBeLessThan(args.indexOf(join("tmp", "-oops.pdf")));
+    expect(args.indexOf("--")).toBeLessThan(
+      args.indexOf(join("tmp", "-oops.pdf")),
+    );
   });
 });
 
@@ -84,12 +92,16 @@ describe("probePdfTextFromConfig", () => {
   });
 
   it("returns null when it is not installed", () => {
-    expect(probePdfTextFromConfig(config, { resolveOnPath: () => false })).toBeNull();
+    expect(
+      probePdfTextFromConfig(config, { resolveOnPath: () => false }),
+    ).toBeNull();
   });
 
   it("returns null when the kill switch is off, even with the binary present", () => {
     const disabled = resolveNativePdfTextConfig({ PDFXYZ_PDF_TEXT: "off" });
-    expect(probePdfTextFromConfig(disabled, { resolveOnPath: () => true })).toBeNull();
+    expect(
+      probePdfTextFromConfig(disabled, { resolveOnPath: () => true }),
+    ).toBeNull();
   });
 
   it("probes an absolute override by existence rather than PATH", () => {
@@ -133,14 +145,22 @@ describe("extractors", () => {
 
   it("writes the input under a fixed name inside the temp dir", async () => {
     const fs = fakeFs(join("tmp", "run"));
-    const extract = createNativePdfTextExtractor("pdftotext", config, seams("x", { fs }));
+    const extract = createNativePdfTextExtractor(
+      "pdftotext",
+      config,
+      seams("x", { fs }),
+    );
     await extract(PDF);
     expect(fs.written).toEqual([join("tmp", "run", "input.pdf")]);
   });
 
   it("removes the temp dir after a successful run", async () => {
     const fs = fakeFs(join("tmp", "run"));
-    const extract = createNativePdfTextExtractor("pdftotext", config, seams("x", { fs }));
+    const extract = createNativePdfTextExtractor(
+      "pdftotext",
+      config,
+      seams("x", { fs }),
+    );
     await extract(PDF);
     expect(fs.removed).toEqual([join("tmp", "run")]);
   });
@@ -163,8 +183,14 @@ describe("extractors", () => {
       spawned = true;
       return "";
     };
-    const tiny = resolveNativePdfTextConfig({ PDFXYZ_PDF_TEXT_MAX_INPUT_BYTES: "2" });
-    const extract = createNativePdfTextExtractor("pdftotext", tiny, seams("", { exec }));
+    const tiny = resolveNativePdfTextConfig({
+      PDFXYZ_PDF_TEXT_MAX_INPUT_BYTES: "2",
+    });
+    const extract = createNativePdfTextExtractor(
+      "pdftotext",
+      tiny,
+      seams("", { exec }),
+    );
     await expect(extract(PDF)).rejects.toThrow(/maximum size/i);
     expect(spawned).toBe(false);
   });
@@ -179,7 +205,11 @@ describe("extractors", () => {
       PDFXYZ_PDF_TEXT_MAX_OUTPUT_BYTES: "8",
       PDFXYZ_PDF_TEXT_TIMEOUT_MS: "1234",
     });
-    await createNativePdfTextExtractor("pdftotext", bounded, seams("", { exec }))(PDF);
+    await createNativePdfTextExtractor(
+      "pdftotext",
+      bounded,
+      seams("", { exec }),
+    )(PDF);
     expect(options).toMatchObject({ maxBuffer: 8, timeout: 1234 });
   });
 });

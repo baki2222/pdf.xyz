@@ -40,13 +40,17 @@ describe("POST /api/jobs", () => {
   });
 
   it("rejects an unknown tool with 404", async () => {
-    const res = await POST(post({ tool: "nope-pdf", inputs: ["f_1234567890"] }));
+    const res = await POST(
+      post({ tool: "nope-pdf", inputs: ["f_1234567890"] }),
+    );
     expect(res.status).toBe(404);
     expect((await res.json()).error.code).toBe("unsupported_tool");
   });
 
   it("rejects an in-browser tool with 422", async () => {
-    const res = await POST(post({ tool: "merge-pdf", inputs: ["f_1234567890"] }));
+    const res = await POST(
+      post({ tool: "merge-pdf", inputs: ["f_1234567890"] }),
+    );
     expect(res.status).toBe(422);
   });
 
@@ -58,21 +62,28 @@ describe("POST /api/jobs", () => {
 
   it("requires application/json with 415", async () => {
     const res = await POST(
-      post({ tool: "ocr-pdf", inputs: ["f_1234567890"] }, { "content-type": "text/plain" }),
+      post(
+        { tool: "ocr-pdf", inputs: ["f_1234567890"] },
+        { "content-type": "text/plain" },
+      ),
     );
     expect(res.status).toBe(415);
   });
 
   it("rejects an unsafe URL for a URL-input tool with 422", async () => {
     const res = await POST(
-      post({ tool: "webpage-to-pdf", options: { url: "http://127.0.0.1/admin" } }),
+      post({
+        tool: "webpage-to-pdf",
+        options: { url: "http://127.0.0.1/admin" },
+      }),
     );
     expect(res.status).toBe(422);
   });
 
   it("rejects too many job inputs before worker adapter resolution", async () => {
-    const inputs = Array.from({ length: JOB_LIMITS.maxInputFiles + 1 }, (_, i) =>
-      `f_${String(i).padStart(10, "0")}`,
+    const inputs = Array.from(
+      { length: JOB_LIMITS.maxInputFiles + 1 },
+      (_, i) => `f_${String(i).padStart(10, "0")}`,
     );
     const res = await POST(post({ tool: "ocr-pdf", inputs }));
     expect(res.status).toBe(422);
@@ -147,7 +158,9 @@ describe("POST /api/jobs — abuse guard", () => {
     // The guard runs before the body is parsed, and the client address is only
     // ever a salted hash — so no header, body value, or address reaches the wire.
     const bodyText = JSON.stringify(await denied!.json());
-    const headerText = [...denied!.headers].map(([k, v]) => `${k}:${v}`).join(" ");
+    const headerText = [...denied!.headers]
+      .map(([k, v]) => `${k}:${v}`)
+      .join(" ");
     for (const leak of [
       "203.0.113.42",
       "EvilBot",

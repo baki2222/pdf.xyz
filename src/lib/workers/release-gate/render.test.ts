@@ -30,9 +30,33 @@ const RESULT: ReleaseGateResult = {
     detail: "NOT READY to promote.",
   },
   checks: [
-    { id: "deploy-examples", status: "pass", severity: "fail", expectedExit: 0, observedExit: 0, summary: "all validated", remediation: "re-run it" },
-    { id: "worker-smoke", status: "fail", severity: "fail", expectedExit: 0, observedExit: 1, summary: "re-run smoke", remediation: "re-run smoke" },
-    { id: "worker-engines", status: "skip", severity: "warn", expectedExit: 0, observedExit: null, summary: "skipped", remediation: "re-run engines" },
+    {
+      id: "deploy-examples",
+      status: "pass",
+      severity: "fail",
+      expectedExit: 0,
+      observedExit: 0,
+      summary: "all validated",
+      remediation: "re-run it",
+    },
+    {
+      id: "worker-smoke",
+      status: "fail",
+      severity: "fail",
+      expectedExit: 0,
+      observedExit: 1,
+      summary: "re-run smoke",
+      remediation: "re-run smoke",
+    },
+    {
+      id: "worker-engines",
+      status: "skip",
+      severity: "warn",
+      expectedExit: 0,
+      observedExit: null,
+      summary: "skipped",
+      remediation: "re-run engines",
+    },
   ],
   receipt: {
     category: "worker-release-gate",
@@ -71,10 +95,15 @@ describe("renderReleaseGate", () => {
   it("text surfaces remediation for a failing check but stays terse for a passing one", () => {
     const out = renderReleaseGate(RESULT, "text");
     // The failing check's remediation arrow appears...
-    const smokeLine = out.split("\n").findIndex((l) => l.includes("[ fail  ] worker-smoke"));
+    const smokeLine = out
+      .split("\n")
+      .findIndex((l) => l.includes("[ fail  ] worker-smoke"));
     expect(smokeLine).toBeGreaterThanOrEqual(0);
     // ...and the passing check shows no remediation arrow.
-    const passBlock = out.slice(out.indexOf("deploy-examples"), out.indexOf("worker-smoke"));
+    const passBlock = out.slice(
+      out.indexOf("deploy-examples"),
+      out.indexOf("worker-smoke"),
+    );
     expect(passBlock).not.toContain("→");
   });
 

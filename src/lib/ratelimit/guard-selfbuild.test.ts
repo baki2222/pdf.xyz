@@ -80,7 +80,8 @@ afterEach(clear);
 /** Exactly what a correctly-configured production deployment has set. */
 function configuredEnv(): void {
   process.env[RATE_LIMIT_ENV.provider] = "redis";
-  process.env[RATE_LIMIT_REDIS_ENV.restUrl] = "https://example-store.upstash.io";
+  process.env[RATE_LIMIT_REDIS_ENV.restUrl] =
+    "https://example-store.upstash.io";
   process.env[RATE_LIMIT_REDIS_ENV.restToken] = "A".repeat(48);
 }
 
@@ -103,7 +104,10 @@ describe("the guard enforces from the environment, not from a registration", () 
     expect(decision.enforced).toBe(true);
     // The tell from production was a store with ZERO recorded commands while every
     // request succeeded. Asserting the decision alone would have missed it.
-    expect(store.calls, "the guard must actually reach the store").toBeGreaterThan(0);
+    expect(
+      store.calls,
+      "the guard must actually reach the store",
+    ).toBeGreaterThan(0);
   });
 
   it("builds its provider once, not per request", async () => {
@@ -136,7 +140,8 @@ describe("the guard enforces from the environment, not from a registration", () 
     // A store may be configured while the provider stays off; off wins, and the
     // guard must not reach for a provider at all.
     const store = stubStore();
-    process.env[RATE_LIMIT_REDIS_ENV.restUrl] = "https://example-store.upstash.io";
+    process.env[RATE_LIMIT_REDIS_ENV.restUrl] =
+      "https://example-store.upstash.io";
     process.env[RATE_LIMIT_REDIS_ENV.restToken] = "A".repeat(48);
 
     const decision = await enforceRateLimit("uploads.create", req());
@@ -189,9 +194,10 @@ describe("a limiter that stops enforcing says which failure it is", () => {
       decision.provider,
       "an erroring store must be distinguishable from the limiter being switched off",
     ).toBe("remote-error");
-    expect(decision.allowed, "fail OPEN — an outage must not take the API down").toBe(
-      true,
-    );
+    expect(
+      decision.allowed,
+      "fail OPEN — an outage must not take the API down",
+    ).toBe(true);
     expect(decision.enforced).toBe(false);
   });
 
@@ -226,7 +232,8 @@ describe("a limiter that stops enforcing says which failure it is", () => {
     resetFailOpenLogForTests();
     process.env[RATE_LIMIT_ENV.provider] = "redis";
 
-    for (let i = 0; i < 5; i += 1) await enforceRateLimit("uploads.create", req());
+    for (let i = 0; i < 5; i += 1)
+      await enforceRateLimit("uploads.create", req());
 
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();

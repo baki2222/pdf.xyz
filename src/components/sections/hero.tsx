@@ -26,12 +26,12 @@ export function Hero() {
           Privacy-first PDF platform · {toolCount} tools
         </Pill>
 
-        <h1 className="max-w-4xl text-balance text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl md:text-7xl">
+        <h1 className="max-w-4xl text-4xl leading-[1.05] font-bold tracking-tight text-balance text-white sm:text-6xl md:text-7xl">
           Every PDF tool.{" "}
           <span className="gradient-text">Private by design.</span>
         </h1>
 
-        <p className="max-w-2xl text-pretty text-base leading-relaxed text-slate-400 sm:text-lg">
+        <p className="max-w-2xl text-base leading-relaxed text-pretty text-slate-400 sm:text-lg">
           Merge, split, compress, convert, edit, sign, and run AI on your
           documents — in one fast, beautiful workspace. Most tools run entirely
           in your browser, so your files never leave your device.
@@ -74,7 +74,7 @@ export function Hero() {
         </div>
 
         <div className="mt-7 flex flex-col items-center gap-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+          <p className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
             Popular right now
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -83,7 +83,7 @@ export function Hero() {
                 key={tool.slug}
                 href={`/tools/${tool.slug}`}
                 className={cn(
-                  "group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pl-1.5 pr-4 text-sm font-medium text-slate-200 transition-colors hover:border-white/20 hover:bg-white/10 hover:text-white",
+                  "group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pr-4 pl-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-white/20 hover:bg-white/10 hover:text-white",
                 )}
               >
                 <ToolIcon

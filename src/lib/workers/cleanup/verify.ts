@@ -70,7 +70,11 @@ function pastReapGrace(
   nowMs: number,
   graceMs: number,
 ): boolean {
-  if (expiresAtMs === undefined || !usableInstant(expiresAtMs) || !usableInstant(nowMs)) {
+  if (
+    expiresAtMs === undefined ||
+    !usableInstant(expiresAtMs) ||
+    !usableInstant(nowMs)
+  ) {
     return false;
   }
   const safeGrace = Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : 0;
@@ -115,7 +119,9 @@ export function classifyCleanupObject(
 }
 
 /** Tally a set of per-object classifications into content-free {@link CleanupStateCounts}. */
-function tally(states: readonly CleanupObjectState[]): Record<CleanupObjectState, number> {
+function tally(
+  states: readonly CleanupObjectState[],
+): Record<CleanupObjectState, number> {
   const counts = emptyCleanupCounts();
   for (const state of states) counts[state] += 1;
   return counts;

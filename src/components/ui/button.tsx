@@ -12,8 +12,7 @@ const base =
 const variants: Record<Variant, string> = {
   primary:
     "bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 text-white shadow-lg shadow-violet-500/25 hover:shadow-xl hover:shadow-violet-500/40 hover:brightness-110",
-  secondary:
-    "glass text-white hover:bg-white/10 hover:border-white/20",
+  secondary: "glass text-white hover:bg-white/10 hover:border-white/20",
   outline:
     "border border-white/15 bg-transparent text-slate-100 hover:bg-white/5 hover:border-white/25",
   ghost: "bg-transparent text-slate-200 hover:bg-white/5 hover:text-white",
@@ -42,13 +41,11 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   size?: Size;
 };
 
-export function Button({
-  variant,
-  size,
-  className,
-  ...props
-}: ButtonProps) {
+export function Button({ variant, size, className, ...props }: ButtonProps) {
   return (
-    <button className={buttonVariants({ variant, size, className })} {...props} />
+    <button
+      className={buttonVariants({ variant, size, className })}
+      {...props}
+    />
   );
 }

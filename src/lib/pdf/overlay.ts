@@ -90,7 +90,13 @@ export interface OverlayRect {
  *  - `actual`  : keep the overlay's own size, centered (may overhang the page).
  */
 export function fitOverlayRect(input: OverlayRectInput): OverlayRect {
-  const { overlayWidth: ow, overlayHeight: oh, pageWidth: pw, pageHeight: ph, fit } = input;
+  const {
+    overlayWidth: ow,
+    overlayHeight: oh,
+    pageWidth: pw,
+    pageHeight: ph,
+    fit,
+  } = input;
   // Degenerate sizes can't be scaled sensibly — fall back to covering the page.
   if (ow <= 0 || oh <= 0 || pw <= 0 || ph <= 0) {
     return { x: 0, y: 0, width: Math.max(0, pw), height: Math.max(0, ph) };
@@ -197,7 +203,10 @@ export async function overlayPdf(
   // deferred failures still surface as clean, user-facing copy.
   const indices = neededOverlayIndices(baseCount, overlayCount, paging);
   try {
-    const embedded: PDFEmbeddedPage[] = await base.embedPdf(overlayBytes, indices);
+    const embedded: PDFEmbeddedPage[] = await base.embedPdf(
+      overlayBytes,
+      indices,
+    );
     // Map an overlay page index → its slot in `embedded` (which follows `indices`).
     const slotByOverlayIndex = new Map(
       indices.map((overlayIndex, slot) => [overlayIndex, slot]),
@@ -231,7 +240,14 @@ export async function overlayPdf(
 
     stampProducer(base);
     const bytes = await base.save();
-    return { bytes, pageCount: baseCount, overlayPageCount: overlayCount, fit, paging, opacity };
+    return {
+      bytes,
+      pageCount: baseCount,
+      overlayPageCount: overlayCount,
+      fit,
+      paging,
+      opacity,
+    };
   } catch (err) {
     if (err instanceof PdfEngineError) throw err;
     throw new PdfEngineError(

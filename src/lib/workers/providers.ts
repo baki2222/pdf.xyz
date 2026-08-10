@@ -30,7 +30,10 @@ import {
 } from "./storage/types";
 import { createNotConfiguredQueue } from "./queue/not-configured";
 import { resolveQueueCapability } from "./queue/redis-config";
-import { LOCAL_DEV_QUEUE_CAPABILITY, type QueueCapability } from "./queue/types";
+import {
+  LOCAL_DEV_QUEUE_CAPABILITY,
+  type QueueCapability,
+} from "./queue/types";
 
 /**
  * The execution loop that claims queued jobs and dispatches a processor.
@@ -181,7 +184,8 @@ export function getProviderReadiness(
   // Storage and queue are each the real provider (S3/R2, Redis) when fully
   // configured; otherwise each falls back to the honest not-configured capability.
   const storage =
-    resolveStorageCapability(env) ?? createNotConfiguredStorage(id).capability();
+    resolveStorageCapability(env) ??
+    createNotConfiguredStorage(id).capability();
   const queue =
     resolveQueueCapability(env) ?? createNotConfiguredQueue(id).capability();
 

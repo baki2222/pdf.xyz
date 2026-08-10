@@ -17,13 +17,7 @@
 
 /** The coarse families the platform accepts as uploads. */
 export type UploadFamily =
-  | "pdf"
-  | "image"
-  | "word"
-  | "spreadsheet"
-  | "presentation"
-  | "web"
-  | "text";
+  "pdf" | "image" | "word" | "spreadsheet" | "presentation" | "web" | "text";
 
 /** A family's recognized MIME types and filename extensions (both lower-case). */
 interface FamilySpec {
@@ -108,7 +102,9 @@ export function normalizeContentType(value: unknown): string | null {
 }
 
 /** The family a recognized MIME type belongs to, or `null` if unrecognized. */
-export function familyForMime(normalizedMime: string | null): UploadFamily | null {
+export function familyForMime(
+  normalizedMime: string | null,
+): UploadFamily | null {
   if (normalizedMime === null) return null;
   return FAMILY_BY_MIME.get(normalizedMime) ?? null;
 }

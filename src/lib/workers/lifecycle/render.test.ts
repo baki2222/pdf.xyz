@@ -49,10 +49,14 @@ describe("renderLifecyclePolicy — AWS S3 shape", () => {
     expect(input.Expiration).toEqual({ Days: 1 });
 
     const abort = byId.get("pdfxyz-abort-multipart")!;
-    expect(abort.AbortIncompleteMultipartUpload).toEqual({ DaysAfterInitiation: 1 });
+    expect(abort.AbortIncompleteMultipartUpload).toEqual({
+      DaysAfterInitiation: 1,
+    });
 
     const noncurrent = byId.get("pdfxyz-noncurrent-version-expiration")!;
-    expect(noncurrent.NoncurrentVersionExpiration).toEqual({ NoncurrentDays: 1 });
+    expect(noncurrent.NoncurrentVersionExpiration).toEqual({
+      NoncurrentDays: 1,
+    });
 
     const marker = byId.get("pdfxyz-expired-delete-marker")!;
     expect(marker.Expiration).toEqual({ ExpiredObjectDeleteMarker: true });

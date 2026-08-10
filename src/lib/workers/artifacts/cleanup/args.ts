@@ -133,13 +133,19 @@ export function parseArtifactCleanupArgs(
         return { ok: true, kind: "help" };
       case "--stdin":
         if (source === "file") {
-          return { ok: false, message: "Choose only one input: --stdin or --file." };
+          return {
+            ok: false,
+            message: "Choose only one input: --stdin or --file.",
+          };
         }
         source = "stdin";
         break;
       case "--file": {
         if (source === "stdin") {
-          return { ok: false, message: "Choose only one input: --stdin or --file." };
+          return {
+            ok: false,
+            message: "Choose only one input: --stdin or --file.",
+          };
         }
         const value = takeValue();
         if (value === null || value === "") {
@@ -151,13 +157,19 @@ export function parseArtifactCleanupArgs(
       }
       case "--json":
         if (format === "text") {
-          return { ok: false, message: "Choose only one output format: --json or --text." };
+          return {
+            ok: false,
+            message: "Choose only one output format: --json or --text.",
+          };
         }
         format = "json";
         break;
       case "--text":
         if (format === "json") {
-          return { ok: false, message: "Choose only one output format: --json or --text." };
+          return {
+            ok: false,
+            message: "Choose only one output format: --json or --text.",
+          };
         }
         format = "text";
         break;
@@ -173,11 +185,18 @@ export function parseArtifactCleanupArgs(
       case "--now": {
         const value = takeValue();
         if (value === null || value === "") {
-          return { ok: false, message: "--now requires an epoch-ms integer or an ISO-8601 date." };
+          return {
+            ok: false,
+            message: "--now requires an epoch-ms integer or an ISO-8601 date.",
+          };
         }
         const parsed = parseNow(value);
         if (parsed === null) {
-          return { ok: false, message: "--now must be an epoch-ms integer or a valid ISO-8601 date." };
+          return {
+            ok: false,
+            message:
+              "--now must be an epoch-ms integer or a valid ISO-8601 date.",
+          };
         }
         nowMs = parsed;
         break;

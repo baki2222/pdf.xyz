@@ -113,6 +113,8 @@ export function getProcessorEnvStatus(env: EnvSource = process.env) {
 }
 
 /** Convenience boolean for the common whole-backend check. */
-export function isWorkerBackendConfigured(env: EnvSource = process.env): boolean {
+export function isWorkerBackendConfigured(
+  env: EnvSource = process.env,
+): boolean {
   return getWorkerBackendStatus(env).configured;
 }

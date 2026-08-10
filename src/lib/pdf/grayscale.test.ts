@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { grayscaleImageData } from "./render";
-import { grayscaleOutputName, grayscalePresetById, pageSizeForRaster } from "./grayscale";
+import {
+  grayscaleOutputName,
+  grayscalePresetById,
+  pageSizeForRaster,
+} from "./grayscale";
 
 describe("grayscaleImageData", () => {
   it("converts RGB pixels to luminance grayscale and preserves alpha", () => {
     const data = new Uint8ClampedArray([
-      255, 0, 0, 255,
-      0, 255, 0, 128,
-      0, 0, 255, 0,
+      255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0,
     ]);
     grayscaleImageData(data);
     expect([...data]).toEqual([
-      76, 76, 76, 255,
-      150, 150, 150, 128,
-      29, 29, 29, 0,
+      76, 76, 76, 255, 150, 150, 150, 128, 29, 29, 29, 0,
     ]);
   });
 });
@@ -30,10 +30,24 @@ describe("grayscale helpers", () => {
   });
 
   it("preserves PDF point dimensions when present", () => {
-    expect(pageSizeForRaster({ pageWidth: 612, pageHeight: 792, width: 1275, height: 1650 })).toEqual([612, 792]);
+    expect(
+      pageSizeForRaster({
+        pageWidth: 612,
+        pageHeight: 792,
+        width: 1275,
+        height: 1650,
+      }),
+    ).toEqual([612, 792]);
   });
 
   it("falls back to pixel dimensions for degenerate page dimensions", () => {
-    expect(pageSizeForRaster({ pageWidth: 0, pageHeight: Number.NaN, width: 320, height: 200 })).toEqual([320, 200]);
+    expect(
+      pageSizeForRaster({
+        pageWidth: 0,
+        pageHeight: Number.NaN,
+        width: 320,
+        height: 200,
+      }),
+    ).toEqual([320, 200]);
   });
 });

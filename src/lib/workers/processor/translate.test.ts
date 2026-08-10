@@ -18,13 +18,28 @@ function extractorFor(text: string): PdfTextExtractor {
 }
 
 function provider(result: AiCompletionResult): AiProvider {
-  return { id: "anthropic", model: "claude-sonnet-5", async complete() { return result; } };
+  return {
+    id: "anthropic",
+    model: "claude-sonnet-5",
+    async complete() {
+      return result;
+    },
+  };
 }
 
-const input = (options: Record<string, unknown> = { targetLanguage: "fr" }): ProcessorInput => ({
+const input = (
+  options: Record<string, unknown> = { targetLanguage: "fr" },
+): ProcessorInput => ({
   tool: "translate-pdf",
   options,
-  inputs: [{ fileId: "f1", filename: "report.pdf", contentType: "application/pdf", bytes: new Uint8Array([1]) }],
+  inputs: [
+    {
+      fileId: "f1",
+      filename: "report.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+    },
+  ],
 });
 
 describe("createTranslateProcessor", () => {
@@ -51,7 +66,11 @@ describe("createTranslateProcessor", () => {
   it("reports ready and produces a real translation ZIP with an injected provider", async () => {
     const p = createTranslateProcessor({
       extract: extractorFor("A genuine document with content."),
-      provider: provider({ ok: true, text: "Traduction réelle.", model: "claude-sonnet-5" }),
+      provider: provider({
+        ok: true,
+        text: "Traduction réelle.",
+        model: "claude-sonnet-5",
+      }),
     });
     expect(p.capability().ready).toBe(true);
 
@@ -62,8 +81,14 @@ describe("createTranslateProcessor", () => {
       expect(result.artifacts[0]!.filename).toBe("report-translation.zip");
       expect(result.artifacts[0]!.contentType).toBe("application/zip");
       const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
-      expect(await zip.file("translation.txt")!.async("string")).toBe("Traduction réelle.");
-      expect(result.meta).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5", targetLanguage: "fr" });
+      expect(await zip.file("translation.txt")!.async("string")).toBe(
+        "Traduction réelle.",
+      );
+      expect(result.meta).toMatchObject({
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        targetLanguage: "fr",
+      });
     }
   });
 
@@ -103,7 +128,12 @@ describe("createTranslateProcessor", () => {
   it("maps a provider rate limit to a retryable service_unavailable", async () => {
     const p = createTranslateProcessor({
       extract: extractorFor("text"),
-      provider: provider({ ok: false, kind: "rate_limited", message: "slow", retryable: true }),
+      provider: provider({
+        ok: false,
+        kind: "rate_limited",
+        message: "slow",
+        retryable: true,
+      }),
     });
     const result = await p.process(input());
     expect(result.ok).toBe(false);

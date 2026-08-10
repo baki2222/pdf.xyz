@@ -24,5 +24,9 @@ import type { CleanupEvidencePosture } from "./types";
 export function deriveCleanupEvidenceMetric(
   posture: CleanupEvidencePosture,
 ): WorkerMetricSample {
-  return cleanupEvidencePostureMetric(posture.state, posture.reason, posture.provider);
+  return cleanupEvidencePostureMetric(
+    posture.state,
+    posture.reason,
+    posture.provider,
+  );
 }

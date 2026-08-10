@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, Languages, ShieldCheck, Sparkles, Timer } from "lucide-react";
+import {
+  Download,
+  Languages,
+  ShieldCheck,
+  Sparkles,
+  Timer,
+} from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
@@ -41,9 +47,14 @@ type Phase = "loading" | "error" | "ready";
 /** The default target language shown in the builder. */
 const DEFAULT_TARGET: TranslateLanguage = "en";
 
-function badgeFor(phase: Phase, status: WorkerStatus | null): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading") return { tone: "info", label: "Checking…", pulse: true };
-  if (phase === "error" || !status) return { tone: "muted", label: "Status unknown", pulse: false };
+function badgeFor(
+  phase: Phase,
+  status: WorkerStatus | null,
+): { tone: StatusTone; label: string; pulse: boolean } {
+  if (phase === "loading")
+    return { tone: "info", label: "Checking…", pulse: true };
+  if (phase === "error" || !status)
+    return { tone: "muted", label: "Status unknown", pulse: false };
   return canRunTranslate(status)
     ? { tone: "ok", label: "Secure worker", pulse: false }
     : { tone: "muted", label: "Not enabled", pulse: false };
@@ -56,12 +67,20 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
   useEffect(() => {
     let active = true;
     fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) => (res.ok ? (res.json() as Promise<WorkerStatus>) : Promise.reject(new Error("unreachable"))))
+      .then((res) =>
+        res.ok
+          ? (res.json() as Promise<WorkerStatus>)
+          : Promise.reject(new Error("unreachable")),
+      )
       .then((next) => {
         if (!active) return;
         setStatus(next);
         setPhase("ready");
-        track({ name: "worker_status_checked", mode: next.mode, enabled: next.enabled });
+        track({
+          name: "worker_status_checked",
+          mode: next.mode,
+          enabled: next.enabled,
+        });
       })
       .catch(() => {
         if (active) setPhase("error");
@@ -89,82 +108,131 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
               <Sparkles className="size-3" aria-hidden />
               AI translation
             </span>
-            <StatusBadge tone={badge.tone} label={badge.label} pulse={badge.pulse} />
+            <StatusBadge
+              tone={badge.tone}
+              label={badge.label}
+              pulse={badge.pulse}
+            />
           </div>
-          <h2 className="text-lg font-semibold text-white">{tool.name} runs on an encrypted secure worker</h2>
+          <h2 className="text-lg font-semibold text-white">
+            {tool.name} runs on an encrypted secure worker
+          </h2>
           <p className="text-sm leading-relaxed text-slate-400">
-            The worker extracts your PDF&apos;s selectable text and asks a configured AI model to translate only that
-            text into your target language, then returns a translation package — Markdown, plain text, and a manifest
-            recording the model and scope. It produces translated text (not a layout-preserving PDF) and never fabricates
-            a translation: with no AI model configured, or a scanned PDF with no selectable text, it fails honestly
-            instead of guessing.
+            The worker extracts your PDF&apos;s selectable text and asks a
+            configured AI model to translate only that text into your target
+            language, then returns a translation package — Markdown, plain text,
+            and a manifest recording the model and scope. It produces translated
+            text (not a layout-preserving PDF) and never fabricates a
+            translation: with no AI model configured, or a scanned PDF with no
+            selectable text, it fails honestly instead of guessing.
           </p>
         </div>
 
-          {available && (
-            <p className="text-xs leading-relaxed text-slate-400">{AI_DAILY_ALLOWANCE_NOTE}</p>
-          )}
+        {available && (
+          <p className="text-xs leading-relaxed text-slate-400">
+            {AI_DAILY_ALLOWANCE_NOTE}
+          </p>
+        )}
         {available ? (
           <TranslateBuilder />
         ) : (
           <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-sm leading-relaxed text-slate-300">{unavailableDetail}</p>
+            <p className="text-sm leading-relaxed text-slate-300">
+              {unavailableDetail}
+            </p>
             <p className="text-xs leading-relaxed text-slate-400">
-              No builder is shown until the worker is ready, so {tool.name} never pretends to produce a translation it
-              cannot actually generate.
+              No builder is shown until the worker is ready, so {tool.name}{" "}
+              never pretends to produce a translation it cannot actually
+              generate.
             </p>
             <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">What happens</h3>
+          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+            What happens
+          </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map((stage, index, all) => (
-              <li key={stage.id} className="flex items-start gap-3">
-                <div className="flex flex-col items-center self-stretch">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
-                    <Sparkles className="size-4" aria-hidden />
-                  </span>
-                  {index < all.length - 1 && <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />}
-                </div>
-                <div className="flex flex-col gap-0.5 pb-3">
-                  <span className="text-sm font-medium text-slate-200">
-                    {index + 1}. {stage.title}
-                  </span>
-                  <span className="text-xs leading-relaxed text-slate-400">{stage.description}</span>
-                </div>
-              </li>
-            ))}
+            {workerPipelineStages(status?.scan.active ?? false).map(
+              (stage, index, all) => (
+                <li key={stage.id} className="flex items-start gap-3">
+                  <div className="flex flex-col items-center self-stretch">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
+                      <Sparkles className="size-4" aria-hidden />
+                    </span>
+                    {index < all.length - 1 && (
+                      <span
+                        className="my-1 w-px flex-1 bg-white/10"
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-0.5 pb-3">
+                    <span className="text-sm font-medium text-slate-200">
+                      {index + 1}. {stage.title}
+                    </span>
+                    <span className="text-xs leading-relaxed text-slate-400">
+                      {stage.description}
+                    </span>
+                  </div>
+                </li>
+              ),
+            )}
           </ol>
         </div>
 
-        <div className="divide-y divide-white/5 rounded-2xl border border-white/10 bg-surface-2 px-4 py-1">
-          <SpecRow icon={Download} label="Output" value="ZIP · translation.md + translation.txt + manifest" />
-          <SpecRow icon={Timer} label="Retention" value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`} />
-          <SpecRow icon={ShieldCheck} label="Limit" value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`} />
+        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
+          <SpecRow
+            icon={Download}
+            label="Output"
+            value="ZIP · translation.md + translation.txt + manifest"
+          />
+          <SpecRow
+            icon={Timer}
+            label="Retention"
+            value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
+          />
+          <SpecRow
+            icon={ShieldCheck}
+            label="Limit"
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-function SpecRow({ icon: Icon, label, value }: { icon: typeof Download; label: string; value: string }) {
+function SpecRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Download;
+  label: string;
+  value: string;
+}) {
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="inline-flex items-center gap-2 text-sm text-slate-400">
         <Icon className="size-4 text-slate-400" aria-hidden />
         {label}
       </span>
-      <span className="text-right text-sm font-medium text-slate-200">{value}</span>
+      <span className="text-right text-sm font-medium text-slate-200">
+        {value}
+      </span>
     </div>
   );
 }
 
 function TranslateBuilder() {
   const [file, setFile] = useState<File | null>(null);
-  const [targetLanguage, setTargetLanguage] = useState<TranslateLanguage>(DEFAULT_TARGET);
-  const [sourceLanguage, setSourceLanguage] = useState<TranslateSourceLanguage>(DEFAULT_TRANSLATE_SOURCE);
+  const [targetLanguage, setTargetLanguage] =
+    useState<TranslateLanguage>(DEFAULT_TARGET);
+  const [sourceLanguage, setSourceLanguage] = useState<TranslateSourceLanguage>(
+    DEFAULT_TRANSLATE_SOURCE,
+  );
   const [instructions, setInstructions] = useState("");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<TranslateWorkerResult | null>(null);
@@ -203,8 +271,9 @@ function TranslateBuilder() {
     <div className="flex flex-col gap-4 rounded-2xl border border-violet-400/25 bg-violet-500/[0.06] p-4">
       <p className="flex items-start gap-1.5 text-xs leading-relaxed text-violet-100/90">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker translates only the PDF&apos;s selectable text with a
-        configured AI model — it does not read scanned images (run OCR first) and does not invent content.
+        Running this uses a private secure-worker job. The worker translates
+        only the PDF&apos;s selectable text with a configured AI model — it does
+        not read scanned images (run OCR first) and does not invent content.
       </p>
 
       {file ? (
@@ -222,7 +291,14 @@ function TranslateBuilder() {
           </button>
         </div>
       ) : (
-        <Dropzone onFiles={(files) => setFile(files[0] ?? null)} accept="application/pdf,.pdf" multiple={false} compact title="Add your PDF, or" hint="PDF with selectable text to translate" />
+        <Dropzone
+          onFiles={(files) => setFile(files[0] ?? null)}
+          accept="application/pdf,.pdf"
+          multiple={false}
+          compact
+          title="Add your PDF, or"
+          hint="PDF with selectable text to translate"
+        />
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -230,7 +306,9 @@ function TranslateBuilder() {
           Translate into
           <select
             value={targetLanguage}
-            onChange={(e) => setTargetLanguage(e.target.value as TranslateLanguage)}
+            onChange={(e) =>
+              setTargetLanguage(e.target.value as TranslateLanguage)
+            }
             className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-400/50"
           >
             {TRANSLATE_LANGUAGES.map((code) => (
@@ -244,7 +322,9 @@ function TranslateBuilder() {
           Source language
           <select
             value={sourceLanguage}
-            onChange={(e) => setSourceLanguage(e.target.value as TranslateSourceLanguage)}
+            onChange={(e) =>
+              setSourceLanguage(e.target.value as TranslateSourceLanguage)
+            }
             className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-400/50"
           >
             <option value={TRANSLATE_SOURCE_AUTO}>Auto-detect</option>
@@ -260,7 +340,11 @@ function TranslateBuilder() {
           <input
             type="text"
             value={instructions}
-            onChange={(e) => setInstructions(e.target.value.slice(0, MAX_TRANSLATE_INSTRUCTIONS_CHARS))}
+            onChange={(e) =>
+              setInstructions(
+                e.target.value.slice(0, MAX_TRANSLATE_INSTRUCTIONS_CHARS),
+              )
+            }
             maxLength={MAX_TRANSLATE_INSTRUCTIONS_CHARS}
             placeholder="e.g. keep product names in English, use a formal register"
             className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus:border-violet-400/50"
@@ -284,12 +368,15 @@ function TranslateBuilder() {
       {outcome?.ok === true && (
         <ResultCard announce="Your AI translation package is ready.">
           <p className="text-sm text-emerald-200">
-            Your AI translation package is ready — the translation in Markdown and plain text, plus a manifest recording
-            the model and honest scope.
+            Your AI translation package is ready — the translation in Markdown
+            and plain text, plus a manifest recording the model and honest
+            scope.
           </p>
           <button
             type="button"
-            onClick={() => downloadBytes(outcome.output, outcome.artifact.filename)}
+            onClick={() =>
+              downloadBytes(outcome.output, outcome.artifact.filename)
+            }
             className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
           >
             <Download className="size-4" aria-hidden />

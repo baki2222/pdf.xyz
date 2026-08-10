@@ -1,12 +1,22 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { recordOpsBundle, resetOpsBundleSink, setOpsBundleSink, severityForOutcome } from "./metrics";
+import {
+  recordOpsBundle,
+  resetOpsBundleSink,
+  setOpsBundleSink,
+  severityForOutcome,
+} from "./metrics";
 import { buildOpsBundle, buildUsageError } from "./build";
 import { NOT_CONFIGURED_PIPELINE } from "./ingest";
-import { sanitizeMetric, type WorkerMetricSample } from "../observability/metrics";
+import {
+  sanitizeMetric,
+  type WorkerMetricSample,
+} from "../observability/metrics";
 import { OPS_BUNDLE_SEVERITIES } from "./types";
 import type { IngestedOperations } from "./ingest";
 
-function ingested(severity: IngestedOperations["operations"]["severity"]): IngestedOperations {
+function ingested(
+  severity: IngestedOperations["operations"]["severity"],
+): IngestedOperations {
   return {
     operations: {
       source: "ops-check",
@@ -17,15 +27,36 @@ function ingested(severity: IngestedOperations["operations"]["severity"]): Inges
       daemonObserved: true,
       action: "none",
       actionDetail: "",
-      liveness: { state: "observed", source: "self", lastSeen: null, severity: "ok", reason: "liveness-observed", action: "none" },
+      liveness: {
+        state: "observed",
+        source: "self",
+        lastSeen: null,
+        severity: "ok",
+        reason: "liveness-observed",
+        action: "none",
+      },
       subsystems: [],
       proofs: { compressionDeep: "unknown", ocr: "unknown" },
       alerts: [],
       summary: "",
     },
     slo: null,
-    cleanupEvidence: { source: "ops-check", state: "disabled", reason: "no_report_configured", provider: "unknown", freshness: "unknown", detail: "" },
-    lifecycle: { source: "ops-check", verification: "unknown", readiness: "unknown", verdict: "unknown", drift: false, detail: "" },
+    cleanupEvidence: {
+      source: "ops-check",
+      state: "disabled",
+      reason: "no_report_configured",
+      provider: "unknown",
+      freshness: "unknown",
+      detail: "",
+    },
+    lifecycle: {
+      source: "ops-check",
+      verification: "unknown",
+      readiness: "unknown",
+      verdict: "unknown",
+      drift: false,
+      detail: "",
+    },
   };
 }
 
@@ -37,10 +68,22 @@ describe("recordOpsBundle", () => {
     setOpsBundleSink((s) => captured.push(s));
     recordOpsBundle("critical");
     expect(captured).toHaveLength(1);
-    expect(captured[0]).toEqual({ metric: "worker_ops_bundle_total", kind: "counter", labels: { severity: "critical" }, value: 1 });
+    expect(captured[0]).toEqual({
+      metric: "worker_ops_bundle_total",
+      kind: "counter",
+      labels: { severity: "critical" },
+      value: 1,
+    });
     // The shared metric sanitizer must accept every severity label unchanged.
     for (const sev of OPS_BUNDLE_SEVERITIES) {
-      expect(sanitizeMetric({ metric: "worker_ops_bundle_total", kind: "counter", labels: { severity: sev }, value: 1 })).not.toBeNull();
+      expect(
+        sanitizeMetric({
+          metric: "worker_ops_bundle_total",
+          kind: "counter",
+          labels: { severity: sev },
+          value: 1,
+        }),
+      ).not.toBeNull();
     }
   });
 
@@ -52,7 +95,13 @@ describe("recordOpsBundle", () => {
 
 describe("severityForOutcome", () => {
   it("is the rollup severity for a bundle and `usage` for a usage error", () => {
-    expect(severityForOutcome(buildOpsBundle("t", ingested("warn"), NOT_CONFIGURED_PIPELINE))).toBe("warn");
-    expect(severityForOutcome(buildUsageError("t", ["ops-check-input-malformed"]))).toBe("usage");
+    expect(
+      severityForOutcome(
+        buildOpsBundle("t", ingested("warn"), NOT_CONFIGURED_PIPELINE),
+      ),
+    ).toBe("warn");
+    expect(
+      severityForOutcome(buildUsageError("t", ["ops-check-input-malformed"])),
+    ).toBe("usage");
   });
 });

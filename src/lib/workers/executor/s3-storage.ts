@@ -212,7 +212,8 @@ export function createS3ExecutorStorage(
       // object stores as lifecycle metadata and the value the client is told (`expiresAt`) are
       // byte-identical. Not a signed-link TTL — this is when the artifact stops being
       // downloadable, matching the local path.
-      const expiresAtMs = now() + DEFAULT_RETENTION.outputTtlMinutes * MINUTE_MS;
+      const expiresAtMs =
+        now() + DEFAULT_RETENTION.outputTtlMinutes * MINUTE_MS;
 
       // PUT the real bytes. Sign + echo the content-type so the stored object is
       // typed correctly, plus a `Content-Disposition: attachment` carrying the safe
@@ -235,9 +236,8 @@ export function createS3ExecutorStorage(
         }),
         ...(input.manifest
           ? {
-              [ARTIFACT_MANIFEST_METADATA_HEADER]: encodeArtifactManifestMetadata(
-                input.manifest,
-              ),
+              [ARTIFACT_MANIFEST_METADATA_HEADER]:
+                encodeArtifactManifestMetadata(input.manifest),
             }
           : {}),
       };
@@ -250,7 +250,9 @@ export function createS3ExecutorStorage(
       if (!res.ok) {
         // Transient: throw so the job is not completed and is redelivered. Any
         // bytes that did land are reclaimed by the bucket's lifecycle policy.
-        throw new Error(`Object storage rejected the artifact write (${res.status}).`);
+        throw new Error(
+          `Object storage rejected the artifact write (${res.status}).`,
+        );
       }
 
       // The client-facing download URL is this app's OPAQUE retrieval route — never a

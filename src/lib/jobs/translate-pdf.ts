@@ -18,7 +18,10 @@
  */
 
 import { apiError, type ParseResult } from "./responses";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "./filenames";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "./filenames";
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -80,13 +83,18 @@ export const LANGUAGE_NAMES: Record<TranslateLanguage, string> = {
 
 /** The source language, either a supported language or `auto` (let the model detect it). */
 export const TRANSLATE_SOURCE_AUTO = "auto" as const;
-export type TranslateSourceLanguage = typeof TRANSLATE_SOURCE_AUTO | TranslateLanguage;
+export type TranslateSourceLanguage =
+  typeof TRANSLATE_SOURCE_AUTO | TranslateLanguage;
 
 /** The default source when a request omits it: auto-detect. */
-export const DEFAULT_TRANSLATE_SOURCE: TranslateSourceLanguage = TRANSLATE_SOURCE_AUTO;
+export const DEFAULT_TRANSLATE_SOURCE: TranslateSourceLanguage =
+  TRANSLATE_SOURCE_AUTO;
 
 const LANGUAGE_SET: ReadonlySet<string> = new Set(TRANSLATE_LANGUAGES);
-const SOURCE_SET: ReadonlySet<string> = new Set<string>([TRANSLATE_SOURCE_AUTO, ...TRANSLATE_LANGUAGES]);
+const SOURCE_SET: ReadonlySet<string> = new Set<string>([
+  TRANSLATE_SOURCE_AUTO,
+  ...TRANSLATE_LANGUAGES,
+]);
 
 /** Max length of the optional free-text translation directive. */
 export const MAX_TRANSLATE_INSTRUCTIONS_CHARS = 300;
@@ -148,7 +156,10 @@ export function parseTranslateOptions(
 
   let sourceLanguage: TranslateSourceLanguage = DEFAULT_TRANSLATE_SOURCE;
   if (options.sourceLanguage !== undefined) {
-    if (typeof options.sourceLanguage !== "string" || !SOURCE_SET.has(options.sourceLanguage)) {
+    if (
+      typeof options.sourceLanguage !== "string" ||
+      !SOURCE_SET.has(options.sourceLanguage)
+    ) {
       return invalid(
         `\`sourceLanguage\` must be \`auto\` or one of ${TRANSLATE_LANGUAGES.join(", ")}.`,
         "sourceLanguage",
@@ -166,7 +177,10 @@ export function parseTranslateOptions(
     const trimmed = options.instructions.trim();
     if (trimmed.length > 0) {
       if (CONTROL_CHAR.test(trimmed)) {
-        return invalid("`instructions` cannot contain control characters.", "instructions");
+        return invalid(
+          "`instructions` cannot contain control characters.",
+          "instructions",
+        );
       }
       if (trimmed.length > MAX_TRANSLATE_INSTRUCTIONS_CHARS) {
         return invalid(
@@ -196,6 +210,8 @@ export function translationOutputName(originalName: unknown): string {
   const tail = "-translation.zip";
   const budget = Math.max(1, MAX_DISPLAY_FILENAME_LENGTH - tail.length);
   const stem =
-    sanitizeDisplayFilename(originalName).replace(/\.[^.]+$/, "").trim() || FALLBACK_STEM;
+    sanitizeDisplayFilename(originalName)
+      .replace(/\.[^.]+$/, "")
+      .trim() || FALLBACK_STEM;
   return `${stem.length > budget ? stem.slice(0, budget).trim() : stem}${tail}`;
 }

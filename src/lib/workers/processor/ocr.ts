@@ -193,13 +193,17 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
       // installed packs, so this can only ever make the failure more accurate.
       if (deps.installedLanguages) {
         const installed = new Set(deps.installedLanguages);
-        const missing = parsed.value.languages.filter((code) => !installed.has(code));
+        const missing = parsed.value.languages.filter(
+          (code) => !installed.has(code),
+        );
         if (missing.length > 0) {
           return processorFail({
             code: "unprocessable_entity",
             message: `This worker has no recognition data installed for: ${missing
               .map(describeOcrLanguage)
-              .join(", ")}. Choose a language this worker supports, or ask an operator to install the missing language pack. Nothing was processed.`,
+              .join(
+                ", ",
+              )}. Choose a language this worker supports, or ask an operator to install the missing language pack. Nothing was processed.`,
             retryable: false,
           });
         }

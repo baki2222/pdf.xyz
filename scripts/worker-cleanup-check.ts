@@ -61,7 +61,8 @@ async function readInput(
     // The path is the operator's own file reference; it is never logged. Bound the size
     // before reading, then read defensively.
     const path = filePath ?? "";
-    if (statSync(path).size > MAX_INPUT_BYTES) throw new Error("input-too-large");
+    if (statSync(path).size > MAX_INPUT_BYTES)
+      throw new Error("input-too-large");
     return readFileSync(path, "utf8");
   }
   // stdin (fd 0): read to EOF (a monitor pipes the document), then bound the size.

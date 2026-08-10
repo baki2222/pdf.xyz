@@ -15,7 +15,10 @@
  */
 
 import { releaseGateMetric } from "../observability/metrics";
-import { NOOP_METRIC_SINK, type WorkerMetricSink } from "../observability/collector";
+import {
+  NOOP_METRIC_SINK,
+  type WorkerMetricSink,
+} from "../observability/collector";
 import type { ReleaseGateVerdict } from "./types";
 
 let sink: WorkerMetricSink = NOOP_METRIC_SINK;

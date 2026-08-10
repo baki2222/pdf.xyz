@@ -56,7 +56,11 @@ export function SuggestedTools({
   const items = useMemo<DisplayItem[]>(() => {
     const out: DisplayItem[] = [];
     const seen = new Set<string>();
-    const push = (tool: WorkspaceToolSummary | undefined, reason: string, suggested: boolean) => {
+    const push = (
+      tool: WorkspaceToolSummary | undefined,
+      reason: string,
+      suggested: boolean,
+    ) => {
       if (!tool || seen.has(tool.slug)) return;
       seen.add(tool.slug);
       out.push({ tool, reason, suggested });
@@ -83,7 +87,7 @@ export function SuggestedTools({
   return (
     <section
       aria-labelledby="suggested-heading"
-      className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5"
+      className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5"
     >
       <div className="flex items-center justify-between gap-3">
         <h2
@@ -122,7 +126,7 @@ export function SuggestedTools({
                     {tool.name}
                   </span>
                   {suggested && (
-                    <span className="rounded-full border border-violet-400/40 bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-200">
+                    <span className="rounded-full border border-violet-400/40 bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-violet-200 uppercase">
                       Suggested
                     </span>
                   )}
@@ -135,7 +139,9 @@ export function SuggestedTools({
                     {tool.live ? "In-browser" : tool.capabilityLabel}
                   </span>
                 </span>
-                <span className="block truncate text-xs text-slate-400">{reason}</span>
+                <span className="block truncate text-xs text-slate-400">
+                  {reason}
+                </span>
               </span>
               <ArrowRight
                 className="size-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-white"

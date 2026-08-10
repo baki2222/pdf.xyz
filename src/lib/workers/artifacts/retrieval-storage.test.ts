@@ -14,7 +14,10 @@ import { ARTIFACT_POLICY_ID, ARTIFACT_POLICY_VERSION } from "./policy";
 import type { ArtifactManifest } from "./types";
 import type { ArtifactRetrievalBackend } from "./retrieval";
 import type { WorkerMetricSample } from "../observability/metrics";
-import { resetArtifactExpirySink, setArtifactExpirySink } from "./expiry-metrics";
+import {
+  resetArtifactExpirySink,
+  setArtifactExpirySink,
+} from "./expiry-metrics";
 import {
   resetArtifactExpiryObserverForTests,
   setArtifactExpiryObserver,
@@ -68,11 +71,20 @@ function manifest(byteCount: number): ArtifactManifest {
 }
 
 /** A live (future-window) lifecycle metadata header value. */
-const liveLifecycle = encodeArtifactLifecycleMetadata({ expiresAtMs: FUTURE, deleted: false });
+const liveLifecycle = encodeArtifactLifecycleMetadata({
+  expiresAtMs: FUTURE,
+  deleted: false,
+});
 /** An expired (past-window) lifecycle metadata header value. */
-const expiredLifecycle = encodeArtifactLifecycleMetadata({ expiresAtMs: PAST, deleted: false });
+const expiredLifecycle = encodeArtifactLifecycleMetadata({
+  expiresAtMs: PAST,
+  deleted: false,
+});
 /** A tombstoned lifecycle metadata header value (deleted before its window). */
-const deletedLifecycle = encodeArtifactLifecycleMetadata({ expiresAtMs: FUTURE, deleted: true });
+const deletedLifecycle = encodeArtifactLifecycleMetadata({
+  expiresAtMs: FUTURE,
+  deleted: true,
+});
 
 interface Scripted {
   status: number;
@@ -89,7 +101,11 @@ interface Scripted {
   throwsBody?: boolean;
 }
 
-function fakeFetch(script: Scripted[]): { fn: S3ArtifactFetch; calls: string[]; bodyReads: number } {
+function fakeFetch(script: Scripted[]): {
+  fn: S3ArtifactFetch;
+  calls: string[];
+  bodyReads: number;
+} {
   const calls: string[] = [];
   const counters = { bodyReads: 0 };
   let i = 0;
@@ -105,8 +121,10 @@ function fakeFetch(script: Scripted[]): { fn: S3ArtifactFetch; calls: string[]; 
         get: (name) => {
           const key = name.toLowerCase();
           if (key === "content-type") return res.contentType ?? null;
-          if (key === ARTIFACT_MANIFEST_METADATA_HEADER) return res.manifestMeta ?? null;
-          if (key === ARTIFACT_LIFECYCLE_METADATA_HEADER) return res.lifecycleMeta ?? null;
+          if (key === ARTIFACT_MANIFEST_METADATA_HEADER)
+            return res.manifestMeta ?? null;
+          if (key === ARTIFACT_LIFECYCLE_METADATA_HEADER)
+            return res.lifecycleMeta ?? null;
           if (key === "content-length") return res.contentLength ?? null;
           return null;
         },
@@ -144,7 +162,9 @@ describe("createS3ArtifactReader", () => {
         status: 200,
         contentType: "application/pdf",
         bytes,
-        manifestMeta: encodeArtifactManifestMetadata(manifest(bytes.byteLength)),
+        manifestMeta: encodeArtifactManifestMetadata(
+          manifest(bytes.byteLength),
+        ),
         lifecycleMeta: liveLifecycle,
       },
     ]);
@@ -164,7 +184,13 @@ describe("createS3ArtifactReader", () => {
   });
 
   it("yields a null manifest when no metadata is present (intrinsic path)", async () => {
-    const { fn } = fakeFetch([{ status: 200, contentType: "application/pdf", bytes: new Uint8Array([9]) }]);
+    const { fn } = fakeFetch([
+      {
+        status: 200,
+        contentType: "application/pdf",
+        bytes: new Uint8Array([9]),
+      },
+    ]);
     const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
     const read = await reader.readArtifact(ARTIFACT_ID);
     expect(read.status).toBe("ok");
@@ -174,7 +200,12 @@ describe("createS3ArtifactReader", () => {
   it("captures the bucket's Content-Length header as reportedLength", async () => {
     const bytes = new Uint8Array([1, 2, 3, 4]);
     const { fn } = fakeFetch([
-      { status: 200, contentType: "application/pdf", bytes, contentLength: "4" },
+      {
+        status: 200,
+        contentType: "application/pdf",
+        bytes,
+        contentLength: "4",
+      },
     ]);
     const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
     const read = await reader.readArtifact(ARTIFACT_ID);
@@ -192,7 +223,13 @@ describe("createS3ArtifactReader", () => {
 
     const malformed = createS3ArtifactReader(config(), {
       now,
-      fetchImpl: fakeFetch([{ status: 200, bytes: new Uint8Array([1]), contentLength: "not-a-number" }]).fn,
+      fetchImpl: fakeFetch([
+        {
+          status: 200,
+          bytes: new Uint8Array([1]),
+          contentLength: "not-a-number",
+        },
+      ]).fn,
     });
     const readB = await malformed.readArtifact(ARTIFACT_ID);
     if (readB.status === "ok") expect(readB.reportedLength).toBeNull();
@@ -205,9 +242,15 @@ describe("createS3ArtifactReader", () => {
   });
 
   it("maps a 5xx and a network error to unavailable (retryable, never a false not-found)", async () => {
-    const server = createS3ArtifactReader(config(), { now, fetchImpl: fakeFetch([{ status: 503 }]).fn });
+    const server = createS3ArtifactReader(config(), {
+      now,
+      fetchImpl: fakeFetch([{ status: 503 }]).fn,
+    });
     expect((await server.readArtifact(ARTIFACT_ID)).status).toBe("unavailable");
-    const netw = createS3ArtifactReader(config(), { now, fetchImpl: fakeFetch([{ status: 0, throws: true }]).fn });
+    const netw = createS3ArtifactReader(config(), {
+      now,
+      fetchImpl: fakeFetch([{ status: 0, throws: true }]).fn,
+    });
     expect((await netw.readArtifact(ARTIFACT_ID)).status).toBe("unavailable");
   });
 
@@ -215,25 +258,37 @@ describe("createS3ArtifactReader", () => {
     // The distinct second failure mode: the response status was fine, but reading the body
     // failed mid-stream. The reader must NOT surface a partial/false-ok — it is transient.
     const { fn } = fakeFetch([
-      { status: 200, contentType: "application/pdf", throwsBody: true, lifecycleMeta: liveLifecycle },
+      {
+        status: 200,
+        contentType: "application/pdf",
+        throwsBody: true,
+        lifecycleMeta: liveLifecycle,
+      },
     ]);
     const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
     expect((await reader.readArtifact(ARTIFACT_ID)).status).toBe("unavailable");
     // And it composes through the backend seam to the transient retrieval lifecycle (→ 503).
-    const backend = createStorageArtifactBackend(reader, { provider: "remote-configured", ready: true });
+    const backend = createStorageArtifactBackend(reader, {
+      provider: "remote-configured",
+      ready: true,
+    });
     expect((await backend.fetch(ARTIFACT_ID)).kind).toBe("unavailable");
   });
 
   it("rejects a malformed artifact id without touching storage", async () => {
     const { fn, calls } = fakeFetch([{ status: 200 }]);
     const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
-    expect((await reader.readArtifact("../etc/passwd")).status).toBe("not-found");
+    expect((await reader.readArtifact("../etc/passwd")).status).toBe(
+      "not-found",
+    );
     expect(calls).toHaveLength(0);
   });
 
   it("reads the exact key the worker writeArtifact wrote (no drift)", async () => {
     const cfg = config();
-    const { fn, calls } = fakeFetch([{ status: 200, bytes: new Uint8Array([1]) }]);
+    const { fn, calls } = fakeFetch([
+      { status: 200, bytes: new Uint8Array([1]) },
+    ]);
     const reader = createS3ArtifactReader(cfg, { now, fetchImpl: fn });
     await reader.readArtifact(ARTIFACT_ID);
     const key = buildObjectKey(cfg, "artifact", ARTIFACT_ID);
@@ -246,9 +301,18 @@ describe("createS3ArtifactReader — lifecycle/expiry enforcement", () => {
     // The bucket still returns 200 (lifecycle rule has not reaped it), but the signed
     // retention window has passed — the reader must deny before buffering a single byte.
     const probe = fakeFetch([
-      { status: 200, contentType: "application/pdf", bytes: new Uint8Array([1, 2, 3]), throwsBody: true, lifecycleMeta: expiredLifecycle },
+      {
+        status: 200,
+        contentType: "application/pdf",
+        bytes: new Uint8Array([1, 2, 3]),
+        throwsBody: true,
+        lifecycleMeta: expiredLifecycle,
+      },
     ]);
-    const reader = createS3ArtifactReader(config(), { now, fetchImpl: probe.fn });
+    const reader = createS3ArtifactReader(config(), {
+      now,
+      fetchImpl: probe.fn,
+    });
     const read = await reader.readArtifact(ARTIFACT_ID);
     expect(read.status).toBe("expired");
     // The body was never read (throwsBody would have surfaced as `unavailable` otherwise).
@@ -257,16 +321,29 @@ describe("createS3ArtifactReader — lifecycle/expiry enforcement", () => {
 
   it("denies a tombstoned object as `deleted` even with a future window", async () => {
     const probe = fakeFetch([
-      { status: 200, contentType: "application/pdf", bytes: new Uint8Array([1]), lifecycleMeta: deletedLifecycle },
+      {
+        status: 200,
+        contentType: "application/pdf",
+        bytes: new Uint8Array([1]),
+        lifecycleMeta: deletedLifecycle,
+      },
     ]);
-    const reader = createS3ArtifactReader(config(), { now, fetchImpl: probe.fn });
+    const reader = createS3ArtifactReader(config(), {
+      now,
+      fetchImpl: probe.fn,
+    });
     expect((await reader.readArtifact(ARTIFACT_ID)).status).toBe("deleted");
     expect(probe.bodyReads).toBe(0);
   });
 
   it("serves a live-window object (lifecycleState `live`)", async () => {
     const { fn } = fakeFetch([
-      { status: 200, contentType: "application/pdf", bytes: new Uint8Array([1]), lifecycleMeta: liveLifecycle },
+      {
+        status: 200,
+        contentType: "application/pdf",
+        bytes: new Uint8Array([1]),
+        lifecycleMeta: liveLifecycle,
+      },
     ]);
     const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
     const read = await reader.readArtifact(ARTIFACT_ID);
@@ -277,7 +354,12 @@ describe("createS3ArtifactReader — lifecycle/expiry enforcement", () => {
   it("serves an object with NO / malformed lifecycle evidence honestly (lifecycleState `unknown`)", async () => {
     for (const lifecycleMeta of [undefined, "%%bogus", "not-json"]) {
       const { fn } = fakeFetch([
-        { status: 200, contentType: "application/pdf", bytes: new Uint8Array([1]), lifecycleMeta },
+        {
+          status: 200,
+          contentType: "application/pdf",
+          bytes: new Uint8Array([1]),
+          lifecycleMeta,
+        },
       ]);
       const reader = createS3ArtifactReader(config(), { now, fetchImpl: fn });
       const read = await reader.readArtifact(ARTIFACT_ID);
@@ -319,16 +401,28 @@ describe("createStorageArtifactBackend — lifecycle mapping", () => {
   });
 
   it("maps expired/deleted to the matching lifecycle denial (→ 410)", async () => {
-    const expired = createStorageArtifactBackend(readerReturning({ status: "expired" }), cap);
+    const expired = createStorageArtifactBackend(
+      readerReturning({ status: "expired" }),
+      cap,
+    );
     expect((await expired.fetch(ARTIFACT_ID)).kind).toBe("expired");
-    const deleted = createStorageArtifactBackend(readerReturning({ status: "deleted" }), cap);
+    const deleted = createStorageArtifactBackend(
+      readerReturning({ status: "deleted" }),
+      cap,
+    );
     expect((await deleted.fetch(ARTIFACT_ID)).kind).toBe("deleted");
   });
 
   it("maps not-found to absent and unavailable to the transient outcome", async () => {
-    const absent = createStorageArtifactBackend(readerReturning({ status: "not-found" }), cap);
+    const absent = createStorageArtifactBackend(
+      readerReturning({ status: "not-found" }),
+      cap,
+    );
     expect((await absent.fetch(ARTIFACT_ID)).kind).toBe("absent");
-    const transient = createStorageArtifactBackend(readerReturning({ status: "unavailable" }), cap);
+    const transient = createStorageArtifactBackend(
+      readerReturning({ status: "unavailable" }),
+      cap,
+    );
     expect((await transient.fetch(ARTIFACT_ID)).kind).toBe("unavailable");
   });
 });
@@ -345,7 +439,10 @@ describe("createStorageArtifactBackend — content-free lifecycle observability"
   }
 
   function backendFor(read: S3ArtifactRead) {
-    return createStorageArtifactBackend({ readArtifact: async () => read }, cap);
+    return createStorageArtifactBackend(
+      { readArtifact: async () => read },
+      cap,
+    );
   }
 
   const liveOk: S3ArtifactRead = {
@@ -356,7 +453,11 @@ describe("createStorageArtifactBackend — content-free lifecycle observability"
     reportedLength: 1,
     lifecycleState: "live",
   };
-  const unknownOk: S3ArtifactRead = { ...liveOk, manifest: null, lifecycleState: "unknown" };
+  const unknownOk: S3ArtifactRead = {
+    ...liveOk,
+    manifest: null,
+    lifecycleState: "unknown",
+  };
 
   it("emits the resolved state for each present-object read (served/expired/deleted/unknown)", async () => {
     const cases: Array<[S3ArtifactRead, string]> = [
@@ -370,7 +471,10 @@ describe("createStorageArtifactBackend — content-free lifecycle observability"
       await backendFor(read).fetch(ARTIFACT_ID);
       expect(metrics).toHaveLength(1);
       expect(metrics[0]!.metric).toBe("worker_artifact_expiry_total");
-      expect(metrics[0]!.labels).toEqual({ state: expected, provider: "remote-configured" });
+      expect(metrics[0]!.labels).toEqual({
+        state: expected,
+        provider: "remote-configured",
+      });
       expect(receipts).toHaveLength(1);
       expect(receipts[0]!.state).toBe(expected);
       expect(receipts[0]!.provider).toBe("remote-configured");
@@ -380,7 +484,10 @@ describe("createStorageArtifactBackend — content-free lifecycle observability"
   });
 
   it("emits NOTHING for a not-found or transient read (no present object to evaluate)", async () => {
-    for (const read of [{ status: "not-found" }, { status: "unavailable" }] as const) {
+    for (const read of [
+      { status: "not-found" },
+      { status: "unavailable" },
+    ] as const) {
       const { metrics, receipts } = spies();
       await backendFor(read).fetch(ARTIFACT_ID);
       expect(metrics).toHaveLength(0);
@@ -394,7 +501,14 @@ describe("createStorageArtifactBackend — content-free lifecycle observability"
     const { metrics, receipts } = spies();
     await backendFor({ status: "expired" }).fetch(ARTIFACT_ID);
     const serialized = JSON.stringify({ metrics, receipts }).toLowerCase();
-    for (const bad of [ARTIFACT_ID.toLowerCase(), "art_", "pdfxyz-store", "://", "amazonaws", String(PAST)]) {
+    for (const bad of [
+      ARTIFACT_ID.toLowerCase(),
+      "art_",
+      "pdfxyz-store",
+      "://",
+      "amazonaws",
+      String(PAST),
+    ]) {
       expect(serialized).not.toContain(bad);
     }
   });
@@ -414,7 +528,10 @@ describe("createStorageArtifactBackend — content-free lifecycle observability"
 describe("resolveArtifactRetrievalBackend", () => {
   it("is ready when S3 is fully configured", () => {
     const backend = resolveArtifactRetrievalBackend({ ...S3_ENV });
-    expect(backend.capability()).toEqual({ provider: "remote-configured", ready: true });
+    expect(backend.capability()).toEqual({
+      provider: "remote-configured",
+      ready: true,
+    });
   });
 
   it("is not-configured (and never ready) with no storage wired", () => {

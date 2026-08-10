@@ -44,7 +44,11 @@ describe("organizeReducer — edits", () => {
 
   it("duplicates a page with the caller-supplied uid, just after it", () => {
     const start = initHistory(items(2));
-    const dup = organizeReducer(start, { type: "duplicate", index: 0, uid: "d1" });
+    const dup = organizeReducer(start, {
+      type: "duplicate",
+      index: 0,
+      uid: "d1",
+    });
     expect(dup.present.map((i) => i.uid)).toEqual(["s0", "d1", "s1"]);
     expect(dup.present[1]!.sourceIndex).toBe(0);
   });
@@ -72,19 +76,29 @@ describe("organizeReducer — edits", () => {
     h = organizeReducer(h, { type: "moveUidBy", uid: "s0", delta: 1 });
     expect(h.present.map((i) => i.uid)).toEqual(["s1", "s2", "s0"]);
     // Clamped: nudging past the end is a no-op that doesn't touch history.
-    const clamped = organizeReducer(h, { type: "moveUidBy", uid: "s0", delta: 1 });
+    const clamped = organizeReducer(h, {
+      type: "moveUidBy",
+      uid: "s0",
+      delta: 1,
+    });
     expect(clamped).toBe(h);
   });
 
   it("moves a page by uid to an absolute index", () => {
     const start = initHistory(items(3));
-    const h = organizeReducer(start, { type: "moveUidTo", uid: "s2", index: 0 });
+    const h = organizeReducer(start, {
+      type: "moveUidTo",
+      uid: "s2",
+      index: 0,
+    });
     expect(h.present.map((i) => i.uid)).toEqual(["s2", "s0", "s1"]);
   });
 
   it("ignores uid moves for an unknown page", () => {
     const start = initHistory(items(2));
-    expect(organizeReducer(start, { type: "moveUidBy", uid: "nope", delta: 1 })).toBe(start);
+    expect(
+      organizeReducer(start, { type: "moveUidBy", uid: "nope", delta: 1 }),
+    ).toBe(start);
   });
 
   it("drops no-op moves so they never dirty history", () => {
@@ -153,8 +167,23 @@ describe("isDirty", () => {
 
   it("is true after a reorder or a rotation or a length change", () => {
     const start = initHistory(initial);
-    expect(isDirty(organizeReducer(start, { type: "move", from: 0, to: 2 }).present, initial)).toBe(true);
-    expect(isDirty(organizeReducer(start, { type: "rotate", index: 0, delta: 90 }).present, initial)).toBe(true);
-    expect(isDirty(organizeReducer(start, { type: "delete", index: 0 }).present, initial)).toBe(true);
+    expect(
+      isDirty(
+        organizeReducer(start, { type: "move", from: 0, to: 2 }).present,
+        initial,
+      ),
+    ).toBe(true);
+    expect(
+      isDirty(
+        organizeReducer(start, { type: "rotate", index: 0, delta: 90 }).present,
+        initial,
+      ),
+    ).toBe(true);
+    expect(
+      isDirty(
+        organizeReducer(start, { type: "delete", index: 0 }).present,
+        initial,
+      ),
+    ).toBe(true);
   });
 });

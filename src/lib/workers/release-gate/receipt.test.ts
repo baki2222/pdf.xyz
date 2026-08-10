@@ -4,7 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 import { buildReceipt } from "./receipt";
-import { RELEASE_GATE_POLICY_ID, RELEASE_GATE_POLICY_VERSION, type ReleaseGateRollup } from "./types";
+import {
+  RELEASE_GATE_POLICY_ID,
+  RELEASE_GATE_POLICY_VERSION,
+  type ReleaseGateRollup,
+} from "./types";
 
 const ROLLUP: ReleaseGateRollup = {
   verdict: "warn",
@@ -34,7 +38,9 @@ describe("buildReceipt", () => {
   });
 
   it("carries only bounded, content-free values (no locator/path/byte)", () => {
-    const serialized = JSON.stringify(buildReceipt("2026-07-03T00:00:00.000Z", ROLLUP));
+    const serialized = JSON.stringify(
+      buildReceipt("2026-07-03T00:00:00.000Z", ROLLUP),
+    );
     expect(serialized).not.toMatch(/\//); // no path separators
     expect(serialized).not.toMatch(/\.json/);
   });

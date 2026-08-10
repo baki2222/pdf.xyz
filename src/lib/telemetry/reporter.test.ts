@@ -34,13 +34,21 @@ afterEach(() => {
 });
 
 describe("buildErrorReport — redaction", () => {
-  const env = { now: 1_700_000_000_000, url: "https://pdf.xyz/tools/merge-pdf?handoff=h_livetoken" };
+  const env = {
+    now: 1_700_000_000_000,
+    url: "https://pdf.xyz/tools/merge-pdf?handoff=h_livetoken",
+  };
 
   it("redacts the message, url, and stack; no token or filename survives", () => {
     const id = newHandoffId();
     const error = new Error(`claim ${id} failed for "Bank Statement.pdf"`);
     error.stack = `Error: claim ${id}\n  at open (/_next/static/chunks/main.js:1:1)`;
-    const report = buildErrorReport(error, "boundary", { boundary: "tool-runner" }, env);
+    const report = buildErrorReport(
+      error,
+      "boundary",
+      { boundary: "tool-runner" },
+      env,
+    );
     const serialized = JSON.stringify(report);
 
     expect(serialized).not.toContain(id);
@@ -103,8 +111,12 @@ describe("buildWebVitalReport", () => {
 
 describe("shouldSend", () => {
   it("never sends when disabled or endpoint missing", () => {
-    expect(shouldSend({ enabled: false, endpoint: "/e", sampleRate: 1 }, 0)).toBe(false);
-    expect(shouldSend({ enabled: true, endpoint: null, sampleRate: 1 }, 0)).toBe(false);
+    expect(
+      shouldSend({ enabled: false, endpoint: "/e", sampleRate: 1 }, 0),
+    ).toBe(false);
+    expect(
+      shouldSend({ enabled: true, endpoint: null, sampleRate: 1 }, 0),
+    ).toBe(false);
   });
 
   it("always sends at rate >= 1 and respects the roll otherwise", () => {
@@ -116,7 +128,11 @@ describe("shouldSend", () => {
 
 describe("reportClientError / reportWebVital — transport gating", () => {
   it("no-ops entirely when telemetry is disabled", () => {
-    __setTelemetryConfigForTests({ enabled: false, endpoint: null, sampleRate: 0 });
+    __setTelemetryConfigForTests({
+      enabled: false,
+      endpoint: null,
+      sampleRate: 0,
+    });
     const { sent, transport } = captureTransport();
     __setTelemetryTransportForTests(transport);
     reportClientError(new Error("nope"));

@@ -42,7 +42,10 @@ export async function PUT(
   }
 
   const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > JOB_LIMITS.maxFileBytes) {
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > JOB_LIMITS.maxFileBytes
+  ) {
     return respond(apiError("payload_too_large", TOO_LARGE));
   }
 
@@ -50,7 +53,9 @@ export async function PUT(
   try {
     bytes = new Uint8Array(await request.arrayBuffer());
   } catch {
-    return respond(apiError("invalid_request", "Could not read the upload body."));
+    return respond(
+      apiError("invalid_request", "Could not read the upload body."),
+    );
   }
 
   const put = devWorkerStore.putBytes(fileId, bytes);
@@ -80,12 +85,17 @@ export async function PUT(
   // malformed upload never lingers in the slot. See docs/SECURITY.md.
   const slot = devWorkerStore.getSlot(fileId);
   if (slot) {
-    const intake = evaluateUploadedBytes(bytes, { contentType: slot.contentType });
+    const intake = evaluateUploadedBytes(bytes, {
+      contentType: slot.contentType,
+    });
     if (!intake.ok) {
       devWorkerStore.deleteSlot(fileId);
       return respond(intakeErrorResult(intake.rejection));
     }
   }
 
-  return respond({ status: 200, body: { ok: true, fileId, bytes: bytes.byteLength } });
+  return respond({
+    status: 200,
+    body: { ok: true, fileId, bytes: bytes.byteLength },
+  });
 }

@@ -54,7 +54,8 @@ export async function GET(request: Request): Promise<Response> {
     // reports engine *names* only, never a path or value. In every other mode we skip
     // the probe, so the engine/OCR proofs stay honestly `unknown` (a separate worker
     // image cannot be observed from here).
-    const { probeNativeTools } = await import("@/lib/workers/compression/native");
+    const { probeNativeTools } =
+      await import("@/lib/workers/compression/native");
     tools = probeNativeTools(process.env);
   }
 

@@ -13,7 +13,10 @@
  */
 
 import { artifactRetrievalMetric } from "../observability/metrics";
-import { NOOP_METRIC_SINK, type WorkerMetricSink } from "../observability/collector";
+import {
+  NOOP_METRIC_SINK,
+  type WorkerMetricSink,
+} from "../observability/collector";
 import type { ArtifactOutputKind } from "./types";
 import {
   retrievalOutcomeFor,
@@ -46,5 +49,12 @@ export function recordArtifactRetrieval(
   kind: ArtifactOutputKind,
   provider: RetrievalStorageProvider,
 ): void {
-  sink(artifactRetrievalMetric(retrievalOutcomeFor(reason), reason, kind, provider));
+  sink(
+    artifactRetrievalMetric(
+      retrievalOutcomeFor(reason),
+      reason,
+      kind,
+      provider,
+    ),
+  );
 }

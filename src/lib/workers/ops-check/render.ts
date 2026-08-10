@@ -69,8 +69,14 @@ export interface OpsCheckSnapshotDigest {
   readonly health: HealthClass;
   readonly drainable: boolean;
   readonly daemonObserved: boolean;
-  readonly subsystems: { readonly id: SnapshotSubsystemId; readonly health: HealthClass }[];
-  readonly proofs: { readonly compressionDeep: ProofAvailability; readonly ocr: ProofAvailability };
+  readonly subsystems: {
+    readonly id: SnapshotSubsystemId;
+    readonly health: HealthClass;
+  }[];
+  readonly proofs: {
+    readonly compressionDeep: ProofAvailability;
+    readonly ocr: ProofAvailability;
+  };
   /** The cleanup evidence posture (Phase 44) — bounded enums only. */
   readonly cleanupEvidence: OpsCheckCleanupEvidenceDigest;
   /** The abuse-guard posture — bounded enums only, never an env-var name. */
@@ -130,7 +136,9 @@ export interface OpsCheckUsageError {
 export type OpsCheckOutcome = OpsCheckResult | OpsCheckUsageError;
 
 /** Distinguish the two outcomes without a cast. */
-export function isUsageError(outcome: OpsCheckOutcome): outcome is OpsCheckUsageError {
+export function isUsageError(
+  outcome: OpsCheckOutcome,
+): outcome is OpsCheckUsageError {
   return (outcome as OpsCheckUsageError).error === "usage";
 }
 
@@ -193,7 +201,11 @@ function escapeLabel(value: string): string {
 }
 
 /** `name{k="v",...} value`, labels in given order. */
-function line(name: string, labels: Record<string, string>, value: number): string {
+function line(
+  name: string,
+  labels: Record<string, string>,
+  value: number,
+): string {
   const pairs = Object.entries(labels)
     .map(([k, v]) => `${k}="${escapeLabel(v)}"`)
     .join(",");
@@ -213,7 +225,9 @@ export function renderOpsCheckPrometheus(
     return `${line("pdfxyz_ops_check_error", { kind: "usage" }, 1)}\n`;
   }
   const lines: string[] = [];
-  lines.push(line("pdfxyz_ops_check_severity", {}, SEVERITY_CODE[outcome.severity]));
+  lines.push(
+    line("pdfxyz_ops_check_severity", {}, SEVERITY_CODE[outcome.severity]),
+  );
   lines.push(
     line(
       "pdfxyz_ops_check_info",
@@ -229,20 +243,35 @@ export function renderOpsCheckPrometheus(
     ),
   );
   lines.push(
-    line("pdfxyz_ops_check_daemon_observed", {}, outcome.snapshot.daemonObserved ? 1 : 0),
+    line(
+      "pdfxyz_ops_check_daemon_observed",
+      {},
+      outcome.snapshot.daemonObserved ? 1 : 0,
+    ),
   );
-  lines.push(line("pdfxyz_ops_check_drainable", {}, outcome.snapshot.drainable ? 1 : 0));
+  lines.push(
+    line("pdfxyz_ops_check_drainable", {}, outcome.snapshot.drainable ? 1 : 0),
+  );
   lines.push(line("pdfxyz_ops_check_alerts", {}, outcome.alerts.length));
   for (const sub of outcome.snapshot.subsystems) {
     lines.push(
-      line("pdfxyz_ops_check_subsystem", { subsystem: sub.id, health: sub.health }, healthCode(sub.health)),
+      line(
+        "pdfxyz_ops_check_subsystem",
+        { subsystem: sub.id, health: sub.health },
+        healthCode(sub.health),
+      ),
     );
   }
   const ce = outcome.snapshot.cleanupEvidence;
   lines.push(
     line(
       "pdfxyz_ops_check_cleanup_evidence",
-      { state: ce.state, reason: ce.reason, provider: ce.provider, freshness: ce.freshness },
+      {
+        state: ce.state,
+        reason: ce.reason,
+        provider: ce.provider,
+        freshness: ce.freshness,
+      },
       cleanupEvidenceCode(ce.state),
     ),
   );
@@ -271,7 +300,9 @@ export function renderOpsCheckText(outcome: OpsCheckOutcome): string {
   }
   const lines: string[] = [];
   lines.push(`${outcome.summary}`);
-  lines.push(`  source: ${outcome.source}  vantage: ${outcome.snapshot.vantage}  liveness: ${outcome.liveness.state}`);
+  lines.push(
+    `  source: ${outcome.source}  vantage: ${outcome.snapshot.vantage}  liveness: ${outcome.liveness.state}`,
+  );
   lines.push(
     `  cleanup evidence: ${outcome.snapshot.cleanupEvidence.state} (${outcome.snapshot.cleanupEvidence.reason}, ${outcome.snapshot.cleanupEvidence.freshness})`,
   );
@@ -280,8 +311,12 @@ export function renderOpsCheckText(outcome: OpsCheckOutcome): string {
   );
   lines.push(`  action: ${outcome.action} — ${outcome.actionDetail}`);
   for (const alert of outcome.alerts) {
-    const suffix = alert.observed ? ` (${alert.observed} vs ${alert.threshold})` : "";
-    lines.push(`  [${alert.severity}] ${alert.source}: ${alert.reason}${suffix}`);
+    const suffix = alert.observed
+      ? ` (${alert.observed} vs ${alert.threshold})`
+      : "";
+    lines.push(
+      `  [${alert.severity}] ${alert.source}: ${alert.reason}${suffix}`,
+    );
   }
   return `${lines.join("\n")}\n`;
 }

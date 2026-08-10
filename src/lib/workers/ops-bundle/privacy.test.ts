@@ -17,7 +17,8 @@ import type { OpsBundleArgs } from "./args";
 const NOW = "2026-07-03T00:00:00.000Z";
 
 /** A dense payload of every locator/content shape the bundle must never echo. */
-const SECRET = "s3://leaky-bucket/customer-tax-return.pdf?sig=deadbeef AKIAIOSFODNN7EXAMPLE https://acct.r2.cloudflarestorage.com/obj token=h_abc123 192.168.0.1";
+const SECRET =
+  "s3://leaky-bucket/customer-tax-return.pdf?sig=deadbeef AKIAIOSFODNN7EXAMPLE https://acct.r2.cloudflarestorage.com/obj token=h_abc123 192.168.0.1";
 
 /** Substrings that must never appear in any bundle output. */
 const FORBIDDEN = [
@@ -46,7 +47,15 @@ function poisonedOpsCheck(): string {
     action: "configure-storage",
     actionDetail: `SECRET-${SECRET}`,
     summary: `SECRET-${SECRET}`,
-    liveness: { state: "stale", source: "queue-broker", lastSeen: "over-10m", severity: "warn", reason: "liveness-stale", action: "investigate-worker-liveness", detail: `SECRET-${SECRET}` },
+    liveness: {
+      state: "stale",
+      source: "queue-broker",
+      lastSeen: "over-10m",
+      severity: "warn",
+      reason: "liveness-stale",
+      action: "investigate-worker-liveness",
+      detail: `SECRET-${SECRET}`,
+    },
     snapshot: {
       vantage: "worker",
       health: "blocked",
@@ -55,17 +64,59 @@ function poisonedOpsCheck(): string {
       detail: `SECRET-${SECRET}`,
       recommendedActionDetail: `SECRET-${SECRET}`,
       subsystems: [
-        { id: "storage", label: `SECRET-${SECRET}`, health: "warn", detail: `SECRET-${SECRET}` },
-        { id: "lifecycle-verification", label: `SECRET-${SECRET}`, health: "blocked", detail: `SECRET-${SECRET}` },
+        {
+          id: "storage",
+          label: `SECRET-${SECRET}`,
+          health: "warn",
+          detail: `SECRET-${SECRET}`,
+        },
+        {
+          id: "lifecycle-verification",
+          label: `SECRET-${SECRET}`,
+          health: "blocked",
+          detail: `SECRET-${SECRET}`,
+        },
       ],
       proofs: { compressionDeep: "available", ocr: "unavailable" },
-      cleanupEvidence: { state: "critical", reason: "cleanup_breach", provider: "remote-configured", freshness: "fresh", detail: `SECRET-${SECRET}` },
+      cleanupEvidence: {
+        state: "critical",
+        reason: "cleanup_breach",
+        provider: "remote-configured",
+        freshness: "fresh",
+        detail: `SECRET-${SECRET}`,
+      },
       lastLoop: null,
     },
-    slo: { worst: "breach", evaluated: 5, total: 6, issues: [{ id: "queue_age", status: "breach", observed: `SECRET-${SECRET}`, threshold: `SECRET-${SECRET}` }] },
+    slo: {
+      worst: "breach",
+      evaluated: 5,
+      total: 6,
+      issues: [
+        {
+          id: "queue_age",
+          status: "breach",
+          observed: `SECRET-${SECRET}`,
+          threshold: `SECRET-${SECRET}`,
+        },
+      ],
+    },
     alerts: [
-      { source: "storage", severity: "warn", reason: "storage-unconfigured", action: "configure-storage", detail: `SECRET-${SECRET}`, observed: `SECRET-${SECRET}`, threshold: `SECRET-${SECRET}` },
-      { source: "lifecycle-verification", severity: "critical", reason: "lifecycle-drift", action: "reconcile-lifecycle-drift", detail: `SECRET-${SECRET}` },
+      {
+        source: "storage",
+        severity: "warn",
+        reason: "storage-unconfigured",
+        action: "configure-storage",
+        detail: `SECRET-${SECRET}`,
+        observed: `SECRET-${SECRET}`,
+        threshold: `SECRET-${SECRET}`,
+      },
+      {
+        source: "lifecycle-verification",
+        severity: "critical",
+        reason: "lifecycle-drift",
+        action: "reconcile-lifecycle-drift",
+        detail: `SECRET-${SECRET}`,
+      },
     ],
   });
 }
@@ -79,8 +130,20 @@ function poisonedPipeline(): string {
     generatedAt: `SECRET-${SECRET}`,
     severity: "breach",
     exitCode: 4,
-    arms: [{ arm: "verify", code: 4, severity: "breach", projected: false, note: `SECRET-${SECRET}` }],
-    receipt: { category: `SECRET-${SECRET}`, at: `SECRET-${SECRET}`, policyId: `SECRET-${SECRET}` },
+    arms: [
+      {
+        arm: "verify",
+        code: 4,
+        severity: "breach",
+        projected: false,
+        note: `SECRET-${SECRET}`,
+      },
+    ],
+    receipt: {
+      category: `SECRET-${SECRET}`,
+      at: `SECRET-${SECRET}`,
+      policyId: `SECRET-${SECRET}`,
+    },
   });
 }
 
@@ -93,7 +156,12 @@ function provider(over: Partial<OpsBundleProvider> = {}): OpsBundleProvider {
   };
 }
 
-const ARGS: OpsBundleArgs = { opsCheckSource: "stdin", pipelinePath: "pipe.json", format: "json", pretty: true };
+const ARGS: OpsBundleArgs = {
+  opsCheckSource: "stdin",
+  pipelinePath: "pipe.json",
+  format: "json",
+  pretty: true,
+};
 
 describe("ops-bundle no-leak by reconstruction", () => {
   it("never echoes a poisoned field in JSON output while still resolving critical", async () => {
@@ -118,17 +186,31 @@ describe("ops-bundle no-leak by reconstruction", () => {
 
   it("re-stamps generatedAt from the clock seam, never the poisoned input", async () => {
     const run = await runOpsBundle(ARGS, provider());
-    if (!isOpsBundleUsageError(run.outcome)) expect(run.outcome.generatedAt).toBe(NOW);
+    if (!isOpsBundleUsageError(run.outcome))
+      expect(run.outcome.generatedAt).toBe(NOW);
   });
 
   it("drops a poisoned optional pipeline that is unreadable, and never echoes it", async () => {
-    const run = await runOpsBundle(ARGS, provider({ readPipeline: async () => `{"schema":"pdfxyz.cleanup-pipeline/1","severity":"SECRET-${SECRET}"}` }));
+    const run = await runOpsBundle(
+      ARGS,
+      provider({
+        readPipeline: async () =>
+          `{"schema":"pdfxyz.cleanup-pipeline/1","severity":"SECRET-${SECRET}"}`,
+      }),
+    );
     for (const bad of FORBIDDEN) expect(run.output).not.toContain(bad);
-    if (!isOpsBundleUsageError(run.outcome)) expect(run.outcome.sections.pipeline.source).toBe("unreadable");
+    if (!isOpsBundleUsageError(run.outcome))
+      expect(run.outcome.sections.pipeline.source).toBe("unreadable");
   });
 
   it("never echoes the offending input in a usage error", async () => {
-    const run = await runOpsBundle(ARGS, provider({ readOpsCheck: async () => `{"schema":"pdfxyz.ops-check/1","severity":"SECRET-${SECRET}"}` }));
+    const run = await runOpsBundle(
+      ARGS,
+      provider({
+        readOpsCheck: async () =>
+          `{"schema":"pdfxyz.ops-check/1","severity":"SECRET-${SECRET}"}`,
+      }),
+    );
     expect(isOpsBundleUsageError(run.outcome)).toBe(true);
     for (const bad of FORBIDDEN) expect(run.output).not.toContain(bad);
   });

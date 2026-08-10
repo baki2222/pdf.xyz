@@ -20,7 +20,11 @@
  * verbatim. See docs/OBSERVABILITY.md and docs/SECURITY.md.
  */
 
-import { CLEANUP_POLICY_ID, CLEANUP_POLICY_VERSION, type CleanupVerdict } from "./types";
+import {
+  CLEANUP_POLICY_ID,
+  CLEANUP_POLICY_VERSION,
+  type CleanupVerdict,
+} from "./types";
 import type { RetrievalStorageProvider } from "../artifacts/access";
 
 /**
@@ -86,7 +90,9 @@ export function buildCleanupVerificationReceipt(
 }
 
 /** A sink an operator wires to observe cleanup receipts (an audit log line, a SIEM, …). */
-export type CleanupVerificationObserver = (receipt: CleanupVerificationReceipt) => void;
+export type CleanupVerificationObserver = (
+  receipt: CleanupVerificationReceipt,
+) => void;
 
 // Module-global, swappable observer — the same reset-for-tests posture the artifact expiry
 // receipt uses. Default null: nothing is emitted until an operator opts in.

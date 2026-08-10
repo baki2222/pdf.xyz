@@ -17,12 +17,12 @@ service.**
 
 ## Topology
 
-| Service | Public? | Image / target | Role |
-| ------- | ------- | -------------- | ---- |
-| `web` | **yes** (`:3000`) | Dockerfile `web` target | The Next.js site. Serves users. Ships no engines; takes no provider secret. |
-| `worker` | no | Dockerfile `worker` target | The secure-worker daemon. Drains the queue, runs engines/OCR/scan. Serves no HTTP. |
-| `broker` + `redis` | no | `hiett/serverless-redis-http` + `redis` | **LOCAL-ONLY** self-hosted Redis-REST broker (compose profile `local-broker`). |
-| `clamav` | no | `clamav/clamav` | **Optional** malware scanner over INSTREAM (compose profile `scanner`). |
+| Service            | Public?           | Image / target                          | Role                                                                               |
+| ------------------ | ----------------- | --------------------------------------- | ---------------------------------------------------------------------------------- |
+| `web`              | **yes** (`:3000`) | Dockerfile `web` target                 | The Next.js site. Serves users. Ships no engines; takes no provider secret.        |
+| `worker`           | no                | Dockerfile `worker` target              | The secure-worker daemon. Drains the queue, runs engines/OCR/scan. Serves no HTTP. |
+| `broker` + `redis` | no                | `hiett/serverless-redis-http` + `redis` | **LOCAL-ONLY** self-hosted Redis-REST broker (compose profile `local-broker`).     |
+| `clamav`           | no                | `clamav/clamav`                         | **Optional** malware scanner over INSTREAM (compose profile `scanner`).            |
 
 Only `web` publishes a port. The worker, broker, redis, and clamav live on a private
 network and are never exposed.
@@ -38,12 +38,12 @@ out-of-band.
 
 ## Files
 
-| File | What it is |
-| ---- | ---------- |
-| [`docker-compose.blueprint.yml`](docker-compose.blueprint.yml) | The full-topology compose blueprint (web + worker + broker + optional clamav), profiles and content-free healthchecks included. |
-| [`.env.blueprint.example`](.env.blueprint.example) | The `--env-file` for the blueprint — every interpolated variable, placeholders only. |
-| [`reverse-proxy/nginx.conf.example`](reverse-proxy/nginx.conf.example) | Optional TLS-terminating proxy fronting **only** `web`. |
-| [`scheduler/`](scheduler/) | ops-check cron / systemd / notifier templates — see its [README](scheduler/README.md). |
+| File                                                                   | What it is                                                                                                                      |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| [`docker-compose.blueprint.yml`](docker-compose.blueprint.yml)         | The full-topology compose blueprint (web + worker + broker + optional clamav), profiles and content-free healthchecks included. |
+| [`.env.blueprint.example`](.env.blueprint.example)                     | The `--env-file` for the blueprint — every interpolated variable, placeholders only.                                            |
+| [`reverse-proxy/nginx.conf.example`](reverse-proxy/nginx.conf.example) | Optional TLS-terminating proxy fronting **only** `web`.                                                                         |
+| [`scheduler/`](scheduler/)                                             | ops-check cron / systemd / notifier templates — see its [README](scheduler/README.md).                                          |
 
 The minimal two-service example (`docker-compose.worker.yml` at the repo root) stays the
 canonical **managed-provider** shape; this blueprint is the fuller **self-hostable**

@@ -36,7 +36,9 @@ describe("GET /api/worker/operations", () => {
       recommendedAction: "configure-providers",
     });
     const text = JSON.stringify(body);
-    expect(text).not.toMatch(/\/tmp|s3:\/\/|https?:\/\/|SECRET|object-key|invoice\.pdf|OCRPROOF/i);
+    expect(text).not.toMatch(
+      /\/tmp|s3:\/\/|https?:\/\/|SECRET|object-key|invoice\.pdf|OCRPROOF/i,
+    );
   });
 
   it("does not imply an out-of-band daemon is deployed even when providers are configured", async () => {
@@ -59,7 +61,9 @@ describe("GET /api/worker/operations", () => {
         drainable: true,
         recommendedAction: "declare-lifecycle",
       });
-      expect(JSON.stringify(body)).not.toMatch(/private-bucket|redis\.example|secret-value|redis-secret/);
+      expect(JSON.stringify(body)).not.toMatch(
+        /private-bucket|redis\.example|secret-value|redis-secret/,
+      );
     } finally {
       process.env = old;
     }
@@ -107,7 +111,13 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
     stubBrokerHeartbeat(
       buildHeartbeat({
         mode: "loop",
-        capabilities: { deepCompression: true, ocr: false, ocrLanguages: [], malwareScan: false, atomicQueue: true },
+        capabilities: {
+          deepCompression: true,
+          ocr: false,
+          ocrLanguages: [],
+          malwareScan: false,
+          atomicQueue: true,
+        },
         at: Date.now(),
       }),
     );
@@ -127,7 +137,13 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
     stubBrokerHeartbeat(
       buildHeartbeat({
         mode: "loop",
-        capabilities: { deepCompression: false, ocr: false, ocrLanguages: [], malwareScan: false, atomicQueue: true },
+        capabilities: {
+          deepCompression: false,
+          ocr: false,
+          ocrLanguages: [],
+          malwareScan: false,
+          atomicQueue: true,
+        },
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window
       }),
     );
@@ -147,7 +163,10 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
   });
 
   it("does not touch the network when the heartbeat feature is not enabled", async () => {
-    Object.assign(process.env, { ...GREEN_HEARTBEAT_ENV, PDFXYZ_WORKER_HEARTBEAT: "" });
+    Object.assign(process.env, {
+      ...GREEN_HEARTBEAT_ENV,
+      PDFXYZ_WORKER_HEARTBEAT: "",
+    });
     let fetched = false;
     globalThis.fetch = (async () => {
       fetched = true;
@@ -164,7 +183,9 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
   const ALERT_SEVERITIES = ["ok", "warn", "critical", "unknown"];
 
   it("attaches a content-free alert report keyed on a bounded severity", async () => {
-    const body = (await json(await GET(opsReq()))) as { alerts?: Record<string, unknown> };
+    const body = (await json(await GET(opsReq()))) as {
+      alerts?: Record<string, unknown>;
+    };
     expect(body.alerts).toBeDefined();
     const report = body.alerts!;
     expect(ALERT_SEVERITIES).toContain(report.severity);
@@ -178,7 +199,9 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
   });
 
   it("the no-config posture is critical (no worker can run) and leaks nothing", async () => {
-    const body = (await json(await GET(opsReq()))) as { alerts?: { severity?: string } };
+    const body = (await json(await GET(opsReq()))) as {
+      alerts?: { severity?: string };
+    };
     // No queue/storage in the base env ⇒ not drainable ⇒ a monitor would page.
     expect(body.alerts?.severity).toBe("critical");
     const text = JSON.stringify(body);
@@ -226,7 +249,9 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
           };
         },
       })) as unknown as typeof fetch;
-      const body = (await json(await GET(opsReq()))) as { alerts?: { severity?: string } };
+      const body = (await json(await GET(opsReq()))) as {
+        alerts?: { severity?: string };
+      };
       expect(body.alerts?.severity).toBe("ok");
     } finally {
       process.env = old;
@@ -263,7 +288,8 @@ describe("GET /api/worker/operations — abuse guard", () => {
   it("returns a lightweight 429 (no snapshot work) once the scrape budget is spent", async () => {
     const policy = policyFor("worker.operations");
     const bare = new Request("http://localhost/api/worker/operations");
-    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("worker.operations", bare);
+    for (let i = 0; i < policy.limit; i++)
+      await enforceRateLimit("worker.operations", bare);
 
     const denied = await GET(bare);
     expect(denied.status).toBe(429);
@@ -302,7 +328,12 @@ describe("GET /api/worker/operations — the rate-limit posture reaches the aler
     [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
   };
 
-  type AlertEntry = { source?: string; severity?: string; reason?: string; action?: string };
+  type AlertEntry = {
+    source?: string;
+    severity?: string;
+    reason?: string;
+    action?: string;
+  };
   type OpsBody = {
     rateLimit?: { code?: string; enforced?: boolean };
     alerts?: { severity?: string; alerts?: AlertEntry[] };
@@ -385,7 +416,9 @@ describe("GET /api/worker/operations — the rate-limit posture reaches the aler
     expect(body.rateLimit?.enforced).toBe(true);
     expect(body.alerts?.severity).toBe("ok");
     expect(body.alerts?.alerts ?? []).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ source: "rate-limit" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ source: "rate-limit" }),
+      ]),
     );
   });
 
@@ -397,7 +430,9 @@ describe("GET /api/worker/operations — the rate-limit posture reaches the aler
     expect(body.rateLimit?.code).toBe("disabled");
     expect(body.alerts?.severity).toBe("ok");
     expect(body.alerts?.alerts ?? []).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ source: "rate-limit" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ source: "rate-limit" }),
+      ]),
     );
   });
 });

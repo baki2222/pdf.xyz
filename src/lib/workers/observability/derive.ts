@@ -132,12 +132,13 @@ export function deriveLifecycleMetrics(
 export function deriveArtifactCleanupMetrics(
   report: ArtifactCleanupReport,
 ): WorkerMetricSample[] {
-  return CLEANUP_CATEGORIES.filter((category) => report.categories[category] > 0).map(
-    (category) =>
-      artifactCleanupMetric(
-        category,
-        CLEANUP_SEVERITY_BY_CATEGORY[category],
-        report.categories[category],
-      ),
+  return CLEANUP_CATEGORIES.filter(
+    (category) => report.categories[category] > 0,
+  ).map((category) =>
+    artifactCleanupMetric(
+      category,
+      CLEANUP_SEVERITY_BY_CATEGORY[category],
+      report.categories[category],
+    ),
   );
 }

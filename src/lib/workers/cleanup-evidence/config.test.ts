@@ -25,8 +25,16 @@ describe("resolveCleanupEvidenceConfig", () => {
   });
 
   it("is enabled when either report path is configured", () => {
-    expect(resolveCleanupEvidenceConfig({ [CLEANUP_EVIDENCE_ENV.checkReport]: "/x/check.json" }).enabled).toBe(true);
-    expect(resolveCleanupEvidenceConfig({ [CLEANUP_EVIDENCE_ENV.sweepReport]: "/x/sweep.json" }).enabled).toBe(true);
+    expect(
+      resolveCleanupEvidenceConfig({
+        [CLEANUP_EVIDENCE_ENV.checkReport]: "/x/check.json",
+      }).enabled,
+    ).toBe(true);
+    expect(
+      resolveCleanupEvidenceConfig({
+        [CLEANUP_EVIDENCE_ENV.sweepReport]: "/x/sweep.json",
+      }).enabled,
+    ).toBe(true);
   });
 
   it("carries both paths when both are configured", () => {
@@ -39,19 +47,36 @@ describe("resolveCleanupEvidenceConfig", () => {
   });
 
   it("treats a blank/whitespace path as unset", () => {
-    const c = resolveCleanupEvidenceConfig({ [CLEANUP_EVIDENCE_ENV.checkReport]: "   " });
+    const c = resolveCleanupEvidenceConfig({
+      [CLEANUP_EVIDENCE_ENV.checkReport]: "   ",
+    });
     expect(c.enabled).toBe(false);
     expect(c.checkReportPath).toBeNull();
   });
 
   it("parses and clamps the freshness threshold, defaulting on garbage", () => {
-    expect(resolveCleanupEvidenceConfig({ [CLEANUP_EVIDENCE_ENV.maxAgeHours]: "12" }).maxAgeMs).toBe(12 * HOUR);
+    expect(
+      resolveCleanupEvidenceConfig({ [CLEANUP_EVIDENCE_ENV.maxAgeHours]: "12" })
+        .maxAgeMs,
+    ).toBe(12 * HOUR);
     // Out of range → clamped to the bounds.
-    expect(resolveCleanupEvidenceConfig({ [CLEANUP_EVIDENCE_ENV.maxAgeHours]: "100000" }).maxAgeMs).toBe(MAX_MAX_AGE_HOURS * HOUR);
-    expect(resolveCleanupEvidenceConfig({ [CLEANUP_EVIDENCE_ENV.maxAgeHours]: "0.1" }).maxAgeMs).toBe(MIN_MAX_AGE_HOURS * HOUR);
+    expect(
+      resolveCleanupEvidenceConfig({
+        [CLEANUP_EVIDENCE_ENV.maxAgeHours]: "100000",
+      }).maxAgeMs,
+    ).toBe(MAX_MAX_AGE_HOURS * HOUR);
+    expect(
+      resolveCleanupEvidenceConfig({
+        [CLEANUP_EVIDENCE_ENV.maxAgeHours]: "0.1",
+      }).maxAgeMs,
+    ).toBe(MIN_MAX_AGE_HOURS * HOUR);
     // Non-numeric / negative / empty → the documented default.
     for (const bad of ["abc", "-5", "", "NaN"]) {
-      expect(resolveCleanupEvidenceConfig({ [CLEANUP_EVIDENCE_ENV.maxAgeHours]: bad }).maxAgeMs).toBe(DEFAULT_MAX_AGE_HOURS * HOUR);
+      expect(
+        resolveCleanupEvidenceConfig({
+          [CLEANUP_EVIDENCE_ENV.maxAgeHours]: bad,
+        }).maxAgeMs,
+      ).toBe(DEFAULT_MAX_AGE_HOURS * HOUR);
     }
   });
 });

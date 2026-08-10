@@ -26,7 +26,7 @@ export function AboutSection() {
         />
 
         <div className="grid gap-4 lg:grid-cols-3">
-          <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+          <div className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-6">
             <span className="grid size-11 place-items-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
               <ShieldCheck className="size-5" strokeWidth={1.75} aria-hidden />
             </span>
@@ -40,7 +40,7 @@ export function AboutSection() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+          <div className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-6">
             <span className="grid size-11 place-items-center rounded-xl border border-indigo-400/20 bg-indigo-400/10 text-indigo-300">
               <Wrench className="size-5" strokeWidth={1.75} aria-hidden />
             </span>
@@ -53,7 +53,7 @@ export function AboutSection() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+          <div className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-6">
             <span className="grid size-11 place-items-center rounded-xl border border-sky-400/20 bg-sky-400/10 text-sky-300">
               <Mail className="size-5" strokeWidth={1.75} aria-hidden />
             </span>
@@ -61,15 +61,15 @@ export function AboutSection() {
               A real address, not a form
             </h3>
             <p className="text-sm leading-relaxed text-slate-400">
-              Security questions, enterprise requirements, bug reports, or a tool
-              you wish existed — all go to one inbox that a person reads.
+              Security questions, enterprise requirements, bug reports, or a
+              tool you wish existed — all go to one inbox that a person reads.
             </p>
           </div>
         </div>
 
         <div
           id="contact"
-          className="scroll-mt-24 rounded-2xl border border-white/10 bg-surface-2 p-8 text-center sm:p-10"
+          className="bg-surface-2 scroll-mt-24 rounded-2xl border border-white/10 p-8 text-center sm:p-10"
         >
           <h3 className="text-xl font-semibold text-white sm:text-2xl">
             Talk to us

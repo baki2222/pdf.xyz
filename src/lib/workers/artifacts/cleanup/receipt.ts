@@ -24,7 +24,11 @@
  */
 
 import { ARTIFACT_POLICY_ID, ARTIFACT_POLICY_VERSION } from "../policy";
-import { CLEANUP_SEVERITIES, type CleanupSeverity, type CleanupVerdict } from "./taxonomy";
+import {
+  CLEANUP_SEVERITIES,
+  type CleanupSeverity,
+  type CleanupVerdict,
+} from "./taxonomy";
 import type { ArtifactCleanupReport } from "./evaluate";
 
 /**

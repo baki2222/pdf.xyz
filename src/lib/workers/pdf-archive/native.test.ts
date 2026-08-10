@@ -17,7 +17,9 @@ const config: NativePdfArchiveConfig = {
   maxOutputBytes: 1000,
   tmpDir: "/tmp",
 };
-const PDF = new TextEncoder().encode("%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+const PDF = new TextEncoder().encode(
+  "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
+);
 
 function fsStub(output = PDF) {
   return {
@@ -50,13 +52,19 @@ describe("Ghostscript PDF/A native runner", () => {
     const runner = createNativeGhostscriptPdfARunner(config, { exec, fs });
     const output = await runner.convertToPdfA(PDF, { standard: "PDF/A-2b" });
     expect([...output]).toEqual([...PDF]);
-    expect(fs.writeFile).toHaveBeenCalledWith(join("/tmp/pdfxyz-pdfa-1", "input.pdf"), PDF);
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      join("/tmp/pdfxyz-pdfa-1", "input.pdf"),
+      PDF,
+    );
     expect(exec).toHaveBeenCalledWith(
       "gs",
       expect.arrayContaining(["-dPDFA=2"]),
       expect.objectContaining({ timeout: 10_000 }),
     );
-    expect(fs.rm).toHaveBeenCalledWith("/tmp/pdfxyz-pdfa-1", { recursive: true, force: true });
+    expect(fs.rm).toHaveBeenCalledWith("/tmp/pdfxyz-pdfa-1", {
+      recursive: true,
+      force: true,
+    });
   });
 
   it("fails on non-zero or unusable output", async () => {
@@ -76,8 +84,14 @@ describe("Ghostscript PDF/A native runner", () => {
   });
 
   it("probes config and returns deps only when Ghostscript is available", () => {
-    expect(probeGhostscriptFromConfig(config, { resolveOnPath: () => true })).toBe(true);
-    expect(nativePdfArchiveDeps({}, { resolveOnPath: () => false }).ghostscript).toBeUndefined();
-    expect(nativePdfArchiveDeps({}, { resolveOnPath: () => true }).ghostscript).toBeDefined();
+    expect(
+      probeGhostscriptFromConfig(config, { resolveOnPath: () => true }),
+    ).toBe(true);
+    expect(
+      nativePdfArchiveDeps({}, { resolveOnPath: () => false }).ghostscript,
+    ).toBeUndefined();
+    expect(
+      nativePdfArchiveDeps({}, { resolveOnPath: () => true }).ghostscript,
+    ).toBeDefined();
   });
 });

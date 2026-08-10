@@ -84,7 +84,9 @@ const EXIT_GUARDRAIL = 4;
 /** Emit one content-free structured JSON line. Never receives a secret or bytes. */
 function emit(line: Record<string, unknown>): void {
   // This CLI's stdout IS its structured log; console is the intended sink.
-  process.stdout.write(`${JSON.stringify({ ts: new Date().toISOString(), ...line })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ ts: new Date().toISOString(), ...line })}\n`,
+  );
 }
 
 /** Map a run mode to the coarse heartbeat mode it publishes. */
@@ -115,7 +117,10 @@ function heartbeatModeFor(mode: DaemonMode): HeartbeatMode {
  * runtime health the readiness readout uses, so the two can never disagree. Every
  * field is a bounded enum/boolean — never a host, path, key, or value.
  */
-function buildHeartbeatPublisher(runtime: WorkerRuntime, mode: DaemonMode): HeartbeatPublisher {
+function buildHeartbeatPublisher(
+  runtime: WorkerRuntime,
+  mode: DaemonMode,
+): HeartbeatPublisher {
   const release = coarseRelease(process.env.npm_package_version);
   return createHeartbeatPublisher(process.env, {
     mode: heartbeatModeFor(mode),
@@ -265,7 +270,11 @@ function emitLifecycleMetrics(
   for (const sample of deriveLifecycleMetrics({ verdict, driftedRules })) {
     collector.record(sample);
   }
-  emit({ src: "daemon", event: "metrics", series: collector.snapshot().series });
+  emit({
+    src: "daemon",
+    event: "metrics",
+    series: collector.snapshot().series,
+  });
 }
 
 /**
@@ -344,7 +353,11 @@ const MAX_OBSERVED_FILE_BYTES = 1_048_576; // 1 MiB — a lifecycle config is ti
 function runLifecycleVerify(args: DaemonArgs): number {
   const parsed = parseRetentionSettings(process.env);
   if (!parsed.ok) {
-    emit({ src: "daemon", event: "lifecycle_verify_error", reason: "retention_invalid" });
+    emit({
+      src: "daemon",
+      event: "lifecycle_verify_error",
+      reason: "retention_invalid",
+    });
     return EXIT_USAGE;
   }
 
@@ -357,7 +370,11 @@ function runLifecycleVerify(args: DaemonArgs): number {
     versioned,
   });
   if (!validateLifecyclePolicy(expected).ok) {
-    emit({ src: "daemon", event: "lifecycle_verify_error", reason: "policy_invalid" });
+    emit({
+      src: "daemon",
+      event: "lifecycle_verify_error",
+      reason: "policy_invalid",
+    });
     return EXIT_USAGE;
   }
 
@@ -387,12 +404,20 @@ function runLifecycleVerify(args: DaemonArgs): number {
   let text: string;
   try {
     if (statSync(args.observedPath).size > MAX_OBSERVED_FILE_BYTES) {
-      emit({ src: "daemon", event: "lifecycle_verify_error", reason: "observed_too_large" });
+      emit({
+        src: "daemon",
+        event: "lifecycle_verify_error",
+        reason: "observed_too_large",
+      });
       return EXIT_GUARDRAIL;
     }
     text = readFileSync(args.observedPath, "utf8");
   } catch {
-    emit({ src: "daemon", event: "lifecycle_verify_error", reason: "observed_unreadable" });
+    emit({
+      src: "daemon",
+      event: "lifecycle_verify_error",
+      reason: "observed_unreadable",
+    });
     return EXIT_GUARDRAIL;
   }
 
@@ -416,7 +441,9 @@ function runLifecycleVerify(args: DaemonArgs): number {
     result.verdict,
     result.checks.filter(
       (c) =>
-        c.status === "missing" || c.status === "weaker" || c.status === "disabled",
+        c.status === "missing" ||
+        c.status === "weaker" ||
+        c.status === "disabled",
     ).length,
   );
   // Versioned foot-gun safety net: verifying without `--versioned` omits the
@@ -499,7 +526,11 @@ async function main(): Promise<number> {
   const heartbeat = buildHeartbeatPublisher(runtime, args.mode);
   // Tracks the last observed publish state so only changes are logged.
   let lastBeatPublished: boolean | undefined;
-  emit({ src: "daemon", event: "heartbeat_capability", ...heartbeat.capability });
+  emit({
+    src: "daemon",
+    event: "heartbeat_capability",
+    ...heartbeat.capability,
+  });
 
   // `--check`: evaluate deployment guardrails only. Exit 0 when clean, 4 when a
   // dangerous/invalid configuration is found. Never claims a job.

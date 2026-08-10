@@ -96,17 +96,23 @@ describe("NotifyMe", () => {
   });
 
   it("tells the user what pressing the button sends, before they press it", () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 202 }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 202 }),
+    );
 
     render(<NotifyMe toolName="Chat with PDF" toolSlug="chat-with-pdf" />);
     // Visible plain text, not a hover or a link (the ruling's condition).
     expect(
-      screen.getByText(/pressing it sends us the tool's name — nothing about you/i),
+      screen.getByText(
+        /pressing it sends us the tool's name — nothing about you/i,
+      ),
     ).toBeInTheDocument();
   });
 
   it("the acknowledgement says exactly what was sent — the tool's name only", () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 202 }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 202 }),
+    );
 
     render(<NotifyMe toolName="Chat with PDF" toolSlug="chat-with-pdf" />);
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));

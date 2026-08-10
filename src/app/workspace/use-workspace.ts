@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   clearHandoffs,
@@ -47,7 +54,10 @@ let idCounter = 0;
 function activityId(): string {
   idCounter += 1;
   try {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.randomUUID === "function"
+    ) {
       return crypto.randomUUID();
     }
   } catch {
@@ -108,7 +118,10 @@ export function useWorkspace(
   // A dispatch (not a setState) flips this on mount and captures the clock once
   // for relative-time display, keeping the mount effect free of setState-in-effect.
   const [hydration, markHydrated] = useReducer(
-    (_prev: { ready: boolean; now: number }, now: number) => ({ ready: true, now }),
+    (_prev: { ready: boolean; now: number }, now: number) => ({
+      ready: true,
+      now,
+    }),
     { ready: false, now: 0 },
   );
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
@@ -165,7 +178,12 @@ export function useWorkspace(
   useEffect(() => {
     if (!hydration.ready) return;
     savePersisted(stateRef.current);
-  }, [hydration.ready, state.selectedToolSlug, state.batch.toolSlug, state.recentActions]);
+  }, [
+    hydration.ready,
+    state.selectedToolSlug,
+    state.batch.toolSlug,
+    state.recentActions,
+  ]);
 
   /**
    * Best-effort, local-only page-count enrichment. Reads each staged PDF's bytes
@@ -179,7 +197,9 @@ export function useWorkspace(
         if (!aliveRef.current) return;
         let pageCount: number | null = null;
         try {
-          pageCount = await countPdfPages(new Uint8Array(await file.arrayBuffer()));
+          pageCount = await countPdfPages(
+            new Uint8Array(await file.arrayBuffer()),
+          );
         } catch {
           pageCount = null;
         }
@@ -200,7 +220,10 @@ export function useWorkspace(
       const now = Date.now();
       incoming.forEach((file, i) => {
         if (!file.size || file.size <= 0) {
-          bad.push({ name: file.name, reason: "This file is empty (0 bytes)." });
+          bad.push({
+            name: file.name,
+            reason: "This file is empty (0 bytes).",
+          });
           return;
         }
         if (file.size > MAX_FILE_BYTES) {
@@ -259,15 +282,21 @@ export function useWorkspace(
   }, []);
 
   /** Persist a projected next state immediately (before a client route change). */
-  const persistWithAction = useCallback((action: WorkspaceAction, selectSlug?: string) => {
-    const current = stateRef.current;
-    const next: WorkspaceState = {
-      ...current,
-      selectedToolSlug: selectSlug ?? current.selectedToolSlug,
-      recentActions: [action, ...current.recentActions].slice(0, MAX_RECENT_ACTIONS),
-    };
-    savePersisted(next);
-  }, []);
+  const persistWithAction = useCallback(
+    (action: WorkspaceAction, selectSlug?: string) => {
+      const current = stateRef.current;
+      const next: WorkspaceState = {
+        ...current,
+        selectedToolSlug: selectSlug ?? current.selectedToolSlug,
+        recentActions: [action, ...current.recentActions].slice(
+          0,
+          MAX_RECENT_ACTIONS,
+        ),
+      };
+      savePersisted(next);
+    },
+    [],
+  );
 
   const openTool = useCallback(
     (tool: WorkspaceToolSummary, fileCount?: number) => {
@@ -291,7 +320,10 @@ export function useWorkspace(
   }, []);
 
   const addAllToBatch = useCallback(() => {
-    dispatch({ type: "add-to-batch", ids: stateRef.current.files.map((f) => f.id) });
+    dispatch({
+      type: "add-to-batch",
+      ids: stateRef.current.files.map((f) => f.id),
+    });
   }, []);
 
   const removeFromBatch = useCallback((id: string) => {

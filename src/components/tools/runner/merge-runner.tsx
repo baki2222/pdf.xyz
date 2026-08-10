@@ -119,7 +119,14 @@ export function MergeRunner() {
           const id = `f${idRef.current++}`;
           setItems((prev) => [
             ...prev,
-            { id, name: file.name, size: file.size, bytes, pageCount, cover: null },
+            {
+              id,
+              name: file.name,
+              size: file.size,
+              bytes,
+              pageCount,
+              cover: null,
+            },
           ]);
           attachCover(id, bytes);
         } catch (err) {
@@ -238,7 +245,10 @@ export function MergeRunner() {
     <div className="flex flex-col gap-5">
       {announcer}
       {handoff.status === "ready" && (
-        <HandoffLoadedBadge count={handoff.files.length} skipped={handoff.skipped} />
+        <HandoffLoadedBadge
+          count={handoff.files.length}
+          skipped={handoff.skipped}
+        />
       )}
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
@@ -273,7 +283,7 @@ export function MergeRunner() {
                 setOverIndex(null);
               }}
               className={cn(
-                "flex items-center gap-3 rounded-2xl border bg-surface-2 px-3 py-2.5 transition",
+                "bg-surface-2 flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition",
                 overIndex === index && dragIndex !== null && dragIndex !== index
                   ? "border-violet-400/60 ring-1 ring-violet-400/40"
                   : "border-white/10",
@@ -284,7 +294,7 @@ export function MergeRunner() {
                 className="size-4 shrink-0 cursor-grab text-slate-400"
                 aria-hidden
               />
-              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white/5 text-xs font-semibold tabular-nums text-slate-400">
+              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white/5 text-xs font-semibold text-slate-400 tabular-nums">
                 {index + 1}
               </span>
               <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md bg-white/5 ring-1 ring-white/10">
@@ -339,7 +349,7 @@ export function MergeRunner() {
             </li>
           ))}
           {loading > 0 && (
-            <li className="flex items-center gap-2 rounded-2xl border border-white/10 bg-surface-2 px-3 py-3 text-sm text-slate-400">
+            <li className="bg-surface-2 flex items-center gap-2 rounded-2xl border border-white/10 px-3 py-3 text-sm text-slate-400">
               <Spinner />
               Reading {loading} file{loading === 1 ? "" : "s"}…
             </li>
@@ -395,8 +405,8 @@ function RejectionsNote({
       <div className="flex items-start justify-between gap-3">
         <span className="flex items-center gap-2 font-medium">
           <AlertTriangle className="size-4 shrink-0" aria-hidden />
-          {rejections.length} file{rejections.length === 1 ? "" : "s"} couldn&apos;t
-          be added
+          {rejections.length} file{rejections.length === 1 ? "" : "s"}{" "}
+          couldn&apos;t be added
         </span>
         <button
           type="button"

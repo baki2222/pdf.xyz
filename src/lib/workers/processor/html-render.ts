@@ -1,5 +1,8 @@
 import type { JobError } from "@/lib/jobs";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "@/lib/jobs";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "@/lib/jobs";
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
 import {
   HTML_TO_PDF_TOOL,
@@ -10,7 +13,13 @@ import {
   type HtmlRenderResultMeta,
   type HtmlRenderRun,
 } from "../html-render/engine";
-import { processorFail, processorOk, type Processor, type ProcessorMeta, type ProcessorResult } from "./types";
+import {
+  processorFail,
+  processorOk,
+  type Processor,
+  type ProcessorMeta,
+  type ProcessorResult,
+} from "./types";
 
 const OUTPUT_CONTENT_TYPE = "application/pdf";
 const FALLBACK_STEM = "document";
@@ -20,7 +29,9 @@ function trimName(stem: string, stripExtension = true): string {
   const tail = ".pdf";
   const budget = Math.max(1, MAX_DISPLAY_FILENAME_LENGTH - tail.length);
   const sanitized = sanitizeDisplayFilename(stem);
-  const clean = (stripExtension ? sanitized.replace(/\.[^.]+$/, "") : sanitized).trim() || FALLBACK_STEM;
+  const clean =
+    (stripExtension ? sanitized.replace(/\.[^.]+$/, "") : sanitized).trim() ||
+    FALLBACK_STEM;
   return `${clean.length > budget ? clean.slice(0, budget).trim() : clean}${tail}`;
 }
 
@@ -31,7 +42,9 @@ export function htmlPdfOutputName(originalName: unknown): string {
 export function webpagePdfOutputName(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
-    const path = url.pathname.replace(/^\/+|\/+$/g, "").replace(/\/+|[^a-zA-Z0-9._-]+/g, "-");
+    const path = url.pathname
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/\/+|[^a-zA-Z0-9._-]+/g, "-");
     const slug = `${url.hostname}${path ? `-${path}` : ""}`
       .replace(/[^a-zA-Z0-9._-]+/g, "-")
       .replace(/-+/g, "-")
@@ -47,11 +60,23 @@ export function webpagePdfOutputName(rawUrl: string): string {
 function jobError(run: HtmlRenderFailure): JobError {
   switch (run.kind) {
     case "unsupported":
-      return { code: "not_implemented", message: `${run.message} See docs/WORKER_ARCHITECTURE.md.`, retryable: false };
+      return {
+        code: "not_implemented",
+        message: `${run.message} See docs/WORKER_ARCHITECTURE.md.`,
+        retryable: false,
+      };
     case "too_large":
-      return { code: "payload_too_large", message: run.message, retryable: false };
+      return {
+        code: "payload_too_large",
+        message: run.message,
+        retryable: false,
+      };
     case "invalid_url":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };
@@ -67,18 +92,32 @@ function toProcessorMeta(meta: HtmlRenderResultMeta): ProcessorMeta {
   };
 }
 
-function requireSingleHtmlInput(input: Parameters<Processor["process"]>[0]): ProcessorResult | undefined {
+function requireSingleHtmlInput(
+  input: Parameters<Processor["process"]>[0],
+): ProcessorResult | undefined {
   const file = input.inputs[0];
   if (input.inputs.length !== 1 || !file) {
-    return processorFail({ code: "unprocessable_entity", message: "HTML to PDF accepts exactly one HTML input file.", retryable: false });
+    return processorFail({
+      code: "unprocessable_entity",
+      message: "HTML to PDF accepts exactly one HTML input file.",
+      retryable: false,
+    });
   }
   return undefined;
 }
 
 function readUrl(options: Record<string, unknown>): string | ProcessorResult {
   const url = options.url;
-  if (typeof url !== "string" || url.trim().length === 0 || !isSafePublicHttpUrl(url)) {
-    return processorFail({ code: "unprocessable_entity", message: "Webpage to PDF requires a public http(s) URL.", retryable: false });
+  if (
+    typeof url !== "string" ||
+    url.trim().length === 0 ||
+    !isSafePublicHttpUrl(url)
+  ) {
+    return processorFail({
+      code: "unprocessable_entity",
+      message: "Webpage to PDF requires a public http(s) URL.",
+      retryable: false,
+    });
   }
   return url;
 }
@@ -108,19 +147,45 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
         const file = input.inputs[0]!;
         const run = await runHtmlToPdf(file.bytes, deps);
         if (!run.ok) return processorFail(jobError(run));
-        return processorOk([{ filename: htmlPdfOutputName(file.filename), contentType: OUTPUT_CONTENT_TYPE, bytes: run.output }], toProcessorMeta(run.meta));
+        return processorOk(
+          [
+            {
+              filename: htmlPdfOutputName(file.filename),
+              contentType: OUTPUT_CONTENT_TYPE,
+              bytes: run.output,
+            },
+          ],
+          toProcessorMeta(run.meta),
+        );
       }
       if (input.tool === WEBPAGE_TO_PDF_TOOL) {
         const url = readUrl(input.options);
         if (typeof url !== "string") return url;
         if (input.inputs.length !== 0) {
-          return processorFail({ code: "unprocessable_entity", message: "Webpage to PDF takes a URL, not uploaded files.", retryable: false });
+          return processorFail({
+            code: "unprocessable_entity",
+            message: "Webpage to PDF takes a URL, not uploaded files.",
+            retryable: false,
+          });
         }
         const run = await runWebpageToPdf(url, deps);
         if (!run.ok) return processorFail(jobError(run));
-        return processorOk([{ filename: webpagePdfOutputName(url), contentType: OUTPUT_CONTENT_TYPE, bytes: run.output }], toProcessorMeta(run.meta));
+        return processorOk(
+          [
+            {
+              filename: webpagePdfOutputName(url),
+              contentType: OUTPUT_CONTENT_TYPE,
+              bytes: run.output,
+            },
+          ],
+          toProcessorMeta(run.meta),
+        );
       }
-      return processorFail({ code: "not_implemented", message: "This processor only handles HTML/Webpage to PDF conversion.", retryable: false });
+      return processorFail({
+        code: "not_implemented",
+        message: "This processor only handles HTML/Webpage to PDF conversion.",
+        retryable: false,
+      });
     },
   };
 }

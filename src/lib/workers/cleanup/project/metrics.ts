@@ -16,7 +16,10 @@
  */
 
 import { cleanupProjectionMetric } from "../../observability/metrics";
-import { NOOP_METRIC_SINK, type WorkerMetricSink } from "../../observability/collector";
+import {
+  NOOP_METRIC_SINK,
+  type WorkerMetricSink,
+} from "../../observability/collector";
 import type { ProjectionTarget, ProjectionVerdict } from "./types";
 
 let sink: WorkerMetricSink = NOOP_METRIC_SINK;

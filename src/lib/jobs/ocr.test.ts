@@ -96,7 +96,9 @@ describe("parseOcrOptions", () => {
     const result = parseOcrOptions({ languages: [...tooMany] });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.body.error.message).toContain(String(MAX_OCR_LANGUAGES));
+      expect(result.error.body.error.message).toContain(
+        String(MAX_OCR_LANGUAGES),
+      );
     }
   });
 
@@ -186,7 +188,16 @@ describe("buildOcrResultMeta — bounded, honest, schema-stable", () => {
   it("filters languages to the allowlist, de-dupes, and caps at the max", () => {
     // A deliberately dirty set (a bogus code, a duplicate, and more than the max) —
     // cast through the input type so the builder's own sanitization is what's tested.
-    const dirty = ["eng", "eng", "klingon", "spa", "fra", "deu", "ita", "por"] as OcrLanguage[];
+    const dirty = [
+      "eng",
+      "eng",
+      "klingon",
+      "spa",
+      "fra",
+      "deu",
+      "ita",
+      "por",
+    ] as OcrLanguage[];
     const meta = buildOcrResultMeta({
       engine: "tesseract",
       languages: dirty,
@@ -298,13 +309,15 @@ describe("buildOcrResultMeta — bounded, honest, schema-stable", () => {
     expect(meta.engine).not.toContain(" ");
     expect(meta.engine.length).toBeLessThanOrEqual(32);
     // An all-unsafe engine name degrades to a fixed placeholder, never empty.
-    expect(buildOcrResultMeta({
-      engine: "/// ",
-      languages: ["eng"],
-      outputMode: "searchable-pdf",
-      producedSearchablePdf: true,
-      producedTextSidecar: false,
-    }).engine).toBe("unknown");
+    expect(
+      buildOcrResultMeta({
+        engine: "/// ",
+        languages: ["eng"],
+        outputMode: "searchable-pdf",
+        producedSearchablePdf: true,
+        producedTextSidecar: false,
+      }).engine,
+    ).toBe("unknown");
   });
 
   it("produces a schema-stable shape with no recognized text or nested content", () => {

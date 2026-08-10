@@ -128,7 +128,8 @@ describe("rate-limit status never leaks a value — variable names only", () => 
           expect(serialized).not.toContain(leak);
         }
         // Any variable it names is a known PDFXYZ_* variable NAME (never a value).
-        for (const name of s.envVars) expect(name.startsWith("PDFXYZ_")).toBe(true);
+        for (const name of s.envVars)
+          expect(name.startsWith("PDFXYZ_")).toBe(true);
       }
     }
   });

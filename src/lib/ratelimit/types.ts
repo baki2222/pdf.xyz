@@ -75,12 +75,7 @@ export interface RateLimitPolicy {
  * the caller, only how long the *rule* asks them to wait. `"none"` on an allow.
  */
 export type RetryAfterBucket =
-  | "none"
-  | "<10s"
-  | "10-60s"
-  | "1-5m"
-  | "5-15m"
-  | "15m+";
+  "none" | "<10s" | "10-60s" | "1-5m" | "5-15m" | "15m+";
 
 /** The provider actually backing the guard in this environment. */
 export type RateLimitProviderId =
@@ -155,7 +150,11 @@ export interface RateLimiterCore {
    * within the window budget. `key` is an already-opaque bucket token (never a
    * raw identity); it is used only as a map key and never surfaced.
    */
-  check(policy: RateLimitPolicy, key: string, nowMs: number): RateLimiterVerdict;
+  check(
+    policy: RateLimitPolicy,
+    key: string,
+    nowMs: number,
+  ): RateLimiterVerdict;
   /** Current number of tracked buckets (for tests / bounded-memory assertions). */
   size(): number;
 }

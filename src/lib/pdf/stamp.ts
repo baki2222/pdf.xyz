@@ -50,7 +50,10 @@ export const STAMP_POSITIONS: readonly StampPosition[] = [
 ] as const;
 
 /** Split a compound position into its horizontal and vertical alignment. */
-export function resolveAlign(position: StampPosition): { h: HAlign; v: VAlign } {
+export function resolveAlign(position: StampPosition): {
+  h: HAlign;
+  v: VAlign;
+} {
   const [v, h] = position.split("-") as [VAlign, HAlign];
   return { h, v };
 }
@@ -68,8 +71,15 @@ export const INK: RGB = { r: 0.28, g: 0.31, b: 0.38 };
 export const WATERMARK_INK: RGB = { r: 0.45, g: 0.47, b: 0.53 };
 
 /** Convert our plain RGB (0–1 channels) into a pdf-lib color. */
-export function toRgb(rgbFn: (r: number, g: number, b: number) => PdfLibRGB, color: RGB) {
-  return rgbFn(clamp(color.r, 0, 1), clamp(color.g, 0, 1), clamp(color.b, 0, 1));
+export function toRgb(
+  rgbFn: (r: number, g: number, b: number) => PdfLibRGB,
+  color: RGB,
+) {
+  return rgbFn(
+    clamp(color.r, 0, 1),
+    clamp(color.g, 0, 1),
+    clamp(color.b, 0, 1),
+  );
 }
 
 /** Clamp a number into an inclusive range. */
@@ -110,7 +120,8 @@ export function applyTokens(template: string, tokens: StampTokens): string {
   let out = template;
   for (const { re, key } of TOKEN_PATTERNS) {
     const value = tokens[key];
-    const replacement = value === undefined || value === null ? "" : String(value);
+    const replacement =
+      value === undefined || value === null ? "" : String(value);
     out = out.replace(re, replacement);
   }
   return out;

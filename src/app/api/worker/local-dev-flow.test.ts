@@ -126,7 +126,11 @@ describe("local-dev compression — full route flow", () => {
       jsonRequest("http://localhost/api/uploads", {
         tool: "compress-pdf",
         files: [
-          { filename: "upload.pdf", contentType: "application/pdf", bytes: pdf.byteLength },
+          {
+            filename: "upload.pdf",
+            contentType: "application/pdf",
+            bytes: pdf.byteLength,
+          },
         ],
       }),
     );
@@ -164,7 +168,11 @@ describe("local-dev compression — full route flow", () => {
       jsonRequest("http://localhost/api/uploads", {
         tool: "compress-pdf",
         files: [
-          { filename: "a.pdf", contentType: "application/pdf", bytes: pdf.byteLength },
+          {
+            filename: "a.pdf",
+            contentType: "application/pdf",
+            bytes: pdf.byteLength,
+          },
         ],
       }),
     );

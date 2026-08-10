@@ -46,7 +46,9 @@ function seed(
     filename: "report.pdf",
     contentType: "application/pdf",
     bytes,
-    ...(opts.manifest === null ? {} : { manifest: opts.manifest ?? pdfManifest(bytes.byteLength) }),
+    ...(opts.manifest === null
+      ? {}
+      : { manifest: opts.manifest ?? pdfManifest(bytes.byteLength) }),
   });
   if (opts.jobStatus) {
     s.putJob({
@@ -66,18 +68,24 @@ function seed(
 
 describe("createLocalDevArtifactBackend — capability by mode", () => {
   it("is ready as the local-dev provider ONLY for the explicit developer worker", () => {
-    expect(createLocalDevArtifactBackend({ mode: "local-dev" }).capability()).toEqual({
+    expect(
+      createLocalDevArtifactBackend({ mode: "local-dev" }).capability(),
+    ).toEqual({
       provider: "local-dev",
       ready: true,
     });
   });
 
   it("reports the remote/none provider (never ready) for a non-dev mode, no fingerprinting", () => {
-    expect(createLocalDevArtifactBackend({ mode: "remote-configured" }).capability()).toEqual({
+    expect(
+      createLocalDevArtifactBackend({ mode: "remote-configured" }).capability(),
+    ).toEqual({
       provider: "remote-configured",
       ready: false,
     });
-    expect(createLocalDevArtifactBackend({ mode: "disabled" }).capability()).toEqual({
+    expect(
+      createLocalDevArtifactBackend({ mode: "disabled" }).capability(),
+    ).toEqual({
       provider: "not-configured",
       ready: false,
     });
@@ -89,7 +97,10 @@ describe("createLocalDevArtifactBackend — fetch projects the store lifecycle",
     const s = store();
     const bytes = enc("%PDF-1.7 body");
     const { artifactId, jobId } = seed(s, bytes, { jobStatus: "completed" });
-    const backend = createLocalDevArtifactBackend({ store: s, mode: "local-dev" });
+    const backend = createLocalDevArtifactBackend({
+      store: s,
+      mode: "local-dev",
+    });
 
     const result = await backend.fetch(artifactId);
     expect(result.kind).toBe("live");
@@ -108,36 +119,48 @@ describe("createLocalDevArtifactBackend — fetch projects the store lifecycle",
   it("carries a null manifest for a manifest-less entry (gate-disabled honesty)", async () => {
     const s = store();
     const bytes = enc("%PDF legacy");
-    const { artifactId } = seed(s, bytes, { manifest: null, jobStatus: "completed" });
-    const result = await createLocalDevArtifactBackend({ store: s, mode: "local-dev" }).fetch(
-      artifactId,
-    );
+    const { artifactId } = seed(s, bytes, {
+      manifest: null,
+      jobStatus: "completed",
+    });
+    const result = await createLocalDevArtifactBackend({
+      store: s,
+      mode: "local-dev",
+    }).fetch(artifactId);
     if (result.kind === "live") expect(result.artifact.manifest).toBeNull();
     else throw new Error("expected live");
   });
 
   it("reports jobCompleted=false when the owning job record is not completed", async () => {
     const s = store();
-    const { artifactId } = seed(s, enc("%PDF pending"), { jobStatus: "processing" });
-    const result = await createLocalDevArtifactBackend({ store: s, mode: "local-dev" }).fetch(
-      artifactId,
-    );
-    if (result.kind === "live") expect(result.artifact.jobCompleted).toBe(false);
+    const { artifactId } = seed(s, enc("%PDF pending"), {
+      jobStatus: "processing",
+    });
+    const result = await createLocalDevArtifactBackend({
+      store: s,
+      mode: "local-dev",
+    }).fetch(artifactId);
+    if (result.kind === "live")
+      expect(result.artifact.jobCompleted).toBe(false);
     else throw new Error("expected live");
   });
 
   it("treats a live artifact whose job record is gone as still completed (defense-in-depth)", async () => {
     const s = store();
     const { artifactId } = seed(s, enc("%PDF no-job")); // no job record put
-    const result = await createLocalDevArtifactBackend({ store: s, mode: "local-dev" }).fetch(
-      artifactId,
-    );
+    const result = await createLocalDevArtifactBackend({
+      store: s,
+      mode: "local-dev",
+    }).fetch(artifactId);
     if (result.kind === "live") expect(result.artifact.jobCompleted).toBe(true);
     else throw new Error("expected live");
   });
 
   it("passes an unknown handle through as absent (404 semantics upstream)", async () => {
-    const backend = createLocalDevArtifactBackend({ store: store(), mode: "local-dev" });
+    const backend = createLocalDevArtifactBackend({
+      store: store(),
+      mode: "local-dev",
+    });
     expect((await backend.fetch(newArtifactId())).kind).toBe("absent");
   });
 
@@ -145,19 +168,31 @@ describe("createLocalDevArtifactBackend — fetch projects the store lifecycle",
     const s = store();
     const { artifactId } = seed(s, enc("%PDF bye"), { jobStatus: "completed" });
     expect(s.deleteArtifact(artifactId)).toBe(true);
-    expect((await createLocalDevArtifactBackend({ store: s, mode: "local-dev" }).fetch(artifactId)).kind).toBe(
-      "deleted",
-    );
+    expect(
+      (
+        await createLocalDevArtifactBackend({
+          store: s,
+          mode: "local-dev",
+        }).fetch(artifactId)
+      ).kind,
+    ).toBe("deleted");
   });
 
   it("reports an entry whose retention window has passed as expired", async () => {
     const s = store();
-    const { artifactId } = seed(s, enc("%PDF gone"), { jobStatus: "completed" });
+    const { artifactId } = seed(s, enc("%PDF gone"), {
+      jobStatus: "completed",
+    });
     // Force the retention window closed relative to the fixed clock.
     const stored = s.retrieveArtifact(artifactId);
     if (stored.lifecycle === "live") stored.artifact.expiresAt = NOW - 1;
-    expect((await createLocalDevArtifactBackend({ store: s, mode: "local-dev" }).fetch(artifactId)).kind).toBe(
-      "expired",
-    );
+    expect(
+      (
+        await createLocalDevArtifactBackend({
+          store: s,
+          mode: "local-dev",
+        }).fetch(artifactId)
+      ).kind,
+    ).toBe("expired");
   });
 });

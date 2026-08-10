@@ -67,7 +67,10 @@ describe("createMemoryRateLimiter", () => {
   });
 
   it("bounds memory by sweeping expired windows", () => {
-    const rl = createMemoryRateLimiter({ sweepIntervalMs: 1_000, softBucketCap: 2 });
+    const rl = createMemoryRateLimiter({
+      sweepIntervalMs: 1_000,
+      softBucketCap: 2,
+    });
     // Fill several distinct clients inside one window.
     for (const k of ["a", "b", "c", "d", "e"]) rl.check(policy, k, T0);
     expect(rl.size()).toBeGreaterThan(0);

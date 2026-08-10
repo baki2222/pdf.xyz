@@ -5,7 +5,10 @@ import { WORKER_MODE_ENV } from "@/lib/workers";
 import { S3_ENV } from "@/lib/workers/storage/s3-config";
 import { REDIS_QUEUE_ENV } from "@/lib/workers/queue/redis-config";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
-import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
+import {
+  enforceRateLimit,
+  resetRateLimitGuardForTests,
+} from "@/lib/ratelimit/guard";
 import { GET } from "./route";
 
 const s3Vars = Object.values(S3_ENV);
@@ -26,7 +29,8 @@ function clearEnv() {
 function configureRedis() {
   process.env[REDIS_QUEUE_ENV.provider] = "redis";
   process.env[REDIS_QUEUE_ENV.restUrl] = "https://us1-example-12345.upstash.io";
-  process.env[REDIS_QUEUE_ENV.restToken] = "AX_tokenEXAMPLEvalue000000000000000000000";
+  process.env[REDIS_QUEUE_ENV.restToken] =
+    "AX_tokenEXAMPLEvalue000000000000000000000";
 }
 
 function configureS3() {
@@ -35,7 +39,8 @@ function configureS3() {
   process.env[S3_ENV.region] = "us-east-1";
   process.env[S3_ENV.bucket] = "pdfxyz-prod";
   process.env[S3_ENV.accessKeyId] = "AKIAEXAMPLE0000000";
-  process.env[S3_ENV.secretAccessKey] = "s3cr3tEXAMPLEkeyValue00000000000000000000";
+  process.env[S3_ENV.secretAccessKey] =
+    "s3cr3tEXAMPLEkeyValue00000000000000000000";
 }
 
 beforeEach(clearEnv);
@@ -50,7 +55,11 @@ describe("GET /api/worker/status", () => {
     const body = await res.json();
     expect(body.mode).toBe("disabled");
     expect(body.enabled).toBe(false);
-    expect(body.compress).toEqual({ lossless: false, deep: false, engines: [] });
+    expect(body.compress).toEqual({
+      lossless: false,
+      deep: false,
+      engines: [],
+    });
     // OCR is never probed by the route, so it is honestly unavailable.
     expect(body.ocr.available).toBe(false);
     expect(body.ocr.engine).toBeNull();
@@ -167,7 +176,8 @@ describe("GET /api/worker/status — abuse guard", () => {
   it("returns 429 with Retry-After once the probe budget is spent", async () => {
     const policy = policyFor("worker.status");
     const bare = new Request("http://localhost/api/worker/status");
-    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("worker.status", bare);
+    for (let i = 0; i < policy.limit; i++)
+      await enforceRateLimit("worker.status", bare);
 
     const denied = await GET(bare);
     expect(denied.status).toBe(429);

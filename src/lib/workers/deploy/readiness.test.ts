@@ -22,10 +22,22 @@ const DRAINABLE_ENV = {
   PDFXYZ_REDIS_REST_TOKEN: "redis-rest-token-1234",
 } as const;
 
-const DEEP: EngineHealthInput = { lossless: true, deep: true, engines: ["ghostscript"] };
-const LOSSLESS_ONLY: EngineHealthInput = { lossless: true, deep: false, engines: [] };
+const DEEP: EngineHealthInput = {
+  lossless: true,
+  deep: true,
+  engines: ["ghostscript"],
+};
+const LOSSLESS_ONLY: EngineHealthInput = {
+  lossless: true,
+  deep: false,
+  engines: [],
+};
 
-function facet(env: Record<string, string>, id: FacetId, engine?: EngineHealthInput) {
+function facet(
+  env: Record<string, string>,
+  id: FacetId,
+  engine?: EngineHealthInput,
+) {
   const daemon = resolveDaemonReadiness(env);
   const readiness = resolveDeploymentReadiness(daemon, env, { engine });
   return readiness.facets.find((f) => f.id === id)!;
@@ -42,7 +54,9 @@ describe("resolveDeploymentReadiness — posture", () => {
 
   it("is degraded when drainable but the lifecycle backstop is unknown", () => {
     const daemon = resolveDaemonReadiness(DRAINABLE_ENV);
-    const r = resolveDeploymentReadiness(daemon, DRAINABLE_ENV, { engine: DEEP });
+    const r = resolveDeploymentReadiness(daemon, DRAINABLE_ENV, {
+      engine: DEEP,
+    });
     expect(r.drainable).toBe(true);
     expect(r.posture).toBe("degraded");
   });
@@ -94,20 +108,23 @@ describe("resolveDeploymentReadiness — facets", () => {
   it("maps the optional malware scanner's state to a facet, honestly", () => {
     // Nothing declared → not-configured & inactive.
     expect(facet({}, "malware-scan").state).toBe("not-configured");
-    expect(resolveDeploymentReadiness(resolveDaemonReadiness({}), {}).malwareScan.active).toBe(
-      false,
-    );
+    expect(
+      resolveDeploymentReadiness(resolveDaemonReadiness({}), {}).malwareScan
+        .active,
+    ).toBe(false);
     // A usable clamd endpoint → ready & ACTIVE (inputs are scanned).
-    const configured = { [MALWARE_SCANNER_ENV]: "clamav://clamd.internal:3310" };
+    const configured = {
+      [MALWARE_SCANNER_ENV]: "clamav://clamd.internal:3310",
+    };
     expect(facet(configured, "malware-scan").state).toBe("ready");
     expect(
-      resolveDeploymentReadiness(resolveDaemonReadiness(configured), configured).malwareScan
-        .active,
+      resolveDeploymentReadiness(resolveDaemonReadiness(configured), configured)
+        .malwareScan.active,
     ).toBe(true);
     // Selected-but-misconfigured → degraded & inactive (a caveat, not a silent pass).
-    expect(facet({ [MALWARE_SCANNER_ENV]: "clamav://" }, "malware-scan").state).toBe(
-      "degraded",
-    );
+    expect(
+      facet({ [MALWARE_SCANNER_ENV]: "clamav://" }, "malware-scan").state,
+    ).toBe("degraded");
   });
 
   it("reports OCR not-implemented by default (no OCR backend wired)", () => {
@@ -122,7 +139,10 @@ describe("resolveDeploymentReadiness — facets", () => {
     // A real engine + runner are wired → ready.
     const ready = resolveDeploymentReadiness(daemon, DRAINABLE_ENV, {
       engine: DEEP,
-      ocr: { ready: true, detail: "OCR ready on an encrypted, auto-deleting secure worker." },
+      ocr: {
+        ready: true,
+        detail: "OCR ready on an encrypted, auto-deleting secure worker.",
+      },
     });
     expect(ready.facets.find((f) => f.id === "ocr")!.state).toBe("ready");
     expect(ready.detail).toMatch(/OCR is available/);
@@ -131,16 +151,23 @@ describe("resolveDeploymentReadiness — facets", () => {
     // honestly not-configured, never falsely "ready".
     const notReady = resolveDeploymentReadiness(daemon, DRAINABLE_ENV, {
       engine: DEEP,
-      ocr: { ready: false, detail: "OCR isn't available: this build ships no OCR runner here." },
+      ocr: {
+        ready: false,
+        detail: "OCR isn't available: this build ships no OCR runner here.",
+      },
     });
-    expect(notReady.facets.find((f) => f.id === "ocr")!.state).toBe("not-configured");
+    expect(notReady.facets.find((f) => f.id === "ocr")!.state).toBe(
+      "not-configured",
+    );
   });
 });
 
 describe("resolveDeploymentReadiness — content-free", () => {
   it("never leaks a bucket, endpoint, secret, or variable name", () => {
     const daemon = resolveDaemonReadiness(DRAINABLE_ENV);
-    const r = resolveDeploymentReadiness(daemon, DRAINABLE_ENV, { engine: DEEP });
+    const r = resolveDeploymentReadiness(daemon, DRAINABLE_ENV, {
+      engine: DEEP,
+    });
     const serialized = JSON.stringify(r);
     for (const leak of [
       "pdfxyz-store",

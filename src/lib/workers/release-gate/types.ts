@@ -54,7 +54,12 @@ export const RELEASE_GATE_POLICY_VERSION = 1;
  * These are the exact bounded values the run-level {@link WorkerMetricName} `worker_release_gate_total`
  * carries as its `verdict` label; all four are low-cardinality, redaction-stable tokens.
  */
-export const RELEASE_GATE_VERDICTS = ["pass", "warn", "fail", "unknown"] as const;
+export const RELEASE_GATE_VERDICTS = [
+  "pass",
+  "warn",
+  "fail",
+  "unknown",
+] as const;
 export type ReleaseGateVerdict = (typeof RELEASE_GATE_VERDICTS)[number];
 
 /**
@@ -75,7 +80,8 @@ export const RELEASE_GATE_EXIT = {
   WARN: 3,
   FAIL: 4,
 } as const;
-export type ReleaseGateExitCode = (typeof RELEASE_GATE_EXIT)[keyof typeof RELEASE_GATE_EXIT];
+export type ReleaseGateExitCode =
+  (typeof RELEASE_GATE_EXIT)[keyof typeof RELEASE_GATE_EXIT];
 
 /**
  * The per-check status the gate records for each composed check:
@@ -87,7 +93,13 @@ export type ReleaseGateExitCode = (typeof RELEASE_GATE_EXIT)[keyof typeof RELEAS
  *  - `unknown` — the check could not be run to a verdict (a spawn failure, a timeout, or a crash);
  *  - `skip`    — the check was deliberately excluded by a scope flag (`--skip` / `--only`).
  */
-export const RELEASE_CHECK_STATUSES = ["pass", "warn", "fail", "unknown", "skip"] as const;
+export const RELEASE_CHECK_STATUSES = [
+  "pass",
+  "warn",
+  "fail",
+  "unknown",
+  "skip",
+] as const;
 export type ReleaseCheckStatus = (typeof RELEASE_CHECK_STATUSES)[number];
 
 /**
@@ -120,7 +132,10 @@ export type ReleaseCheckId = (typeof RELEASE_CHECK_IDS)[number];
 
 /** True when `value` is a recognized bounded check id (for validating `--skip`/`--only`). */
 export function isReleaseCheckId(value: unknown): value is ReleaseCheckId {
-  return typeof value === "string" && (RELEASE_CHECK_IDS as readonly string[]).includes(value);
+  return (
+    typeof value === "string" &&
+    (RELEASE_CHECK_IDS as readonly string[]).includes(value)
+  );
 }
 
 /**
@@ -207,13 +222,14 @@ export function releaseGateExitCode(result: ReleaseGateResult): number {
  * ------------------------------------------------------------------ */
 
 /** The one-line rollup headline per verdict. Authored here, keyed by the enum. */
-export const RELEASE_GATE_VERDICT_SUMMARY: Record<ReleaseGateVerdict, string> = {
-  pass: "READY to promote: every included release-readiness check passed on this build/host.",
-  warn: "READY with a caveat: no check failed, but an advisory check flagged a concern to review before promoting.",
-  fail: "NOT READY to promote: a blocking release-readiness check failed. Resolve it before promoting.",
-  unknown:
-    "READINESS UNKNOWN: a check could not be run to a verdict, or no check was included. The gate will not certify a promotion it could not verify.",
-};
+export const RELEASE_GATE_VERDICT_SUMMARY: Record<ReleaseGateVerdict, string> =
+  {
+    pass: "READY to promote: every included release-readiness check passed on this build/host.",
+    warn: "READY with a caveat: no check failed, but an advisory check flagged a concern to review before promoting.",
+    fail: "NOT READY to promote: a blocking release-readiness check failed. Resolve it before promoting.",
+    unknown:
+      "READINESS UNKNOWN: a check could not be run to a verdict, or no check was included. The gate will not certify a promotion it could not verify.",
+  };
 
 /**
  * The honesty caveats every report carries and every text render prints. The gate RUNS existing

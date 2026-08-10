@@ -38,7 +38,9 @@ describe("buildWorkerStatus", () => {
     // The detail names its own vantage (this web process), never the
     // deployment's: its predecessor read "No secure worker is configured in
     // this environment" and became the /status headline over a live worker.
-    expect(status.detail).toMatch(/this web process runs no in-process worker/i);
+    expect(status.detail).toMatch(
+      /this web process runs no in-process worker/i,
+    );
     // With nothing observed and nothing drainable, the pipeline verdict is off.
     expect(status.pipeline).toMatchObject({
       verdict: "off",
@@ -48,7 +50,11 @@ describe("buildWorkerStatus", () => {
   });
 
   it("reports OCR as unavailable with an honest reason in every mode", () => {
-    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+    for (const mode of [
+      "disabled",
+      "remote-configured",
+      "local-dev",
+    ] as const) {
       const status = buildWorkerStatus(mode);
       expect(status.ocr.available).toBe(false);
       expect(status.ocr.engine).toBeNull();
@@ -131,7 +137,9 @@ describe("buildWorkerStatus", () => {
     expect(fromTools.security.available).toBe(true);
 
     // No qpdf anywhere ⇒ unavailable.
-    expect(buildWorkerStatus("local-dev", noTools).security.available).toBe(false);
+    expect(buildWorkerStatus("local-dev", noTools).security.available).toBe(
+      false,
+    );
     const disabledSecurity = buildWorkerStatus("disabled").security;
     // The shared qpdf facet backs security + structure tools; unavailable copy
     // must not claim the whole facet is only password protection.
@@ -139,7 +147,9 @@ describe("buildWorkerStatus", () => {
     expect(disabledSecurity.detail).toMatch(/qpdf-backed PDF tools/i);
     expect(disabledSecurity.detail).not.toMatch(/password protection needs/i);
     // The web process never claims availability for a remote worker's engine.
-    expect(buildWorkerStatus("remote-configured").security.available).toBe(false);
+    expect(buildWorkerStatus("remote-configured").security.available).toBe(
+      false,
+    );
   });
 
   it("treats missing tool data in local-dev as no deep engine", () => {
@@ -177,13 +187,20 @@ describe("buildWorkerStatus — provider readiness", () => {
   });
 
   it("reports executor readiness per mode (presence-only)", () => {
-    expect(buildWorkerStatus("local-dev", noTools).providers.processor.executor)
-      .toMatchObject({ mode: "in-process", ready: true });
-    expect(buildWorkerStatus("remote-configured").providers.processor.executor)
-      .toMatchObject({ mode: "not-implemented", ready: false });
-    expect(buildWorkerStatus("disabled").providers.processor.executor)
-      .toMatchObject({ mode: "none", ready: false });
-    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+    expect(
+      buildWorkerStatus("local-dev", noTools).providers.processor.executor,
+    ).toMatchObject({ mode: "in-process", ready: true });
+    expect(
+      buildWorkerStatus("remote-configured").providers.processor.executor,
+    ).toMatchObject({ mode: "not-implemented", ready: false });
+    expect(
+      buildWorkerStatus("disabled").providers.processor.executor,
+    ).toMatchObject({ mode: "none", ready: false });
+    for (const mode of [
+      "disabled",
+      "remote-configured",
+      "local-dev",
+    ] as const) {
       const { executor } = buildWorkerStatus(mode).providers.processor;
       expect(executor.detail.length).toBeGreaterThan(0);
       expect(executor.detail).not.toMatch(/PDFXYZ_/);
@@ -191,7 +208,11 @@ describe("buildWorkerStatus — provider readiness", () => {
   });
 
   it("never leaks a variable name in any provider detail", () => {
-    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+    for (const mode of [
+      "disabled",
+      "remote-configured",
+      "local-dev",
+    ] as const) {
       const { providers } = buildWorkerStatus(mode);
       const details = [
         providers.storage.detail,
@@ -206,7 +227,12 @@ describe("buildWorkerStatus — provider readiness", () => {
 describe("buildWorkerStatus — S3 storage readiness (independent of queue/processor)", () => {
   it("reports storage ready while queue/processor stay not-ready when only S3 is wired", () => {
     for (const mode of ["disabled", "remote-configured"] as const) {
-      const { providers } = buildWorkerStatus(mode, undefined, undefined, s3Env);
+      const { providers } = buildWorkerStatus(
+        mode,
+        undefined,
+        undefined,
+        s3Env,
+      );
       expect(providers.storage).toMatchObject({
         provider: "s3",
         ready: true,
@@ -218,20 +244,41 @@ describe("buildWorkerStatus — S3 storage readiness (independent of queue/proce
   });
 
   it("keeps the S3 storage detail free of any variable name or value", () => {
-    const { providers } = buildWorkerStatus("disabled", undefined, undefined, s3Env);
+    const { providers } = buildWorkerStatus(
+      "disabled",
+      undefined,
+      undefined,
+      s3Env,
+    );
     const detail = providers.storage.detail;
-    for (const leak of ["pdfxyz-prod", "amazonaws", "us-east-1", "AKIA", "PDFXYZ_"]) {
+    for (const leak of [
+      "pdfxyz-prod",
+      "amazonaws",
+      "us-east-1",
+      "AKIA",
+      "PDFXYZ_",
+    ]) {
       expect(detail).not.toContain(leak);
     }
   });
 
   it("ignores S3 config in local-dev mode (the in-process store serves)", () => {
-    const { providers } = buildWorkerStatus("local-dev", noTools, undefined, s3Env);
+    const { providers } = buildWorkerStatus(
+      "local-dev",
+      noTools,
+      undefined,
+      s3Env,
+    );
     expect(providers.storage.provider).toBe("local-dev");
   });
 
   it("falls back to honest not-configured storage with an explicit empty env", () => {
-    const { providers } = buildWorkerStatus("disabled", undefined, undefined, noEnv);
+    const { providers } = buildWorkerStatus(
+      "disabled",
+      undefined,
+      undefined,
+      noEnv,
+    );
     expect(providers.storage.ready).toBe(false);
     expect(providers.storage.provider).toBe("disabled");
   });
@@ -327,7 +374,12 @@ describe("buildWorkerStatus — worker daemon readiness (Phase 16)", () => {
   };
 
   it("reports the daemon not drainable and never in-process by default", () => {
-    const { daemon } = buildWorkerStatus("disabled", undefined, undefined, noEnv);
+    const { daemon } = buildWorkerStatus(
+      "disabled",
+      undefined,
+      undefined,
+      noEnv,
+    );
     expect(daemon.drainable).toBe(false);
     expect(daemon.runsInThisProcess).toBe(false);
   });
@@ -340,14 +392,19 @@ describe("buildWorkerStatus — worker daemon readiness (Phase 16)", () => {
     expect(daemon).toMatchObject({ drainable: true, runsInThisProcess: false });
     // Storage alone is not enough to drain.
     expect(
-      buildWorkerStatus("disabled", undefined, undefined, s3Env).daemon.drainable,
+      buildWorkerStatus("disabled", undefined, undefined, s3Env).daemon
+        .drainable,
     ).toBe(false);
   });
 });
 
 describe("buildWorkerStatus — AI provider readiness", () => {
   it("reports AI not ready in every mode when nothing is declared", () => {
-    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+    for (const mode of [
+      "disabled",
+      "remote-configured",
+      "local-dev",
+    ] as const) {
       const { ai } = buildWorkerStatus(mode, undefined, undefined, noEnv);
       expect(ai.ready).toBe(false);
       expect(ai.declared).toBe(false);
@@ -359,7 +416,11 @@ describe("buildWorkerStatus — AI provider readiness", () => {
   it("reports AI ready from the declaration alone, independently of the mode", () => {
     // AI always runs on the out-of-band worker, so — exactly like `daemon` — its
     // readiness is mode-independent and derived from the non-secret family switch.
-    for (const mode of ["disabled", "remote-configured", "local-dev"] as const) {
+    for (const mode of [
+      "disabled",
+      "remote-configured",
+      "local-dev",
+    ] as const) {
       const { ai } = buildWorkerStatus(mode, undefined, undefined, {
         [AI_ENV.provider]: "anthropic",
       });

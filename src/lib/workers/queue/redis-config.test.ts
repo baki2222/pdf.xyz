@@ -23,9 +23,15 @@ const validEnv = (
 describe("isRedisQueueSelected", () => {
   it("is true only for a recognized provider value (case-insensitive)", () => {
     expect(isRedisQueueSelected({})).toBe(false);
-    expect(isRedisQueueSelected({ [REDIS_QUEUE_ENV.provider]: "sqs" })).toBe(false);
-    expect(isRedisQueueSelected({ [REDIS_QUEUE_ENV.provider]: "redis" })).toBe(true);
-    expect(isRedisQueueSelected({ [REDIS_QUEUE_ENV.provider]: "REDIS" })).toBe(true);
+    expect(isRedisQueueSelected({ [REDIS_QUEUE_ENV.provider]: "sqs" })).toBe(
+      false,
+    );
+    expect(isRedisQueueSelected({ [REDIS_QUEUE_ENV.provider]: "redis" })).toBe(
+      true,
+    );
+    expect(isRedisQueueSelected({ [REDIS_QUEUE_ENV.provider]: "REDIS" })).toBe(
+      true,
+    );
     expect(
       isRedisQueueSelected({ [REDIS_QUEUE_ENV.provider]: "  upstash-redis " }),
     ).toBe(true);
@@ -110,10 +116,14 @@ describe("parseRedisQueueConfig — malformed values", () => {
       "https://user:pass@example.com",
       "https://example.com?x=1",
     ]) {
-      const result = parseRedisQueueConfig(validEnv({ [REDIS_QUEUE_ENV.restUrl]: url }));
+      const result = parseRedisQueueConfig(
+        validEnv({ [REDIS_QUEUE_ENV.restUrl]: url }),
+      );
       expect(result.ok).toBe(false);
       if (result.ok) continue;
-      expect(result.issues.map((i) => i.field)).toContain(REDIS_QUEUE_ENV.restUrl);
+      expect(result.issues.map((i) => i.field)).toContain(
+        REDIS_QUEUE_ENV.restUrl,
+      );
     }
   });
 
@@ -123,7 +133,9 @@ describe("parseRedisQueueConfig — malformed values", () => {
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues.map((i) => i.field)).toContain(REDIS_QUEUE_ENV.restToken);
+    expect(result.issues.map((i) => i.field)).toContain(
+      REDIS_QUEUE_ENV.restToken,
+    );
   });
 
   it("rejects a traversal / illegal key prefix", () => {
@@ -133,7 +145,9 @@ describe("parseRedisQueueConfig — malformed values", () => {
       );
       expect(result.ok).toBe(false);
       if (result.ok) continue;
-      expect(result.issues.map((i) => i.field)).toContain(REDIS_QUEUE_ENV.keyPrefix);
+      expect(result.issues.map((i) => i.field)).toContain(
+        REDIS_QUEUE_ENV.keyPrefix,
+      );
     }
   });
 
@@ -193,7 +207,9 @@ describe("resolveQueueCapability", () => {
   it("returns null (fall back to honest not-configured) when unset or invalid", () => {
     expect(resolveQueueCapability({})).toBeNull();
     expect(
-      resolveQueueCapability(validEnv({ [REDIS_QUEUE_ENV.restToken]: undefined })),
+      resolveQueueCapability(
+        validEnv({ [REDIS_QUEUE_ENV.restToken]: undefined }),
+      ),
     ).toBeNull();
   });
 

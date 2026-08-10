@@ -150,7 +150,9 @@ function boolean(env: EnvSource, name: string): boolean {
  * knob independently falls back to its safe default, so a single bad value never
  * disturbs the others.
  */
-export function resolveIntakePolicy(env: EnvSource = process.env): IntakePolicy {
+export function resolveIntakePolicy(
+  env: EnvSource = process.env,
+): IntakePolicy {
   return {
     maxFileBytes: boundedInt(
       env,

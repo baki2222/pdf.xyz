@@ -183,7 +183,9 @@ async function tagCandidates(page: Page): Promise<Candidate[]> {
       return value;
     };
 
-    for (const el of Array.from(document.body.querySelectorAll<HTMLElement>("*"))) {
+    for (const el of Array.from(
+      document.body.querySelectorAll<HTMLElement>("*"),
+    )) {
       const ownText = Array.from(el.childNodes)
         .filter((n) => n.nodeType === Node.TEXT_NODE)
         .map((n) => n.textContent ?? "")
@@ -280,12 +282,15 @@ async function textRects(
       return true;
     };
 
-    const out: Record<string, { x: number; y: number; width: number; height: number }[]> =
-      {};
+    const out: Record<
+      string,
+      { x: number; y: number; width: number; height: number }[]
+    > = {};
     for (const elementId of elementIds) {
       const el = document.querySelector(`[data-a11y-id="${elementId}"]`);
       if (!el) continue;
-      const rects: { x: number; y: number; width: number; height: number }[] = [];
+      const rects: { x: number; y: number; width: number; height: number }[] =
+        [];
       for (const node of Array.from(el.childNodes)) {
         if (node.nodeType !== Node.TEXT_NODE) continue;
         if (!(node.textContent ?? "").trim()) continue;
@@ -360,7 +365,9 @@ async function auditRoute(
   await page.goto(`${BASE}${route}`, { waitUntil: "load", timeout: 45_000 });
   // Client panels decide what to render after a `/api/worker/status` fetch;
   // give that a chance to settle, but never block the audit on it.
-  await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
+  await page
+    .waitForLoadState("networkidle", { timeout: 8_000 })
+    .catch(() => {});
   await page.evaluate(() => document.fonts.ready);
 
   const candidates = await tagCandidates(page);
@@ -430,7 +437,10 @@ async function auditRoute(
       measured++;
       const foreground = compositeOver(parsed, background);
       const ratio = contrastRatio(foreground, background);
-      const required = requiredRatioAA(candidate.fontSize, candidate.fontWeight);
+      const required = requiredRatioAA(
+        candidate.fontSize,
+        candidate.fontWeight,
+      );
       if (ratio + 1e-9 < required) {
         findings.push({
           route,
@@ -490,7 +500,8 @@ async function main(): Promise<number> {
       // `__name is not defined`. Supplied as a string so it is injected
       // verbatim rather than being transformed the same way.
       await context.addInitScript({
-        content: "globalThis.__name = globalThis.__name || function (f) { return f; };",
+        content:
+          "globalThis.__name = globalThis.__name || function (f) { return f; };",
       });
       for (const route of routes) {
         const result = await auditRoute(page, route, viewport.name);
@@ -514,7 +525,13 @@ async function main(): Promise<number> {
     writeFileSync(
       jsonPath,
       JSON.stringify(
-        { base: BASE, measured, skipped, unresolved: [...unresolved], findings },
+        {
+          base: BASE,
+          measured,
+          skipped,
+          unresolved: [...unresolved],
+          findings,
+        },
         null,
         2,
       ),

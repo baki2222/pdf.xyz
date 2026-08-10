@@ -31,7 +31,9 @@ import { resetTelemetry } from "@/lib/telemetry/track";
 const runWorkerChatWithPdf = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/workers/chat-with-pdf-client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/workers/chat-with-pdf-client")>()),
+  ...(await importOriginal<
+    typeof import("@/lib/workers/chat-with-pdf-client")
+  >()),
   runWorkerChatWithPdf,
 }));
 
@@ -50,20 +52,40 @@ const READY: WorkerStatus = {
   detail: "A worker backend is configured.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: false, detail: "not scanned" },
-  ocr: { available: true, engine: "tesseract", languages: ["eng"], detail: "OCR runs on the worker." },
-  security: { available: true, operations: ["protect", "unlock"], detail: "qpdf runs on the worker." },
+  ocr: {
+    available: true,
+    engine: "tesseract",
+    languages: ["eng"],
+    detail: "OCR runs on the worker.",
+  },
+  security: {
+    available: true,
+    operations: ["protect", "unlock"],
+    detail: "qpdf runs on the worker.",
+  },
   providers: {
     ...providers,
     storage: { ...providers.storage, ready: true },
     queue: { ...providers.queue, ready: true },
   },
   daemon: { ...resolveDaemonReadiness({}), drainable: true },
-  ai: resolveAiReadiness({ PDFXYZ_AI_PROVIDER: "openai", PDFXYZ_AI_MODEL: "gpt-5.6-luna" }),
-  pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
+  ai: resolveAiReadiness({
+    PDFXYZ_AI_PROVIDER: "openai",
+    PDFXYZ_AI_MODEL: "gpt-5.6-luna",
+  }),
+  pipeline: {
+    verdict: "off",
+    observed: false,
+    drainable: false,
+    detail: "no worker observed",
+  },
 };
 
 function stubStatus() {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => READY }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
+  );
 }
 
 // --- a real package from the real engine -----------------------------------
@@ -84,17 +106,26 @@ function provider(answer: string): AiProvider {
     id: "openai",
     model: "gpt-5.6-luna",
     async complete() {
-      return { ok: true, text: answer, model: "gpt-5.6-luna", usage: { inputTokens: 40, outputTokens: 9 } };
+      return {
+        ok: true,
+        text: answer,
+        model: "gpt-5.6-luna",
+        usage: { inputTokens: 40, outputTokens: 9 },
+      };
     },
   };
 }
 
 /** What the driver resolves to: a genuine engine-built ZIP, wrapped as a job result. */
 async function workerSuccess(question: string, answer: string) {
-  const run = await runChatWithPdf(new Uint8Array([1, 2, 3]), { question }, {
-    extract: extractor(),
-    provider: provider(answer),
-  });
+  const run = await runChatWithPdf(
+    new Uint8Array([1, 2, 3]),
+    { question },
+    {
+      extract: extractor(),
+      provider: provider(answer),
+    },
+  );
   if (!run.ok) throw new Error(`engine failed: ${run.message}`);
   return {
     ok: true as const,
@@ -105,7 +136,10 @@ async function workerSuccess(question: string, answer: string) {
 }
 
 /** The request body the driver was called with on `index`, asserted to exist. */
-function requestAt(index: number): { question: string; context?: { role: string; content: string }[] } {
+function requestAt(index: number): {
+  question: string;
+  context?: { role: string; content: string }[];
+} {
   const call = runWorkerChatWithPdf.mock.calls.at(index);
   expect(call).toBeDefined();
   return call![0];
@@ -116,11 +150,21 @@ async function ask(question: string) {
   const input = document.querySelector('input[type="file"]');
   if (input) {
     fireEvent.change(input, {
-      target: { files: [new File([new Uint8Array([1, 2, 3])], "invoice.pdf", { type: "application/pdf" })] },
+      target: {
+        files: [
+          new File([new Uint8Array([1, 2, 3])], "invoice.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
     });
   }
-  fireEvent.change(await screen.findByRole("textbox"), { target: { value: question } });
-  const submit = screen.getByRole("button", { name: /ask the pdf|send follow-up/i });
+  fireEvent.change(await screen.findByRole("textbox"), {
+    target: { value: question },
+  });
+  const submit = screen.getByRole("button", {
+    name: /ask the pdf|send follow-up/i,
+  });
   await waitFor(() => expect(submit).not.toBeDisabled());
   fireEvent.click(submit);
 }
@@ -141,7 +185,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     stubStatus();
     runWorkerChatWithPdf
       .mockImplementationOnce(() => workerSuccess(first, answer))
-      .mockImplementationOnce(() => workerSuccess(second, "It is due on 30 June 2026 [p.1]."));
+      .mockImplementationOnce(() =>
+        workerSuccess(second, "It is due on 30 June 2026 [p.1]."),
+      );
 
     render(<ChatWithPdfWorkerPanel tool={chatTool} />);
     await screen.findByRole("textbox");
@@ -166,15 +212,21 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
 
   it("states what the next question will carry, so the transcript never overstates it", async () => {
     stubStatus();
-    runWorkerChatWithPdf.mockImplementation(() => workerSuccess("Q one", "A one."));
+    runWorkerChatWithPdf.mockImplementation(() =>
+      workerSuccess("Q one", "A one."),
+    );
 
     render(<ChatWithPdfWorkerPanel tool={chatTool} />);
     await screen.findByRole("textbox");
     await ask("Q one");
 
-    expect(await screen.findByText(/sent with the previous exchange as context/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/sent with the previous exchange as context/i),
+    ).toBeInTheDocument();
     // And the fact that makes the re-upload comprehensible rather than surprising.
-    expect(screen.getByText(/worker keeps nothing between questions/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/worker keeps nothing between questions/i),
+    ).toBeInTheDocument();
   });
 
   it("keeps an unreadable answer out of context instead of guessing what the model said", async () => {
@@ -191,18 +243,24 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     await screen.findByRole("textbox");
     await ask("What is the total?");
 
-    expect(await screen.findByText(/could not be read here/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/could not be read here/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Some answer.")).not.toBeInTheDocument();
 
     await ask("second");
     await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
     expect(requestAt(1)).not.toHaveProperty("context");
-    expect(screen.getByText(/1 unreadable answer is excluded/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 unreadable answer is excluded/i),
+    ).toBeInTheDocument();
   });
 
   it("drops the conversation when the document is swapped", async () => {
     stubStatus();
-    runWorkerChatWithPdf.mockImplementation(() => workerSuccess("Q one", "A one."));
+    runWorkerChatWithPdf.mockImplementation(() =>
+      workerSuccess("Q one", "A one."),
+    );
 
     render(<ChatWithPdfWorkerPanel tool={chatTool} />);
     await screen.findByRole("textbox");
@@ -211,7 +269,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
 
     // Turns about the previous PDF must never be sent as context for a new one.
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
-    await waitFor(() => expect(screen.queryByText("A one.")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText("A one.")).not.toBeInTheDocument(),
+    );
   });
 
   it("discards an answer for a document the user already replaced", async () => {
@@ -239,17 +299,29 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
     const input = document.querySelector('input[type="file"]');
     fireEvent.change(input!, {
-      target: { files: [new File([new Uint8Array([9])], "other.pdf", { type: "application/pdf" })] },
+      target: {
+        files: [
+          new File([new Uint8Array([9])], "other.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
     });
 
     release();
     await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
     // A's answer belongs to no document on screen, so it must not appear at all.
-    await waitFor(() => expect(screen.queryByText("A's answer.")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText("A's answer.")).not.toBeInTheDocument(),
+    );
 
     // ...and must not travel as context for the document that replaced it.
-    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "Q about B" } });
-    const submit = screen.getByRole("button", { name: /ask the pdf|send follow-up/i });
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "Q about B" },
+    });
+    const submit = screen.getByRole("button", {
+      name: /ask the pdf|send follow-up/i,
+    });
     await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
     await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
@@ -270,8 +342,12 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     await screen.findByText(/shortened/i);
 
     // And what actually goes on the wire really is shortened, not merely described so.
-    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "Q two" } });
-    const submit = screen.getByRole("button", { name: /ask the pdf|send follow-up/i });
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "Q two" },
+    });
+    const submit = screen.getByRole("button", {
+      name: /ask the pdf|send follow-up/i,
+    });
     await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
     await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
@@ -292,16 +368,22 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     const rounds = MAX_CONTEXT_TURNS / 2 + 2;
     for (let i = 0; i < rounds; i++) {
       await ask(`Question ${i}`);
-      expect(await screen.findByText(`Answer to Question ${i}.`)).toBeInTheDocument();
+      expect(
+        await screen.findByText(`Answer to Question ${i}.`),
+      ).toBeInTheDocument();
     }
     await ask("one more");
-    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(rounds + 1));
+    await waitFor(() =>
+      expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(rounds + 1),
+    );
 
     const sent = requestAt(-1).context!;
     expect(sent).toHaveLength(MAX_CONTEXT_TURNS);
     // The recent end survives; the transcript says so rather than implying the model
     // was told everything on screen.
     expect(sent.at(-1)?.content).toBe(`Answer to Question ${rounds - 1}.`);
-    expect(screen.getByText(/oldest exchanges are left out/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/oldest exchanges are left out/i),
+    ).toBeInTheDocument();
   });
 });

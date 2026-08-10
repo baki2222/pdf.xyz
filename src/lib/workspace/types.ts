@@ -13,13 +13,7 @@
 
 /** Coarse file family, derived from name/MIME, used for summaries + suggestions. */
 export type FileFamily =
-  | "pdf"
-  | "image"
-  | "word"
-  | "excel"
-  | "powerpoint"
-  | "text"
-  | "other";
+  "pdf" | "image" | "word" | "excel" | "powerpoint" | "text" | "other";
 
 /** Every {@link FileFamily}, in a stable display order. */
 export const FILE_FAMILIES: readonly FileFamily[] = [
@@ -61,9 +55,7 @@ export interface WorkspaceFile {
 
 /** What a recorded activity entry represents. */
 export type WorkspaceActionKind =
-  | "opened-tool"
-  | "queued-batch"
-  | "cleared-files";
+  "opened-tool" | "queued-batch" | "cleared-files";
 
 /**
  * A recorded workspace activity. Deliberately free of file names or sizes so it

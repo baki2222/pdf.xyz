@@ -36,7 +36,8 @@ export function HandoffProblem({
   handoff: ToolHandoff;
   toolName: string;
 }) {
-  if (handoff.status !== "expired" && handoff.status !== "incompatible") return null;
+  if (handoff.status !== "expired" && handoff.status !== "incompatible")
+    return null;
 
   const body =
     handoff.status === "expired"

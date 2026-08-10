@@ -14,12 +14,12 @@ export function CtaSection() {
             aria-hidden
           />
           <div className="relative flex flex-col items-center gap-6">
-            <h2 className="max-w-2xl text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl">
+            <h2 className="max-w-2xl text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl md:text-5xl">
               Every PDF tool, in one private workspace
             </h2>
-            <p className="max-w-xl text-pretty text-base leading-relaxed text-slate-300 sm:text-lg">
-              Join thousands who edit, convert, and sign documents without giving
-              up their privacy. {toolCount} tools, no sign-up to start.
+            <p className="max-w-xl text-base leading-relaxed text-pretty text-slate-300 sm:text-lg">
+              Join thousands who edit, convert, and sign documents without
+              giving up their privacy. {toolCount} tools, no sign-up to start.
             </p>
             <div className="flex flex-col items-center gap-3 sm:flex-row">
               <Link

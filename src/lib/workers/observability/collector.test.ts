@@ -46,8 +46,15 @@ describe("collector aggregation", () => {
     c.record(processorMetric("ocr", "completed"));
     const snap = c.snapshot();
     expect(sumSeries(snap, "worker_processor_total")).toBe(3);
-    expect(sumSeries(snap, "worker_processor_total", { processor: "compress" })).toBe(2);
-    expect(sumSeries(snap, "worker_processor_total", { processor: "ocr", outcome: "completed" })).toBe(1);
+    expect(
+      sumSeries(snap, "worker_processor_total", { processor: "compress" }),
+    ).toBe(2);
+    expect(
+      sumSeries(snap, "worker_processor_total", {
+        processor: "ocr",
+        outcome: "completed",
+      }),
+    ).toBe(1);
     expect(seriesFor(snap, "worker_processor_total").length).toBe(3);
   });
 
@@ -105,11 +112,21 @@ describe("renderPrometheus", () => {
     c.record(processorLatencyMetric("compress", 2_000)); // 2s → le 2.5
     const text = renderPrometheus(c.snapshot());
     // Cumulative: le 0.1 holds the 50ms observation; by le 2.5 both are counted.
-    expect(text).toContain('worker_processor_latency_seconds_bucket{le="0.1",processor="compress"} 1');
-    expect(text).toContain('worker_processor_latency_seconds_bucket{le="1",processor="compress"} 1');
-    expect(text).toContain('worker_processor_latency_seconds_bucket{le="2.5",processor="compress"} 2');
-    expect(text).toContain('worker_processor_latency_seconds_bucket{le="+Inf",processor="compress"} 2');
-    expect(text).toContain('worker_processor_latency_seconds_count{processor="compress"} 2');
+    expect(text).toContain(
+      'worker_processor_latency_seconds_bucket{le="0.1",processor="compress"} 1',
+    );
+    expect(text).toContain(
+      'worker_processor_latency_seconds_bucket{le="1",processor="compress"} 1',
+    );
+    expect(text).toContain(
+      'worker_processor_latency_seconds_bucket{le="2.5",processor="compress"} 2',
+    );
+    expect(text).toContain(
+      'worker_processor_latency_seconds_bucket{le="+Inf",processor="compress"} 2',
+    );
+    expect(text).toContain(
+      'worker_processor_latency_seconds_count{processor="compress"} 2',
+    );
   });
 
   it("emits flat lines for counters/gauges and stays content-free + deterministic", () => {
@@ -117,7 +134,9 @@ describe("renderPrometheus", () => {
     c.record(processorMetric("ocr", "completed"));
     c.record(processorMetric("ocr", "completed"));
     const text = renderPrometheus(c.snapshot());
-    expect(text).toContain('worker_processor_total{outcome="completed",processor="ocr"} 2');
+    expect(text).toContain(
+      'worker_processor_total{outcome="completed",processor="ocr"} 2',
+    );
     expect(text).not.toMatch(/\/tmp|s3:\/\/|https?:\/\/|secret|filename/i);
     expect(renderPrometheus(c.snapshot())).toBe(text); // deterministic
   });

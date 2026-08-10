@@ -58,9 +58,10 @@ export function diffLines(leftText: string, rightText: string): DiffLine[] {
 
   for (let i = left.length - 1; i >= 0; i -= 1) {
     for (let j = right.length - 1; j >= 0; j -= 1) {
-      dp[i]![j] = left[i] === right[j]
-        ? dp[i + 1]![j + 1]! + 1
-        : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+      dp[i]![j] =
+        left[i] === right[j]
+          ? dp[i + 1]![j + 1]! + 1
+          : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
     }
   }
 
@@ -116,7 +117,9 @@ function buildReport(result: Omit<PdfCompareResult, "report">): string {
     "Diff:",
   ];
   if (!result.hasComparableText) {
-    lines.push("No selectable text was found in either PDF. Use OCR first for scanned/image-only PDFs.");
+    lines.push(
+      "No selectable text was found in either PDF. Use OCR first for scanned/image-only PDFs.",
+    );
   } else if (result.diff.length === 0 || result.identicalText) {
     lines.push("No selectable-text differences found.");
   } else {
@@ -134,10 +137,16 @@ export function compareExtractedPdfText(
   right: ComparablePdfText,
 ): PdfCompareResult {
   const hasComparableText = left.extracted.hasText || right.extracted.hasText;
-  const diff = hasComparableText ? diffLines(left.extracted.text, right.extracted.text) : [];
+  const diff = hasComparableText
+    ? diffLines(left.extracted.text, right.extracted.text)
+    : [];
   const summary = summarize(diff);
-  const comparableLeft = normalizeComparableText(left.extracted.text).join("\n");
-  const comparableRight = normalizeComparableText(right.extracted.text).join("\n");
+  const comparableLeft = normalizeComparableText(left.extracted.text).join(
+    "\n",
+  );
+  const comparableRight = normalizeComparableText(right.extracted.text).join(
+    "\n",
+  );
   const base = {
     leftName: left.name,
     rightName: right.name,

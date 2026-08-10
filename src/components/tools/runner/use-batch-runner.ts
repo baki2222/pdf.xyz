@@ -72,7 +72,10 @@ export function useBatchRunner<R>(
 
   // Re-seed when the set of files actually changes (new picker selection), but
   // not on the initial render (the reducer's init already seeded that set).
-  const signature = useMemo(() => units.map((unit) => unit.id).join("|"), [units]);
+  const signature = useMemo(
+    () => units.map((unit) => unit.id).join("|"),
+    [units],
+  );
   const signatureRef = useRef(signature);
   useEffect(() => {
     if (signatureRef.current === signature) return;

@@ -58,7 +58,11 @@ function queuedJob(tool: string, retention: RetentionPolicy): Job {
 }
 
 /** A processor that returns exactly the outputs the test hands it. */
-function outputProcessor(id: string, tool: string, output: ProcessorArtifact[]) {
+function outputProcessor(
+  id: string,
+  tool: string,
+  output: ProcessorArtifact[],
+) {
   const calls: number[] = [];
   const processor: Processor = {
     id,
@@ -133,7 +137,16 @@ function harness(output: ProcessorArtifact[], opts: Opts = {}) {
     await executor.drain();
   };
 
-  return { store, writes, logs, metrics, receipts, calls, fileId: slot.fileId, run };
+  return {
+    store,
+    writes,
+    logs,
+    metrics,
+    receipts,
+    calls,
+    fileId: slot.fileId,
+    run,
+  };
 }
 
 const manifestSamples = (metrics: WorkerMetricSample[]) =>
@@ -178,14 +191,22 @@ describe("executor artifact-manifest gate — valid outputs publish", () => {
   it("an OCR PDF + text sidecar pair both publish with per-output manifests", async () => {
     const h = harness(
       [
-        { filename: "scan-ocr.pdf", contentType: "application/pdf", bytes: PDF },
+        {
+          filename: "scan-ocr.pdf",
+          contentType: "application/pdf",
+          bytes: PDF,
+        },
         {
           filename: "scan.txt",
           contentType: "text/plain; charset=utf-8",
           bytes: enc("recognized"),
         },
       ],
-      { gate: defaultArtifactManifestGate(), tool: "ocr-pdf", processorId: "ocr" },
+      {
+        gate: defaultArtifactManifestGate(),
+        tool: "ocr-pdf",
+        processorId: "ocr",
+      },
     );
     await h.run();
 
@@ -238,7 +259,9 @@ describe("executor artifact-manifest gate — malformed outputs are rejected bef
     },
     {
       name: "unknown output kind",
-      output: [{ filename: "out.bin", contentType: "application/x-weird", bytes: PDF }],
+      output: [
+        { filename: "out.bin", contentType: "application/x-weird", bytes: PDF },
+      ],
       reason: "unknown_output_kind",
       kind: "unknown",
     },
@@ -298,7 +321,10 @@ describe("executor artifact-manifest gate — malformed outputs are rejected bef
   }
 
   it("a set-level empty result (processor returned zero outputs) is rejected", async () => {
-    const h = harness([], { gate: defaultArtifactManifestGate(), withReceipts: true });
+    const h = harness([], {
+      gate: defaultArtifactManifestGate(),
+      withReceipts: true,
+    });
     await h.run();
     expect(h.writes).toEqual([]);
     expect(h.store.getJob(JOB_ID)?.error?.code).toBe("artifact_invalid");

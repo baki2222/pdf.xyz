@@ -46,10 +46,16 @@ export function RotateRunner() {
   );
 }
 
-function RotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function RotateEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const [rotations, setRotations] = useState<Rotation[]>(pdf.rotations);
-  const [selected, setSelected] = useState<Set<number>>(
-    () => allIndices(pdf.pageCount),
+  const [selected, setSelected] = useState<Set<number>>(() =>
+    allIndices(pdf.pageCount),
   );
   const anchorRef = useRef<number | null>(null);
   const { busy, error, result, run } = useAsyncRun<Uint8Array>();
@@ -82,7 +88,9 @@ function RotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
           ? selected
           : allIndices(pdf.pageCount);
     setRotations((prev) =>
-      prev.map((rot, i) => (targets.has(i) ? normalizeAngle(rot + delta) : rot)),
+      prev.map((rot, i) =>
+        targets.has(i) ? normalizeAngle(rot + delta) : rot,
+      ),
     );
   };
 
@@ -123,7 +131,9 @@ function RotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
 
       <RunnerSection
         title="Rotate"
-        aside={<span className="text-xs text-slate-400">Applies to {scope}</span>}
+        aside={
+          <span className="text-xs text-slate-400">Applies to {scope}</span>
+        }
       >
         <div className="flex flex-wrap items-center gap-2">
           <ChipButton onClick={() => rotateBy(-90)}>
@@ -149,7 +159,9 @@ function RotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
             Clear
           </ChipButton>
           <ChipButton
-            onClick={() => setSelected((prev) => invertSelection(prev, pdf.pageCount))}
+            onClick={() =>
+              setSelected((prev) => invertSelection(prev, pdf.pageCount))
+            }
           >
             Invert
           </ChipButton>

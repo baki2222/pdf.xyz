@@ -43,7 +43,9 @@ function weigh(htmlRelPath: string, name: string): PageWeight | null {
   if (!existsSync(html)) return null;
   const urls = [
     ...new Set(
-      readFileSync(html, "utf8").match(/\/_next\/static\/chunks\/[^"']+?\.js/g) ?? [],
+      readFileSync(html, "utf8").match(
+        /\/_next\/static\/chunks\/[^"']+?\.js/g,
+      ) ?? [],
     ),
   ];
   let bytes = 0;
@@ -67,7 +69,9 @@ function weigh(htmlRelPath: string, name: string): PageWeight | null {
 
 function main(): number {
   if (!existsSync(APP_DIR)) {
-    process.stderr.write("weigh:pages: no .next/server/app — run `pnpm build` first.\n");
+    process.stderr.write(
+      "weigh:pages: no .next/server/app — run `pnpm build` first.\n",
+    );
     return 1;
   }
   const rows = PAGES.map((p) => weigh(p.html, p.name)).filter(

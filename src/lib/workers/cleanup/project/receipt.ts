@@ -39,7 +39,9 @@ export function resetProjectionObserverForTests(): void {
  * swallowed: observability must never turn a valid projection into a crash. Returns the
  * receipt so a caller can also attach it to its own output.
  */
-export function emitProjectionReceipt(receipt: ProjectionReceipt): ProjectionReceipt {
+export function emitProjectionReceipt(
+  receipt: ProjectionReceipt,
+): ProjectionReceipt {
   try {
     observer?.(receipt);
   } catch {

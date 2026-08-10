@@ -34,7 +34,10 @@ import type { RetrievalStorageProvider } from "../artifacts/access";
  */
 export interface CleanupCheckProvider {
   resolveProvider(): RetrievalStorageProvider;
-  readInput(source: "stdin" | "file", filePath: string | undefined): Promise<string>;
+  readInput(
+    source: "stdin" | "file",
+    filePath: string | undefined,
+  ): Promise<string>;
   now(): number;
 }
 
@@ -90,13 +93,23 @@ export async function runCleanupCheck(
       text = await provider.readInput(args.source, args.filePath);
     } catch {
       // A read failure is a usage error — never a crash, never an echo of the path.
-      outcome = buildCleanupUsageError(args.source, generatedAt, ["input-unreadable"]);
-      return { exitCode: outcome.exitCode, output: renderCleanupCheck(outcome, args.format), outcome };
+      outcome = buildCleanupUsageError(args.source, generatedAt, [
+        "input-unreadable",
+      ]);
+      return {
+        exitCode: outcome.exitCode,
+        output: renderCleanupCheck(outcome, args.format),
+        outcome,
+      };
     }
     const parsed = parseCleanupEvidence(text);
     if (!parsed.ok) {
       outcome = buildCleanupUsageError(args.source, generatedAt, parsed.issues);
-      return { exitCode: outcome.exitCode, output: renderCleanupCheck(outcome, args.format), outcome };
+      return {
+        exitCode: outcome.exitCode,
+        output: renderCleanupCheck(outcome, args.format),
+        outcome,
+      };
     }
     const verification = verifyArtifactCleanup(parsed.objects, {
       provider: storageProvider,
@@ -106,7 +119,11 @@ export async function runCleanupCheck(
     observe(
       verification.verdict,
       verification.provider,
-      { total: verification.total, reaped: verification.reaped, drift: verification.drift },
+      {
+        total: verification.total,
+        reaped: verification.reaped,
+        drift: verification.drift,
+      },
       generatedAt,
     );
     outcome = buildCleanupCheckResult(verification, {
@@ -126,7 +143,11 @@ export async function runCleanupCheck(
     observe(
       verification.verdict,
       verification.provider,
-      { total: verification.total, reaped: verification.reaped, drift: verification.drift },
+      {
+        total: verification.total,
+        reaped: verification.reaped,
+        drift: verification.drift,
+      },
       generatedAt,
     );
     outcome = buildCleanupCheckResult(verification, {
@@ -136,5 +157,9 @@ export async function runCleanupCheck(
     });
   }
 
-  return { exitCode: outcome.exitCode, output: renderCleanupCheck(outcome, args.format), outcome };
+  return {
+    exitCode: outcome.exitCode,
+    output: renderCleanupCheck(outcome, args.format),
+    outcome,
+  };
 }

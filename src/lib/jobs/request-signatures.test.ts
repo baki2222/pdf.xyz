@@ -15,8 +15,24 @@ function validOptions(): Record<string, unknown> {
       { name: "Alan Turing", email: "alan@example.com" },
     ],
     fields: [
-      { signer: 0, page: 1, type: "signature", x: 0.1, y: 0.1, width: 0.35, height: 0.06 },
-      { signer: 1, page: 1, type: "signature", x: 0.55, y: 0.1, width: 0.35, height: 0.06 },
+      {
+        signer: 0,
+        page: 1,
+        type: "signature",
+        x: 0.1,
+        y: 0.1,
+        width: 0.35,
+        height: 0.06,
+      },
+      {
+        signer: 1,
+        page: 1,
+        type: "signature",
+        x: 0.55,
+        y: 0.1,
+        width: 0.35,
+        height: 0.06,
+      },
     ],
   };
 }
@@ -63,9 +79,13 @@ describe("parseSignatureRequestOptions", () => {
   });
 
   it("rejects a request with no signers", () => {
-    const parsed = parseSignatureRequestOptions({ ...validOptions(), signers: [] });
+    const parsed = parseSignatureRequestOptions({
+      ...validOptions(),
+      signers: [],
+    });
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.error.body.error.code).toBe("invalid_request");
+    if (!parsed.ok)
+      expect(parsed.error.body.error.code).toBe("invalid_request");
   });
 
   it("rejects too many signers", () => {
@@ -75,46 +95,93 @@ describe("parseSignatureRequestOptions", () => {
     }));
     const parsed = parseSignatureRequestOptions({ ...validOptions(), signers });
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.error.body.error.code).toBe("invalid_request");
+    if (!parsed.ok)
+      expect(parsed.error.body.error.code).toBe("invalid_request");
   });
 
   it("rejects a malformed email", () => {
     const parsed = parseSignatureRequestOptions({
       ...validOptions(),
       signers: [{ name: "Ada", email: "not-an-email" }],
-      fields: [{ signer: 0, page: 1, type: "signature", x: 0.1, y: 0.1, width: 0.2, height: 0.05 }],
+      fields: [
+        {
+          signer: 0,
+          page: 1,
+          type: "signature",
+          x: 0.1,
+          y: 0.1,
+          width: 0.2,
+          height: 0.05,
+        },
+      ],
     });
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.error.body.error.code).toBe("invalid_request");
+    if (!parsed.ok)
+      expect(parsed.error.body.error.code).toBe("invalid_request");
   });
 
   it("rejects a field that references an unknown signer", () => {
     const parsed = parseSignatureRequestOptions({
       ...validOptions(),
-      fields: [{ signer: 5, page: 1, type: "signature", x: 0.1, y: 0.1, width: 0.2, height: 0.05 }],
+      fields: [
+        {
+          signer: 5,
+          page: 1,
+          type: "signature",
+          x: 0.1,
+          y: 0.1,
+          width: 0.2,
+          height: 0.05,
+        },
+      ],
     });
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.error.body.error.code).toBe("invalid_request");
+    if (!parsed.ok)
+      expect(parsed.error.body.error.code).toBe("invalid_request");
   });
 
   it("rejects a field with no signers pointing at it", () => {
-    const parsed = parseSignatureRequestOptions({ ...validOptions(), fields: [] });
+    const parsed = parseSignatureRequestOptions({
+      ...validOptions(),
+      fields: [],
+    });
     expect(parsed.ok).toBe(false);
   });
 
   it("rejects out-of-range fractional coordinates", () => {
     const parsed = parseSignatureRequestOptions({
       ...validOptions(),
-      fields: [{ signer: 0, page: 1, type: "signature", x: 0.9, y: 0.1, width: 0.4, height: 0.05 }],
+      fields: [
+        {
+          signer: 0,
+          page: 1,
+          type: "signature",
+          x: 0.9,
+          y: 0.1,
+          width: 0.4,
+          height: 0.05,
+        },
+      ],
     });
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.error.body.error.code).toBe("invalid_request");
+    if (!parsed.ok)
+      expect(parsed.error.body.error.code).toBe("invalid_request");
   });
 
   it("rejects a non-positive page", () => {
     const parsed = parseSignatureRequestOptions({
       ...validOptions(),
-      fields: [{ signer: 0, page: 0, type: "signature", x: 0.1, y: 0.1, width: 0.2, height: 0.05 }],
+      fields: [
+        {
+          signer: 0,
+          page: 0,
+          type: "signature",
+          x: 0.1,
+          y: 0.1,
+          width: 0.2,
+          height: 0.05,
+        },
+      ],
     });
     expect(parsed.ok).toBe(false);
   });
@@ -122,7 +189,17 @@ describe("parseSignatureRequestOptions", () => {
   it("rejects an unknown field type", () => {
     const parsed = parseSignatureRequestOptions({
       ...validOptions(),
-      fields: [{ signer: 0, page: 1, type: "notarize", x: 0.1, y: 0.1, width: 0.2, height: 0.05 }],
+      fields: [
+        {
+          signer: 0,
+          page: 1,
+          type: "notarize",
+          x: 0.1,
+          y: 0.1,
+          width: 0.2,
+          height: 0.05,
+        },
+      ],
     });
     expect(parsed.ok).toBe(false);
   });
@@ -142,7 +219,9 @@ describe("parseSignatureRequestOptions", () => {
   });
 
   it("rejects a non-object options bag", () => {
-    expect(parseSignatureRequestOptions([] as unknown as Record<string, unknown>).ok).toBe(false);
+    expect(
+      parseSignatureRequestOptions([] as unknown as Record<string, unknown>).ok,
+    ).toBe(false);
   });
 });
 
@@ -154,6 +233,8 @@ describe("signatureRequestOutputName", () => {
   });
 
   it("falls back to a neutral stem when nothing survives sanitization", () => {
-    expect(signatureRequestOutputName("")).toBe("document-signature-request.zip");
+    expect(signatureRequestOutputName("")).toBe(
+      "document-signature-request.zip",
+    );
   });
 });

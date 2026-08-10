@@ -22,10 +22,16 @@
  * resolver never has to know which tool wrote the report.
  */
 
-import { CLEANUP_VERIFICATION_VERDICTS, type CleanupVerdict } from "../cleanup/types";
+import {
+  CLEANUP_VERIFICATION_VERDICTS,
+  type CleanupVerdict,
+} from "../cleanup/types";
 import { CLEANUP_CHECK_SCHEMA } from "../cleanup/render";
 import { ARTIFACT_CLEANUP_SCHEMA } from "../artifacts/cleanup/run";
-import { CLEANUP_SEVERITIES, type CleanupSeverity } from "../artifacts/cleanup/taxonomy";
+import {
+  CLEANUP_SEVERITIES,
+  type CleanupSeverity,
+} from "../artifacts/cleanup/taxonomy";
 import { RETRIEVAL_STORAGE_PROVIDERS } from "../artifacts/access";
 import type { CleanupEvidenceProvider, CleanupEvidenceReason } from "./types";
 
@@ -68,8 +74,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** Return `value` if it is one of `allowed`, else `undefined`. */
-function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+function oneOf<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | undefined {
+  return typeof value === "string" &&
+    (allowed as readonly string[]).includes(value)
     ? (value as T)
     : undefined;
 }

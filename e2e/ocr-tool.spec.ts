@@ -24,7 +24,9 @@ test.describe("OCR secure-worker tool page", () => {
     await expect(
       page.getByRole("radio", { name: "Searchable PDF", exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("radio", { name: "Text sidecar" })).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: "Text sidecar" }),
+    ).toBeVisible();
 
     // The request summary reflects the options and updates as they change.
     await expect(page.getByText(/English → Searchable PDF/)).toBeVisible();
@@ -67,7 +69,9 @@ test.describe("OCR secure-worker tool page", () => {
     const notify = page.getByRole("button", { name: /notify me/i });
     await expect(notify).toBeVisible();
     await expect(
-      page.getByText(/pressing it sends us the tool's name — nothing about you/i),
+      page.getByText(
+        /pressing it sends us the tool's name — nothing about you/i,
+      ),
     ).toBeVisible();
     const beacon = page.waitForRequest(
       (req) => req.url().includes("/api/interest") && req.method() === "POST",

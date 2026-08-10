@@ -2,10 +2,21 @@ import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import type { ExtractOptions } from "@/lib/jobs/ai-extract";
-import type { AiCompletionRequest, AiCompletionResult, AiProvider } from "../ai/provider";
-import { runAiExtract, AI_EXTRACT_ENGINE, type PdfTextExtractor } from "./engine";
+import type {
+  AiCompletionRequest,
+  AiCompletionResult,
+  AiProvider,
+} from "../ai/provider";
+import {
+  runAiExtract,
+  AI_EXTRACT_ENGINE,
+  type PdfTextExtractor,
+} from "./engine";
 
-const PROMPT_OPTIONS: ExtractOptions = { mode: "prompt", prompt: "Extract the invoice number and total." };
+const PROMPT_OPTIONS: ExtractOptions = {
+  mode: "prompt",
+  prompt: "Extract the invoice number and total.",
+};
 const SCHEMA_OPTIONS: ExtractOptions = {
   mode: "schema",
   schema: [
@@ -28,7 +39,9 @@ function extractorFor(text: string, pageCount = 3): PdfTextExtractor {
 }
 
 /** A deterministic provider that returns a fixed completion and records the request. */
-function providerReturning(result: AiCompletionResult): AiProvider & { calls: AiCompletionRequest[] } {
+function providerReturning(
+  result: AiCompletionResult,
+): AiProvider & { calls: AiCompletionRequest[] } {
   const calls: AiCompletionRequest[] = [];
   return {
     id: "anthropic",
@@ -50,7 +63,9 @@ const SUCCESS = (text: string): AiCompletionResult => ({
 
 describe("runAiExtract — honest failures", () => {
   it("fails `unsupported` when no text extractor is wired", async () => {
-    const run = await runAiExtract(INPUT, PROMPT_OPTIONS, { provider: providerReturning(SUCCESS("{}")) });
+    const run = await runAiExtract(INPUT, PROMPT_OPTIONS, {
+      provider: providerReturning(SUCCESS("{}")),
+    });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("unsupported");
   });
@@ -97,16 +112,27 @@ describe("runAiExtract — honest failures", () => {
   it("maps a provider rate_limit to a retryable `rate_limited`", async () => {
     const run = await runAiExtract(INPUT, PROMPT_OPTIONS, {
       extract: extractorFor("real text"),
-      provider: providerReturning({ ok: false, kind: "rate_limited", message: "slow", retryable: true }),
+      provider: providerReturning({
+        ok: false,
+        kind: "rate_limited",
+        message: "slow",
+        retryable: true,
+      }),
     });
     expect(run.ok).toBe(false);
-    if (!run.ok) expect(run).toMatchObject({ kind: "rate_limited", retryable: true });
+    if (!run.ok)
+      expect(run).toMatchObject({ kind: "rate_limited", retryable: true });
   });
 
   it("maps a provider refusal to `content_filtered`", async () => {
     const run = await runAiExtract(INPUT, PROMPT_OPTIONS, {
       extract: extractorFor("real text"),
-      provider: providerReturning({ ok: false, kind: "content_filtered", message: "no", retryable: false }),
+      provider: providerReturning({
+        ok: false,
+        kind: "content_filtered",
+        message: "no",
+        retryable: false,
+      }),
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("content_filtered");
@@ -115,7 +141,12 @@ describe("runAiExtract — honest failures", () => {
   it("maps a provider too_long to `too_large`", async () => {
     const run = await runAiExtract(INPUT, PROMPT_OPTIONS, {
       extract: extractorFor("real text"),
-      provider: providerReturning({ ok: false, kind: "too_long", message: "big", retryable: false }),
+      provider: providerReturning({
+        ok: false,
+        kind: "too_long",
+        message: "big",
+        retryable: false,
+      }),
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("too_large");
@@ -124,7 +155,9 @@ describe("runAiExtract — honest failures", () => {
   it("fails `failed` (never fabricates) when the model returns non-JSON", async () => {
     const run = await runAiExtract(INPUT, PROMPT_OPTIONS, {
       extract: extractorFor("real text"),
-      provider: providerReturning(SUCCESS("Here is the data you asked for, roughly.")),
+      provider: providerReturning(
+        SUCCESS("Here is the data you asked for, roughly."),
+      ),
     });
     expect(run.ok).toBe(false);
     if (!run.ok) {
@@ -148,7 +181,10 @@ describe("runAiExtract — provider-injected deterministic success", () => {
     const modelJson = '{"invoice_number":"INV-42","total":1200,"paid":true}';
     const provider = providerReturning(SUCCESS(modelJson));
     const run = await runAiExtract(INPUT, SCHEMA_OPTIONS, {
-      extract: extractorFor("Invoice INV-42, grand total 1200, paid in full.", 5),
+      extract: extractorFor(
+        "Invoice INV-42, grand total 1200, paid in full.",
+        5,
+      ),
       provider,
       now: () => "2026-07-16T00:00:00.000Z",
     });
@@ -158,13 +194,23 @@ describe("runAiExtract — provider-injected deterministic success", () => {
 
     // The extraction that ships is EXACTLY the provider's parsed JSON — nothing invented.
     const zip = await JSZip.loadAsync(run.output);
-    const extractionJson = JSON.parse(await zip.file("extraction.json")!.async("string"));
-    expect(extractionJson).toEqual({ invoice_number: "INV-42", total: 1200, paid: true });
+    const extractionJson = JSON.parse(
+      await zip.file("extraction.json")!.async("string"),
+    );
+    expect(extractionJson).toEqual({
+      invoice_number: "INV-42",
+      total: 1200,
+      paid: true,
+    });
     // A human-readable rendering ships alongside the JSON.
-    expect(await zip.file("extraction.md")!.async("string")).toContain("INV-42");
+    expect(await zip.file("extraction.md")!.async("string")).toContain(
+      "INV-42",
+    );
     expect(await zip.file("README.txt")).not.toBeNull();
 
-    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
     expect(manifest.schema).toBe("pdfxyz.extraction/v1");
     expect(manifest.provider).toBe("anthropic");
     expect(manifest.model).toBe("claude-sonnet-5");
@@ -201,17 +247,27 @@ describe("runAiExtract — provider-injected deterministic success", () => {
 
   it("puts the user extraction prompt into the system directive in prompt mode", async () => {
     const provider = providerReturning(SUCCESS('{"answer":"x"}'));
-    await runAiExtract(INPUT, PROMPT_OPTIONS, { extract: extractorFor("hello world"), provider });
-    expect(provider.calls[0]!.system).toContain("Extract the invoice number and total.");
+    await runAiExtract(INPUT, PROMPT_OPTIONS, {
+      extract: extractorFor("hello world"),
+      provider,
+    });
+    expect(provider.calls[0]!.system).toContain(
+      "Extract the invoice number and total.",
+    );
   });
 
   it("strips a ```json code fence the model may wrap the JSON in", async () => {
     const provider = providerReturning(SUCCESS('```json\n{"a":1,"b":2}\n```'));
-    const run = await runAiExtract(INPUT, PROMPT_OPTIONS, { extract: extractorFor("real text"), provider });
+    const run = await runAiExtract(INPUT, PROMPT_OPTIONS, {
+      extract: extractorFor("real text"),
+      provider,
+    });
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     const zip = await JSZip.loadAsync(run.output);
-    expect(JSON.parse(await zip.file("extraction.json")!.async("string"))).toEqual({ a: 1, b: 2 });
+    expect(
+      JSON.parse(await zip.file("extraction.json")!.async("string")),
+    ).toEqual({ a: 1, b: 2 });
   });
 
   it("truncates over-long input (never silently) and flags it in meta + manifest", async () => {
@@ -225,9 +281,13 @@ describe("runAiExtract — provider-injected deterministic success", () => {
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     expect(run.meta.truncated).toBe(true);
-    expect(provider.calls[0]!.messages[0]!.content).toContain(longText.slice(0, 20));
+    expect(provider.calls[0]!.messages[0]!.content).toContain(
+      longText.slice(0, 20),
+    );
     const zip = await JSZip.loadAsync(run.output);
-    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
     expect(manifest.source.truncatedToCharacters).toBe(20);
   });
 

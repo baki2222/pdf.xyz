@@ -418,7 +418,8 @@ export function resolveWorkerRuntime(
   const pdfStructureDeps = deps.pdfStructure ?? nativePdfStructureDeps(env);
   const pdfArchiveDeps = deps.pdfArchive ?? nativePdfArchiveDeps(env);
   const htmlRenderDeps = deps.htmlRender ?? nativeHtmlRenderDeps(env);
-  const officeConversionDeps = deps.officeConversion ?? nativeOfficeConversionDeps(env);
+  const officeConversionDeps =
+    deps.officeConversion ?? nativeOfficeConversionDeps(env);
   const pdfOfficeExport = deps.pdfOfficeExport ?? pdfOfficeExportDeps();
   const tableExtract = deps.tableExtract ?? tableExtractDeps();
   const requestSignatures = deps.requestSignatures ?? signatureRequestDeps();
@@ -551,7 +552,9 @@ export function resolveWorkerRuntime(
       soundness,
       artifactManifest,
       ...(deps.leaseMs !== undefined ? { leaseMs: deps.leaseMs } : {}),
-      ...(deps.maxAttempts !== undefined ? { maxAttempts: deps.maxAttempts } : {}),
+      ...(deps.maxAttempts !== undefined
+        ? { maxAttempts: deps.maxAttempts }
+        : {}),
       ...(deps.log ? { log: deps.log } : {}),
       ...(deps.metrics ? { metrics: deps.metrics } : {}),
       ...(deps.now ? { now: deps.now } : {}),

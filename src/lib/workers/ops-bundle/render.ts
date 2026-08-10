@@ -23,7 +23,10 @@ import {
 export type OpsBundleFormat = "json" | "text";
 
 /** Render the outcome as stable JSON (pretty by default; compact only if explicitly requested later). */
-export function renderOpsBundleJson(outcome: OpsBundleOutcome, pretty = true): string {
+export function renderOpsBundleJson(
+  outcome: OpsBundleOutcome,
+  pretty = true,
+): string {
   return `${JSON.stringify(outcome, null, pretty ? 2 : 0)}\n`;
 }
 
@@ -37,7 +40,11 @@ function pipelineHeadline(pipeline: OpsBundlePipelineSection): string {
 }
 
 function renderSlo(slo: OpsBundleSloSection | null): string[] {
-  if (!slo) return ["SLO  [not reported]", "  No SLO window was included in the operations result."];
+  if (!slo)
+    return [
+      "SLO  [not reported]",
+      "  No SLO window was included in the operations result.",
+    ];
   const issues =
     slo.issues.length > 0
       ? slo.issues.map((i) => `${i.id}=${i.status}`).join(", ")
@@ -48,13 +55,20 @@ function renderSlo(slo: OpsBundleSloSection | null): string[] {
 /** Render a full bundle as the incident-handoff runbook text. */
 function renderResultText(result: OpsBundleResult): string {
   const { rollup, sections } = result;
-  const { operations: ops, cleanupEvidence: ce, lifecycle: lc, pipeline } = sections;
+  const {
+    operations: ops,
+    cleanupEvidence: ce,
+    lifecycle: lc,
+    pipeline,
+  } = sections;
 
   const lines: string[] = [];
   lines.push("pdf.xyz operations evidence bundle");
   lines.push(`generated: ${result.generatedAt}   schema: ${result.schema}`);
   lines.push("");
-  lines.push(`ROLLUP: ${rollup.severity.toUpperCase()} (exit ${rollup.exitCode})`);
+  lines.push(
+    `ROLLUP: ${rollup.severity.toUpperCase()} (exit ${rollup.exitCode})`,
+  );
   lines.push(`  ${rollup.detail}`);
   lines.push("");
 
@@ -70,10 +84,15 @@ function renderResultText(result: OpsBundleResult): string {
   lines.push(
     `  subsystems: ${ops.subsystems.length > 0 ? ops.subsystems.map((s) => `${s.id}=${s.health}`).join(", ") : "none reported"}`,
   );
-  lines.push(`  proofs: compression-deep=${ops.proofs.compressionDeep} ocr=${ops.proofs.ocr}`);
+  lines.push(
+    `  proofs: compression-deep=${ops.proofs.compressionDeep} ocr=${ops.proofs.ocr}`,
+  );
   if (ops.alerts.length > 0) {
     lines.push("  alerts:");
-    for (const a of ops.alerts) lines.push(`    - [${a.severity}] ${a.source}: ${a.reason} → ${a.action}`);
+    for (const a of ops.alerts)
+      lines.push(
+        `    - [${a.severity}] ${a.source}: ${a.reason} → ${a.action}`,
+      );
   } else {
     lines.push("  alerts: none");
   }
@@ -108,7 +127,9 @@ function renderResultText(result: OpsBundleResult): string {
 }
 
 /** Render a usage error as the same runbook header + a bounded issue list. */
-function renderUsageErrorText(outcome: Extract<OpsBundleOutcome, { error: "usage" }>): string {
+function renderUsageErrorText(
+  outcome: Extract<OpsBundleOutcome, { error: "usage" }>,
+): string {
   const lines: string[] = [];
   lines.push("pdf.xyz operations evidence bundle");
   lines.push(`generated: ${outcome.generatedAt}   schema: ${outcome.schema}`);
@@ -120,7 +141,13 @@ function renderUsageErrorText(outcome: Extract<OpsBundleOutcome, { error: "usage
 }
 
 /** Render `outcome` in the requested format. */
-export function renderOpsBundle(outcome: OpsBundleOutcome, format: OpsBundleFormat, pretty = true): string {
+export function renderOpsBundle(
+  outcome: OpsBundleOutcome,
+  format: OpsBundleFormat,
+  pretty = true,
+): string {
   if (format === "json") return renderOpsBundleJson(outcome, pretty);
-  return isOpsBundleUsageError(outcome) ? renderUsageErrorText(outcome) : renderResultText(outcome);
+  return isOpsBundleUsageError(outcome)
+    ? renderUsageErrorText(outcome)
+    : renderResultText(outcome);
 }

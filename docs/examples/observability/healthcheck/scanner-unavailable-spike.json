@@ -5,7 +5,12 @@
     "mode": "remote-configured",
     "drainable": true,
     "daemonObserved": true,
-    "daemon": { "state": "observed", "source": "self", "lastSeen": null, "mode": "drain" },
+    "daemon": {
+      "state": "observed",
+      "source": "self",
+      "lastSeen": null,
+      "mode": "drain"
+    },
     "health": "warn",
     "recommendedAction": "fix-scanner",
     "subsystems": [
@@ -34,8 +39,18 @@
   },
   "metrics": {
     "series": [
-      { "metric": "worker_scan_total", "kind": "counter", "labels": { "verdict": "error", "scanned": "true" }, "value": 9 },
-      { "metric": "worker_scan_total", "kind": "counter", "labels": { "verdict": "clean", "scanned": "true" }, "value": 1 }
+      {
+        "metric": "worker_scan_total",
+        "kind": "counter",
+        "labels": { "verdict": "error", "scanned": "true" },
+        "value": 9
+      },
+      {
+        "metric": "worker_scan_total",
+        "kind": "counter",
+        "labels": { "verdict": "clean", "scanned": "true" },
+        "value": 1
+      }
     ]
   }
 }

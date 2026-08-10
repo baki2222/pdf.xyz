@@ -73,7 +73,10 @@ function encodePath(path: string): string {
 /** Split a signing instant into the `YYYYMMDDTHHMMSSZ` / `YYYYMMDD` pair. */
 function formatAmzDate(date: Date): { amzDate: string; dateStamp: string } {
   // toISOString is always UTC with millis; strip separators + millis.
-  const amzDate = date.toISOString().replace(/[:-]/g, "").replace(/\.\d{3}/, "");
+  const amzDate = date
+    .toISOString()
+    .replace(/[:-]/g, "")
+    .replace(/\.\d{3}/, "");
   return { amzDate, dateStamp: amzDate.slice(0, 8) };
 }
 
@@ -101,8 +104,9 @@ export function presignS3Url(params: PresignParams): PresignResult {
     headers.set(name.toLowerCase().trim(), value.trim());
   }
   const signedHeaderNames = [...headers.keys()].sort();
-  const canonicalHeaders =
-    signedHeaderNames.map((n) => `${n}:${headers.get(n)}\n`).join("");
+  const canonicalHeaders = signedHeaderNames
+    .map((n) => `${n}:${headers.get(n)}\n`)
+    .join("");
   const signedHeaders = signedHeaderNames.join(";");
 
   // Query parameters that participate in the signature (signature itself is
@@ -140,7 +144,10 @@ export function presignS3Url(params: PresignParams): PresignResult {
   ].join("\n");
 
   const signingKey = hmac(
-    hmac(hmac(hmac(`AWS4${params.secretAccessKey}`, dateStamp), params.region), service),
+    hmac(
+      hmac(hmac(`AWS4${params.secretAccessKey}`, dateStamp), params.region),
+      service,
+    ),
     AWS_REQUEST,
   );
   const signature = createHmac("sha256", signingKey)
@@ -151,5 +158,12 @@ export function presignS3Url(params: PresignParams): PresignResult {
     `${params.protocol}//${params.host}${canonicalUri}` +
     `?${canonicalQuery}&X-Amz-Signature=${signature}`;
 
-  return { url, signature, credentialScope, amzDate, canonicalRequest, stringToSign };
+  return {
+    url,
+    signature,
+    credentialScope,
+    amzDate,
+    canonicalRequest,
+    stringToSign,
+  };
 }

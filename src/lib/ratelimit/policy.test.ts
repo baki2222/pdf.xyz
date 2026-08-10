@@ -25,9 +25,13 @@ describe("rate-limit policies", () => {
   });
 
   it("reuses the published contract numbers so the guard and docs cannot drift", () => {
-    expect(policyFor("uploads.create").limit).toBe(RATE_LIMITS.uploadsPerHourPerClient);
+    expect(policyFor("uploads.create").limit).toBe(
+      RATE_LIMITS.uploadsPerHourPerClient,
+    );
     expect(policyFor("uploads.create").windowSeconds).toBe(3600);
-    expect(policyFor("jobs.create").limit).toBe(RATE_LIMITS.jobsPerHourPerClient);
+    expect(policyFor("jobs.create").limit).toBe(
+      RATE_LIMITS.jobsPerHourPerClient,
+    );
     expect(policyFor("jobs.status").limit).toBe(
       RATE_LIMITS.statusRequestsPerMinutePerClient,
     );

@@ -59,7 +59,9 @@ const MAX_INPUT_BYTES = 1_048_576; // 1 MiB
  * the web app IS the in-process worker) and reads the heartbeat. Neither self-asserts
  * liveness — a stale/absent/disabled heartbeat is handled honestly downstream.
  */
-async function collectLive(source: "runtime" | "web"): Promise<CollectedOperations> {
+async function collectLive(
+  source: "runtime" | "web",
+): Promise<CollectedOperations> {
   const env = process.env;
   const daemonLiveness = await readWorkerHeartbeatLiveness(env);
   // Read the cleanup evidence posture from the operator-configured content-free report
@@ -78,7 +80,8 @@ async function collectLive(source: "runtime" | "web"): Promise<CollectedOperatio
   // worker so probing its own PATH is honest (mirrors the /api/worker/operations route).
   let tools: ToolAvailability | undefined;
   if (resolveWorkerMode() === "local-dev") {
-    const { probeNativeTools } = await import("@/lib/workers/compression/native");
+    const { probeNativeTools } =
+      await import("@/lib/workers/compression/native");
     tools = probeNativeTools(env);
   }
   const snapshot = collectWebOperationsSnapshot(env, {
@@ -98,7 +101,8 @@ async function readInput(
     // The path is the operator's own file reference; it is never logged. Bound the size
     // before reading, then read defensively.
     const path = filePath ?? "";
-    if (statSync(path).size > MAX_INPUT_BYTES) throw new Error("input-too-large");
+    if (statSync(path).size > MAX_INPUT_BYTES)
+      throw new Error("input-too-large");
     return readFileSync(path, "utf8");
   }
   // stdin (fd 0): read to EOF (a monitor pipes the snapshot), then bound the size.

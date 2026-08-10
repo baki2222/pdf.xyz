@@ -19,7 +19,10 @@ import type { ReleaseCheckOutcome, ReleaseGateResult } from "./types";
 export type ReleaseGateFormat = "json" | "text";
 
 /** Render the result as stable JSON (pretty by default). */
-export function renderReleaseGateJson(result: ReleaseGateResult, pretty = true): string {
+export function renderReleaseGateJson(
+  result: ReleaseGateResult,
+  pretty = true,
+): string {
   return `${JSON.stringify(result, null, pretty ? 2 : 0)}\n`;
 }
 
@@ -40,27 +43,39 @@ function renderResultText(result: ReleaseGateResult): string {
   lines.push("pdf.xyz worker release readiness gate");
   lines.push(`generated: ${result.generatedAt}   schema: ${result.schema}`);
   lines.push("");
-  lines.push(`ROLLUP: ${rollup.verdict.toUpperCase()} (exit ${rollup.exitCode})`);
+  lines.push(
+    `ROLLUP: ${rollup.verdict.toUpperCase()} (exit ${rollup.exitCode})`,
+  );
   lines.push(`  ${rollup.detail}`);
   lines.push(
     `  checks: ${rollup.passedChecks}/${rollup.includedChecks} passed` +
       (rollup.skippedChecks > 0 ? `, ${rollup.skippedChecks} skipped` : "") +
-      (rollup.blockers.length > 0 ? `   blockers: ${rollup.blockers.join(", ")}` : ""),
+      (rollup.blockers.length > 0
+        ? `   blockers: ${rollup.blockers.join(", ")}`
+        : ""),
   );
   lines.push("");
 
   lines.push("CHECKS");
   for (const c of result.checks) {
-    lines.push(`  ${statusTag(c.status)} ${c.id}  (expected ${c.expectedExit}, observed ${observed(c)})`);
+    lines.push(
+      `  ${statusTag(c.status)} ${c.id}  (expected ${c.expectedExit}, observed ${observed(c)})`,
+    );
     lines.push(`      ${c.summary}`);
     // Only surface remediation for checks that did not pass and were not skipped — keep a green run terse.
-    if (c.status !== "pass" && c.status !== "skip" && c.remediation !== c.summary) {
+    if (
+      c.status !== "pass" &&
+      c.status !== "skip" &&
+      c.remediation !== c.summary
+    ) {
       lines.push(`      → ${c.remediation}`);
     }
   }
   lines.push("");
 
-  lines.push("GUIDANCE (this gate does NOT perform these — do them separately)");
+  lines.push(
+    "GUIDANCE (this gate does NOT perform these — do them separately)",
+  );
   for (const g of result.guidance) lines.push(`  - ${g}`);
   lines.push("");
 
@@ -71,6 +86,12 @@ function renderResultText(result: ReleaseGateResult): string {
 }
 
 /** Render `result` in the requested format. */
-export function renderReleaseGate(result: ReleaseGateResult, format: ReleaseGateFormat, pretty = true): string {
-  return format === "json" ? renderReleaseGateJson(result, pretty) : renderResultText(result);
+export function renderReleaseGate(
+  result: ReleaseGateResult,
+  format: ReleaseGateFormat,
+  pretty = true,
+): string {
+  return format === "json"
+    ? renderReleaseGateJson(result, pretty)
+    : renderResultText(result);
 }

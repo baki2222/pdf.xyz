@@ -63,7 +63,10 @@ export function buildInstreamRequest(
 ): Uint8Array {
   const frame = Math.max(
     1,
-    Math.min(Math.floor(chunkSize) || CLAMAV_DEFAULT_CHUNK_SIZE, CLAMAV_MAX_CHUNK_SIZE),
+    Math.min(
+      Math.floor(chunkSize) || CLAMAV_DEFAULT_CHUNK_SIZE,
+      CLAMAV_MAX_CHUNK_SIZE,
+    ),
   );
   const header = ascii("zINSTREAM\0");
   const chunkCount = Math.ceil(bytes.length / frame);
@@ -98,11 +101,7 @@ export function buildInstreamRequest(
  *  - `unparseable` — the reply matched no known shape (treated like a transient error).
  */
 export type ClamavReplyKind =
-  | "clean"
-  | "infected"
-  | "size-limit"
-  | "error"
-  | "unparseable";
+  "clean" | "infected" | "size-limit" | "error" | "unparseable";
 
 /**
  * Classify a raw clamd INSTREAM reply into a {@link ClamavReplyKind}. Returns ONLY

@@ -1,5 +1,10 @@
 import type { WorkerStatus } from "./status";
-import { canRunPdfSecurity, runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import {
+  canRunPdfSecurity,
+  runSecurityJob,
+  type PdfSecurityWorkerOptions,
+  type PdfSecurityWorkerResult,
+} from "./pdf-security-client";
 
 export type OfficeConversionWorkerResult = PdfSecurityWorkerResult;
 
@@ -9,11 +14,16 @@ export interface OfficeConversionWorkerInput {
   bytes: Uint8Array;
 }
 
-export function runWorkerOfficeToPdf(input: OfficeConversionWorkerInput, options: PdfSecurityWorkerOptions = {}): Promise<OfficeConversionWorkerResult> {
+export function runWorkerOfficeToPdf(
+  input: OfficeConversionWorkerInput,
+  options: PdfSecurityWorkerOptions = {},
+): Promise<OfficeConversionWorkerResult> {
   return runSecurityJob(input.tool, input.filename, input.bytes, {}, options);
 }
 
-export function canRunOfficeConversion(status: WorkerStatus | null | undefined): boolean {
+export function canRunOfficeConversion(
+  status: WorkerStatus | null | undefined,
+): boolean {
   if (!status) return false;
   if (status.localDevOnly) return false;
   return canRunPdfSecurity(status);

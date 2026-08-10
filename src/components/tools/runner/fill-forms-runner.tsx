@@ -2,10 +2,7 @@
 
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Download, Info, Lock, PenLine, TriangleAlert } from "lucide-react";
-import {
-  filledFormsOutputName,
-  isFillableType,
-} from "@/lib/pdf/forms-meta";
+import { filledFormsOutputName, isFillableType } from "@/lib/pdf/forms-meta";
 import type {
   FieldValue,
   FormFieldInfo,
@@ -49,7 +46,13 @@ type InspectState =
   | { status: "error"; message: string }
   | { status: "ready"; inspection: FormInspection };
 
-function FormInspector({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function FormInspector({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   // FormInspector is keyed by file upstream, so it remounts (fresh "loading"
   // state) for every new PDF — the effect only needs to resolve the inspection.
   const [state, setState] = useState<InspectState>({ status: "loading" });
@@ -64,7 +67,8 @@ function FormInspector({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
         if (!cancelled) setState({ status: "ready", inspection });
       })
       .catch((err) => {
-        if (!cancelled) setState({ status: "error", message: errorMessage(err) });
+        if (!cancelled)
+          setState({ status: "error", message: errorMessage(err) });
       });
     return () => {
       cancelled = true;
@@ -93,10 +97,18 @@ function FormInspector({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
   }
 
   if (!state.inspection.hasFields || state.inspection.fillableCount === 0) {
-    return <NoFieldsNotice pdf={pdf} inspection={state.inspection} onReset={onReset} />;
+    return (
+      <NoFieldsNotice
+        pdf={pdf}
+        inspection={state.inspection}
+        onReset={onReset}
+      />
+    );
   }
 
-  return <FieldsEditor pdf={pdf} inspection={state.inspection} onReset={onReset} />;
+  return (
+    <FieldsEditor pdf={pdf} inspection={state.inspection} onReset={onReset} />
+  );
 }
 
 /** Honest empty-state: this PDF has nothing we can fill. We never fake it. */
@@ -109,7 +121,8 @@ function NoFieldsNotice({
   inspection: FormInspection;
   onReset: () => void;
 }) {
-  const unsupportedOnly = inspection.hasFields && inspection.fillableCount === 0;
+  const unsupportedOnly =
+    inspection.hasFields && inspection.fillableCount === 0;
   return (
     <div className="flex flex-col gap-4">
       <FileHeader pdf={pdf} />
@@ -133,8 +146,8 @@ function NoFieldsNotice({
         </div>
         <p className="text-xs leading-relaxed text-slate-400">
           This tool fills a PDF&apos;s existing form fields — it never adds new
-          fields or draws text onto flat pages. To place a signature or text on a
-          document without form fields, use{" "}
+          fields or draws text onto flat pages. To place a signature or text on
+          a document without form fields, use{" "}
           <span className="text-slate-200">Sign PDF</span>. Everything stays in
           your browser.
         </p>
@@ -172,12 +185,12 @@ function initialValues(fields: FormFieldInfo[]): Record<string, FieldValue> {
       case "dropdown":
         out[field.name] = field.multiselect
           ? [...(field.selected ?? [])]
-          : field.selected?.[0] ?? "";
+          : (field.selected?.[0] ?? "");
         break;
       case "optionlist":
         out[field.name] = field.multiselect
           ? [...(field.selected ?? [])]
-          : field.selected?.[0] ?? "";
+          : (field.selected?.[0] ?? "");
         break;
     }
   }
@@ -200,7 +213,8 @@ function FieldsEditor({
   const [flatten, setFlatten] = useState(false);
 
   const editable = useMemo(
-    () => inspection.fields.filter((f) => isFillableType(f.type) && !f.readOnly),
+    () =>
+      inspection.fields.filter((f) => isFillableType(f.type) && !f.readOnly),
     [inspection.fields],
   );
   const readOnly = useMemo(
@@ -229,7 +243,8 @@ function FieldsEditor({
         title="Form filled"
         summary={
           <>
-            {result.appliedCount} field{result.appliedCount === 1 ? "" : "s"} filled
+            {result.appliedCount} field{result.appliedCount === 1 ? "" : "s"}{" "}
+            filled
             {result.flattened ? " · flattened to static content" : ""}
           </>
         }
@@ -237,7 +252,9 @@ function FieldsEditor({
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result.bytes, filledFormsOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result.bytes, filledFormsOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -245,8 +262,8 @@ function FieldsEditor({
         </button>
         {notApplied.length > 0 && (
           <p className="text-xs text-slate-400">
-            {notApplied.length} value{notApplied.length === 1 ? "" : "s"} couldn&apos;t
-            be applied and were left unchanged.
+            {notApplied.length} value{notApplied.length === 1 ? "" : "s"}{" "}
+            couldn&apos;t be applied and were left unchanged.
           </p>
         )}
       </ResultPanel>
@@ -262,7 +279,9 @@ function FieldsEditor({
         aside={
           <span className="text-xs text-slate-400">
             {editable.length} fillable
-            {unsupported.length > 0 ? ` · ${unsupported.length} unsupported` : ""}
+            {unsupported.length > 0
+              ? ` · ${unsupported.length} unsupported`
+              : ""}
           </span>
         }
       >
@@ -298,8 +317,8 @@ function FieldsEditor({
             Flatten after filling
           </span>
           <span className="text-xs leading-relaxed text-slate-400">
-            Bake the values into the page so they can&apos;t be edited or cleared in
-            a viewer. Leave off to keep the form interactive.
+            Bake the values into the page so they can&apos;t be edited or
+            cleared in a viewer. Leave off to keep the form interactive.
           </span>
         </span>
       </label>
@@ -335,7 +354,10 @@ function FieldRow({
   return (
     <div className="grid gap-2 p-3.5 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-center sm:gap-4">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate text-sm font-medium text-slate-200" title={field.name}>
+        <span
+          className="truncate text-sm font-medium text-slate-200"
+          title={field.name}
+        >
           {field.name}
           {field.required && (
             <span className="text-rose-400" aria-label="required">
@@ -344,7 +366,7 @@ function FieldRow({
             </span>
           )}
         </span>
-        <span className="text-[11px] uppercase tracking-wide text-slate-400">
+        <span className="text-[11px] tracking-wide text-slate-400 uppercase">
           {field.widgetLabel}
         </span>
       </div>
@@ -357,13 +379,21 @@ const INPUT_CLASS =
   "w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20";
 
 function asString(value: FieldValue): string {
-  return typeof value === "string" ? value : Array.isArray(value) ? value[0] ?? "" : "";
+  return typeof value === "string"
+    ? value
+    : Array.isArray(value)
+      ? (value[0] ?? "")
+      : "";
 }
 function asBool(value: FieldValue): boolean {
   return value === true;
 }
 function asArray(value: FieldValue): string[] {
-  return Array.isArray(value) ? value : typeof value === "string" && value ? [value] : [];
+  return Array.isArray(value)
+    ? value
+    : typeof value === "string" && value
+      ? [value]
+      : [];
 }
 
 function FieldControl({
@@ -377,7 +407,13 @@ function FieldControl({
 }) {
   switch (field.type) {
     case "text":
-      return <TextControl field={field} value={asString(value)} onChange={onChange} />;
+      return (
+        <TextControl
+          field={field}
+          value={asString(value)}
+          onChange={onChange}
+        />
+      );
     case "checkbox":
       return <CheckboxControl checked={asBool(value)} onChange={onChange} />;
     case "radio":
@@ -392,7 +428,13 @@ function FieldControl({
       );
     case "dropdown":
       if (field.editable) {
-        return <ComboControl field={field} value={asString(value)} onChange={onChange} />;
+        return (
+          <ComboControl
+            field={field}
+            value={asString(value)}
+            onChange={onChange}
+          />
+        );
       }
       if (field.multiselect) {
         return (
@@ -405,7 +447,13 @@ function FieldControl({
           />
         );
       }
-      return <SelectControl field={field} value={asString(value)} onChange={onChange} />;
+      return (
+        <SelectControl
+          field={field}
+          value={asString(value)}
+          onChange={onChange}
+        />
+      );
     case "optionlist":
       return (
         <ChoiceControl
@@ -455,7 +503,7 @@ function TextControl({
         />
       )}
       {showCount && (
-        <span className="self-end text-[11px] tabular-nums text-slate-400">
+        <span className="self-end text-[11px] text-slate-400 tabular-nums">
           {value.length}/{field.maxLength}
         </span>
       )}
@@ -613,7 +661,7 @@ function ReadOnlyControl({ field }: { field: FormFieldInfo }) {
         : "Unchecked"
       : field.selected && field.selected.length > 0
         ? field.selected.join(", ")
-        : field.text ?? "";
+        : (field.text ?? "");
   return (
     <div className="flex items-center gap-2">
       <span className="min-w-0 flex-1 truncate rounded-xl border border-white/10 bg-black/10 px-3.5 py-2.5 text-sm text-slate-400">
@@ -632,10 +680,9 @@ function UnsupportedNote({ fields }: { fields: FormFieldInfo[] }) {
     <div className="flex items-start gap-2 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs leading-relaxed text-slate-400">
       <Info className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
       <span>
-        {fields.length} field{fields.length === 1 ? "" : "s"} of an unsupported type
-        (
-        {[...new Set(fields.map((f) => f.widgetLabel))].join(", ")}) are shown for
-        reference but left unchanged:{" "}
+        {fields.length} field{fields.length === 1 ? "" : "s"} of an unsupported
+        type ({[...new Set(fields.map((f) => f.widgetLabel))].join(", ")}) are
+        shown for reference but left unchanged:{" "}
         <span className="text-slate-300">
           {fields.map((f) => f.name).join(", ")}
         </span>

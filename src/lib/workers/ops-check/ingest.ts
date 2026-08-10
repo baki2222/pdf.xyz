@@ -95,7 +95,10 @@ const _healthExhaustive: AssertNever<
   Exclude<HealthClass, (typeof HEALTH_CLASSES)[number]>
 > = true;
 
-const VANTAGES = ["web", "worker"] as const satisfies readonly SnapshotVantage[];
+const VANTAGES = [
+  "web",
+  "worker",
+] as const satisfies readonly SnapshotVantage[];
 const _vantageExhaustive: AssertNever<
   Exclude<SnapshotVantage, (typeof VANTAGES)[number]>
 > = true;
@@ -177,7 +180,11 @@ const _proofExhaustive: AssertNever<
   Exclude<ProofAvailability, (typeof PROOF_STATES)[number]>
 > = true;
 
-const RUN_MODES = ["once", "drain", "loop"] as const satisfies readonly DaemonRunMode[];
+const RUN_MODES = [
+  "once",
+  "drain",
+  "loop",
+] as const satisfies readonly DaemonRunMode[];
 const _runModeExhaustive: AssertNever<
   Exclude<DaemonRunMode, (typeof RUN_MODES)[number]>
 > = true;
@@ -194,10 +201,11 @@ const _stopReasonExhaustive: AssertNever<
 > = true;
 
 /** Verdict values a lifecycle-verification rung can carry (`verified`/`drift`/`unknown`). */
-const LIFECYCLE_VERDICTS = ["verified", "drift", "unknown"] as const satisfies readonly (
-  | LifecycleVerdict
-  | "unknown"
-)[];
+const LIFECYCLE_VERDICTS = [
+  "verified",
+  "drift",
+  "unknown",
+] as const satisfies readonly (LifecycleVerdict | "unknown")[];
 const _verdictExhaustive: AssertNever<
   Exclude<LifecycleVerdict | "unknown", (typeof LIFECYCLE_VERDICTS)[number]>
 > = true;
@@ -219,7 +227,9 @@ void _stopReasonExhaustive;
 void _verdictExhaustive;
 
 /** RecommendedAction values, derived from the detail map so this can never drift. */
-const RECOMMENDED_ACTIONS = new Set<string>(Object.keys(RECOMMENDED_ACTION_DETAIL));
+const RECOMMENDED_ACTIONS = new Set<string>(
+  Object.keys(RECOMMENDED_ACTION_DETAIL),
+);
 
 /* ------------------------------------------------------------------ *
  *  Small typed readers over untrusted `unknown`
@@ -232,8 +242,12 @@ function isObject(value: unknown): value is Obj {
 }
 
 /** Return `value` if it is one of `allowed`, else `undefined`. */
-function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+function oneOf<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | undefined {
+  return typeof value === "string" &&
+    (allowed as readonly string[]).includes(value)
     ? (value as T)
     : undefined;
 }
@@ -270,7 +284,8 @@ const LIVENESS_DETAIL: Record<DaemonLivenessState, string> = {
   observed:
     "A worker daemon published a liveness heartbeat within the freshness window.",
   stale: "A worker heartbeat is present but older than the freshness window.",
-  unknown: "Liveness observation is enabled, but no recent heartbeat is visible.",
+  unknown:
+    "Liveness observation is enabled, but no recent heartbeat is visible.",
   disabled:
     "Cross-process worker liveness observation is not enabled here, so absence says nothing.",
 };
@@ -314,12 +329,19 @@ function normalizeSubsystems(raw: unknown): SnapshotSubsystem[] {
     const health = oneOf(entry.health, HEALTH_CLASSES);
     if (!id || !health || seen.has(id)) continue; // drop unknown / duplicate ids
     seen.add(id);
-    out.push({ id, label: SUBSYSTEM_LABEL[id], health, detail: subsystemDetail(id, health) });
+    out.push({
+      id,
+      label: SUBSYSTEM_LABEL[id],
+      health,
+      detail: subsystemDetail(id, health),
+    });
   }
   return out;
 }
 
-function normalizeLifecycleVerification(raw: unknown): SnapshotLifecycleVerification {
+function normalizeLifecycleVerification(
+  raw: unknown,
+): SnapshotLifecycleVerification {
   const verdict = isObject(raw)
     ? (oneOf(raw.verdict, LIFECYCLE_VERDICTS) ?? "unknown")
     : "unknown";
@@ -359,7 +381,10 @@ function normalizeLastLoop(raw: unknown): SnapshotLoopOutcome | null {
   };
 }
 
-function normalizeProofs(raw: unknown): { compressionDeep: ProofAvailability; ocr: ProofAvailability } {
+function normalizeProofs(raw: unknown): {
+  compressionDeep: ProofAvailability;
+  ocr: ProofAvailability;
+} {
   const obj = isObject(raw) ? raw : {};
   return {
     compressionDeep: oneOf(obj.compressionDeep, PROOF_STATES) ?? "unknown",
@@ -391,7 +416,8 @@ function normalizeRateLimit(raw: unknown): SnapshotRateLimitPosture {
  */
 function normalizeCleanupEvidence(raw: unknown): CleanupEvidencePosture {
   if (!isObject(raw)) return DISABLED_CLEANUP_EVIDENCE_POSTURE;
-  const reason = oneOf(raw.reason, CLEANUP_EVIDENCE_REASONS) ?? "no_report_configured";
+  const reason =
+    oneOf(raw.reason, CLEANUP_EVIDENCE_REASONS) ?? "no_report_configured";
   return {
     state: oneOf(raw.state, CLEANUP_EVIDENCE_STATES) ?? "disabled",
     reason,
@@ -415,7 +441,9 @@ function normalizeCleanupEvidence(raw: unknown): CleanupEvidencePosture {
  */
 export function normalizeOperationsSnapshot(
   raw: unknown,
-): { ok: true; snapshot: WorkerOperationsSnapshot } | { ok: false; issues: string[] } {
+):
+  | { ok: true; snapshot: WorkerOperationsSnapshot }
+  | { ok: false; issues: string[] } {
   if (!isObject(raw)) return { ok: false, issues: ["snapshot-not-an-object"] };
 
   const issues: string[] = [];
@@ -434,14 +462,18 @@ export function normalizeOperationsSnapshot(
 
   if (!health || !action || !daemon) return { ok: false, issues };
 
-  const lifecycleVerification = normalizeLifecycleVerification(raw.lifecycleVerification);
+  const lifecycleVerification = normalizeLifecycleVerification(
+    raw.lifecycleVerification,
+  );
   const cleanupEvidence = normalizeCleanupEvidence(raw.cleanupEvidence);
   const rateLimit = normalizeRateLimit(raw.rateLimit);
   // Derive the cleanup-evidence and rate-limit subsystems from their normalized postures
   // and ensure they are present regardless of what the input's `subsystems` array carried —
   // so a monitor-supplied snapshot's alert severity / exit code always reflects them, even
   // if the input omitted or forged the subsystem entries.
-  const cleanupEvidenceHealthClass = cleanupEvidenceHealth(cleanupEvidence.state);
+  const cleanupEvidenceHealthClass = cleanupEvidenceHealth(
+    cleanupEvidence.state,
+  );
   const rateLimitHealthClass = rateLimitHealth(rateLimit.code);
   const subsystems = normalizeSubsystems(raw.subsystems).filter(
     (s) => s.id !== "cleanup-evidence" && s.id !== "rate-limit",
@@ -544,7 +576,9 @@ export function parseIngestedOperations(text: string): ParseIngestResult {
   }
   if (!isObject(root)) return { ok: false, issues: ["input-not-an-object"] };
 
-  const snapshotResult = normalizeOperationsSnapshot(unwrapSnapshotSource(root));
+  const snapshotResult = normalizeOperationsSnapshot(
+    unwrapSnapshotSource(root),
+  );
   if (!snapshotResult.ok) return snapshotResult;
 
   // Metrics may sit at the envelope root; a bare snapshot carries none.

@@ -89,8 +89,9 @@ interface OpenAiResponseBody {
  */
 export function isUnsupportedTemperatureError(rawBody: string): boolean {
   return (
-    /unsupported[_ ]parameter|not supported with this model|unsupported value/i.test(rawBody) &&
-    /temperature/i.test(rawBody)
+    /unsupported[_ ]parameter|not supported with this model|unsupported value/i.test(
+      rawBody,
+    ) && /temperature/i.test(rawBody)
   );
 }
 
@@ -106,15 +107,26 @@ export function isUnsupportedTemperatureError(rawBody: string): boolean {
  * `400 invalid_request_error` with code `context_length_exceeded` (413 is the separate
  * request-body-size limit), which is why the length check cannot key on the status alone.
  */
-function classifyClientError(status: number, rawBody: string): AiCompletionResult {
+function classifyClientError(
+  status: number,
+  rawBody: string,
+): AiCompletionResult {
   if (status === 413) {
-    return aiFailure("too_long", "The document is too large for the AI model's context window.");
+    return aiFailure(
+      "too_long",
+      "The document is too large for the AI model's context window.",
+    );
   }
   if (
     status === 400 &&
-    /context_length_exceeded|maximum context length|too many tokens|reduce the length/i.test(rawBody)
+    /context_length_exceeded|maximum context length|too many tokens|reduce the length/i.test(
+      rawBody,
+    )
   ) {
-    return aiFailure("too_long", "The document is too large for the AI model's context window.");
+    return aiFailure(
+      "too_long",
+      "The document is too large for the AI model's context window.",
+    );
   }
   if (status === 401 || status === 403) {
     return aiFailure(
@@ -191,7 +203,10 @@ export function createOpenAiProvider(
   deps: OpenAiProviderDeps = {},
 ): AiProvider {
   const doFetch = deps.fetch ?? globalThis.fetch;
-  const baseUrl = (config.baseUrl ?? OPENAI_DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const baseUrl = (config.baseUrl ?? OPENAI_DEFAULT_BASE_URL).replace(
+    /\/+$/,
+    "",
+  );
   const endpoint = `${baseUrl}/v1/chat/completions`;
 
   return {
@@ -203,7 +218,10 @@ export function createOpenAiProvider(
       if (!valid.ok) return aiFailure("invalid_response", valid.reason);
 
       if (typeof doFetch !== "function") {
-        return aiFailure("provider_error", "No fetch implementation is available on this worker.");
+        return aiFailure(
+          "provider_error",
+          "No fetch implementation is available on this worker.",
+        );
       }
 
       /**
@@ -235,9 +253,15 @@ export function createOpenAiProvider(
         } catch (error) {
           const name = (error as { name?: string } | null)?.name;
           if (name === "AbortError" || name === "TimeoutError") {
-            return aiFailure("timeout", "The AI provider did not respond before the deadline.");
+            return aiFailure(
+              "timeout",
+              "The AI provider did not respond before the deadline.",
+            );
           }
-          return aiFailure("provider_error", "The AI provider could not be reached.");
+          return aiFailure(
+            "provider_error",
+            "The AI provider could not be reached.",
+          );
         } finally {
           clearTimeout(timer);
         }
@@ -254,7 +278,10 @@ export function createOpenAiProvider(
           // over-long prompt — and is classified below so the job layer stops instead of
           // replaying a request that cannot succeed. Neither path leaks the upstream body.
           if (response.status >= 500) {
-            return aiFailure("provider_error", "The AI provider returned a server error.");
+            return aiFailure(
+              "provider_error",
+              "The AI provider returned a server error.",
+            );
           }
           let rawBody = "";
           try {
@@ -276,12 +303,18 @@ export function createOpenAiProvider(
         try {
           body = (await response.json()) as OpenAiResponseBody;
         } catch {
-          return aiFailure("invalid_response", "The AI provider returned an unreadable response.");
+          return aiFailure(
+            "invalid_response",
+            "The AI provider returned an unreadable response.",
+          );
         }
 
         const reason = finishReason(body);
         if (reason === "content_filter") {
-          return aiFailure("content_filtered", "The AI model declined to answer this request.");
+          return aiFailure(
+            "content_filtered",
+            "The AI model declined to answer this request.",
+          );
         }
 
         // The model ran into its output ceiling and stopped mid-answer. There IS text
@@ -298,7 +331,10 @@ export function createOpenAiProvider(
 
         const text = extractText(body);
         if (text.length === 0) {
-          return aiFailure("invalid_response", "The AI provider returned no text.");
+          return aiFailure(
+            "invalid_response",
+            "The AI provider returned no text.",
+          );
         }
 
         const inputTokens = coerceCount(body.usage?.prompt_tokens);
@@ -313,17 +349,26 @@ export function createOpenAiProvider(
         // right: the system message carrying the document is built first and the
         // question last, so the stable span is a genuine prefix. Moving anything
         // volatile ahead of it would silently end the cache hits.
-        const cachedInputTokens = coerceCount(body.usage?.prompt_tokens_details?.cached_tokens);
+        const cachedInputTokens = coerceCount(
+          body.usage?.prompt_tokens_details?.cached_tokens,
+        );
         const usage =
           inputTokens !== undefined && outputTokens !== undefined
             ? {
                 inputTokens,
                 outputTokens,
-                ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+                ...(cachedInputTokens !== undefined
+                  ? { cachedInputTokens }
+                  : {}),
               }
             : undefined;
 
-        return { ok: true, text, model: config.model, ...(usage ? { usage } : {}) };
+        return {
+          ok: true,
+          text,
+          model: config.model,
+          ...(usage ? { usage } : {}),
+        };
       };
 
       const first = await attempt(request.temperature !== undefined);

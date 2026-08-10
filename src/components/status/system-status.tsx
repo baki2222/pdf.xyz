@@ -79,7 +79,11 @@ function ProviderRow({
   readyLabel?: string;
 }) {
   const tone: StatusTone = ready ? "ok" : configured ? "info" : "muted";
-  const badge = ready ? readyLabel : configured ? "Configured" : "Not configured";
+  const badge = ready
+    ? readyLabel
+    : configured
+      ? "Configured"
+      : "Not configured";
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
       <div className="flex items-center justify-between gap-2">
@@ -119,13 +123,19 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
     let active = true;
     fetch("/api/worker/status", { headers: { accept: "application/json" } })
       .then((r) =>
-        r.ok ? (r.json() as Promise<WorkerStatus>) : Promise.reject(new Error("unreachable")),
+        r.ok
+          ? (r.json() as Promise<WorkerStatus>)
+          : Promise.reject(new Error("unreachable")),
       )
       .then((s) => {
         if (!active) return;
         setStatus(s);
         setPhase("ready");
-        track({ name: "worker_status_checked", mode: s.mode, enabled: s.enabled });
+        track({
+          name: "worker_status_checked",
+          mode: s.mode,
+          enabled: s.enabled,
+        });
       })
       .catch(() => {
         if (active) setPhase("error");
@@ -152,7 +162,10 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
             offline once loaded, and your files never leave the browser.
           </p>
           {localTools.length > 0 && (
-            <ul className="flex flex-wrap gap-1.5" aria-label="In-browser tools">
+            <ul
+              className="flex flex-wrap gap-1.5"
+              aria-label="In-browser tools"
+            >
               {localTools.map((tool) => (
                 <li
                   key={tool.slug}
@@ -171,7 +184,11 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
           icon={Cpu}
           badge={
             badge ? (
-              <StatusBadge tone={badge.tone} label={badge.label} pulse={badge.pulse} />
+              <StatusBadge
+                tone={badge.tone}
+                label={badge.label}
+                pulse={badge.pulse}
+              />
             ) : undefined
           }
         >
@@ -201,7 +218,9 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   what a row below asserts. Local-dev keeps its in-process
                   detail: that string is about THIS machine, and it is true. */}
               <p className="text-sm leading-relaxed text-slate-400">
-                {status.mode === "local-dev" ? status.detail : status.pipeline.detail}
+                {status.mode === "local-dev"
+                  ? status.detail
+                  : status.pipeline.detail}
               </p>
               {/* Per-capability honesty: OCR is called out explicitly so the page
                   never implies a searchable-PDF pipeline that isn't wired up. */}
@@ -245,7 +264,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   provider reports its own honest readiness so the page can say
                   exactly what a real deployment still needs to wire up. */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-400">
+                <span className="text-[0.7rem] font-semibold tracking-wide text-slate-400 uppercase">
                   Production pipeline
                 </span>
                 <ProviderRow
@@ -277,7 +296,8 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   label="Worker daemon"
                   ready={status.daemon.drainable}
                   configured={
-                    status.daemon.queueConfigured || status.daemon.storageConfigured
+                    status.daemon.queueConfigured ||
+                    status.daemon.storageConfigured
                   }
                   detail={status.daemon.detail}
                   readyLabel="Drainable"
@@ -289,9 +309,10 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
       </div>
 
       <AssuranceNote tone="privacy">
-        pdf.xyz is browser-first: whenever a tool can run on your device, it does,
-        and nothing is uploaded. A secure worker is only ever used for work the
-        browser genuinely can&apos;t do — and only after it&apos;s clearly labeled.
+        pdf.xyz is browser-first: whenever a tool can run on your device, it
+        does, and nothing is uploaded. A secure worker is only ever used for
+        work the browser genuinely can&apos;t do — and only after it&apos;s
+        clearly labeled.
       </AssuranceNote>
     </div>
   );

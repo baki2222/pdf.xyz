@@ -2,7 +2,15 @@
 
 import { useId, useMemo } from "react";
 import Link from "next/link";
-import { ArrowRight, Cpu, Layers, Loader2, Plus, ShieldCheck, X } from "lucide-react";
+import {
+  ArrowRight,
+  Cpu,
+  Layers,
+  Loader2,
+  Plus,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { BatchPlan, WorkspaceFile } from "@/lib/workspace";
@@ -96,7 +104,6 @@ export function BatchPanel({
   onLaunch: (tool: WorkspaceToolSummary, ids: string[]) => void;
   launchingSlug: string | null;
 }) {
-
   const selectId = useId();
   const bySlug = useMemo(() => indexSummaries(summaries), [summaries]);
   const fileById = useMemo(() => new Map(files.map((f) => [f.id, f])), [files]);
@@ -115,13 +122,14 @@ export function BatchPanel({
   const canHandoff =
     !!tool && (plan.status === "ready" || plan.status === "single");
   const isWorkerish =
-    !!tool && (plan.status === "worker-disabled" || plan.status === "unavailable");
+    !!tool &&
+    (plan.status === "worker-disabled" || plan.status === "unavailable");
   const launching = !!tool && launchingSlug === tool.slug;
 
   return (
     <section
       aria-labelledby="batch-heading"
-      className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5"
+      className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5"
     >
       <div className="flex items-center gap-2.5">
         <span className="grid size-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 text-white">
@@ -141,7 +149,7 @@ export function BatchPanel({
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor={selectId}
-          className="text-xs font-medium uppercase tracking-wide text-slate-400"
+          className="text-xs font-medium tracking-wide text-slate-400 uppercase"
         >
           Tool
         </label>
@@ -149,7 +157,7 @@ export function BatchPanel({
           id={selectId}
           value={batch.toolSlug ?? ""}
           onChange={(e) => onSetTool(e.target.value || null)}
-          className="w-full rounded-xl border border-white/10 bg-surface-1 px-3 py-2 text-sm text-slate-100 outline-none focus-visible:border-violet-400/60 focus-visible:ring-2 focus-visible:ring-violet-400/40"
+          className="bg-surface-1 w-full rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-100 outline-none focus-visible:border-violet-400/60 focus-visible:ring-2 focus-visible:ring-violet-400/40"
         >
           <option value="">Choose a tool…</option>
           <optgroup label="Runs in your browser">
@@ -172,7 +180,7 @@ export function BatchPanel({
       {/* Step 2 — queue files */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="text-xs font-medium tracking-wide text-slate-400 uppercase">
             Files ({queued}/{files.length})
           </span>
           <div className="flex items-center gap-1.5">
@@ -211,7 +219,7 @@ export function BatchPanel({
               return (
                 <li
                   key={id}
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] py-1 pl-2.5 pr-1 text-xs text-slate-300"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] py-1 pr-1 pl-2.5 text-xs text-slate-300"
                 >
                   <span className="max-w-[10rem] truncate">{file.name}</span>
                   <button
@@ -239,7 +247,8 @@ export function BatchPanel({
       <div
         className={cn(
           "flex flex-col gap-3 rounded-xl border p-3.5",
-          content.tone === "ready" && "border-emerald-400/25 bg-emerald-400/[0.06]",
+          content.tone === "ready" &&
+            "border-emerald-400/25 bg-emerald-400/[0.06]",
           content.tone === "worker" && "border-blue-400/25 bg-blue-400/[0.06]",
           content.tone === "muted" && "border-white/10 bg-white/[0.02]",
         )}
@@ -253,11 +262,17 @@ export function BatchPanel({
               content.tone === "muted" && "text-slate-300",
             )}
           >
-            {content.tone === "ready" && <ShieldCheck className="size-4" aria-hidden />}
-            {content.tone === "worker" && <Cpu className="size-4" aria-hidden />}
+            {content.tone === "ready" && (
+              <ShieldCheck className="size-4" aria-hidden />
+            )}
+            {content.tone === "worker" && (
+              <Cpu className="size-4" aria-hidden />
+            )}
             {content.title}
           </span>
-          <p className="text-xs leading-relaxed text-slate-400">{content.body}</p>
+          <p className="text-xs leading-relaxed text-slate-400">
+            {content.body}
+          </p>
         </div>
 
         {canHandoff && tool && (

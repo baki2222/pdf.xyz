@@ -33,15 +33,21 @@ function ev(partial: Partial<CleanupObjectEvidence>): CleanupObjectEvidence {
 
 describe("classifyCleanupObject", () => {
   it("attributes an absent object with a delete-now receipt to active deletion", () => {
-    expect(classifyCleanupObject(ev({ presence: "absent", activeDelete: true }), NOW)).toBe(
-      "absent-active",
-    );
+    expect(
+      classifyCleanupObject(
+        ev({ presence: "absent", activeDelete: true }),
+        NOW,
+      ),
+    ).toBe("absent-active");
   });
 
   it("attributes an absent object with no receipt to the lifecycle backstop", () => {
-    expect(classifyCleanupObject(ev({ presence: "absent", activeDelete: false }), NOW)).toBe(
-      "absent-backstop",
-    );
+    expect(
+      classifyCleanupObject(
+        ev({ presence: "absent", activeDelete: false }),
+        NOW,
+      ),
+    ).toBe("absent-backstop");
   });
 
   it("classifies a present, in-window object as live (not a cleanup target)", () => {
@@ -53,9 +59,9 @@ describe("classifyCleanupObject", () => {
   });
 
   it("classifies a present object with no lifecycle evidence as unknown", () => {
-    expect(classifyCleanupObject(ev({ presence: "present", lifecycle: null }), NOW)).toBe(
-      "unknown",
-    );
+    expect(
+      classifyCleanupObject(ev({ presence: "present", lifecycle: null }), NOW),
+    ).toBe("unknown");
   });
 
   it("classifies a present, recently-expired object (within grace) as retrieval-denied", () => {
@@ -63,7 +69,9 @@ describe("classifyCleanupObject", () => {
       presence: "present",
       lifecycle: { expiresAtMs: NOW - HOUR, deleted: false },
     });
-    expect(classifyCleanupObject(evidence, NOW, GRACE)).toBe("retrieval-denied");
+    expect(classifyCleanupObject(evidence, NOW, GRACE)).toBe(
+      "retrieval-denied",
+    );
   });
 
   it("classifies a present, long-expired object (past grace) as drift", () => {
@@ -79,7 +87,9 @@ describe("classifyCleanupObject", () => {
       presence: "present",
       lifecycle: { expiresAtMs: NOW - HOUR, deleted: true },
     });
-    expect(classifyCleanupObject(evidence, NOW, GRACE)).toBe("retrieval-denied");
+    expect(classifyCleanupObject(evidence, NOW, GRACE)).toBe(
+      "retrieval-denied",
+    );
   });
 
   it("classifies a present tombstoned object past grace as drift", () => {
@@ -97,7 +107,9 @@ describe("classifyCleanupObject", () => {
       presence: "present",
       lifecycle: { expiresAtMs: 0, deleted: true },
     });
-    expect(classifyCleanupObject(evidence, NOW, GRACE)).toBe("retrieval-denied");
+    expect(classifyCleanupObject(evidence, NOW, GRACE)).toBe(
+      "retrieval-denied",
+    );
   });
 
   it("treats the grace boundary as inclusive (now === expiry + grace ⇒ drift)", () => {
@@ -109,7 +121,9 @@ describe("classifyCleanupObject", () => {
   });
 
   it("classifies a failed probe as unavailable", () => {
-    expect(classifyCleanupObject(ev({ presence: "error" }), NOW)).toBe("unavailable");
+    expect(classifyCleanupObject(ev({ presence: "error" }), NOW)).toBe(
+      "unavailable",
+    );
   });
 
   it("resolves lifecycle exactly as the Phase 41 evaluator (unreadable clock never expires)", () => {
@@ -126,23 +140,40 @@ describe("classifyCleanupObject", () => {
     const samples: CleanupObjectEvidence[] = [
       ev({ presence: "absent", activeDelete: true }),
       ev({ presence: "absent" }),
-      ev({ presence: "present", lifecycle: { expiresAtMs: NOW - GRACE - HOUR, deleted: false } }),
-      ev({ presence: "present", lifecycle: { expiresAtMs: NOW - HOUR, deleted: false } }),
+      ev({
+        presence: "present",
+        lifecycle: { expiresAtMs: NOW - GRACE - HOUR, deleted: false },
+      }),
+      ev({
+        presence: "present",
+        lifecycle: { expiresAtMs: NOW - HOUR, deleted: false },
+      }),
       ev({ presence: "present", lifecycle: null }),
       ev({ presence: "error" }),
     ];
     for (const s of samples) {
-      expect(CLEANUP_OBJECT_STATES).toContain(classifyCleanupObject(s, NOW, GRACE));
+      expect(CLEANUP_OBJECT_STATES).toContain(
+        classifyCleanupObject(s, NOW, GRACE),
+      );
     }
   });
 });
 
 describe("verifyArtifactCleanup — aggregate verdict", () => {
-  const opts = { provider: "remote-configured" as const, now: NOW, graceMs: GRACE };
+  const opts = {
+    provider: "remote-configured" as const,
+    now: NOW,
+    graceMs: GRACE,
+  };
 
   it("short-circuits to not-configured, ignoring any evidence", () => {
     const result = verifyArtifactCleanup(
-      [ev({ presence: "present", lifecycle: { expiresAtMs: NOW - GRACE - HOUR, deleted: false } })],
+      [
+        ev({
+          presence: "present",
+          lifecycle: { expiresAtMs: NOW - GRACE - HOUR, deleted: false },
+        }),
+      ],
       { provider: "not-configured", now: NOW, graceMs: GRACE },
     );
     expect(result.verdict).toBe("not-configured");
@@ -175,7 +206,10 @@ describe("verifyArtifactCleanup — aggregate verdict", () => {
     const result = verifyArtifactCleanup(
       [
         ev({ presence: "absent" }),
-        ev({ presence: "present", lifecycle: { expiresAtMs: NOW - HOUR, deleted: false } }),
+        ev({
+          presence: "present",
+          lifecycle: { expiresAtMs: NOW - HOUR, deleted: false },
+        }),
       ],
       opts,
     );
@@ -189,7 +223,10 @@ describe("verifyArtifactCleanup — aggregate verdict", () => {
     const result = verifyArtifactCleanup(
       [
         ev({ presence: "absent" }),
-        ev({ presence: "present", lifecycle: { expiresAtMs: NOW - GRACE - HOUR, deleted: false } }),
+        ev({
+          presence: "present",
+          lifecycle: { expiresAtMs: NOW - GRACE - HOUR, deleted: false },
+        }),
       ],
       opts,
     );
@@ -201,7 +238,10 @@ describe("verifyArtifactCleanup — aggregate verdict", () => {
     const result = verifyArtifactCleanup(
       [
         ev({ presence: "error" }),
-        ev({ presence: "present", lifecycle: { expiresAtMs: NOW - GRACE - HOUR, deleted: false } }),
+        ev({
+          presence: "present",
+          lifecycle: { expiresAtMs: NOW - GRACE - HOUR, deleted: false },
+        }),
       ],
       opts,
     );
@@ -229,7 +269,12 @@ describe("verifyArtifactCleanup — aggregate verdict", () => {
     // Only a live object present: not a cleanup target, and no reaping evidence → unknown,
     // never verified (there is nothing proven gone).
     const result = verifyArtifactCleanup(
-      [ev({ presence: "present", lifecycle: { expiresAtMs: NOW + HOUR, deleted: false } })],
+      [
+        ev({
+          presence: "present",
+          lifecycle: { expiresAtMs: NOW + HOUR, deleted: false },
+        }),
+      ],
       opts,
     );
     expect(result.verdict).toBe("unknown");

@@ -36,7 +36,10 @@ describe("buildArtifactExpiryReceipt", () => {
   });
 
   it("omits an absent timestamp", () => {
-    const r = buildArtifactExpiryReceipt({ state: "live", provider: "remote-configured" });
+    const r = buildArtifactExpiryReceipt({
+      state: "live",
+      provider: "remote-configured",
+    });
     expect("at" in r).toBe(false);
   });
 
@@ -51,7 +54,14 @@ describe("buildArtifactExpiryReceipt", () => {
         expect(r.category).toBe("expiry");
         // No key that could carry an id, object key, bucket, timestamp value, or byte.
         const serialized = JSON.stringify(r).toLowerCase();
-        for (const bad of ["art_", "://", "bucket", "amazonaws", ".pdf", "secret"]) {
+        for (const bad of [
+          "art_",
+          "://",
+          "bucket",
+          "amazonaws",
+          ".pdf",
+          "secret",
+        ]) {
           expect(serialized).not.toContain(bad);
         }
       }
@@ -63,14 +73,20 @@ describe("expiry-receipt observer", () => {
   it("emits to a registered observer and returns the receipt", () => {
     const spy = vi.fn();
     setArtifactExpiryObserver(spy);
-    const r = emitArtifactExpiryReceipt({ state: "expired", provider: "remote-configured" });
+    const r = emitArtifactExpiryReceipt({
+      state: "expired",
+      provider: "remote-configured",
+    });
     expect(spy).toHaveBeenCalledOnce();
     expect(spy).toHaveBeenCalledWith(r);
     expect(r.state).toBe("expired");
   });
 
   it("is a no-op (but still returns the receipt) with no observer registered", () => {
-    const r = emitArtifactExpiryReceipt({ state: "live", provider: "remote-configured" });
+    const r = emitArtifactExpiryReceipt({
+      state: "live",
+      provider: "remote-configured",
+    });
     expect(r.category).toBe("expiry");
   });
 
@@ -79,7 +95,10 @@ describe("expiry-receipt observer", () => {
       throw new Error("sink is down");
     });
     expect(() =>
-      emitArtifactExpiryReceipt({ state: "unknown", provider: "remote-configured" }),
+      emitArtifactExpiryReceipt({
+        state: "unknown",
+        provider: "remote-configured",
+      }),
     ).not.toThrow();
   });
 });

@@ -26,7 +26,11 @@ describe("parseBboxLayout", () => {
   it("reads page geometry and every word", () => {
     const layout = parseBboxLayout(BBOX);
     expect(layout.pageCount).toBe(1);
-    expect(layout.pages[0]).toMatchObject({ pageNumber: 1, width: 595, height: 842 });
+    expect(layout.pages[0]).toMatchObject({
+      pageNumber: 1,
+      width: 595,
+      height: 842,
+    });
     expect(layout.pages[0]!.items.map((i) => i.text)).toEqual([
       "Region",
       "Q1",

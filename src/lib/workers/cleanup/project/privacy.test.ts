@@ -21,7 +21,10 @@ const HOSTILE_ENTRY = {
   LastModified: "2024-03-15T12:34:56.789Z",
   // The two blobs the projector DOES decode — into bounded enums only.
   Metadata: {
-    "artifact-lifecycle": encodeArtifactLifecycleMetadata({ expiresAtMs: FUTURE, deleted: false }),
+    "artifact-lifecycle": encodeArtifactLifecycleMetadata({
+      expiresAtMs: FUTURE,
+      deleted: false,
+    }),
     "artifact-manifest": encodeArtifactManifestMetadata({
       outputKind: "pdf",
       contentType: "application/pdf",
@@ -90,16 +93,22 @@ const FORBIDDEN = [
 describe("projection no-leak contract", () => {
   for (const target of ["evidence", "inventory"] as const) {
     it(`drops every hostile field when projecting to ${target}`, () => {
-      const result = projectProviderExport(JSON.stringify({ objects: [HOSTILE_ENTRY] }), {
-        target,
-        source: "aws-s3",
-        now: NOW,
-      });
+      const result = projectProviderExport(
+        JSON.stringify({ objects: [HOSTILE_ENTRY] }),
+        {
+          target,
+          source: "aws-s3",
+          now: NOW,
+        },
+      );
       expect(result.ok).toBe(true);
       if (!result.ok) return;
 
       // The ENTIRE serialized output — records AND the receipt — is inspected.
-      const serialized = JSON.stringify({ records: result.records, receipt: result.receipt }).toLowerCase();
+      const serialized = JSON.stringify({
+        records: result.records,
+        receipt: result.receipt,
+      }).toLowerCase();
       for (const needle of FORBIDDEN) {
         expect(serialized).not.toContain(needle);
       }
@@ -108,20 +117,29 @@ describe("projection no-leak contract", () => {
       // the manifest resolved to `valid` / kind `pdf` WITHOUT leaking its string fields.
       expect(serialized).toContain(String(FUTURE));
       if (target === "inventory") {
-        expect(result.records[0]).toMatchObject({ manifest: "valid", kind: "pdf", processor: "compress" });
+        expect(result.records[0]).toMatchObject({
+          manifest: "valid",
+          kind: "pdf",
+          processor: "compress",
+        });
       }
 
       // The hostile metadata sub-keys were tallied as opaque blobs, never read.
-      expect(result.receipt.droppedByCategory["metadata-blob"]).toBeGreaterThanOrEqual(8);
+      expect(
+        result.receipt.droppedByCategory["metadata-blob"],
+      ).toBeGreaterThanOrEqual(8);
     });
   }
 
   it("never emits a raw size or LastModified instant — only coarse buckets", () => {
-    const result = projectProviderExport(JSON.stringify({ objects: [HOSTILE_ENTRY] }), {
-      target: "inventory",
-      source: "aws-s3",
-      now: NOW,
-    });
+    const result = projectProviderExport(
+      JSON.stringify({ objects: [HOSTILE_ENTRY] }),
+      {
+        target: "inventory",
+        source: "aws-s3",
+        now: NOW,
+      },
+    );
     expect(result.ok).toBe(true);
     if (!result.ok || result.target !== "inventory") return;
     const serialized = JSON.stringify(result.records);
@@ -132,7 +150,10 @@ describe("projection no-leak contract", () => {
 
   it("keeps the receipt free of any input echo even on a fully-hostile array", () => {
     const result = projectProviderExport(
-      JSON.stringify(["hostile-scalar-acme", { Key: "acme/secret", ContentType: "application/pdf", Metadata: {} }]),
+      JSON.stringify([
+        "hostile-scalar-acme",
+        { Key: "acme/secret", ContentType: "application/pdf", Metadata: {} },
+      ]),
       { target: "inventory", source: "aws-s3", now: NOW },
     );
     expect(result.ok).toBe(true);

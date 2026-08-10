@@ -62,7 +62,8 @@ const ANNOUNCES_DIFFERENTLY: Record<string, string> = {
  * than being pattern-matched away.
  */
 const NO_OUTCOME_OF_ITS_OWN: Record<string, string> = {
-  "tool-runner.tsx": "a dispatcher: maps a RunnerKind to the runner that owns the outcome",
+  "tool-runner.tsx":
+    "a dispatcher: maps a RunnerKind to the runner that owns the outcome",
   "single-pdf-runner.tsx":
     "the shared load-one-PDF lifecycle (dropzone, reading, errors); the editor it renders owns the outcome",
 };
@@ -160,13 +161,16 @@ describe("a run that starts always stops", () => {
     expect(busyPanels.length).toBeGreaterThanOrEqual(12);
   });
 
-  it.each(busyPanels)("$name clears its busy state in a finally", ({ file, name }) => {
-    const source = readFileSync(file, "utf8");
-    expect(
-      /\}\s*finally\s*\{[^}]*setBusy\(false\)/s.test(source),
-      `${name} sets a busy state but does not clear it in a finally — a rejected fetch there leaves the button spinning with no error, and only a page reload recovers it`,
-    ).toBe(true);
-  });
+  it.each(busyPanels)(
+    "$name clears its busy state in a finally",
+    ({ file, name }) => {
+      const source = readFileSync(file, "utf8");
+      expect(
+        /\}\s*finally\s*\{[^}]*setBusy\(false\)/s.test(source),
+        `${name} sets a busy state but does not clear it in a finally — a rejected fetch there leaves the button spinning with no error, and only a page reload recovers it`,
+      ).toBe(true);
+    },
+  );
 });
 
 describe("the app's live region", () => {

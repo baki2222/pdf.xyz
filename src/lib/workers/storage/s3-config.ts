@@ -114,7 +114,8 @@ function parseFlag(
   if (raw === undefined) return { ok: true, value: fallback };
   const v = raw.toLowerCase();
   if (["true", "1", "yes", "on"].includes(v)) return { ok: true, value: true };
-  if (["false", "0", "no", "off"].includes(v)) return { ok: true, value: false };
+  if (["false", "0", "no", "off"].includes(v))
+    return { ok: true, value: false };
   return { ok: false };
 }
 
@@ -142,10 +143,12 @@ function parseEndpoint(
   } catch {
     return { ok: false };
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false };
+  if (url.protocol !== "http:" && url.protocol !== "https:")
+    return { ok: false };
   // An endpoint is an origin: reject an embedded path, query, fragment, or
   // credentials so a typo can't silently redirect uploads somewhere unexpected.
-  if (url.username || url.password || url.search || url.hash) return { ok: false };
+  if (url.username || url.password || url.search || url.hash)
+    return { ok: false };
   if (url.pathname !== "" && url.pathname !== "/") return { ok: false };
   if (!url.host) return { ok: false };
   return { ok: true, protocol: url.protocol, host: url.host };
@@ -168,7 +171,9 @@ function parseKeyPrefix(
  * but never checks a credential against the live service (that happens when the
  * client uses the signed URL). `env` is injectable for deterministic tests.
  */
-export function parseS3Config(env: EnvSource = process.env): ParseS3ConfigResult {
+export function parseS3Config(
+  env: EnvSource = process.env,
+): ParseS3ConfigResult {
   if (!isS3StorageSelected(env)) {
     return { ok: false, selected: false, issues: [] };
   }
@@ -197,7 +202,8 @@ export function parseS3Config(env: EnvSource = process.env): ParseS3ConfigResult
 
   const bucket = read(env, S3_ENV.bucket);
   if (!bucket) miss(S3_ENV.bucket, "Set the bucket name.");
-  else if (!BUCKET_RE.test(bucket)) miss(S3_ENV.bucket, "Malformed bucket name.");
+  else if (!BUCKET_RE.test(bucket))
+    miss(S3_ENV.bucket, "Malformed bucket name.");
 
   const accessKeyId = read(env, S3_ENV.accessKeyId);
   if (!accessKeyId) miss(S3_ENV.accessKeyId, "Set the access key id.");
@@ -206,7 +212,8 @@ export function parseS3Config(env: EnvSource = process.env): ParseS3ConfigResult
   }
 
   const secretAccessKey = read(env, S3_ENV.secretAccessKey);
-  if (!secretAccessKey) miss(S3_ENV.secretAccessKey, "Set the secret access key.");
+  if (!secretAccessKey)
+    miss(S3_ENV.secretAccessKey, "Set the secret access key.");
   else if (!SECRET_RE.test(secretAccessKey)) {
     miss(S3_ENV.secretAccessKey, "Malformed secret access key.");
   }
@@ -230,7 +237,10 @@ export function parseS3Config(env: EnvSource = process.env): ParseS3ConfigResult
     DEFAULT_UPLOAD_TTL_SECONDS,
   );
   if (!uploadTtl.ok) {
-    miss(S3_ENV.uploadTtlSeconds, `Integer seconds 1–${MAX_PRESIGN_TTL_SECONDS}.`);
+    miss(
+      S3_ENV.uploadTtlSeconds,
+      `Integer seconds 1–${MAX_PRESIGN_TTL_SECONDS}.`,
+    );
   }
 
   const downloadTtl = parseTtl(
@@ -238,7 +248,10 @@ export function parseS3Config(env: EnvSource = process.env): ParseS3ConfigResult
     DEFAULT_DOWNLOAD_TTL_SECONDS,
   );
   if (!downloadTtl.ok) {
-    miss(S3_ENV.downloadTtlSeconds, `Integer seconds 1–${MAX_PRESIGN_TTL_SECONDS}.`);
+    miss(
+      S3_ENV.downloadTtlSeconds,
+      `Integer seconds 1–${MAX_PRESIGN_TTL_SECONDS}.`,
+    );
   }
 
   if (

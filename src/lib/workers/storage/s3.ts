@@ -75,9 +75,9 @@ export function createS3Storage(
   /** Map an opaque id to its private bucket key (with the optional prefix). */
   const buildKey = (kind: StorageObjectKind, id: string): string => {
     const folder = kind === "input" ? "inputs" : "artifacts";
-    return (config.keyPrefix ? [config.keyPrefix, folder, id] : [folder, id]).join(
-      "/",
-    );
+    return (
+      config.keyPrefix ? [config.keyPrefix, folder, id] : [folder, id]
+    ).join("/");
   };
 
   /** Resolve the signing host + request path for a key under the addressing style. */

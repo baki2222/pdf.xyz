@@ -151,7 +151,8 @@ function parseBounded(
 }
 
 /** The default (non-overridden) command name for each engine. */
-const DEFAULT_BINARIES: Readonly<Record<OcrEngine, string>> = OCR_ENGINE_BINARIES;
+const DEFAULT_BINARIES: Readonly<Record<OcrEngine, string>> =
+  OCR_ENGINE_BINARIES;
 
 /**
  * Parse and validate the native-OCR configuration from an environment source.
@@ -164,7 +165,8 @@ export function parseNativeOcrConfig(
   env: EnvSource = process.env,
 ): ParseNativeOcrResult {
   const issues: FieldError[] = [];
-  const miss = (name: string, message: string) => issues.push({ field: name, message });
+  const miss = (name: string, message: string) =>
+    issues.push({ field: name, message });
 
   const enable = parseEnable(read(env, NATIVE_OCR_ENV.enable));
   if (!enable.ok) {
@@ -191,14 +193,20 @@ export function parseNativeOcrConfig(
     const raw = read(env, ENGINE_BIN_ENV[tool]);
     if (raw === undefined) continue;
     if (!isSafeConfiguredPath(raw)) {
-      miss(ENGINE_BIN_ENV[tool], "Must be a safe absolute path (no `..`, no shell characters).");
+      miss(
+        ENGINE_BIN_ENV[tool],
+        "Must be a safe absolute path (no `..`, no shell characters).",
+      );
       continue;
     }
     binaries[tool] = raw;
     overridden[tool] = true;
   }
 
-  const timeout = parseBounded(read(env, NATIVE_OCR_ENV.timeoutMs), OCR_TIMEOUT_MS_BOUNDS);
+  const timeout = parseBounded(
+    read(env, NATIVE_OCR_ENV.timeoutMs),
+    OCR_TIMEOUT_MS_BOUNDS,
+  );
   if (!timeout.ok) {
     miss(
       NATIVE_OCR_ENV.timeoutMs,
@@ -206,7 +214,10 @@ export function parseNativeOcrConfig(
     );
   }
 
-  const maxInput = parseBounded(read(env, NATIVE_OCR_ENV.maxInputBytes), OCR_INPUT_BYTES_BOUNDS);
+  const maxInput = parseBounded(
+    read(env, NATIVE_OCR_ENV.maxInputBytes),
+    OCR_INPUT_BYTES_BOUNDS,
+  );
   if (!maxInput.ok) {
     miss(
       NATIVE_OCR_ENV.maxInputBytes,
@@ -214,7 +225,10 @@ export function parseNativeOcrConfig(
     );
   }
 
-  const maxOutput = parseBounded(read(env, NATIVE_OCR_ENV.maxOutputBytes), OCR_OUTPUT_BYTES_BOUNDS);
+  const maxOutput = parseBounded(
+    read(env, NATIVE_OCR_ENV.maxOutputBytes),
+    OCR_OUTPUT_BYTES_BOUNDS,
+  );
   if (!maxOutput.ok) {
     miss(
       NATIVE_OCR_ENV.maxOutputBytes,
@@ -226,7 +240,10 @@ export function parseNativeOcrConfig(
   const tmpDirRaw = read(env, NATIVE_OCR_ENV.tmpDir);
   if (tmpDirRaw !== undefined) {
     if (!isSafeConfiguredPath(tmpDirRaw)) {
-      miss(NATIVE_OCR_ENV.tmpDir, "Must be a safe absolute path (no `..`, no shell characters).");
+      miss(
+        NATIVE_OCR_ENV.tmpDir,
+        "Must be a safe absolute path (no `..`, no shell characters).",
+      );
     } else {
       tmpDir = tmpDirRaw;
     }

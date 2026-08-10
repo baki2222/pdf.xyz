@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { DEFAULT_RETENTION_SETTINGS, type RetentionSettings } from "./retention";
+import {
+  DEFAULT_RETENTION_SETTINGS,
+  type RetentionSettings,
+} from "./retention";
 import {
   LIFECYCLE_PREFIXES,
   MAX_BACKSTOP_DAYS,
@@ -41,7 +44,9 @@ describe("buildLifecyclePolicy — default (non-versioned)", () => {
     const input = policy.rules.find((r) => r.role === "input-expiration")!;
     expect(input.prefix).toBe(LIFECYCLE_PREFIXES.input);
     expect(input.expireAfterDays).toBe(1); // 60 min ⇒ 1-day backstop
-    const abort = policy.rules.find((r) => r.role === "abort-multipart-upload")!;
+    const abort = policy.rules.find(
+      (r) => r.role === "abort-multipart-upload",
+    )!;
     expect(abort.abortIncompleteMultipartAfterDays).toBe(1); // 24h ⇒ 1 day
   });
 
@@ -70,7 +75,9 @@ describe("buildLifecyclePolicy — versioned + key prefix", () => {
       versioned: true,
       keyPrefix: "team/pdfxyz",
     });
-    expect(policy.rules.map((r) => r.role)).toContain("noncurrent-version-expiration");
+    expect(policy.rules.map((r) => r.role)).toContain(
+      "noncurrent-version-expiration",
+    );
     expect(policy.rules.map((r) => r.role)).toContain("expired-delete-marker");
     const input = policy.rules.find((r) => r.role === "input-expiration")!;
     expect(input.prefix).toBe(`team/pdfxyz/${LIFECYCLE_PREFIXES.input}`);
@@ -152,12 +159,17 @@ describe("validateLifecyclePolicy — rejects broken policies", () => {
     const result = validateLifecyclePolicy(broken);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues.map((i) => i.code)).toContain("backstop-below-retention");
+    expect(result.issues.map((i) => i.code)).toContain(
+      "backstop-below-retention",
+    );
   });
 
   it("flags duplicate rule ids", () => {
     const dup = base.rules[0]!;
-    const result = validateLifecyclePolicy({ ...base, rules: [...base.rules, dup] });
+    const result = validateLifecyclePolicy({
+      ...base,
+      rules: [...base.rules, dup],
+    });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues.map((i) => i.code)).toContain("duplicate-rule-id");
@@ -172,7 +184,14 @@ describe("buildLifecyclePolicy — content-free", () => {
     });
     const serialized = JSON.stringify(policy);
     // Only structural prefixes, day counts, ids, and prose — no infra identifiers.
-    for (const leak of ["amazonaws", "http", "AKIA", "secret", "token", "bucket-"]) {
+    for (const leak of [
+      "amazonaws",
+      "http",
+      "AKIA",
+      "secret",
+      "token",
+      "bucket-",
+    ]) {
       expect(serialized.toLowerCase()).not.toContain(leak.toLowerCase());
     }
   });

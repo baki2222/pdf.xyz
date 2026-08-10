@@ -38,7 +38,9 @@ function tsv(...rows: string[]): Uint8Array {
 describe("parseTesseractConfidence", () => {
   it("converts from Tesseract's 0-100 scale to the [0, 1] contract", () => {
     // The units trap, named explicitly: 90 and 80 must become 0.85, not 85.
-    const result = parseTesseractConfidence(tsv(row(5, 90, "hello"), row(5, 80, "world")));
+    const result = parseTesseractConfidence(
+      tsv(row(5, 90, "hello"), row(5, 80, "world")),
+    );
     expect(result?.meanConfidence).toBe(0.85);
     expect(result?.recognizedWords).toBe(2);
   });
@@ -46,7 +48,9 @@ describe("parseTesseractConfidence", () => {
   it("survives the round trip into the meta contract", () => {
     // The regression this pairs with: a parser that forgot `/100` would hand 85 to
     // buildOcrResultMeta, which would null it silently. Drive the real path.
-    const parsed = parseTesseractConfidence(tsv(row(5, 90, "hello"), row(5, 80, "world")))!;
+    const parsed = parseTesseractConfidence(
+      tsv(row(5, 90, "hello"), row(5, 80, "world")),
+    )!;
     const meta = buildOcrResultMeta({
       engine: "tesseract",
       languages: ["eng"],
@@ -111,7 +115,9 @@ describe("parseTesseractConfidence", () => {
   });
 
   it("never returns the recognized text it read", () => {
-    const result = parseTesseractConfidence(tsv(row(5, 90, "CONFIDENTIAL-SALARY")));
+    const result = parseTesseractConfidence(
+      tsv(row(5, 90, "CONFIDENTIAL-SALARY")),
+    );
     expect(JSON.stringify(result)).not.toContain("CONFIDENTIAL");
   });
 });
@@ -132,7 +138,11 @@ describe("ocrConfidenceLooksLow — a quality signal, never a language verdict",
     // is the honest answer; a warning here would train users to ignore the warning.
     expect(
       ocrConfidenceLooksLow(
-        meta({ meanConfidence: 0.2, lowConfidenceWordRatio: 0.9, recognizedWords: 5 }),
+        meta({
+          meanConfidence: 0.2,
+          lowConfidenceWordRatio: 0.9,
+          recognizedWords: 5,
+        }),
       ),
     ).toBe(false);
   });
@@ -140,7 +150,11 @@ describe("ocrConfidenceLooksLow — a quality signal, never a language verdict",
   it("flags a uniformly poor read via the mean", () => {
     expect(
       ocrConfidenceLooksLow(
-        meta({ meanConfidence: 0.55, lowConfidenceWordRatio: 0.1, recognizedWords: 300 }),
+        meta({
+          meanConfidence: 0.55,
+          lowConfidenceWordRatio: 0.1,
+          recognizedWords: 300,
+        }),
       ),
     ).toBe(true);
   });
@@ -150,7 +164,11 @@ describe("ocrConfidenceLooksLow — a quality signal, never a language verdict",
     // mean alone clears the bar; the distribution does not.
     expect(
       ocrConfidenceLooksLow(
-        meta({ meanConfidence: 0.78, lowConfidenceWordRatio: 0.5, recognizedWords: 300 }),
+        meta({
+          meanConfidence: 0.78,
+          lowConfidenceWordRatio: 0.5,
+          recognizedWords: 300,
+        }),
       ),
     ).toBe(true);
   });
@@ -158,7 +176,11 @@ describe("ocrConfidenceLooksLow — a quality signal, never a language verdict",
   it("stays quiet on a healthy read", () => {
     expect(
       ocrConfidenceLooksLow(
-        meta({ meanConfidence: 0.93, lowConfidenceWordRatio: 0.04, recognizedWords: 300 }),
+        meta({
+          meanConfidence: 0.93,
+          lowConfidenceWordRatio: 0.04,
+          recognizedWords: 300,
+        }),
       ),
     ).toBe(false);
   });

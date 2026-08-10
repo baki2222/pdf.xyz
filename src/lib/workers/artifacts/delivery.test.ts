@@ -48,7 +48,9 @@ describe("decideDelivery — happy path", () => {
     expect(d.headers["accept-ranges"]).toBe("none");
     // The access layer's safe headers survive unchanged.
     expect(d.headers["content-type"]).toBe("application/pdf");
-    expect(d.headers["content-disposition"]).toBe('attachment; filename="compressed.pdf"');
+    expect(d.headers["content-disposition"]).toBe(
+      'attachment; filename="compressed.pdf"',
+    );
     expect(d.headers["cache-control"]).toBe("private, no-store");
     expect(d.headers["x-content-type-options"]).toBe("nosniff");
   });
@@ -60,7 +62,9 @@ describe("decideDelivery — happy path", () => {
     expect(d.includeBody).toBe(false);
     expect(d.headers["content-length"]).toBe("20");
     expect(d.headers["accept-ranges"]).toBe("none");
-    expect(d.headers["content-disposition"]).toBe('attachment; filename="compressed.pdf"');
+    expect(d.headers["content-disposition"]).toBe(
+      'attachment; filename="compressed.pdf"',
+    );
   });
 
   it("delivers when the provider-declared length matches the actual bytes", () => {
@@ -98,7 +102,9 @@ describe("decideDelivery — happy path", () => {
     expect(d.ok).toBe(true);
     if (!d.ok) return;
     expect(d.headers["content-type"]).toBe("text/plain; charset=utf-8");
-    expect(d.headers["content-disposition"]).toBe('attachment; filename="extracted-text.txt"');
+    expect(d.headers["content-disposition"]).toBe(
+      'attachment; filename="extracted-text.txt"',
+    );
     expect(d.headers["accept-ranges"]).toBe("none");
     expect(d.headers["content-length"]).toBe(String(bytes));
   });
@@ -127,9 +133,13 @@ describe("decideDelivery — length consistency", () => {
 
   it("denies size_mismatch for a non-integer or negative length (defensive)", () => {
     expect(decideDelivery(input(20, { actualLength: 20.5 })).ok).toBe(false);
-    expect(decideDelivery(input(20, { actualLength: -1, decidedLength: -1 })).ok).toBe(false);
+    expect(
+      decideDelivery(input(20, { actualLength: -1, decidedLength: -1 })).ok,
+    ).toBe(false);
     expect(decideDelivery(input(20, { reportedLength: 20.5 })).ok).toBe(false);
-    expect(decideDelivery(input(20, { actualLength: Number.NaN })).ok).toBe(false);
+    expect(decideDelivery(input(20, { actualLength: Number.NaN })).ok).toBe(
+      false,
+    );
   });
 });
 
@@ -138,7 +148,12 @@ describe("decideDelivery — size ceiling", () => {
     // Use huge lengths (no allocation) against a tiny injected ceiling.
     const big = 2_000_000_000;
     const d = decideDelivery(
-      { ...input(0), decidedLength: big, actualLength: big, headers: pdfHeaders(big) },
+      {
+        ...input(0),
+        decidedLength: big,
+        actualLength: big,
+        headers: pdfHeaders(big),
+      },
       { maxBytes: 1_000 },
     );
     expect(d.ok).toBe(false);
@@ -147,14 +162,21 @@ describe("decideDelivery — size ceiling", () => {
   });
 
   it("delivers exactly at the ceiling (boundary is inclusive)", () => {
-    const d = decideDelivery(input(1_000, { headers: pdfHeaders(1_000) }), { maxBytes: 1_000 });
+    const d = decideDelivery(input(1_000, { headers: pdfHeaders(1_000) }), {
+      maxBytes: 1_000,
+    });
     expect(d.ok).toBe(true);
   });
 
   it("treats maxBytes: 0 as disabled (no ceiling)", () => {
     const big = 5_000_000_000;
     const d = decideDelivery(
-      { ...input(0), decidedLength: big, actualLength: big, headers: pdfHeaders(big) },
+      {
+        ...input(0),
+        decidedLength: big,
+        actualLength: big,
+        headers: pdfHeaders(big),
+      },
       { maxBytes: 0 },
     );
     expect(d.ok).toBe(true);
@@ -162,8 +184,12 @@ describe("decideDelivery — size ceiling", () => {
 
   it("ships a generous default ceiling well above any real output", () => {
     // 1 GiB default — larger than any realistic single produced artifact.
-    expect(DEFAULT_ARTIFACT_DELIVERY_POLICY.maxBytes).toBeGreaterThanOrEqual(64 * 1024 * 1024);
-    expect(Number.isSafeInteger(DEFAULT_ARTIFACT_DELIVERY_POLICY.maxBytes)).toBe(true);
+    expect(DEFAULT_ARTIFACT_DELIVERY_POLICY.maxBytes).toBeGreaterThanOrEqual(
+      64 * 1024 * 1024,
+    );
+    expect(
+      Number.isSafeInteger(DEFAULT_ARTIFACT_DELIVERY_POLICY.maxBytes),
+    ).toBe(true);
   });
 });
 
@@ -195,7 +221,11 @@ describe("delivery helpers", () => {
   });
 
   it("maps every delivery-denial reason to a content-free 503 service_unavailable", () => {
-    const denyReasons: ArtifactDeliveryDenyReason[] = ["size_mismatch", "oversize", "stream_error"];
+    const denyReasons: ArtifactDeliveryDenyReason[] = [
+      "size_mismatch",
+      "oversize",
+      "stream_error",
+    ];
     for (const reason of denyReasons) {
       const { code, message } = httpErrorForDeliveryReason(reason);
       expect(code).toBe("service_unavailable");
@@ -219,7 +249,9 @@ describe("decideDelivery — content-free & bounded", () => {
     const d = decideDelivery(input(42));
     expect(d.ok).toBe(true);
     if (!d.ok) return;
-    const blob = Object.entries(d.headers).map(([k, v]) => `${k}: ${v}`).join("\n");
+    const blob = Object.entries(d.headers)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\n");
     for (const secret of FORBIDDEN) expect(blob).not.toContain(secret);
   });
 
@@ -243,7 +275,12 @@ describe("decideDelivery — content-free & bounded", () => {
   });
 
   it("preserves the served kind for observability across kinds", () => {
-    const kinds: ArtifactOutputKind[] = ["pdf", "text-sidecar", "archive", "image"];
+    const kinds: ArtifactOutputKind[] = [
+      "pdf",
+      "text-sidecar",
+      "archive",
+      "image",
+    ];
     for (const kind of kinds) {
       const d = decideDelivery(input(10, { kind }));
       expect(d.ok).toBe(true);

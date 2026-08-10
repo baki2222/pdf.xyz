@@ -1,6 +1,10 @@
 import JSZip from "jszip";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
-import type { SummarizeOptions, SummaryFormat, SummaryLength } from "@/lib/jobs/summarize-pdf";
+import type {
+  SummarizeOptions,
+  SummaryFormat,
+  SummaryLength,
+} from "@/lib/jobs/summarize-pdf";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
 
 /**
@@ -97,28 +101,30 @@ export type SummarizeRun =
     };
 
 /** Per-length generation budget (tokens) and human guidance woven into the prompt. */
-const LENGTH_PLAN: Record<SummaryLength, { tokens: number; guidance: string }> = {
-  brief: {
-    tokens: 700,
-    guidance:
-      "Write a very concise summary: a 2–3 sentence TL;DR followed by at most three key points.",
-  },
-  standard: {
-    tokens: 1600,
-    guidance:
-      "Write a clear summary of the main points in a few short paragraphs (or 5–8 key points).",
-  },
-  detailed: {
-    tokens: 4000,
-    guidance:
-      "Write a thorough summary covering every major section, key finding, and important detail.",
-  },
-};
+const LENGTH_PLAN: Record<SummaryLength, { tokens: number; guidance: string }> =
+  {
+    brief: {
+      tokens: 700,
+      guidance:
+        "Write a very concise summary: a 2–3 sentence TL;DR followed by at most three key points.",
+    },
+    standard: {
+      tokens: 1600,
+      guidance:
+        "Write a clear summary of the main points in a few short paragraphs (or 5–8 key points).",
+    },
+    detailed: {
+      tokens: 4000,
+      guidance:
+        "Write a thorough summary covering every major section, key finding, and important detail.",
+    },
+  };
 
 const FORMAT_GUIDANCE: Record<SummaryFormat, string> = {
   paragraphs: "Format the summary as short prose paragraphs.",
   bullets: "Format the summary as markdown bullet points.",
-  outline: "Format the summary as a hierarchical markdown outline with section headings.",
+  outline:
+    "Format the summary as a hierarchical markdown outline with section headings.",
 };
 
 const DEFAULT_MAX_INPUT_CHARS = 500_000;
@@ -146,11 +152,26 @@ function mapProviderFailure(
 ): Extract<SummarizeRun, { ok: false }> {
   switch (result.kind) {
     case "not_configured":
-      return { ok: false, kind: "ai_unconfigured", retryable: false, message: result.message };
+      return {
+        ok: false,
+        kind: "ai_unconfigured",
+        retryable: false,
+        message: result.message,
+      };
     case "rate_limited":
-      return { ok: false, kind: "rate_limited", retryable: true, message: result.message };
+      return {
+        ok: false,
+        kind: "rate_limited",
+        retryable: true,
+        message: result.message,
+      };
     case "content_filtered":
-      return { ok: false, kind: "content_filtered", retryable: false, message: result.message };
+      return {
+        ok: false,
+        kind: "content_filtered",
+        retryable: false,
+        message: result.message,
+      };
     case "too_long":
       return {
         ok: false,
@@ -163,7 +184,12 @@ function mapProviderFailure(
     case "invalid_response":
     case "provider_error":
     default:
-      return { ok: false, kind: "failed", retryable: result.retryable, message: result.message };
+      return {
+        ok: false,
+        kind: "failed",
+        retryable: result.retryable,
+        message: result.message,
+      };
   }
 }
 
@@ -217,7 +243,12 @@ export async function runSummarize(
   try {
     extracted = await extract(input);
   } catch {
-    return { ok: false, kind: "failed", retryable: false, message: "The PDF could not be read for text extraction." };
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: "The PDF could not be read for text extraction.",
+    };
   }
 
   const sourceText = extracted.text.trim();
@@ -257,7 +288,12 @@ export async function runSummarize(
 
   const summary = completion.text.trim();
   if (summary.length === 0) {
-    return { ok: false, kind: "failed", retryable: true, message: "The AI provider returned an empty summary." };
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: true,
+      message: "The AI provider returned an empty summary.",
+    };
   }
 
   const createdAt = now();
@@ -268,7 +304,11 @@ export async function runSummarize(
     createdAt,
     provider: provider.id,
     model: completion.model,
-    options: { length: options.length, format: options.format, ...(options.focus ? { focus: options.focus } : {}) },
+    options: {
+      length: options.length,
+      format: options.format,
+      ...(options.focus ? { focus: options.focus } : {}),
+    },
     source: {
       pageCount: extracted.pageCount,
       characters: sourceText.length,
@@ -282,7 +322,12 @@ export async function runSummarize(
   const output = await buildPackage(summary, manifest, options);
   const maxOutput = deps.limits?.maxOutputBytes;
   if (maxOutput !== undefined && output.byteLength > maxOutput) {
-    return { ok: false, kind: "failed", retryable: false, message: "The summary package exceeds the worker size limit." };
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: "The summary package exceeds the worker size limit.",
+    };
   }
 
   return {
@@ -319,7 +364,11 @@ interface SummaryManifest {
   provider: string;
   model: string;
   options: { length: SummaryLength; format: SummaryFormat; focus?: string };
-  source: { pageCount: number; characters: number; truncatedToCharacters: number | null };
+  source: {
+    pageCount: number;
+    characters: number;
+    truncatedToCharacters: number | null;
+  };
   summary: { characters: number };
   notice: string;
 }
@@ -329,8 +378,12 @@ function renderMarkdown(summary: string, manifest: SummaryManifest): string {
   const lines: string[] = [];
   lines.push("# Summary");
   lines.push("");
-  lines.push(`> Generated by ${manifest.provider} (${manifest.model}) from the selectable text of the source PDF.`);
-  lines.push(`> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for summarization)` : ""}`);
+  lines.push(
+    `> Generated by ${manifest.provider} (${manifest.model}) from the selectable text of the source PDF.`,
+  );
+  lines.push(
+    `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for summarization)` : ""}`,
+  );
   lines.push("");
   lines.push(summary);
   lines.push("");
@@ -348,13 +401,19 @@ function renderReadme(manifest: SummaryManifest): string {
   lines.push(`Generated: ${manifest.createdAt}`);
   lines.push(`Provider: ${manifest.provider}`);
   lines.push(`Model: ${manifest.model}`);
-  lines.push(`Length: ${manifest.options.length} · Format: ${manifest.options.format}`);
+  lines.push(
+    `Length: ${manifest.options.length} · Format: ${manifest.options.format}`,
+  );
   if (manifest.options.focus) lines.push(`Focus: ${manifest.options.focus}`);
   lines.push("");
   lines.push("Contents:");
-  lines.push("  summary.md    The AI summary (markdown) with a provenance header.");
+  lines.push(
+    "  summary.md    The AI summary (markdown) with a provenance header.",
+  );
   lines.push("  summary.txt   The AI summary as plain text.");
-  lines.push("  manifest.json A structured record of the request (provider, model, options, source stats).");
+  lines.push(
+    "  manifest.json A structured record of the request (provider, model, options, source stats).",
+  );
   lines.push("");
   lines.push("HONEST SCOPE:");
   lines.push("  " + manifest.notice);

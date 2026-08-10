@@ -26,75 +26,87 @@ export default async function ToolsOpengraphImage() {
   const fonts = await loadCardFonts();
 
   return new ImageResponse(
-    (
-      <div
-        style={{
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          width: "100%",
-          height: "100%",
-          padding: "72px 80px",
-          backgroundImage: OG_BACKGROUND_IMAGE,
-          color: "#ffffff",
-          fontFamily: "Inter",
-        }}
-      >
-        <OgWordmark />
+    <div
+      style={{
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        width: "100%",
+        height: "100%",
+        padding: "72px 80px",
+        backgroundImage: OG_BACKGROUND_IMAGE,
+        color: "#ffffff",
+        fontFamily: "Inter",
+      }}
+    >
+      <OgWordmark />
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div
-            style={{
-              display: "flex",
-              fontSize: 22,
-              fontWeight: 700,
-              letterSpacing: 4,
-              textTransform: "uppercase",
-              color: "#a5b4fc",
-            }}
-          >
-            The complete toolkit
-          </div>
-          <div
-            style={{
-              display: "flex",
-              fontSize: 104,
-              fontWeight: 700,
-              lineHeight: 1.02,
-              letterSpacing: -2,
-            }}
-          >
-            {toolCount} PDF tools
-          </div>
-          <div style={{ display: "flex", fontSize: 32, color: "#94a3b8", maxWidth: 940 }}>
-            Merge, split, compress, convert, sign, secure — and see exactly where
-            each one runs before you upload anything.
-          </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <div
+          style={{
+            display: "flex",
+            fontSize: 22,
+            fontWeight: 700,
+            letterSpacing: 4,
+            textTransform: "uppercase",
+            color: "#a5b4fc",
+          }}
+        >
+          The complete toolkit
         </div>
-
-        {/* The categories double as proof of the breadth the headline claims. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          {categories.map((category) => (
-            <div
-              key={category.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "10px 20px",
-                borderRadius: 9999,
-                border: "1px solid rgba(255,255,255,0.14)",
-                background: "rgba(255,255,255,0.05)",
-                fontSize: 22,
-                color: "#e2e8f0",
-              }}
-            >
-              {category.name}
-            </div>
-          ))}
+        <div
+          style={{
+            display: "flex",
+            fontSize: 104,
+            fontWeight: 700,
+            lineHeight: 1.02,
+            letterSpacing: -2,
+          }}
+        >
+          {toolCount} PDF tools
+        </div>
+        <div
+          style={{
+            display: "flex",
+            fontSize: 32,
+            color: "#94a3b8",
+            maxWidth: 940,
+          }}
+        >
+          Merge, split, compress, convert, sign, secure — and see exactly where
+          each one runs before you upload anything.
         </div>
       </div>
-    ),
+
+      {/* The categories double as proof of the breadth the headline claims. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        {categories.map((category) => (
+          <div
+            key={category.id}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "10px 20px",
+              borderRadius: 9999,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(255,255,255,0.05)",
+              fontSize: 22,
+              color: "#e2e8f0",
+            }}
+          >
+            {category.name}
+          </div>
+        ))}
+      </div>
+    </div>,
     { ...size, fonts },
   );
 }

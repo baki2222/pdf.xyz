@@ -82,7 +82,9 @@ export type ArtifactExpiryObserver = (receipt: ArtifactExpiryReceipt) => void;
 let observer: ArtifactExpiryObserver | null = null;
 
 /** Register (or clear, with `null`) the process-wide expiry-receipt observer. */
-export function setArtifactExpiryObserver(next: ArtifactExpiryObserver | null): void {
+export function setArtifactExpiryObserver(
+  next: ArtifactExpiryObserver | null,
+): void {
   observer = next;
 }
 

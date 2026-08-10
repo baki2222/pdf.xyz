@@ -10,7 +10,11 @@
  *  - `--text`       — a short human summary for a terminal / log line.
  */
 
-import { exitCodeForSeverity, OPS_CHECK_EXIT, type AlertSeverity } from "../observability/alerts";
+import {
+  exitCodeForSeverity,
+  OPS_CHECK_EXIT,
+  type AlertSeverity,
+} from "../observability/alerts";
 import {
   CLEANUP_OBJECT_STATES,
   type CleanupObjectState,
@@ -77,7 +81,9 @@ export function isCleanupUsageError(
  * recommended fix (a worker can still run and Phase 41 still denies the download); everything
  * else could not prove cleanup and is `unknown` (never escalated over a concrete signal).
  */
-export function severityForCleanupVerdict(verdict: CleanupVerdict): AlertSeverity {
+export function severityForCleanupVerdict(
+  verdict: CleanupVerdict,
+): AlertSeverity {
   switch (verdict) {
     case "verified":
       return "ok";
@@ -165,7 +171,11 @@ function escapeLabel(value: string): string {
 }
 
 /** `name{k="v",...} value`, labels in given order. */
-function line(name: string, labels: Record<string, string>, value: number): string {
+function line(
+  name: string,
+  labels: Record<string, string>,
+  value: number,
+): string {
   const pairs = Object.entries(labels)
     .map(([k, v]) => `${k}="${escapeLabel(v)}"`)
     .join(",");
@@ -177,12 +187,16 @@ function line(name: string, labels: Record<string, string>, value: number): stri
  * so the output can never carry a high-cardinality value. The per-state gauge lets an operator
  * alert directly on `pdfxyz_cleanup_check_objects{state="drift"} > 0`.
  */
-export function renderCleanupCheckPrometheus(outcome: CleanupCheckOutcome): string {
+export function renderCleanupCheckPrometheus(
+  outcome: CleanupCheckOutcome,
+): string {
   if (isCleanupUsageError(outcome)) {
     return `${line("pdfxyz_cleanup_check_error", { kind: "usage" }, 1)}\n`;
   }
   const lines: string[] = [];
-  lines.push(line("pdfxyz_cleanup_check_verdict", {}, VERDICT_CODE[outcome.verdict]));
+  lines.push(
+    line("pdfxyz_cleanup_check_verdict", {}, VERDICT_CODE[outcome.verdict]),
+  );
   lines.push(
     line(
       "pdfxyz_cleanup_check_info",
@@ -195,7 +209,11 @@ export function renderCleanupCheckPrometheus(outcome: CleanupCheckOutcome): stri
   lines.push(line("pdfxyz_cleanup_check_drift", {}, outcome.drift));
   for (const state of CLEANUP_OBJECT_STATES) {
     lines.push(
-      line("pdfxyz_cleanup_check_objects", { state }, outcome.counts[state as CleanupObjectState]),
+      line(
+        "pdfxyz_cleanup_check_objects",
+        { state },
+        outcome.counts[state as CleanupObjectState],
+      ),
     );
   }
   return `${lines.join("\n")}\n`;

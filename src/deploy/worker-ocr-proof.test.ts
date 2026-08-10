@@ -45,7 +45,9 @@ const CODE = SOURCE.split("\n")
 
 /** Resolve a coreutil's absolute path using the current PATH, once. */
 function realPath(bin: string): string {
-  return execFileSync("sh", ["-c", `command -v ${bin}`], { encoding: "utf8" }).trim();
+  return execFileSync("sh", ["-c", `command -v ${bin}`], {
+    encoding: "utf8",
+  }).trim();
 }
 
 // A PATH with ONLY the coreutils the script invokes (NO gs/tesseract) — so the
@@ -77,14 +79,14 @@ writeFileSync(
     "#!/bin/sh",
     // argv: <png> <base> -l eng pdf txt
     "base=$2",
-    'mode=${STUB_TESS_MODE:-ok}',
+    "mode=${STUB_TESS_MODE:-ok}",
     'case "$mode" in',
-    '  no-pdf) : ;;',
+    "  no-pdf) : ;;",
     "  *) printf '%%PDF-1.5\\nstub pdf\\n%%%%EOF\\n' > \"$base.pdf\" ;;",
     "esac",
     'case "$mode" in',
     "  no-sentinel) printf 'lorem ipsum dolor sit\\n' > \"$base.txt\" ;;",
-    '  no-txt) : ;;',
+    "  no-txt) : ;;",
     // The sentinel appears (split + joined) so normalization must recover it.
     "  *) printf 'OCR PROOF header\\nOCRPROOF body line\\n' > \"$base.txt\" ;;",
     "esac",
@@ -116,7 +118,11 @@ interface Run {
 }
 
 /** Run the proof with an isolated PATH + a private TMPDIR; report exit, output, and leftovers. */
-function run(pathValue: string, env: Record<string, string> = {}, args: string[] = []): Run {
+function run(
+  pathValue: string,
+  env: Record<string, string> = {},
+  args: string[] = [],
+): Run {
   const tmpdir = mkdtempSync(path.join(os.tmpdir(), "ocrproof-tmp-"));
   let code = 0;
   let stdout = "";
@@ -130,7 +136,9 @@ function run(pathValue: string, env: Record<string, string> = {}, args: string[]
     code = err.status ?? 1;
     stdout = `${err.stdout ?? ""}${err.stderr ?? ""}`;
   }
-  const leftover = readdirSync(tmpdir).filter((n) => n.startsWith("pdfxyz-ocr-proof."));
+  const leftover = readdirSync(tmpdir).filter((n) =>
+    n.startsWith("pdfxyz-ocr-proof."),
+  );
   rmSync(tmpdir, { recursive: true, force: true });
   return { code, stdout, tmpdir, leftover };
 }
@@ -157,7 +165,9 @@ describe("worker-ocr-proof.sh — prerequisite + flag contract", () => {
 
 describe("worker-ocr-proof.sh — full pipeline under stub engines (recognition is enforced)", () => {
   it("passes (exit 0) when a %PDF PDF and a sentinel-bearing sidecar are produced, and cleans up", () => {
-    const { code, stdout, leftover } = run(WITH_STUB_ENGINES, { STUB_TESS_MODE: "ok" });
+    const { code, stdout, leftover } = run(WITH_STUB_ENGINES, {
+      STUB_TESS_MODE: "ok",
+    });
     expect(code).toBe(0);
     expect(stdout).toMatch(/all checks passed/);
     expect(stdout).toMatch(/searchable PDF was produced/);
@@ -167,7 +177,9 @@ describe("worker-ocr-proof.sh — full pipeline under stub engines (recognition 
   });
 
   it("FAILS (exit 3) when the sidecar lacks the sentinel — the recognition check is real, not decorative", () => {
-    const { code, stdout, leftover } = run(WITH_STUB_ENGINES, { STUB_TESS_MODE: "no-sentinel" });
+    const { code, stdout, leftover } = run(WITH_STUB_ENGINES, {
+      STUB_TESS_MODE: "no-sentinel",
+    });
     expect(code).toBe(3);
     expect(stdout).toMatch(/FAIL {2}the expected sentinel was recognized/);
     expect(stdout).toMatch(/worker ocr proof: FAILED/);
@@ -179,7 +191,9 @@ describe("worker-ocr-proof.sh — full pipeline under stub engines (recognition 
   });
 
   it("FAILS (exit 3) when no searchable PDF is produced", () => {
-    const { code, stdout } = run(WITH_STUB_ENGINES, { STUB_TESS_MODE: "no-pdf" });
+    const { code, stdout } = run(WITH_STUB_ENGINES, {
+      STUB_TESS_MODE: "no-pdf",
+    });
     expect(code).toBe(3);
     expect(stdout).toMatch(/FAIL {2}a searchable PDF was produced/);
   });
@@ -220,11 +234,17 @@ describe("worker-ocr-proof.sh — static hygiene guarantees", () => {
 
   it("contacts no cloud service, queue, store, scanner, or secret (executable code only)", () => {
     // Prose comments NAME what the proof avoids ("no … secret"); scan executable lines.
-    expect(CODE).not.toMatch(/redis|upstash|s3|r2|clamav|clamd|secret|token|password/i);
+    expect(CODE).not.toMatch(
+      /redis|upstash|s3|r2|clamav|clamd|secret|token|password/i,
+    );
   });
 
   it("is wired as a package script", () => {
-    const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8"));
-    expect(pkg.scripts["worker:ocr-proof"]).toBe("sh scripts/worker-ocr-proof.sh");
+    const pkg = JSON.parse(
+      readFileSync(path.join(ROOT, "package.json"), "utf8"),
+    );
+    expect(pkg.scripts["worker:ocr-proof"]).toBe(
+      "sh scripts/worker-ocr-proof.sh",
+    );
   });
 });

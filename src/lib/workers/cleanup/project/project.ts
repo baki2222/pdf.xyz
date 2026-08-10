@@ -39,8 +39,14 @@ import {
   type ObjectAgeBucket,
   type ObjectSizeBucket,
 } from "../../artifacts/cleanup/inventory";
-import { ARTIFACT_OUTPUT_KINDS, type ArtifactOutputKind } from "../../artifacts/types";
-import { PROCESSOR_KINDS, type ProcessorKind } from "../../observability/metrics";
+import {
+  ARTIFACT_OUTPUT_KINDS,
+  type ArtifactOutputKind,
+} from "../../artifacts/types";
+import {
+  PROCESSOR_KINDS,
+  type ProcessorKind,
+} from "../../observability/metrics";
 import { CLEANUP_PRESENCE, type CleanupPresence } from "../types";
 import {
   emptyDroppedFieldCounts,
@@ -135,19 +141,26 @@ function isEpochMs(value: unknown): value is number {
 
 /** A finite, non-negative number (a raw size/age), else `null`. */
 function asNonNegative(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
 }
 
 /** Narrow a string to a member of a bounded tuple, else `undefined`. */
-function asEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+function asEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | undefined {
+  return typeof value === "string" &&
+    (allowed as readonly string[]).includes(value)
     ? (value as T)
     : undefined;
 }
 
 /** Parse an instant: a bare epoch-ms number, or an ISO-8601 string. `null` when unusable. */
 function parseInstant(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : null;
+  if (typeof value === "number")
+    return Number.isFinite(value) && value >= 0 ? value : null;
   if (typeof value === "string") {
     const t = Date.parse(value);
     return Number.isFinite(t) ? t : null;
@@ -166,8 +179,14 @@ function bareContentType(value: unknown): string | null {
 const ABSENT_ERROR_CODES = ["nosuchkey", "notfound", "no-such-key", "404"];
 
 /** The lifecycle/manifest metadata sub-keys we understand (AWS strips `x-amz-meta-`). */
-const LIFECYCLE_META_KEYS = ["artifact-lifecycle", "x-amz-meta-artifact-lifecycle"];
-const MANIFEST_META_KEYS = ["artifact-manifest", "x-amz-meta-artifact-manifest"];
+const LIFECYCLE_META_KEYS = [
+  "artifact-lifecycle",
+  "x-amz-meta-artifact-lifecycle",
+];
+const MANIFEST_META_KEYS = [
+  "artifact-manifest",
+  "x-amz-meta-artifact-manifest",
+];
 
 /** The complete allowlist of top-level keys the extractor READS (never counted as dropped). */
 const READ_KEYS = new Set<string>([
@@ -204,7 +223,10 @@ const READ_KEYS = new Set<string>([
 ]);
 
 /** The Metadata sub-keys the extractor reads (never counted as a dropped metadata blob). */
-const READ_META_SUBKEYS = new Set<string>([...LIFECYCLE_META_KEYS, ...MANIFEST_META_KEYS]);
+const READ_META_SUBKEYS = new Set<string>([
+  ...LIFECYCLE_META_KEYS,
+  ...MANIFEST_META_KEYS,
+]);
 
 /**
  * Classify a DROPPED field by its NAME alone (its value is never read) into a bounded
@@ -308,7 +330,10 @@ function readMetaValue(
 }
 
 /** Resolve the bounded presence of one object from whatever status hint it carries. */
-function resolvePresence(raw: Record<string, unknown>, tally: Tally): CleanupPresence {
+function resolvePresence(
+  raw: Record<string, unknown>,
+  tally: Tally,
+): CleanupPresence {
   const explicit = asEnum(raw.presence, CLEANUP_PRESENCE);
   if (explicit) return explicit;
 
@@ -363,7 +388,8 @@ function resolveLifecycle(
   const metaRaw = readMetaValue(raw, metadata, LIFECYCLE_META_KEYS);
   if (metaRaw !== null) {
     const decoded = decodeArtifactLifecycleMetadata(metaRaw);
-    if (decoded) return { expiresAtMs: decoded.expiresAtMs, deleted: decoded.deleted };
+    if (decoded)
+      return { expiresAtMs: decoded.expiresAtMs, deleted: decoded.deleted };
     // Present but unusable — fail toward "no evidence", never a guess.
     warn(tally, "unusable-lifecycle");
     return null;
@@ -373,7 +399,10 @@ function resolveLifecycle(
   const hasExpiry = isEpochMs(raw.expiresAtMs);
   const deleted = raw.deleted === true;
   if (hasExpiry || deleted) {
-    return { expiresAtMs: hasExpiry ? (raw.expiresAtMs as number) : 0, deleted };
+    return {
+      expiresAtMs: hasExpiry ? (raw.expiresAtMs as number) : 0,
+      deleted,
+    };
   }
   return null;
 }
@@ -418,7 +447,9 @@ function extractObject(
   // metadata container was present (we looked, none), or `unknown` when none was recorded.
   const manifestMetaRaw = readMetaValue(obj, metadata, MANIFEST_META_KEYS);
   const decodedManifest =
-    manifestMetaRaw !== null ? decodeArtifactManifestMetadata(manifestMetaRaw) : null;
+    manifestMetaRaw !== null
+      ? decodeArtifactManifestMetadata(manifestMetaRaw)
+      : null;
   let manifest: InventoryManifestState;
   const normalizedManifest = asEnum(obj.manifest, INVENTORY_MANIFEST_STATES);
   if (normalizedManifest) {
@@ -434,8 +465,14 @@ function extractObject(
 
   // Kind: a normalized enum, else the decoded manifest's kind, else the content-type mapping.
   let kind: ArtifactOutputKind =
-    asEnum(obj.kind, ARTIFACT_OUTPUT_KINDS) ?? decodedManifest?.outputKind ?? "unknown";
-  if (kind === "unknown" && !asEnum(obj.kind, ARTIFACT_OUTPUT_KINDS) && !decodedManifest) {
+    asEnum(obj.kind, ARTIFACT_OUTPUT_KINDS) ??
+    decodedManifest?.outputKind ??
+    "unknown";
+  if (
+    kind === "unknown" &&
+    !asEnum(obj.kind, ARTIFACT_OUTPUT_KINDS) &&
+    !decodedManifest
+  ) {
     const ct = bareContentType(obj.ContentType ?? obj.contentType);
     if (ct !== null) {
       kind = outputKindForContentType(ct);
@@ -444,7 +481,9 @@ function extractObject(
   }
 
   const processor: ProcessorKind =
-    asEnum(obj.processor, PROCESSOR_KINDS) ?? decodedManifest?.processor ?? "other";
+    asEnum(obj.processor, PROCESSOR_KINDS) ??
+    decodedManifest?.processor ??
+    "other";
 
   const provider: InventoryProvider =
     asEnum(obj.provider, INVENTORY_PROVIDERS) ??
@@ -467,7 +506,9 @@ function extractObject(
   }
   const size: ObjectSizeBucket =
     asEnum(obj.size, OBJECT_SIZE_BUCKETS) ??
-    objectSizeBucket(asNonNegative(obj.ContentLength ?? obj.Size ?? obj.sizeBytes));
+    objectSizeBucket(
+      asNonNegative(obj.ContentLength ?? obj.Size ?? obj.sizeBytes),
+    );
 
   const activeDelete = obj.activeDelete === true;
 
@@ -476,8 +517,12 @@ function extractObject(
   // manifest, or a recognized kind. Everything-unknown is a bare listing entry.
   const usableForEvidence = presence !== "present" || lifecycle !== null;
   const usableForInventory =
-    lifecycle !== null || manifest === "valid" || manifest === "invalid" || kind !== "unknown";
-  const usable = opts.target === "evidence" ? usableForEvidence : usableForInventory;
+    lifecycle !== null ||
+    manifest === "valid" ||
+    manifest === "invalid" ||
+    kind !== "unknown";
+  const usable =
+    opts.target === "evidence" ? usableForEvidence : usableForInventory;
   if (usable) tally.usableMetadata += 1;
   else warn(tally, "missing-metadata");
 
@@ -488,7 +533,18 @@ function extractObject(
     tally.unsafe += 1;
   }
 
-  return { presence, lifecycle, manifest, kind, processor, provider, age, size, activeDelete, usable };
+  return {
+    presence,
+    lifecycle,
+    manifest,
+    kind,
+    processor,
+    provider,
+    age,
+    size,
+    activeDelete,
+    usable,
+  };
 }
 
 /** Serialize an {@link ExtractedObject} into a minimal evidence record. */
@@ -500,7 +556,8 @@ function toEvidenceRecord(e: ExtractedObject): EvidenceRecordJson {
     activeDelete?: boolean;
   } = { presence: e.presence };
   if (e.lifecycle) {
-    if (e.lifecycle.expiresAtMs > 0) record.expiresAtMs = e.lifecycle.expiresAtMs;
+    if (e.lifecycle.expiresAtMs > 0)
+      record.expiresAtMs = e.lifecycle.expiresAtMs;
     if (e.lifecycle.deleted) record.deleted = true;
   }
   if (e.activeDelete) record.activeDelete = true;
@@ -527,16 +584,21 @@ function toInventoryRecord(e: ExtractedObject): InventoryRecordJson {
     size: e.size,
   };
   if (e.lifecycle) {
-    if (e.lifecycle.expiresAtMs > 0) record.expiresAtMs = e.lifecycle.expiresAtMs;
+    if (e.lifecycle.expiresAtMs > 0)
+      record.expiresAtMs = e.lifecycle.expiresAtMs;
     if (e.lifecycle.deleted) record.deleted = true;
   }
   return record;
 }
 
 /** Extract the raw entries array from the bounded envelope shapes, or an input issue. */
-function readEnvelope(text: string): { ok: true; entries: unknown[] } | { ok: false; issue: ProjectionIssue } {
-  if (typeof text !== "string" || text.trim() === "") return { ok: false, issue: "empty-document" };
-  if (text.length > MAX_DOCUMENT_CHARS) return { ok: false, issue: "too-large" };
+function readEnvelope(
+  text: string,
+): { ok: true; entries: unknown[] } | { ok: false; issue: ProjectionIssue } {
+  if (typeof text !== "string" || text.trim() === "")
+    return { ok: false, issue: "empty-document" };
+  if (text.length > MAX_DOCUMENT_CHARS)
+    return { ok: false, issue: "too-large" };
 
   let parsed: unknown;
   try {
@@ -619,7 +681,19 @@ export function projectProviderExport(
   };
 
   if (opts.target === "evidence") {
-    return { ok: true, target: "evidence", records: extracted.map(toEvidenceRecord), receipt, verdict };
+    return {
+      ok: true,
+      target: "evidence",
+      records: extracted.map(toEvidenceRecord),
+      receipt,
+      verdict,
+    };
   }
-  return { ok: true, target: "inventory", records: extracted.map(toInventoryRecord), receipt, verdict };
+  return {
+    ok: true,
+    target: "inventory",
+    records: extracted.map(toInventoryRecord),
+    receipt,
+    verdict,
+  };
 }

@@ -35,12 +35,12 @@ pnpm worker:cleanup-project --target=evidence --file=docs/examples/cleanup-proje
 
 ## Fixtures and the verdict each pins
 
-| File | `--target` | Verdict | Exit | Why |
-| --- | --- | --- | --- | --- |
-| `raw-inventory-projected.json` | `inventory` | `projected` | 0 | A present object with a valid manifest + recognized kind → usable, nothing unsafe. |
-| `raw-evidence-projected.json` | `evidence` | `projected` | 0 | A present-with-expiry probe, a `NoSuchKey` absence, and a `503` error — all usable observations. |
-| `raw-unsafe-tombstoned.json` | `inventory` | `unsafe` | 4 | A present object carrying a deletion tombstone: bytes that should be gone remain. |
-| `raw-insufficient-listing.json` | `inventory` | `insufficient` | 2 | A bare listing entry with no lifecycle / manifest / kind — not enough usable metadata. |
+| File                            | `--target`  | Verdict        | Exit | Why                                                                                              |
+| ------------------------------- | ----------- | -------------- | ---- | ------------------------------------------------------------------------------------------------ |
+| `raw-inventory-projected.json`  | `inventory` | `projected`    | 0    | A present object with a valid manifest + recognized kind → usable, nothing unsafe.               |
+| `raw-evidence-projected.json`   | `evidence`  | `projected`    | 0    | A present-with-expiry probe, a `NoSuchKey` absence, and a `503` error — all usable observations. |
+| `raw-unsafe-tombstoned.json`    | `inventory` | `unsafe`       | 4    | A present object carrying a deletion tombstone: bytes that should be gone remain.                |
+| `raw-insufficient-listing.json` | `inventory` | `insufficient` | 2    | A bare listing entry with no lifecycle / manifest / kind — not enough usable metadata.           |
 
 The `expiresAtMs` values are deliberately extreme (`1000` = always past,
 `99999999999999` = always future) so a fixture's verdict does not depend on the wall clock.
@@ -48,9 +48,9 @@ Pass `--now=<epoch-ms|ISO>` to bucket absolute `LastModified` ages against a fix
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Projected successfully (usable records, no unsafe condition). |
-| 1 | Usage / input error (bad flags, or an unreadable / oversized / malformed export). |
-| 2 | Not enough usable metadata to project (a metadata-thin export). |
-| 4 | Unsafe export (a present-but-tombstoned object, or a structurally invalid record). |
+| Code | Meaning                                                                            |
+| ---- | ---------------------------------------------------------------------------------- |
+| 0    | Projected successfully (usable records, no unsafe condition).                      |
+| 1    | Usage / input error (bad flags, or an unreadable / oversized / malformed export).  |
+| 2    | Not enough usable metadata to project (a metadata-thin export).                    |
+| 4    | Unsafe export (a present-but-tombstoned object, or a structurally invalid record). |

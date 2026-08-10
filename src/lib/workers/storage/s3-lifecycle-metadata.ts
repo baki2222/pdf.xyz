@@ -43,7 +43,8 @@ import type { ArtifactLifecycleMetadata } from "../artifacts/lifecycle";
  * it is signed as a canonical SigV4 header and echoed verbatim by the worker's PUT. The bytes
  * are metadata ON the object — never part of its key.
  */
-export const ARTIFACT_LIFECYCLE_METADATA_HEADER = "x-amz-meta-artifact-lifecycle";
+export const ARTIFACT_LIFECYCLE_METADATA_HEADER =
+  "x-amz-meta-artifact-lifecycle";
 
 /** Defensive ceiling on the raw metadata length (well under S3's ~2 KB user-metadata cap). */
 const MAX_RAW_LENGTH = 256;
@@ -58,9 +59,7 @@ function encodeRfc3986(value: string): string {
 
 /** A finite, non-negative integer (the expiry epoch-ms instant). */
 function isEpochMs(value: unknown): value is number {
-  return (
-    typeof value === "number" && Number.isInteger(value) && value >= 0
-  );
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 /**

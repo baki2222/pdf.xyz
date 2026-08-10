@@ -159,7 +159,9 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
           return;
         }
         const claimed = record.files.length;
-        const files = handoffEntriesToFiles(eligibleFilesFor(slug, record.files));
+        const files = handoffEntriesToFiles(
+          eligibleFilesFor(slug, record.files),
+        );
         const skipped = claimed - files.length;
         if (files.length > 0) {
           // Files are about to repopulate a runner without touching the

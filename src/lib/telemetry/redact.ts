@@ -110,12 +110,21 @@ const FILENAME = new RegExp(
 export function redactText(input: string): string {
   if (typeof input !== "string" || input.length === 0) return input;
   const clipped =
-    input.length > MAX_STRING_LENGTH ? input.slice(0, MAX_STRING_LENGTH) : input;
+    input.length > MAX_STRING_LENGTH
+      ? input.slice(0, MAX_STRING_LENGTH)
+      : input;
   return clipped
     .replace(HANDOFF_TOKEN, "h_" + REDACTED)
-    .replace(INLINE_DATA_URL, (m) => `${m.slice(0, m.indexOf(":"))}:${REDACTED}`)
+    .replace(
+      INLINE_DATA_URL,
+      (m) => `${m.slice(0, m.indexOf(":"))}:${REDACTED}`,
+    )
     .replace(HTTP_URL, "$1")
-    .replace(QUOTED_FILENAME, (_m, quote: string, ext: string) => `${quote}${REDACTED}.${ext.toLowerCase()}${quote}`)
+    .replace(
+      QUOTED_FILENAME,
+      (_m, quote: string, ext: string) =>
+        `${quote}${REDACTED}.${ext.toLowerCase()}${quote}`,
+    )
     .replace(FILENAME, (_m, ext: string) => `${REDACTED}.${ext.toLowerCase()}`);
 }
 
@@ -205,7 +214,8 @@ export function redactValue(value: unknown, depth = 0): unknown {
     const items = value
       .slice(0, MAX_ARRAY_ITEMS)
       .map((item) => redactValue(item, depth + 1));
-    if (value.length > MAX_ARRAY_ITEMS) items.push(`${REDACTED} (+${value.length - MAX_ARRAY_ITEMS} more)`);
+    if (value.length > MAX_ARRAY_ITEMS)
+      items.push(`${REDACTED} (+${value.length - MAX_ARRAY_ITEMS} more)`);
     return items;
   }
 

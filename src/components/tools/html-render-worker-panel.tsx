@@ -108,51 +108,68 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
               <Icon className="size-3" aria-hidden />
               Chromium renderer
             </span>
-            <StatusBadge tone={badge.tone} label={badge.label} pulse={badge.pulse} />
+            <StatusBadge
+              tone={badge.tone}
+              label={badge.label}
+              pulse={badge.pulse}
+            />
           </div>
           <h2 className="text-lg font-semibold text-white">
             {tool.name} runs on an encrypted secure worker
           </h2>
           <p className="text-sm leading-relaxed text-slate-400">
-            Chromium renders {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a real print PDF on the isolated worker. It produces a PDF artifact or fails honestly — no screenshot placeholder and no browser-side fake.
+            Chromium renders{" "}
+            {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
+            real print PDF on the isolated worker. It produces a PDF artifact or
+            fails honestly — no screenshot placeholder and no browser-side fake.
           </p>
         </div>
 
         {available ? (
           <HtmlRenderRunArea mode={mode} />
         ) : (
-          <HtmlRenderUnavailable phase={phase} status={status} toolName={tool.name} toolSlug={tool.slug} />
+          <HtmlRenderUnavailable
+            phase={phase}
+            status={status}
+            toolName={tool.name}
+            toolSlug={tool.slug}
+          />
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map((stage, index, all) => (
-              <li key={stage.id} className="flex items-start gap-3">
-                <div className="flex flex-col items-center self-stretch">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
-                    <Icon className="size-4" aria-hidden />
-                  </span>
-                  {index < all.length - 1 && (
-                    <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />
-                  )}
-                </div>
-                <div className="flex flex-col gap-0.5 pb-3">
-                  <span className="text-sm font-medium text-slate-200">
-                    {index + 1}. {stage.title}
-                  </span>
-                  <span className="text-xs leading-relaxed text-slate-400">
-                    {stage.description}
-                  </span>
-                </div>
-              </li>
-            ))}
+            {workerPipelineStages(status?.scan.active ?? false).map(
+              (stage, index, all) => (
+                <li key={stage.id} className="flex items-start gap-3">
+                  <div className="flex flex-col items-center self-stretch">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
+                      <Icon className="size-4" aria-hidden />
+                    </span>
+                    {index < all.length - 1 && (
+                      <span
+                        className="my-1 w-px flex-1 bg-white/10"
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-0.5 pb-3">
+                    <span className="text-sm font-medium text-slate-200">
+                      {index + 1}. {stage.title}
+                    </span>
+                    <span className="text-xs leading-relaxed text-slate-400">
+                      {stage.description}
+                    </span>
+                  </div>
+                </li>
+              ),
+            )}
           </ol>
         </div>
 
-        <div className="divide-y divide-white/5 rounded-2xl border border-white/10 bg-surface-2 px-4 py-1">
+        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
           <SpecRow
             icon={mode === "url" ? Globe : FileCode}
             label="Input"
@@ -164,7 +181,11 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
             label="Retention"
             value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
           />
-          <SpecRow icon={ShieldCheck} label="Limit" value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`} />
+          <SpecRow
+            icon={ShieldCheck}
+            label="Limit"
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
+          />
         </div>
       </div>
     </div>
@@ -193,7 +214,8 @@ function HtmlRenderUnavailable({
     <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
       <p className="text-sm leading-relaxed text-slate-300">{detail}</p>
       <p className="text-xs leading-relaxed text-slate-400">
-        No runner is shown until the worker is ready, so {toolName} never pretends to process input it cannot actually render.
+        No runner is shown until the worker is ready, so {toolName} never
+        pretends to process input it cannot actually render.
       </p>
       <NotifyMe toolName={toolName} toolSlug={toolSlug} />
     </div>
@@ -241,7 +263,10 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
     <div className="flex flex-col gap-4 rounded-2xl border border-blue-400/25 bg-blue-500/[0.06] p-4">
       <p className="flex items-start gap-1.5 text-xs leading-relaxed text-blue-100/90">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. {mode === "url" ? "Only public http(s) URLs are accepted; private/localhost targets are rejected." : "The uploaded HTML is stored only for the short worker lifecycle and wiped after processing."}
+        Running this uses a private secure-worker job.{" "}
+        {mode === "url"
+          ? "Only public http(s) URLs are accepted; private/localhost targets are rejected."
+          : "The uploaded HTML is stored only for the short worker lifecycle and wiped after processing."}
       </p>
 
       {mode === "url" ? (
@@ -251,7 +276,7 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
             setUrl(event.target.value);
             setOutcome(null);
           }}
-          className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-blue-400/60"
+          className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 transition outline-none placeholder:text-slate-400 focus:border-blue-400/60"
           placeholder="https://example.com"
         />
       ) : file ? (
@@ -296,7 +321,9 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
           <p className="text-sm text-emerald-200">Your PDF is ready.</p>
           <button
             type="button"
-            onClick={() => downloadBytes(outcome.output, outcome.artifact.filename)}
+            onClick={() =>
+              downloadBytes(outcome.output, outcome.artifact.filename)
+            }
             className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
           >
             <Download className="size-4" aria-hidden />

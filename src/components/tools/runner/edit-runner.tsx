@@ -42,7 +42,12 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
-import { NumberField, PrivacyLine, RangeField, SegmentedControl } from "./stamp-controls";
+import {
+  NumberField,
+  PrivacyLine,
+  RangeField,
+  SegmentedControl,
+} from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
 /** A placed edit plus a stable id for list/preview rendering. */
@@ -113,7 +118,11 @@ const DEFAULT_DRAFT: Draft = {
   arrow: false,
 };
 
-const TYPE_OPTIONS: { value: EditOpType; label: string; icon: typeof Square }[] = [
+const TYPE_OPTIONS: {
+  value: EditOpType;
+  label: string;
+  icon: typeof Square;
+}[] = [
   { value: "text", label: "Text", icon: Type },
   { value: "rect", label: "Box", icon: Square },
   { value: "line", label: "Line", icon: PenLine },
@@ -159,7 +168,10 @@ function readImageDims(
     const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
-      const dims = { width: img.naturalWidth || 1, height: img.naturalHeight || 1 };
+      const dims = {
+        width: img.naturalWidth || 1,
+        height: img.naturalHeight || 1,
+      };
       URL.revokeObjectURL(url);
       resolve(dims);
     };
@@ -181,10 +193,21 @@ async function readImageForEdit(file: File): Promise<LoadedImage> {
   const issue = checkEditImage(format, bytes);
   if (issue === "image-missing") throw new Error(`"${file.name}" is empty.`);
   if (issue === "image-type") {
-    throw new Error(`"${file.name}" must be a PNG or JPG under ${MAX_IMAGE_MB} MB.`);
+    throw new Error(
+      `"${file.name}" must be a PNG or JPG under ${MAX_IMAGE_MB} MB.`,
+    );
   }
-  const dims = await readImageDims(bytes, format).catch(() => ({ width: 1, height: 1 }));
-  return { name: file.name, format, bytes, width: dims.width, height: dims.height };
+  const dims = await readImageDims(bytes, format).catch(() => ({
+    width: 1,
+    height: 1,
+  }));
+  return {
+    name: file.name,
+    format,
+    bytes,
+    width: dims.width,
+    height: dims.height,
+  };
 }
 
 /** Narrow the flat draft into a concrete, typed edit (null = image not ready). */
@@ -322,7 +345,9 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       }));
     } catch (err) {
       setImage(null);
-      setFormError(err instanceof Error ? err.message : "That image can't be used.");
+      setFormError(
+        err instanceof Error ? err.message : "That image can't be used.",
+      );
     }
   };
 
@@ -366,7 +391,9 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result.bytes, editedOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result.bytes, editedOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -389,7 +416,10 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         }
       >
         <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-          <TypePicker value={draft.type} onChange={(type) => setField("type", type)} />
+          <TypePicker
+            value={draft.type}
+            onChange={(type) => setField("type", type)}
+          />
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-slate-400">
@@ -398,12 +428,19 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                 : "Reading page sizes…"}
             </span>
             {draft.type !== "image" && (
-              <ColorSwatches value={draft.color} onChange={(color) => setField("color", color)} />
+              <ColorSwatches
+                value={draft.color}
+                onChange={(color) => setField("color", color)}
+              />
             )}
           </div>
 
           {draft.type === "image" && (
-            <ImagePicker image={image} onPick={onPickImage} onClear={() => setImage(null)} />
+            <ImagePicker
+              image={image}
+              onPick={onPickImage}
+              onClear={() => setImage(null)}
+            />
           )}
 
           <TypeFields
@@ -418,7 +455,9 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             <button
               type="button"
               onClick={addEdit}
-              aria-disabled={!pageSizes || (draft.type === "image" && !image) || undefined}
+              aria-disabled={
+                !pageSizes || (draft.type === "image" && !image) || undefined
+              }
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
               <Plus className="size-4" aria-hidden />
@@ -431,7 +470,11 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 
         <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
           <EditList edits={edits} onRemove={removeEdit} />
-          <PagePreview page={activePage} pageNumber={draft.page} edits={pageEdits} />
+          <PagePreview
+            page={activePage}
+            pageNumber={draft.page}
+            edits={pageEdits}
+          />
         </div>
       </RunnerSection>
 
@@ -484,7 +527,11 @@ function TypePicker({
   onChange: (type: EditOpType) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Content type" className="flex flex-wrap gap-2">
+    <div
+      role="radiogroup"
+      aria-label="Content type"
+      className="flex flex-wrap gap-2"
+    >
       {TYPE_OPTIONS.map((option) => {
         const active = option.value === value;
         const Icon = option.icon;
@@ -519,7 +566,11 @@ function ColorSwatches({
   onChange: (hex: string) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Content color" className="flex items-center gap-1.5">
+    <div
+      role="radiogroup"
+      aria-label="Content color"
+      className="flex items-center gap-1.5"
+    >
       {PALETTE.map((swatch) => {
         const active = swatch.hex.toLowerCase() === value.toLowerCase();
         return (
@@ -533,7 +584,9 @@ function ColorSwatches({
             onClick={() => onChange(swatch.hex)}
             className={cn(
               "size-5 rounded-full ring-offset-1 ring-offset-black/40 transition",
-              active ? "ring-2 ring-white" : "ring-1 ring-white/20 hover:ring-white/50",
+              active
+                ? "ring-2 ring-white"
+                : "ring-1 ring-white/20 hover:ring-white/50",
             )}
             style={{ backgroundColor: swatch.hex }}
           />
@@ -558,7 +611,8 @@ function ImagePicker({
       <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5">
         <ImageIcon className="size-4 shrink-0 text-violet-300" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
-          {image.name} · {image.format.toUpperCase()} · {image.width} × {image.height} px
+          {image.name} · {image.format.toUpperCase()} · {image.width} ×{" "}
+          {image.height} px
         </span>
         <button
           type="button"
@@ -618,12 +672,33 @@ function TypeFields({
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {pageField}
-          <NumberField label="X (pt)" value={draft.x} min={0} max={maxW} onChange={(v) => setField("x", v)} />
-          <NumberField label="Y (pt)" value={draft.y} min={0} max={maxH} onChange={(v) => setField("y", v)} />
-          <NumberField label="Wrap (pt)" value={draft.wrapWidth} min={0} max={maxW} onChange={(v) => setField("wrapWidth", v)} />
+          <NumberField
+            label="X (pt)"
+            value={draft.x}
+            min={0}
+            max={maxW}
+            onChange={(v) => setField("x", v)}
+          />
+          <NumberField
+            label="Y (pt)"
+            value={draft.y}
+            min={0}
+            max={maxH}
+            onChange={(v) => setField("y", v)}
+          />
+          <NumberField
+            label="Wrap (pt)"
+            value={draft.wrapWidth}
+            min={0}
+            max={maxW}
+            onChange={(v) => setField("wrapWidth", v)}
+          />
         </div>
         <div className="flex flex-col gap-2">
-          <label htmlFor="edit-text" className="text-xs font-medium text-slate-300">
+          <label
+            htmlFor="edit-text"
+            className="text-xs font-medium text-slate-300"
+          >
             Text
           </label>
           <textarea
@@ -632,10 +707,11 @@ function TypeFields({
             rows={2}
             placeholder="Type the text to add to the page…"
             onChange={(event) => setField("text", event.target.value)}
-            className="w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+            className="w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 transition outline-none placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
           />
           <span className="text-[11px] text-slate-400">
-            Y is the baseline of the first line; wrapped lines flow downward. Wrap 0 = one line per line break.
+            Y is the baseline of the first line; wrapped lines flow downward.
+            Wrap 0 = one line per line break.
           </span>
         </div>
         <RangeField
@@ -656,10 +732,34 @@ function TypeFields({
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {pageField}
-          <NumberField label="X (pt)" value={draft.x} min={0} max={maxW} onChange={(v) => setField("x", v)} />
-          <NumberField label="Y (pt)" value={draft.y} min={0} max={maxH} onChange={(v) => setField("y", v)} />
-          <NumberField label="Width (pt)" value={draft.width} min={1} max={maxW} onChange={(v) => setField("width", v)} />
-          <NumberField label="Height (pt)" value={draft.height} min={1} max={maxH} onChange={(v) => setField("height", v)} />
+          <NumberField
+            label="X (pt)"
+            value={draft.x}
+            min={0}
+            max={maxW}
+            onChange={(v) => setField("x", v)}
+          />
+          <NumberField
+            label="Y (pt)"
+            value={draft.y}
+            min={0}
+            max={maxH}
+            onChange={(v) => setField("y", v)}
+          />
+          <NumberField
+            label="Width (pt)"
+            value={draft.width}
+            min={1}
+            max={maxW}
+            onChange={(v) => setField("width", v)}
+          />
+          <NumberField
+            label="Height (pt)"
+            value={draft.height}
+            min={1}
+            max={maxH}
+            onChange={(v) => setField("height", v)}
+          />
         </div>
         {draft.type === "rect" ? (
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -714,10 +814,34 @@ function TypeFields({
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {pageField}
-        <NumberField label="Start X" value={draft.x} min={0} max={maxW} onChange={(v) => setField("x", v)} />
-        <NumberField label="Start Y" value={draft.y} min={0} max={maxH} onChange={(v) => setField("y", v)} />
-        <NumberField label="End X" value={draft.x2} min={0} max={maxW} onChange={(v) => setField("x2", v)} />
-        <NumberField label="End Y" value={draft.y2} min={0} max={maxH} onChange={(v) => setField("y2", v)} />
+        <NumberField
+          label="Start X"
+          value={draft.x}
+          min={0}
+          max={maxW}
+          onChange={(v) => setField("x", v)}
+        />
+        <NumberField
+          label="Start Y"
+          value={draft.y}
+          min={0}
+          max={maxH}
+          onChange={(v) => setField("y", v)}
+        />
+        <NumberField
+          label="End X"
+          value={draft.x2}
+          min={0}
+          max={maxW}
+          onChange={(v) => setField("x2", v)}
+        />
+        <NumberField
+          label="End Y"
+          value={draft.y2}
+          min={0}
+          max={maxH}
+          onChange={(v) => setField("y2", v)}
+        />
       </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <RangeField
@@ -768,10 +892,11 @@ function EditList({
             aria-hidden
             className="size-3 shrink-0 rounded-full ring-1 ring-white/30"
             style={{
-              backgroundColor: edit.op.type === "image" ? "#94a3b8" : edit.op.color,
+              backgroundColor:
+                edit.op.type === "image" ? "#94a3b8" : edit.op.color,
             }}
           />
-          <span className="grid shrink-0 place-items-center rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-200">
+          <span className="grid shrink-0 place-items-center rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-violet-200 uppercase">
             {TYPE_LABEL[edit.op.type]}
           </span>
           <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
@@ -835,7 +960,11 @@ function PagePreview({
                 key={id}
                 aria-hidden
                 className="absolute"
-                style={{ ...box, backgroundColor: op.color, opacity: op.opacity ?? 1 }}
+                style={{
+                  ...box,
+                  backgroundColor: op.color,
+                  opacity: op.opacity ?? 1,
+                }}
               />
             );
           }
@@ -862,7 +991,7 @@ function PagePreview({
               <span
                 key={id}
                 aria-hidden
-                className="absolute max-w-[70%] truncate text-[6px] font-medium leading-none"
+                className="absolute max-w-[70%] truncate text-[6px] leading-none font-medium"
                 style={{
                   left: pct(op.x, page.width),
                   top: pct(page.height - op.y, page.height),
@@ -875,7 +1004,11 @@ function PagePreview({
           }
           // Line
           return (
-            <svg key={id} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full">
+            <svg
+              key={id}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 h-full w-full"
+            >
               <line
                 x1={pct(op.x1, page.width)}
                 y1={pct(page.height - op.y1, page.height)}
@@ -889,7 +1022,9 @@ function PagePreview({
           );
         })}
       </div>
-      <span className="text-[11px] text-slate-400">Page {pageNumber} preview</span>
+      <span className="text-[11px] text-slate-400">
+        Page {pageNumber} preview
+      </span>
     </div>
   );
 }
@@ -900,12 +1035,13 @@ function HonestScopeNote() {
     <div className="flex items-start gap-3 rounded-2xl border border-sky-400/25 bg-sky-500/[0.08] px-4 py-3.5 text-sm text-sky-100">
       <Info className="mt-0.5 size-4 shrink-0 text-sky-300" aria-hidden />
       <p className="leading-relaxed">
-        <span className="font-semibold">This adds new, flattened content.</span> You can
-        place text, boxes, lines/arrows, and PNG/JPG images by page and coordinates. It
-        does <span className="font-semibold">not</span> edit, reflow, restyle, or delete
-        the text and objects already in your PDF — there is no OCR text layer, no drag
-        handles, and no click-to-place canvas. To cover existing content, draw a filled
-        box over it (that hides but doesn&apos;t remove it — use Redact to delete data).
+        <span className="font-semibold">This adds new, flattened content.</span>{" "}
+        You can place text, boxes, lines/arrows, and PNG/JPG images by page and
+        coordinates. It does <span className="font-semibold">not</span> edit,
+        reflow, restyle, or delete the text and objects already in your PDF —
+        there is no OCR text layer, no drag handles, and no click-to-place
+        canvas. To cover existing content, draw a filled box over it (that hides
+        but doesn&apos;t remove it — use Redact to delete data).
       </p>
     </div>
   );

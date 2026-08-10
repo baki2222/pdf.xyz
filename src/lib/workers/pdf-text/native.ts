@@ -48,7 +48,10 @@ export type PdfTextExec = (
 export interface PdfTextFs {
   mkdtemp: (prefix: string) => Promise<string>;
   writeFile: (file: string, data: Uint8Array) => Promise<void>;
-  rm: (dir: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  rm: (
+    dir: string,
+    options: { recursive: boolean; force: boolean },
+  ) => Promise<void>;
 }
 
 export interface PdfTextSeams {
@@ -60,10 +63,15 @@ export interface PdfTextSeams {
 
 const defaultExec: PdfTextExec = (command, args, options) =>
   new Promise((resolve, reject) => {
-    execFile(command, [...args], { ...options, encoding: "utf8" }, (error, stdout) => {
-      if (error) return reject(new Error("pdftotext failed."));
-      resolve(typeof stdout === "string" ? stdout : String(stdout));
-    });
+    execFile(
+      command,
+      [...args],
+      { ...options, encoding: "utf8" },
+      (error, stdout) => {
+        if (error) return reject(new Error("pdftotext failed."));
+        resolve(typeof stdout === "string" ? stdout : String(stdout));
+      },
+    );
   });
 
 const defaultFs: PdfTextFs = {
@@ -142,7 +150,9 @@ async function runPdfText(
   }
   const exec = seams.exec ?? defaultExec;
   const fs = seams.fs ?? defaultFs;
-  const dir = await fs.mkdtemp(path.join(config.tmpDir ?? tmpdir(), "pdfxyz-pdftext-"));
+  const dir = await fs.mkdtemp(
+    path.join(config.tmpDir ?? tmpdir(), "pdfxyz-pdftext-"),
+  );
   const inputPath = path.join(dir, "input.pdf");
   try {
     await fs.writeFile(inputPath, input);
@@ -192,7 +202,9 @@ export function resolveNativePdfTextExtractor(
 ): PdfTextExtractor | undefined {
   const config = resolveNativePdfTextConfig(env);
   const binary = probePdfTextFromConfig(config, seams);
-  return binary ? createNativePdfTextExtractor(binary, config, seams) : undefined;
+  return binary
+    ? createNativePdfTextExtractor(binary, config, seams)
+    : undefined;
 }
 
 /**
@@ -207,7 +219,9 @@ export function nativePdfOfficeExportDeps(
   const config = resolveNativePdfTextConfig(env);
   const binary = probePdfTextFromConfig(config, seams);
   return {
-    ...(binary ? { extract: createNativePdfTextExtractor(binary, config, seams) } : {}),
+    ...(binary
+      ? { extract: createNativePdfTextExtractor(binary, config, seams) }
+      : {}),
     limits: {
       maxInputBytes: config.maxInputBytes,
       maxOutputBytes: config.maxOutputBytes,

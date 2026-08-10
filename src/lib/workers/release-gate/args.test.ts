@@ -9,7 +9,8 @@ import { parseReleaseGateArgs } from "./args";
 /** Narrow to the `run` variant (or fail loudly). */
 function run(argv: string[]) {
   const r = parseReleaseGateArgs(argv);
-  if (!r.ok || r.kind !== "run") throw new Error(`expected run, got ${JSON.stringify(r)}`);
+  if (!r.ok || r.kind !== "run")
+    throw new Error(`expected run, got ${JSON.stringify(r)}`);
   return r.args;
 }
 
@@ -35,12 +36,15 @@ describe("parseReleaseGateArgs", () => {
   });
 
   it("parses --skip / --only into de-duplicated, catalog-ordered bounded ids", () => {
-    expect(run(["--skip=worker-smoke,worker-engines"]).skip).toEqual(["worker-smoke", "worker-engines"]);
-    // Order is catalog order regardless of how typed; duplicates collapse.
-    expect(run(["--only=ops-check-critical,ops-check-healthy,ops-check-healthy"]).only).toEqual([
-      "ops-check-healthy",
-      "ops-check-critical",
+    expect(run(["--skip=worker-smoke,worker-engines"]).skip).toEqual([
+      "worker-smoke",
+      "worker-engines",
     ]);
+    // Order is catalog order regardless of how typed; duplicates collapse.
+    expect(
+      run(["--only=ops-check-critical,ops-check-healthy,ops-check-healthy"])
+        .only,
+    ).toEqual(["ops-check-healthy", "ops-check-critical"]);
   });
 
   it("rejects an unknown check id in a scope flag", () => {
@@ -50,15 +54,21 @@ describe("parseReleaseGateArgs", () => {
   });
 
   it("rejects combining --skip and --only", () => {
-    expect(parseReleaseGateArgs(["--skip=worker-smoke", "--only=worker-engines"]).ok).toBe(false);
-    expect(parseReleaseGateArgs(["--only=worker-engines", "--skip=worker-smoke"]).ok).toBe(false);
+    expect(
+      parseReleaseGateArgs(["--skip=worker-smoke", "--only=worker-engines"]).ok,
+    ).toBe(false);
+    expect(
+      parseReleaseGateArgs(["--only=worker-engines", "--skip=worker-smoke"]).ok,
+    ).toBe(false);
   });
 
   it("rejects conflicting formats, unknown options, empty scope, and duplicates", () => {
     expect(parseReleaseGateArgs(["--json", "--text"]).ok).toBe(false);
     expect(parseReleaseGateArgs(["--nope"]).ok).toBe(false);
     expect(parseReleaseGateArgs(["--skip="]).ok).toBe(false);
-    expect(parseReleaseGateArgs(["--skip=worker-smoke", "--skip=worker-engines"]).ok).toBe(false);
+    expect(
+      parseReleaseGateArgs(["--skip=worker-smoke", "--skip=worker-engines"]).ok,
+    ).toBe(false);
     expect(parseReleaseGateArgs(["--output=/a", "--output=/b"]).ok).toBe(false);
   });
 });

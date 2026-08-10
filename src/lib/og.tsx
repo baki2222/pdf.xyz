@@ -48,8 +48,18 @@ export async function loadCardFonts() {
     readFile(join(dir, "Inter-Regular.woff")),
   ]);
   return [
-    { name: "Inter", data: bold, weight: 700 as const, style: "normal" as const },
-    { name: "Inter", data: regular, weight: 400 as const, style: "normal" as const },
+    {
+      name: "Inter",
+      data: bold,
+      weight: 700 as const,
+      style: "normal" as const,
+    },
+    {
+      name: "Inter",
+      data: regular,
+      weight: 400 as const,
+      style: "normal" as const,
+    },
   ];
 }
 
@@ -75,7 +85,14 @@ export function OgWordmark() {
           boxShadow: "0 12px 40px rgba(99,102,241,0.45)",
         }}
       >
-        <div style={{ width: 34, height: 43, borderRadius: 6, background: "#ffffff" }} />
+        <div
+          style={{
+            width: 34,
+            height: 43,
+            borderRadius: 6,
+            background: "#ffffff",
+          }}
+        />
       </div>
       <div style={{ display: "flex", fontSize: 38, fontWeight: 700 }}>
         <span>pdf</span>
@@ -117,19 +134,31 @@ function toArrayBuffer(buffer: Buffer): ArrayBuffer {
 
 /** Load Geist (the brand font) from node_modules — never fetched over the wire. */
 async function loadBrandFonts() {
-  const dir = join(
-    process.cwd(),
-    "node_modules/geist/dist/fonts/geist-sans",
-  );
+  const dir = join(process.cwd(), "node_modules/geist/dist/fonts/geist-sans");
   const [regular, semibold, bold] = await Promise.all([
     readFile(join(dir, "Geist-Regular.ttf")),
     readFile(join(dir, "Geist-SemiBold.ttf")),
     readFile(join(dir, "Geist-Bold.ttf")),
   ]);
   return [
-    { name: "Geist", data: toArrayBuffer(regular), weight: 400 as const, style: "normal" as const },
-    { name: "Geist", data: toArrayBuffer(semibold), weight: 600 as const, style: "normal" as const },
-    { name: "Geist", data: toArrayBuffer(bold), weight: 700 as const, style: "normal" as const },
+    {
+      name: "Geist",
+      data: toArrayBuffer(regular),
+      weight: 400 as const,
+      style: "normal" as const,
+    },
+    {
+      name: "Geist",
+      data: toArrayBuffer(semibold),
+      weight: 600 as const,
+      style: "normal" as const,
+    },
+    {
+      name: "Geist",
+      data: toArrayBuffer(bold),
+      weight: 700 as const,
+      style: "normal" as const,
+    },
   ];
 }
 
@@ -137,64 +166,69 @@ async function loadBrandFonts() {
 export async function renderSocialImage(): Promise<ImageResponse> {
   const fonts = await loadBrandFonts();
   return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          padding: "72px 80px",
-          fontFamily: "Geist",
-          color: "#f8fafc",
-          background:
-            "radial-gradient(1100px 620px at 8% -20%, #2b1d6b 0%, rgba(6,6,17,0) 55%), radial-gradient(900px 620px at 108% 8%, #123a6b 0%, rgba(6,6,17,0) 52%), #060611",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
-          <img src={BRAND_MARK_DATA_URI} width={76} height={76} alt="" />
-          <div style={{ display: "flex", fontSize: 40, fontWeight: 700 }}>
-            <span>pdf</span>
-            <span style={{ color: "#8ab4ff" }}>.xyz</span>
-          </div>
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        padding: "72px 80px",
+        fontFamily: "Geist",
+        color: "#f8fafc",
+        background:
+          "radial-gradient(1100px 620px at 8% -20%, #2b1d6b 0%, rgba(6,6,17,0) 55%), radial-gradient(900px 620px at 108% 8%, #123a6b 0%, rgba(6,6,17,0) 52%), #060611",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
+        <img src={BRAND_MARK_DATA_URI} width={76} height={76} alt="" />
+        <div style={{ display: "flex", fontSize: 40, fontWeight: 700 }}>
+          <span>pdf</span>
+          <span style={{ color: "#8ab4ff" }}>.xyz</span>
         </div>
+      </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", fontSize: 82, fontWeight: 700, letterSpacing: "-0.02em" }}>
-            Every PDF tool.
-          </div>
-          <div
-            style={{
-              display: "flex",
-              fontSize: 82,
-              fontWeight: 700,
-              letterSpacing: "-0.02em",
-              color: "#a5b4fc",
-            }}
-          >
-            Private by design.
-          </div>
-        </div>
-
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            fontSize: 27,
-            color: "#94a3b8",
+            fontSize: 82,
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
           }}
         >
-          <div style={{ display: "flex" }}>
-            {toolCount}+ tools · merge, split, compress, convert, sign, AI
-          </div>
-          <div style={{ display: "flex", color: "#34d399", fontWeight: 600 }}>
-            Runs in your browser
-          </div>
+          Every PDF tool.
+        </div>
+        <div
+          style={{
+            display: "flex",
+            fontSize: 82,
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            color: "#a5b4fc",
+          }}
+        >
+          Private by design.
         </div>
       </div>
-    ),
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          fontSize: 27,
+          color: "#94a3b8",
+        }}
+      >
+        <div style={{ display: "flex" }}>
+          {toolCount}+ tools · merge, split, compress, convert, sign, AI
+        </div>
+        <div style={{ display: "flex", color: "#34d399", fontWeight: 600 }}>
+          Runs in your browser
+        </div>
+      </div>
+    </div>,
     { ...OG_SIZE, fonts },
   );
 }
@@ -202,11 +236,9 @@ export async function renderSocialImage(): Promise<ImageResponse> {
 /** Render a square brand mark at `size` px — used for the PWA/Apple icons. */
 export function renderBrandMark(size: number): ImageResponse {
   return new ImageResponse(
-    (
-      <div style={{ display: "flex", width: "100%", height: "100%" }}>
-        <img src={BRAND_MARK_DATA_URI} width={size} height={size} alt="" />
-      </div>
-    ),
+    <div style={{ display: "flex", width: "100%", height: "100%" }}>
+      <img src={BRAND_MARK_DATA_URI} width={size} height={size} alt="" />
+    </div>,
     { width: size, height: size },
   );
 }

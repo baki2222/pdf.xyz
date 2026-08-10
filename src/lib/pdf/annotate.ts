@@ -103,10 +103,7 @@ export interface LineAnnotation extends AnnotationBase {
 }
 
 export type Annotation =
-  | HighlightAnnotation
-  | RectAnnotation
-  | NoteAnnotation
-  | LineAnnotation;
+  HighlightAnnotation | RectAnnotation | NoteAnnotation | LineAnnotation;
 
 /** A page's size in PDF points (unrotated content space). */
 export interface PageSize {
@@ -396,7 +393,10 @@ export function validateAnnotations(
       annotation.page < 1 ||
       annotation.page > pageCount
     ) {
-      add("page-out-of-range", `page ${annotation.page} is out of range (1–${pageCount}).`);
+      add(
+        "page-out-of-range",
+        `page ${annotation.page} is out of range (1–${pageCount}).`,
+      );
       return;
     }
 
@@ -442,7 +442,10 @@ export function validateAnnotations(
         add("invalid", "coordinates must be finite numbers.");
         return;
       }
-      if (annotation.size !== undefined && (!isFiniteNumber(annotation.size) || annotation.size <= 0)) {
+      if (
+        annotation.size !== undefined &&
+        (!isFiniteNumber(annotation.size) || annotation.size <= 0)
+      ) {
         add("invalid", "font size must be greater than 0.");
         return;
       }
@@ -451,7 +454,10 @@ export function validateAnnotations(
         return;
       }
       if (text.length > MAX_NOTE_CHARS) {
-        add("empty", `note text is too long (max ${MAX_NOTE_CHARS} characters).`);
+        add(
+          "empty",
+          `note text is too long (max ${MAX_NOTE_CHARS} characters).`,
+        );
         return;
       }
       if (!pointOnPage(x, y, size)) {
@@ -469,7 +475,10 @@ export function validateAnnotations(
       add("invalid", "endpoints must be finite numbers.");
       return;
     }
-    if (annotation.thickness !== undefined && (!isFiniteNumber(annotation.thickness) || annotation.thickness <= 0)) {
+    if (
+      annotation.thickness !== undefined &&
+      (!isFiniteNumber(annotation.thickness) || annotation.thickness <= 0)
+    ) {
       add("invalid", "line thickness must be greater than 0.");
       return;
     }
@@ -489,7 +498,9 @@ export function validateAnnotations(
 }
 
 /** Read each page's size (unrotated content space) for bounding/validation. */
-export async function getAnnotatePageSizes(bytes: Uint8Array): Promise<PageSize[]> {
+export async function getAnnotatePageSizes(
+  bytes: Uint8Array,
+): Promise<PageSize[]> {
   const doc = await loadPdf(bytes);
   return doc.getPages().map((page) => {
     const { width, height } = page.getSize();
@@ -509,7 +520,9 @@ function drawAnnotation(
 
   switch (annotation.type) {
     case "highlight": {
-      const opacity = clampOpacity(annotation.opacity ?? DEFAULT_HIGHLIGHT_OPACITY);
+      const opacity = clampOpacity(
+        annotation.opacity ?? DEFAULT_HIGHLIGHT_OPACITY,
+      );
       page.drawRectangle({
         x: annotation.x,
         y: annotation.y,
@@ -561,7 +574,13 @@ function drawAnnotation(
           annotation.y2,
           head,
         )) {
-          page.drawLine({ start: seg.start, end: seg.end, thickness, color, opacity });
+          page.drawLine({
+            start: seg.start,
+            end: seg.end,
+            thickness,
+            color,
+            opacity,
+          });
         }
       }
       return;
@@ -569,7 +588,9 @@ function drawAnnotation(
     case "note": {
       const opacity = clampOpacity(annotation.opacity ?? 1);
       const size =
-        annotation.size && annotation.size > 0 ? annotation.size : DEFAULT_NOTE_SIZE;
+        annotation.size && annotation.size > 0
+          ? annotation.size
+          : DEFAULT_NOTE_SIZE;
       const safe = sanitizeNoteText(annotation.text);
       const lines = wrapText(safe, annotation.maxWidth ?? 0, (s) =>
         font.widthOfTextAtSize(s, size),

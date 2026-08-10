@@ -275,7 +275,8 @@ export function lifecycleDrift(snapshot: WorkerMetricsSnapshot): {
   const verified = sumSeries(snapshot, "worker_lifecycle_verification_total", {
     verdict: "verified",
   });
-  if (drift > 0 || drifted > 0) return { status: "breach", driftedRules: drifted };
+  if (drift > 0 || drifted > 0)
+    return { status: "breach", driftedRules: drifted };
   if (verified > 0) return { status: "ok", driftedRules: 0 };
   return { status: "unknown", driftedRules: 0 };
 }
@@ -292,8 +293,14 @@ export interface Threshold {
 
 /** Bucket-ordinal thresholds for the queue gauges. */
 export interface QueueThresholds {
-  readonly depth: { readonly warn: QueueDepthBucket; readonly breach: QueueDepthBucket };
-  readonly age: { readonly warn: QueueAgeBucket; readonly breach: QueueAgeBucket };
+  readonly depth: {
+    readonly warn: QueueDepthBucket;
+    readonly breach: QueueDepthBucket;
+  };
+  readonly age: {
+    readonly warn: QueueAgeBucket;
+    readonly breach: QueueAgeBucket;
+  };
 }
 
 /** The full, tunable SLO threshold set. */
@@ -381,7 +388,12 @@ const pct = (rate: number): string => `${(rate * 100).toFixed(2)}%`;
 
 /** Fold an individual status into the running worst (unknown never worsens). */
 function worse(current: SloStatus, next: SloStatus): SloStatus {
-  const rank: Record<SloStatus, number> = { ok: 0, unknown: 0, warn: 1, breach: 2 };
+  const rank: Record<SloStatus, number> = {
+    ok: 0,
+    unknown: 0,
+    warn: 1,
+    breach: 2,
+  };
   return rank[next] > rank[current] ? next : current;
 }
 
@@ -404,7 +416,13 @@ export function evaluateSlos(
     detail: string,
   ): void => {
     if (indicator.rate === null) {
-      slos.push({ id, status: "unknown", observed: "no data", threshold: "—", detail });
+      slos.push({
+        id,
+        status: "unknown",
+        observed: "no data",
+        threshold: "—",
+        detail,
+      });
       return;
     }
     const status = higherIsBetter
@@ -454,7 +472,8 @@ export function evaluateSlos(
         status: "unknown",
         observed: "no data",
         threshold: `warn >${t.warn}s, breach >${t.breach}s`,
-        detail: "Processor wall-clock latency (histogram bucket upper-bound estimate).",
+        detail:
+          "Processor wall-clock latency (histogram bucket upper-bound estimate).",
       });
     } else {
       slos.push({
@@ -462,7 +481,8 @@ export function evaluateSlos(
         status: classifyLowerIsBetter(est.seconds, t),
         observed: est.le === "+Inf" ? ">120s" : `≤${est.le}s`,
         threshold: `warn >${t.warn}s, breach >${t.breach}s`,
-        detail: "Processor wall-clock latency (histogram bucket upper-bound estimate).",
+        detail:
+          "Processor wall-clock latency (histogram bucket upper-bound estimate).",
       });
     }
   }
@@ -521,7 +541,8 @@ export function evaluateSlos(
           status: "unknown",
           observed: "no data",
           threshold: `warn ≥${thresholds.queue.age.warn}, breach ≥${thresholds.queue.age.breach}`,
-          detail: "Age of the oldest runnable job (operator-observed; bucketed).",
+          detail:
+            "Age of the oldest runnable job (operator-observed; bucketed).",
         }
       : {
           id: "queue_age",
@@ -533,7 +554,8 @@ export function evaluateSlos(
           ),
           observed: ageBucket,
           threshold: `warn ≥${thresholds.queue.age.warn}, breach ≥${thresholds.queue.age.breach}`,
-          detail: "Age of the oldest runnable job (operator-observed; bucketed).",
+          detail:
+            "Age of the oldest runnable job (operator-observed; bucketed).",
         },
   );
 
@@ -542,7 +564,11 @@ export function evaluateSlos(
     id: "engine_readiness",
     status: engine.status,
     observed:
-      engine.deep === null ? "unprobed" : engine.deep ? "deep ready" : "lossless-only",
+      engine.deep === null
+        ? "unprobed"
+        : engine.deep
+          ? "deep ready"
+          : "lossless-only",
     threshold: "deep engine present",
     detail:
       "Compression engine health: lossless repack is always available; deep image compression needs a native engine (its absence is degraded, not a breach).",

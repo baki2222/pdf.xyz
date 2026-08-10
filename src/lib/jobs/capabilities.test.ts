@@ -48,7 +48,12 @@ describe("capability mapping", () => {
   });
 
   it("provides a descriptor whose id matches the capability", () => {
-    const caps: ToolCapability[] = ["in-browser", "secure-worker", "hybrid", "ai"];
+    const caps: ToolCapability[] = [
+      "in-browser",
+      "secure-worker",
+      "hybrid",
+      "ai",
+    ];
     for (const cap of caps) {
       const descriptor = describeCapability(cap);
       expect(descriptor.id).toBe(cap);

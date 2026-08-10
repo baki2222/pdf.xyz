@@ -18,13 +18,31 @@ function extractorFor(text: string): PdfTextExtractor {
 }
 
 function provider(result: AiCompletionResult): AiProvider {
-  return { id: "anthropic", model: "claude-sonnet-5", async complete() { return result; } };
+  return {
+    id: "anthropic",
+    model: "claude-sonnet-5",
+    async complete() {
+      return result;
+    },
+  };
 }
 
-const input = (options: Record<string, unknown> = { mode: "prompt", prompt: "Extract totals" }): ProcessorInput => ({
+const input = (
+  options: Record<string, unknown> = {
+    mode: "prompt",
+    prompt: "Extract totals",
+  },
+): ProcessorInput => ({
   tool: "ai-extract",
   options,
-  inputs: [{ fileId: "f1", filename: "invoice.pdf", contentType: "application/pdf", bytes: new Uint8Array([1]) }],
+  inputs: [
+    {
+      fileId: "f1",
+      filename: "invoice.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+    },
+  ],
 });
 
 describe("createAiExtractProcessor", () => {
@@ -51,22 +69,37 @@ describe("createAiExtractProcessor", () => {
   it("reports ready and produces a real extraction ZIP with an injected provider", async () => {
     const p = createAiExtractProcessor({
       extract: extractorFor("A genuine invoice INV-9 total 500."),
-      provider: provider({ ok: true, text: '{"invoice_number":"INV-9","total":500}', model: "claude-sonnet-5" }),
+      provider: provider({
+        ok: true,
+        text: '{"invoice_number":"INV-9","total":500}',
+        model: "claude-sonnet-5",
+      }),
     });
     expect(p.capability().ready).toBe(true);
 
-    const result = await p.process(input({ mode: "schema", schema: [{ name: "invoice_number", type: "string" }] }));
+    const result = await p.process(
+      input({
+        mode: "schema",
+        schema: [{ name: "invoice_number", type: "string" }],
+      }),
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.artifacts).toHaveLength(1);
       expect(result.artifacts[0]!.filename).toBe("invoice-extraction.zip");
       expect(result.artifacts[0]!.contentType).toBe("application/zip");
       const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
-      expect(JSON.parse(await zip.file("extraction.json")!.async("string"))).toEqual({
+      expect(
+        JSON.parse(await zip.file("extraction.json")!.async("string")),
+      ).toEqual({
         invoice_number: "INV-9",
         total: 500,
       });
-      expect(result.meta).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5", mode: "schema" });
+      expect(result.meta).toMatchObject({
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        mode: "schema",
+      });
     }
   });
 
@@ -86,7 +119,11 @@ describe("createAiExtractProcessor", () => {
   it("maps a non-JSON model reply to unprocessable_entity (never a fabricated result)", async () => {
     const p = createAiExtractProcessor({
       extract: extractorFor("real text"),
-      provider: provider({ ok: true, text: "Sorry, here is a prose answer.", model: "claude-sonnet-5" }),
+      provider: provider({
+        ok: true,
+        text: "Sorry, here is a prose answer.",
+        model: "claude-sonnet-5",
+      }),
     });
     const result = await p.process(input());
     expect(result.ok).toBe(false);
@@ -116,7 +153,12 @@ describe("createAiExtractProcessor", () => {
   it("maps a provider rate limit to a retryable service_unavailable", async () => {
     const p = createAiExtractProcessor({
       extract: extractorFor("text"),
-      provider: provider({ ok: false, kind: "rate_limited", message: "slow", retryable: true }),
+      provider: provider({
+        ok: false,
+        kind: "rate_limited",
+        message: "slow",
+        retryable: true,
+      }),
     });
     const result = await p.process(input());
     expect(result.ok).toBe(false);

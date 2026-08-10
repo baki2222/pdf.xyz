@@ -15,13 +15,7 @@
 
 /** Coarse file/page count bucket. `"unknown"` guards non-finite/negative input. */
 export type CountBucket =
-  | "0"
-  | "1"
-  | "2-5"
-  | "6-20"
-  | "21-50"
-  | "50+"
-  | "unknown";
+  "0" | "1" | "2-5" | "6-20" | "21-50" | "50+" | "unknown";
 
 /** Coarse byte-size bucket. Boundaries are powers-of-two KB/MB. */
 export type SizeBucket =
@@ -35,12 +29,7 @@ export type SizeBucket =
 
 /** Coarse elapsed-time bucket, in human units. */
 export type DurationBucket =
-  | "<250ms"
-  | "250ms-1s"
-  | "1-5s"
-  | "5-30s"
-  | "30s+"
-  | "unknown";
+  "<250ms" | "250ms-1s" | "1-5s" | "5-30s" | "30s+" | "unknown";
 
 const KB = 1024;
 const MB = 1024 * KB;

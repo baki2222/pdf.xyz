@@ -5,7 +5,12 @@
     "mode": "remote-configured",
     "drainable": true,
     "daemonObserved": false,
-    "daemon": { "state": "stale", "source": "queue-broker", "lastSeen": "over-10m", "mode": "loop" },
+    "daemon": {
+      "state": "stale",
+      "source": "queue-broker",
+      "lastSeen": "over-10m",
+      "mode": "loop"
+    },
     "health": "warn",
     "recommendedAction": "investigate-worker-liveness",
     "subsystems": [

@@ -120,7 +120,10 @@ describe("a run does not blur the user who started it", () => {
     const offenders = sourceFiles().flatMap((file) =>
       buttonTags(readFileSync(file, "utf8"))
         .filter((tag) => /\baria-busy=/.test(tag) && /\sdisabled=/.test(tag))
-        .map((tag) => `${relative(file)} — ${tag.replace(/\s+/g, " ").slice(0, 90)}…`),
+        .map(
+          (tag) =>
+            `${relative(file)} — ${tag.replace(/\s+/g, " ").slice(0, 90)}…`,
+        ),
     );
 
     expect(
@@ -148,7 +151,10 @@ describe("a run does not blur the user who started it", () => {
     const offenders = sourceFiles().flatMap((file) =>
       nativeControlTags(readFileSync(file, "utf8"))
         .filter((tag) => /\sdisabled=/.test(tag))
-        .map((tag) => `${relative(file)} — ${tag.replace(/\s+/g, " ").slice(0, 90)}…`),
+        .map(
+          (tag) =>
+            `${relative(file)} — ${tag.replace(/\s+/g, " ").slice(0, 90)}…`,
+        ),
     );
 
     expect(

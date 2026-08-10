@@ -18,11 +18,20 @@ async function basePdf(sizes: [number, number][]): Promise<Uint8Array> {
 }
 
 /** An overlay PDF whose pages carry a distinctive filled rectangle. */
-async function overlayDoc(pages = 1, size: [number, number] = [200, 100]): Promise<Uint8Array> {
+async function overlayDoc(
+  pages = 1,
+  size: [number, number] = [200, 100],
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   for (let i = 0; i < pages; i += 1) {
     const page = doc.addPage(size);
-    page.drawRectangle({ x: 10, y: 10, width: 80, height: 40, color: rgb(0.9, 0.1, 0.1) });
+    page.drawRectangle({
+      x: 10,
+      y: 10,
+      width: 80,
+      height: 40,
+      color: rgb(0.9, 0.1, 0.1),
+    });
   }
   return doc.save();
 }
@@ -148,7 +157,10 @@ describe("overlayPdf", () => {
     const base = await basePdf(sizes);
     const overlay = await overlayDoc(1);
 
-    const result = await overlayPdf(base, overlay, { opacity: 0.5, fit: "fit" });
+    const result = await overlayPdf(base, overlay, {
+      opacity: 0.5,
+      fit: "fit",
+    });
     expect(result.pageCount).toBe(3);
     expect(result.overlayPageCount).toBe(1);
     expect(result.opacity).toBe(0.5);
@@ -189,12 +201,16 @@ describe("overlayPdf", () => {
   it("rejects a base file that isn't a PDF", async () => {
     const notPdf = new TextEncoder().encode("this is not a pdf");
     const overlay = await overlayDoc(1);
-    await expect(overlayPdf(notPdf, overlay)).rejects.toBeInstanceOf(PdfEngineError);
+    await expect(overlayPdf(notPdf, overlay)).rejects.toBeInstanceOf(
+      PdfEngineError,
+    );
   });
 
   it("rejects an overlay that isn't a PDF", async () => {
     const base = await basePdf([[300, 300]]);
     const notPdf = new TextEncoder().encode("this is not a pdf");
-    await expect(overlayPdf(base, notPdf)).rejects.toBeInstanceOf(PdfEngineError);
+    await expect(overlayPdf(base, notPdf)).rejects.toBeInstanceOf(
+      PdfEngineError,
+    );
   });
 });

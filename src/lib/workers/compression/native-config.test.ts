@@ -21,8 +21,16 @@ describe("parseNativeCompressionConfig — defaults", () => {
     const c = parsed.config;
     expect(c.enabled).toBe(true);
     expect(c.engine).toBeUndefined();
-    expect(c.binaries).toEqual({ ghostscript: "gs", qpdf: "qpdf", mutool: "mutool" });
-    expect(c.overridden).toEqual({ ghostscript: false, qpdf: false, mutool: false });
+    expect(c.binaries).toEqual({
+      ghostscript: "gs",
+      qpdf: "qpdf",
+      mutool: "mutool",
+    });
+    expect(c.overridden).toEqual({
+      ghostscript: false,
+      qpdf: false,
+      mutool: false,
+    });
     expect(c.timeoutMs).toBe(TIMEOUT_MS_BOUNDS.default);
     expect(c.maxInputBytes).toBe(INPUT_BYTES_BOUNDS.default);
     expect(c.maxOutputBytes).toBe(OUTPUT_BYTES_BOUNDS.default);
@@ -39,10 +47,13 @@ describe("parseNativeCompressionConfig — enable flag", () => {
     },
   );
 
-  it.each(["on", "true", "1", "auto", "AUTO"])("treats %s as enabled", (value) => {
-    const parsed = parseNativeCompressionConfig({ [E.enable]: value });
-    expect(parsed.ok && parsed.config.enabled).toBe(true);
-  });
+  it.each(["on", "true", "1", "auto", "AUTO"])(
+    "treats %s as enabled",
+    (value) => {
+      const parsed = parseNativeCompressionConfig({ [E.enable]: value });
+      expect(parsed.ok && parsed.config.enabled).toBe(true);
+    },
+  );
 
   it("rejects an unrecognized enable value, naming the variable only", () => {
     const parsed = parseNativeCompressionConfig({ [E.enable]: "maybe" });
@@ -87,14 +98,17 @@ describe("parseNativeCompressionConfig — binary overrides", () => {
     ["traversal", "/usr/../bin/gs"],
     ["shell metacharacter", "/usr/bin/gs; rm -rf /"],
     ["command substitution", "/usr/bin/$(whoami)"],
-  ])("rejects an unsafe override path (%s), naming the variable only", (_label, value) => {
-    const parsed = parseNativeCompressionConfig({ [E.qpdfBin]: value });
-    expect(parsed.ok).toBe(false);
-    if (parsed.ok) return;
-    expect(parsed.issues.some((i) => i.field === E.qpdfBin)).toBe(true);
-    // The offending path value is never echoed into the diagnostics.
-    expect(JSON.stringify(parsed.issues)).not.toContain(value);
-  });
+  ])(
+    "rejects an unsafe override path (%s), naming the variable only",
+    (_label, value) => {
+      const parsed = parseNativeCompressionConfig({ [E.qpdfBin]: value });
+      expect(parsed.ok).toBe(false);
+      if (parsed.ok) return;
+      expect(parsed.issues.some((i) => i.field === E.qpdfBin)).toBe(true);
+      // The offending path value is never echoed into the diagnostics.
+      expect(JSON.stringify(parsed.issues)).not.toContain(value);
+    },
+  );
 });
 
 describe("parseNativeCompressionConfig — bounds", () => {
@@ -120,13 +134,16 @@ describe("parseNativeCompressionConfig — bounds", () => {
   ])("rejects an out-of-range or malformed %s", (name, value) => {
     const parsed = parseNativeCompressionConfig({ [name]: value });
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.issues.some((i) => i.field === name)).toBe(true);
+    if (!parsed.ok)
+      expect(parsed.issues.some((i) => i.field === name)).toBe(true);
   });
 });
 
 describe("parseNativeCompressionConfig — temp dir", () => {
   it("accepts a safe absolute temp dir", () => {
-    const parsed = parseNativeCompressionConfig({ [E.tmpDir]: "/var/tmp/pdfxyz" });
+    const parsed = parseNativeCompressionConfig({
+      [E.tmpDir]: "/var/tmp/pdfxyz",
+    });
     expect(parsed.ok && parsed.config.tmpDir).toBe("/var/tmp/pdfxyz");
   });
 
@@ -139,7 +156,9 @@ describe("parseNativeCompressionConfig — temp dir", () => {
 describe("isSafeConfiguredPath", () => {
   it("accepts absolute posix and windows paths, with spaces/parens", () => {
     expect(isSafeConfiguredPath("/usr/bin/gs")).toBe(true);
-    expect(isSafeConfiguredPath("C:\\Program Files (x86)\\gs\\bin\\gswin64c.exe")).toBe(true);
+    expect(
+      isSafeConfiguredPath("C:\\Program Files (x86)\\gs\\bin\\gswin64c.exe"),
+    ).toBe(true);
     expect(isSafeConfiguredPath("C:/tools/qpdf.exe")).toBe(true);
   });
 

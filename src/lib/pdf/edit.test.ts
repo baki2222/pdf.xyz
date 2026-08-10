@@ -69,7 +69,9 @@ describe("checkEditImage", () => {
   });
 
   it("flags unsupported data and a format mismatch", () => {
-    expect(checkEditImage("png", new TextEncoder().encode("not an image"))).toBe("image-type");
+    expect(
+      checkEditImage("png", new TextEncoder().encode("not an image")),
+    ).toBe("image-type");
     // Real PNG bytes but declared as a JPG.
     expect(checkEditImage("jpg", PNG_1X1)).toBe("image-type");
   });
@@ -81,59 +83,167 @@ describe("validateEditOps", () => {
     { width: 400, height: 300 },
   ];
   const rect = (over: Partial<EditOp> = {}): EditOp =>
-    ({ type: "rect", page: 1, x: 100, y: 100, width: 200, height: 50, color: "#3b82f6", ...over } as EditOp);
+    ({
+      type: "rect",
+      page: 1,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 50,
+      color: "#3b82f6",
+      ...over,
+    }) as EditOp;
 
   it("returns no issues for a valid set across the four types", () => {
     const ops: EditOp[] = [
-      { type: "text", page: 1, x: 20, y: 700, text: "Draft", color: "#111111", size: 14 },
-      { type: "rect", page: 1, x: 10, y: 30, width: 100, height: 40, color: "#22c55e", filled: true },
-      { type: "line", page: 2, x1: 0, y1: 0, x2: 100, y2: 80, color: "#ef4444", arrow: true },
-      { type: "image", page: 2, x: 10, y: 10, width: 60, height: 60, format: "png", bytes: PNG_1X1 },
+      {
+        type: "text",
+        page: 1,
+        x: 20,
+        y: 700,
+        text: "Draft",
+        color: "#111111",
+        size: 14,
+      },
+      {
+        type: "rect",
+        page: 1,
+        x: 10,
+        y: 30,
+        width: 100,
+        height: 40,
+        color: "#22c55e",
+        filled: true,
+      },
+      {
+        type: "line",
+        page: 2,
+        x1: 0,
+        y1: 0,
+        x2: 100,
+        y2: 80,
+        color: "#ef4444",
+        arrow: true,
+      },
+      {
+        type: "image",
+        page: 2,
+        x: 10,
+        y: 10,
+        width: 60,
+        height: 60,
+        format: "png",
+        bytes: PNG_1X1,
+      },
     ];
     expect(validateEditOps(ops, pages)).toEqual([]);
   });
 
   it("flags out-of-range and non-integer pages", () => {
-    expect(validateEditOps([rect({ page: 0 })], pages)[0]?.code).toBe("page-out-of-range");
-    expect(validateEditOps([rect({ page: 3 })], pages)[0]?.code).toBe("page-out-of-range");
-    expect(validateEditOps([rect({ page: 1.5 })], pages)[0]?.code).toBe("page-out-of-range");
+    expect(validateEditOps([rect({ page: 0 })], pages)[0]?.code).toBe(
+      "page-out-of-range",
+    );
+    expect(validateEditOps([rect({ page: 3 })], pages)[0]?.code).toBe(
+      "page-out-of-range",
+    );
+    expect(validateEditOps([rect({ page: 1.5 })], pages)[0]?.code).toBe(
+      "page-out-of-range",
+    );
   });
 
   it("flags invalid colors and out-of-range opacity", () => {
-    expect(validateEditOps([rect({ color: "nope" })], pages)[0]?.code).toBe("invalid-color");
-    expect(validateEditOps([rect({ opacity: 2 })], pages)[0]?.code).toBe("invalid-opacity");
-    expect(validateEditOps([rect({ opacity: -0.1 })], pages)[0]?.code).toBe("invalid-opacity");
+    expect(validateEditOps([rect({ color: "nope" })], pages)[0]?.code).toBe(
+      "invalid-color",
+    );
+    expect(validateEditOps([rect({ opacity: 2 })], pages)[0]?.code).toBe(
+      "invalid-opacity",
+    );
+    expect(validateEditOps([rect({ opacity: -0.1 })], pages)[0]?.code).toBe(
+      "invalid-opacity",
+    );
   });
 
   it("flags non-finite, empty, and out-of-bounds rectangles", () => {
-    expect(validateEditOps([rect({ x: Number.NaN })], pages)[0]?.code).toBe("invalid");
+    expect(validateEditOps([rect({ x: Number.NaN })], pages)[0]?.code).toBe(
+      "invalid",
+    );
     expect(validateEditOps([rect({ width: 0 })], pages)[0]?.code).toBe("empty");
-    expect(validateEditOps([rect({ x: 500, width: 200 })], pages)[0]?.code).toBe("out-of-bounds");
-    expect(validateEditOps([rect({ filled: false, borderWidth: 0 })], pages)[0]?.code).toBe("invalid");
+    expect(
+      validateEditOps([rect({ x: 500, width: 200 })], pages)[0]?.code,
+    ).toBe("out-of-bounds");
+    expect(
+      validateEditOps([rect({ filled: false, borderWidth: 0 })], pages)[0]
+        ?.code,
+    ).toBe("invalid");
   });
 
   it("flags empty text, a bad size, and text off the page", () => {
     const text = (over: Partial<EditOp>): EditOp =>
-      ({ type: "text", page: 1, x: 10, y: 10, text: "hi", color: "#000", ...over } as EditOp);
-    expect(validateEditOps([text({ text: "   " })], pages)[0]?.code).toBe("empty");
-    expect(validateEditOps([text({ size: 0 })], pages)[0]?.code).toBe("invalid");
-    expect(validateEditOps([text({ x: 700 })], pages)[0]?.code).toBe("out-of-bounds");
+      ({
+        type: "text",
+        page: 1,
+        x: 10,
+        y: 10,
+        text: "hi",
+        color: "#000",
+        ...over,
+      }) as EditOp;
+    expect(validateEditOps([text({ text: "   " })], pages)[0]?.code).toBe(
+      "empty",
+    );
+    expect(validateEditOps([text({ size: 0 })], pages)[0]?.code).toBe(
+      "invalid",
+    );
+    expect(validateEditOps([text({ x: 700 })], pages)[0]?.code).toBe(
+      "out-of-bounds",
+    );
   });
 
   it("flags a zero-length line and endpoints off the page", () => {
     const line = (over: Partial<EditOp>): EditOp =>
-      ({ type: "line", page: 1, x1: 0, y1: 0, x2: 100, y2: 100, color: "#000", ...over } as EditOp);
-    expect(validateEditOps([line({ x2: 0, y2: 0 })], pages)[0]?.code).toBe("empty");
-    expect(validateEditOps([line({ x2: 900 })], pages)[0]?.code).toBe("out-of-bounds");
+      ({
+        type: "line",
+        page: 1,
+        x1: 0,
+        y1: 0,
+        x2: 100,
+        y2: 100,
+        color: "#000",
+        ...over,
+      }) as EditOp;
+    expect(validateEditOps([line({ x2: 0, y2: 0 })], pages)[0]?.code).toBe(
+      "empty",
+    );
+    expect(validateEditOps([line({ x2: 900 })], pages)[0]?.code).toBe(
+      "out-of-bounds",
+    );
   });
 
   it("flags missing/unsupported images and image geometry", () => {
     const image = (over: Partial<EditOp>): EditOp =>
-      ({ type: "image", page: 1, x: 10, y: 10, width: 60, height: 60, format: "png", bytes: PNG_1X1, ...over } as EditOp);
-    expect(validateEditOps([image({ bytes: new Uint8Array() })], pages)[0]?.code).toBe("image-missing");
-    expect(validateEditOps([image({ format: "jpg" })], pages)[0]?.code).toBe("image-type");
-    expect(validateEditOps([image({ width: 0 })], pages)[0]?.code).toBe("empty");
-    expect(validateEditOps([image({ x: 600, width: 100 })], pages)[0]?.code).toBe("out-of-bounds");
+      ({
+        type: "image",
+        page: 1,
+        x: 10,
+        y: 10,
+        width: 60,
+        height: 60,
+        format: "png",
+        bytes: PNG_1X1,
+        ...over,
+      }) as EditOp;
+    expect(
+      validateEditOps([image({ bytes: new Uint8Array() })], pages)[0]?.code,
+    ).toBe("image-missing");
+    expect(validateEditOps([image({ format: "jpg" })], pages)[0]?.code).toBe(
+      "image-type",
+    );
+    expect(validateEditOps([image({ width: 0 })], pages)[0]?.code).toBe(
+      "empty",
+    );
+    expect(
+      validateEditOps([image({ x: 600, width: 100 })], pages)[0]?.code,
+    ).toBe("out-of-bounds");
   });
 
   it("reports the offending index for each issue", () => {
@@ -153,10 +263,47 @@ describe("editPdf", () => {
     ];
     const base = await blankPdf(sizes);
     const ops: EditOp[] = [
-      { type: "text", page: 1, x: 72, y: 700, text: "Approved — v2", color: "#111111", size: 16 },
-      { type: "rect", page: 1, x: 60, y: 600, width: 240, height: 80, color: "#ffffff", filled: true },
-      { type: "rect", page: 1, x: 60, y: 600, width: 240, height: 80, color: "#3b82f6", filled: false, borderWidth: 2 },
-      { type: "line", page: 2, x1: 20, y1: 40, x2: 300, y2: 200, color: "#ef4444", thickness: 2, arrow: true },
+      {
+        type: "text",
+        page: 1,
+        x: 72,
+        y: 700,
+        text: "Approved — v2",
+        color: "#111111",
+        size: 16,
+      },
+      {
+        type: "rect",
+        page: 1,
+        x: 60,
+        y: 600,
+        width: 240,
+        height: 80,
+        color: "#ffffff",
+        filled: true,
+      },
+      {
+        type: "rect",
+        page: 1,
+        x: 60,
+        y: 600,
+        width: 240,
+        height: 80,
+        color: "#3b82f6",
+        filled: false,
+        borderWidth: 2,
+      },
+      {
+        type: "line",
+        page: 2,
+        x1: 20,
+        y1: 40,
+        x2: 300,
+        y2: 200,
+        color: "#ef4444",
+        thickness: 2,
+        arrow: true,
+      },
     ];
 
     const result = await editPdf(base, ops);
@@ -178,7 +325,16 @@ describe("editPdf", () => {
   it("embeds a PNG image and preserves the page", async () => {
     const base = await blankPdf([[300, 300]]);
     const result = await editPdf(base, [
-      { type: "image", page: 1, x: 40, y: 40, width: 120, height: 120, format: "png", bytes: PNG_1X1 },
+      {
+        type: "image",
+        page: 1,
+        x: 40,
+        y: 40,
+        width: 120,
+        height: 120,
+        format: "png",
+        bytes: PNG_1X1,
+      },
     ]);
     expect(result.counts.image).toBe(1);
     expect(result.bytes.byteLength).toBeGreaterThan(base.byteLength);
@@ -189,7 +345,16 @@ describe("editPdf", () => {
   it("embeds a JPG image", async () => {
     const base = await blankPdf([[300, 300]]);
     const result = await editPdf(base, [
-      { type: "image", page: 1, x: 40, y: 40, width: 120, height: 120, format: "jpg", bytes: JPG_1X1 },
+      {
+        type: "image",
+        page: 1,
+        x: 40,
+        y: 40,
+        width: 120,
+        height: 120,
+        format: "jpg",
+        bytes: JPG_1X1,
+      },
     ]);
     expect(result.counts.image).toBe(1);
     const out = await PDFDocument.load(result.bytes);
@@ -199,7 +364,15 @@ describe("editPdf", () => {
   it("draws text with non-WinAnsi characters without throwing", async () => {
     const base = await blankPdf([[300, 300]]);
     const result = await editPdf(base, [
-      { type: "text", page: 1, x: 20, y: 150, text: "Emoji 😀 and 日本語", color: "#000000", maxWidth: 260 },
+      {
+        type: "text",
+        page: 1,
+        x: 20,
+        y: 150,
+        text: "Emoji 😀 and 日本語",
+        color: "#000000",
+        maxWidth: 260,
+      },
     ]);
     expect(result.counts.text).toBe(1);
     const out = await PDFDocument.load(result.bytes);
@@ -215,7 +388,15 @@ describe("editPdf", () => {
     const base = await blankPdf([[200, 100]]);
     await expect(
       editPdf(base, [
-        { type: "rect", page: 2, x: 0, y: 0, width: 10, height: 10, color: "#000" },
+        {
+          type: "rect",
+          page: 2,
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          color: "#000",
+        },
       ]),
     ).rejects.toThrow(/page 2 is out of range/);
   });
@@ -224,7 +405,15 @@ describe("editPdf", () => {
     const notPdf = new TextEncoder().encode("this is not a pdf");
     await expect(
       editPdf(notPdf, [
-        { type: "rect", page: 1, x: 0, y: 0, width: 10, height: 10, color: "#000" },
+        {
+          type: "rect",
+          page: 1,
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          color: "#000",
+        },
       ]),
     ).rejects.toBeInstanceOf(PdfEngineError);
   });
@@ -233,7 +422,16 @@ describe("editPdf", () => {
     const base = await blankPdf([[300, 300]]);
     await expect(
       editPdf(base, [
-        { type: "image", page: 1, x: 10, y: 10, width: 50, height: 50, format: "png", bytes: BROKEN_PNG },
+        {
+          type: "image",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 50,
+          height: 50,
+          format: "png",
+          bytes: BROKEN_PNG,
+        },
       ]),
     ).rejects.toBeInstanceOf(PdfEngineError);
   });

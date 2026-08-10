@@ -57,10 +57,13 @@ describe("enforceRateLimit — providers", () => {
   it("keeps action budgets independent", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     const status = policyFor("jobs.status");
-    for (let i = 0; i < status.limit; i++) await enforceRateLimit("jobs.status", req());
+    for (let i = 0; i < status.limit; i++)
+      await enforceRateLimit("jobs.status", req());
     expect((await enforceRateLimit("jobs.status", req())).allowed).toBe(false);
     // A different action has its own, untouched budget.
-    expect((await enforceRateLimit("uploads.create", req())).allowed).toBe(true);
+    expect((await enforceRateLimit("uploads.create", req())).allowed).toBe(
+      true,
+    );
   });
 
   it("separates clients only when the forwarding header is trusted", async () => {
@@ -69,10 +72,15 @@ describe("enforceRateLimit — providers", () => {
     const policy = policyFor("jobs.create");
     const clientA = { "x-forwarded-for": "203.0.113.1" };
     const clientB = { "x-forwarded-for": "203.0.113.2" };
-    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("jobs.create", req(clientA));
-    expect((await enforceRateLimit("jobs.create", req(clientA))).allowed).toBe(false);
+    for (let i = 0; i < policy.limit; i++)
+      await enforceRateLimit("jobs.create", req(clientA));
+    expect((await enforceRateLimit("jobs.create", req(clientA))).allowed).toBe(
+      false,
+    );
     // A distinct trusted client is unaffected by A's spent budget.
-    expect((await enforceRateLimit("jobs.create", req(clientB))).allowed).toBe(true);
+    expect((await enforceRateLimit("jobs.create", req(clientB))).allowed).toBe(
+      true,
+    );
   });
 });
 

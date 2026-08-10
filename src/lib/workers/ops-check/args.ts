@@ -101,7 +101,9 @@ function toFlag(token: string): { name: string; inlineValue?: string } {
  * side-effect-free: it validates flags, rejects conflicting sources/formats and
  * unknown options, and never reads the environment.
  */
-export function parseOpsCheckArgs(argv: readonly string[]): ParseOpsCheckArgsResult {
+export function parseOpsCheckArgs(
+  argv: readonly string[],
+): ParseOpsCheckArgsResult {
   let source: OpsCheckSource | undefined;
   let filePath: string | undefined;
   let format: OpsCheckFormat | undefined;
@@ -115,7 +117,9 @@ export function parseOpsCheckArgs(argv: readonly string[]): ParseOpsCheckArgsRes
       return { ok: true, kind: "help" };
     }
 
-    const setSource = (next: OpsCheckSource): ParseOpsCheckArgsResult | undefined => {
+    const setSource = (
+      next: OpsCheckSource,
+    ): ParseOpsCheckArgsResult | undefined => {
       if (source !== undefined && source !== next) {
         return {
           ok: false,

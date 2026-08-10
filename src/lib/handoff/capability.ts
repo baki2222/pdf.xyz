@@ -110,7 +110,9 @@ export function eligibleFilesFor<T extends FileMetaLike>(
     );
   }
   if (slug === "png-to-pdf") {
-    return files.filter((file) => file.type === "image/png" || /\.png$/i.test(file.name));
+    return files.filter(
+      (file) => file.type === "image/png" || /\.png$/i.test(file.name),
+    );
   }
   return files.filter((file) => isLikelyPdf(file));
 }

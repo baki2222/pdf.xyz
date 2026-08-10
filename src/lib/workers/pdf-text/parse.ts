@@ -46,17 +46,24 @@ const NAMED_ENTITIES: Record<string, string> = {
  * silently corrupt the extracted document.
  */
 export function decodeXmlEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (match, body: string) => {
-    if (body.startsWith("#x") || body.startsWith("#X")) {
-      const code = Number.parseInt(body.slice(2), 16);
-      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : match;
-    }
-    if (body.startsWith("#")) {
-      const code = Number.parseInt(body.slice(1), 10);
-      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : match;
-    }
-    return NAMED_ENTITIES[body] ?? match;
-  });
+  return text.replace(
+    /&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g,
+    (match, body: string) => {
+      if (body.startsWith("#x") || body.startsWith("#X")) {
+        const code = Number.parseInt(body.slice(2), 16);
+        return Number.isFinite(code) && code > 0
+          ? String.fromCodePoint(code)
+          : match;
+      }
+      if (body.startsWith("#")) {
+        const code = Number.parseInt(body.slice(1), 10);
+        return Number.isFinite(code) && code > 0
+          ? String.fromCodePoint(code)
+          : match;
+      }
+      return NAMED_ENTITIES[body] ?? match;
+    },
+  );
 }
 
 /**
@@ -137,7 +144,8 @@ export function parseBboxLayout(xhtml: string): PdfLayout {
       const yMin = attr(wordAttrs, "yMin");
       const xMax = attr(wordAttrs, "xMax");
       const yMax = attr(wordAttrs, "yMax");
-      if (xMin === null || yMin === null || xMax === null || yMax === null) continue;
+      if (xMin === null || yMin === null || xMax === null || yMax === null)
+        continue;
 
       items.push({
         text,

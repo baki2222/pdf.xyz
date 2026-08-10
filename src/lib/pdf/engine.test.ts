@@ -53,9 +53,9 @@ describe("getPageCount / getPageRotations", () => {
   });
 
   it("rejects non-PDF bytes with a friendly error", async () => {
-    await expect(getPageCount(new Uint8Array([1, 2, 3, 4]))).rejects.toBeInstanceOf(
-      PdfEngineError,
-    );
+    await expect(
+      getPageCount(new Uint8Array([1, 2, 3, 4])),
+    ).rejects.toBeInstanceOf(PdfEngineError);
   });
 });
 
@@ -98,7 +98,9 @@ describe("deletePages", () => {
 
   it("throws when deleting every page", async () => {
     const pdf = await makePdf(2);
-    await expect(deletePages(pdf, [0, 1])).rejects.toBeInstanceOf(PdfEngineError);
+    await expect(deletePages(pdf, [0, 1])).rejects.toBeInstanceOf(
+      PdfEngineError,
+    );
   });
 
   it("throws when nothing is selected", async () => {
@@ -146,7 +148,10 @@ describe("splitPdf", () => {
 
   it("produces one file per page in per-page mode", async () => {
     const pdf = await makePdf(3);
-    const outputs = await splitPdf(pdf, buildSplitParts("doc", rangesPerPage(3)));
+    const outputs = await splitPdf(
+      pdf,
+      buildSplitParts("doc", rangesPerPage(3)),
+    );
     expect(outputs).toHaveLength(3);
     expect(await widths(outputs[2]!.bytes)).toEqual([30]);
   });

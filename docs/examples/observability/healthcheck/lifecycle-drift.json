@@ -5,7 +5,12 @@
     "mode": "remote-configured",
     "drainable": true,
     "daemonObserved": true,
-    "daemon": { "state": "observed", "source": "self", "lastSeen": null, "mode": "check" },
+    "daemon": {
+      "state": "observed",
+      "source": "self",
+      "lastSeen": null,
+      "mode": "check"
+    },
     "health": "warn",
     "recommendedAction": "reconcile-lifecycle-drift",
     "subsystems": [
@@ -24,8 +29,18 @@
   },
   "metrics": {
     "series": [
-      { "metric": "worker_lifecycle_verification_total", "kind": "counter", "labels": { "verdict": "drift" }, "value": 1 },
-      { "metric": "worker_lifecycle_drift_rules", "kind": "gauge", "labels": {}, "value": 2 }
+      {
+        "metric": "worker_lifecycle_verification_total",
+        "kind": "counter",
+        "labels": { "verdict": "drift" },
+        "value": 1
+      },
+      {
+        "metric": "worker_lifecycle_drift_rules",
+        "kind": "gauge",
+        "labels": {},
+        "value": 2
+      }
     ]
   }
 }

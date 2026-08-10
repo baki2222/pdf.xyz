@@ -16,7 +16,10 @@ function run(argv: string[]): DaemonArgs {
 
 describe("parseDaemonArgs — modes", () => {
   it("defaults to loop with the default idle sleep and no caps", () => {
-    expect(run([])).toEqual({ mode: "loop", idleSleepMs: DEFAULT_IDLE_SLEEP_MS });
+    expect(run([])).toEqual({
+      mode: "loop",
+      idleSleepMs: DEFAULT_IDLE_SLEEP_MS,
+    });
   });
 
   it("selects each explicit mode", () => {
@@ -78,7 +81,9 @@ describe("parseDaemonArgs — value flags", () => {
       keyPrefix: "pdfxyz",
       versioned: true,
     });
-    expect(run(["--lifecycle-policy", "--versioned=false"]).versioned).toBe(false);
+    expect(run(["--lifecycle-policy", "--versioned=false"]).versioned).toBe(
+      false,
+    );
   });
 
   it("combines a mode with tuning knobs", () => {
@@ -97,18 +102,20 @@ describe("parseDaemonArgs — lifecycle-policy options", () => {
       mode: "lifecycle-policy",
       lifecycleProvider: "aws-s3",
     });
-    expect(run(["--lifecycle-policy", "--provider=AWS-S3"]).lifecycleProvider).toBe(
-      "aws-s3",
-    );
+    expect(
+      run(["--lifecycle-policy", "--provider=AWS-S3"]).lifecycleProvider,
+    ).toBe("aws-s3");
     // A bare --versioned means true; an explicit value overrides.
     expect(run(["--lifecycle-policy", "--versioned"]).versioned).toBe(true);
-    expect(run(["--lifecycle-policy", "--versioned=false"]).versioned).toBe(false);
+    expect(run(["--lifecycle-policy", "--versioned=false"]).versioned).toBe(
+      false,
+    );
   });
 
   it("parses a safe key prefix", () => {
-    expect(run(["--lifecycle-policy", "--key-prefix=team/pdfxyz"]).keyPrefix).toBe(
-      "team/pdfxyz",
-    );
+    expect(
+      run(["--lifecycle-policy", "--key-prefix=team/pdfxyz"]).keyPrefix,
+    ).toBe("team/pdfxyz");
   });
 
   it("rejects an unknown provider", () => {
@@ -146,18 +153,25 @@ describe("parseDaemonArgs — lifecycle-verify options", () => {
       observedPath: "cfg.json",
     });
     expect(
-      run(["--lifecycle-verify", "--observed", "/tmp/observed.json"]).observedPath,
+      run(["--lifecycle-verify", "--observed", "/tmp/observed.json"])
+        .observedPath,
     ).toBe("/tmp/observed.json");
   });
 
   it("verifies with no --observed (the honest not-configured path is a valid parse)", () => {
-    const args = run(["--lifecycle-verify", "--provider=aws-s3", "--versioned"]);
+    const args = run([
+      "--lifecycle-verify",
+      "--provider=aws-s3",
+      "--versioned",
+    ]);
     expect(args.mode).toBe("lifecycle-verify");
     expect(args.observedPath).toBeUndefined();
   });
 
   it("rejects --observed with no value", () => {
-    expect(parseDaemonArgs(["--lifecycle-verify", "--observed"]).ok).toBe(false);
+    expect(parseDaemonArgs(["--lifecycle-verify", "--observed"]).ok).toBe(
+      false,
+    );
     expect(parseDaemonArgs(["--observed", "--versioned"]).ok).toBe(false);
   });
 });
@@ -170,7 +184,11 @@ describe("parseDaemonArgs — validation", () => {
   });
 
   it("rejects a non-numeric or out-of-range integer", () => {
-    for (const argv of [["--max-ticks=abc"], ["--max-ticks=0"], ["--lease-ms=1"]]) {
+    for (const argv of [
+      ["--max-ticks=abc"],
+      ["--max-ticks=0"],
+      ["--lease-ms=1"],
+    ]) {
       expect(parseDaemonArgs(argv).ok).toBe(false);
     }
   });

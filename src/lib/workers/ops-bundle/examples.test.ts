@@ -17,7 +17,19 @@ const NOW = "2026-07-03T00:00:00.000Z";
 
 /** Locator VALUES that must never appear in a fixture or a rendered bundle. (Authored prose may say
  *  "secret"/"bucket"/"byte" in caveats, so the list targets provider hosts + key schemes only.) */
-const FORBIDDEN = ["amazonaws", "akia", "AKIA", "://", "us-east-1", "upstash", "cloudflarestorage", "/tmp/", "customer", ".pdf", "bearer "];
+const FORBIDDEN = [
+  "amazonaws",
+  "akia",
+  "AKIA",
+  "://",
+  "us-east-1",
+  "upstash",
+  "cloudflarestorage",
+  "/tmp/",
+  "customer",
+  ".pdf",
+  "bearer ",
+];
 
 interface Case {
   readonly ops: string;
@@ -28,18 +40,37 @@ interface Case {
 
 const CASES: readonly Case[] = [
   { ops: "ops-check-healthy.json", severity: "ok", exit: 0 },
-  { ops: "ops-check-healthy.json", pipeline: "pipeline-clean.json", severity: "ok", exit: 0 },
-  { ops: "ops-check-healthy.json", pipeline: "pipeline-unknown.json", severity: "unknown", exit: 2 },
-  { ops: "ops-check-healthy.json", pipeline: "pipeline-breach.json", severity: "critical", exit: 4 },
+  {
+    ops: "ops-check-healthy.json",
+    pipeline: "pipeline-clean.json",
+    severity: "ok",
+    exit: 0,
+  },
+  {
+    ops: "ops-check-healthy.json",
+    pipeline: "pipeline-unknown.json",
+    severity: "unknown",
+    exit: 2,
+  },
+  {
+    ops: "ops-check-healthy.json",
+    pipeline: "pipeline-breach.json",
+    severity: "critical",
+    exit: 4,
+  },
   { ops: "ops-check-degraded.json", severity: "warn", exit: 3 },
   { ops: "ops-check-critical.json", severity: "critical", exit: 4 },
   { ops: "ops-check-unknown.json", severity: "unknown", exit: 2 },
 ];
 
-function fixtureProvider(opsFile: string, pipelineFile?: string): OpsBundleProvider {
+function fixtureProvider(
+  opsFile: string,
+  pipelineFile?: string,
+): OpsBundleProvider {
   return {
     readOpsCheck: async () => readFileSync(join(DIR, opsFile), "utf8"),
-    readPipeline: async () => readFileSync(join(DIR, pipelineFile ?? ""), "utf8"),
+    readPipeline: async () =>
+      readFileSync(join(DIR, pipelineFile ?? ""), "utf8"),
     now: () => NOW,
   };
 }
@@ -66,9 +97,22 @@ describe("ops-bundle example fixtures", () => {
   it("renders every case content-free in JSON and text", async () => {
     for (const c of CASES) {
       for (const format of ["json", "text"] as const) {
-        const args: OpsBundleArgs = { opsCheckSource: "file", opsCheckPath: c.ops, ...(c.pipeline ? { pipelinePath: c.pipeline } : {}), format, pretty: true };
-        const run = await runOpsBundle(args, fixtureProvider(c.ops, c.pipeline));
-        for (const bad of FORBIDDEN) expect(run.output.toLowerCase(), `${c.ops} (${format})`).not.toContain(bad.toLowerCase());
+        const args: OpsBundleArgs = {
+          opsCheckSource: "file",
+          opsCheckPath: c.ops,
+          ...(c.pipeline ? { pipelinePath: c.pipeline } : {}),
+          format,
+          pretty: true,
+        };
+        const run = await runOpsBundle(
+          args,
+          fixtureProvider(c.ops, c.pipeline),
+        );
+        for (const bad of FORBIDDEN)
+          expect(
+            run.output.toLowerCase(),
+            `${c.ops} (${format})`,
+          ).not.toContain(bad.toLowerCase());
       }
     }
   });
@@ -79,7 +123,8 @@ describe("ops-bundle example fixtures", () => {
     for (const f of files) {
       const text = readFileSync(join(DIR, f), "utf8");
       expect(() => JSON.parse(text), f).not.toThrow();
-      for (const bad of FORBIDDEN) expect(text.toLowerCase(), f).not.toContain(bad.toLowerCase());
+      for (const bad of FORBIDDEN)
+        expect(text.toLowerCase(), f).not.toContain(bad.toLowerCase());
     }
   });
 
@@ -89,7 +134,9 @@ describe("ops-bundle example fixtures", () => {
       referenced.add(c.ops);
       if (c.pipeline) referenced.add(c.pipeline);
     }
-    const onDisk = readdirSync(DIR).filter((f) => f.endsWith(".json")).sort();
+    const onDisk = readdirSync(DIR)
+      .filter((f) => f.endsWith(".json"))
+      .sort();
     expect([...referenced].sort()).toEqual(onDisk);
   });
 

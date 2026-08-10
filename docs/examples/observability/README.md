@@ -34,33 +34,33 @@ client telemetry layer.
 
 ## Files
 
-| File | What it is |
-| ---- | ---------- |
-| `dashboard.json` | A provider-neutral dashboard model: panels that reference metrics + label values structurally (not as backend-specific query strings), so any renderer can map them. |
-| `alerts.json` | One example alert rule per SLO indicator, with severities and human-readable thresholds mirroring `DEFAULT_SLO_THRESHOLDS`. |
+| File                    | What it is                                                                                                                                                                             |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dashboard.json`        | A provider-neutral dashboard model: panels that reference metrics + label values structurally (not as backend-specific query strings), so any renderer can map them.                   |
+| `alerts.json`           | One example alert rule per SLO indicator, with severities and human-readable thresholds mirroring `DEFAULT_SLO_THRESHOLDS`.                                                            |
 | `alerts.prometheus.yml` | An illustrative Prometheus/OpenMetrics alerting-rules group using the exported metric names (the latency histogram is exported canonically, so `histogram_quantile()` works directly). |
 
 ## The metric catalog (all content-free)
 
-| Metric | Kind | Labels (bounded) |
-| ------ | ---- | ---------------- |
-| `worker_run_total` | counter | `mode`, `reason` |
-| `worker_tick_total` | counter | `mode`, `outcome` |
-| `worker_claim_total` | counter | `result` |
-| `worker_redelivery_total` | counter | — |
-| `worker_dead_letter_total` | counter | — |
-| `worker_retry_total` | counter | — |
-| `worker_processor_total` | counter | `processor`, `outcome` |
-| `worker_processor_latency_seconds` | histogram | `processor`, `le` |
-| `worker_scan_total` | counter | `verdict`, `scanned` |
-| `worker_storage_ops_total` | counter | `op`, `result` |
-| `worker_queue_depth` | gauge | `bucket` (operator-fed) |
-| `worker_queue_age_seconds` | gauge | `bucket` (operator-fed) |
-| `worker_readiness` | gauge | `facet`, `state` |
-| `worker_engine_capability` | gauge | `capability`, `available` |
-| `worker_lifecycle_verification_total` | counter | `verdict` |
-| `worker_lifecycle_drift_rules` | gauge | — |
-| `worker_job_terminal_total` | counter | `outcome`, `failure_class` |
+| Metric                                | Kind      | Labels (bounded)           |
+| ------------------------------------- | --------- | -------------------------- |
+| `worker_run_total`                    | counter   | `mode`, `reason`           |
+| `worker_tick_total`                   | counter   | `mode`, `outcome`          |
+| `worker_claim_total`                  | counter   | `result`                   |
+| `worker_redelivery_total`             | counter   | —                          |
+| `worker_dead_letter_total`            | counter   | —                          |
+| `worker_retry_total`                  | counter   | —                          |
+| `worker_processor_total`              | counter   | `processor`, `outcome`     |
+| `worker_processor_latency_seconds`    | histogram | `processor`, `le`          |
+| `worker_scan_total`                   | counter   | `verdict`, `scanned`       |
+| `worker_storage_ops_total`            | counter   | `op`, `result`             |
+| `worker_queue_depth`                  | gauge     | `bucket` (operator-fed)    |
+| `worker_queue_age_seconds`            | gauge     | `bucket` (operator-fed)    |
+| `worker_readiness`                    | gauge     | `facet`, `state`           |
+| `worker_engine_capability`            | gauge     | `capability`, `available`  |
+| `worker_lifecycle_verification_total` | counter   | `verdict`                  |
+| `worker_lifecycle_drift_rules`        | gauge     | —                          |
+| `worker_job_terminal_total`           | counter   | `outcome`, `failure_class` |
 
 Every label value is a fixed enum or a coarse bucket. Numeric dimensions (latency,
 queue depth/age) are bucketed **at construction** — the raw measurement becomes a

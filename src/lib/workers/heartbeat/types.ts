@@ -49,12 +49,7 @@ export const HEARTBEAT_ROLE: HeartbeatRole = "secure-worker";
  * is known.
  */
 export type HeartbeatMode =
-  | "starting"
-  | "loop"
-  | "drain"
-  | "once"
-  | "check"
-  | "dry-run";
+  "starting" | "loop" | "drain" | "once" | "check" | "dry-run";
 
 /**
  * A coarse, fixed age ladder for the last-seen heartbeat — never a raw millisecond
@@ -62,10 +57,7 @@ export type HeartbeatMode =
  * boundaries are deliberately generous and independent of the configured interval.
  */
 export type HeartbeatAgeBucket =
-  | "under-30s"
-  | "under-2m"
-  | "under-10m"
-  | "over-10m";
+  "under-30s" | "under-2m" | "under-10m" | "over-10m";
 
 /**
  * Where a liveness signal came from — a safe *category*, never an endpoint, key, or

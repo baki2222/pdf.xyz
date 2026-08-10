@@ -15,7 +15,7 @@ is the operator-facing companion to the OCR contract/UI foundation documented in
   environment this build ships in unless an operator explicitly opts in (`PDFXYZ_OCR=on`)
   on a worker that has an engine installed — which the Phase 24 `worker` image now does
   by default (OCRmyPDF/Tesseract + English data), so on that image opting in is enough.
-- **No faked OCR, ever.** The backend produces artifacts only from *actual*
+- **No faked OCR, ever.** The backend produces artifacts only from _actual_
   recognition by a native engine. Tests may inject a deterministic fake runner, but
   product copy and status never claim OCR is available unless a real backend is
   configured and present.
@@ -29,25 +29,25 @@ is the operator-facing companion to the OCR contract/UI foundation documented in
 The OCR backend mirrors the native-compression seam exactly — a node-free contract,
 a node-free config parser, and a Node-only subprocess runner, all dependency-injected:
 
-| Piece | Module | Node? |
-| --- | --- | --- |
-| OCR options contract + validator | `src/lib/jobs/ocr.ts` | no |
-| OCR **result-metadata** type + builder (`buildOcrResultMeta`) | `src/lib/jobs/ocr.ts` | no |
-| OCR capability mapping (presence-only) | `src/lib/workers/ocr.ts` | no |
-| OCR **processor** (contract → `Processor`, flattens meta) | `src/lib/workers/processor/ocr.ts` | no |
-| OCR **native config** (env → bounded config) | `src/lib/workers/ocr-native-config.ts` | no |
-| OCR **native runner** (OCRmyPDF/Tesseract, measures meta) | `src/lib/workers/ocr-native.ts` | **yes** |
-| Daemon runtime wiring | `src/lib/workers/daemon/runtime.ts` | yes |
+| Piece                                                         | Module                                 | Node?   |
+| ------------------------------------------------------------- | -------------------------------------- | ------- |
+| OCR options contract + validator                              | `src/lib/jobs/ocr.ts`                  | no      |
+| OCR **result-metadata** type + builder (`buildOcrResultMeta`) | `src/lib/jobs/ocr.ts`                  | no      |
+| OCR capability mapping (presence-only)                        | `src/lib/workers/ocr.ts`               | no      |
+| OCR **processor** (contract → `Processor`, flattens meta)     | `src/lib/workers/processor/ocr.ts`     | no      |
+| OCR **native config** (env → bounded config)                  | `src/lib/workers/ocr-native-config.ts` | no      |
+| OCR **native runner** (OCRmyPDF/Tesseract, measures meta)     | `src/lib/workers/ocr-native.ts`        | **yes** |
+| Daemon runtime wiring                                         | `src/lib/workers/daemon/runtime.ts`    | yes     |
 
 The `OcrRunner` is an injected dependency of the OCR processor. With none injected
 the processor is honestly not ready (`not_implemented`); when the daemon runtime wires
-`nativeOcrDeps(env)` it flips on **only** if OCR is enabled *and* an engine is present.
+`nativeOcrDeps(env)` it flips on **only** if OCR is enabled _and_ an engine is present.
 The processor never fabricates output and never throws — a runner failure is caught
 and mapped to a typed, content-free error.
 
 The job flow is unchanged from every other secure-worker tool: create upload session →
 direct upload → create job → **malware scan gate (Phase 22)** → OCR → download → auto
--delete. The malware scan runs *before* OCR, so an infected input is blocked before any
+-delete. The malware scan runs _before_ OCR, so an infected input is blocked before any
 recognition (proven in `src/lib/workers/ocr-backend.test.ts`).
 
 ## Enabling OCR
@@ -55,16 +55,16 @@ recognition (proven in `src/lib/workers/ocr-backend.test.ts`).
 OCR is opt-in via environment variables (read only by the worker daemon — the web app
 never reads them). **No value is ever logged or returned to a client.**
 
-| Variable | Meaning | Default |
-| --- | --- | --- |
-| `PDFXYZ_OCR` | Master opt-in switch (`on`/`off`/`true`/`false`/`auto`). **Unset ⇒ disabled.** | disabled |
-| `PDFXYZ_OCR_ENGINE` | Pin to one engine: `ocrmypdf` or `tesseract`. **Leave unset.** The engines read different things, so the runner picks per input — OCRmyPDF for a PDF, Tesseract for a PNG/JPEG. Pinning one makes the other's input kind impossible: with `ocrmypdf` pinned, every image upload is refused; with `tesseract` pinned, every PDF is. Pin only when deliberately restricting the tool to one input kind. | auto (per input) |
-| `PDFXYZ_OCR_OCRMYPDF_BIN` | Absolute path override for the `ocrmypdf` binary. | `ocrmypdf` on `PATH` |
-| `PDFXYZ_OCR_TESSERACT_BIN` | Absolute path override for the `tesseract` binary. | `tesseract` on `PATH` |
-| `PDFXYZ_OCR_TIMEOUT_MS` | Hard per-job subprocess timeout. Clamped to `[1000, 1800000]`. | `300000` (5 min) |
-| `PDFXYZ_OCR_MAX_INPUT_BYTES` | Max input size accepted. Clamped to `[1024, 2 GiB]`. | `200 MiB` |
-| `PDFXYZ_OCR_MAX_OUTPUT_BYTES` | Max output size accepted from the engine. Clamped to `[1024, 2 GiB]`. | `500 MiB` |
-| `PDFXYZ_OCR_TMPDIR` | Base temp dir for isolated per-job dirs. Absolute, no traversal. | OS temp dir |
+| Variable                      | Meaning                                                                                                                                                                                                                                                                                                                                                                                               | Default               |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `PDFXYZ_OCR`                  | Master opt-in switch (`on`/`off`/`true`/`false`/`auto`). **Unset ⇒ disabled.**                                                                                                                                                                                                                                                                                                                        | disabled              |
+| `PDFXYZ_OCR_ENGINE`           | Pin to one engine: `ocrmypdf` or `tesseract`. **Leave unset.** The engines read different things, so the runner picks per input — OCRmyPDF for a PDF, Tesseract for a PNG/JPEG. Pinning one makes the other's input kind impossible: with `ocrmypdf` pinned, every image upload is refused; with `tesseract` pinned, every PDF is. Pin only when deliberately restricting the tool to one input kind. | auto (per input)      |
+| `PDFXYZ_OCR_OCRMYPDF_BIN`     | Absolute path override for the `ocrmypdf` binary.                                                                                                                                                                                                                                                                                                                                                     | `ocrmypdf` on `PATH`  |
+| `PDFXYZ_OCR_TESSERACT_BIN`    | Absolute path override for the `tesseract` binary.                                                                                                                                                                                                                                                                                                                                                    | `tesseract` on `PATH` |
+| `PDFXYZ_OCR_TIMEOUT_MS`       | Hard per-job subprocess timeout. Clamped to `[1000, 1800000]`.                                                                                                                                                                                                                                                                                                                                        | `300000` (5 min)      |
+| `PDFXYZ_OCR_MAX_INPUT_BYTES`  | Max input size accepted. Clamped to `[1024, 2 GiB]`.                                                                                                                                                                                                                                                                                                                                                  | `200 MiB`             |
+| `PDFXYZ_OCR_MAX_OUTPUT_BYTES` | Max output size accepted from the engine. Clamped to `[1024, 2 GiB]`.                                                                                                                                                                                                                                                                                                                                 | `500 MiB`             |
+| `PDFXYZ_OCR_TMPDIR`           | Base temp dir for isolated per-job dirs. Absolute, no traversal.                                                                                                                                                                                                                                                                                                                                      | OS temp dir           |
 
 Turning `PDFXYZ_OCR=on` is necessary but **not sufficient**: OCR reports ready only
 when a supported engine is actually installed. If enabled with no engine present, the
@@ -74,10 +74,10 @@ daemon reports OCR `not-configured` and `ocr-pdf` jobs still fail as `not_implem
 
 OCR is optional, so `PDFXYZ_WORKER_STRICT` alone never demands it (a worker that does
 not offer OCR is a legitimate deployment — same posture as `require deep engine` and
-`require scan`). An operator who *ships* OCR arms it explicitly:
+`require scan`). An operator who _ships_ OCR arms it explicitly:
 
-| Variable | Effect |
-| --- | --- |
+| Variable                    | Effect                                                                                                                                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `PDFXYZ_WORKER_REQUIRE_OCR` | Require a **ready** OCR backend. `--check`/startup fail fast (exit 4, `require_ocr_unmet`) if OCR is disabled, not opted in, or opted in with no engine installed — rather than accepting `ocr-pdf` jobs that would only fail. |
 
 Independently, a **malformed** `PDFXYZ_OCR*` value (unknown enable token, unknown
@@ -99,15 +99,15 @@ The daemon also emits a dedicated **`ocr_health`** line — `{ enabled, engine, 
 detail }` — that fuses the config opt-in (`enabled`) with the runtime engine probe
 (`ready`), so an operator can distinguish all four honest states at a glance:
 
-| `ocr_health` | State |
-| --- | --- |
-| `enabled: false` | **disabled / not-configured** (the safe default) |
+| `ocr_health`                    | State                                               |
+| ------------------------------- | --------------------------------------------------- |
+| `enabled: false`                | **disabled / not-configured** (the safe default)    |
 | `enabled: true`, `ready: false` | **unavailable** (opted in, but no engine installed) |
-| `enabled: true`, `ready: true` | **ready** (a real engine can run OCR now) |
+| `enabled: true`, `ready: true`  | **ready** (a real engine can run OCR now)           |
 
 The composed deployment readout also carries an `ocr` facet with the matching state
 (`ready` / `not-configured` / `not-implemented`). All of it is content-free — the
-engine *family* name and prose only, never a path, binary, language, or value.
+engine _family_ name and prose only, never a path, binary, language, or value.
 
 ## Deployment requirements
 
@@ -179,7 +179,7 @@ inside the freshly built image with nothing wired and processing no document:
   structural fluke. It uses **no** user document, cloud service, secret, queue, store, or
   scanner; its output is presence-only and content-free (it never prints a temp path or the
   recognized text); and it always removes its temp dir on success, failure, or signal. It
-  runs in the container workflow *after* `worker:engines`. Its whole plumbing — the
+  runs in the container workflow _after_ `worker:engines`. Its whole plumbing — the
   prerequisite-missing exit `2`, the enforced-sentinel exit `3`, and the temp cleanup — is
   proven Docker-free with stub engines in `src/deploy/worker-ocr-proof.test.ts`.
 - **`pnpm worker:ocrmypdf-proof`** (Phase 27) — the deterministic **searchable-PDF** proof:
@@ -194,14 +194,14 @@ inside the freshly built image with nothing wired and processing no document:
   the input and the sentinel from the output, the hit is genuine OCR, not a structural fluke.
   Same envelope as the recognition proof: **no** user document, cloud, secret, queue, store,
   or scanner; presence-only, content-free output (never a temp path, filename, or recognized
-  text); temp dir always removed. It runs in the container workflow *after* `worker:ocr-proof`.
+  text); temp dir always removed. It runs in the container workflow _after_ `worker:ocr-proof`.
   Its whole plumbing — prerequisite-missing exit `2` (Ghostscript, OCRmyPDF, **or**
   `pdftotext`), each enforced check's exit `3`, and the temp cleanup — is proven Docker-free
   with stub `gs`/`ocrmypdf`/`pdftotext` in `src/deploy/worker-ocrmypdf-proof.test.ts`.
 
 `pdftotext` comes from **`poppler-utils`**, installed in the **worker image only** and
 purely as **proof tooling** — it is not on the OCR runtime path. The web image ships none of
-the engines *or* `pdftotext`; the split is pinned by `src/deploy/artifacts.test.ts` and
+the engines _or_ `pdftotext`; the split is pinned by `src/deploy/artifacts.test.ts` and
 proven at the image level in the container workflow (`command -v pdftotext` succeeds in the
 worker image, fails in the web image).
 
@@ -213,7 +213,7 @@ by `src/deploy/artifacts.test.ts` and `src/deploy/ci-workflow.test.ts`.
 stack works end-to-end on generated, non-user-document fixtures: the Tesseract baseline
 recognizes a raster of known text (`worker:ocr-proof`), **and** OCRmyPDF turns an image-only
 PDF into a structurally valid, genuinely **searchable** PDF + sidecar (`worker:ocrmypdf-proof`,
-Phase 27). They do **not** prove production OCR *quality*, any **non-English** language pack
+Phase 27). They do **not** prove production OCR _quality_, any **non-English** language pack
 (English-only ships), or anything about real **user** documents/traffic. Those remain
 out-of-band validation on a running worker.
 
@@ -223,7 +223,7 @@ The native runner (`ocr-native.ts`) is the only OCR module that touches Node bui
 and it is bounded on every axis — the same hardening as native compression:
 
 - **Opt-in + kill switch.** OCR shells out to a subprocess, so it never runs without
-  an explicit `PDFXYZ_OCR` opt-in; a malformed config degrades to fully *disabled*
+  an explicit `PDFXYZ_OCR` opt-in; a malformed config degrades to fully _disabled_
   rather than half-on.
 - **No shell, ever.** The engine is invoked with a fixed **argv array** via
   `execFile` — no shell, no string-concatenated command line, no interpolation. Input,
@@ -262,27 +262,27 @@ line, binary path, **recognized OCR text**, or secret:
 ## Result metadata (Phase 25)
 
 A successful OCR job now attaches **safe, bounded, structural metadata** to its result,
-derived from the *actual* run — never estimated or fabricated. The shape is
+derived from the _actual_ run — never estimated or fabricated. The shape is
 `OcrResultMeta` (`src/lib/jobs/ocr.ts`), built by the pure `buildOcrResultMeta` and
 measured by the native runner; the processor flattens it onto the content-free
 `ProcessorMeta` seam it already carries for compression.
 
-| Field | Meaning | When `null` |
-| --- | --- | --- |
-| `engine` | Engine family that ran (short token, e.g. `ocrmypdf`) | never (sanitized to a safe token) |
-| `languages` | Validated, de-duplicated recognition languages (allowlist codes only) | never (may be empty) |
-| `outputMode` | What was requested/produced (`searchable-pdf`/`text`/`both`) | never |
-| `producedSearchablePdf` / `producedTextSidecar` | Which artifact kinds were produced | never |
-| `pageCount` | Structural page count of the produced searchable PDF (best-effort, pdf-lib) | no PDF produced, unparseable, or above the 64 MiB parse ceiling |
-| `textCharacters` | Character **count** of the produced text sidecar | no sidecar, or above the 32 MiB measure ceiling |
-| `meanConfidence` | Mean recognition confidence in `[0, 1]` | every PDF input (OCRmyPDF exposes none) |
-| `lowConfidenceWordRatio` | Share of recognized words scoring under 60 on Tesseract's scale | same as above |
-| `recognizedWords` | How many words the two figures above cover | same as above |
+| Field                                           | Meaning                                                                     | When `null`                                                     |
+| ----------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `engine`                                        | Engine family that ran (short token, e.g. `ocrmypdf`)                       | never (sanitized to a safe token)                               |
+| `languages`                                     | Validated, de-duplicated recognition languages (allowlist codes only)       | never (may be empty)                                            |
+| `outputMode`                                    | What was requested/produced (`searchable-pdf`/`text`/`both`)                | never                                                           |
+| `producedSearchablePdf` / `producedTextSidecar` | Which artifact kinds were produced                                          | never                                                           |
+| `pageCount`                                     | Structural page count of the produced searchable PDF (best-effort, pdf-lib) | no PDF produced, unparseable, or above the 64 MiB parse ceiling |
+| `textCharacters`                                | Character **count** of the produced text sidecar                            | no sidecar, or above the 32 MiB measure ceiling                 |
+| `meanConfidence`                                | Mean recognition confidence in `[0, 1]`                                     | every PDF input (OCRmyPDF exposes none)                         |
+| `lowConfidenceWordRatio`                        | Share of recognized words scoring under 60 on Tesseract's scale             | same as above                                                   |
+| `recognizedWords`                               | How many words the two figures above cover                                  | same as above                                                   |
 
 The honesty rules the builder enforces:
 
 - **No recognized text, ever.** Counts are counts — the character count is the sidecar's
-  length, never its contents. `pageCount` is a structural page count of the *output* PDF.
+  length, never its contents. `pageCount` is a structural page count of the _output_ PDF.
   Nothing in the metadata is a filename, object key, signed URL, temp path, command path,
   or secret. This is asserted directly (`JSON.stringify(meta)` must not contain the
   recognized text) in `ocr-native.test.ts`.
@@ -308,12 +308,12 @@ Metadata rides on the processor's success result (the same seam compression uses
 safe to log, persist, or return; **Phase 26 threads it through to the client** (below).
 
 **Fidelity for searchable-PDF outputs (Phase 27).** The native runner now derives the
-produced-kind flags and the counts from the artifacts it *actually returns* — the
+produced-kind flags and the counts from the artifacts it _actually returns_ — the
 searchable-PDF `pageCount` is measured from the produced searchable-PDF artifact's bytes
 (never the input, never a parallel bookkeeping variable), and `textCharacters` from the
 produced sidecar's bytes. `producedSearchablePdf` / `producedTextSidecar` therefore cannot
 drift from the artifacts a job hands back, and a missing or invalid searchable-PDF output
-still *throws* (no artifact, no fabricated metadata) rather than reporting a page count for
+still _throws_ (no artifact, no fabricated metadata) rather than reporting a page count for
 a PDF that was never produced. This is locked by `ocr-native.test.ts` (searchable-pdf and
 both modes; the page count is asserted to come from the produced PDF, not the input scan;
 no recognized text survives `JSON.stringify(meta)`; a failed run yields no metadata).
@@ -353,7 +353,7 @@ native runner → OcrResultMeta                     (measured from the actual ru
   omitted rather than shown as `0`/`—`.
 - **What stays artifact-only.** The recognized text itself lives **only** in the downloaded
   artifact bytes (searchable PDF / text sidecar). It is never in `results`, the job record,
-  the status API, or any log — the client-visible metadata is a *description* of the output,
+  the status API, or any log — the client-visible metadata is a _description_ of the output,
   never a second copy of it.
 - **What remains out-of-band.** Confidence is a quality signal, **never a language verdict**.
   Nothing in the pipeline identifies script, so the product may say recognition looks shaky
@@ -371,10 +371,10 @@ native runner → OcrResultMeta                     (measured from the actual ru
   `ocr` (`ready` + content-free `detail`), an `ocr_health` line (`enabled`/`ready`/
   `engine`), and an `ocr` facet in the deployment readout. OCR never blocks
   drainability; it affects the exit code only when an operator opts into the
-  `require-ocr` guardrail or ships a malformed `PDFXYZ_OCR*` config (see *Requiring OCR
-  in production* above).
+  `require-ocr` guardrail or ships a malformed `PDFXYZ_OCR*` config (see _Requiring OCR
+  in production_ above).
 - **Per-job:** a completed OCR job logs `claimed → scanning → [scan_clean] → processing
-  → completed`; a failure logs the terminal event with an error **code** only. There is
+→ completed`; a failure logs the terminal event with an error **code** only. There is
   no OCR-specific log field — by design, so no recognition detail can leak.
 - **Failure codes** a client may see: `not_implemented` (OCR not enabled / no engine),
   `unprocessable_entity` (bad languages/options), `malware_detected` / `scan_invalid`
@@ -393,7 +393,7 @@ native runner → OcrResultMeta                     (measured from the actual ru
   sentinel — proving image-only → genuinely searchable end-to-end. Both run in the container
   workflow inside the built image. This repository's own environment has **no Docker daemon
   and no engine installed**, so those proofs run on GitHub Actions, and the native runner is
-  *also* proven here via injected fakes (deterministic runner + injected
+  _also_ proven here via injected fakes (deterministic runner + injected
   `exec`/`fs`/PATH/`countPages` seams) — every argv, temp-lifecycle, bound, failure,
   metadata, and cleanup branch unit-tested without a binary. What none of this establishes:
   production OCR **quality**, **non-English** language packs (English-only ships), or real
@@ -401,10 +401,10 @@ native runner → OcrResultMeta                     (measured from the actual ru
 - **Result metadata is now surfaced to clients (Phase 26).** The native runner measures a
   bounded `OcrResultMeta`, and it is threaded end-to-end onto the completed job record
   (`Job.results.ocr`) and returned by `GET /api/jobs/{id}`, re-bounded at the persistence
-  boundary (`sanitizeJobResults`) — see *Client-visible OCR metadata* above. The recognized
+  boundary (`sanitizeJobResults`) — see _Client-visible OCR metadata_ above. The recognized
   text itself remains **artifact-only**; only its structural description is client-visible.
 - **Retryable failures are coarse.** The `OcrRunner` seam is throw-based, so the
-  processor treats any runner failure as a retryable `internal_error`; a *deterministic*
+  processor treats any runner failure as a retryable `internal_error`; a _deterministic_
   failure (e.g. a corrupt input) therefore exhausts the attempt cap before failing
   terminally. A future refinement can give the runner a discriminated result (like the
   compression engine's) for precise `not_implemented` / `payload_too_large` /

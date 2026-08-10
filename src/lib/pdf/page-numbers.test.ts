@@ -52,7 +52,12 @@ describe("page-numbers", () => {
 
   it("supports every corner position", async () => {
     const input = await blankPdf(1);
-    for (const position of ["top-left", "top-right", "bottom-left", "bottom-right"] as const) {
+    for (const position of [
+      "top-left",
+      "top-right",
+      "bottom-left",
+      "bottom-right",
+    ] as const) {
       const output = await addPageNumbers(input, { position });
       const doc = await PDFDocument.load(output);
       expect(doc.getPageCount()).toBe(1);

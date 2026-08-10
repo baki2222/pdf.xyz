@@ -34,7 +34,7 @@ export function WorkflowSection() {
           description="Most PDF sites make you repeat yourself. pdf.xyz keeps your files in a single workspace so you can chain tools into repeatable pipelines."
         />
 
-        <div className="overflow-hidden rounded-3xl border border-white/10 bg-surface-2 p-6 sm:p-8">
+        <div className="bg-surface-2 overflow-hidden rounded-3xl border border-white/10 p-6 sm:p-8">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
             <Workflow className="size-4 text-violet-300" aria-hidden />
             Example pipeline
@@ -57,7 +57,7 @@ export function WorkflowSection() {
           {steps.map(({ icon: Icon, title, body }, i) => (
             <div
               key={title}
-              className="relative flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-6"
+              className="bg-surface-2 relative flex flex-col gap-4 rounded-2xl border border-white/10 p-6"
             >
               <div className="flex items-center justify-between">
                 <span className="grid size-11 place-items-center rounded-xl border border-white/10 bg-gradient-to-br from-violet-500 to-blue-500 text-white">

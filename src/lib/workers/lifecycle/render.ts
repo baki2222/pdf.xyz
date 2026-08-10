@@ -136,8 +136,7 @@ function renderMinio(policy: LifecyclePolicy): RenderedLifecyclePolicy {
     provider: "minio",
     format: "json",
     filename: "pdfxyz-lifecycle.minio.json",
-    applyHint:
-      "mc ilm import <alias>/<bucket> < pdfxyz-lifecycle.minio.json",
+    applyHint: "mc ilm import <alias>/<bucket> < pdfxyz-lifecycle.minio.json",
     document: toJson({ Rules: policy.rules.map(toS3Rule) }),
     notes: [
       ...policy.notes,

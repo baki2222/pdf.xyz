@@ -32,17 +32,25 @@ describe("rateLimitErrorResult", () => {
     // A refused AI run is not a degraded service and not a generic flood
     // throttle — the user spent the allowance. Saying anything vaguer is the
     // "service unavailable" lie the owner ruled out.
-    const result = rateLimitErrorResult({ ...deny(42), action: "ai.run", policyId: "ai.run" });
+    const result = rateLimitErrorResult({
+      ...deny(42),
+      action: "ai.run",
+      policyId: "ai.run",
+    });
     expect(result.body.error.message).toContain(
       `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs`,
     );
     expect(result.body.error.message).toMatch(/resets daily/i);
     // Every other action keeps the generic content-free message.
-    expect(rateLimitErrorResult(deny(42)).body.error.message).toBe(RATE_LIMITED_MESSAGE);
+    expect(rateLimitErrorResult(deny(42)).body.error.message).toBe(
+      RATE_LIMITED_MESSAGE,
+    );
   });
 
   it("keeps the message content-free (no identity, no caller)", () => {
-    expect(RATE_LIMITED_MESSAGE).not.toMatch(/ip|token|cookie|filename|user-agent/i);
+    expect(RATE_LIMITED_MESSAGE).not.toMatch(
+      /ip|token|cookie|filename|user-agent/i,
+    );
   });
 });
 
@@ -63,7 +71,9 @@ describe("rateLimitHeaders", () => {
     const headers = rateLimitHeaders(deny(42));
     expect(headers["retry-after"]).toBe("42");
     // Limit comes from the policy (jobs.create → the published contract number).
-    expect(headers["ratelimit-limit"]).toBe(String(RATE_LIMITS.jobsPerHourPerClient));
+    expect(headers["ratelimit-limit"]).toBe(
+      String(RATE_LIMITS.jobsPerHourPerClient),
+    );
     // On a deny the budget is spent, so remaining is always 0 — no count leaks.
     expect(headers["ratelimit-remaining"]).toBe("0");
     expect(headers["ratelimit-reset"]).toBe("42");

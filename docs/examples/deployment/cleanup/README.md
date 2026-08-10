@@ -44,15 +44,15 @@ nothing. Prefer it for scheduled monitoring; use the granular stages when you wa
 
 ## Files
 
-| File | What it schedules |
-| --- | --- |
-| `cleanup-pipeline-notify.sh` | **(Phase 44)** Inert wrapper around the one-command `worker:cleanup-pipeline`: run the composite over a mounted export, map its single exit code to a severity, re-raise it. The simplest safe path. |
-| `../github-actions/cleanup-pipeline-fixture.yml` | **(Phase 44)** GitHub Actions gate that runs `worker:cleanup-pipeline` over the committed fixtures offline and asserts each composite exit code. |
-| `cleanup-evidence-notify.sh` | Inert wrapper: project → verify → dry-run sweep a mounted export, map exit codes to a severity, re-raise the actionable ones. Copy next to your deploy. |
-| `../kubernetes/cleanup-check-cronjob.yaml` | Kubernetes `CronJob` that projects a ConfigMap-mounted raw export and runs the verifier + sweeper, failing the Job on drift/breach. |
-| `../scheduler/pdfxyz-cleanup-check.service` + `.timer` | systemd oneshot + timer that run the wrapper hourly. |
-| `../scheduler/cleanup-check.cron` | `/etc/cron.d` row that runs the wrapper hourly with `MAILTO`. |
-| `../github-actions/cleanup-evidence-fixture.yml` | GitHub Actions gate that projects the committed fixtures offline and asserts each exit code. |
+| File                                                   | What it schedules                                                                                                                                                                                    |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cleanup-pipeline-notify.sh`                           | **(Phase 44)** Inert wrapper around the one-command `worker:cleanup-pipeline`: run the composite over a mounted export, map its single exit code to a severity, re-raise it. The simplest safe path. |
+| `../github-actions/cleanup-pipeline-fixture.yml`       | **(Phase 44)** GitHub Actions gate that runs `worker:cleanup-pipeline` over the committed fixtures offline and asserts each composite exit code.                                                     |
+| `cleanup-evidence-notify.sh`                           | Inert wrapper: project → verify → dry-run sweep a mounted export, map exit codes to a severity, re-raise the actionable ones. Copy next to your deploy.                                              |
+| `../kubernetes/cleanup-check-cronjob.yaml`             | Kubernetes `CronJob` that projects a ConfigMap-mounted raw export and runs the verifier + sweeper, failing the Job on drift/breach.                                                                  |
+| `../scheduler/pdfxyz-cleanup-check.service` + `.timer` | systemd oneshot + timer that run the wrapper hourly.                                                                                                                                                 |
+| `../scheduler/cleanup-check.cron`                      | `/etc/cron.d` row that runs the wrapper hourly with `MAILTO`.                                                                                                                                        |
+| `../github-actions/cleanup-evidence-fixture.yml`       | GitHub Actions gate that projects the committed fixtures offline and asserts each exit code.                                                                                                         |
 
 All placeholders (`REPLACE-ME`, `*.example.invalid`, `/evidence/raw-export.json`) are inert —
 they carry no real bucket, key, URL, or secret. `pnpm deploy:examples:check` validates that.
@@ -63,12 +63,12 @@ Key your monitor on the **exit code**, never on stdout (which is content-free JS
 but never need to parse to decide severity). Higher = worse; the `1` band is a distinct "the
 check itself was misused", never a cleanup incident.
 
-| Stage | 0 | 1 | 2 | 3 | 4 |
-| --- | --- | --- | --- | --- | --- |
-| `cleanup-project` | projected | usage | insufficient (thin export) | — | unsafe (tombstoned-present / corrupt) |
-| `cleanup-check` | verified | usage | unknown / not-configured | drift | — |
-| `artifact-cleanup` | ok | usage | unknown | drift | breach (tombstoned / invalid) |
-| `cleanup-pipeline` | ok (both arms clean) | usage | unknown / not-configured | drift | breach (tombstoned / unsafe) |
+| Stage              | 0                    | 1     | 2                          | 3     | 4                                     |
+| ------------------ | -------------------- | ----- | -------------------------- | ----- | ------------------------------------- |
+| `cleanup-project`  | projected            | usage | insufficient (thin export) | —     | unsafe (tombstoned-present / corrupt) |
+| `cleanup-check`    | verified             | usage | unknown / not-configured   | drift | —                                     |
+| `artifact-cleanup` | ok                   | usage | unknown                    | drift | breach (tombstoned / invalid)         |
+| `cleanup-pipeline` | ok (both arms clean) | usage | unknown / not-configured   | drift | breach (tombstoned / unsafe)          |
 
 The `cleanup-pipeline` row is the **worst of the verify + sweep arms** — the single code the
 Phase 44 one-command wrapper re-raises.

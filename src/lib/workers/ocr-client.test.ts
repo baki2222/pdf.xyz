@@ -70,7 +70,11 @@ const SESSION: UploadSession = {
     },
   ],
   expiresAt: new Date(0).toISOString(),
-  retention: { inputTtlMinutes: 60, outputTtlMinutes: 60, persistsAfterJob: false },
+  retention: {
+    inputTtlMinutes: 60,
+    outputTtlMinutes: 60,
+    persistsAfterJob: false,
+  },
 };
 
 /** A completed OCR job producing both a searchable PDF and a text sidecar. */
@@ -116,7 +120,11 @@ function completedJob(): Job {
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
     expiresAt: new Date(0).toISOString(),
-    retention: { inputTtlMinutes: 60, outputTtlMinutes: 60, persistsAfterJob: false },
+    retention: {
+      inputTtlMinutes: 60,
+      outputTtlMinutes: 60,
+      persistsAfterJob: false,
+    },
   };
 }
 
@@ -139,12 +147,18 @@ const TXT_OUT = new Uint8Array([65, 66]);
 describe("runWorkerOcr", () => {
   it("drives upload → job → download and returns every real artifact", async () => {
     const { fetchImpl, calls } = makeFetch([
-      { match: (u, m) => u === "/api/uploads" && m === "POST", respond: () => jsonResp(201, SESSION) },
+      {
+        match: (u, m) => u === "/api/uploads" && m === "POST",
+        respond: () => jsonResp(201, SESSION),
+      },
       {
         match: (u, m) => u === "/api/uploads/local/f_abcdefghij" && m === "PUT",
         respond: () => jsonResp(200, { ok: true }),
       },
-      { match: (u, m) => u === "/api/jobs" && m === "POST", respond: () => jsonResp(201, completedJob()) },
+      {
+        match: (u, m) => u === "/api/jobs" && m === "POST",
+        respond: () => jsonResp(201, completedJob()),
+      },
       {
         match: (u) => u === "/api/artifacts/local/art_pdf000000",
         respond: () => bytesResp(200, PDF_OUT),
@@ -184,11 +198,17 @@ describe("runWorkerOcr", () => {
     const jobCall = calls[2];
     expect(jobCall).toBeDefined();
     if (!jobCall) return;
-    const jobBody = JSON.parse(new TextDecoder().decode(jobCall.body as ArrayBuffer));
+    const jobBody = JSON.parse(
+      new TextDecoder().decode(jobCall.body as ArrayBuffer),
+    );
     expect(jobBody).toMatchObject({
       tool: "ocr-pdf",
       inputs: ["f_abcdefghij"],
-      options: { languages: ["eng", "spa"], outputMode: "both", skipTextPages: false },
+      options: {
+        languages: ["eng", "spa"],
+        outputMode: "both",
+        skipTextPages: false,
+      },
     });
 
     // The upload session declared the input's content type.
@@ -209,7 +229,8 @@ describe("runWorkerOcr", () => {
           jsonResp(503, {
             error: {
               code: "worker_not_configured",
-              message: "The secure worker backend is not configured in this environment.",
+              message:
+                "The secure worker backend is not configured in this environment.",
               docs: "docs/WORKER_ARCHITECTURE.md",
             },
           }),
@@ -237,8 +258,14 @@ describe("runWorkerOcr", () => {
       },
     };
     const { fetchImpl, calls } = makeFetch([
-      { match: (u) => u === "/api/uploads", respond: () => jsonResp(201, SESSION) },
-      { match: (u) => u.startsWith("/api/uploads/local/"), respond: () => jsonResp(200, { ok: true }) },
+      {
+        match: (u) => u === "/api/uploads",
+        respond: () => jsonResp(201, SESSION),
+      },
+      {
+        match: (u) => u.startsWith("/api/uploads/local/"),
+        respond: () => jsonResp(200, { ok: true }),
+      },
       { match: (u) => u === "/api/jobs", respond: () => jsonResp(201, failed) },
     ]);
 
@@ -253,35 +280,79 @@ describe("runWorkerOcr", () => {
   it("polls a non-terminal job to completion", async () => {
     let jobFetches = 0;
     const { fetchImpl } = makeFetch([
-      { match: (u) => u === "/api/uploads", respond: () => jsonResp(201, SESSION) },
-      { match: (u) => u.startsWith("/api/uploads/local/"), respond: () => jsonResp(200, { ok: true }) },
+      {
+        match: (u) => u === "/api/uploads",
+        respond: () => jsonResp(201, SESSION),
+      },
+      {
+        match: (u) => u.startsWith("/api/uploads/local/"),
+        respond: () => jsonResp(200, { ok: true }),
+      },
       {
         match: (u, m) => u === "/api/jobs" && m === "POST",
-        respond: () => jsonResp(201, { ...completedJob(), status: "processing", progress: 10, artifacts: undefined }),
+        respond: () =>
+          jsonResp(201, {
+            ...completedJob(),
+            status: "processing",
+            progress: 10,
+            artifacts: undefined,
+          }),
       },
       {
         match: (u, m) => u.startsWith("/api/jobs/job_") && m === "GET",
         respond: () => {
           jobFetches += 1;
           return jobFetches < 2
-            ? jsonResp(200, { ...completedJob(), status: "scanning", artifacts: undefined })
+            ? jsonResp(200, {
+                ...completedJob(),
+                status: "scanning",
+                artifacts: undefined,
+              })
             : jsonResp(200, completedJob());
         },
       },
-      { match: (u) => u.startsWith("/api/artifacts/"), respond: () => bytesResp(200, PDF_OUT) },
+      {
+        match: (u) => u.startsWith("/api/artifacts/"),
+        respond: () => bytesResp(200, PDF_OUT),
+      },
     ]);
 
-    const result = await runWorkerOcr(input, { fetchImpl, sleep: async () => {} });
+    const result = await runWorkerOcr(input, {
+      fetchImpl,
+      sleep: async () => {},
+    });
     expect(result.ok).toBe(true);
     expect(jobFetches).toBe(2);
   });
 
   it("gives up honestly if the job never reaches a terminal state", async () => {
     const { fetchImpl } = makeFetch([
-      { match: (u) => u === "/api/uploads", respond: () => jsonResp(201, SESSION) },
-      { match: (u) => u.startsWith("/api/uploads/local/"), respond: () => jsonResp(200, { ok: true }) },
-      { match: (u, m) => u === "/api/jobs" && m === "POST", respond: () => jsonResp(201, { ...completedJob(), status: "processing", artifacts: undefined }) },
-      { match: (u, m) => u.startsWith("/api/jobs/job_") && m === "GET", respond: () => jsonResp(200, { ...completedJob(), status: "queued", artifacts: undefined }) },
+      {
+        match: (u) => u === "/api/uploads",
+        respond: () => jsonResp(201, SESSION),
+      },
+      {
+        match: (u) => u.startsWith("/api/uploads/local/"),
+        respond: () => jsonResp(200, { ok: true }),
+      },
+      {
+        match: (u, m) => u === "/api/jobs" && m === "POST",
+        respond: () =>
+          jsonResp(201, {
+            ...completedJob(),
+            status: "processing",
+            artifacts: undefined,
+          }),
+      },
+      {
+        match: (u, m) => u.startsWith("/api/jobs/job_") && m === "GET",
+        respond: () =>
+          jsonResp(200, {
+            ...completedJob(),
+            status: "queued",
+            artifacts: undefined,
+          }),
+      },
     ]);
 
     const result = await runWorkerOcr(input, {

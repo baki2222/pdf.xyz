@@ -58,7 +58,10 @@ describe("validateCompletionRequest", () => {
 
   it("rejects a blank turn", () => {
     expect(
-      validateCompletionRequest({ ...base, messages: [{ role: "user", content: "   " }] }).ok,
+      validateCompletionRequest({
+        ...base,
+        messages: [{ role: "user", content: "   " }],
+      }).ok,
     ).toBe(false);
   });
 
@@ -75,13 +78,23 @@ describe("validateCompletionRequest", () => {
   });
 
   it("requires a positive integer maxOutputTokens", () => {
-    expect(validateCompletionRequest({ ...base, maxOutputTokens: 0 }).ok).toBe(false);
-    expect(validateCompletionRequest({ ...base, maxOutputTokens: 1.5 }).ok).toBe(false);
+    expect(validateCompletionRequest({ ...base, maxOutputTokens: 0 }).ok).toBe(
+      false,
+    );
+    expect(
+      validateCompletionRequest({ ...base, maxOutputTokens: 1.5 }).ok,
+    ).toBe(false);
   });
 
   it("rejects an out-of-range temperature", () => {
-    expect(validateCompletionRequest({ ...base, temperature: 2 }).ok).toBe(false);
-    expect(validateCompletionRequest({ ...base, temperature: -0.1 }).ok).toBe(false);
-    expect(validateCompletionRequest({ ...base, temperature: 0.5 }).ok).toBe(true);
+    expect(validateCompletionRequest({ ...base, temperature: 2 }).ok).toBe(
+      false,
+    );
+    expect(validateCompletionRequest({ ...base, temperature: -0.1 }).ok).toBe(
+      false,
+    );
+    expect(validateCompletionRequest({ ...base, temperature: 0.5 }).ok).toBe(
+      true,
+    );
   });
 });

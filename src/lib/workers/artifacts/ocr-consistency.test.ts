@@ -104,7 +104,12 @@ describe("OCR result metadata ↔ artifact manifest consistency", () => {
       ],
     });
     const serialized = JSON.stringify(validation);
-    for (const secret of ["PATIENT", "Jane Roe", "123-45-6789", "secret-scan.txt"]) {
+    for (const secret of [
+      "PATIENT",
+      "Jane Roe",
+      "123-45-6789",
+      "secret-scan.txt",
+    ]) {
       expect(serialized).not.toContain(secret);
     }
     // Only the bounded byte COUNT survives, never the text.

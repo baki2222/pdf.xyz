@@ -139,7 +139,11 @@ export async function extractPdfImages(
     skipped.push({ page, reason, filter });
   };
 
-  const walk = (resources: PDFDict | undefined, page: number, depth: number) => {
+  const walk = (
+    resources: PDFDict | undefined,
+    page: number,
+    depth: number,
+  ) => {
     if (!resources || depth > MAX_XOBJECT_DEPTH) return;
     const xobjects = resources.lookupMaybe(PDFName.of("XObject"), PDFDict);
     if (!xobjects) return;
@@ -374,7 +378,9 @@ function jpegBytesFromChain(
   }
 
   try {
-    return decodePDFRawStream(PDFRawStream.of(synthetic, stream.contents)).decode();
+    return decodePDFRawStream(
+      PDFRawStream.of(synthetic, stream.contents),
+    ).decode();
   } catch {
     return null;
   }
@@ -408,14 +414,21 @@ function classifyColorSpace(dict: PDFDict): ColorSpaceInfo {
     const family = head ? nameStr(head) : "array";
     if (family === "ICCBased") {
       const profile = cs.lookup(1);
-      const n = profile instanceof PDFRawStream ? numberOf(profile.dict, "N") : 0;
+      const n =
+        profile instanceof PDFRawStream ? numberOf(profile.dict, "N") : 0;
       if (n === 1) return { kind: "gray", channels: 1, label: "ICCBased(1)" };
       if (n === 3) return { kind: "rgb", channels: 3, label: "ICCBased(3)" };
       if (n === 4) return { kind: "cmyk", channels: 4, label: "ICCBased(4)" };
-      return { kind: "unsupported", channels: 0, label: `ICCBased(${n || "?"})` };
+      return {
+        kind: "unsupported",
+        channels: 0,
+        label: `ICCBased(${n || "?"})`,
+      };
     }
-    if (family === "CalRGB") return { kind: "rgb", channels: 3, label: "CalRGB" };
-    if (family === "CalGray") return { kind: "gray", channels: 1, label: "CalGray" };
+    if (family === "CalRGB")
+      return { kind: "rgb", channels: 3, label: "CalRGB" };
+    if (family === "CalGray")
+      return { kind: "gray", channels: 1, label: "CalGray" };
     if (family === "Indexed" || family === "I")
       return { kind: "unsupported", channels: 0, label: "Indexed (palette)" };
     return { kind: "unsupported", channels: 0, label: family };
@@ -455,7 +468,8 @@ function readPredictorGeometry(
   channels: number,
   bpc: number,
 ): PredictorGeometry {
-  const parms = dict.lookup(PDFName.of("DecodeParms")) ?? dict.lookup(PDFName.of("DP"));
+  const parms =
+    dict.lookup(PDFName.of("DecodeParms")) ?? dict.lookup(PDFName.of("DP"));
   let params: PDFDict | undefined;
   if (parms instanceof PDFDict) {
     params = parms;
@@ -469,7 +483,12 @@ function readPredictorGeometry(
     }
   }
   if (!params) {
-    return { predictor: 1, colors: channels, columns: width, bitsPerComponent: bpc };
+    return {
+      predictor: 1,
+      colors: channels,
+      columns: width,
+      bitsPerComponent: bpc,
+    };
   }
   return {
     predictor: numberOr(params, "Predictor", 1),
@@ -609,7 +628,8 @@ function pngLayout(
   width: number,
   kind: PngKind,
 ): { bitDepth: number; colorType: number; rowBytes: number } {
-  if (kind === "rgb8") return { bitDepth: 8, colorType: 2, rowBytes: width * 3 };
+  if (kind === "rgb8")
+    return { bitDepth: 8, colorType: 2, rowBytes: width * 3 };
   if (kind === "gray8") return { bitDepth: 8, colorType: 0, rowBytes: width };
   return { bitDepth: 1, colorType: 0, rowBytes: Math.ceil(width / 8) };
 }

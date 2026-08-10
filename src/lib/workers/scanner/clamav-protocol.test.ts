@@ -24,7 +24,11 @@ function text(bytes: Uint8Array): string {
 /** Read a big-endian uint32 length prefix. */
 function readU32(bytes: Uint8Array, at: number): number {
   return (
-    ((bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!) >>> 0
+    ((bytes[at]! << 24) |
+      (bytes[at + 1]! << 16) |
+      (bytes[at + 2]! << 8) |
+      bytes[at + 3]!) >>>
+    0
   );
 }
 

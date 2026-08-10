@@ -12,7 +12,11 @@
  * check from a promotion gate.
  */
 
-import { RELEASE_CHECK_IDS, isReleaseCheckId, type ReleaseCheckId } from "./types";
+import {
+  RELEASE_CHECK_IDS,
+  isReleaseCheckId,
+  type ReleaseCheckId,
+} from "./types";
 import type { ReleaseGateFormat } from "./render";
 
 /** The validated arguments the CLI hands to the runner. */
@@ -102,16 +106,22 @@ function toFlag(token: string): { name: string; inlineValue?: string } {
  * catalog order, or an error message naming the first unrecognized token (a bounded id, never
  * arbitrary input beyond the flag the operator typed).
  */
-function parseIdList(raw: string): { ok: true; ids: ReleaseCheckId[] } | { ok: false; message: string } {
+function parseIdList(
+  raw: string,
+): { ok: true; ids: ReleaseCheckId[] } | { ok: false; message: string } {
   const tokens = raw
     .split(",")
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
-  if (tokens.length === 0) return { ok: false, message: "Scope flag requires at least one check id." };
+  if (tokens.length === 0)
+    return { ok: false, message: "Scope flag requires at least one check id." };
   const set = new Set<ReleaseCheckId>();
   for (const t of tokens) {
     if (!isReleaseCheckId(t)) {
-      return { ok: false, message: `Unknown check id: ${t}. Valid ids: ${RELEASE_CHECK_IDS.join(", ")}` };
+      return {
+        ok: false,
+        message: `Unknown check id: ${t}. Valid ids: ${RELEASE_CHECK_IDS.join(", ")}`,
+      };
     }
     set.add(t);
   }
@@ -124,7 +134,9 @@ function parseIdList(raw: string): { ok: true; ids: ReleaseCheckId[] } | { ok: f
  * side-effect-free: it validates flags, rejects conflicting formats/scopes/duplicate value flags and
  * unknown options, and never reads the environment.
  */
-export function parseReleaseGateArgs(argv: readonly string[]): ParseReleaseGateArgsResult {
+export function parseReleaseGateArgs(
+  argv: readonly string[],
+): ParseReleaseGateArgsResult {
   let format: ReleaseGateFormat | undefined;
   let pretty = true;
   let outputPath: string | undefined;
@@ -157,17 +169,28 @@ export function parseReleaseGateArgs(argv: readonly string[]): ParseReleaseGateA
         return { ok: false, message: `${name} requires a value.` };
       }
       if (name === "--output") {
-        if (outputPath !== undefined) return { ok: false, message: "Duplicate --output option." };
+        if (outputPath !== undefined)
+          return { ok: false, message: "Duplicate --output option." };
         outputPath = value;
       } else if (name === "--skip") {
-        if (only !== undefined) return { ok: false, message: "Choose only one scope: --skip or --only." };
-        if (skip !== undefined) return { ok: false, message: "Duplicate --skip option." };
+        if (only !== undefined)
+          return {
+            ok: false,
+            message: "Choose only one scope: --skip or --only.",
+          };
+        if (skip !== undefined)
+          return { ok: false, message: "Duplicate --skip option." };
         const parsed = parseIdList(value);
         if (!parsed.ok) return { ok: false, message: parsed.message };
         skip = parsed.ids;
       } else {
-        if (skip !== undefined) return { ok: false, message: "Choose only one scope: --skip or --only." };
-        if (only !== undefined) return { ok: false, message: "Duplicate --only option." };
+        if (skip !== undefined)
+          return {
+            ok: false,
+            message: "Choose only one scope: --skip or --only.",
+          };
+        if (only !== undefined)
+          return { ok: false, message: "Duplicate --only option." };
         const parsed = parseIdList(value);
         if (!parsed.ok) return { ok: false, message: parsed.message };
         only = parsed.ids;
@@ -178,7 +201,10 @@ export function parseReleaseGateArgs(argv: readonly string[]): ParseReleaseGateA
     if (name in FORMAT_FLAGS) {
       const next = FORMAT_FLAGS[name]!;
       if (format !== undefined && format !== next) {
-        return { ok: false, message: `Conflicting formats: --${format} and ${name} cannot be combined.` };
+        return {
+          ok: false,
+          message: `Conflicting formats: --${format} and ${name} cannot be combined.`,
+        };
       }
       format = next;
       continue;

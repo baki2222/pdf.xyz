@@ -2,10 +2,7 @@
 
 import { useState } from "react";
 import { Download, Stamp } from "lucide-react";
-import {
-  addWatermark,
-  watermarkedOutputName,
-} from "@/lib/pdf/watermark";
+import { addWatermark, watermarkedOutputName } from "@/lib/pdf/watermark";
 import type { RGB } from "@/lib/pdf/stamp";
 import { WATERMARK_INK } from "@/lib/pdf/stamp";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -45,7 +42,13 @@ export function WatermarkRunner() {
   );
 }
 
-function WatermarkEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function WatermarkEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const [text, setText] = useState("CONFIDENTIAL");
   const [opacity, setOpacity] = useState(18);
   const [rotation, setRotation] = useState(45);
@@ -74,7 +77,9 @@ function WatermarkEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result, watermarkedOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result, watermarkedOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -140,7 +145,8 @@ function WatermarkEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void
       </RunnerSection>
 
       <PrivacyLine>
-        The watermark is drawn on your device — your PDF never leaves the browser.
+        The watermark is drawn on your device — your PDF never leaves the
+        browser.
       </PrivacyLine>
 
       {error && <ErrorNote message={error} />}

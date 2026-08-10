@@ -150,10 +150,16 @@ export async function serveArtifactRetrieval(
     // Optional job binding: a client that holds a job id may bind the download to it. The raw
     // id is compared inside the pure layer against the backend-resolved owning job (present
     // only for a store-backed source); only the boolean crosses in.
-    const assertedJob = new URL(request.url).searchParams.get("job")?.trim() || null;
+    const assertedJob =
+      new URL(request.url).searchParams.get("job")?.trim() || null;
 
-    const { decision, bytes, reportedLength } = decideRetrieval(result, storage, assertedJob);
-    if (!decision.ok) return denyAccess(decision.reason, "unknown", provider, method);
+    const { decision, bytes, reportedLength } = decideRetrieval(
+      result,
+      storage,
+      assertedJob,
+    );
+    if (!decision.ok)
+      return denyAccess(decision.reason, "unknown", provider, method);
 
     // Access granted — record the served ACCESS decision. The DELIVERY gate below is a
     // distinct second decision (was the byte delivery itself safe), separately observed.
@@ -181,14 +187,20 @@ export async function serveArtifactRetrieval(
 
     // A `HEAD` returns the verified headers (including `Content-Length`) with no body.
     if (!delivery.includeBody) {
-      return new Response(null, { status: 200, headers: { ...delivery.headers } });
+      return new Response(null, {
+        status: 200,
+        headers: { ...delivery.headers },
+      });
     }
 
     // Copy into a fresh ArrayBuffer-backed view so the body is a concrete BodyInit (the
     // stored view's buffer type is only `ArrayBufferLike`).
     const body = new Uint8Array(view.byteLength);
     body.set(view);
-    return new Response(body, { status: 200, headers: { ...delivery.headers } });
+    return new Response(body, {
+      status: 200,
+      headers: { ...delivery.headers },
+    });
   } catch {
     // Defense-in-depth: any unexpected failure (a backend that threw, a body that could not
     // be built) becomes a safe, content-free `503` — never a framework `500` with a stack,

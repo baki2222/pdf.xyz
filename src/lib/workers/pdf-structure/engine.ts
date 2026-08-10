@@ -81,13 +81,21 @@ async function preflight(
   if (limit !== undefined && input.byteLength > limit) {
     return {
       ok: false,
-      run: { ok: false, kind: "too_large", limitBytes: limit, message: TOO_LARGE_MESSAGE },
+      run: {
+        ok: false,
+        kind: "too_large",
+        limitBytes: limit,
+        message: TOO_LARGE_MESSAGE,
+      },
     };
   }
 
   const validate = deps.validate ?? looksLikePdf;
   if (!(await validate(input))) {
-    return { ok: false, run: { ok: false, kind: "invalid_pdf", message: INVALID_PDF_MESSAGE } };
+    return {
+      ok: false,
+      run: { ok: false, kind: "invalid_pdf", message: INVALID_PDF_MESSAGE },
+    };
   }
 
   return { ok: true };
@@ -105,7 +113,10 @@ async function runStructure(
   const validate = deps.validate ?? looksLikePdf;
   let output: Uint8Array;
   try {
-    output = operation === "repair" ? await qpdf.repair(input) : await qpdf.linearize(input);
+    output =
+      operation === "repair"
+        ? await qpdf.repair(input)
+        : await qpdf.linearize(input);
   } catch {
     return failed();
   }

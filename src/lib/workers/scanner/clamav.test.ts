@@ -171,9 +171,9 @@ describe("createClamavScanner — client-side size ceiling", () => {
       transport,
       config: { timeoutMs: 5_000, maxBytes: 3, required: false },
     });
-    expect((await scanner.scan(input(new Uint8Array([1, 2, 3, 4])))).verdict).toBe(
-      "invalid",
-    );
+    expect(
+      (await scanner.scan(input(new Uint8Array([1, 2, 3, 4])))).verdict,
+    ).toBe("invalid");
     expect(transport.calls.length).toBe(0); // still never streamed
   });
 });
@@ -226,7 +226,9 @@ describe("createClamavScanner — capability", () => {
     }).capability();
     expect(cap.active).toBe(true);
     expect(cap.provider).toBe("clamav");
-    expect(JSON.stringify(cap)).not.toMatch(/PDFXYZ_|3310|localhost|127\.0\.0\.1/);
+    expect(JSON.stringify(cap)).not.toMatch(
+      /PDFXYZ_|3310|localhost|127\.0\.0\.1/,
+    );
   });
 });
 

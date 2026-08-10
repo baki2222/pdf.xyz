@@ -222,7 +222,19 @@ function censusFindings(): Finding[] {
           rule: "must-derive",
           detail: `equals ${owner.source} — derive it so the next config change cannot turn this into a lie`,
         });
-      } else if (["mb", "gb", "minute", "hour", "file", "tool", "language", "run", "min"].includes(unit)) {
+      } else if (
+        [
+          "mb",
+          "gb",
+          "minute",
+          "hour",
+          "file",
+          "tool",
+          "language",
+          "run",
+          "min",
+        ].includes(unit)
+      ) {
         findings.push({
           file: relative(file),
           literal,

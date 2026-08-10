@@ -16,7 +16,10 @@ import {
 } from "./types";
 
 /** Build the receipt from the run's stamp + composite rollup. */
-export function buildReceipt(generatedAt: string, rollup: ReleaseGateRollup): ReleaseGateReceipt {
+export function buildReceipt(
+  generatedAt: string,
+  rollup: ReleaseGateRollup,
+): ReleaseGateReceipt {
   return {
     category: "worker-release-gate",
     policyId: RELEASE_GATE_POLICY_ID,

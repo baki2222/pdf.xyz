@@ -20,10 +20,18 @@ describe("parseSummarizeOptions", () => {
   });
 
   it("accepts valid length/format/focus", () => {
-    const r = parseSummarizeOptions({ length: "detailed", format: "bullets", focus: "financial risks" });
+    const r = parseSummarizeOptions({
+      length: "detailed",
+      format: "bullets",
+      focus: "financial risks",
+    });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.value).toEqual({ length: "detailed", format: "bullets", focus: "financial risks" });
+      expect(r.value).toEqual({
+        length: "detailed",
+        format: "bullets",
+        focus: "financial risks",
+      });
     }
   });
 
@@ -52,7 +60,9 @@ describe("parseSummarizeOptions", () => {
   });
 
   it("rejects an over-long focus", () => {
-    const r = parseSummarizeOptions({ focus: "x".repeat(MAX_SUMMARY_FOCUS_CHARS + 1) });
+    const r = parseSummarizeOptions({
+      focus: "x".repeat(MAX_SUMMARY_FOCUS_CHARS + 1),
+    });
     expect(r.ok).toBe(false);
   });
 
@@ -64,9 +74,9 @@ describe("parseSummarizeOptions", () => {
 
 describe("describeSummarizeRequest", () => {
   it("renders human copy for the UI", () => {
-    expect(describeSummarizeRequest({ length: "brief", format: "outline" })).toBe(
-      "Brief summary as a section outline",
-    );
+    expect(
+      describeSummarizeRequest({ length: "brief", format: "outline" }),
+    ).toBe("Brief summary as a section outline");
   });
 });
 

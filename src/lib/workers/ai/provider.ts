@@ -205,7 +205,10 @@ export function validateCompletionRequest(
       typeof message.content !== "string" ||
       message.content.trim().length === 0
     ) {
-      return { ok: false, reason: "Every message must be a non-empty user/assistant turn." };
+      return {
+        ok: false,
+        reason: "Every message must be a non-empty user/assistant turn.",
+      };
     }
   }
   if (request.messages[request.messages.length - 1]!.role !== "user") {

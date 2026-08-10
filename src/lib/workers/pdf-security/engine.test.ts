@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ProtectPdfOptions, UnlockPdfOptions } from "@/lib/jobs/pdf-security";
+import type {
+  ProtectPdfOptions,
+  UnlockPdfOptions,
+} from "@/lib/jobs/pdf-security";
 import {
   runProtect,
   runUnlock,
@@ -117,7 +120,10 @@ describe("runProtect", () => {
     // isEncrypted(input)=false and isEncrypted(output)=false → the encryption did
     // not take, so it must fail rather than pass off an unencrypted file.
     const run = await runProtect(pdf(), PROTECT, {
-      qpdf: fakeQpdf({ isEncrypted: async () => false, protect: async () => pdf(80) }),
+      qpdf: fakeQpdf({
+        isEncrypted: async () => false,
+        protect: async () => pdf(80),
+      }),
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("failed");

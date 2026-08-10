@@ -13,9 +13,5 @@ export * from "./s3-config";
 export { mapStorageFailure } from "./errors";
 export { createNotConfiguredStorage } from "./not-configured";
 export { createLocalDevStorage, type LocalDevStorageDeps } from "./local-dev";
-export {
-  createS3Storage,
-  type S3StorageDeps,
-  type S3DeleteFetch,
-} from "./s3";
+export { createS3Storage, type S3StorageDeps, type S3DeleteFetch } from "./s3";
 export { createStorageProvider } from "./factory";

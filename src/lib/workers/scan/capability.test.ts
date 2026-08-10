@@ -34,7 +34,11 @@ describe("scan capability", () => {
   it("defaults to not scanning in every worker status the app can build", () => {
     // buildWorkerStatus takes the flag last and optional. A caller that forgets it —
     // which is every caller that cannot observe a worker — must not get a claim.
-    for (const mode of ["local-dev", "remote-configured", "disabled"] as const) {
+    for (const mode of [
+      "local-dev",
+      "remote-configured",
+      "disabled",
+    ] as const) {
       expect(buildWorkerStatus(mode).scan.active).toBe(false);
     }
   });

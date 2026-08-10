@@ -2,8 +2,17 @@
 
 import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/tool-facts";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, FileText, Hash, ListChecks, ShieldCheck } from "lucide-react";
-import { markdownPdfOutputName, markdownToPdf } from "@/lib/pdf/markdown-to-pdf";
+import {
+  Download,
+  FileText,
+  Hash,
+  ListChecks,
+  ShieldCheck,
+} from "lucide-react";
+import {
+  markdownPdfOutputName,
+  markdownToPdf,
+} from "@/lib/pdf/markdown-to-pdf";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
@@ -15,7 +24,11 @@ import {
   RunnerSection,
   useAsyncRun,
 } from "./runner-kit";
-import { HandoffLoadedBadge, HandoffLoading, HandoffProblem } from "./handoff-notice";
+import {
+  HandoffLoadedBadge,
+  HandoffLoading,
+  HandoffProblem,
+} from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
@@ -27,17 +40,24 @@ interface MarkdownSource {
 
 export function MarkdownToPdfRunner() {
   const handoff = useToolHandoff("markdown-to-pdf");
-  const [source, setSource] = useState<MarkdownSource>({ name: "document.md", text: "" });
+  const [source, setSource] = useState<MarkdownSource>({
+    name: "document.md",
+    text: "",
+  });
   const [loadError, setLoadError] = useState<string | null>(null);
   const seededRef = useRef(false);
 
   const readMarkdownFile = useCallback(async (file: File) => {
     if (!isLikelyMarkdownFile(file)) {
-      setLoadError(`"${file.name}" isn't a Markdown file — choose a .md or .markdown file.`);
+      setLoadError(
+        `"${file.name}" isn't a Markdown file — choose a .md or .markdown file.`,
+      );
       return;
     }
     if (file.size > MAX_SOURCE_BYTES) {
-      setLoadError(`"${file.name}" is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`);
+      setLoadError(
+        `"${file.name}" is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`,
+      );
       return;
     }
     const text = await file.text();
@@ -60,7 +80,9 @@ export function MarkdownToPdfRunner() {
   return (
     <div className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName="Markdown to PDF" />
-      {handoff.status === "ready" && <HandoffLoadedBadge count={1} skipped={handoff.skipped} />}
+      {handoff.status === "ready" && (
+        <HandoffLoadedBadge count={1} skipped={handoff.skipped} />
+      )}
       <MarkdownToPdfEditor
         source={source}
         onSource={setSource}
@@ -88,7 +110,11 @@ function MarkdownToPdfEditor({
   const filename = markdownPdfOutputName(source.name);
 
   const onRun = () =>
-    run(() => markdownToPdf(source.text, { title: source.name.replace(/\.[^/.]+$/, "") }));
+    run(() =>
+      markdownToPdf(source.text, {
+        title: source.name.replace(/\.[^/.]+$/, ""),
+      }),
+    );
 
   if (result) {
     return (
@@ -121,18 +147,36 @@ function MarkdownToPdfEditor({
 
       <RunnerSection
         title="Markdown content"
-        aside={<span className="text-xs text-slate-400">{characterCount.toLocaleString()} chars · {formatBytes(byteCount)}</span>}
+        aside={
+          <span className="text-xs text-slate-400">
+            {characterCount.toLocaleString()} chars · {formatBytes(byteCount)}
+          </span>
+        }
       >
         <textarea
           value={source.text}
-          onChange={(event) => onSource({ name: source.name, text: event.target.value })}
+          onChange={(event) =>
+            onSource({ name: source.name, text: event.target.value })
+          }
           placeholder="# Title\n\nWrite or paste Markdown here…"
-          className="min-h-72 w-full resize-y rounded-2xl border border-white/10 bg-black/20 px-4 py-3 font-mono text-sm leading-6 text-slate-100 outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+          className="min-h-72 w-full resize-y rounded-2xl border border-white/10 bg-black/20 px-4 py-3 font-mono text-sm leading-6 text-slate-100 transition outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
         />
         <div className="grid gap-3 sm:grid-cols-3">
-          <InfoTile icon={ShieldCheck} title="Private" body="Your Markdown stays in the browser; no upload is needed." />
-          <InfoTile icon={Hash} title="Structured" body="Headings, lists, blockquotes, links, and code fences are rendered into a readable PDF." />
-          <InfoTile icon={ListChecks} title="Honest" body="This is a clean document renderer, not a full HTML/CSS publishing engine." />
+          <InfoTile
+            icon={ShieldCheck}
+            title="Private"
+            body="Your Markdown stays in the browser; no upload is needed."
+          />
+          <InfoTile
+            icon={Hash}
+            title="Structured"
+            body="Headings, lists, blockquotes, links, and code fences are rendered into a readable PDF."
+          />
+          <InfoTile
+            icon={ListChecks}
+            title="Honest"
+            body="This is a clean document renderer, not a full HTML/CSS publishing engine."
+          />
         </div>
       </RunnerSection>
 

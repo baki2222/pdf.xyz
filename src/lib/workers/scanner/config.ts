@@ -63,7 +63,15 @@ const CLAMAV_MAX_BYTES_MIN = 1;
 const CLAMAV_MAX_BYTES_MAX = 1_073_741_824; // 1 GiB — a sane upper bound for a stream.
 
 /** Values that explicitly turn the scanner OFF (case-insensitive). */
-const DISABLE_TOKENS = new Set(["disabled", "disable", "off", "none", "false", "no", "0"]);
+const DISABLE_TOKENS = new Set([
+  "disabled",
+  "disable",
+  "off",
+  "none",
+  "false",
+  "no",
+  "0",
+]);
 
 /** Truthy tokens for the required flag (matches the guardrail layer's set). */
 const TRUE_TOKENS = new Set(["true", "1", "yes", "on"]);
@@ -129,7 +137,9 @@ const TCP_SCHEME = "clamav";
 const UNIX_SCHEMES = new Set(["clamav+unix", "unix"]);
 
 /** Classify the declared scanner value into a {@link ScannerProviderToken}. */
-export function scannerProviderToken(env: EnvSource = process.env): ScannerProviderToken {
+export function scannerProviderToken(
+  env: EnvSource = process.env,
+): ScannerProviderToken {
   const raw = read(env, MALWARE_SCANNER_ENV);
   if (raw === undefined) return "unset";
   if (DISABLE_TOKENS.has(raw.toLowerCase())) return "disabled";
@@ -218,7 +228,9 @@ function parseBoundedInt(
  * only, never values). Presence-only for the endpoint: a missing/malformed endpoint
  * is an issue, but its value is never echoed.
  */
-export function parseClamavConfig(env: EnvSource = process.env): ClamavConfigResult {
+export function parseClamavConfig(
+  env: EnvSource = process.env,
+): ClamavConfigResult {
   const issues: FieldError[] = [];
   const raw = read(env, MALWARE_SCANNER_ENV);
   const endpoint = raw !== undefined ? parseEndpoint(raw) : undefined;

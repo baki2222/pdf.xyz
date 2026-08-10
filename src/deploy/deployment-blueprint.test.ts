@@ -17,7 +17,8 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const DIR = "docs/examples/deployment";
-const read = (rel: string): string => readFileSync(path.join(ROOT, rel), "utf8");
+const read = (rel: string): string =>
+  readFileSync(path.join(ROOT, rel), "utf8");
 
 // --------------------------------------------------------------------------- //
 // Secret / leak vocabulary (re-declared locally, matching the repo idiom).
@@ -28,13 +29,20 @@ const AWS_KEY = /\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/;
 const PLACEHOLDER =
   /(REPLACE|EXAMPLE|CHANGE|CHANGEME|YOUR[-_]|PLACEHOLDER|\bXXX+\b|<[^>]+>|\.\.\.|\.invalid\b|\.local\b)/i;
 /** Variable names whose committed value must be a placeholder/interpolation/empty. */
-const SECRETISH = /(SECRET|TOKEN|PASSWORD|ACCESS_KEY_ID|ACCESS_KEY|PRIVATE_KEY|_KEY)$/i;
+const SECRETISH =
+  /(SECRET|TOKEN|PASSWORD|ACCESS_KEY_ID|ACCESS_KEY|PRIVATE_KEY|_KEY)$/i;
 /** Known managed-provider endpoints — never a committed literal in a template. */
 const PROVIDER_LEAK =
   /(amazonaws\.com|\.upstash\.io|\.r2\.cloudflarestorage\.com|googleapis\.com|\.blob\.core\.windows\.net|\bsupabase\.co\b)/i;
 
 /** Compose service names that are legitimate internal URL authorities. */
-const SERVICE_AUTHORITIES = new Set(["web", "worker", "broker", "redis", "clamav"]);
+const SERVICE_AUTHORITIES = new Set([
+  "web",
+  "worker",
+  "broker",
+  "redis",
+  "clamav",
+]);
 /** Loopback / any-address authorities that are never a real endpoint. */
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
@@ -117,7 +125,8 @@ function serviceProfiles(svc: ComposeService): string[] {
     .filter((x): x is string => Boolean(x));
 }
 
-const healthcheckText = (svc: ComposeService): string => keyBlock(svc, "healthcheck").join("\n");
+const healthcheckText = (svc: ComposeService): string =>
+  keyBlock(svc, "healthcheck").join("\n");
 
 function buildTarget(svc: ComposeService): string | undefined {
   const t = keyBlock(svc, "build").find((l) => /^ {6}target:/.test(l));
@@ -161,7 +170,8 @@ function publicIPv4s(text: string): string[] {
     if (a === 192 && b === 168) continue;
     if (a === 172 && b >= 16 && b <= 31) continue;
     if (a === 169 && b === 254) continue; // link-local
-    if (a > 255 || b > 255 || Number(m[3]) > 255 || Number(m[4]) > 255) continue; // not an IP
+    if (a > 255 || b > 255 || Number(m[3]) > 255 || Number(m[4]) > 255)
+      continue; // not an IP
     out.push(m[0]);
   }
   return out;
@@ -175,7 +185,13 @@ function assignments(text: string): { name: string; value: string }[] {
     if (!line.trim()) continue;
     const m = /^\s*([A-Z][A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
     if (!m) continue;
-    out.push({ name: m[1]!, value: m[2]!.replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "").trim() });
+    out.push({
+      name: m[1]!,
+      value: m[2]!
+        .replace(/\s+#.*$/, "")
+        .replace(/^["']|["']$/g, "")
+        .trim(),
+    });
   }
   return out;
 }
@@ -210,7 +226,10 @@ describe("blueprint compose — structure & the four topology services", () => {
   it("publishes a port ONLY for web — worker/broker/redis/clamav expose none", () => {
     expect(hasPublishedPorts(services.get("web")!)).toBe(true);
     for (const name of ["worker", "broker", "redis", "clamav"]) {
-      expect(hasPublishedPorts(services.get(name)!), `${name} must not publish a port`).toBe(false);
+      expect(
+        hasPublishedPorts(services.get(name)!),
+        `${name} must not publish a port`,
+      ).toBe(false);
     }
   });
 
@@ -231,9 +250,10 @@ describe("blueprint compose — web ↔ worker env separation", () => {
 
   it("the web service receives NO worker-only provider/OCR/scanner/engine env", () => {
     for (const name of Object.keys(webEnv)) {
-      expect(WORKER_ONLY_ENV.test(name), `web must not receive worker-only env ${name}`).toBe(
-        false,
-      );
+      expect(
+        WORKER_ONLY_ENV.test(name),
+        `web must not receive worker-only env ${name}`,
+      ).toBe(false);
     }
     // It carries only the innocuous runtime env.
     expect(webEnv.NODE_ENV).toBe("production");
@@ -248,7 +268,10 @@ describe("blueprint compose — web ↔ worker env separation", () => {
       "PDFXYZ_REDIS_REST_TOKEN",
     ]) {
       expect(workerEnv[name], `worker env ${name}`).toBeDefined();
-      expect(workerEnv[name], `worker env ${name} must interpolate, not inline`).toContain("${");
+      expect(
+        workerEnv[name],
+        `worker env ${name} must interpolate, not inline`,
+      ).toContain("${");
     }
   });
 
@@ -306,8 +329,11 @@ describe("blueprint env-file — placeholders only, honest broker framing", () =
   it("every secret-ish value is a placeholder (no committed credential)", () => {
     for (const { name, value } of active) {
       if (!SECRETISH.test(name)) continue;
-      const safe = value === "" || value.includes("${") || PLACEHOLDER.test(value);
-      expect(safe, `${name} looks like a committed secret ("${value}")`).toBe(true);
+      const safe =
+        value === "" || value.includes("${") || PLACEHOLDER.test(value);
+      expect(safe, `${name} looks like a committed secret ("${value}")`).toBe(
+        true,
+      );
     }
   });
 
@@ -318,7 +344,8 @@ describe("blueprint env-file — placeholders only, honest broker framing", () =
   });
 
   it("exposes no server-only secret via NEXT_PUBLIC_", () => {
-    for (const { name } of active) expect(name.startsWith("NEXT_PUBLIC_")).toBe(false);
+    for (const { name } of active)
+      expect(name.startsWith("NEXT_PUBLIC_")).toBe(false);
   });
 });
 
@@ -344,7 +371,10 @@ describe("blueprint files leak no secret, real endpoint, domain, or public IP", 
     it(`${rel}: every URL authority is an internal service name or a placeholder`, () => {
       for (const authority of authorities(read(rel))) {
         const host = hostOf(authority);
-        expect(isAllowedHost(host), `${rel}: leaked authority "${authority}"`).toBe(true);
+        expect(
+          isAllowedHost(host),
+          `${rel}: leaked authority "${authority}"`,
+        ).toBe(true);
       }
     });
 
@@ -354,7 +384,9 @@ describe("blueprint files leak no secret, real endpoint, domain, or public IP", 
         .split("\n")
         .map((l) => l.replace(/(^|\s)#.*$/, "$1"))
         .join("\n");
-      expect(code).not.toMatch(/NEXT_PUBLIC_\w*(SECRET|TOKEN|KEY|PROVIDER|URL)/);
+      expect(code).not.toMatch(
+        /NEXT_PUBLIC_\w*(SECRET|TOKEN|KEY|PROVIDER|URL)/,
+      );
     });
   }
 });
@@ -363,7 +395,9 @@ describe("blueprint docs cross-references resolve", () => {
   it("every file the deployment README links to exists on disk", () => {
     const readme = read(`${DIR}/README.md`);
     const links = [...readme.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1]!);
-    const local = links.filter((l) => !l.startsWith("http") && !l.startsWith("#"));
+    const local = links.filter(
+      (l) => !l.startsWith("http") && !l.startsWith("#"),
+    );
     expect(local.length).toBeGreaterThan(0);
     for (const link of local) {
       const target = path.join(ROOT, DIR, link.split("#")[0]!);

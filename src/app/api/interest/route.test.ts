@@ -99,7 +99,13 @@ describe("POST /api/interest — the write path", () => {
     const commands: unknown[] = [];
     globalThis.fetch = (async (_url: string, init?: RequestInit) => {
       commands.push(JSON.parse(String(init?.body)));
-      return { ok: true, status: 200, async json() { return { result: 1 }; } };
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { result: 1 };
+        },
+      };
     }) as unknown as typeof fetch;
 
     for (const hostile of [
@@ -163,7 +169,9 @@ describe("POST /api/interest — the write path", () => {
   it("is guarded: the interest.note budget produces a content-free 429 before the body is read", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     const policy = policyFor("interest.note");
-    const bare = new Request("http://localhost/api/interest", { method: "POST" });
+    const bare = new Request("http://localhost/api/interest", {
+      method: "POST",
+    });
     for (let i = 0; i < policy.limit; i++) {
       await enforceRateLimit("interest.note", bare);
     }
@@ -171,9 +179,9 @@ describe("POST /api/interest — the write path", () => {
     const denied = await POST(interestReq({ slug: "chat-with-pdf" }));
 
     expect(denied.status).toBe(429);
-    expect(((await denied.json()) as { error: { code: string } }).error.code).toBe(
-      "rate_limited",
-    );
+    expect(
+      ((await denied.json()) as { error: { code: string } }).error.code,
+    ).toBe("rate_limited");
     expect(Number(denied.headers.get("retry-after"))).toBeGreaterThan(0);
   });
 

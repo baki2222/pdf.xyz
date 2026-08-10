@@ -13,7 +13,10 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import { parseChatOptions, chatAnswerOutputName } from "@/lib/jobs/chat-with-pdf";
+import {
+  parseChatOptions,
+  chatAnswerOutputName,
+} from "@/lib/jobs/chat-with-pdf";
 import {
   CHAT_TOOL,
   runChatWithPdf,
@@ -21,7 +24,13 @@ import {
   type ChatWithPdfMeta,
   type ChatWithPdfRun,
 } from "../chat-with-pdf/engine";
-import { processorFail, processorOk, type Processor, type ProcessorMeta, type ProcessorResult } from "./types";
+import {
+  processorFail,
+  processorOk,
+  type Processor,
+  type ProcessorMeta,
+  type ProcessorResult,
+} from "./types";
 
 type Failure = Extract<ChatWithPdfRun, { ok: false }>;
 
@@ -34,15 +43,35 @@ function jobError(run: Failure): JobError {
   switch (run.kind) {
     case "unsupported":
     case "ai_unconfigured":
-      return { code: "not_implemented", message: `${run.message}`, retryable: false };
+      return {
+        code: "not_implemented",
+        message: `${run.message}`,
+        retryable: false,
+      };
     case "too_large":
-      return { code: "payload_too_large", message: run.message, retryable: false };
+      return {
+        code: "payload_too_large",
+        message: run.message,
+        retryable: false,
+      };
     case "no_text":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "content_filtered":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "rate_limited":
-      return { code: "service_unavailable", message: run.message, retryable: true };
+      return {
+        code: "service_unavailable",
+        message: run.message,
+        retryable: true,
+      };
     case "failed":
     default:
       // A terminal content problem the caller can't fix by retrying (e.g. the PDF
@@ -50,8 +79,16 @@ function jobError(run: Failure): JobError {
       // failure (an empty reply, a timeout) keeps the engine's retryable hint as an
       // `internal_error` so the executor may re-deliver it.
       return run.retryable === false
-        ? { code: "unprocessable_entity", message: run.message, retryable: false }
-        : { code: "internal_error", message: run.message, retryable: run.retryable ?? true };
+        ? {
+            code: "unprocessable_entity",
+            message: run.message,
+            retryable: false,
+          }
+        : {
+            code: "internal_error",
+            message: run.message,
+            retryable: run.retryable ?? true,
+          };
   }
 }
 
@@ -96,11 +133,19 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
     },
     async process(input): Promise<ProcessorResult> {
       if (input.tool !== CHAT_TOOL) {
-        return processorFail({ code: "not_implemented", message: "This processor only handles chat-with-pdf.", retryable: false });
+        return processorFail({
+          code: "not_implemented",
+          message: "This processor only handles chat-with-pdf.",
+          retryable: false,
+        });
       }
       const file = input.inputs[0];
       if (input.inputs.length !== 1 || !file) {
-        return processorFail({ code: "unprocessable_entity", message: "Chat with PDF accepts exactly one PDF input.", retryable: false });
+        return processorFail({
+          code: "unprocessable_entity",
+          message: "Chat with PDF accepts exactly one PDF input.",
+          retryable: false,
+        });
       }
       const parsed = parseChatOptions(input.options);
       if (!parsed.ok) {
@@ -113,7 +158,13 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
       const run = await runChatWithPdf(file.bytes, parsed.value, deps);
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
-        [{ filename: chatWithPdfOutputName(file.filename), contentType: run.contentType, bytes: run.output }],
+        [
+          {
+            filename: chatWithPdfOutputName(file.filename),
+            contentType: run.contentType,
+            bytes: run.output,
+          },
+        ],
         meta(run.meta),
       );
     },

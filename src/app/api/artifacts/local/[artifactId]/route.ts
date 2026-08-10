@@ -36,7 +36,11 @@ async function handle(
   if (!limit.allowed) return respondRateLimited(limit);
 
   const { artifactId } = await context.params;
-  return serveArtifactRetrieval(createLocalDevArtifactBackend(), request, artifactId);
+  return serveArtifactRetrieval(
+    createLocalDevArtifactBackend(),
+    request,
+    artifactId,
+  );
 }
 
 /** Stream a local-dev artifact's bytes with safe, verified delivery headers. */

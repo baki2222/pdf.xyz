@@ -87,8 +87,10 @@ function resolveMaxAgeMs(env: EnvSource): number {
 export function resolveCleanupEvidenceConfig(
   env: EnvSource = process.env,
 ): CleanupEvidenceConfig {
-  const checkReportPath = readString(env, CLEANUP_EVIDENCE_ENV.checkReport) ?? null;
-  const sweepReportPath = readString(env, CLEANUP_EVIDENCE_ENV.sweepReport) ?? null;
+  const checkReportPath =
+    readString(env, CLEANUP_EVIDENCE_ENV.checkReport) ?? null;
+  const sweepReportPath =
+    readString(env, CLEANUP_EVIDENCE_ENV.sweepReport) ?? null;
   return {
     enabled: checkReportPath !== null || sweepReportPath !== null,
     checkReportPath,

@@ -146,7 +146,9 @@ export function retentionClassFor(
   if (!retention || typeof retention !== "object") return "unknown";
   // The privacy contract guarantees outputs do not outlive the job. A policy whose
   // persistence flag is anything but the contractual `false` is not one we classify.
-  if ((retention as { persistsAfterJob?: unknown }).persistsAfterJob !== false) {
+  if (
+    (retention as { persistsAfterJob?: unknown }).persistsAfterJob !== false
+  ) {
     return "unknown";
   }
   const ttl = retention.outputTtlMinutes;

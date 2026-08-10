@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
 import { UploadCloud } from "lucide-react";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
@@ -129,7 +135,9 @@ describe("a completed run", () => {
     fireEvent.click(screen.getByRole("button", { name: "Merge PDFs" }));
     await screen.findByRole("group", { name: /PDFs merged/ });
 
-    const download = screen.getByRole("button", { name: "Download merged PDF" });
+    const download = screen.getByRole("button", {
+      name: "Download merged PDF",
+    });
     download.focus();
     rerender(<MiniRunner />);
 
@@ -297,7 +305,9 @@ describe("WorkerRunButton", () => {
 
   it("keeps the keyboard for the whole worker job it started", () => {
     render(<Panel />);
-    const button = screen.getByRole("button", { name: "Run OCR on the worker" });
+    const button = screen.getByRole("button", {
+      name: "Run OCR on the worker",
+    });
     button.focus();
 
     fireEvent.click(button);
@@ -313,7 +323,12 @@ describe("WorkerRunButton", () => {
   it("stays reachable before a file has been chosen", () => {
     const onRun = vi.fn();
     render(
-      <WorkerRunButton onClick={onRun} disabled busyLabel="…" icon={UploadCloud}>
+      <WorkerRunButton
+        onClick={onRun}
+        disabled
+        busyLabel="…"
+        icon={UploadCloud}
+      >
         Extract tables
       </WorkerRunButton>,
     );
@@ -330,7 +345,9 @@ describe("WorkerRunButton", () => {
   it("ignores an impatient second press instead of queueing a second job", () => {
     const onRun = vi.fn();
     render(<Panel onRun={onRun} />);
-    const button = screen.getByRole("button", { name: "Run OCR on the worker" });
+    const button = screen.getByRole("button", {
+      name: "Run OCR on the worker",
+    });
 
     fireEvent.click(button);
     fireEvent.click(button);
@@ -353,7 +370,12 @@ describe("WorkerRunButton", () => {
 
   it("dims itself while blocked, since it no longer looks disabled to the browser", () => {
     render(
-      <WorkerRunButton onClick={vi.fn()} disabled busyLabel="…" icon={UploadCloud}>
+      <WorkerRunButton
+        onClick={vi.fn()}
+        disabled
+        busyLabel="…"
+        icon={UploadCloud}
+      >
         Summarize PDF
       </WorkerRunButton>,
     );
@@ -442,8 +464,8 @@ describe("ChipButton — the controls beside the trigger", () => {
         Balanced
       </ChipButton>,
     );
-    expect(screen.getByRole("button", { name: "Balanced" }).className).toContain(
-      "aria-disabled:opacity-40",
-    );
+    expect(
+      screen.getByRole("button", { name: "Balanced" }).className,
+    ).toContain("aria-disabled:opacity-40");
   });
 });

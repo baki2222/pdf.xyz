@@ -44,17 +44,23 @@ describe("parseCleanupCheckArgs", () => {
 
   it("parses --grace-hours as a bounded number", () => {
     const result = parseCleanupCheckArgs(["--grace-hours=24"]);
-    expect(result.ok && result.kind === "run" && result.args.graceHours).toBe(24);
+    expect(result.ok && result.kind === "run" && result.args.graceHours).toBe(
+      24,
+    );
   });
 
   it("accepts a fractional grace", () => {
     const result = parseCleanupCheckArgs(["--grace-hours=0.5"]);
-    expect(result.ok && result.kind === "run" && result.args.graceHours).toBe(0.5);
+    expect(result.ok && result.kind === "run" && result.args.graceHours).toBe(
+      0.5,
+    );
   });
 
   it("accepts a zero grace (strictest)", () => {
     const result = parseCleanupCheckArgs(["--grace-hours=0"]);
-    expect(result.ok && result.kind === "run" && result.args.graceHours).toBe(0);
+    expect(result.ok && result.kind === "run" && result.args.graceHours).toBe(
+      0,
+    );
   });
 
   it("rejects a negative grace", () => {
@@ -74,7 +80,10 @@ describe("parseCleanupCheckArgs", () => {
 
   it("returns help for -h and --help", () => {
     expect(parseCleanupCheckArgs(["-h"])).toEqual({ ok: true, kind: "help" });
-    expect(parseCleanupCheckArgs(["--help"])).toEqual({ ok: true, kind: "help" });
+    expect(parseCleanupCheckArgs(["--help"])).toEqual({
+      ok: true,
+      kind: "help",
+    });
   });
 
   it("rejects conflicting formats", () => {
@@ -95,6 +104,8 @@ describe("parseCleanupCheckArgs", () => {
 
   it("is idempotent when the same format flag is repeated", () => {
     const result = parseCleanupCheckArgs(["--json", "--json"]);
-    expect(result.ok && result.kind === "run" && result.args.format).toBe("json");
+    expect(result.ok && result.kind === "run" && result.args.format).toBe(
+      "json",
+    );
   });
 });

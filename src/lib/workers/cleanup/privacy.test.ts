@@ -47,7 +47,12 @@ const HOSTILE_DOC = JSON.stringify({
       providerMessage: HOSTILE[4],
       handoff: HOSTILE[5],
     },
-    { presence: "absent", activeDelete: true, jobId: "job_leak_9", userId: "user_42" },
+    {
+      presence: "absent",
+      activeDelete: true,
+      jobId: "job_leak_9",
+      userId: "user_42",
+    },
     { presence: "error", providerException: HOSTILE[4] },
   ],
 });
@@ -75,7 +80,9 @@ describe("no-leak: hostile evidence never survives the pipeline", () => {
         expect(out).not.toContain(secret);
       }
       // Belt-and-braces: no obvious locator fragments at all.
-      expect(out).not.toMatch(/invoice|bucket-|X-Amz|arn:aws|Bank Statement|job_leak|user_42/);
+      expect(out).not.toMatch(
+        /invoice|bucket-|X-Amz|arn:aws|Bank Statement|job_leak|user_42/,
+      );
     }
   });
 
@@ -84,7 +91,11 @@ describe("no-leak: hostile evidence never survives the pipeline", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     for (const obj of parsed.objects) {
-      expect(Object.keys(obj).sort()).toEqual(["activeDelete", "lifecycle", "presence"]);
+      expect(Object.keys(obj).sort()).toEqual([
+        "activeDelete",
+        "lifecycle",
+        "presence",
+      ]);
     }
   });
 });
@@ -130,7 +141,10 @@ describe("redaction-stability: verdict metric labels survive sanitizeMetric", ()
   it("keeps every verdict × provider label (a mangled label would be dropped)", () => {
     for (const verdict of CLEANUP_VERIFICATION_VERDICTS) {
       for (const provider of RETRIEVAL_STORAGE_PROVIDERS) {
-        const sample = cleanupVerificationMetric(verdict as CleanupVerdict, provider);
+        const sample = cleanupVerificationMetric(
+          verdict as CleanupVerdict,
+          provider,
+        );
         // The redactor must not alter either label value...
         expect(redactText(verdict)).toBe(verdict);
         expect(redactText(provider)).toBe(provider);
@@ -148,19 +162,36 @@ describe("redaction-stability: verdict metric labels survive sanitizeMetric", ()
     const scenarios = [
       { provider: "not-configured" as const, evidence: [] }, // → not-configured
       { provider: "remote-configured" as const, evidence: [] }, // → unknown (empty)
-      { provider: "remote-configured" as const, evidence: [{ presence: "absent" as const, lifecycle: null, activeDelete: false }] }, // → verified
       {
         provider: "remote-configured" as const,
-        evidence: [{ presence: "present" as const, lifecycle: { expiresAtMs: now - grace * 100, deleted: false }, activeDelete: false }],
+        evidence: [
+          { presence: "absent" as const, lifecycle: null, activeDelete: false },
+        ],
+      }, // → verified
+      {
+        provider: "remote-configured" as const,
+        evidence: [
+          {
+            presence: "present" as const,
+            lifecycle: { expiresAtMs: now - grace * 100, deleted: false },
+            activeDelete: false,
+          },
+        ],
       }, // → drift
       {
         provider: "remote-configured" as const,
-        evidence: [{ presence: "error" as const, lifecycle: null, activeDelete: false }],
+        evidence: [
+          { presence: "error" as const, lifecycle: null, activeDelete: false },
+        ],
       }, // → unavailable
     ];
     const seen = new Set<CleanupVerdict>();
     for (const s of scenarios) {
-      const v = verifyArtifactCleanup(s.evidence, { provider: s.provider, now, graceMs: grace });
+      const v = verifyArtifactCleanup(s.evidence, {
+        provider: s.provider,
+        now,
+        graceMs: grace,
+      });
       seen.add(v.verdict);
       expect(redactText(v.summary)).toBe(v.summary);
     }

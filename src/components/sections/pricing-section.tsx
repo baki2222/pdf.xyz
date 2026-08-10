@@ -57,10 +57,12 @@ export function PricingSection() {
           {groups.map((group) => (
             <div
               key={group.name}
-              className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-surface-2 p-7"
+              className="bg-surface-2 flex flex-col gap-6 rounded-3xl border border-white/10 p-7"
             >
               <div className="flex flex-col gap-2">
-                <h3 className="text-lg font-semibold text-white">{group.name}</h3>
+                <h3 className="text-lg font-semibold text-white">
+                  {group.name}
+                </h3>
                 <p className="text-sm text-slate-300">{group.summary}</p>
               </div>
 
@@ -82,10 +84,10 @@ export function PricingSection() {
           ))}
         </div>
 
-        <div className="flex flex-col items-start gap-4 rounded-3xl border border-white/10 bg-surface-2 p-7 sm:flex-row sm:items-center sm:justify-between">
+        <div className="bg-surface-2 flex flex-col items-start gap-4 rounded-3xl border border-white/10 p-7 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm leading-relaxed text-slate-300">
-            When paid options arrive they will cover the server-side work above —
-            and the in-browser tools stay free. Until then, there is simply
+            When paid options arrive they will cover the server-side work above
+            — and the in-browser tools stay free. Until then, there is simply
             nothing to pay for.
           </p>
           <Link

@@ -75,7 +75,9 @@ export function SignaturePad({
         onChange(null);
         return;
       }
-      void blob.arrayBuffer().then((buffer) => onChange(new Uint8Array(buffer)));
+      void blob
+        .arrayBuffer()
+        .then((buffer) => onChange(new Uint8Array(buffer)));
     }, "image/png");
   }, [onChange]);
 

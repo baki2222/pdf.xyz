@@ -32,7 +32,10 @@ describe("compare-pdf", () => {
   });
 
   it("summarizes identical selectable text", () => {
-    const result = compareExtractedPdfText(doc("old.pdf", "Same\nText"), doc("new.pdf", "Same\nText"));
+    const result = compareExtractedPdfText(
+      doc("old.pdf", "Same\nText"),
+      doc("new.pdf", "Same\nText"),
+    );
     expect(result.identicalText).toBe(true);
     expect(result.summary.changedLines).toBe(0);
     expect(result.summary.addedLines).toBe(0);
@@ -40,7 +43,10 @@ describe("compare-pdf", () => {
   });
 
   it("summarizes page, size, and text differences", () => {
-    const result = compareExtractedPdfText(doc("old.pdf", "A\nB\nC", 1), doc("new.pdf", "A\nB2\nC\nD", 2));
+    const result = compareExtractedPdfText(
+      doc("old.pdf", "A\nB\nC", 1),
+      doc("new.pdf", "A\nB2\nC\nD", 2),
+    );
     expect(result.identicalText).toBe(false);
     expect(result.pageDelta).toBe(1);
     expect(result.sizeDelta).toBeGreaterThan(0);
@@ -50,13 +56,18 @@ describe("compare-pdf", () => {
   });
 
   it("stays honest when neither PDF has selectable text", () => {
-    const result = compareExtractedPdfText(doc("scan-a.pdf", ""), doc("scan-b.pdf", ""));
+    const result = compareExtractedPdfText(
+      doc("scan-a.pdf", ""),
+      doc("scan-b.pdf", ""),
+    );
     expect(result.hasComparableText).toBe(false);
     expect(result.identicalText).toBe(false);
     expect(result.summary.changedLines).toBe(0);
   });
 
   it("names comparison report downloads", () => {
-    expect(compareOutputName("draft.pdf", "final.pdf")).toBe("draft-vs-final-comparison.txt");
+    expect(compareOutputName("draft.pdf", "final.pdf")).toBe(
+      "draft-vs-final-comparison.txt",
+    );
   });
 });

@@ -180,7 +180,8 @@ export function sanitizeDisplayFilename(
   // Preserve the extension when trimming: reserve room for it, trim the stem.
   const stemBudget = Math.max(1, maxLength - suffix.length);
   if (stem.length > stemBudget) stem = stem.slice(0, stemBudget).trim();
-  if (stem.length === 0) stem = fallbackStem.slice(0, stemBudget) || FALLBACK_STEM;
+  if (stem.length === 0)
+    stem = fallbackStem.slice(0, stemBudget) || FALLBACK_STEM;
 
   return `${stem}${suffix}`;
 }

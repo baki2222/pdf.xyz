@@ -4,7 +4,11 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { recordReleaseGate, resetReleaseGateSink, setReleaseGateSink } from "./metrics";
+import {
+  recordReleaseGate,
+  resetReleaseGateSink,
+  setReleaseGateSink,
+} from "./metrics";
 import { releaseGateMetric, sanitizeMetric } from "../observability/metrics";
 import { RELEASE_GATE_VERDICTS } from "./types";
 

@@ -26,7 +26,8 @@ function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
-    else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test.")) out.push(full);
+    else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
+      out.push(full);
   }
   return out;
 }
@@ -79,7 +80,8 @@ describe("every internal link resolves to something that renders", () => {
     const offenders: string[] = [];
     for (const [file, body] of bodies) {
       for (const m of body.matchAll(/href="\/tools\/([a-z0-9-]+)"/gi)) {
-        if (!slugs.has(m[1]!)) offenders.push(`${relative(file)} → /tools/${m[1]}`);
+        if (!slugs.has(m[1]!))
+          offenders.push(`${relative(file)} → /tools/${m[1]}`);
       }
     }
     expect(

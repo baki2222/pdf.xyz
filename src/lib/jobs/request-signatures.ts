@@ -19,7 +19,10 @@
  */
 
 import { apiError, type ParseResult } from "./responses";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "./filenames";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "./filenames";
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -51,7 +54,8 @@ export const REQUEST_SIGNATURE_FIELD_TYPES = [
   "date",
   "text",
 ] as const;
-export type RequestSignatureFieldType = (typeof REQUEST_SIGNATURE_FIELD_TYPES)[number];
+export type RequestSignatureFieldType =
+  (typeof REQUEST_SIGNATURE_FIELD_TYPES)[number];
 
 /**
  * Signing order. `sequential` routes the request to signers one after another (the
@@ -59,9 +63,12 @@ export type RequestSignatureFieldType = (typeof REQUEST_SIGNATURE_FIELD_TYPES)[n
  * once. Recorded in the manifest; enforced by whatever delivery layer consumes it.
  */
 export const REQUEST_SIGNATURE_ROUTING = ["sequential", "parallel"] as const;
-export type RequestSignatureRouting = (typeof REQUEST_SIGNATURE_ROUTING)[number];
+export type RequestSignatureRouting =
+  (typeof REQUEST_SIGNATURE_ROUTING)[number];
 
-const FIELD_TYPE_SET: ReadonlySet<string> = new Set(REQUEST_SIGNATURE_FIELD_TYPES);
+const FIELD_TYPE_SET: ReadonlySet<string> = new Set(
+  REQUEST_SIGNATURE_FIELD_TYPES,
+);
 const ROUTING_SET: ReadonlySet<string> = new Set(REQUEST_SIGNATURE_ROUTING);
 
 // A conservative, non-catastrophic email shape: one `@`, a dot in the domain, no
@@ -151,9 +158,15 @@ function parseText(
   return { ok: true, value: trimmed };
 }
 
-function parseSigner(value: unknown, index: number): ParseResult<RequestSigner> {
+function parseSigner(
+  value: unknown,
+  index: number,
+): ParseResult<RequestSigner> {
   if (!isObject(value)) {
-    return invalid(`\`signers[${index}]\` must be an object.`, `signers[${index}]`);
+    return invalid(
+      `\`signers[${index}]\` must be an object.`,
+      `signers[${index}]`,
+    );
   }
   const name = parseText(
     value.name,
@@ -168,8 +181,15 @@ function parseSigner(value: unknown, index: number): ParseResult<RequestSigner> 
     return invalid(`\`${emailField}\` must be a string.`, emailField);
   }
   const email = value.email.trim();
-  if (email.length === 0 || email.length > MAX_SIGNER_EMAIL_CHARS || !EMAIL_SHAPE.test(email)) {
-    return invalid(`\`${emailField}\` must be a valid email address.`, emailField);
+  if (
+    email.length === 0 ||
+    email.length > MAX_SIGNER_EMAIL_CHARS ||
+    !EMAIL_SHAPE.test(email)
+  ) {
+    return invalid(
+      `\`${emailField}\` must be a valid email address.`,
+      emailField,
+    );
   }
   return { ok: true, value: { name: name.value, email } };
 }
@@ -190,14 +210,27 @@ function parseField(
   if (!isObject(value)) return invalid(`\`${at}\` must be an object.`, at);
 
   const { signer, page, type } = value;
-  if (!Number.isInteger(signer) || (signer as number) < 0 || (signer as number) >= signerCount) {
-    return invalid(`\`${at}.signer\` must reference an existing signer.`, `${at}.signer`);
+  if (
+    !Number.isInteger(signer) ||
+    (signer as number) < 0 ||
+    (signer as number) >= signerCount
+  ) {
+    return invalid(
+      `\`${at}.signer\` must reference an existing signer.`,
+      `${at}.signer`,
+    );
   }
   if (!Number.isInteger(page) || (page as number) < 1) {
-    return invalid(`\`${at}.page\` must be a positive page number.`, `${at}.page`);
+    return invalid(
+      `\`${at}.page\` must be a positive page number.`,
+      `${at}.page`,
+    );
   }
   if (typeof type !== "string" || !FIELD_TYPE_SET.has(type)) {
-    return invalid(`\`${at}.type\` must be one of ${REQUEST_SIGNATURE_FIELD_TYPES.join(", ")}.`, `${at}.type`);
+    return invalid(
+      `\`${at}.type\` must be one of ${REQUEST_SIGNATURE_FIELD_TYPES.join(", ")}.`,
+      `${at}.type`,
+    );
   }
 
   const x = parseFraction(value.x, `${at}.x`);
@@ -233,7 +266,12 @@ function parseField(
     required: value.required === undefined ? true : value.required === true,
   };
   if (value.label !== undefined) {
-    const label = parseText(value.label, `${at}.label`, "Field label", MAX_FIELD_LABEL_CHARS);
+    const label = parseText(
+      value.label,
+      `${at}.label`,
+      "Field label",
+      MAX_FIELD_LABEL_CHARS,
+    );
     if (!label.ok) return label;
     field.label = label.value;
   }
@@ -259,7 +297,10 @@ export function parseSignatureRequestOptions(
     return invalid("At least one signer is required.", "signers");
   }
   if (rawSigners.length > MAX_REQUEST_SIGNERS) {
-    return invalid(`A request can have at most ${MAX_REQUEST_SIGNERS} signers.`, "signers");
+    return invalid(
+      `A request can have at most ${MAX_REQUEST_SIGNERS} signers.`,
+      "signers",
+    );
   }
   const signers: RequestSigner[] = [];
   for (let i = 0; i < rawSigners.length; i += 1) {
@@ -273,7 +314,10 @@ export function parseSignatureRequestOptions(
     return invalid("At least one signature field is required.", "fields");
   }
   if (rawFields.length > MAX_REQUEST_FIELDS) {
-    return invalid(`A request can have at most ${MAX_REQUEST_FIELDS} fields.`, "fields");
+    return invalid(
+      `A request can have at most ${MAX_REQUEST_FIELDS} fields.`,
+      "fields",
+    );
   }
   const fields: RequestSignatureField[] = [];
   for (let i = 0; i < rawFields.length; i += 1) {
@@ -287,14 +331,23 @@ export function parseSignatureRequestOptions(
   const addressed = new Set(fields.map((f) => f.signer));
   for (let i = 0; i < signers.length; i += 1) {
     if (!addressed.has(i)) {
-      return invalid(`Signer ${i + 1} has no fields to complete.`, `signers[${i}]`);
+      return invalid(
+        `Signer ${i + 1} has no fields to complete.`,
+        `signers[${i}]`,
+      );
     }
   }
 
   let routing: RequestSignatureRouting = "sequential";
   if (options.routing !== undefined) {
-    if (typeof options.routing !== "string" || !ROUTING_SET.has(options.routing)) {
-      return invalid(`\`routing\` must be one of ${REQUEST_SIGNATURE_ROUTING.join(", ")}.`, "routing");
+    if (
+      typeof options.routing !== "string" ||
+      !ROUTING_SET.has(options.routing)
+    ) {
+      return invalid(
+        `\`routing\` must be one of ${REQUEST_SIGNATURE_ROUTING.join(", ")}.`,
+        "routing",
+      );
     }
     routing = options.routing as RequestSignatureRouting;
   }
@@ -307,12 +360,22 @@ export function parseSignatureRequestOptions(
   };
 
   if (options.title !== undefined) {
-    const title = parseText(options.title, "title", "Title", MAX_REQUEST_TITLE_CHARS);
+    const title = parseText(
+      options.title,
+      "title",
+      "Title",
+      MAX_REQUEST_TITLE_CHARS,
+    );
     if (!title.ok) return title;
     result.title = title.value;
   }
   if (options.message !== undefined) {
-    const message = parseText(options.message, "message", "Message", MAX_REQUEST_MESSAGE_CHARS);
+    const message = parseText(
+      options.message,
+      "message",
+      "Message",
+      MAX_REQUEST_MESSAGE_CHARS,
+    );
     if (!message.ok) return message;
     result.message = message.value;
   }
@@ -325,6 +388,8 @@ export function signatureRequestOutputName(originalName: unknown): string {
   const tail = "-signature-request.zip";
   const budget = Math.max(1, MAX_DISPLAY_FILENAME_LENGTH - tail.length);
   const stem =
-    sanitizeDisplayFilename(originalName).replace(/\.[^.]+$/, "").trim() || FALLBACK_STEM;
+    sanitizeDisplayFilename(originalName)
+      .replace(/\.[^.]+$/, "")
+      .trim() || FALLBACK_STEM;
   return `${stem.length > budget ? stem.slice(0, budget).trim() : stem}${tail}`;
 }

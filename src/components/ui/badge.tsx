@@ -13,8 +13,7 @@ const badgeStyles: Record<ToolBadge, { label: string; className: string }> = {
   },
   ai: {
     label: "AI",
-    className:
-      "border-violet-400/30 bg-violet-400/10 text-violet-200",
+    className: "border-violet-400/30 bg-violet-400/10 text-violet-200",
   },
   beta: {
     label: "Beta",
@@ -33,7 +32,7 @@ export function ToolBadgePill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
         style.className,
         className,
       )}

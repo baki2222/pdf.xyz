@@ -12,7 +12,10 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import { parseSummarizeOptions, summaryOutputName } from "@/lib/jobs/summarize-pdf";
+import {
+  parseSummarizeOptions,
+  summaryOutputName,
+} from "@/lib/jobs/summarize-pdf";
 import {
   SUMMARIZE_TOOL,
   runSummarize,
@@ -20,7 +23,13 @@ import {
   type SummarizeMeta,
   type SummarizeRun,
 } from "../summarize/engine";
-import { processorFail, processorOk, type Processor, type ProcessorMeta, type ProcessorResult } from "./types";
+import {
+  processorFail,
+  processorOk,
+  type Processor,
+  type ProcessorMeta,
+  type ProcessorResult,
+} from "./types";
 
 type Failure = Extract<SummarizeRun, { ok: false }>;
 
@@ -33,18 +42,42 @@ function jobError(run: Failure): JobError {
   switch (run.kind) {
     case "unsupported":
     case "ai_unconfigured":
-      return { code: "not_implemented", message: `${run.message}`, retryable: false };
+      return {
+        code: "not_implemented",
+        message: `${run.message}`,
+        retryable: false,
+      };
     case "too_large":
-      return { code: "payload_too_large", message: run.message, retryable: false };
+      return {
+        code: "payload_too_large",
+        message: run.message,
+        retryable: false,
+      };
     case "no_text":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "content_filtered":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "rate_limited":
-      return { code: "service_unavailable", message: run.message, retryable: true };
+      return {
+        code: "service_unavailable",
+        message: run.message,
+        retryable: true,
+      };
     case "failed":
     default:
-      return { code: "internal_error", message: run.message, retryable: run.retryable ?? true };
+      return {
+        code: "internal_error",
+        message: run.message,
+        retryable: run.retryable ?? true,
+      };
   }
 }
 
@@ -87,11 +120,19 @@ export function createSummarizeProcessor(deps: SummarizeDeps): Processor {
     },
     async process(input): Promise<ProcessorResult> {
       if (input.tool !== SUMMARIZE_TOOL) {
-        return processorFail({ code: "not_implemented", message: "This processor only handles summarize-pdf.", retryable: false });
+        return processorFail({
+          code: "not_implemented",
+          message: "This processor only handles summarize-pdf.",
+          retryable: false,
+        });
       }
       const file = input.inputs[0];
       if (input.inputs.length !== 1 || !file) {
-        return processorFail({ code: "unprocessable_entity", message: "Summarize PDF accepts exactly one PDF input.", retryable: false });
+        return processorFail({
+          code: "unprocessable_entity",
+          message: "Summarize PDF accepts exactly one PDF input.",
+          retryable: false,
+        });
       }
       const parsed = parseSummarizeOptions(input.options);
       if (!parsed.ok) {
@@ -104,7 +145,13 @@ export function createSummarizeProcessor(deps: SummarizeDeps): Processor {
       const run = await runSummarize(file.bytes, parsed.value, deps);
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
-        [{ filename: summarizeOutputName(file.filename), contentType: run.contentType, bytes: run.output }],
+        [
+          {
+            filename: summarizeOutputName(file.filename),
+            contentType: run.contentType,
+            bytes: run.output,
+          },
+        ],
         meta(run.meta),
       );
     },

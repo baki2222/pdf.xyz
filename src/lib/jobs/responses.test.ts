@@ -43,7 +43,9 @@ describe("apiError", () => {
 
   it("includes field details only when provided and non-empty", () => {
     expect(apiError("invalid_request", "m").body.error.details).toBeUndefined();
-    expect(apiError("invalid_request", "m", []).body.error.details).toBeUndefined();
+    expect(
+      apiError("invalid_request", "m", []).body.error.details,
+    ).toBeUndefined();
     const withDetails = apiError("invalid_request", "m", [
       { field: "tool", message: "required" },
     ]);

@@ -130,7 +130,17 @@ describe("emitArtifactDeliveryReceipt", () => {
     }
     // Only bounded keys — never a size, path, or byte field.
     expect(Object.keys(r).sort()).toEqual(
-      ["category", "kind", "method", "outcome", "policyId", "policyVersion", "provider", "range", "reason"].sort(),
+      [
+        "category",
+        "kind",
+        "method",
+        "outcome",
+        "policyId",
+        "policyVersion",
+        "provider",
+        "range",
+        "reason",
+      ].sort(),
     );
   });
 });

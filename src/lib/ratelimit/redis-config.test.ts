@@ -59,7 +59,9 @@ describe("parseRateLimitRedisConfig — not configured vs mis-configured", () =>
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.provided).toBe(true);
-    expect(result.issues.map((i) => i.field)).toContain(RATE_LIMIT_REDIS_ENV.restToken);
+    expect(result.issues.map((i) => i.field)).toContain(
+      RATE_LIMIT_REDIS_ENV.restToken,
+    );
   });
 });
 
@@ -72,10 +74,14 @@ describe("parseRateLimitRedisConfig — malformed values (shared queue validator
       "https://user:pass@example.com",
       "https://example.com?x=1",
     ]) {
-      const result = parseRateLimitRedisConfig(validEnv({ [RATE_LIMIT_REDIS_ENV.restUrl]: url }));
+      const result = parseRateLimitRedisConfig(
+        validEnv({ [RATE_LIMIT_REDIS_ENV.restUrl]: url }),
+      );
       expect(result.ok).toBe(false);
       if (result.ok) continue;
-      expect(result.issues.map((i) => i.field)).toContain(RATE_LIMIT_REDIS_ENV.restUrl);
+      expect(result.issues.map((i) => i.field)).toContain(
+        RATE_LIMIT_REDIS_ENV.restUrl,
+      );
     }
   });
 
@@ -85,7 +91,9 @@ describe("parseRateLimitRedisConfig — malformed values (shared queue validator
     );
     expect(badToken.ok).toBe(false);
     if (!badToken.ok) {
-      expect(badToken.issues.map((i) => i.field)).toContain(RATE_LIMIT_REDIS_ENV.restToken);
+      expect(badToken.issues.map((i) => i.field)).toContain(
+        RATE_LIMIT_REDIS_ENV.restToken,
+      );
     }
 
     const badPrefix = parseRateLimitRedisConfig(
@@ -93,7 +101,9 @@ describe("parseRateLimitRedisConfig — malformed values (shared queue validator
     );
     expect(badPrefix.ok).toBe(false);
     if (!badPrefix.ok) {
-      expect(badPrefix.issues.map((i) => i.field)).toContain(RATE_LIMIT_REDIS_ENV.keyPrefix);
+      expect(badPrefix.issues.map((i) => i.field)).toContain(
+        RATE_LIMIT_REDIS_ENV.keyPrefix,
+      );
     }
   });
 });

@@ -118,9 +118,10 @@ export interface ArtifactDeliveryPolicy {
  * produced PDF/text/image/archive output, while bounding what the proxying app server
  * will ever hold in memory and stream for one download.
  */
-export const DEFAULT_ARTIFACT_DELIVERY_POLICY: ArtifactDeliveryPolicy = Object.freeze({
-  maxBytes: 1_073_741_824,
-});
+export const DEFAULT_ARTIFACT_DELIVERY_POLICY: ArtifactDeliveryPolicy =
+  Object.freeze({
+    maxBytes: 1_073_741_824,
+  });
 
 /** The bounded, content-free facts a delivery decision is made from. */
 export interface DeliveryInput {
@@ -168,7 +169,10 @@ export type ArtifactDeliveryDecision =
     };
 
 /** Content-free explanations per delivery-denial reason. Never a file, size, key, or content. */
-export const ARTIFACT_DELIVERY_DETAIL: Record<ArtifactDeliveryDenyReason, string> = {
+export const ARTIFACT_DELIVERY_DETAIL: Record<
+  ArtifactDeliveryDenyReason,
+  string
+> = {
   size_mismatch:
     "The artifact could not be delivered because its length could not be verified against the stored bytes.",
   oversize:
@@ -184,14 +188,19 @@ export const ARTIFACT_DELIVERY_DETAIL: Record<ArtifactDeliveryDenyReason, string
  * the decision + the delivery receipt/metric, never widening what the client sees —
  * mirroring how the access layer folds several internal reasons to one client code.
  */
-const CODE_BY_DELIVERY_REASON: Record<ArtifactDeliveryDenyReason, ApiErrorCode> = {
+const CODE_BY_DELIVERY_REASON: Record<
+  ArtifactDeliveryDenyReason,
+  ApiErrorCode
+> = {
   size_mismatch: "service_unavailable",
   oversize: "service_unavailable",
   stream_error: "service_unavailable",
 };
 
 /** The content-free `{ code, message }` a delivery-denial reason maps to for a response. */
-export function httpErrorForDeliveryReason(reason: ArtifactDeliveryDenyReason): {
+export function httpErrorForDeliveryReason(
+  reason: ArtifactDeliveryDenyReason,
+): {
   code: ApiErrorCode;
   message: string;
 } {
@@ -207,8 +216,12 @@ export function httpErrorForDeliveryReason(reason: ArtifactDeliveryDenyReason): 
  * wire `GET`/`HEAD`) is treated as `GET`, so a body-less probe is never mistaken for a
  * streaming download and a stray verb can never widen behavior.
  */
-export function deliveryMethodFor(method: string | null | undefined): ArtifactDeliveryMethod {
-  return typeof method === "string" && method.toUpperCase() === "HEAD" ? "HEAD" : "GET";
+export function deliveryMethodFor(
+  method: string | null | undefined,
+): ArtifactDeliveryMethod {
+  return typeof method === "string" && method.toUpperCase() === "HEAD"
+    ? "HEAD"
+    : "GET";
 }
 
 /**
@@ -216,7 +229,9 @@ export function deliveryMethodFor(method: string | null | undefined): ArtifactDe
  * non-blank `Range` is `ignored` (this boundary serves whole files only); its absence
  * is `none`. The raw byte-range value is never retained — only the bounded enum.
  */
-export function deliveryRangeFor(rangeHeader: string | null | undefined): ArtifactDeliveryRange {
+export function deliveryRangeFor(
+  rangeHeader: string | null | undefined,
+): ArtifactDeliveryRange {
   return typeof rangeHeader === "string" && rangeHeader.trim().length > 0
     ? "ignored"
     : "none";

@@ -27,7 +27,10 @@ function parseEnabled(value: string | undefined): boolean {
   return true;
 }
 
-function cleanBinary(value: string | undefined): { binary: string; overridden: boolean } {
+function cleanBinary(value: string | undefined): {
+  binary: string;
+  overridden: boolean;
+} {
   const trimmed = value?.trim();
   if (!trimmed) return { binary: "qpdf", overridden: false };
   return { binary: trimmed, overridden: trimmed.startsWith("/") };
@@ -36,15 +39,25 @@ function cleanBinary(value: string | undefined): { binary: string; overridden: b
 export function resolveNativePdfStructureConfig(
   env: Record<string, string | undefined> = process.env,
 ): NativePdfStructureConfig {
-  const { binary, overridden } = cleanBinary(env.PDFXYZ_PDF_STRUCTURE_QPDF_BIN ?? env.PDFXYZ_QPDF_BIN);
+  const { binary, overridden } = cleanBinary(
+    env.PDFXYZ_PDF_STRUCTURE_QPDF_BIN ?? env.PDFXYZ_QPDF_BIN,
+  );
   const tmpDir = env.PDFXYZ_PDF_STRUCTURE_TMPDIR?.trim() || undefined;
   return {
-    enabled: parseEnabled(env.PDFXYZ_PDF_STRUCTURE ?? env.PDFXYZ_NATIVE_PDF_STRUCTURE),
+    enabled: parseEnabled(
+      env.PDFXYZ_PDF_STRUCTURE ?? env.PDFXYZ_NATIVE_PDF_STRUCTURE,
+    ),
     binary,
     overridden,
     timeoutMs: parsePositiveInt(env.PDFXYZ_PDF_STRUCTURE_TIMEOUT_MS, 30_000),
-    maxInputBytes: parsePositiveInt(env.PDFXYZ_PDF_STRUCTURE_MAX_INPUT_BYTES, 200 * 1024 * 1024),
-    maxOutputBytes: parsePositiveInt(env.PDFXYZ_PDF_STRUCTURE_MAX_OUTPUT_BYTES, 220 * 1024 * 1024),
+    maxInputBytes: parsePositiveInt(
+      env.PDFXYZ_PDF_STRUCTURE_MAX_INPUT_BYTES,
+      200 * 1024 * 1024,
+    ),
+    maxOutputBytes: parsePositiveInt(
+      env.PDFXYZ_PDF_STRUCTURE_MAX_OUTPUT_BYTES,
+      220 * 1024 * 1024,
+    ),
     ...(tmpDir ? { tmpDir } : {}),
   };
 }

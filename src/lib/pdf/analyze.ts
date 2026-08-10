@@ -44,9 +44,7 @@ export interface AnalyzeResult {
 }
 
 export type OptimizeRecommendation =
-  | "lossless-helps"
-  | "needs-worker"
-  | "already-lean";
+  "lossless-helps" | "needs-worker" | "already-lean";
 
 /** Derived, display-ready metrics + an honest recommendation. */
 export interface OptimizationSummary {
@@ -130,8 +128,13 @@ export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
 export function summarizeAnalysis(analysis: PdfAnalysis): OptimizationSummary {
   const originalBytes = Math.max(0, analysis.originalBytes);
   const imageShare =
-    originalBytes > 0 ? Math.min(1, Math.max(0, analysis.imageBytes) / originalBytes) : 0;
-  const savedBytes = Math.max(0, analysis.originalBytes - analysis.optimizedBytes);
+    originalBytes > 0
+      ? Math.min(1, Math.max(0, analysis.imageBytes) / originalBytes)
+      : 0;
+  const savedBytes = Math.max(
+    0,
+    analysis.originalBytes - analysis.optimizedBytes,
+  );
   const savedRatio = originalBytes > 0 ? savedBytes / originalBytes : 0;
 
   let recommendation: OptimizeRecommendation;

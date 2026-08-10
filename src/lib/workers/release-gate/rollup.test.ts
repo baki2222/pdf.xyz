@@ -5,7 +5,12 @@
 
 import { describe, expect, it } from "vitest";
 import { computeRollup, verdictForExit } from "./rollup";
-import { RELEASE_GATE_EXIT, type ReleaseCheckId, type ReleaseCheckOutcome, type ReleaseCheckStatus } from "./types";
+import {
+  RELEASE_GATE_EXIT,
+  type ReleaseCheckId,
+  type ReleaseCheckOutcome,
+  type ReleaseCheckStatus,
+} from "./types";
 
 let seq = 0;
 const CHECK_IDS: ReleaseCheckId[] = [
@@ -17,7 +22,10 @@ const CHECK_IDS: ReleaseCheckId[] = [
 ];
 
 /** A minimal outcome with the given status (a fresh bounded id per call). */
-function outcome(status: ReleaseCheckStatus, id: ReleaseCheckId = CHECK_IDS[seq++ % CHECK_IDS.length]!): ReleaseCheckOutcome {
+function outcome(
+  status: ReleaseCheckStatus,
+  id: ReleaseCheckId = CHECK_IDS[seq++ % CHECK_IDS.length]!,
+): ReleaseCheckOutcome {
   return {
     id,
     status,
@@ -41,7 +49,11 @@ describe("verdictForExit", () => {
 
 describe("computeRollup", () => {
   it("passes when every included check passed", () => {
-    const r = computeRollup([outcome("pass"), outcome("pass"), outcome("skip")]);
+    const r = computeRollup([
+      outcome("pass"),
+      outcome("pass"),
+      outcome("skip"),
+    ]);
     expect(r.verdict).toBe("pass");
     expect(r.exitCode).toBe(0);
     expect(r.ready).toBe(true);
@@ -52,7 +64,12 @@ describe("computeRollup", () => {
   });
 
   it("a single fail dominates the rollup", () => {
-    const r = computeRollup([outcome("pass"), outcome("warn"), outcome("unknown"), outcome("fail")]);
+    const r = computeRollup([
+      outcome("pass"),
+      outcome("warn"),
+      outcome("unknown"),
+      outcome("fail"),
+    ]);
     expect(r.verdict).toBe("fail");
     expect(r.exitCode).toBe(4);
     expect(r.worst).toBe("fail");
@@ -60,7 +77,11 @@ describe("computeRollup", () => {
   });
 
   it("warn outranks unknown on the shared ladder (unknown < warn)", () => {
-    const r = computeRollup([outcome("pass"), outcome("unknown"), outcome("warn")]);
+    const r = computeRollup([
+      outcome("pass"),
+      outcome("unknown"),
+      outcome("warn"),
+    ]);
     expect(r.verdict).toBe("warn");
     expect(r.exitCode).toBe(3);
   });
@@ -81,7 +102,11 @@ describe("computeRollup", () => {
 
   it("preserves catalog order in the blockers list", () => {
     seq = 0;
-    const checks = [outcome("fail", "deploy-examples"), outcome("pass", "worker-smoke"), outcome("warn", "worker-engines")];
+    const checks = [
+      outcome("fail", "deploy-examples"),
+      outcome("pass", "worker-smoke"),
+      outcome("warn", "worker-engines"),
+    ];
     const r = computeRollup(checks);
     expect(r.blockers).toEqual(["deploy-examples", "worker-engines"]);
   });

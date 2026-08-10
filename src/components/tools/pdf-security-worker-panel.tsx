@@ -92,7 +92,8 @@ function badgeFor(
   phase: Phase,
   status: WorkerStatus | null,
 ): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading") return { tone: "info", label: "Checking…", pulse: true };
+  if (phase === "loading")
+    return { tone: "info", label: "Checking…", pulse: true };
   if (phase === "error" || !status) {
     return { tone: "muted", label: "Status unknown", pulse: false };
   }
@@ -106,7 +107,13 @@ function badgeFor(
 
 const COPY: Record<
   Mode,
-  { icon: typeof Lock; badge: string; blurb: string; cta: string; running: string }
+  {
+    icon: typeof Lock;
+    badge: string;
+    blurb: string;
+    cta: string;
+    running: string;
+  }
 > = {
   protect: {
     icon: Lock,
@@ -155,7 +162,11 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
         if (!active) return;
         setStatus(s);
         setPhase("ready");
-        track({ name: "worker_status_checked", mode: s.mode, enabled: s.enabled });
+        track({
+          name: "worker_status_checked",
+          mode: s.mode,
+          enabled: s.enabled,
+        });
       })
       .catch(() => {
         if (active) setPhase("error");
@@ -178,7 +189,11 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
               <HeaderIcon className="size-3" aria-hidden />
               {copy.badge}
             </span>
-            <StatusBadge tone={badge.tone} label={badge.label} pulse={badge.pulse} />
+            <StatusBadge
+              tone={badge.tone}
+              label={badge.label}
+              pulse={badge.pulse}
+            />
           </div>
           <h2 className="text-lg font-semibold text-white">
             {tool.name} runs on an encrypted secure worker
@@ -190,40 +205,50 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
         {available && status ? (
           <SecurityRunArea mode={mode} localDevOnly={status.localDevOnly} />
         ) : (
-          <SecurityUnavailable phase={phase} status={status} toolName={tool.name} toolSlug={tool.slug} />
+          <SecurityUnavailable
+            phase={phase}
+            status={status}
+            toolName={tool.name}
+            toolSlug={tool.slug}
+          />
         )}
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map((stage, i, all) => (
-              <li key={stage.id} className="flex items-start gap-3">
-                <div className="flex flex-col items-center self-stretch">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
-                    <StageIcon id={stage.id} className="size-4" />
-                  </span>
-                  {i < all.length - 1 && (
-                    <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />
-                  )}
-                </div>
-                <div className="flex flex-col gap-0.5 pb-3">
-                  <span className="text-sm font-medium text-slate-200">
-                    {i + 1}. {stage.title}
-                  </span>
-                  <span className="text-xs leading-relaxed text-slate-400">
-                    {stage.description}
-                  </span>
-                </div>
-              </li>
-            ))}
+            {workerPipelineStages(status?.scan.active ?? false).map(
+              (stage, i, all) => (
+                <li key={stage.id} className="flex items-start gap-3">
+                  <div className="flex flex-col items-center self-stretch">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
+                      <StageIcon id={stage.id} className="size-4" />
+                    </span>
+                    {i < all.length - 1 && (
+                      <span
+                        className="my-1 w-px flex-1 bg-white/10"
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-0.5 pb-3">
+                    <span className="text-sm font-medium text-slate-200">
+                      {i + 1}. {stage.title}
+                    </span>
+                    <span className="text-xs leading-relaxed text-slate-400">
+                      {stage.description}
+                    </span>
+                  </div>
+                </li>
+              ),
+            )}
           </ol>
         </div>
 
         {/* Spec rows */}
-        <div className="divide-y divide-white/5 rounded-2xl border border-white/10 bg-surface-2 px-4 py-1">
+        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
           <SpecRow icon={FileUp} label="Input" value="One PDF" />
           <SpecRow icon={FileDown} label="Output" value="PDF" />
           <SpecRow
@@ -240,9 +265,9 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
 
         <p className="text-xs leading-relaxed text-slate-400">
           No account required. This runs on an isolated secure worker: files are
-          encrypted in transit and at rest, processed in a sandbox with no network
-          egress, and deleted automatically. Your password is used only to perform
-          the operation and is never stored or logged.
+          encrypted in transit and at rest, processed in a sandbox with no
+          network egress, and deleted automatically. Your password is used only
+          to perform the operation and is never stored or logged.
         </p>
       </div>
     </div>
@@ -335,7 +360,7 @@ export function PasswordField({
           spellCheck={false}
           aria-describedby={`${id}-hint`}
           className={cn(
-            "w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 pr-11 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:bg-white/[0.05]",
+            "w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 pr-11 text-sm text-slate-100 transition outline-none placeholder:text-slate-400 focus:border-violet-400/50 focus:bg-white/[0.05]",
             busy && "opacity-50",
           )}
           placeholder="••••••••"
@@ -373,14 +398,15 @@ function SecurityRunArea({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
-  const [keyLength, setKeyLength] = useState<PdfKeyLength>(DEFAULT_PDF_KEY_LENGTH);
+  const [keyLength, setKeyLength] = useState<PdfKeyLength>(
+    DEFAULT_PDF_KEY_LENGTH,
+  );
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<PdfSecurityWorkerResult | null>(null);
 
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
-  const canSubmit =
-    file !== null && password.length > 0 && !tooLong && !busy;
+  const canSubmit = file !== null && password.length > 0 && !tooLong && !busy;
 
   const start = useCallback(async () => {
     if (!file || password.length === 0 || tooLong) return;
@@ -480,7 +506,11 @@ function SecurityRunArea({
           <span className="text-xs font-medium text-slate-400">
             Encryption strength
           </span>
-          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Encryption strength">
+          <div
+            className="flex flex-wrap gap-1.5"
+            role="radiogroup"
+            aria-label="Encryption strength"
+          >
             {PDF_ENCRYPTION_LEVELS.map((level) => {
               const active = keyLength === level.keyLength;
               return (
@@ -511,7 +541,10 @@ function SecurityRunArea({
             })}
           </div>
           <p className="text-xs leading-relaxed text-slate-400">
-            {PDF_ENCRYPTION_LEVELS.find((l) => l.keyLength === keyLength)?.description}
+            {
+              PDF_ENCRYPTION_LEVELS.find((l) => l.keyLength === keyLength)
+                ?.description
+            }
           </p>
         </div>
       )}
@@ -530,7 +563,13 @@ function SecurityRunArea({
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
 
       {outcome?.ok === true && (
-        <ResultCard announce={mode === "protect" ? "Your PDF is protected and ready." : "Your PDF is unlocked and ready."}>
+        <ResultCard
+          announce={
+            mode === "protect"
+              ? "Your PDF is protected and ready."
+              : "Your PDF is unlocked and ready."
+          }
+        >
           <p className="text-sm text-emerald-200">
             {mode === "protect"
               ? "Your PDF is protected and ready."

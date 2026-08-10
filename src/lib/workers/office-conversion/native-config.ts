@@ -26,22 +26,41 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isSafeInteger(n) && n > 0 ? n : fallback;
 }
 
-function candidates(value: string | undefined): { candidates: string[]; overridden: boolean } {
+function candidates(value: string | undefined): {
+  candidates: string[];
+  overridden: boolean;
+} {
   const trimmed = value?.trim();
-  if (!trimmed) return { candidates: [...DEFAULT_CANDIDATES], overridden: false };
+  if (!trimmed)
+    return { candidates: [...DEFAULT_CANDIDATES], overridden: false };
   return { candidates: [trimmed], overridden: trimmed.startsWith("/") };
 }
 
-export function resolveNativeOfficeConversionConfig(env: Record<string, string | undefined> = process.env): NativeOfficeConversionConfig {
-  const resolved = candidates(env.PDFXYZ_OFFICE_CONVERSION_BIN ?? env.PDFXYZ_LIBREOFFICE_BIN);
+export function resolveNativeOfficeConversionConfig(
+  env: Record<string, string | undefined> = process.env,
+): NativeOfficeConversionConfig {
+  const resolved = candidates(
+    env.PDFXYZ_OFFICE_CONVERSION_BIN ?? env.PDFXYZ_LIBREOFFICE_BIN,
+  );
   const tmpDir = env.PDFXYZ_OFFICE_CONVERSION_TMPDIR?.trim() || undefined;
   return {
-    enabled: parseEnabled(env.PDFXYZ_OFFICE_CONVERSION ?? env.PDFXYZ_NATIVE_OFFICE_CONVERSION),
+    enabled: parseEnabled(
+      env.PDFXYZ_OFFICE_CONVERSION ?? env.PDFXYZ_NATIVE_OFFICE_CONVERSION,
+    ),
     candidates: resolved.candidates,
     overridden: resolved.overridden,
-    timeoutMs: parsePositiveInt(env.PDFXYZ_OFFICE_CONVERSION_TIMEOUT_MS, 120_000),
-    maxInputBytes: parsePositiveInt(env.PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES, 50 * 1024 * 1024),
-    maxOutputBytes: parsePositiveInt(env.PDFXYZ_OFFICE_CONVERSION_MAX_OUTPUT_BYTES, 100 * 1024 * 1024),
+    timeoutMs: parsePositiveInt(
+      env.PDFXYZ_OFFICE_CONVERSION_TIMEOUT_MS,
+      120_000,
+    ),
+    maxInputBytes: parsePositiveInt(
+      env.PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES,
+      50 * 1024 * 1024,
+    ),
+    maxOutputBytes: parsePositiveInt(
+      env.PDFXYZ_OFFICE_CONVERSION_MAX_OUTPUT_BYTES,
+      100 * 1024 * 1024,
+    ),
     ...(tmpDir ? { tmpDir } : {}),
   };
 }

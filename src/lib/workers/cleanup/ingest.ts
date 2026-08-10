@@ -20,7 +20,11 @@
  *    becoming a DoS.
  */
 
-import { CLEANUP_PRESENCE, type CleanupObjectEvidence, type CleanupPresence } from "./types";
+import {
+  CLEANUP_PRESENCE,
+  type CleanupObjectEvidence,
+  type CleanupPresence,
+} from "./types";
 import type { ArtifactLifecycleMetadata } from "../artifacts/lifecycle";
 
 /** The schema tag the evidence document may carry (optional; never required). */
@@ -58,7 +62,8 @@ function isEpochMs(value: unknown): value is number {
 
 /** Recognize a bounded presence enum value. */
 function asPresence(value: unknown): CleanupPresence | null {
-  return typeof value === "string" && (CLEANUP_PRESENCE as readonly string[]).includes(value)
+  return typeof value === "string" &&
+    (CLEANUP_PRESENCE as readonly string[]).includes(value)
     ? (value as CleanupPresence)
     : null;
 }
@@ -134,7 +139,8 @@ export function parseCleanupEvidence(text: string): ParseCleanupEvidenceResult {
   } else {
     const obj = asRecord(parsed);
     if (!obj) return { ok: false, issues: ["not-an-object"] };
-    if (!Array.isArray(obj.objects)) return { ok: false, issues: ["no-objects"] };
+    if (!Array.isArray(obj.objects))
+      return { ok: false, issues: ["no-objects"] };
     rawObjects = obj.objects;
   }
 

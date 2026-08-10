@@ -6,12 +6,7 @@
  * including the tricky cancel-mid-flight case — unit-testable.
  */
 
-import type {
-  BatchItem,
-  BatchProgress,
-  BatchSeed,
-  BatchState,
-} from "./types";
+import type { BatchItem, BatchProgress, BatchSeed, BatchState } from "./types";
 
 export type BatchEvent<R> =
   /** Begin processing (only meaningful from `idle` with queued items). */
@@ -31,7 +26,11 @@ export type BatchEvent<R> =
 export function initBatch<R>(items: BatchSeed[]): BatchState<R> {
   return {
     phase: "idle",
-    items: items.map((seed) => ({ id: seed.id, name: seed.name, status: "queued" })),
+    items: items.map((seed) => ({
+      id: seed.id,
+      name: seed.name,
+      status: "queued",
+    })),
   };
 }
 
@@ -52,7 +51,9 @@ function mapItem<R>(
 
 /** True when no item is still queued or running. */
 function allSettled<R>(items: BatchItem<R>[]): boolean {
-  return items.every((item) => item.status !== "queued" && item.status !== "running");
+  return items.every(
+    (item) => item.status !== "queued" && item.status !== "running",
+  );
 }
 
 export function batchReducer<R>(
@@ -105,7 +106,9 @@ export function batchReducer<R>(
       // Queued items never ran → canceled. A running item is left alone so its
       // in-flight result can still be recorded; the phase is canceled regardless.
       const items = state.items.map((item) =>
-        item.status === "queued" ? { ...item, status: "canceled" as const } : item,
+        item.status === "queued"
+          ? { ...item, status: "canceled" as const }
+          : item,
       );
       return { phase: "canceled", items };
     }

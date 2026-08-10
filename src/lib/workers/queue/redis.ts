@@ -139,7 +139,8 @@ export function createRedisQueue(
 
   const iso = (ms: number): string => new Date(ms).toISOString();
   const ttl = String(config.jobTtlSeconds);
-  const k = (...parts: string[]): string => [config.keyPrefix, ...parts].join(":");
+  const k = (...parts: string[]): string =>
+    [config.keyPrefix, ...parts].join(":");
   // Hash the client idempotency key so the raw value never becomes a broker key.
   const idemKey = (key: string): string =>
     k("idem", createHash("sha256").update(key).digest("hex"));
@@ -247,7 +248,11 @@ export function createRedisQueue(
    * fingerprint). The finalize is guarded on the job still being non-terminal, so a
    * job canceled in the race is left canceled rather than force-failed.
    */
-  const terminalFail = async (jobId: string, job: Job, message: string): Promise<void> => {
+  const terminalFail = async (
+    jobId: string,
+    job: Job,
+    message: string,
+  ): Promise<void> => {
     const failed: Job = {
       ...job,
       status: "failed",
@@ -291,7 +296,9 @@ export function createRedisQueue(
         putJob(job),
         putSpec(job.jobId, {
           inputs: submission.inputs,
-          ...(submission.inputNames ? { inputNames: submission.inputNames } : {}),
+          ...(submission.inputNames
+            ? { inputNames: submission.inputNames }
+            : {}),
           options: submission.options,
         }),
       ];
@@ -353,11 +360,12 @@ export function createRedisQueue(
         // must carry forward so the dead-letter cap can eventually stop it. The
         // requeue is a CAS on the job still being actively leased, so a job
         // canceled/completed in this window is never resurrected onto the ready list.
-        const outcome = await runTransition(client, "redeliver", keysFor(entry), [
-          JSON.stringify(requeued),
-          ttl,
-          entry,
-        ]);
+        const outcome = await runTransition(
+          client,
+          "redeliver",
+          keysFor(entry),
+          [JSON.stringify(requeued), ttl, entry],
+        );
         if (outcome === "unavailable") return UNAVAILABLE();
         // invalid_state/missing_job: the job changed under us (already terminal);
         // the ZREM above removed it from `active`, so there is nothing more to do.
@@ -366,7 +374,8 @@ export function createRedisQueue(
       // 2. Claim the oldest queued job. RPOP is the atomic dequeue.
       const pop = await client.command(["RPOP", k("ready")]);
       if (!pop.ok) return UNAVAILABLE();
-      if (typeof pop.value !== "string") return queueOk<ClaimedJob | null>(null);
+      if (typeof pop.value !== "string")
+        return queueOk<ClaimedJob | null>(null);
       const jobId = pop.value;
 
       const jobRes = await loadJob(jobId);
@@ -406,17 +415,26 @@ export function createRedisQueue(
       }
 
       const leaseExpiresAt = nowMs + effectiveLeaseMs;
-      const claimed: Job = { ...job, status: "scanning", updatedAt: iso(nowMs) };
+      const claimed: Job = {
+        ...job,
+        status: "scanning",
+        updatedAt: iso(nowMs),
+      };
       // Commit the claim atomically: the id must STILL be `queued` (no cancel
       // slipped in between RPOP and here), then job+lease+active are written as one.
       const lease: RedisLease = { leaseExpiresAt, attempts: attempt };
-      const outcome = await runTransition(client, "claimCommit", keysFor(jobId), [
-        JSON.stringify(claimed),
-        ttl,
-        JSON.stringify(lease),
-        String(leaseExpiresAt),
-        jobId,
-      ]);
+      const outcome = await runTransition(
+        client,
+        "claimCommit",
+        keysFor(jobId),
+        [
+          JSON.stringify(claimed),
+          ttl,
+          JSON.stringify(lease),
+          String(leaseExpiresAt),
+          jobId,
+        ],
+      );
       if (outcome === "unavailable") return UNAVAILABLE();
       if (outcome !== "applied") {
         // Canceled/changed in the race window: the racing writer won and the job is
@@ -501,7 +519,10 @@ export function createRedisQueue(
       if (!jobRes.ok) return jobRes;
       const job = jobRes.value;
       if (!canTransition(job.status, "completed")) {
-        return queueFail("conflict", `A ${job.status} job cannot be completed.`);
+        return queueFail(
+          "conflict",
+          `A ${job.status} job cannot be completed.`,
+        );
       }
       // Re-bound the structured result metadata before it is serialized into the
       // durable job record, so the broker persists only a schema-stable, safe value
@@ -522,17 +543,29 @@ export function createRedisQueue(
         statusCsv(sourceStatusesFor("completed")),
         jobId,
       ]);
-      return applyOutcome(outcome, next, `A ${job.status} job cannot be completed.`);
+      return applyOutcome(
+        outcome,
+        next,
+        `A ${job.status} job cannot be completed.`,
+      );
     },
 
-    async fail(jobId, error: JobError, disposition: FailDisposition, expectedAttempt) {
+    async fail(
+      jobId,
+      error: JobError,
+      disposition: FailDisposition,
+      expectedAttempt,
+    ) {
       const jobRes = await loadJob(jobId);
       if (!jobRes.ok) return jobRes;
       const job = jobRes.value;
 
       if (disposition.requeue) {
         if (!canTransition(job.status, "queued")) {
-          return queueFail("conflict", `A ${job.status} job cannot be requeued.`);
+          return queueFail(
+            "conflict",
+            `A ${job.status} job cannot be requeued.`,
+          );
         }
         const requeued: Job = {
           ...job,
@@ -573,7 +606,11 @@ export function createRedisQueue(
         statusCsv(sourceStatusesFor("failed")),
         jobId,
       ]);
-      return applyOutcome(outcome, failed, `A ${job.status} job cannot be failed.`);
+      return applyOutcome(
+        outcome,
+        failed,
+        `A ${job.status} job cannot be failed.`,
+      );
     },
 
     async cancel(jobId) {

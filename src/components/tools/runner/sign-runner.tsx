@@ -109,7 +109,9 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result, signatureOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result, signatureOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -222,10 +224,10 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           aria-hidden
         />
         <span>
-          Electronic signature — this places a visual signature onto your PDF. It
-          is not a digital-certificate or cryptographic signature: it uses no PKI
-          and is not tamper-evident. For legally-binding, verifiable e-signatures
-          use a certificate-based signing service.
+          Electronic signature — this places a visual signature onto your PDF.
+          It is not a digital-certificate or cryptographic signature: it uses no
+          PKI and is not tamper-evident. For legally-binding, verifiable
+          e-signatures use a certificate-based signing service.
         </span>
       </div>
 
@@ -251,7 +253,13 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 }
 
 /** Live preview of a typed signature in the chosen face. */
-function TypedPreview({ text, style }: { text: string; style: SignatureStyle }) {
+function TypedPreview({
+  text,
+  style,
+}: {
+  text: string;
+  style: SignatureStyle;
+}) {
   const trimmed = text.trim();
   return (
     <div className="flex min-h-16 items-center justify-center rounded-2xl border border-white/10 bg-white px-6 py-4">

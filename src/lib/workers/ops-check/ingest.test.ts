@@ -16,17 +16,25 @@ import {
 import { collectWebOperationsSnapshot } from "../observability/snapshot";
 import { engineCapabilityMetric } from "../observability/metrics";
 
-const HOSTILE_LOCATOR_FIXTURE = "s3://leaky-bucket/customer-tax-return.pdf?sig=deadbeef";
+const HOSTILE_LOCATOR_FIXTURE =
+  "s3://leaky-bucket/customer-tax-return.pdf?sig=deadbeef";
 
 /** A minimal, valid operations snapshot object (as JSON would deserialize it). */
-function validSnapshot(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function validSnapshot(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     version: 1,
     vantage: "worker",
     mode: "remote-configured",
     drainable: true,
     daemonObserved: true,
-    daemon: { state: "observed", source: "queue-broker", lastSeen: "under-30s", mode: "loop" },
+    daemon: {
+      state: "observed",
+      source: "queue-broker",
+      lastSeen: "under-30s",
+      mode: "loop",
+    },
     health: "ok",
     recommendedAction: "none",
     subsystems: [
@@ -59,7 +67,10 @@ describe("normalizeOperationsSnapshot — valid input", () => {
       "cleanup-evidence",
       "rate-limit",
     ]);
-    expect(r.snapshot.proofs).toEqual({ compressionDeep: "available", ocr: "unavailable" });
+    expect(r.snapshot.proofs).toEqual({
+      compressionDeep: "available",
+      ocr: "unavailable",
+    });
     expect(r.snapshot.version).toBe(2);
   });
 
@@ -93,7 +104,12 @@ describe("normalizeOperationsSnapshot — valid input", () => {
     const r = normalizeOperationsSnapshot(
       validSnapshot({
         vantage: "not-a-vantage",
-        daemon: { state: "disabled", source: "not-a-source", lastSeen: "eons", mode: "nope" },
+        daemon: {
+          state: "disabled",
+          source: "not-a-source",
+          lastSeen: "eons",
+          mode: "nope",
+        },
         proofs: { compressionDeep: "totally", ocr: "unavailable" },
         subsystems: [
           { id: "storage", health: "warn" },
@@ -143,7 +159,9 @@ describe("normalizeOperationsSnapshot — valid input", () => {
     }
 
     const bad = normalizeOperationsSnapshot(
-      validSnapshot({ lastLoop: { mode: "not-a-mode", reason: "drained", health: "ok" } }),
+      validSnapshot({
+        lastLoop: { mode: "not-a-mode", reason: "drained", health: "ok" },
+      }),
     );
     expect(bad.ok).toBe(true);
     if (bad.ok) expect(bad.snapshot.lastLoop).toBeNull();
@@ -169,7 +187,10 @@ describe("normalizeOperationsSnapshot — fatal input", () => {
 
   it("rejects out-of-enum load-bearing values", () => {
     const r = normalizeOperationsSnapshot(
-      validSnapshot({ health: "green", recommendedAction: "reboot-everything" }),
+      validSnapshot({
+        health: "green",
+        recommendedAction: "reboot-everything",
+      }),
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -186,7 +207,9 @@ describe("parseIngestedOperations — envelopes + text", () => {
   });
 
   it("unwraps the GET /api/worker/operations envelope ({ data })", () => {
-    const r = parseIngestedOperations(JSON.stringify({ ok: true, data: validSnapshot() }));
+    const r = parseIngestedOperations(
+      JSON.stringify({ ok: true, data: validSnapshot() }),
+    );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.snapshot.health).toBe("ok");
   });
@@ -237,7 +260,14 @@ describe("normalizeMetrics — sanitization", () => {
 
   it("drops a content-bearing label value rather than aggregating it", () => {
     const snap = normalizeMetrics({
-      series: [{ metric: "worker_engine_capability", kind: "gauge", labels: { capability: HOSTILE_LOCATOR_FIXTURE, available: "true" }, value: 1 }],
+      series: [
+        {
+          metric: "worker_engine_capability",
+          kind: "gauge",
+          labels: { capability: HOSTILE_LOCATOR_FIXTURE, available: "true" },
+          value: 1,
+        },
+      ],
     });
     // The label value is not in the closed enum, so the sample is rejected entirely.
     expect(snap).toBeNull();
@@ -258,10 +288,24 @@ describe("no-leak sanitization — end to end", () => {
         detail: HOSTILE_LOCATOR_FIXTURE,
       },
       subsystems: [
-        { id: "storage", health: "warn", label: HOSTILE_LOCATOR_FIXTURE, detail: HOSTILE_LOCATOR_FIXTURE },
-        { id: "malware-scan", health: "warn", label: HOSTILE_LOCATOR_FIXTURE, detail: HOSTILE_LOCATOR_FIXTURE },
+        {
+          id: "storage",
+          health: "warn",
+          label: HOSTILE_LOCATOR_FIXTURE,
+          detail: HOSTILE_LOCATOR_FIXTURE,
+        },
+        {
+          id: "malware-scan",
+          health: "warn",
+          label: HOSTILE_LOCATOR_FIXTURE,
+          detail: HOSTILE_LOCATOR_FIXTURE,
+        },
       ],
-      lifecycleVerification: { verdict: "drift", health: "warn", detail: HOSTILE_LOCATOR_FIXTURE },
+      lifecycleVerification: {
+        verdict: "drift",
+        health: "warn",
+        detail: HOSTILE_LOCATOR_FIXTURE,
+      },
       // A hostile extra field that must simply be ignored.
       hostileExtra: HOSTILE_LOCATOR_FIXTURE,
     });
@@ -299,22 +343,35 @@ describe("normalizeOperationsSnapshot — cleanup evidence (Phase 44)", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.snapshot.cleanupEvidence.state).toBe("disabled");
-    expect(r.snapshot.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("unknown");
+    expect(
+      r.snapshot.subsystems.find((s) => s.id === "cleanup-evidence")?.health,
+    ).toBe("unknown");
   });
 
   it("rebuilds a supplied posture and derives the subsystem health from state", () => {
-    const r = normalizeOperationsSnapshot(validSnapshot({ cleanupEvidence: cleanup() }));
+    const r = normalizeOperationsSnapshot(
+      validSnapshot({ cleanupEvidence: cleanup() }),
+    );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.snapshot.cleanupEvidence.state).toBe("warning");
     expect(r.snapshot.cleanupEvidence.reason).toBe("cleanup_drift");
-    expect(r.snapshot.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("warn");
+    expect(
+      r.snapshot.subsystems.find((s) => s.id === "cleanup-evidence")?.health,
+    ).toBe("warn");
   });
 
   it("re-authors the detail and drops a hostile provider / echoed field", () => {
     const HOSTILE = "s3://leaky-bucket/secret.pdf";
     const r = normalizeOperationsSnapshot(
-      validSnapshot({ cleanupEvidence: cleanup({ provider: HOSTILE, detail: HOSTILE, state: "critical", reason: "cleanup_breach" }) }),
+      validSnapshot({
+        cleanupEvidence: cleanup({
+          provider: HOSTILE,
+          detail: HOSTILE,
+          state: "critical",
+          reason: "cleanup_breach",
+        }),
+      }),
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -327,12 +384,17 @@ describe("normalizeOperationsSnapshot — cleanup evidence (Phase 44)", () => {
     const r = normalizeOperationsSnapshot(
       validSnapshot({
         subsystems: [{ id: "cleanup-evidence", health: "ok" }],
-        cleanupEvidence: cleanup({ state: "critical", reason: "cleanup_breach" }),
+        cleanupEvidence: cleanup({
+          state: "critical",
+          reason: "cleanup_breach",
+        }),
       }),
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const subs = r.snapshot.subsystems.filter((s) => s.id === "cleanup-evidence");
+    const subs = r.snapshot.subsystems.filter(
+      (s) => s.id === "cleanup-evidence",
+    );
     expect(subs).toHaveLength(1);
     expect(subs[0]?.health).toBe("blocked");
   });
@@ -344,7 +406,9 @@ describe("normalizeOperationsSnapshot — abuse-guard rate limit", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.snapshot.rateLimit.code).toBe("unknown");
-    expect(r.snapshot.subsystems.find((s) => s.id === "rate-limit")?.health).toBe("unknown");
+    expect(
+      r.snapshot.subsystems.find((s) => s.id === "rate-limit")?.health,
+    ).toBe("unknown");
   });
 
   it("rebuilds a supplied posture from its code and derives the subsystem health", () => {
@@ -356,13 +420,19 @@ describe("normalizeOperationsSnapshot — abuse-guard rate limit", () => {
     expect(r.snapshot.rateLimit.code).toBe("remote-error-fail-open");
     expect(r.snapshot.rateLimit.enforced).toBe(false);
     expect(r.snapshot.rateLimit.distributed).toBe(true);
-    expect(r.snapshot.subsystems.find((s) => s.id === "rate-limit")?.health).toBe("warn");
+    expect(
+      r.snapshot.subsystems.find((s) => s.id === "rate-limit")?.health,
+    ).toBe("warn");
   });
 
   it("recomputes enforced/distributed from the code — a forged enforced:true cannot survive", () => {
     const r = normalizeOperationsSnapshot(
       validSnapshot({
-        rateLimit: { code: "remote-error-fail-open", enforced: true, distributed: false },
+        rateLimit: {
+          code: "remote-error-fail-open",
+          enforced: true,
+          distributed: false,
+        },
       }),
     );
     expect(r.ok).toBe(true);
@@ -374,7 +444,10 @@ describe("normalizeOperationsSnapshot — abuse-guard rate limit", () => {
   it("re-authors the detail — a hostile string in the posture is never echoed", () => {
     const r = normalizeOperationsSnapshot(
       validSnapshot({
-        rateLimit: { code: "remote-missing-config", detail: HOSTILE_LOCATOR_FIXTURE },
+        rateLimit: {
+          code: "remote-missing-config",
+          detail: HOSTILE_LOCATOR_FIXTURE,
+        },
       }),
     );
     expect(r.ok).toBe(true);

@@ -117,7 +117,13 @@ describe("normalizeSnapshot", () => {
         "not-an-object",
       ],
       lifecycleVerification: { verdict: "sideways", health: "nope" },
-      lastLoop: { mode: "warp", reason: "boom", ticks: -3, failed: 2.9, errors: "x" },
+      lastLoop: {
+        mode: "warp",
+        reason: "boom",
+        ticks: -3,
+        failed: 2.9,
+        errors: "x",
+      },
     });
     expect(v.vantage).toBe("web");
     expect(v.mode).toBeNull();
@@ -127,7 +133,10 @@ describe("normalizeSnapshot", () => {
     expect(v.daemonObserved).toBe(false);
     expect(v.proofs).toEqual({ compressionDeep: "unknown", ocr: "available" });
     expect(v.subsystems).toEqual([{ id: "storage", health: "ok" }]); // first wins, unknowns dropped
-    expect(v.lifecycleVerification).toEqual({ verdict: "unknown", health: "unknown" });
+    expect(v.lifecycleVerification).toEqual({
+      verdict: "unknown",
+      health: "unknown",
+    });
     expect(v.lastLoop).toEqual({
       mode: null,
       reason: null,
@@ -145,7 +154,9 @@ describe("normalizeSnapshot", () => {
 
 describe("OperationsSnapshotView — honest end-to-end states", () => {
   it("renders the no-config web snapshot: blocked, configure-providers, daemon caveat", () => {
-    render(<OperationsSnapshotView snapshot={collectWebOperationsSnapshot({})} />);
+    render(
+      <OperationsSnapshotView snapshot={collectWebOperationsSnapshot({})} />,
+    );
 
     // Overall health + the single recommended action.
     expect(screen.getAllByText("Blocked").length).toBeGreaterThanOrEqual(1);
@@ -166,14 +177,20 @@ describe("OperationsSnapshotView — honest end-to-end states", () => {
     expect(screen.getByText("Drainability")).toBeInTheDocument();
     expect(screen.getByText("Deployment guardrails")).toBeInTheDocument();
     // Web-vantage engine proofs are honestly unknown.
-    expect(screen.getAllByText("Unknown from here").length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getAllByText("Unknown from here").length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("renders the drainable-but-lifecycle-missing snapshot: declare-lifecycle", () => {
     render(
-      <OperationsSnapshotView snapshot={collectWebOperationsSnapshot(DRAINABLE_ENV)} />,
+      <OperationsSnapshotView
+        snapshot={collectWebOperationsSnapshot(DRAINABLE_ENV)}
+      />,
     );
-    expect(screen.getByText("Declare a retention backstop")).toBeInTheDocument();
+    expect(
+      screen.getByText("Declare a retention backstop"),
+    ).toBeInTheDocument();
     // Drainable does NOT imply an observed worker — the caveat still shows.
     expect(
       screen.getByText(/can.?t see a running worker/i),
@@ -208,12 +225,16 @@ describe("OperationsSnapshotView — honest end-to-end states", () => {
         distributed: true,
         detail: "server-detail-should-not-render",
       },
-      subsystems: [{ id: "rate-limit", label: "x", health: "warn", detail: "x" }],
+      subsystems: [
+        { id: "rate-limit", label: "x", health: "warn", detail: "x" },
+      ],
     });
     // Attach the alert report exactly as the route does, so the posture callout —
     // the surface a monitor's verdict is rendered on — is exercised end to end.
     const body = { ...snap, alerts: evaluateOperationsAlerts(snap) };
-    render(<OperationsSnapshotView snapshot={body as WorkerOperationsSnapshot} />);
+    render(
+      <OperationsSnapshotView snapshot={body as WorkerOperationsSnapshot} />,
+    );
 
     // The subsystem tile renders (this pins SUBSYSTEM_ORDER, which no type forces)…
     expect(screen.getByText("Rate limiting")).toBeInTheDocument();
@@ -233,7 +254,9 @@ describe("OperationsSnapshotView — honest end-to-end states", () => {
     expect(
       screen.queryByText(/Everything observable from this vantage is healthy/),
     ).toBeNull();
-    expect(screen.getByText("Start with the alert posture above")).toBeInTheDocument();
+    expect(
+      screen.getByText("Start with the alert posture above"),
+    ).toBeInTheDocument();
   });
 
   it("renders a lifecycle-drift snapshot: reconcile action + drift verdict", () => {
@@ -280,12 +303,12 @@ describe("OperationsSnapshotView — honest end-to-end states", () => {
         })}
       />,
     );
-    expect(screen.getByText("Investigate worker loop errors")).toBeInTheDocument();
+    expect(
+      screen.getByText("Investigate worker loop errors"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Last worker loop")).toBeInTheDocument();
     // On the worker vantage the caveat flips to the positive, observed message.
-    expect(
-      screen.getAllByText("Fresh heartbeat")[0],
-    ).toBeInTheDocument();
+    expect(screen.getAllByText("Fresh heartbeat")[0]).toBeInTheDocument();
     // Bounded integer counters render (Failed=1, Errors=2).
     expect(screen.getByText("Errors")).toBeInTheDocument();
     expect(screen.getByText("Ticks")).toBeInTheDocument();
@@ -329,11 +352,15 @@ describe("OperationsSnapshotView — healthy / unknown / disabled states", () =>
       screen.getByText("Worker health is unknown from this vantage."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Unknown").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Review the worker configuration")).toBeInTheDocument();
+    expect(
+      screen.getByText("Review the worker configuration"),
+    ).toBeInTheDocument();
   });
 
   it("surfaces the disabled worker mode as a content-free fact (no-config)", () => {
-    render(<OperationsSnapshotView snapshot={collectWebOperationsSnapshot({})} />);
+    render(
+      <OperationsSnapshotView snapshot={collectWebOperationsSnapshot({})} />,
+    );
     // No-config resolves to `disabled` mode; the health card shows it as a bounded fact.
     expect(screen.getByText("Disabled")).toBeInTheDocument();
   });
@@ -386,7 +413,8 @@ describe("OperationsSnapshotView — privacy", () => {
       detail:
         "https://evil.example.com:6379/leak?X-Amz-Signature=deadbeefcafe s3://secret-bucket/object-key invoice.pdf RECOGNIZED_OCR_SENTINEL",
       recommendedAction: "configure-providers",
-      recommendedActionDetail: "TOKEN_SECRET_VALUE /etc/passwd /tmp/leak-me.pdf",
+      recommendedActionDetail:
+        "TOKEN_SECRET_VALUE /etc/passwd /tmp/leak-me.pdf",
       subsystems: [
         {
           id: "storage",
@@ -420,7 +448,9 @@ describe("OperationsSnapshotView — privacy", () => {
     }
 
     // It still renders honest, client-authored copy for the recognized enums.
-    expect(screen.getByText("Configure the queue and storage")).toBeInTheDocument();
+    expect(
+      screen.getByText("Configure the queue and storage"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Object storage")).toBeInTheDocument();
     // The unknown subsystem id is dropped entirely.
     expect(within(container).queryByText("EVILLABEL")).toBeNull();
@@ -529,7 +559,9 @@ describe("OperationsSnapshotView — daemon liveness (Phase 30)", () => {
       expect(text).not.toContain(forbidden);
     }
     // An unrecognized state coerces to the honest disabled caveat.
-    expect(screen.getByText(/can.?t see a running worker/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/can.?t see a running worker/i),
+    ).toBeInTheDocument();
   });
 });
 
@@ -548,7 +580,11 @@ describe("OperationsSnapshotView — cleanup evidence card (Phase 44)", () => {
   });
 
   it("renders the verified state with bounded fact pills", () => {
-    render(<OperationsSnapshotView snapshot={makeSnapshot({ cleanupEvidence: cleanup() })} />);
+    render(
+      <OperationsSnapshotView
+        snapshot={makeSnapshot({ cleanupEvidence: cleanup() })}
+      />,
+    );
     expect(screen.getByText("Cleanup evidence")).toBeInTheDocument();
     expect(screen.getByText("Absence verifier")).toBeInTheDocument();
     expect(screen.getByText("Object storage")).toBeInTheDocument();
@@ -564,7 +600,11 @@ describe("OperationsSnapshotView — cleanup evidence card (Phase 44)", () => {
     render(
       <OperationsSnapshotView
         snapshot={makeSnapshot({
-          cleanupEvidence: cleanup({ state: "critical", reason: "cleanup_breach", detail: "s3://leaky/secret.pdf" }),
+          cleanupEvidence: cleanup({
+            state: "critical",
+            reason: "cleanup_breach",
+            detail: "s3://leaky/secret.pdf",
+          }),
         })}
       />,
     );

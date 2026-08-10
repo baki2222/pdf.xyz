@@ -44,17 +44,17 @@ describe("resolveSoundnessPolicy — defaults", () => {
 describe("resolveSoundnessPolicy — overrides", () => {
   it("disables the whole gate on a recognized OFF token", () => {
     for (const off of ["off", "false", "0", "disabled", "no", "none"]) {
-      expect(resolveSoundnessPolicy({ [SOUNDNESS_ENV.enabled]: off }).enabled).toBe(
-        false,
-      );
+      expect(
+        resolveSoundnessPolicy({ [SOUNDNESS_ENV.enabled]: off }).enabled,
+      ).toBe(false);
     }
   });
 
   it("keeps the gate enabled on a recognized ON token", () => {
     for (const on of ["on", "true", "1", "yes", "enabled"]) {
-      expect(resolveSoundnessPolicy({ [SOUNDNESS_ENV.enabled]: on }).enabled).toBe(
-        true,
-      );
+      expect(
+        resolveSoundnessPolicy({ [SOUNDNESS_ENV.enabled]: on }).enabled,
+      ).toBe(true);
     }
   });
 
@@ -90,7 +90,9 @@ describe("resolveSoundnessPolicy — strict, fail-safe parsing", () => {
     });
     expect(bad.maxBytes).toBe(DEFAULT_SOUNDNESS_POLICY.maxBytes);
     expect(bad.headerScanBytes).toBe(DEFAULT_SOUNDNESS_POLICY.headerScanBytes);
-    expect(bad.trailerScanBytes).toBe(DEFAULT_SOUNDNESS_POLICY.trailerScanBytes);
+    expect(bad.trailerScanBytes).toBe(
+      DEFAULT_SOUNDNESS_POLICY.trailerScanBytes,
+    );
   });
 
   it("keeps an unrecognized boolean token at its per-flag default (no silent flip)", () => {
@@ -112,9 +114,9 @@ describe("resolveSoundnessPolicy — strict, fail-safe parsing", () => {
   });
 
   it("accepts a zero max-bytes (the disabled sentinel)", () => {
-    expect(resolveSoundnessPolicy({ [SOUNDNESS_ENV.maxBytes]: "0" }).maxBytes).toBe(
-      0,
-    );
+    expect(
+      resolveSoundnessPolicy({ [SOUNDNESS_ENV.maxBytes]: "0" }).maxBytes,
+    ).toBe(0);
   });
 });
 
@@ -160,4 +162,3 @@ describe("inputExpectedAsPdf", () => {
     expect(inputExpectedAsPdf(new Set(), null)).toBe(false);
   });
 });
-

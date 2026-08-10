@@ -65,7 +65,10 @@ describe("not-configured storage provider (remote-unimplemented)", () => {
 describe("local-dev storage provider", () => {
   const make = () => {
     const store = new DevWorkerStore(() => 1_000);
-    return { store, provider: createLocalDevStorage({ store, now: () => 1_000 }) };
+    return {
+      store,
+      provider: createLocalDevStorage({ store, now: () => 1_000 }),
+    };
   };
 
   it("is ready and advertises every capability", () => {
@@ -142,14 +145,18 @@ describe("local-dev storage provider", () => {
 
 describe("mapStorageFailure", () => {
   it("maps each reason to the right HTTP status and code", () => {
-    expect(mapStorageFailure({ reason: "not_configured", message: "" })).toMatchObject({
+    expect(
+      mapStorageFailure({ reason: "not_configured", message: "" }),
+    ).toMatchObject({
       status: 503,
       body: { error: { code: "worker_not_configured" } },
     });
-    expect(mapStorageFailure({ reason: "not_implemented", message: "" }).status).toBe(
-      501,
-    );
-    expect(mapStorageFailure({ reason: "not_found", message: "gone" })).toMatchObject({
+    expect(
+      mapStorageFailure({ reason: "not_implemented", message: "" }).status,
+    ).toBe(501);
+    expect(
+      mapStorageFailure({ reason: "not_found", message: "gone" }),
+    ).toMatchObject({
       status: 404,
       body: { error: { code: "not_found" } },
     });

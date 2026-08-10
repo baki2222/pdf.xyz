@@ -16,7 +16,12 @@ const DIR = join(process.cwd(), "docs", "examples", "observability");
 const read = (f: string): string => readFileSync(join(DIR, f), "utf8");
 const readJson = (f: string): unknown => JSON.parse(read(f));
 
-const FILES = ["dashboard.json", "alerts.json", "alerts.prometheus.yml", "README.md"];
+const FILES = [
+  "dashboard.json",
+  "alerts.json",
+  "alerts.prometheus.yml",
+  "README.md",
+];
 
 const FORBIDDEN = [
   "amazonaws",
@@ -61,8 +66,14 @@ describe("dashboard.json references only schema metrics + labels", () => {
         expect(METRIC_NAMES, `unknown metric ${s.metric}`).toContain(s.metric);
         const schema = METRIC_SCHEMA[s.metric as WorkerMetricName];
         for (const [k, v] of Object.entries(s.labels ?? {})) {
-          expect(schema.labels[k], `${s.metric} has no label ${k}`).toBeDefined();
-          expect(schema.labels[k], `${s.metric}.${k}=${v} not allowed`).toContain(v);
+          expect(
+            schema.labels[k],
+            `${s.metric} has no label ${k}`,
+          ).toBeDefined();
+          expect(
+            schema.labels[k],
+            `${s.metric}.${k}=${v} not allowed`,
+          ).toContain(v);
         }
       }
     }
@@ -70,7 +81,8 @@ describe("dashboard.json references only schema metrics + labels", () => {
 
   it("every panel SLO reference is a known SLO id", () => {
     for (const panel of dashboard.panels) {
-      if (panel.slo) expect(SLO_IDS, `unknown slo ${panel.slo}`).toContain(panel.slo);
+      if (panel.slo)
+        expect(SLO_IDS, `unknown slo ${panel.slo}`).toContain(panel.slo);
     }
   });
 });
@@ -84,14 +96,17 @@ describe("alerts.json covers every SLO with a bounded severity", () => {
   it("every rule targets a known SLO with an allowed severity", () => {
     for (const rule of alerts.rules) {
       expect(SLO_IDS, `unknown slo ${rule.slo}`).toContain(rule.slo);
-      expect(SEVERITIES, `bad severity ${rule.severity}`).toContain(rule.severity);
+      expect(SEVERITIES, `bad severity ${rule.severity}`).toContain(
+        rule.severity,
+      );
       expect(rule.summary.length).toBeGreaterThan(0);
     }
   });
 
   it("has a rule for every SLO id (no silent gaps)", () => {
     const covered = new Set(alerts.rules.map((r) => r.slo));
-    for (const id of SLO_IDS) expect(covered, `no alert for ${id}`).toContain(id);
+    for (const id of SLO_IDS)
+      expect(covered, `no alert for ${id}`).toContain(id);
   });
 });
 

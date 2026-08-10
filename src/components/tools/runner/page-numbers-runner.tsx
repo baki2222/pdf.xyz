@@ -71,7 +71,11 @@ function PageNumbersEditor({
   const numberedCount = Math.max(0, pdf.pageCount - (startPage - 1));
   const preview = useMemo(() => {
     const total = startAt + numberedCount - 1;
-    return previewPageNumber(format || DEFAULT_PAGE_NUMBER_FORMAT, startAt, total);
+    return previewPageNumber(
+      format || DEFAULT_PAGE_NUMBER_FORMAT,
+      startAt,
+      total,
+    );
   }, [format, startAt, numberedCount]);
 
   const onRun = () =>
@@ -94,7 +98,9 @@ function PageNumbersEditor({
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result, numberedOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result, numberedOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />

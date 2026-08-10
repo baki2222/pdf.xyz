@@ -1,5 +1,10 @@
 import type { WorkerStatus } from "./status";
-import { canRunPdfSecurity, runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import {
+  canRunPdfSecurity,
+  runSecurityJob,
+  type PdfSecurityWorkerOptions,
+  type PdfSecurityWorkerResult,
+} from "./pdf-security-client";
 
 /**
  * Browser-side driver for the secure-worker table-extraction flow (`extract-tables`).
@@ -17,8 +22,17 @@ export interface TableExtractWorkerInput {
   bytes: Uint8Array;
 }
 
-export function runWorkerTableExtract(input: TableExtractWorkerInput, options: PdfSecurityWorkerOptions = {}): Promise<TableExtractWorkerResult> {
-  return runSecurityJob("extract-tables", input.filename, input.bytes, {}, options);
+export function runWorkerTableExtract(
+  input: TableExtractWorkerInput,
+  options: PdfSecurityWorkerOptions = {},
+): Promise<TableExtractWorkerResult> {
+  return runSecurityJob(
+    "extract-tables",
+    input.filename,
+    input.bytes,
+    {},
+    options,
+  );
 }
 
 /**
@@ -27,7 +41,9 @@ export function runWorkerTableExtract(input: TableExtractWorkerInput, options: P
  * local-dev (whose probes are about native binaries) never advertises it, and
  * staging/production gate on storage + queue + a drainable daemon.
  */
-export function canRunTableExtract(status: WorkerStatus | null | undefined): boolean {
+export function canRunTableExtract(
+  status: WorkerStatus | null | undefined,
+): boolean {
   if (!status) return false;
   if (status.localDevOnly) return false;
   return canRunPdfSecurity(status);

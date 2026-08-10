@@ -30,7 +30,10 @@ describe("resolveAiConfig", () => {
   });
 
   it("rejects an unknown provider family (invalid, naming the variable not the value)", () => {
-    const r = resolveAiConfig({ [AI_ENV.provider]: "notaprovider", [AI_ENV.apiKey]: "x" });
+    const r = resolveAiConfig({
+      [AI_ENV.provider]: "notaprovider",
+      [AI_ENV.apiKey]: "x",
+    });
     expect(r.enabled).toBe(false);
     if (!r.enabled) {
       expect(r.reason).toBe("invalid");
@@ -77,7 +80,9 @@ describe("resolveAiConfig", () => {
       expect(r.config.provider).toBe("anthropic");
       expect(r.config.model).toBe(DEFAULT_AI_MODEL.anthropic);
       expect(r.config.hasApiKey).toBe(true);
-      expect(r.config.maxOutputTokens).toBe(AI_MAX_OUTPUT_TOKENS_BOUNDS.default);
+      expect(r.config.maxOutputTokens).toBe(
+        AI_MAX_OUTPUT_TOKENS_BOUNDS.default,
+      );
     }
   });
 
@@ -91,7 +96,10 @@ describe("resolveAiConfig", () => {
   });
 
   it("honors a shape-safe model override and rejects a malformed one", () => {
-    const ok = resolveAiConfig({ ...ENABLED, [AI_ENV.model]: "claude-opus-4-8" });
+    const ok = resolveAiConfig({
+      ...ENABLED,
+      [AI_ENV.model]: "claude-opus-4-8",
+    });
     expect(ok.enabled && ok.config.model).toBe("claude-opus-4-8");
 
     const bad = resolveAiConfig({ ...ENABLED, [AI_ENV.model]: "bad model!" });
@@ -100,16 +108,25 @@ describe("resolveAiConfig", () => {
   });
 
   it("accepts an https base URL and rejects a non-https one", () => {
-    const ok = resolveAiConfig({ ...ENABLED, [AI_ENV.baseUrl]: "https://proxy.example/v1/" });
+    const ok = resolveAiConfig({
+      ...ENABLED,
+      [AI_ENV.baseUrl]: "https://proxy.example/v1/",
+    });
     expect(ok.enabled && ok.config.baseUrl).toBe("https://proxy.example/v1");
 
-    const bad = resolveAiConfig({ ...ENABLED, [AI_ENV.baseUrl]: "http://insecure.example" });
+    const bad = resolveAiConfig({
+      ...ENABLED,
+      [AI_ENV.baseUrl]: "http://insecure.example",
+    });
     expect(bad.enabled).toBe(false);
     if (!bad.enabled) expect(bad.error?.field).toBe(AI_ENV.baseUrl);
   });
 
   it("clamps out-of-range numeric bounds to an invalid config, naming the variable", () => {
-    const r = resolveAiConfig({ ...ENABLED, [AI_ENV.maxOutputTokens]: "999999" });
+    const r = resolveAiConfig({
+      ...ENABLED,
+      [AI_ENV.maxOutputTokens]: "999999",
+    });
     expect(r.enabled).toBe(false);
     if (!r.enabled) {
       expect(r.reason).toBe("invalid");
@@ -131,7 +148,9 @@ describe("nativeAiCapability", () => {
     expect(cap.ready).toBe(true);
     expect(cap.id).toBe("anthropic");
     expect(cap.model).toBe(DEFAULT_AI_MODEL.anthropic);
-    expect(JSON.stringify(cap)).not.toContain("sk-secret-value-never-read-here");
+    expect(JSON.stringify(cap)).not.toContain(
+      "sk-secret-value-never-read-here",
+    );
   });
 });
 
@@ -143,7 +162,9 @@ describe("resolveAiDeclaration", () => {
   it("declares a family WITHOUT requiring the API key", () => {
     // The whole point: the web tier holds no secret but must still know whether
     // this deployment runs AI at all.
-    const declaration = resolveAiDeclaration({ [AI_ENV.provider]: "anthropic" });
+    const declaration = resolveAiDeclaration({
+      [AI_ENV.provider]: "anthropic",
+    });
     expect(declaration).toEqual({
       state: "declared",
       provider: "anthropic",
@@ -164,7 +185,9 @@ describe("resolveAiDeclaration", () => {
   });
 
   it("rejects an unknown family, naming the variable and not its value", () => {
-    const declaration = resolveAiDeclaration({ [AI_ENV.provider]: "totally-made-up" });
+    const declaration = resolveAiDeclaration({
+      [AI_ENV.provider]: "totally-made-up",
+    });
     expect(declaration.state).toBe("invalid");
     if (declaration.state === "invalid") {
       expect(declaration.error.field).toBe(AI_ENV.provider);

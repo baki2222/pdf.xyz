@@ -77,7 +77,8 @@ export const RELEASE_CHECKS: readonly ReleaseCheckSpec[] = [
     expectedExit: 0,
     severity: "fail",
     title: "Deployment blueprints are structurally valid and secret-free",
-    passSummary: "All committed deployment example files validated (structure + no-secret invariants).",
+    passSummary:
+      "All committed deployment example files validated (structure + no-secret invariants).",
     remediation:
       "Re-run `pnpm deploy:examples:check` to see which blueprint is missing, malformed, or carries a credential-shaped literal, and fix it before promoting.",
   },
@@ -100,7 +101,8 @@ export const RELEASE_CHECKS: readonly ReleaseCheckSpec[] = [
     expectedExit: 0,
     severity: "warn",
     title: "Native engine preflight is satisfied on this host",
-    passSummary: "No required native engine is missing on the gate host (or none is required).",
+    passSummary:
+      "No required native engine is missing on the gate host (or none is required).",
     remediation:
       "Re-run `pnpm worker:engines` on the ACTUAL worker image/host: a required engine (opted in via a require flag) is missing. This gate's host may differ from the deployed image, so this is advisory — confirm on the image build.",
   },
@@ -111,7 +113,8 @@ export const RELEASE_CHECKS: readonly ReleaseCheckSpec[] = [
     expectedExit: 0,
     severity: "fail",
     title: "The operations healthcheck reads a healthy snapshot as healthy",
-    passSummary: "worker:ops-check resolved the healthy snapshot fixture to a healthy verdict (exit 0).",
+    passSummary:
+      "worker:ops-check resolved the healthy snapshot fixture to a healthy verdict (exit 0).",
     remediation:
       "Re-run `pnpm worker:ops-check --file=<healthy snapshot> --json`: the healthcheck no longer classifies a healthy snapshot as healthy, so its verdict cannot be trusted.",
   },
@@ -122,7 +125,8 @@ export const RELEASE_CHECKS: readonly ReleaseCheckSpec[] = [
     expectedExit: 4,
     severity: "fail",
     title: "The operations healthcheck flags a critical snapshot as critical",
-    passSummary: "worker:ops-check resolved the lifecycle-drift snapshot fixture to a critical verdict (exit 4).",
+    passSummary:
+      "worker:ops-check resolved the lifecycle-drift snapshot fixture to a critical verdict (exit 4).",
     remediation:
       "Re-run `pnpm worker:ops-check --file=<critical snapshot> --json`: the healthcheck failed to flag a critical (lifecycle-drift) snapshot, so it could pass a broken stack as healthy.",
   },
@@ -132,8 +136,10 @@ export const RELEASE_CHECKS: readonly ReleaseCheckSpec[] = [
     args: [`--ops-check=${OPS_BUNDLE}/ops-check-healthy.json`, "--json"],
     expectedExit: 0,
     severity: "fail",
-    title: "The operations evidence bundle composes a healthy result as healthy",
-    passSummary: "worker:ops-bundle composed the healthy ops-check fixture to a healthy rollup (exit 0).",
+    title:
+      "The operations evidence bundle composes a healthy result as healthy",
+    passSummary:
+      "worker:ops-bundle composed the healthy ops-check fixture to a healthy rollup (exit 0).",
     remediation:
       "Re-run `pnpm worker:ops-bundle --ops-check=<healthy result> --json`: the aggregator no longer composes a healthy input to a healthy rollup.",
   },
@@ -143,18 +149,24 @@ export const RELEASE_CHECKS: readonly ReleaseCheckSpec[] = [
     args: [`--ops-check=${OPS_BUNDLE}/ops-check-critical.json`, "--json"],
     expectedExit: 4,
     severity: "fail",
-    title: "The operations evidence bundle composes a critical result as critical",
-    passSummary: "worker:ops-bundle composed the critical ops-check fixture to a critical rollup (exit 4).",
+    title:
+      "The operations evidence bundle composes a critical result as critical",
+    passSummary:
+      "worker:ops-bundle composed the critical ops-check fixture to a critical rollup (exit 4).",
     remediation:
       "Re-run `pnpm worker:ops-bundle --ops-check=<critical result> --json`: the aggregator failed to surface a critical composed signal, so it could pass a broken stack.",
   },
   {
     id: "cleanup-pipeline-unknown",
     script: "worker:cleanup-pipeline",
-    args: [`--file=${CLEANUP}/raw-evidence-projected.json`, `--now=${PINNED_NOW}`],
+    args: [
+      `--file=${CLEANUP}/raw-evidence-projected.json`,
+      `--now=${PINNED_NOW}`,
+    ],
     expectedExit: 2,
     severity: "fail",
-    title: "The cleanup pipeline reports honest 'unknown' when absence cannot be proven",
+    title:
+      "The cleanup pipeline reports honest 'unknown' when absence cannot be proven",
     passSummary:
       "worker:cleanup-pipeline resolved a clean export with no backend wired to the honest 'cannot prove absence' band (exit 2), not a false clean pass.",
     remediation:
@@ -163,33 +175,50 @@ export const RELEASE_CHECKS: readonly ReleaseCheckSpec[] = [
   {
     id: "cleanup-pipeline-breach",
     script: "worker:cleanup-pipeline",
-    args: [`--file=${CLEANUP}/raw-unsafe-tombstoned.json`, `--now=${PINNED_NOW}`],
+    args: [
+      `--file=${CLEANUP}/raw-unsafe-tombstoned.json`,
+      `--now=${PINNED_NOW}`,
+    ],
     expectedExit: 4,
     severity: "fail",
-    title: "The cleanup pipeline fails closed on a present-but-tombstoned object",
-    passSummary: "worker:cleanup-pipeline resolved a present-but-tombstoned export to a composite breach (exit 4).",
+    title:
+      "The cleanup pipeline fails closed on a present-but-tombstoned object",
+    passSummary:
+      "worker:cleanup-pipeline resolved a present-but-tombstoned export to a composite breach (exit 4).",
     remediation:
       "Re-run `pnpm worker:cleanup-pipeline --file=<tombstoned export> --now=<epoch>`: the pipeline failed to fail-closed on an unsafe (present-but-tombstoned) export.",
   },
   {
     id: "lifecycle-verify",
     script: "worker:daemon",
-    args: ["--lifecycle-verify", "--provider=aws-s3", "--versioned", `--observed=${LIFECYCLE}/observed-verified.aws-s3.json`],
+    args: [
+      "--lifecycle-verify",
+      "--provider=aws-s3",
+      "--versioned",
+      `--observed=${LIFECYCLE}/observed-verified.aws-s3.json`,
+    ],
     expectedExit: 0,
     severity: "fail",
     title: "Lifecycle verification accepts a matching observed policy",
-    passSummary: "worker:daemon --lifecycle-verify accepted a matching observed export as verified (exit 0).",
+    passSummary:
+      "worker:daemon --lifecycle-verify accepted a matching observed export as verified (exit 0).",
     remediation:
       "Re-run `pnpm worker:daemon --lifecycle-verify --provider=aws-s3 --versioned --observed=<matching export>`: lifecycle verification no longer accepts a matching policy.",
   },
   {
     id: "lifecycle-drift",
     script: "worker:daemon",
-    args: ["--lifecycle-verify", "--provider=aws-s3", "--versioned", `--observed=${LIFECYCLE}/observed-drift-weaker.aws-s3.json`],
+    args: [
+      "--lifecycle-verify",
+      "--provider=aws-s3",
+      "--versioned",
+      `--observed=${LIFECYCLE}/observed-drift-weaker.aws-s3.json`,
+    ],
     expectedExit: 4,
     severity: "fail",
     title: "Lifecycle verification flags a drifted observed policy",
-    passSummary: "worker:daemon --lifecycle-verify flagged a weaker/drifted observed export as invalid (exit 4).",
+    passSummary:
+      "worker:daemon --lifecycle-verify flagged a weaker/drifted observed export as invalid (exit 4).",
     remediation:
       "Re-run `pnpm worker:daemon --lifecycle-verify --provider=aws-s3 --versioned --observed=<drifted export>`: lifecycle verification failed to flag a drifted (weaker) policy, so retention drift could ship unnoticed.",
   },

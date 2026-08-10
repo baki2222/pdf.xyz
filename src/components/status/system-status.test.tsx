@@ -33,7 +33,12 @@ const DISABLED_STATUS: WorkerStatus = {
   providers: getProviderReadiness("disabled"),
   daemon: resolveDaemonReadiness({}),
   ai: resolveAiReadiness({}),
-  pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
+  pipeline: {
+    verdict: "off",
+    observed: false,
+    drainable: false,
+    detail: "no worker observed",
+  },
 };
 
 const LOCAL_TOOLS: LocalToolRef[] = [
@@ -55,7 +60,10 @@ afterEach(() => {
 
 describe("SystemStatus", () => {
   it("lists the in-browser tools that always run on-device", async () => {
-    mockFetchOnce(async () => ({ ok: true, json: async () => DISABLED_STATUS }));
+    mockFetchOnce(async () => ({
+      ok: true,
+      json: async () => DISABLED_STATUS,
+    }));
     render(<SystemStatus localTools={LOCAL_TOOLS} />);
 
     expect(screen.getByText("Merge PDF")).toBeInTheDocument();
@@ -65,7 +73,10 @@ describe("SystemStatus", () => {
   });
 
   it("shows an honest OCR capability row read from the live status", async () => {
-    mockFetchOnce(async () => ({ ok: true, json: async () => DISABLED_STATUS }));
+    mockFetchOnce(async () => ({
+      ok: true,
+      json: async () => DISABLED_STATUS,
+    }));
     render(<SystemStatus localTools={LOCAL_TOOLS} />);
 
     expect(await screen.findByText("OCR")).toBeInTheDocument();
@@ -75,7 +86,10 @@ describe("SystemStatus", () => {
   });
 
   it("shows an honest AI capability row read from the live status", async () => {
-    mockFetchOnce(async () => ({ ok: true, json: async () => DISABLED_STATUS }));
+    mockFetchOnce(async () => ({
+      ok: true,
+      json: async () => DISABLED_STATUS,
+    }));
     render(<SystemStatus localTools={LOCAL_TOOLS} />);
 
     expect(await screen.findByText("AI tools")).toBeInTheDocument();
@@ -99,7 +113,10 @@ describe("SystemStatus", () => {
   });
 
   it("shows the production pipeline providers, each honestly not configured", async () => {
-    mockFetchOnce(async () => ({ ok: true, json: async () => DISABLED_STATUS }));
+    mockFetchOnce(async () => ({
+      ok: true,
+      json: async () => DISABLED_STATUS,
+    }));
     render(<SystemStatus localTools={LOCAL_TOOLS} />);
 
     expect(await screen.findByText("Production pipeline")).toBeInTheDocument();
@@ -107,13 +124,18 @@ describe("SystemStatus", () => {
     expect(screen.getByText("Job queue")).toBeInTheDocument();
     expect(screen.getByText("Processor")).toBeInTheDocument();
     // Storage, queue, and processor each render a "Not configured" badge.
-    expect(screen.getAllByText("Not configured").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText("Not configured").length).toBeGreaterThanOrEqual(
+      3,
+    );
   });
 
   it("reads worker status and emits a privacy-safe worker_status_checked event", async () => {
     const seen: RedactedEvent[] = [];
     configureTelemetry((e) => seen.push(e));
-    mockFetchOnce(async () => ({ ok: true, json: async () => DISABLED_STATUS }));
+    mockFetchOnce(async () => ({
+      ok: true,
+      json: async () => DISABLED_STATUS,
+    }));
 
     render(<SystemStatus localTools={LOCAL_TOOLS} />);
 
@@ -141,7 +163,9 @@ describe("SystemStatus", () => {
     render(<SystemStatus localTools={LOCAL_TOOLS} />);
 
     const retry = await screen.findByRole("button", { name: /retry/i });
-    expect(screen.getByText(/couldn't reach the status endpoint/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/couldn't reach the status endpoint/i),
+    ).toBeInTheDocument();
 
     retry.click();
 

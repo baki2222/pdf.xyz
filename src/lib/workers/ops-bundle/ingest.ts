@@ -51,7 +51,11 @@ import {
   PIPELINE_SCHEMA,
   PIPELINE_SEVERITIES,
 } from "../cleanup/pipeline/types";
-import type { DaemonLivenessState, HeartbeatAgeBucket, HeartbeatSource } from "../heartbeat/types";
+import type {
+  DaemonLivenessState,
+  HeartbeatAgeBucket,
+  HeartbeatSource,
+} from "../heartbeat/types";
 import {
   OPS_BUNDLE_OPERATIONS_SUMMARY,
   type OpsBundleAlert,
@@ -73,18 +77,32 @@ import {
 /** Compile-time assertion that a tuple covers a whole union (`Extra` must be `never`). */
 type AssertNever<Extra> = [Extra] extends [never] ? true : false;
 
-const HEALTH_CLASSES = ["ok", "warn", "blocked", "unknown"] as const satisfies readonly HealthClass[];
-const _health: AssertNever<Exclude<HealthClass, (typeof HEALTH_CLASSES)[number]>> = true;
+const HEALTH_CLASSES = [
+  "ok",
+  "warn",
+  "blocked",
+  "unknown",
+] as const satisfies readonly HealthClass[];
+const _health: AssertNever<
+  Exclude<HealthClass, (typeof HEALTH_CLASSES)[number]>
+> = true;
 
-const VANTAGES = ["web", "worker"] as const satisfies readonly SnapshotVantage[];
-const _vantage: AssertNever<Exclude<SnapshotVantage, (typeof VANTAGES)[number]>> = true;
+const VANTAGES = [
+  "web",
+  "worker",
+] as const satisfies readonly SnapshotVantage[];
+const _vantage: AssertNever<
+  Exclude<SnapshotVantage, (typeof VANTAGES)[number]>
+> = true;
 
 const PROOF_STATES = [
   "available",
   "unavailable",
   "unknown",
 ] as const satisfies readonly ProofAvailability[];
-const _proof: AssertNever<Exclude<ProofAvailability, (typeof PROOF_STATES)[number]>> = true;
+const _proof: AssertNever<
+  Exclude<ProofAvailability, (typeof PROOF_STATES)[number]>
+> = true;
 
 const LIVENESS_STATES = [
   "observed",
@@ -92,14 +110,18 @@ const LIVENESS_STATES = [
   "unknown",
   "disabled",
 ] as const satisfies readonly DaemonLivenessState[];
-const _liveness: AssertNever<Exclude<DaemonLivenessState, (typeof LIVENESS_STATES)[number]>> = true;
+const _liveness: AssertNever<
+  Exclude<DaemonLivenessState, (typeof LIVENESS_STATES)[number]>
+> = true;
 
 const LIVENESS_SOURCES = [
   "queue-broker",
   "self",
   "none",
 ] as const satisfies readonly HeartbeatSource[];
-const _livenessSrc: AssertNever<Exclude<HeartbeatSource, (typeof LIVENESS_SOURCES)[number]>> = true;
+const _livenessSrc: AssertNever<
+  Exclude<HeartbeatSource, (typeof LIVENESS_SOURCES)[number]>
+> = true;
 
 const AGE_BUCKETS = [
   "under-30s",
@@ -107,7 +129,9 @@ const AGE_BUCKETS = [
   "under-10m",
   "over-10m",
 ] as const satisfies readonly HeartbeatAgeBucket[];
-const _age: AssertNever<Exclude<HeartbeatAgeBucket, (typeof AGE_BUCKETS)[number]>> = true;
+const _age: AssertNever<
+  Exclude<HeartbeatAgeBucket, (typeof AGE_BUCKETS)[number]>
+> = true;
 
 const SUBSYSTEM_IDS = [
   "drainability",
@@ -123,16 +147,27 @@ const SUBSYSTEM_IDS = [
   "guardrails",
   "daemon-loop",
 ] as const satisfies readonly SnapshotSubsystemId[];
-const _subsystem: AssertNever<Exclude<SnapshotSubsystemId, (typeof SUBSYSTEM_IDS)[number]>> = true;
+const _subsystem: AssertNever<
+  Exclude<SnapshotSubsystemId, (typeof SUBSYSTEM_IDS)[number]>
+> = true;
 
-const SLO_STATUSES = ["ok", "warn", "breach", "unknown"] as const satisfies readonly SloStatus[];
-const _sloStatus: AssertNever<Exclude<SloStatus, (typeof SLO_STATUSES)[number]>> = true;
+const SLO_STATUSES = [
+  "ok",
+  "warn",
+  "breach",
+  "unknown",
+] as const satisfies readonly SloStatus[];
+const _sloStatus: AssertNever<
+  Exclude<SloStatus, (typeof SLO_STATUSES)[number]>
+> = true;
 
 /**
  * The valid `RecommendedAction` set, taken from the app's own detail map so it can never drift
  * from the authored prose (a new action must be added to the map, which grows this allowlist).
  */
-const RECOMMENDED_ACTIONS = Object.keys(RECOMMENDED_ACTION_DETAIL) as readonly RecommendedAction[];
+const RECOMMENDED_ACTIONS = Object.keys(
+  RECOMMENDED_ACTION_DETAIL,
+) as readonly RecommendedAction[];
 
 // Reference the exhaustiveness consts so lint never flags them as dead.
 void _health;
@@ -160,8 +195,12 @@ function isObject(value: unknown): value is Obj {
 }
 
 /** Return `value` if it is one of `allowed`, else `undefined`. */
-function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+function oneOf<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | undefined {
+  return typeof value === "string" &&
+    (allowed as readonly string[]).includes(value)
     ? (value as T)
     : undefined;
 }
@@ -216,7 +255,9 @@ function ingestLiveness(raw: unknown): OpsBundleOperationsSection["liveness"] {
 }
 
 /** Re-author the bounded subsystem list (invalid ids/healths dropped, length capped). */
-function ingestSubsystems(raw: unknown): OpsBundleOperationsSection["subsystems"] {
+function ingestSubsystems(
+  raw: unknown,
+): OpsBundleOperationsSection["subsystems"] {
   const out: { id: SnapshotSubsystemId; health: HealthClass }[] = [];
   for (const item of asArray(raw).slice(0, MAX_SUBSYSTEMS)) {
     if (!isObject(item)) continue;
@@ -236,7 +277,8 @@ function ingestAlerts(raw: unknown): readonly OpsBundleAlert[] {
     const severity = oneOf(item.severity, ALERT_SEVERITIES);
     const reason = oneOf(item.reason, ALERT_REASONS);
     const action = oneOf(item.action, ALERT_ACTIONS);
-    if (source && severity && reason && action) out.push({ source, severity, reason, action });
+    if (source && severity && reason && action)
+      out.push({ source, severity, reason, action });
   }
   return out;
 }
@@ -270,7 +312,8 @@ function ingestSlo(raw: unknown): OpsBundleSloSection | null {
 /** Re-author the cleanup evidence posture digest from the snapshot's bounded enums. */
 function ingestCleanupEvidence(raw: unknown): OpsBundleCleanupEvidenceSection {
   const obj = isObject(raw) ? raw : {};
-  const reason = oneOf(obj.reason, CLEANUP_EVIDENCE_REASONS) ?? "no_report_configured";
+  const reason =
+    oneOf(obj.reason, CLEANUP_EVIDENCE_REASONS) ?? "no_report_configured";
   return {
     source: "ops-check",
     state: oneOf(obj.state, CLEANUP_EVIDENCE_STATES) ?? "disabled",
@@ -301,15 +344,24 @@ function ingestLifecycle(
   alerts: readonly OpsBundleAlert[],
 ): OpsBundleLifecycleSection {
   const verification =
-    subsystems.find((s) => s.id === "lifecycle-verification")?.health ?? "unknown";
-  const readiness = subsystems.find((s) => s.id === "lifecycle")?.health ?? "unknown";
+    subsystems.find((s) => s.id === "lifecycle-verification")?.health ??
+    "unknown";
+  const readiness =
+    subsystems.find((s) => s.id === "lifecycle")?.health ?? "unknown";
   const drift = alerts.some((a) => a.reason === "lifecycle-drift");
   const verdict: OpsBundleLifecycleVerdict = drift
     ? "drift"
     : verification === "ok"
       ? "verified"
       : "unknown";
-  return { source: "ops-check", verification, readiness, verdict, drift, detail: LIFECYCLE_DETAIL[verdict] };
+  return {
+    source: "ops-check",
+    verification,
+    readiness,
+    verdict,
+    drift,
+    detail: LIFECYCLE_DETAIL[verdict],
+  };
 }
 
 /**
@@ -324,9 +376,12 @@ export function ingestOpsCheckResult(text: string): IngestOperationsResult {
   } catch {
     return { ok: false, issues: ["ops-check-input-malformed"] };
   }
-  if (!isObject(root)) return { ok: false, issues: ["ops-check-input-malformed"] };
-  if (root.schema !== OPS_CHECK_SCHEMA) return { ok: false, issues: ["ops-check-input-unrecognized"] };
-  if (root.error === "usage") return { ok: false, issues: ["ops-check-usage-error"] };
+  if (!isObject(root))
+    return { ok: false, issues: ["ops-check-input-malformed"] };
+  if (root.schema !== OPS_CHECK_SCHEMA)
+    return { ok: false, issues: ["ops-check-input-unrecognized"] };
+  if (root.error === "usage")
+    return { ok: false, issues: ["ops-check-usage-error"] };
 
   const severity = oneOf(root.severity, ALERT_SEVERITIES);
   const snapshot = root.snapshot;
@@ -356,7 +411,8 @@ export function ingestOpsCheckResult(text: string): IngestOperationsResult {
     liveness,
     subsystems,
     proofs: {
-      compressionDeep: oneOf(proofsRaw.compressionDeep, PROOF_STATES) ?? "unknown",
+      compressionDeep:
+        oneOf(proofsRaw.compressionDeep, PROOF_STATES) ?? "unknown",
       ocr: oneOf(proofsRaw.ocr, PROOF_STATES) ?? "unknown",
     },
     alerts,
@@ -397,7 +453,12 @@ export const NOT_CONFIGURED_PIPELINE: OpsBundlePipelineSection = {
 
 /** The bounded pipeline section for a supplied-but-unreadable optional input (never echoed). */
 export function unreadablePipeline(): OpsBundlePipelineSection {
-  return { source: "unreadable", severity: null, arms: [], detail: PIPELINE_UNREADABLE_DETAIL };
+  return {
+    source: "unreadable",
+    severity: null,
+    arms: [],
+    detail: PIPELINE_UNREADABLE_DETAIL,
+  };
 }
 
 /** Re-author the bounded per-arm digest (invalid enums dropped, length capped). */
@@ -407,7 +468,8 @@ function ingestPipelineArms(raw: unknown): OpsBundlePipelineArm[] {
     if (!isObject(item)) continue;
     const arm = oneOf(item.arm, PIPELINE_ARMS);
     const severity = oneOf(item.severity, PIPELINE_SEVERITIES);
-    if (arm && severity) out.push({ arm, severity, projected: item.projected === true });
+    if (arm && severity)
+      out.push({ arm, severity, projected: item.projected === true });
   }
   return out;
 }
@@ -417,7 +479,9 @@ function ingestPipelineArms(raw: unknown): OpsBundlePipelineArm[] {
  * unreadable/unrecognized ⇒ `unreadable` (never echoed); a valid summary ⇒ `supplied` with a
  * bounded severity + per-arm digest.
  */
-export function ingestPipelineSummary(text: string | null): OpsBundlePipelineSection {
+export function ingestPipelineSummary(
+  text: string | null,
+): OpsBundlePipelineSection {
   if (text === null) return NOT_CONFIGURED_PIPELINE;
   let root: unknown;
   try {
@@ -425,7 +489,8 @@ export function ingestPipelineSummary(text: string | null): OpsBundlePipelineSec
   } catch {
     return unreadablePipeline();
   }
-  if (!isObject(root) || root.schema !== PIPELINE_SCHEMA) return unreadablePipeline();
+  if (!isObject(root) || root.schema !== PIPELINE_SCHEMA)
+    return unreadablePipeline();
   const severity = oneOf(root.severity, PIPELINE_SEVERITIES);
   if (!severity) return unreadablePipeline();
   return {

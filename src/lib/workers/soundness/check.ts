@@ -92,7 +92,11 @@ function checkOne(
       return soundnessReject("unsupported_family");
     }
     const extFamily = familyForExtension(file.filename);
-    if (declaredFamily !== null && extFamily !== null && extFamily !== declaredFamily) {
+    if (
+      declaredFamily !== null &&
+      extFamily !== null &&
+      extFamily !== declaredFamily
+    ) {
       return soundnessReject("metadata_mismatch");
     }
   }

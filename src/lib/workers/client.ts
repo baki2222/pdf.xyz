@@ -81,7 +81,6 @@ const CONTENT_TYPE = "application/pdf";
 const DEFAULT_POLL_INTERVAL_MS = 800;
 const DEFAULT_MAX_POLL_ATTEMPTS = 150; // ~2 minutes at the default cadence
 
-
 /** The global fetch, adapted to {@link FetchLike}. */
 const defaultFetch: FetchLike = (input, init) =>
   fetch(input, init as RequestInit);

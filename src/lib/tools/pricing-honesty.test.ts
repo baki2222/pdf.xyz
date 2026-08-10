@@ -41,7 +41,8 @@ const PAYMENT_DEPENDENCY_HINTS =
   /stripe|paddle|lemonsqueezy|lemon-squeezy|braintree|chargebee|paypal|razorpay|checkout/i;
 
 /** Route-directory names whose presence under src/app would mean billing landed. */
-const PAYMENT_ROUTE_HINTS = /^(checkout|billing|subscribe|payment|purchase)s?$/i;
+const PAYMENT_ROUTE_HINTS =
+  /^(checkout|billing|subscribe|payment|purchase)s?$/i;
 
 /** Every way this repo could plausibly take money; empty while it cannot. */
 function paymentCapabilityEvidence(): string[] {
@@ -49,12 +50,16 @@ function paymentCapabilityEvidence(): string[] {
 
   const pkg = JSON.parse(
     readFileSync(path.join(ROOT, "package.json"), "utf8"),
-  ) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+  ) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
   for (const name of [
     ...Object.keys(pkg.dependencies ?? {}),
     ...Object.keys(pkg.devDependencies ?? {}),
   ]) {
-    if (PAYMENT_DEPENDENCY_HINTS.test(name)) evidence.push(`dependency: ${name}`);
+    if (PAYMENT_DEPENDENCY_HINTS.test(name))
+      evidence.push(`dependency: ${name}`);
   }
 
   const walk = (dir: string) => {
@@ -92,7 +97,8 @@ const FORBIDDEN = [
   },
   {
     label: "a tier-selling pitch",
-    pattern: /\b(Pro|Team|Premium|Business|Enterprise) (unlocks|includes|adds|plan|tier)\b/,
+    pattern:
+      /\b(Pro|Team|Premium|Business|Enterprise) (unlocks|includes|adds|plan|tier)\b/,
   },
   { label: "a most-popular tier badge", pattern: /\bmost popular\b/i },
 ] as const;

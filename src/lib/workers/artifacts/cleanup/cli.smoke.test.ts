@@ -17,19 +17,22 @@ interface RunResult {
 
 function runCli(args: string[], opts: { input?: string } = {}): RunResult {
   try {
-    const stdout = runWorkerCliSync(["-s", "worker:artifact-cleanup", ...args], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        PDFXYZ_STORAGE_PROVIDER: "",
-        PDFXYZ_QUEUE_PROVIDER: "",
-        PDFXYZ_WORKER_MODE: "",
+    const stdout = runWorkerCliSync(
+      ["-s", "worker:artifact-cleanup", ...args],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PDFXYZ_STORAGE_PROVIDER: "",
+          PDFXYZ_QUEUE_PROVIDER: "",
+          PDFXYZ_WORKER_MODE: "",
+        },
+        ...(opts.input !== undefined ? { input: opts.input } : {}),
+        stdio: ["pipe", "pipe", "pipe"],
+        encoding: "utf8",
+        timeout: SPAWN_TIMEOUT_MS,
       },
-      ...(opts.input !== undefined ? { input: opts.input } : {}),
-      stdio: ["pipe", "pipe", "pipe"],
-      encoding: "utf8",
-      timeout: SPAWN_TIMEOUT_MS,
-    });
+    );
     return { status: 0, stdout };
   } catch (err) {
     const e = err as {

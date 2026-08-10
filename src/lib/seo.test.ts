@@ -64,10 +64,9 @@ describe("buildMetadata leaves the title to the root layout when it has none", (
   });
 
   it("carries the title through when one is given", () => {
-    expect(buildMetadata({ title: "Merge PDF", path: "/tools/merge-pdf" })).toHaveProperty(
-      "title",
-      "Merge PDF",
-    );
+    expect(
+      buildMetadata({ title: "Merge PDF", path: "/tools/merge-pdf" }),
+    ).toHaveProperty("title", "Merge PDF");
   });
 });
 
@@ -91,15 +90,18 @@ describe("share cards are wired to the pages they belong to", () => {
     ).toBe(true);
   });
 
-  it.each(routes)("$route pairs its card with a Twitter card", ({ route, dir }) => {
-    // X reads `twitter:image` and ignores `og:image`, so a card that exists only as
-    // an OpenGraph route is invisible on the platform people paste links into most.
-    const twitter = path.join(dir, "twitter-image.tsx");
-    expect(
-      readdirSync(dir).includes("twitter-image.tsx"),
-      `${route} has an opengraph-image.tsx but no twitter-image.tsx`,
-    ).toBe(true);
-    // Re-exported, never re-implemented — two hand-written cards drift.
-    expect(readFileSync(twitter, "utf8")).toContain("./opengraph-image");
-  });
+  it.each(routes)(
+    "$route pairs its card with a Twitter card",
+    ({ route, dir }) => {
+      // X reads `twitter:image` and ignores `og:image`, so a card that exists only as
+      // an OpenGraph route is invisible on the platform people paste links into most.
+      const twitter = path.join(dir, "twitter-image.tsx");
+      expect(
+        readdirSync(dir).includes("twitter-image.tsx"),
+        `${route} has an opengraph-image.tsx but no twitter-image.tsx`,
+      ).toBe(true);
+      // Re-exported, never re-implemented — two hand-written cards drift.
+      expect(readFileSync(twitter, "utf8")).toContain("./opengraph-image");
+    },
+  );
 });

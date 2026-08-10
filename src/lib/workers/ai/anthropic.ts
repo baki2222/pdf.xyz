@@ -73,12 +73,24 @@ interface AnthropicResponseBody {
  * `400 invalid_request_error` (413 is the separate request-body-size limit), which is why
  * the length check cannot key on the status code alone.
  */
-function classifyClientError(status: number, rawBody: string): AiCompletionResult {
+function classifyClientError(
+  status: number,
+  rawBody: string,
+): AiCompletionResult {
   if (status === 413) {
-    return aiFailure("too_long", "The document is too large for the AI model's context window.");
+    return aiFailure(
+      "too_long",
+      "The document is too large for the AI model's context window.",
+    );
   }
-  if (status === 400 && /too long|exceed|maximum.*token|context window/i.test(rawBody)) {
-    return aiFailure("too_long", "The document is too large for the AI model's context window.");
+  if (
+    status === 400 &&
+    /too long|exceed|maximum.*token|context window/i.test(rawBody)
+  ) {
+    return aiFailure(
+      "too_long",
+      "The document is too large for the AI model's context window.",
+    );
   }
   if (status === 401 || status === 403) {
     return aiFailure(
@@ -121,7 +133,10 @@ export function createAnthropicProvider(
   deps: AnthropicProviderDeps = {},
 ): AiProvider {
   const doFetch = deps.fetch ?? globalThis.fetch;
-  const baseUrl = (config.baseUrl ?? ANTHROPIC_DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const baseUrl = (config.baseUrl ?? ANTHROPIC_DEFAULT_BASE_URL).replace(
+    /\/+$/,
+    "",
+  );
   const endpoint = `${baseUrl}/v1/messages`;
 
   return {
@@ -133,13 +148,19 @@ export function createAnthropicProvider(
       if (!valid.ok) return aiFailure("invalid_response", valid.reason);
 
       if (typeof doFetch !== "function") {
-        return aiFailure("provider_error", "No fetch implementation is available on this worker.");
+        return aiFailure(
+          "provider_error",
+          "No fetch implementation is available on this worker.",
+        );
       }
 
       const payload: Record<string, unknown> = {
         model: config.model,
         max_tokens: request.maxOutputTokens,
-        messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: request.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
       };
       if (request.system !== undefined) {
         // Anthropic caches only what it is told to. `cache_control` marks the end of a
@@ -158,10 +179,17 @@ export function createAnthropicProvider(
         // document makes the system prompt big enough to clear that bar; the fixed
         // instructions are a few lines and would never cache on their own.
         payload.system = request.cacheSystem
-          ? [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }]
+          ? [
+              {
+                type: "text",
+                text: request.system,
+                cache_control: { type: "ephemeral" },
+              },
+            ]
           : request.system;
       }
-      if (request.temperature !== undefined) payload.temperature = request.temperature;
+      if (request.temperature !== undefined)
+        payload.temperature = request.temperature;
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -181,15 +209,24 @@ export function createAnthropicProvider(
       } catch (error) {
         const name = (error as { name?: string } | null)?.name;
         if (name === "AbortError" || name === "TimeoutError") {
-          return aiFailure("timeout", "The AI provider did not respond before the deadline.");
+          return aiFailure(
+            "timeout",
+            "The AI provider did not respond before the deadline.",
+          );
         }
-        return aiFailure("provider_error", "The AI provider could not be reached.");
+        return aiFailure(
+          "provider_error",
+          "The AI provider could not be reached.",
+        );
       } finally {
         clearTimeout(timer);
       }
 
       if (response.status === 429) {
-        return aiFailure("rate_limited", "The AI provider is rate limiting requests. Try again shortly.");
+        return aiFailure(
+          "rate_limited",
+          "The AI provider is rate limiting requests. Try again shortly.",
+        );
       }
       if (!response.ok) {
         // Server (5xx) errors are transient, so they stay retryable. Every 4xx is a
@@ -197,7 +234,10 @@ export function createAnthropicProvider(
         // over-long prompt — and is classified below so the job layer stops instead of
         // replaying a request that cannot succeed. Neither path leaks the upstream body.
         if (response.status >= 500) {
-          return aiFailure("provider_error", "The AI provider returned a server error.");
+          return aiFailure(
+            "provider_error",
+            "The AI provider returned a server error.",
+          );
         }
         let rawBody = "";
         try {
@@ -212,11 +252,17 @@ export function createAnthropicProvider(
       try {
         body = (await response.json()) as AnthropicResponseBody;
       } catch {
-        return aiFailure("invalid_response", "The AI provider returned an unreadable response.");
+        return aiFailure(
+          "invalid_response",
+          "The AI provider returned an unreadable response.",
+        );
       }
 
       if (body.stop_reason === "refusal") {
-        return aiFailure("content_filtered", "The AI model declined to answer this request.");
+        return aiFailure(
+          "content_filtered",
+          "The AI model declined to answer this request.",
+        );
       }
 
       // The model ran into `max_tokens` and stopped mid-answer. There IS text here, and
@@ -232,7 +278,10 @@ export function createAnthropicProvider(
 
       const text = extractText(body);
       if (text.length === 0) {
-        return aiFailure("invalid_response", "The AI provider returned no text.");
+        return aiFailure(
+          "invalid_response",
+          "The AI provider returned no text.",
+        );
       }
 
       const inputTokens = coerceCount(body.usage?.input_tokens);
@@ -240,7 +289,9 @@ export function createAnthropicProvider(
       // `input_tokens` counts only what was NOT served from cache, so a cache hit shows
       // up as a small `input_tokens` plus a large `cache_read_input_tokens` — reading
       // the first alone makes a cached request look like a tiny one.
-      const cachedInputTokens = coerceCount(body.usage?.cache_read_input_tokens);
+      const cachedInputTokens = coerceCount(
+        body.usage?.cache_read_input_tokens,
+      );
       const usage =
         inputTokens !== undefined && outputTokens !== undefined
           ? {
@@ -250,7 +301,12 @@ export function createAnthropicProvider(
             }
           : undefined;
 
-      return { ok: true, text, model: config.model, ...(usage ? { usage } : {}) };
+      return {
+        ok: true,
+        text,
+        model: config.model,
+        ...(usage ? { usage } : {}),
+      };
     },
   };
 }

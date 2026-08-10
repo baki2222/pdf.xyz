@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { looksLikePdf } from "../compression/engine";
 import type { GhostscriptPdfARunner, PdfArchiveDeps } from "./engine";
-import { resolveNativePdfArchiveConfig, type NativePdfArchiveConfig } from "./native-config";
+import {
+  resolveNativePdfArchiveConfig,
+  type NativePdfArchiveConfig,
+} from "./native-config";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -24,7 +27,10 @@ export interface GhostscriptFs {
   mkdtemp: (prefix: string) => Promise<string>;
   writeFile: (file: string, data: Uint8Array) => Promise<void>;
   readFile: (file: string) => Promise<Uint8Array>;
-  rm: (dir: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  rm: (
+    dir: string,
+    options: { recursive: boolean; force: boolean },
+  ) => Promise<void>;
 }
 
 export interface GhostscriptSeams {
@@ -40,12 +46,17 @@ const defaultExec: GhostscriptExec = (command, args, options) =>
       command,
       [...args],
       { ...options, encoding: "buffer" },
-      (error: (Error & { code?: number | string; killed?: boolean }) | null) => {
+      (
+        error: (Error & { code?: number | string; killed?: boolean }) | null,
+      ) => {
         if (!error) {
           resolve({ code: 0, timedOut: false });
           return;
         }
-        resolve({ code: typeof error.code === "number" ? error.code : -1, timedOut: !!error.killed });
+        resolve({
+          code: typeof error.code === "number" ? error.code : -1,
+          timedOut: !!error.killed,
+        });
       },
     );
   });
@@ -68,7 +79,10 @@ function isRegularFile(filePath: string): boolean {
 export function resolveOnPath(binary: string): boolean {
   const pathVar = process.env.PATH ?? "";
   if (pathVar.length === 0) return false;
-  const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";") : [""];
+  const exts =
+    process.platform === "win32"
+      ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";")
+      : [""];
   for (const dir of pathVar.split(path.delimiter)) {
     if (!dir) continue;
     for (const ext of exts) {
@@ -78,7 +92,10 @@ export function resolveOnPath(binary: string): boolean {
   return false;
 }
 
-export function ghostscriptPdfAArgs(inputPath: string, outputPath: string): string[] {
+export function ghostscriptPdfAArgs(
+  inputPath: string,
+  outputPath: string,
+): string[] {
   return [
     "-dPDFA=2",
     "-dBATCH",
@@ -102,21 +119,32 @@ export function createNativeGhostscriptPdfARunner(
   const baseTmp = config.tmpDir ?? tmpdir();
   return {
     async convertToPdfA(input) {
-      if (input.byteLength > config.maxInputBytes) throw new Error("Input exceeds size limit.");
+      if (input.byteLength > config.maxInputBytes)
+        throw new Error("Input exceeds size limit.");
       const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-pdfa-"));
       const inputPath = path.join(dir, "input.pdf");
       const outputPath = path.join(dir, "output.pdf");
       try {
         await fs.writeFile(inputPath, input);
-        const result = await exec(config.binary, ghostscriptPdfAArgs(inputPath, outputPath), {
-          timeout: config.timeoutMs,
-          maxBuffer: EXEC_MAX_BUFFER,
-          windowsHide: true,
-        });
-        if (result.timedOut || result.code !== 0) throw new Error("Ghostscript PDF/A conversion failed.");
+        const result = await exec(
+          config.binary,
+          ghostscriptPdfAArgs(inputPath, outputPath),
+          {
+            timeout: config.timeoutMs,
+            maxBuffer: EXEC_MAX_BUFFER,
+            windowsHide: true,
+          },
+        );
+        if (result.timedOut || result.code !== 0)
+          throw new Error("Ghostscript PDF/A conversion failed.");
         const output = await fs.readFile(outputPath);
-        const bytes = output instanceof Uint8Array ? output : new Uint8Array(output);
-        if (bytes.byteLength === 0 || bytes.byteLength > config.maxOutputBytes || !looksLikePdf(bytes)) {
+        const bytes =
+          output instanceof Uint8Array ? output : new Uint8Array(output);
+        if (
+          bytes.byteLength === 0 ||
+          bytes.byteLength > config.maxOutputBytes ||
+          !looksLikePdf(bytes)
+        ) {
           throw new Error("Ghostscript produced no usable PDF output.");
         }
         return bytes;
@@ -144,7 +172,9 @@ export function nativePdfArchiveDeps(
   const config = resolveNativePdfArchiveConfig(env);
   const available = probeGhostscriptFromConfig(config, seams);
   return {
-    ...(available ? { ghostscript: createNativeGhostscriptPdfARunner(config, seams) } : {}),
+    ...(available
+      ? { ghostscript: createNativeGhostscriptPdfARunner(config, seams) }
+      : {}),
     limits: { maxInputBytes: config.maxInputBytes },
   };
 }

@@ -1,7 +1,14 @@
 import type { WorkerStatus } from "./status";
-import { runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import {
+  runSecurityJob,
+  type PdfSecurityWorkerOptions,
+  type PdfSecurityWorkerResult,
+} from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
-import type { TranslateLanguage, TranslateSourceLanguage } from "@/lib/jobs/translate-pdf";
+import type {
+  TranslateLanguage,
+  TranslateSourceLanguage,
+} from "@/lib/jobs/translate-pdf";
 
 /**
  * Browser-side driver for the secure-worker Translate PDF flow (`translate-pdf`).
@@ -33,8 +40,15 @@ export function runWorkerTranslate(
     targetLanguage: input.targetLanguage,
     sourceLanguage: input.sourceLanguage,
   };
-  if (input.instructions !== undefined) jobOptions.instructions = input.instructions;
-  return runSecurityJob("translate-pdf", input.filename, input.bytes, jobOptions, options);
+  if (input.instructions !== undefined)
+    jobOptions.instructions = input.instructions;
+  return runSecurityJob(
+    "translate-pdf",
+    input.filename,
+    input.bytes,
+    jobOptions,
+    options,
+  );
 }
 
 /**
@@ -42,6 +56,8 @@ export function runWorkerTranslate(
  * remote pipeline AND a declared AI provider. See `./ai-tool-availability` for why
  * the AI half is checked here rather than left to fail after the upload.
  */
-export function canRunTranslate(status: WorkerStatus | null | undefined): boolean {
+export function canRunTranslate(
+  status: WorkerStatus | null | undefined,
+): boolean {
   return canRunAiTool(status);
 }

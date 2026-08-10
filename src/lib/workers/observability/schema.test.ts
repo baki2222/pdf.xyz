@@ -88,11 +88,31 @@ const SAMPLES: WorkerMetricSample[] = [
   artifactRetrievalMetric("served", "ok", "pdf", "local-dev"),
   artifactRetrievalMetric("served", "ok", "pdf", "remote-configured"),
   artifactRetrievalMetric("denied", "expired", "unknown", "remote-configured"),
-  artifactRetrievalMetric("denied", "storage_error", "unknown", "remote-configured"),
-  artifactRetrievalMetric("denied", "invalid_manifest", "unknown", "not-configured"),
+  artifactRetrievalMetric(
+    "denied",
+    "storage_error",
+    "unknown",
+    "remote-configured",
+  ),
+  artifactRetrievalMetric(
+    "denied",
+    "invalid_manifest",
+    "unknown",
+    "not-configured",
+  ),
   artifactDeliveryMetric("delivered", "ok", "pdf", "local-dev"),
-  artifactDeliveryMetric("delivered", "ok", "text-sidecar", "remote-configured"),
-  artifactDeliveryMetric("denied", "size_mismatch", "unknown", "remote-configured"),
+  artifactDeliveryMetric(
+    "delivered",
+    "ok",
+    "text-sidecar",
+    "remote-configured",
+  ),
+  artifactDeliveryMetric(
+    "denied",
+    "size_mismatch",
+    "unknown",
+    "remote-configured",
+  ),
   artifactDeliveryMetric("denied", "oversize", "archive", "remote-configured"),
   artifactDeliveryMetric("denied", "stream_error", "unknown", "not-configured"),
   artifactExpiryMetric("live", "remote-configured"),
@@ -111,7 +131,11 @@ const SAMPLES: WorkerMetricSample[] = [
   cleanupPipelineMetric("verify", "drift"),
   cleanupPipelineMetric("sweep", "breach"),
   cleanupPipelineMetric("sweep", "usage"),
-  cleanupEvidencePostureMetric("healthy", "cleanup_verified", "remote-configured"),
+  cleanupEvidencePostureMetric(
+    "healthy",
+    "cleanup_verified",
+    "remote-configured",
+  ),
   cleanupEvidencePostureMetric("stale", "report_stale", "unknown"),
   cleanupEvidencePostureMetric("warning", "cleanup_drift", "remote-configured"),
   cleanupEvidencePostureMetric("critical", "cleanup_breach", "unknown"),
@@ -192,44 +216,81 @@ describe("builders produce schema-conformant, content-free samples", () => {
 describe("sanitizeMetric rejects off-schema / content-bearing samples", () => {
   it("rejects an unknown metric name", () => {
     expect(
-      sanitizeMetric({ metric: "worker_secret_total" as never, kind: "counter", labels: {}, value: 1 }),
+      sanitizeMetric({
+        metric: "worker_secret_total" as never,
+        kind: "counter",
+        labels: {},
+        value: 1,
+      }),
     ).toBeNull();
   });
 
   it("rejects a kind that disagrees with the schema", () => {
     expect(
-      sanitizeMetric({ metric: "worker_run_total", kind: "gauge", labels: { mode: "loop", reason: "drained" }, value: 1 }),
+      sanitizeMetric({
+        metric: "worker_run_total",
+        kind: "gauge",
+        labels: { mode: "loop", reason: "drained" },
+        value: 1,
+      }),
     ).toBeNull();
   });
 
   it("rejects an out-of-enum label value (a smuggled filename)", () => {
     expect(
-      sanitizeMetric({ metric: "worker_scan_total", kind: "counter", labels: { verdict: "clean", scanned: "statement.pdf" }, value: 1 }),
+      sanitizeMetric({
+        metric: "worker_scan_total",
+        kind: "counter",
+        labels: { verdict: "clean", scanned: "statement.pdf" },
+        value: 1,
+      }),
     ).toBeNull();
   });
 
   it("rejects an extra or a missing label key", () => {
     expect(
-      sanitizeMetric({ metric: "worker_claim_total", kind: "counter", labels: { result: "claimed", extra: "x" }, value: 1 }),
+      sanitizeMetric({
+        metric: "worker_claim_total",
+        kind: "counter",
+        labels: { result: "claimed", extra: "x" },
+        value: 1,
+      }),
     ).toBeNull();
     expect(
-      sanitizeMetric({ metric: "worker_claim_total", kind: "counter", labels: {}, value: 1 }),
+      sanitizeMetric({
+        metric: "worker_claim_total",
+        kind: "counter",
+        labels: {},
+        value: 1,
+      }),
     ).toBeNull();
   });
 
   it("rejects a non-finite value or an over-long label", () => {
     expect(
-      sanitizeMetric({ metric: "worker_retry_total", kind: "counter", labels: {}, value: Number.NaN }),
+      sanitizeMetric({
+        metric: "worker_retry_total",
+        kind: "counter",
+        labels: {},
+        value: Number.NaN,
+      }),
     ).toBeNull();
     expect(
-      sanitizeMetric({ metric: "worker_run_total", kind: "counter", labels: { mode: "loop", reason: "x".repeat(100) }, value: 1 }),
+      sanitizeMetric({
+        metric: "worker_run_total",
+        kind: "counter",
+        labels: { mode: "loop", reason: "x".repeat(100) },
+        value: 1,
+      }),
     ).toBeNull();
   });
 });
 
 describe("latency le bucketing", () => {
   it("labels stay index-aligned with the numeric bounds", () => {
-    LATENCY_LE_SECONDS.forEach((s, i) => expect(LATENCY_LE_LABELS[i]).toBe(String(s)));
+    LATENCY_LE_SECONDS.forEach((s, i) =>
+      expect(LATENCY_LE_LABELS[i]).toBe(String(s)),
+    );
     expect(LATENCY_LE_LABELS[LATENCY_LE_LABELS.length - 1]).toBe("+Inf");
     expect(LATENCY_LE_LABELS.length).toBe(LATENCY_LE_SECONDS.length + 1);
   });
@@ -315,7 +376,12 @@ describe("bounded classifiers fold unknowns into a closed label space", () => {
 
 describe("label vocabularies are non-empty and stringly bounded", () => {
   it("exports closed enum arrays", () => {
-    for (const arr of [PROCESSOR_KINDS, ENGINE_CAPABILITIES, BOOL_LABELS, FAILURE_CLASSES]) {
+    for (const arr of [
+      PROCESSOR_KINDS,
+      ENGINE_CAPABILITIES,
+      BOOL_LABELS,
+      FAILURE_CLASSES,
+    ]) {
       expect(arr.length).toBeGreaterThan(0);
       for (const v of arr) expect(typeof v).toBe("string");
     }

@@ -53,7 +53,12 @@ describe("client status — never over-claims", () => {
 
   it("presence-only: never leaks a variable name", () => {
     const serialized = JSON.stringify(
-      buildWorkerStatus("remote-configured", undefined, undefined, DRAINABLE_ENV),
+      buildWorkerStatus(
+        "remote-configured",
+        undefined,
+        undefined,
+        DRAINABLE_ENV,
+      ),
     );
     expect(serialized).not.toMatch(/PDFXYZ_/);
   });
@@ -76,7 +81,9 @@ describe("client status — never over-claims", () => {
     expect(serialized).not.toMatch(/every file is scanned/);
     expect(serialized).not.toMatch(/files are scanned/);
     // ...and it must positively disclose the absence, not merely omit the claim.
-    expect(status.scan.detail.toLowerCase()).toContain("not scanned for malware");
+    expect(status.scan.detail.toLowerCase()).toContain(
+      "not scanned for malware",
+    );
   });
 });
 
@@ -84,24 +91,36 @@ describe("operator deployment readiness — honest scanner + OCR", () => {
   it("reports malware scanning active ONLY when configured, and OCR never", () => {
     // Not-configured and misconfigured are inactive; a usable clamd endpoint is
     // active (Phase 22 ships an optional real scanner). OCR is never implemented.
-    const inactiveEnvs = [{}, { ...DRAINABLE_ENV }, { [MALWARE_SCANNER_ENV]: "clamav://" }];
+    const inactiveEnvs = [
+      {},
+      { ...DRAINABLE_ENV },
+      { [MALWARE_SCANNER_ENV]: "clamav://" },
+    ];
     for (const env of inactiveEnvs) {
-      const readiness = resolveDeploymentReadiness(resolveDaemonReadiness(env), env, {
-        engine: DEEP,
-      });
+      const readiness = resolveDeploymentReadiness(
+        resolveDaemonReadiness(env),
+        env,
+        {
+          engine: DEEP,
+        },
+      );
       expect(readiness.malwareScan.active).toBe(false);
       expect(readiness.facets.find((f) => f.id === "ocr")!.state).toBe(
         "not-implemented",
       );
     }
-    const configured = { [MALWARE_SCANNER_ENV]: "clamav://clamd.internal:3310" };
+    const configured = {
+      [MALWARE_SCANNER_ENV]: "clamav://clamd.internal:3310",
+    };
     const ready = resolveDeploymentReadiness(
       resolveDaemonReadiness(configured),
       configured,
       { engine: DEEP },
     );
     expect(ready.malwareScan.active).toBe(true);
-    expect(ready.facets.find((f) => f.id === "ocr")!.state).toBe("not-implemented");
+    expect(ready.facets.find((f) => f.id === "ocr")!.state).toBe(
+      "not-implemented",
+    );
     // Still content-free even when a scanner is configured.
     expect(JSON.stringify(ready)).not.toContain("clamd.internal");
     expect(JSON.stringify(ready)).not.toContain("PDFXYZ_");
@@ -111,8 +130,9 @@ describe("operator deployment readiness — honest scanner + OCR", () => {
     const declared = { ...DRAINABLE_ENV, [LIFECYCLE_ENV.provider]: "aws-s3" };
     const validated = { ...declared, [LIFECYCLE_ENV.validated]: "true" };
     const facetState = (env: Record<string, string>) =>
-      resolveDeploymentReadiness(resolveDaemonReadiness(env), env, { engine: DEEP })
-        .facets.find((f) => f.id === "lifecycle")!.state;
+      resolveDeploymentReadiness(resolveDaemonReadiness(env), env, {
+        engine: DEEP,
+      }).facets.find((f) => f.id === "lifecycle")!.state;
     expect(facetState(DRAINABLE_ENV as unknown as Record<string, string>)).toBe(
       "unknown",
     );

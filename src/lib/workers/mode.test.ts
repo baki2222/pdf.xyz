@@ -12,8 +12,12 @@ describe("resolveWorkerMode", () => {
   });
 
   it("is local-dev when the mode flag opts in (case/space-insensitive)", () => {
-    expect(resolveWorkerMode({ [WORKER_MODE_ENV]: "local-dev" })).toBe("local-dev");
-    expect(resolveWorkerMode({ [WORKER_MODE_ENV]: "  LOCAL-DEV " })).toBe("local-dev");
+    expect(resolveWorkerMode({ [WORKER_MODE_ENV]: "local-dev" })).toBe(
+      "local-dev",
+    );
+    expect(resolveWorkerMode({ [WORKER_MODE_ENV]: "  LOCAL-DEV " })).toBe(
+      "local-dev",
+    );
     expect(isLocalDevWorker({ [WORKER_MODE_ENV]: "local-dev" })).toBe(true);
   });
 
@@ -28,7 +32,9 @@ describe("resolveWorkerMode", () => {
   });
 
   it("ignores an unrecognized mode value and falls through to presence", () => {
-    expect(resolveWorkerMode({ [WORKER_MODE_ENV]: "production" })).toBe("disabled");
+    expect(resolveWorkerMode({ [WORKER_MODE_ENV]: "production" })).toBe(
+      "disabled",
+    );
     expect(
       resolveWorkerMode({ ...configuredEnv(), [WORKER_MODE_ENV]: "nope" }),
     ).toBe("remote-configured");

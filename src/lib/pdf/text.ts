@@ -63,7 +63,9 @@ export function normalizeExtractedText(text: string): string {
 }
 
 /** Join page blocks with a single blank line between non-empty pages. */
-export function joinPageTexts(pages: Pick<ExtractedTextPage, "text">[]): string {
+export function joinPageTexts(
+  pages: Pick<ExtractedTextPage, "text">[],
+): string {
   return pages
     .map((page) => normalizeExtractedText(page.text))
     .filter((text) => text.length > 0)
@@ -79,7 +81,9 @@ export function textOutputName(sourceName: string): string {
  * perform OCR; scanned/image-only documents return `hasText:false` so the UI can
  * honestly point users to OCR PDF.
  */
-export async function extractPdfText(bytes: Uint8Array): Promise<ExtractedPdfText> {
+export async function extractPdfText(
+  bytes: Uint8Array,
+): Promise<ExtractedPdfText> {
   const pdfjs = await loadPdfjs();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
@@ -90,7 +94,9 @@ export async function extractPdfText(bytes: Uint8Array): Promise<ExtractedPdfTex
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
       const page = await doc.getPage(pageNumber);
       try {
-        const content = await page.getTextContent({ includeMarkedContent: false });
+        const content = await page.getTextContent({
+          includeMarkedContent: false,
+        });
         const text = textItemsToPlainText(content.items as TextItemLike[]);
         pages.push({
           pageNumber,

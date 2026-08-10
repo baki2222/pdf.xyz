@@ -92,7 +92,9 @@ function body(n: number): ArrayBuffer {
  * on purpose: it is a forbidden fetch header, so the transport derives it from
  * the body exactly as a browser does — which is the value the store checks.
  */
-async function put(sendBytes: number): Promise<{ status: number; code: string }> {
+async function put(
+  sendBytes: number,
+): Promise<{ status: number; code: string }> {
   const slot = await reserve();
   const res = await fetch(slot.url, {
     method: slot.method,
@@ -115,9 +117,13 @@ async function main(): Promise<number> {
   let attack: { status: number; code: string };
   try {
     control = await put(DECLARED);
-    console.log(`  control  ${DECLARED} bytes -> ${control.status} ${control.code}`);
+    console.log(
+      `  control  ${DECLARED} bytes -> ${control.status} ${control.code}`,
+    );
     attack = await put(OVERSIZE);
-    console.log(`  oversize ${OVERSIZE} bytes -> ${attack.status} ${attack.code}\n`);
+    console.log(
+      `  oversize ${OVERSIZE} bytes -> ${attack.status} ${attack.code}\n`,
+    );
   } catch (error) {
     console.error(String(error instanceof Error ? error.message : error));
     return 2;

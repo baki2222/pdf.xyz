@@ -63,7 +63,10 @@ describe("the heartbeat carries the worker's real OCR languages", () => {
     const parsed = parseHeartbeat(
       JSON.stringify({
         ...BEAT,
-        capabilities: { ...BEAT.capabilities, ocrLanguages: ["ben", "eng", "eng"] },
+        capabilities: {
+          ...BEAT.capabilities,
+          ocrLanguages: ["ben", "eng", "eng"],
+        },
       }),
     );
     // `eng` is first in OCR_LANGUAGE_CODES; duplicates collapse.

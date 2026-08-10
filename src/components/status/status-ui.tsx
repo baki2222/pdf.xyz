@@ -129,7 +129,10 @@ export function RecoverableError({
       )}
     >
       <div className="flex items-start gap-2.5">
-        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-300" aria-hidden />
+        <AlertTriangle
+          className="mt-0.5 size-4 shrink-0 text-red-300"
+          aria-hidden
+        />
         <div className="flex flex-col gap-1">
           <p className="font-semibold text-red-50">{title}</p>
           <p className="text-red-100/90">{message}</p>
@@ -169,10 +172,7 @@ export function RecoverableError({
 
 export type AssuranceTone = "privacy" | "info" | "muted";
 
-const ASSURANCE_STYLES: Record<
-  AssuranceTone,
-  { box: string; icon: string }
-> = {
+const ASSURANCE_STYLES: Record<AssuranceTone, { box: string; icon: string }> = {
   privacy: {
     box: "border-emerald-400/25 bg-emerald-400/[0.06] text-emerald-100",
     icon: "text-emerald-300",
@@ -210,7 +210,10 @@ export function AssuranceNote({
         className,
       )}
     >
-      <ShieldCheck className={cn("mt-0.5 size-4 shrink-0", styles.icon)} aria-hidden />
+      <ShieldCheck
+        className={cn("mt-0.5 size-4 shrink-0", styles.icon)}
+        aria-hidden
+      />
       <span>{children}</span>
     </p>
   );
@@ -242,7 +245,7 @@ export function StatusCard({
   icon?: typeof Info;
 }) {
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
+    <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-white">
           <Icon className="size-4 text-slate-400" aria-hidden />

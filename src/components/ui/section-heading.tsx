@@ -25,17 +25,17 @@ export function SectionHeading({
       )}
     >
       {eyebrow && (
-        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-200">
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold tracking-widest text-violet-200 uppercase">
           {eyebrow}
         </span>
       )}
-      <Heading className="max-w-3xl text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
+      <Heading className="max-w-3xl text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
         {title}
       </Heading>
       {description && (
         <p
           className={cn(
-            "max-w-2xl text-pretty text-base leading-relaxed text-slate-400 sm:text-lg",
+            "max-w-2xl text-base leading-relaxed text-pretty text-slate-400 sm:text-lg",
             align === "center" && "mx-auto",
           )}
         >

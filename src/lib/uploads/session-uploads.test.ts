@@ -64,12 +64,20 @@ function harness({ sessionOk = true, uploadOk = true } = {}) {
     if (url === "/api/uploads") {
       return sessionOk
         ? jsonResponse({ slots: [SLOT] })
-        : jsonResponse({ error: { code: "nope", message: "no slot" } }, false, 503);
+        : jsonResponse(
+            { error: { code: "nope", message: "no slot" } },
+            false,
+            503,
+          );
     }
     if (url === SLOT.url) {
       return uploadOk
         ? jsonResponse({})
-        : jsonResponse({ error: { code: "nope", message: "put failed" } }, false, 500);
+        : jsonResponse(
+            { error: { code: "nope", message: "put failed" } },
+            false,
+            500,
+          );
     }
     if (url === "/api/jobs") {
       return jsonResponse(

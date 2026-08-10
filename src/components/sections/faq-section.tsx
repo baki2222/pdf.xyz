@@ -16,7 +16,7 @@ export function FaqSection() {
           {faqs.map((faq) => (
             <details
               key={faq.q}
-              className="group rounded-2xl border border-white/10 bg-surface-2 p-5 [&_summary::-webkit-details-marker]:hidden"
+              className="group bg-surface-2 rounded-2xl border border-white/10 p-5 [&_summary::-webkit-details-marker]:hidden"
             >
               <summary className="flex cursor-pointer items-center justify-between gap-4 text-sm font-semibold text-white">
                 {faq.q}

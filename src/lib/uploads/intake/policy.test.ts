@@ -10,7 +10,9 @@ import {
 describe("DEFAULT_INTAKE_POLICY", () => {
   it("mirrors the contract limits so the two can never drift", () => {
     expect(DEFAULT_INTAKE_POLICY.maxFileBytes).toBe(JOB_LIMITS.maxFileBytes);
-    expect(DEFAULT_INTAKE_POLICY.maxRequestBytes).toBe(JOB_LIMITS.maxTotalBytes);
+    expect(DEFAULT_INTAKE_POLICY.maxRequestBytes).toBe(
+      JOB_LIMITS.maxTotalBytes,
+    );
     expect(DEFAULT_INTAKE_POLICY.maxFiles).toBe(JOB_LIMITS.maxInputFiles);
     expect(DEFAULT_INTAKE_POLICY.maxFilenameLength).toBe(
       JOB_LIMITS.maxFilenameLength,

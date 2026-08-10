@@ -30,7 +30,8 @@ export function isIndexedDbAvailable(): boolean {
 function promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("IndexedDB request failed"));
+    request.onerror = () =>
+      reject(request.error ?? new Error("IndexedDB request failed"));
   });
 }
 
@@ -54,7 +55,8 @@ function openDb(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
+    request.onerror = () =>
+      reject(request.error ?? new Error("IndexedDB open failed"));
     request.onblocked = () => reject(new Error("IndexedDB open blocked"));
   }).catch((err) => {
     // Reset so a later attempt can retry a transient failure.
@@ -86,15 +88,19 @@ async function withStore<T>(
       })
       .catch(reject);
     tx.oncomplete = () => resolve(result);
-    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB transaction failed"));
-    tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted"));
+    tx.onerror = () =>
+      reject(tx.error ?? new Error("IndexedDB transaction failed"));
+    tx.onabort = () =>
+      reject(tx.error ?? new Error("IndexedDB transaction aborted"));
   });
 }
 
 /** IndexedDB implementation of {@link HandoffBackend}. */
 export class IndexedDbHandoffBackend implements HandoffBackend {
   async put(record: HandoffRecord): Promise<void> {
-    await withStore("readwrite", (store) => promisifyRequest(store.put(record)));
+    await withStore("readwrite", (store) =>
+      promisifyRequest(store.put(record)),
+    );
   }
 
   async get(id: string): Promise<HandoffRecord | undefined> {

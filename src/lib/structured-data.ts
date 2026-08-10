@@ -69,7 +69,8 @@ export function webApplicationSchema(): Json {
     url: siteConfig.url,
     applicationCategory: "UtilitiesApplication",
     operatingSystem: "Any",
-    browserRequirements: "Requires a modern web browser with JavaScript enabled.",
+    browserRequirements:
+      "Requires a modern web browser with JavaScript enabled.",
     description: siteConfig.description,
     inLanguage: "en-US",
     isPartOf: { "@id": WEBSITE_ID },

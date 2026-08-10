@@ -41,7 +41,13 @@ describe("parsePipelineArgs", () => {
   });
 
   it("accepts the bounded dialect, grace, format, and clock flags", () => {
-    const args = run(["--stdin", "--source=generic", "--grace-hours=12", "--text", "--now=1700000000000"]);
+    const args = run([
+      "--stdin",
+      "--source=generic",
+      "--grace-hours=12",
+      "--text",
+      "--now=1700000000000",
+    ]);
     expect(args.provider).toBe("generic");
     expect(args.graceHours).toBe(12);
     expect(args.format).toBe("text");

@@ -89,9 +89,16 @@ const ROOT = process.cwd();
  *  Ground truth: the tree the docs describe.
  * ------------------------------------------------------------------ */
 
-const CODE_ROOTS = ["src", "scripts", "e2e", ".github", path.join("docs", "examples")];
+const CODE_ROOTS = [
+  "src",
+  "scripts",
+  "e2e",
+  ".github",
+  path.join("docs", "examples"),
+];
 const CODE_FILE = /\.(?:ts|tsx|js|mjs|cjs|json|ya?ml|sh|cron)$/;
-const isCorpusFile = (name: string) => CODE_FILE.test(name) || name.startsWith("Dockerfile");
+const isCorpusFile = (name: string) =>
+  CODE_FILE.test(name) || name.startsWith("Dockerfile");
 
 /** The ground truth every failure message cites — derived from the real
  *  config above so the description cannot drift from the walk. */
@@ -121,11 +128,14 @@ function codeCorpus(): Corpus {
     if (existsSync(dir) && statSync(dir).isDirectory()) walk(dir);
   }
   for (const entry of readdirSync(ROOT, { withFileTypes: true })) {
-    if (entry.isFile() && isCorpusFile(entry.name)) files.push(path.join(ROOT, entry.name));
+    if (entry.isFile() && isCorpusFile(entry.name))
+      files.push(path.join(ROOT, entry.name));
   }
   const tokens = new Set<string>();
   for (const file of files) {
-    for (const match of readFileSync(file, "utf8").matchAll(/[A-Za-z_$][\w$]*/g)) {
+    for (const match of readFileSync(file, "utf8").matchAll(
+      /[A-Za-z_$][\w$]*/g,
+    )) {
       tokens.add(match[0]);
     }
   }
@@ -138,15 +148,56 @@ function codeCorpus(): Corpus {
 
 /** pnpm's own subcommands — not scripts, never findings. */
 const PNPM_BUILTINS = new Set([
-  "install", "i", "add", "remove", "rm", "update", "up", "exec", "dlx",
-  "create", "run", "test", "start", "dev", "build", "why", "list", "ls",
-  "outdated", "audit", "prune", "store", "setup", "import", "rebuild",
-  "link", "unlink", "pack", "publish", "patch", "config", "licenses",
-  "env", "fetch", "root", "bin", "doctor", "approve-builds",
+  "install",
+  "i",
+  "add",
+  "remove",
+  "rm",
+  "update",
+  "up",
+  "exec",
+  "dlx",
+  "create",
+  "run",
+  "test",
+  "start",
+  "dev",
+  "build",
+  "why",
+  "list",
+  "ls",
+  "outdated",
+  "audit",
+  "prune",
+  "store",
+  "setup",
+  "import",
+  "rebuild",
+  "link",
+  "unlink",
+  "pack",
+  "publish",
+  "patch",
+  "config",
+  "licenses",
+  "env",
+  "fetch",
+  "root",
+  "bin",
+  "doctor",
+  "approve-builds",
 ]);
 
 /** Local bins a doc may invoke directly through pnpm. */
-const LOCAL_BINS = new Set(["vitest", "playwright", "tsx", "tsc", "eslint", "next", "prettier"]);
+const LOCAL_BINS = new Set([
+  "vitest",
+  "playwright",
+  "tsx",
+  "tsc",
+  "eslint",
+  "next",
+  "prettier",
+]);
 
 /** Vendor-console names docs legitimately cite that no code reads. */
 const VENDOR_PREFIXES = ["UPSTASH_"];
@@ -230,7 +281,11 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
     )) {
       const name = match[1] ?? "";
       checked += 1;
-      if (!scripts.has(name) && !PNPM_BUILTINS.has(name) && !LOCAL_BINS.has(name)) {
+      if (
+        !scripts.has(name) &&
+        !PNPM_BUILTINS.has(name) &&
+        !LOCAL_BINS.has(name)
+      ) {
         push(
           "script",
           `pnpm ${name}`,
@@ -313,8 +368,7 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
       const wanted = name;
       const exists =
         corpusHas(wanted) ||
-        (allowSuffix &&
-          corpus.tokenList.some((t) => t.endsWith(`_${wanted}`)));
+        (allowSuffix && corpus.tokenList.some((t) => t.endsWith(`_${wanted}`)));
       if (!exists) {
         push(
           "symbol",
@@ -338,7 +392,11 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
       checked += 1;
       const targetText = markerTargetText(path.join(ROOT, target));
       if (targetText === null) {
-        push("marker", `${kind} in ${target}`, "the marker's target path does not exist — it guards nothing");
+        push(
+          "marker",
+          `${kind} in ${target}`,
+          "the marker's target path does not exist — it guards nothing",
+        );
         continue;
       }
       const hit = new RegExp(body, flags).test(targetText);
@@ -361,7 +419,8 @@ function censusFindings(): { findings: DocFinding[]; checked: number } {
   return { findings, checked };
 }
 
-const findingKey = (f: { doc: string; token: string }) => `${f.doc} :: ${f.token}`;
+const findingKey = (f: { doc: string; token: string }) =>
+  `${f.doc} :: ${f.token}`;
 
 /**
  * Empty. The single first-contact entry (`PDFXYZ_CLEANUP_RAW_EXPORT`) was a
@@ -390,14 +449,16 @@ describe("the operator docs name identifiers that exist", () => {
     const { files } = codeCorpus();
     expect(files.some((f) => f.endsWith(".sh"))).toBe(true);
     expect(files.some((f) => /\.ya?ml$/.test(f))).toBe(true);
-    expect(
-      files.some((f) => f.includes(path.join("docs", "examples"))),
-    ).toBe(true);
+    expect(files.some((f) => f.includes(path.join("docs", "examples")))).toBe(
+      true,
+    );
   });
 
   it("every named identifier exists, or is in the reported baseline", () => {
     const known = new Set(BASELINE.map(findingKey));
-    const fresh = censusFindings().findings.filter((f) => !known.has(findingKey(f)));
+    const fresh = censusFindings().findings.filter(
+      (f) => !known.has(findingKey(f)),
+    );
     expect(
       fresh,
       `these doc references failed their existence check (each message names the ground truth it checked):\n  ${fresh

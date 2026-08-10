@@ -78,7 +78,10 @@ export const OCR_LANGUAGES = [
   { code: "ben", label: "Bengali" },
   // `satisfies` (not an annotation) keeps each `code` a literal type so `OcrLanguage`
   // can be derived from it, while still checking the shape of every entry.
-] as const satisfies readonly { readonly code: string; readonly label: string }[];
+] as const satisfies readonly {
+  readonly code: string;
+  readonly label: string;
+}[];
 
 /** Every supported language code, in menu order. */
 export const OCR_LANGUAGE_CODES: readonly OcrLanguage[] = OCR_LANGUAGES.map(
@@ -100,7 +103,9 @@ export function isOcrLanguage(value: unknown): value is OcrLanguage {
 
 /** Human label for a language code (falls back to the raw code). */
 export function describeOcrLanguage(code: OcrLanguage): string {
-  return OCR_LANGUAGES.find((language) => language.code === code)?.label ?? code;
+  return (
+    OCR_LANGUAGES.find((language) => language.code === code)?.label ?? code
+  );
 }
 
 /**
@@ -157,7 +162,9 @@ export function isOcrOutputMode(value: unknown): value is OcrOutputMode {
 
 /** The output formats a given mode yields. */
 export function ocrOutputsForMode(mode: OcrOutputMode): readonly string[] {
-  return OCR_OUTPUT_MODES.find((entry) => entry.id === mode)?.outputs ?? ["PDF"];
+  return (
+    OCR_OUTPUT_MODES.find((entry) => entry.id === mode)?.outputs ?? ["PDF"]
+  );
 }
 
 /** Validated, tool-specific OCR options parsed from a job request. */
@@ -400,14 +407,18 @@ const OCR_LOW_WORD_RATIO = 0.35;
  */
 export function ocrConfidenceLooksLow(meta: OcrResultMeta): boolean {
   const { meanConfidence, lowConfidenceWordRatio, recognizedWords } = meta;
-  if (recognizedWords === null || recognizedWords < OCR_MIN_WORDS_FOR_CONFIDENCE_ADVICE) {
+  if (
+    recognizedWords === null ||
+    recognizedWords < OCR_MIN_WORDS_FOR_CONFIDENCE_ADVICE
+  ) {
     return false;
   }
   // Either signal alone is enough: the mean catches a uniformly poor read, the ratio
   // catches the long low tail a mean would average away.
   return (
     (meanConfidence !== null && meanConfidence < OCR_LOW_MEAN_CONFIDENCE) ||
-    (lowConfidenceWordRatio !== null && lowConfidenceWordRatio > OCR_LOW_WORD_RATIO)
+    (lowConfidenceWordRatio !== null &&
+      lowConfidenceWordRatio > OCR_LOW_WORD_RATIO)
   );
 }
 
@@ -442,14 +453,21 @@ export interface OcrResultMetaInput {
 }
 
 /** Coerce a raw metric to a bounded, non-negative integer in [0, max]; anything else ⇒ null. */
-function boundedCount(value: number | null | undefined, max: number): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+function boundedCount(
+  value: number | null | undefined,
+  max: number,
+): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
+    return null;
   return Math.min(Math.floor(value), max);
 }
 
 /** Reduce an engine name to a short, safe token so a stray path/text can never ride in as "engine". */
 function sanitizeOcrEngineName(engine: string): string {
-  const token = engine.trim().toLowerCase().replace(/[^a-z0-9_+-]/g, "");
+  const token = engine
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_+-]/g, "");
   return token.slice(0, 32) || "unknown";
 }
 
@@ -494,7 +512,10 @@ export function buildOcrResultMeta(input: OcrResultMetaInput): OcrResultMeta {
   // to invisible with no error and no failing test. The parser converts explicitly and
   // `ocr.test.ts` pins that conversion.
   const unitRatio = (value: unknown): number | null =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 1
       ? value
       : null;
 
@@ -517,6 +538,9 @@ export function buildOcrResultMeta(input: OcrResultMetaInput): OcrResultMeta {
     lowConfidenceWordRatio,
     // Bounded like the other counts. A sidecar cannot hold more words than characters,
     // so the character ceiling is a safe upper bound here too.
-    recognizedWords: boundedCount(input.recognizedWords ?? null, OCR_MAX_REPORTED_CHARACTERS),
+    recognizedWords: boundedCount(
+      input.recognizedWords ?? null,
+      OCR_MAX_REPORTED_CHARACTERS,
+    ),
   };
 }

@@ -15,7 +15,12 @@ const empty: MalwareScanInput = { tool: "t", inputs: [] };
 const pdf: MalwareScanInput = {
   tool: "compress-pdf",
   inputs: [
-    { fileId: "f", filename: "d.pdf", contentType: "application/pdf", bytes: new Uint8Array([1]) },
+    {
+      fileId: "f",
+      filename: "d.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+    },
   ],
 };
 
@@ -23,7 +28,11 @@ const pdf: MalwareScanInput = {
 function fixedTransport(reply: string): ClamavTransport {
   const b = new Uint8Array(reply.length);
   for (let i = 0; i < reply.length; i++) b[i] = reply.charCodeAt(i);
-  return { async roundtrip() { return b; } };
+  return {
+    async roundtrip() {
+      return b;
+    },
+  };
 }
 
 describe("resolveWorkerScanner", () => {
@@ -35,13 +44,17 @@ describe("resolveWorkerScanner", () => {
   });
 
   it("wires the no-op (disabled) when explicitly turned off", async () => {
-    const scanner = resolveWorkerScanner({ PDFXYZ_MALWARE_SCANNER: "disabled" });
+    const scanner = resolveWorkerScanner({
+      PDFXYZ_MALWARE_SCANNER: "disabled",
+    });
     expect(scanner.capability().provider).toBe("disabled");
     expect((await scanner.scan(empty)).verdict).toBe("skipped");
   });
 
   it("wires the no-op (unavailable) for a selected-but-misconfigured scanner", async () => {
-    const scanner = resolveWorkerScanner({ PDFXYZ_MALWARE_SCANNER: "clamav://" });
+    const scanner = resolveWorkerScanner({
+      PDFXYZ_MALWARE_SCANNER: "clamav://",
+    });
     expect(scanner.capability().active).toBe(false);
     expect(scanner.capability().provider).toBe("unavailable");
     expect((await scanner.scan(empty)).verdict).toBe("skipped");
@@ -56,7 +69,9 @@ describe("resolveWorkerScanner", () => {
     expect(scanner.capability().provider).toBe("clamav");
     expect((await scanner.scan(pdf)).verdict).toBe("clean");
     // The endpoint value never appears in the reported capability.
-    expect(JSON.stringify(scanner.capability())).not.toContain("clamd.internal");
+    expect(JSON.stringify(scanner.capability())).not.toContain(
+      "clamd.internal",
+    );
     expect(JSON.stringify(scanner.capability())).not.toContain("PDFXYZ_");
   });
 

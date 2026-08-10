@@ -18,13 +18,26 @@ function extractorFor(text: string): PdfTextExtractor {
 }
 
 function provider(result: AiCompletionResult): AiProvider {
-  return { id: "anthropic", model: "claude-sonnet-5", async complete() { return result; } };
+  return {
+    id: "anthropic",
+    model: "claude-sonnet-5",
+    async complete() {
+      return result;
+    },
+  };
 }
 
 const input = (options: Record<string, unknown> = {}): ProcessorInput => ({
   tool: "summarize-pdf",
   options,
-  inputs: [{ fileId: "f1", filename: "report.pdf", contentType: "application/pdf", bytes: new Uint8Array([1]) }],
+  inputs: [
+    {
+      fileId: "f1",
+      filename: "report.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+    },
+  ],
 });
 
 describe("createSummarizeProcessor", () => {
@@ -51,7 +64,11 @@ describe("createSummarizeProcessor", () => {
   it("reports ready and produces a real summary ZIP with an injected provider", async () => {
     const p = createSummarizeProcessor({
       extract: extractorFor("A genuine document with content."),
-      provider: provider({ ok: true, text: "Real summary.", model: "claude-sonnet-5" }),
+      provider: provider({
+        ok: true,
+        text: "Real summary.",
+        model: "claude-sonnet-5",
+      }),
     });
     expect(p.capability().ready).toBe(true);
 
@@ -62,8 +79,13 @@ describe("createSummarizeProcessor", () => {
       expect(result.artifacts[0]!.filename).toBe("report-summary.zip");
       expect(result.artifacts[0]!.contentType).toBe("application/zip");
       const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
-      expect(await zip.file("summary.txt")!.async("string")).toBe("Real summary.");
-      expect(result.meta).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5" });
+      expect(await zip.file("summary.txt")!.async("string")).toBe(
+        "Real summary.",
+      );
+      expect(result.meta).toMatchObject({
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+      });
     }
   });
 
@@ -93,7 +115,12 @@ describe("createSummarizeProcessor", () => {
   it("maps a provider rate limit to a retryable service_unavailable", async () => {
     const p = createSummarizeProcessor({
       extract: extractorFor("text"),
-      provider: provider({ ok: false, kind: "rate_limited", message: "slow", retryable: true }),
+      provider: provider({
+        ok: false,
+        kind: "rate_limited",
+        message: "slow",
+        retryable: true,
+      }),
     });
     const result = await p.process(input());
     expect(result.ok).toBe(false);

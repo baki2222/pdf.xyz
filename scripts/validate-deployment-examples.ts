@@ -51,10 +51,13 @@ const FILES = [
 ];
 
 const PLACEHOLDER = /(REPLACE|EXAMPLE|PLACEHOLDER|\.invalid\b|\.local\b)/i;
-const SECRET_VALUE = /(AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._-]{20,}|https:\/\/[^\s<>]*:[^\s<>@]+@)/;
-const REAL_PROVIDER = /(amazonaws\.com|\.upstash\.io|\.r2\.cloudflarestorage\.com|googleapis\.com|\.blob\.core\.windows\.net|supabase\.co)/i;
+const SECRET_VALUE =
+  /(AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._-]{20,}|https:\/\/[^\s<>]*:[^\s<>@]+@)/;
+const REAL_PROVIDER =
+  /(amazonaws\.com|\.upstash\.io|\.r2\.cloudflarestorage\.com|googleapis\.com|\.blob\.core\.windows\.net|supabase\.co)/i;
 const NEXT_PUBLIC_SECRET = /NEXT_PUBLIC_.*(SECRET|TOKEN|PASSWORD|KEY)/i;
-const SECRET_ASSIGNMENT = /^\s*([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|ACCESS_KEY)[A-Z0-9_]*)\s*[:=]\s*["']?([^"'\n#]+)["']?/gim;
+const SECRET_ASSIGNMENT =
+  /^\s*([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|ACCESS_KEY)[A-Z0-9_]*)\s*[:=]\s*["']?([^"'\n#]+)["']?/gim;
 
 interface Finding {
   file: string;
@@ -72,20 +75,39 @@ function checkFile(rel: string, findings: Finding[]): void {
     return;
   }
   const text = read(rel);
-  if (text.includes("\t")) findings.push({ file: rel, message: "tabs are not allowed" });
-  if (SECRET_VALUE.test(text)) findings.push({ file: rel, message: "credential-shaped literal found" });
-  if (REAL_PROVIDER.test(text)) findings.push({ file: rel, message: "real provider endpoint literal found" });
-  if (NEXT_PUBLIC_SECRET.test(text)) findings.push({ file: rel, message: "NEXT_PUBLIC secret-like variable found" });
+  if (text.includes("\t"))
+    findings.push({ file: rel, message: "tabs are not allowed" });
+  if (SECRET_VALUE.test(text))
+    findings.push({ file: rel, message: "credential-shaped literal found" });
+  if (REAL_PROVIDER.test(text))
+    findings.push({
+      file: rel,
+      message: "real provider endpoint literal found",
+    });
+  if (NEXT_PUBLIC_SECRET.test(text))
+    findings.push({
+      file: rel,
+      message: "NEXT_PUBLIC secret-like variable found",
+    });
   let m: RegExpExecArray | null;
   SECRET_ASSIGNMENT.lastIndex = 0;
   while ((m = SECRET_ASSIGNMENT.exec(text))) {
     const value = (m[2] ?? "").trim();
-    if (value === "" || value.startsWith("${") || PLACEHOLDER.test(value)) continue;
-    findings.push({ file: rel, message: `secret-like assignment ${m[1]} is not placeholder/interpolation` });
+    if (value === "" || value.startsWith("${") || PLACEHOLDER.test(value))
+      continue;
+    findings.push({
+      file: rel,
+      message: `secret-like assignment ${m[1]} is not placeholder/interpolation`,
+    });
   }
 }
 
-function requireText(rel: string, pattern: RegExp, message: string, findings: Finding[]): void {
+function requireText(
+  rel: string,
+  pattern: RegExp,
+  message: string,
+  findings: Finding[],
+): void {
   const text = read(rel);
   if (!pattern.test(text)) findings.push({ file: rel, message });
 }
@@ -94,96 +116,183 @@ function main(): number {
   const findings: Finding[] = [];
   for (const rel of FILES) checkFile(rel, findings);
 
-  requireText(`${DIR}/kubernetes/ops-check-cronjob.yaml`, /kind:\s*CronJob/, "missing Kubernetes CronJob", findings);
-  requireText(`${DIR}/kubernetes/ops-check-cronjob.yaml`, /worker:ops-check["\s,]/, "CronJob must run worker:ops-check", findings);
-  requireText(`${DIR}/kubernetes/worker-deployment.yaml`, /worker:daemon["\s,]/, "worker deployment must run worker:daemon", findings);
-  requireText(`${DIR}/systemd/pdfxyz-worker-daemon.service`, /ExecStart=.*worker:daemon/, "systemd worker service must run daemon", findings);
-  requireText(`${DIR}/scheduler/pdfxyz-ops-check.timer`, /Persistent=true/, "ops-check timer should catch up missed runs", findings);
-  requireText(`${DIR}/github-actions/ops-check-fixture.yml`, /worker:ops-check --file=.*healthy\.json/, "GitHub Actions fixture check missing", findings);
+  requireText(
+    `${DIR}/kubernetes/ops-check-cronjob.yaml`,
+    /kind:\s*CronJob/,
+    "missing Kubernetes CronJob",
+    findings,
+  );
+  requireText(
+    `${DIR}/kubernetes/ops-check-cronjob.yaml`,
+    /worker:ops-check["\s,]/,
+    "CronJob must run worker:ops-check",
+    findings,
+  );
+  requireText(
+    `${DIR}/kubernetes/worker-deployment.yaml`,
+    /worker:daemon["\s,]/,
+    "worker deployment must run worker:daemon",
+    findings,
+  );
+  requireText(
+    `${DIR}/systemd/pdfxyz-worker-daemon.service`,
+    /ExecStart=.*worker:daemon/,
+    "systemd worker service must run daemon",
+    findings,
+  );
+  requireText(
+    `${DIR}/scheduler/pdfxyz-ops-check.timer`,
+    /Persistent=true/,
+    "ops-check timer should catch up missed runs",
+    findings,
+  );
+  requireText(
+    `${DIR}/github-actions/ops-check-fixture.yml`,
+    /worker:ops-check --file=.*healthy\.json/,
+    "GitHub Actions fixture check missing",
+    findings,
+  );
 
   // Phase 43 — the cleanup pipeline templates must run the actual project/verify/sweep commands.
-  requireText(`${DIR}/kubernetes/cleanup-check-cronjob.yaml`, /kind:\s*CronJob/, "missing cleanup Kubernetes CronJob", findings);
-  requireText(`${DIR}/kubernetes/cleanup-check-cronjob.yaml`, /worker:cleanup-project --target=/, "cleanup CronJob must project the export", findings);
-  requireText(`${DIR}/kubernetes/cleanup-check-cronjob.yaml`, /worker:cleanup-check["\s]/, "cleanup CronJob must run worker:cleanup-check", findings);
-  requireText(`${DIR}/cleanup/cleanup-evidence-notify.sh`, /worker:cleanup-project/, "cleanup notifier must project the export", findings);
-  requireText(`${DIR}/cleanup/cleanup-evidence-notify.sh`, /worker:artifact-cleanup/, "cleanup notifier must run the dry-run sweeper", findings);
-  requireText(`${DIR}/scheduler/pdfxyz-cleanup-check.service`, /ExecStart=.*cleanup-evidence-notify\.sh/, "cleanup systemd service must run the notifier", findings);
-  requireText(`${DIR}/scheduler/pdfxyz-cleanup-check.timer`, /Persistent=true/, "cleanup timer should catch up missed runs", findings);
-  requireText(`${DIR}/github-actions/cleanup-evidence-fixture.yml`, /worker:cleanup-project --target=.*raw-.*\.json/, "cleanup GitHub Actions fixture check missing", findings);
+  requireText(
+    `${DIR}/kubernetes/cleanup-check-cronjob.yaml`,
+    /kind:\s*CronJob/,
+    "missing cleanup Kubernetes CronJob",
+    findings,
+  );
+  requireText(
+    `${DIR}/kubernetes/cleanup-check-cronjob.yaml`,
+    /worker:cleanup-project --target=/,
+    "cleanup CronJob must project the export",
+    findings,
+  );
+  requireText(
+    `${DIR}/kubernetes/cleanup-check-cronjob.yaml`,
+    /worker:cleanup-check["\s]/,
+    "cleanup CronJob must run worker:cleanup-check",
+    findings,
+  );
+  requireText(
+    `${DIR}/cleanup/cleanup-evidence-notify.sh`,
+    /worker:cleanup-project/,
+    "cleanup notifier must project the export",
+    findings,
+  );
+  requireText(
+    `${DIR}/cleanup/cleanup-evidence-notify.sh`,
+    /worker:artifact-cleanup/,
+    "cleanup notifier must run the dry-run sweeper",
+    findings,
+  );
+  requireText(
+    `${DIR}/scheduler/pdfxyz-cleanup-check.service`,
+    /ExecStart=.*cleanup-evidence-notify\.sh/,
+    "cleanup systemd service must run the notifier",
+    findings,
+  );
+  requireText(
+    `${DIR}/scheduler/pdfxyz-cleanup-check.timer`,
+    /Persistent=true/,
+    "cleanup timer should catch up missed runs",
+    findings,
+  );
+  requireText(
+    `${DIR}/github-actions/cleanup-evidence-fixture.yml`,
+    /worker:cleanup-project --target=.*raw-.*\.json/,
+    "cleanup GitHub Actions fixture check missing",
+    findings,
+  );
 
   // Phase 44 — the one-command pipeline templates must run the actual composite command and pin
   // its documented exit codes.
-  requireText(`${DIR}/cleanup/cleanup-pipeline-notify.sh`, /worker:cleanup-pipeline/, "pipeline notifier must run worker:cleanup-pipeline", findings);
-  requireText(`${DIR}/cleanup/cleanup-pipeline-notify.sh`, /exit "\$code"/, "pipeline notifier must re-raise the composite exit code (fail closed)", findings);
-  requireText(`${DIR}/github-actions/cleanup-pipeline-fixture.yml`, /worker:cleanup-pipeline --file=.*raw-unsafe-tombstoned\.json/, "pipeline GitHub Actions fixture must run the composite over a fixture", findings);
-  requireText(`${DIR}/github-actions/cleanup-pipeline-fixture.yml`, /test "\$code" -eq 4/, "pipeline GitHub Actions fixture must assert the breach exit code", findings);
+  requireText(
+    `${DIR}/cleanup/cleanup-pipeline-notify.sh`,
+    /worker:cleanup-pipeline/,
+    "pipeline notifier must run worker:cleanup-pipeline",
+    findings,
+  );
+  requireText(
+    `${DIR}/cleanup/cleanup-pipeline-notify.sh`,
+    /exit "\$code"/,
+    "pipeline notifier must re-raise the composite exit code (fail closed)",
+    findings,
+  );
+  requireText(
+    `${DIR}/github-actions/cleanup-pipeline-fixture.yml`,
+    /worker:cleanup-pipeline --file=.*raw-unsafe-tombstoned\.json/,
+    "pipeline GitHub Actions fixture must run the composite over a fixture",
+    findings,
+  );
+  requireText(
+    `${DIR}/github-actions/cleanup-pipeline-fixture.yml`,
+    /test "\$code" -eq 4/,
+    "pipeline GitHub Actions fixture must assert the breach exit code",
+    findings,
+  );
 
   // Phase 45 — the ops-bundle templates must run the actual aggregator and pin its exit codes.
-  requireText(`${DIR}/kubernetes/ops-bundle-cronjob.yaml`, /kind:\s*CronJob/, "missing ops-bundle Kubernetes CronJob", findings);
-  requireText(`${DIR}/kubernetes/ops-bundle-cronjob.yaml`, /worker:ops-bundle["\s]/, "ops-bundle CronJob must run worker:ops-bundle", findings);
-  requireText(`${DIR}/scheduler/ops-bundle-notify.sh`, /worker:ops-bundle/, "ops-bundle notifier must run worker:ops-bundle", findings);
-  requireText(`${DIR}/scheduler/ops-bundle-notify.sh`, /exit "\$code"/, "ops-bundle notifier must re-raise the composite exit code (fail closed)", findings);
-  requireText(`${DIR}/scheduler/pdfxyz-ops-bundle.service`, /ExecStart=.*ops-bundle-notify\.sh/, "ops-bundle systemd service must run the notifier", findings);
-  requireText(`${DIR}/scheduler/pdfxyz-ops-bundle.timer`, /Persistent=true/, "ops-bundle timer should catch up missed runs", findings);
-  requireText(`${DIR}/github-actions/ops-bundle-fixture.yml`, /worker:ops-bundle --ops-check=.*healthy\.json/, "ops-bundle GitHub Actions fixture must run the aggregator over a fixture", findings);
-  requireText(`${DIR}/github-actions/ops-bundle-fixture.yml`, /test "\$code" -eq 4/, "ops-bundle GitHub Actions fixture must assert the breach exit code", findings);
+  requireText(
+    `${DIR}/kubernetes/ops-bundle-cronjob.yaml`,
+    /kind:\s*CronJob/,
+    "missing ops-bundle Kubernetes CronJob",
+    findings,
+  );
+  requireText(
+    `${DIR}/kubernetes/ops-bundle-cronjob.yaml`,
+    /worker:ops-bundle["\s]/,
+    "ops-bundle CronJob must run worker:ops-bundle",
+    findings,
+  );
+  requireText(
+    `${DIR}/scheduler/ops-bundle-notify.sh`,
+    /worker:ops-bundle/,
+    "ops-bundle notifier must run worker:ops-bundle",
+    findings,
+  );
+  requireText(
+    `${DIR}/scheduler/ops-bundle-notify.sh`,
+    /exit "\$code"/,
+    "ops-bundle notifier must re-raise the composite exit code (fail closed)",
+    findings,
+  );
+  requireText(
+    `${DIR}/scheduler/pdfxyz-ops-bundle.service`,
+    /ExecStart=.*ops-bundle-notify\.sh/,
+    "ops-bundle systemd service must run the notifier",
+    findings,
+  );
+  requireText(
+    `${DIR}/scheduler/pdfxyz-ops-bundle.timer`,
+    /Persistent=true/,
+    "ops-bundle timer should catch up missed runs",
+    findings,
+  );
+  requireText(
+    `${DIR}/github-actions/ops-bundle-fixture.yml`,
+    /worker:ops-bundle --ops-check=.*healthy\.json/,
+    "ops-bundle GitHub Actions fixture must run the aggregator over a fixture",
+    findings,
+  );
+  requireText(
+    `${DIR}/github-actions/ops-bundle-fixture.yml`,
+    /test "\$code" -eq 4/,
+    "ops-bundle GitHub Actions fixture must assert the breach exit code",
+    findings,
+  );
 
   // Phase 46 — the release-gate template must run the actual gate and pin its documented exits.
-  requireText(`${DIR}/github-actions/release-gate-fixture.yml`, /worker:release-gate/, "release-gate GitHub Actions fixture must run worker:release-gate", findings);
-  requireText(`${DIR}/github-actions/release-gate-fixture.yml`, /test "\$code" -eq 1/, "release-gate GitHub Actions fixture must assert the usage exit code (fail closed)", findings);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  requireText(
+    `${DIR}/github-actions/release-gate-fixture.yml`,
+    /worker:release-gate/,
+    "release-gate GitHub Actions fixture must run worker:release-gate",
+    findings,
+  );
+  requireText(
+    `${DIR}/github-actions/release-gate-fixture.yml`,
+    /test "\$code" -eq 1/,
+    "release-gate GitHub Actions fixture must assert the usage exit code (fail closed)",
+    findings,
+  );
 
   if (findings.length) {
     for (const f of findings) console.error(`${f.file}: ${f.message}`);

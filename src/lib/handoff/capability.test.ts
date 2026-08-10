@@ -62,7 +62,12 @@ describe("handoffCapabilityFor", () => {
   });
 
   it("reports unsupported for worker/AI tools and unknown slugs", () => {
-    for (const slug of ["ocr-pdf", "word-to-pdf", "chat-with-pdf", "does-not-exist"]) {
+    for (const slug of [
+      "ocr-pdf",
+      "word-to-pdf",
+      "chat-with-pdf",
+      "does-not-exist",
+    ]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "none",
         supported: false,
@@ -77,21 +82,29 @@ describe("eligibleFilesFor", () => {
   const png = { name: "c.png", type: "image/png" };
 
   it("keeps only PDFs for a supported PDF tool", () => {
-    expect(eligibleFilesFor("merge-pdf", [pdf, png, pdfByExt])).toEqual([pdf, pdfByExt]);
+    expect(eligibleFilesFor("merge-pdf", [pdf, png, pdfByExt])).toEqual([
+      pdf,
+      pdfByExt,
+    ]);
   });
 
   it("keeps only PDFs for the PDF-to-image tools", () => {
-    expect(eligibleFilesFor("pdf-to-jpg", [pdf, png, pdfByExt])).toEqual([pdf, pdfByExt]);
-    expect(eligibleFilesFor("pdf-to-png", [pdf, png, pdfByExt])).toEqual([pdf, pdfByExt]);
+    expect(eligibleFilesFor("pdf-to-jpg", [pdf, png, pdfByExt])).toEqual([
+      pdf,
+      pdfByExt,
+    ]);
+    expect(eligibleFilesFor("pdf-to-png", [pdf, png, pdfByExt])).toEqual([
+      pdf,
+      pdfByExt,
+    ]);
   });
 
   it("keeps only text files for text-to-pdf", () => {
     const txt = { name: "notes.txt", type: "text/plain" };
     const textByExt = { name: "readme.TEXT", type: "" };
-    expect(eligibleFilesFor("text-to-pdf", [pdf, txt, png, textByExt])).toEqual([
-      txt,
-      textByExt,
-    ]);
+    expect(eligibleFilesFor("text-to-pdf", [pdf, txt, png, textByExt])).toEqual(
+      [txt, textByExt],
+    );
   });
 
   it("keeps Markdown files for markdown-to-pdf", () => {
@@ -99,18 +112,16 @@ describe("eligibleFilesFor", () => {
     const markdownByExt = { name: "notes.MARKDOWN", type: "" };
     const plainMarkdown = { name: "draft.md", type: "text/plain" };
     const textButWrongExt = { name: "notes.txt", type: "text/plain" };
-    expect(eligibleFilesFor("markdown-to-pdf", [
-      pdf,
-      markdown,
-      png,
-      markdownByExt,
-      plainMarkdown,
-      textButWrongExt,
-    ])).toEqual([
-      markdown,
-      markdownByExt,
-      plainMarkdown,
-    ]);
+    expect(
+      eligibleFilesFor("markdown-to-pdf", [
+        pdf,
+        markdown,
+        png,
+        markdownByExt,
+        plainMarkdown,
+        textButWrongExt,
+      ]),
+    ).toEqual([markdown, markdownByExt, plainMarkdown]);
   });
 
   it("keeps only matching images for image-to-pdf tools", () => {

@@ -45,7 +45,9 @@ export async function fetchWorkerOperations(
  */
 export function useWorkerOperations(): WorkerOperationsState {
   const [phase, setPhase] = useState<OperationsPhase>("loading");
-  const [snapshot, setSnapshot] = useState<WorkerOperationsSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<WorkerOperationsSnapshot | null>(
+    null,
+  );
   const [nonce, setNonce] = useState(0);
 
   const retry = useCallback(() => {

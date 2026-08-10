@@ -57,7 +57,10 @@ export type WorkspaceEvent =
   | { type: "reset" };
 
 /** Drop ids from a batch fileId list, preserving order. */
-function pruneBatch(batch: BatchQueue, keep: (id: string) => boolean): BatchQueue {
+function pruneBatch(
+  batch: BatchQueue,
+  keep: (id: string) => boolean,
+): BatchQueue {
   const fileIds = batch.fileIds.filter(keep);
   return fileIds.length === batch.fileIds.length
     ? batch
@@ -90,7 +93,8 @@ export function workspaceReducer(
     case "set-page-count": {
       // Ignore non-positive counts and files that are no longer staged; keep
       // referential identity when nothing actually changes.
-      if (!Number.isInteger(event.pageCount) || event.pageCount <= 0) return state;
+      if (!Number.isInteger(event.pageCount) || event.pageCount <= 0)
+        return state;
       let changed = false;
       const files = state.files.map((f) => {
         if (f.id !== event.id || f.pageCount === event.pageCount) return f;
@@ -101,7 +105,8 @@ export function workspaceReducer(
     }
 
     case "clear-files": {
-      if (state.files.length === 0 && state.batch.fileIds.length === 0) return state;
+      if (state.files.length === 0 && state.batch.fileIds.length === 0)
+        return state;
       return {
         ...state,
         files: [],
@@ -143,7 +148,10 @@ export function workspaceReducer(
       if (additions.length === 0) return state;
       return {
         ...state,
-        batch: { ...state.batch, fileIds: [...state.batch.fileIds, ...additions] },
+        batch: {
+          ...state.batch,
+          fileIds: [...state.batch.fileIds, ...additions],
+        },
       };
     }
 
@@ -227,15 +235,21 @@ export function planBatch(
   const base = { toolSlug, fileIds };
 
   if (!toolSlug) {
-    return { ...base, status: fileIds.length === 0 ? "empty" : "needs-tool", ready: false };
+    return {
+      ...base,
+      status: fileIds.length === 0 ? "empty" : "needs-tool",
+      ready: false,
+    };
   }
   const info = resolve(toolSlug);
   if (!info) return { ...base, status: "unavailable", ready: false };
-  if (fileIds.length === 0) return { ...base, status: "needs-files", ready: false };
+  if (fileIds.length === 0)
+    return { ...base, status: "needs-files", ready: false };
   if (info.live) {
     const status: BatchStatus = info.handoff === "single" ? "single" : "ready";
     return { ...base, status, ready: true };
   }
-  if (info.usesWorker) return { ...base, status: "worker-disabled", ready: false };
+  if (info.usesWorker)
+    return { ...base, status: "worker-disabled", ready: false };
   return { ...base, status: "unavailable", ready: false };
 }

@@ -94,7 +94,9 @@ describe("createS3Storage — reserveUpload", () => {
     expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe(
       "content-length;content-type;host;x-amz-meta-filename",
     );
-    expect(url.searchParams.get("X-Amz-Credential")).toContain("AKIAEXAMPLE0000000");
+    expect(url.searchParams.get("X-Amz-Credential")).toContain(
+      "AKIAEXAMPLE0000000",
+    );
     expect(res.value.target.url).not.toContain(SECRET);
     // The client's filename is metadata only — never part of the bucket key/URL.
     expect(url.pathname).not.toContain("invoice");
@@ -110,7 +112,9 @@ describe("createS3Storage — reserveUpload", () => {
     if (!res.ok) throw new Error("reserve failed");
     // Display filename is the safe last segment, extension normalized.
     expect(res.value.filename).toBe("Q3 Report.pdf");
-    expect(res.value.target.headers["x-amz-meta-filename"]).toBe("Q3%20Report.pdf");
+    expect(res.value.target.headers["x-amz-meta-filename"]).toBe(
+      "Q3%20Report.pdf",
+    );
     // No path component ever reaches the key or the signed URL.
     const url = new URL(res.value.target.url);
     expect(url.pathname).toBe(`/inputs/${res.value.fileId}`);
@@ -130,7 +134,9 @@ describe("createS3Storage — reserveUpload", () => {
     if (!res.ok) throw new Error("reserve failed");
     const url = new URL(res.value.target.url);
     expect(url.host).toBe("localhost:9000");
-    expect(url.pathname).toBe(`/pdfxyz-prod/tenant-a/inputs/${res.value.fileId}`);
+    expect(url.pathname).toBe(
+      `/pdfxyz-prod/tenant-a/inputs/${res.value.fileId}`,
+    );
   });
   /**
    * The size ceiling used to be checked against a number the caller typed and
@@ -177,7 +183,10 @@ describe("createS3Storage — reserveUpload", () => {
 
   it("reports the declared size as the target's ceiling, whatever it is", async () => {
     const provider = createS3Storage(config(), { now });
-    const small = await provider.reserveUpload({ ...uploadReq, declaredBytes: 1 });
+    const small = await provider.reserveUpload({
+      ...uploadReq,
+      declaredBytes: 1,
+    });
     const large = await provider.reserveUpload({
       ...uploadReq,
       declaredBytes: JOB_LIMITS.maxFileBytes,
@@ -237,7 +246,11 @@ describe("createS3Storage — deleteNow", () => {
     const res = await provider.deleteNow("input", "f_TEST00000000");
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.value).toMatchObject({ kind: "input", id: "f_TEST00000000", deleted: true });
+    expect(res.value).toMatchObject({
+      kind: "input",
+      id: "f_TEST00000000",
+      deleted: true,
+    });
     expect(res.value.deletedAt).toBe(new Date(NOW).toISOString());
     expect(calls).toHaveLength(1);
     expect(calls[0]!.method).toBe("DELETE");

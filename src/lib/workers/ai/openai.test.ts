@@ -7,7 +7,11 @@ import {
 } from "./openai";
 import type { AiCompletionRequest } from "./provider";
 
-const CONFIG = { apiKey: "sk-test-KEY", model: "gpt-5.6-luna", timeoutMs: 5000 };
+const CONFIG = {
+  apiKey: "sk-test-KEY",
+  model: "gpt-5.6-luna",
+  timeoutMs: 5000,
+};
 const REQUEST: AiCompletionRequest = {
   system: "You summarize.",
   messages: [{ role: "user", content: "Summarize this." }],
@@ -31,7 +35,9 @@ function completion(text: string, finishReason = "stop", usage?: unknown) {
 
 /** The body of the Nth fetch call, parsed. */
 function sentBody(fetchMock: ReturnType<typeof vi.fn>, call = 0) {
-  return JSON.parse((fetchMock.mock.calls[call]![1] as RequestInit).body as string);
+  return JSON.parse(
+    (fetchMock.mock.calls[call]![1] as RequestInit).body as string,
+  );
 }
 
 describe("buildChatCompletionsBody", () => {
@@ -45,10 +51,14 @@ describe("buildChatCompletionsBody", () => {
   });
 
   it("omits the system message entirely when the request has none", () => {
-    const body = buildChatCompletionsBody("gpt-5.6-luna", {
-      messages: [{ role: "user", content: "Hi" }],
-      maxOutputTokens: 10,
-    }, true);
+    const body = buildChatCompletionsBody(
+      "gpt-5.6-luna",
+      {
+        messages: [{ role: "user", content: "Hi" }],
+        maxOutputTokens: 10,
+      },
+      true,
+    );
     expect(body.messages).toEqual([{ role: "user", content: "Hi" }]);
   });
 
@@ -60,20 +70,28 @@ describe("buildChatCompletionsBody", () => {
 
   it("includes temperature only when asked for and permitted", () => {
     expect(buildChatCompletionsBody("m", REQUEST, true).temperature).toBe(0.2);
-    expect(buildChatCompletionsBody("m", REQUEST, false)).not.toHaveProperty("temperature");
+    expect(buildChatCompletionsBody("m", REQUEST, false)).not.toHaveProperty(
+      "temperature",
+    );
     const noTemp = { messages: REQUEST.messages, maxOutputTokens: 10 };
-    expect(buildChatCompletionsBody("m", noTemp, true)).not.toHaveProperty("temperature");
+    expect(buildChatCompletionsBody("m", noTemp, true)).not.toHaveProperty(
+      "temperature",
+    );
   });
 
   it("preserves multi-turn order for chat", () => {
-    const body = buildChatCompletionsBody("m", {
-      messages: [
-        { role: "user", content: "one" },
-        { role: "assistant", content: "two" },
-        { role: "user", content: "three" },
-      ],
-      maxOutputTokens: 10,
-    }, false);
+    const body = buildChatCompletionsBody(
+      "m",
+      {
+        messages: [
+          { role: "user", content: "one" },
+          { role: "assistant", content: "two" },
+          { role: "user", content: "three" },
+        ],
+        maxOutputTokens: 10,
+      },
+      false,
+    );
     expect(body.messages).toEqual([
       { role: "user", content: "one" },
       { role: "assistant", content: "two" },
@@ -97,7 +115,9 @@ describe("isUnsupportedTemperatureError", () => {
   });
 
   it("does NOT match an unrelated 400, so no other error is silently retried", () => {
-    expect(isUnsupportedTemperatureError(`{"error":{"message":"Invalid model id"}}`)).toBe(false);
+    expect(
+      isUnsupportedTemperatureError(`{"error":{"message":"Invalid model id"}}`),
+    ).toBe(false);
     // Names a different unsupported parameter — must not trigger a temperature retry.
     expect(
       isUnsupportedTemperatureError(
@@ -120,7 +140,10 @@ describe("createOpenAiProvider", () => {
   it("maps a request to Chat Completions and returns real text + usage", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(
-        completion(" Hello world ", "stop", { prompt_tokens: 42, completion_tokens: 7 }),
+        completion(" Hello world ", "stop", {
+          prompt_tokens: 42,
+          completion_tokens: 7,
+        }),
       ),
     );
     const provider = createOpenAiProvider(CONFIG, { fetch: fetchMock });
@@ -147,22 +170,30 @@ describe("createOpenAiProvider", () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(completion("text", "stop", { prompt_tokens: 5 })),
     );
-    const result = await createOpenAiProvider(CONFIG, { fetch: fetchMock }).complete(REQUEST);
+    const result = await createOpenAiProvider(CONFIG, {
+      fetch: fetchMock,
+    }).complete(REQUEST);
     expect(result).toEqual({ ok: true, text: "text", model: "gpt-5.6-luna" });
   });
 
   it("honours a base-URL override without a trailing slash", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(completion("ok")));
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(completion("ok")),
+    );
     await createOpenAiProvider(
       { ...CONFIG, baseUrl: "https://gateway.example.com/" },
       { fetch: fetchMock },
     ).complete(REQUEST);
-    expect(fetchMock.mock.calls[0]![0]).toBe("https://gateway.example.com/v1/chat/completions");
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://gateway.example.com/v1/chat/completions",
+    );
   });
 
   it("rejects a malformed request before any network call", async () => {
     const fetchMock = vi.fn<typeof fetch>();
-    const result = await createOpenAiProvider(CONFIG, { fetch: fetchMock }).complete({
+    const result = await createOpenAiProvider(CONFIG, {
+      fetch: fetchMock,
+    }).complete({
       messages: [],
       maxOutputTokens: 10,
     });
@@ -184,7 +215,9 @@ describe("createOpenAiProvider — the temperature compatibility retry", () => {
       .mockResolvedValueOnce(unsupported())
       .mockResolvedValueOnce(jsonResponse(completion("second try")));
 
-    const result = await createOpenAiProvider(CONFIG, { fetch: fetchMock }).complete(REQUEST);
+    const result = await createOpenAiProvider(CONFIG, {
+      fetch: fetchMock,
+    }).complete(REQUEST);
 
     expect(result).toMatchObject({ ok: true, text: "second try" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -203,14 +236,22 @@ describe("createOpenAiProvider — the temperature compatibility retry", () => {
 
   it("cannot loop: a second identical rejection fails as `rejected`", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => unsupported());
-    const result = await createOpenAiProvider(CONFIG, { fetch: fetchMock }).complete(REQUEST);
-    expect(result).toMatchObject({ ok: false, kind: "rejected", retryable: false });
+    const result = await createOpenAiProvider(CONFIG, {
+      fetch: fetchMock,
+    }).complete(REQUEST);
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "rejected",
+      retryable: false,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("never retries when the request carried no temperature", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => unsupported());
-    const result = await createOpenAiProvider(CONFIG, { fetch: fetchMock }).complete({
+    const result = await createOpenAiProvider(CONFIG, {
+      fetch: fetchMock,
+    }).complete({
       messages: [{ role: "user", content: "x" }],
       maxOutputTokens: 10,
     });
@@ -220,9 +261,12 @@ describe("createOpenAiProvider — the temperature compatibility retry", () => {
 
   it("never retries an unrelated 400", async () => {
     const fetchMock = vi.fn<typeof fetch>(
-      async () => new Response(`{"error":{"message":"Unknown model"}}`, { status: 400 }),
+      async () =>
+        new Response(`{"error":{"message":"Unknown model"}}`, { status: 400 }),
     );
-    const result = await createOpenAiProvider(CONFIG, { fetch: fetchMock }).complete(REQUEST);
+    const result = await createOpenAiProvider(CONFIG, {
+      fetch: fetchMock,
+    }).complete(REQUEST);
     expect(result).toMatchObject({ ok: false, kind: "rejected" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -230,9 +274,9 @@ describe("createOpenAiProvider — the temperature compatibility retry", () => {
 
 describe("createOpenAiProvider — honest failure mapping", () => {
   const run = async (respond: () => Response | Promise<Response>) =>
-    createOpenAiProvider(CONFIG, { fetch: vi.fn<typeof fetch>(async () => respond()) }).complete(
-      REQUEST,
-    );
+    createOpenAiProvider(CONFIG, {
+      fetch: vi.fn<typeof fetch>(async () => respond()),
+    }).complete(REQUEST);
 
   it("429 is retryable rate_limited", async () => {
     expect(await run(() => new Response("", { status: 429 }))).toMatchObject({
@@ -243,9 +287,17 @@ describe("createOpenAiProvider — honest failure mapping", () => {
   });
 
   it("5xx is retryable provider_error and never leaks the body", async () => {
-    const result = await run(() => new Response("upstream stack trace", { status: 503 }));
-    expect(result).toMatchObject({ ok: false, kind: "provider_error", retryable: true });
-    expect((result as { message: string }).message).not.toContain("stack trace");
+    const result = await run(
+      () => new Response("upstream stack trace", { status: 503 }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "provider_error",
+      retryable: true,
+    });
+    expect((result as { message: string }).message).not.toContain(
+      "stack trace",
+    );
   });
 
   it("a context-window overflow is too_long, not a generic rejection", async () => {
@@ -267,13 +319,19 @@ describe("createOpenAiProvider — honest failure mapping", () => {
   it("401/403 name the credential problem so an operator can act", async () => {
     for (const status of [401, 403]) {
       const result = await run(() => new Response("", { status }));
-      expect(result).toMatchObject({ ok: false, kind: "rejected", retryable: false });
+      expect(result).toMatchObject({
+        ok: false,
+        kind: "rejected",
+        retryable: false,
+      });
       expect((result as { message: string }).message).toMatch(/API key/i);
     }
   });
 
   it("a content filter is content_filtered, not a fabricated answer", async () => {
-    expect(await run(() => jsonResponse(completion("partial", "content_filter")))).toMatchObject({
+    expect(
+      await run(() => jsonResponse(completion("partial", "content_filter"))),
+    ).toMatchObject({
       ok: false,
       kind: "content_filtered",
       retryable: false,
@@ -284,14 +342,24 @@ describe("createOpenAiProvider — honest failure mapping", () => {
     const result = await run(() =>
       jsonResponse(completion("The document begins by explaining", "length")),
     );
-    expect(result).toMatchObject({ ok: false, kind: "incomplete_output", retryable: false });
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "incomplete_output",
+      retryable: false,
+    });
     // The partial text must not be handed back as if it were the answer.
     expect(result).not.toHaveProperty("text");
   });
 
   it("an unreadable or textless body is invalid_response", async () => {
     expect(
-      await run(() => new Response("not json", { status: 200, headers: { "content-type": "application/json" } })),
+      await run(
+        () =>
+          new Response("not json", {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
     ).toMatchObject({ ok: false, kind: "invalid_response" });
     expect(await run(() => jsonResponse(completion("   ")))).toMatchObject({
       ok: false,
@@ -299,7 +367,11 @@ describe("createOpenAiProvider — honest failure mapping", () => {
     });
     // `content: null` happens when a model returns only reasoning — not an answer.
     expect(
-      await run(() => jsonResponse({ choices: [{ message: { content: null }, finish_reason: "stop" }] })),
+      await run(() =>
+        jsonResponse({
+          choices: [{ message: { content: null }, finish_reason: "stop" }],
+        }),
+      ),
     ).toMatchObject({ ok: false, kind: "invalid_response" });
   });
 
@@ -310,7 +382,11 @@ describe("createOpenAiProvider — honest failure mapping", () => {
         throw abort;
       }),
     });
-    expect(await aborting.complete(REQUEST)).toMatchObject({ ok: false, kind: "timeout", retryable: true });
+    expect(await aborting.complete(REQUEST)).toMatchObject({
+      ok: false,
+      kind: "timeout",
+      retryable: true,
+    });
 
     const offline = createOpenAiProvider(CONFIG, {
       fetch: vi.fn<typeof fetch>(async () => {

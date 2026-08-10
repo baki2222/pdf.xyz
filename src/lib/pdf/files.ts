@@ -45,7 +45,10 @@ export function validatePdfFile(
   maxBytes = MAX_PDF_BYTES,
 ): FileValidation {
   if (!isLikelyPdf(file)) {
-    return { ok: false, reason: `"${file.name}" isn't a PDF — choose a .pdf file.` };
+    return {
+      ok: false,
+      reason: `"${file.name}" isn't a PDF — choose a .pdf file.`,
+    };
   }
   if (file.size <= 0) {
     return { ok: false, reason: `"${file.name}" is empty (0 bytes).` };
@@ -90,7 +93,11 @@ export function sanitizeSegment(input: string): string {
  * Build an output filename from a source name and a suffix, e.g.
  * `outputName("report.pdf", "rotated")` -> "report-rotated.pdf".
  */
-export function outputName(sourceName: string, suffix: string, ext = "pdf"): string {
+export function outputName(
+  sourceName: string,
+  suffix: string,
+  ext = "pdf",
+): string {
   const base = sanitizeSegment(baseName(sourceName));
   return `${base}-${suffix}.${ext}`;
 }

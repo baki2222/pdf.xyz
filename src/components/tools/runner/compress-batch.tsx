@@ -78,10 +78,8 @@ export function CompressBatchRunner({
     };
   }, []);
 
-  const { state, progress, start, cancel, reset, running } = useBatchRunner<CompressResult>(
-    units,
-    process,
-  );
+  const { state, progress, start, cancel, reset, running } =
+    useBatchRunner<CompressResult>(units, process);
 
   const settled = state.phase === "done" || state.phase === "canceled";
   const totalSaved = state.items.reduce(
@@ -105,16 +103,18 @@ export function CompressBatchRunner({
 
   return (
     <div className="flex flex-col gap-5">
-      {preloaded && <HandoffLoadedBadge count={files.length} skipped={skipped} />}
+      {preloaded && (
+        <HandoffLoadedBadge count={files.length} skipped={skipped} />
+      )}
 
       {/* Honest scope banner: lossless-only, on-device. */}
-      <div className="flex items-start gap-2.5 rounded-2xl border border-white/10 bg-surface-2 p-4">
+      <div className="bg-surface-2 flex items-start gap-2.5 rounded-2xl border border-white/10 p-4">
         <Info className="mt-0.5 size-4 shrink-0 text-violet-300" aria-hidden />
         <p className="text-sm leading-relaxed text-slate-400">
-          Batch <span className="text-slate-200">lossless compression</span> repacks
-          each PDF&apos;s structure in your browser — no quality loss, nothing
-          uploaded. It doesn&apos;t re-encode images; image-heavy files need the
-          secure worker (open a single file to see that path).
+          Batch <span className="text-slate-200">lossless compression</span>{" "}
+          repacks each PDF&apos;s structure in your browser — no quality loss,
+          nothing uploaded. It doesn&apos;t re-encode images; image-heavy files
+          need the secure worker (open a single file to see that path).
         </p>
       </div>
 
@@ -129,7 +129,10 @@ export function CompressBatchRunner({
               <span className="text-amber-300"> · {progress.error} failed</span>
             )}
             {progress.canceled > 0 && (
-              <span className="text-slate-400"> · {progress.canceled} canceled</span>
+              <span className="text-slate-400">
+                {" "}
+                · {progress.canceled} canceled
+              </span>
             )}
           </span>
           {settled && totalSaved > 0 && (
@@ -246,10 +249,12 @@ export function CompressBatchRunner({
 /** One row in the batch list: status glyph, name, and per-item result/error. */
 function BatchRow({ item }: { item: BatchItem<CompressResult> }) {
   return (
-    <li className="flex items-center gap-3 rounded-xl border border-white/10 bg-surface-2 px-3 py-2.5">
+    <li className="bg-surface-2 flex items-center gap-3 rounded-xl border border-white/10 px-3 py-2.5">
       <StatusGlyph status={item.status} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-slate-200">{item.name}</span>
+        <span className="block truncate text-sm text-slate-200">
+          {item.name}
+        </span>
         <span className="block text-xs text-slate-400">
           <BatchDetail item={item} />
         </span>
@@ -257,7 +262,9 @@ function BatchRow({ item }: { item: BatchItem<CompressResult> }) {
       {item.status === "done" && item.result && (
         <button
           type="button"
-          onClick={() => downloadBytes(item.result!.bytes, item.result!.outputName)}
+          onClick={() =>
+            downloadBytes(item.result!.bytes, item.result!.outputName)
+          }
           aria-label={`Download compressed ${item.name}`}
           className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
         >
@@ -281,7 +288,11 @@ function BatchDetail({ item }: { item: BatchItem<CompressResult> }) {
     case "canceled":
       return <>Canceled</>;
     case "error":
-      return <span className="text-amber-300">{item.error ?? "Couldn’t compress"}</span>;
+      return (
+        <span className="text-amber-300">
+          {item.error ?? "Couldn’t compress"}
+        </span>
+      );
     case "done": {
       const r = item.result;
       if (!r) return null;
@@ -299,7 +310,11 @@ function BatchDetail({ item }: { item: BatchItem<CompressResult> }) {
   }
 }
 
-function StatusGlyph({ status }: { status: BatchItem<CompressResult>["status"] }) {
+function StatusGlyph({
+  status,
+}: {
+  status: BatchItem<CompressResult>["status"];
+}) {
   const base = "grid size-8 shrink-0 place-items-center rounded-lg";
   switch (status) {
     case "running":

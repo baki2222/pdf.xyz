@@ -30,8 +30,12 @@ function makeStages(cfg: FakeConfig) {
   const stages: PipelineStages = {
     project(target, rawText) {
       calls.project.push({ target, rawText });
-      const c = target === "evidence" ? cfg.projectEvidence : cfg.projectInventory;
-      return { exitCode: c?.exitCode ?? 0, projected: c?.projected ?? `PROJECTED:${target}` };
+      const c =
+        target === "evidence" ? cfg.projectEvidence : cfg.projectInventory;
+      return {
+        exitCode: c?.exitCode ?? 0,
+        projected: c?.projected ?? `PROJECTED:${target}`,
+      };
     },
     async verify(text) {
       calls.verify.push(text);
@@ -55,7 +59,10 @@ describe("runPipeline — arm composition + rollup", () => {
       { arm: "verify", code: 0, severity: "ok", projected: true },
       { arm: "sweep", code: 0, severity: "ok", projected: true },
     ]);
-    expect(calls.project.map((c) => c.target)).toEqual(["evidence", "inventory"]);
+    expect(calls.project.map((c) => c.target)).toEqual([
+      "evidence",
+      "inventory",
+    ]);
     expect(calls.verify).toEqual(["PROJECTED:evidence"]);
     expect(calls.sweep).toEqual(["PROJECTED:inventory"]);
   });
@@ -64,21 +71,34 @@ describe("runPipeline — arm composition + rollup", () => {
     const run = await runPipeline("RAW", makeStages({ verify: 3 }).stages, AT);
     expect(run.exitCode).toBe(3);
     expect(run.result.severity).toBe("drift");
-    expect(run.result.arms[0]).toMatchObject({ arm: "verify", code: 3, severity: "drift" });
+    expect(run.result.arms[0]).toMatchObject({
+      arm: "verify",
+      code: 3,
+      severity: "drift",
+    });
   });
 
   it("sweep breach dominates a clean verify → exit 4 / breach", async () => {
     const run = await runPipeline("RAW", makeStages({ sweep: 4 }).stages, AT);
     expect(run.exitCode).toBe(4);
     expect(run.result.severity).toBe("breach");
-    expect(run.result.arms[1]).toMatchObject({ arm: "sweep", code: 4, severity: "breach" });
+    expect(run.result.arms[1]).toMatchObject({
+      arm: "sweep",
+      code: 4,
+      severity: "breach",
+    });
   });
 
   it("a failed EVIDENCE projection short-circuits the verify arm (lens never runs)", async () => {
     const { stages, calls } = makeStages({ projectEvidence: { exitCode: 2 } });
     const run = await runPipeline("RAW", stages, AT);
     expect(calls.verify).toEqual([]); // never fed an untrusted projection
-    expect(run.result.arms[0]).toEqual({ arm: "verify", code: 2, severity: "unknown", projected: false });
+    expect(run.result.arms[0]).toEqual({
+      arm: "verify",
+      code: 2,
+      severity: "unknown",
+      projected: false,
+    });
     expect(run.exitCode).toBe(2); // unknown (sweep still clean)
   });
 
@@ -86,7 +106,12 @@ describe("runPipeline — arm composition + rollup", () => {
     const { stages, calls } = makeStages({ projectInventory: { exitCode: 4 } });
     const run = await runPipeline("RAW", stages, AT);
     expect(calls.sweep).toEqual([]);
-    expect(run.result.arms[1]).toEqual({ arm: "sweep", code: 4, severity: "breach", projected: false });
+    expect(run.result.arms[1]).toEqual({
+      arm: "sweep",
+      code: 4,
+      severity: "breach",
+      projected: false,
+    });
     expect(run.exitCode).toBe(4);
   });
 
@@ -105,13 +130,22 @@ describe("runPipeline — arm composition + rollup", () => {
   it("an unexpected downstream code folds to the usage band (fail closed, never 0)", async () => {
     const run = await runPipeline("RAW", makeStages({ verify: 7 }).stages, AT);
     expect(run.exitCode).toBe(1);
-    expect(run.result.arms[0]).toMatchObject({ arm: "verify", code: 1, severity: "usage" });
+    expect(run.result.arms[0]).toMatchObject({
+      arm: "verify",
+      code: 1,
+      severity: "usage",
+    });
   });
 });
 
 describe("runPipeline — output + receipt", () => {
   it("emits a stable, self-describing JSON document with an embedded receipt", async () => {
-    const run = await runPipeline("RAW", makeStages({ verify: 3 }).stages, AT, "json");
+    const run = await runPipeline(
+      "RAW",
+      makeStages({ verify: 3 }).stages,
+      AT,
+      "json",
+    );
     const doc = JSON.parse(run.output);
     expect(doc.tool).toBe("worker-cleanup-pipeline");
     expect(doc.schema).toBe("pdfxyz.cleanup-pipeline/1");
@@ -124,7 +158,12 @@ describe("runPipeline — output + receipt", () => {
   });
 
   it("renders a short human summary in text format", async () => {
-    const run = await runPipeline("RAW", makeStages({ sweep: 4 }).stages, AT, "text");
+    const run = await runPipeline(
+      "RAW",
+      makeStages({ sweep: 4 }).stages,
+      AT,
+      "text",
+    );
     expect(run.output).toMatch(/cleanup pipeline \(dry-run, read-only\)/);
     expect(run.output).toMatch(/severity\s+breach/);
     expect(run.output).toMatch(/deletes nothing/i);

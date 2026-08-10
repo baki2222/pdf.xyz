@@ -27,12 +27,16 @@ test.describe("unknown routes answer 404", () => {
     expect(res.status()).toBe(200);
   });
 
-  test("an unknown tool slug is 404, not a 200 that says 404", async ({ request }) => {
+  test("an unknown tool slug is 404, not a 200 that says 404", async ({
+    request,
+  }) => {
     const res = await request.get(`/tools/${UNKNOWN_SLUG}`);
     expect(res.status()).toBe(404);
   });
 
-  test("the 404 body is the site's own page, not a bare error", async ({ request }) => {
+  test("the 404 body is the site's own page, not a bare error", async ({
+    request,
+  }) => {
     // A correct status served with an empty or framework-default body would be
     // a different regression, and the status assertion above cannot see it.
     const res = await request.get(`/tools/${UNKNOWN_SLUG}`);
@@ -51,7 +55,9 @@ test.describe("unknown routes answer 404", () => {
     }
   });
 
-  test("a share card for a real tool is still 200 and a PNG", async ({ request }) => {
+  test("a share card for a real tool is still 200 and a PNG", async ({
+    request,
+  }) => {
     const res = await request.get("/tools/merge-pdf/opengraph-image");
     expect(res.status()).toBe(200);
     expect(res.headers()["content-type"]).toContain("image/png");

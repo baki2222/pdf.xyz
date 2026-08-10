@@ -117,7 +117,7 @@ export function RangeField({
         <label htmlFor={id} className="text-xs font-medium text-slate-300">
           {label}
         </label>
-        <span className="tabular-nums text-xs text-slate-400">
+        <span className="text-xs text-slate-400 tabular-nums">
           {format ? format(value) : value}
         </span>
       </div>
@@ -207,7 +207,7 @@ export function TextField({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+        className="w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 transition outline-none placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
       />
     </div>
   );
@@ -244,7 +244,7 @@ export function NumberField({
           if (Number.isNaN(next)) return;
           onChange(Math.min(max, Math.max(min, Math.round(next))));
         }}
-        className="w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+        className="w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 transition outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
       />
     </div>
   );
@@ -260,7 +260,7 @@ export function TokenButtons({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] uppercase tracking-wide text-slate-400">
+      <span className="text-[11px] tracking-wide text-slate-400 uppercase">
         Insert
       </span>
       {tokens.map(({ token, label }) => (

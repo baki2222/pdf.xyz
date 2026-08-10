@@ -28,13 +28,17 @@ function rejectionFor(body: unknown): IntakeRejection {
 // rejects it, and each embeds a distinctive secret we assert never leaks.
 const HOSTILE_FILENAMES: Array<{ filename: string; secrets: string[] }> = [
   { filename: "../../../../etc/passwd", secrets: ["etc/passwd", "passwd"] },
-  { filename: "..\\..\\Windows\\System32\\config\\SAM", secrets: ["System32", "SAM"] },
+  {
+    filename: "..\\..\\Windows\\System32\\config\\SAM",
+    secrets: ["System32", "SAM"],
+  },
   {
     filename: "s3://prod-bucket/private/obj_9f8e7d6c5b",
     secrets: ["prod-bucket", "obj_9f8e7d6c5b"],
   },
   {
-    filename: "https://acme.s3.amazonaws.com/key?X-Amz-Signature=deadbeefcafe1234",
+    filename:
+      "https://acme.s3.amazonaws.com/key?X-Amz-Signature=deadbeefcafe1234",
     secrets: ["X-Amz-Signature", "deadbeefcafe1234", "amazonaws"],
   },
   {
@@ -72,23 +76,37 @@ describe("privacy: a sensitive but non-hostile name only trips length, and stays
     expect(text).not.toContain("123-45-6789");
     expect(text).not.toContain("Confidential");
     // The message names the limit, not the value.
-    expect(rejection.message).toContain(String(DEFAULT_INTAKE_POLICY.maxFilenameLength));
+    expect(rejection.message).toContain(
+      String(DEFAULT_INTAKE_POLICY.maxFilenameLength),
+    );
   });
 });
 
 describe("privacy: hostile strings in Content-Type never surface", () => {
   it("a path/URL smuggled into Content-Type fails the shape check and is deferred", () => {
     // These are not valid MIME shapes, so intake ignores them (no echo, no rejection).
-    for (const contentType of ["/etc/passwd", "http://169.254.169.254/latest", "a b c"]) {
+    for (const contentType of [
+      "/etc/passwd",
+      "http://169.254.169.254/latest",
+      "a b c",
+    ]) {
       expect(
-        evaluateUploadDescriptors({ files: [{ filename: "a.pdf", contentType, bytes: 1 }] }),
+        evaluateUploadDescriptors({
+          files: [{ filename: "a.pdf", contentType, bytes: 1 }],
+        }),
       ).toEqual({ ok: true });
     }
   });
 
   it("only a bounded, shape-validated MIME token can appear in an unsupported-type error", () => {
     const rejection = rejectionFor({
-      files: [{ filename: "a.bin", contentType: "application/x-msdownload", bytes: 1 }],
+      files: [
+        {
+          filename: "a.bin",
+          contentType: "application/x-msdownload",
+          bytes: 1,
+        },
+      ],
     });
     expect(rejection.code).toBe("unsupported_file_type");
     // The (harmless) MIME token may appear; nothing path/URL/name-like can.
@@ -99,7 +117,9 @@ describe("privacy: hostile strings in Content-Type never surface", () => {
 
 describe("privacy: uploaded bytes are never echoed on a malformed_pdf", () => {
   it("document-looking text in the buffer does not reach the error or telemetry", () => {
-    const bytes = enc("SECRET SSN 123-45-6789 patient record — clearly not a PDF");
+    const bytes = enc(
+      "SECRET SSN 123-45-6789 patient record — clearly not a PDF",
+    );
     const decision = evaluateUploadedBytes(
       bytes,
       { contentType: "application/pdf" },

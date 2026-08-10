@@ -10,11 +10,7 @@ import {
   FileUp,
   ShieldCheck,
 } from "lucide-react";
-import {
-  getAllToolSlugs,
-  getRelatedTools,
-  getToolBySlug,
-} from "@/lib/tools";
+import { getAllToolSlugs, getRelatedTools, getToolBySlug } from "@/lib/tools";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import { getRunnerKind } from "@/lib/pdf/registry";
@@ -206,8 +202,8 @@ export default async function ToolPage({
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2">
-              <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-5">
-                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
+              <div className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-5">
+                <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
                   About this tool
                 </h2>
                 <p className="text-sm leading-relaxed text-slate-300">
@@ -218,8 +214,8 @@ export default async function ToolPage({
                 </p>
               </div>
               {steps.length > 0 && (
-                <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
-                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
+                <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
+                  <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
                     How it works
                   </h2>
                   <ol className="flex flex-col gap-3">
@@ -259,19 +255,19 @@ export default async function ToolPage({
                 </div>
               </div>
 
-              <p className="text-pretty text-base leading-relaxed text-slate-300">
+              <p className="text-base leading-relaxed text-pretty text-slate-300">
                 {tool.description}
               </p>
 
               {formatChips}
 
-              <p className="rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm leading-relaxed text-slate-400">
+              <p className="bg-surface-2 rounded-2xl border border-white/10 p-4 text-sm leading-relaxed text-slate-400">
                 {processing.description}
               </p>
 
               {steps.length > 0 && (
                 <div className="flex flex-col gap-4">
-                  <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
+                  <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
                     How it works
                   </h2>
                   <ol className="flex flex-col gap-3">
@@ -334,17 +330,22 @@ export default async function ToolPage({
                 <ErrorBoundary boundary="pdf-archive-worker-panel">
                   <PdfArchiveWorkerPanel tool={tool} />
                 </ErrorBoundary>
-              ) : tool.slug === "html-to-pdf" || tool.slug === "webpage-to-pdf" ? (
+              ) : tool.slug === "html-to-pdf" ||
+                tool.slug === "webpage-to-pdf" ? (
                 /* HTML/Webpage to PDF: Chromium-backed secure-worker conversion with real output download. */
                 <ErrorBoundary boundary="html-render-worker-panel">
                   <HtmlRenderWorkerPanel tool={tool} />
                 </ErrorBoundary>
-              ) : tool.slug === "word-to-pdf" || tool.slug === "excel-to-pdf" || tool.slug === "powerpoint-to-pdf" ? (
+              ) : tool.slug === "word-to-pdf" ||
+                tool.slug === "excel-to-pdf" ||
+                tool.slug === "powerpoint-to-pdf" ? (
                 /* Office to PDF: LibreOffice-backed secure-worker conversion with real output download. */
                 <ErrorBoundary boundary="office-conversion-worker-panel">
                   <OfficeConversionWorkerPanel tool={tool} />
                 </ErrorBoundary>
-              ) : tool.slug === "pdf-to-word" || tool.slug === "pdf-to-excel" || tool.slug === "pdf-to-powerpoint" ? (
+              ) : tool.slug === "pdf-to-word" ||
+                tool.slug === "pdf-to-excel" ||
+                tool.slug === "pdf-to-powerpoint" ? (
                 /* PDF to Office: selectable-text worker export with real Office Open XML output download. */
                 <ErrorBoundary boundary="pdf-office-export-worker-panel">
                   <PdfOfficeExportWorkerPanel tool={tool} />
@@ -403,14 +404,14 @@ export default async function ToolPage({
         {(facts.length > 0 || faq.length > 0) && (
           <div className="grid gap-6 sm:grid-cols-2">
             {facts.length > 0 && (
-              <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
-                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
+              <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
+                <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
                   What this tool can do
                 </h2>
                 <dl className="flex flex-col gap-3">
                   {facts.map((fact) => (
                     <div key={fact.label} className="flex flex-col gap-1">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                      <dt className="text-xs font-medium tracking-wide text-slate-400 uppercase">
                         {fact.label}
                       </dt>
                       <dd className="text-sm leading-relaxed text-slate-300">
@@ -422,8 +423,8 @@ export default async function ToolPage({
               </div>
             )}
             {faq.length > 0 && (
-              <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
-                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
+              <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
+                <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
                   Common questions
                 </h2>
                 {faq.map((entry) => (
@@ -444,7 +445,9 @@ export default async function ToolPage({
         {related.length > 0 && (
           <div className="flex flex-col gap-6 border-t border-white/10 pt-10">
             <div className="flex items-end justify-between gap-4">
-              <h2 className="text-xl font-semibold text-white">Related tools</h2>
+              <h2 className="text-xl font-semibold text-white">
+                Related tools
+              </h2>
               <Link
                 href="/tools"
                 className="group inline-flex items-center gap-1.5 text-sm font-medium text-violet-300 transition hover:text-violet-200"

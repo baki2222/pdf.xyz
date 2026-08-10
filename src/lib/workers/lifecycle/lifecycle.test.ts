@@ -23,14 +23,18 @@ describe("worker lifecycle policy", () => {
     expect(retention.ok).toBe(true);
     if (!retention.ok) return;
 
-    const policy = buildLifecyclePolicy(retention.config, { keyPrefix: "pdfxyz" });
+    const policy = buildLifecyclePolicy(retention.config, {
+      keyPrefix: "pdfxyz",
+    });
     expect(validateLifecyclePolicy(policy)).toEqual({ ok: true });
     expect(policy.rules.map((rule) => rule.prefix)).toEqual([
       "pdfxyz/inputs/",
       "pdfxyz/artifacts/",
       "pdfxyz/",
     ]);
-    expect(JSON.stringify(policy.rules)).not.toMatch(/AKIA|secret-value|redis-rest-token|https?:\/\//i);
+    expect(JSON.stringify(policy.rules)).not.toMatch(
+      /AKIA|secret-value|redis-rest-token|https?:\/\//i,
+    );
   });
 
   it("renders an AWS S3 lifecycle document without bucket or credential values", () => {
@@ -60,7 +64,11 @@ describe("worker lifecycle policy", () => {
         [LIFECYCLE_ENV.validated]: "true",
         [LIFECYCLE_ENV.versioned]: "true",
       }),
-    ).toMatchObject({ state: "validated", provider: "aws-s3", versioned: true });
+    ).toMatchObject({
+      state: "validated",
+      provider: "aws-s3",
+      versioned: true,
+    });
   });
 
   it("rejects malformed provider flags and unsafe retention overrides", () => {

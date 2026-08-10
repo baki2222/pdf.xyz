@@ -34,7 +34,10 @@ const BUNDLE_TOOLS: readonly { slug: string; engine: string }[] = [
   { slug: "translate-pdf", engine: "src/lib/workers/translate/engine.ts" },
   { slug: "chat-with-pdf", engine: "src/lib/workers/chat-with-pdf/engine.ts" },
   { slug: "ai-extract", engine: "src/lib/workers/ai-extract/engine.ts" },
-  { slug: "request-signatures", engine: "src/lib/workers/request-signatures/engine.ts" },
+  {
+    slug: "request-signatures",
+    engine: "src/lib/workers/request-signatures/engine.ts",
+  },
   { slug: "extract-tables", engine: "src/lib/workers/table-extract/engine.ts" },
 ];
 
@@ -56,27 +59,33 @@ function bundledFormats(engineFile: string): Set<string> {
 }
 
 describe("a tool's advertised outputs match what its engine writes", () => {
-  it.each(BUNDLE_TOOLS)("$slug advertises the ZIP it actually delivers", ({ slug }) => {
-    const tool = getToolBySlug(slug);
-    expect(tool, `${slug} is missing from the catalogue`).toBeDefined();
-    // The artifact a user downloads is an archive. Naming only its contents reads as
-    // a promise of a bare .txt or .pdf, which is what request-signatures did.
-    expect(tool!.outputs).toContain("ZIP");
-  });
+  it.each(BUNDLE_TOOLS)(
+    "$slug advertises the ZIP it actually delivers",
+    ({ slug }) => {
+      const tool = getToolBySlug(slug);
+      expect(tool, `${slug} is missing from the catalogue`).toBeDefined();
+      // The artifact a user downloads is an archive. Naming only its contents reads as
+      // a promise of a bare .txt or .pdf, which is what request-signatures did.
+      expect(tool!.outputs).toContain("ZIP");
+    },
+  );
 
-  it.each(BUNDLE_TOOLS)("$slug promises no format it never writes", ({ slug, engine }) => {
-    const tool = getToolBySlug(slug)!;
-    const written = bundledFormats(engine);
-    const phantom = tool.outputs.filter(
-      (format) => format !== "ZIP" && !written.has(format),
-    );
-    // `ai-extract` sat here for the life of the product advertising CSV export while
-    // its engine wrote extraction.json and extraction.md and nothing else.
-    expect(
-      phantom,
-      `${slug} advertises ${phantom.join(", ")}, but ${engine} writes only ${[...written].join(", ")}`,
-    ).toEqual([]);
-  });
+  it.each(BUNDLE_TOOLS)(
+    "$slug promises no format it never writes",
+    ({ slug, engine }) => {
+      const tool = getToolBySlug(slug)!;
+      const written = bundledFormats(engine);
+      const phantom = tool.outputs.filter(
+        (format) => format !== "ZIP" && !written.has(format),
+      );
+      // `ai-extract` sat here for the life of the product advertising CSV export while
+      // its engine wrote extraction.json and extraction.md and nothing else.
+      expect(
+        phantom,
+        `${slug} advertises ${phantom.join(", ")}, but ${engine} writes only ${[...written].join(", ")}`,
+      ).toEqual([]);
+    },
+  );
 
   it("covers every WORKER-backed catalogue tool that claims to deliver a ZIP", () => {
     // Keeps BUNDLE_TOOLS from going stale in the other direction: a new worker bundle

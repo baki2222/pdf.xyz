@@ -38,7 +38,7 @@ export default function RouteError({
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
             Something went wrong
           </h1>
-          <p className="max-w-md text-pretty text-base leading-relaxed text-slate-400">
+          <p className="max-w-md text-base leading-relaxed text-pretty text-slate-400">
             An unexpected error interrupted this page.{" "}
             {disclosure ? `${disclosure} ` : ""}Try again, or head back home.
           </p>

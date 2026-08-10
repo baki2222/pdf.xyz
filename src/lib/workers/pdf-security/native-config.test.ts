@@ -15,7 +15,9 @@ describe("parseNativePdfSecurityConfig", () => {
     expect(parsed.config.enabled).toBe(true);
     expect(parsed.config.binary).toBe("qpdf");
     expect(parsed.config.overridden).toBe(false);
-    expect(parsed.config.maxInputBytes).toBe(PDF_SECURITY_INPUT_BYTES_BOUNDS.default);
+    expect(parsed.config.maxInputBytes).toBe(
+      PDF_SECURITY_INPUT_BYTES_BOUNDS.default,
+    );
   });
 
   it("honors the kill switch", () => {

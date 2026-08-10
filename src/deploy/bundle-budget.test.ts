@@ -76,7 +76,9 @@ function chunkList(htmlRelPath: string): string[] {
   if (!existsSync(html)) return [];
   return [
     ...new Set(
-      readFileSync(html, "utf8").match(/\/_next\/static\/chunks\/[^"']+?\.js/g) ?? [],
+      readFileSync(html, "utf8").match(
+        /\/_next\/static\/chunks\/[^"']+?\.js/g,
+      ) ?? [],
     ),
   ];
 }
@@ -87,7 +89,9 @@ function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
   if (!existsSync(html)) return null;
   const urls = [
     ...new Set(
-      readFileSync(html, "utf8").match(/\/_next\/static\/chunks\/[^"']+?\.js/g) ?? [],
+      readFileSync(html, "utf8").match(
+        /\/_next\/static\/chunks\/[^"']+?\.js/g,
+      ) ?? [],
     ),
   ];
   let bytes = 0;
@@ -155,7 +159,9 @@ describe("client bundle budget", () => {
     // Route chunks (`chunks/app/**`) are each page's own by construction; the
     // machinery a leak would ride in on is the shared/vendor kind.
     const nonRoute = (c: string) => !c.includes("/chunks/app/");
-    const toolChunks = new Set(chunkList("tools/rotate-pdf.html").filter(nonRoute));
+    const toolChunks = new Set(
+      chunkList("tools/rotate-pdf.html").filter(nonRoute),
+    );
     const extras = chunkList("index.html")
       .filter(nonRoute)
       .filter((c) => !toolChunks.has(c));

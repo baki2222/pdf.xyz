@@ -17,10 +17,7 @@ export * from "./redis-scripts";
 export { mapQueueFailure } from "./errors";
 export { createNotConfiguredQueue } from "./not-configured";
 export { createLocalDevQueue, type LocalDevQueueDeps } from "./local-dev";
-export {
-  createRedisQueue,
-  type RedisQueueDeps,
-} from "./redis";
+export { createRedisQueue, type RedisQueueDeps } from "./redis";
 export {
   createRedisClient,
   type RedisClient,

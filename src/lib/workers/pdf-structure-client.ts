@@ -29,10 +29,18 @@ export async function runWorkerOptimizeWeb(
   input: PdfStructureWorkerInput,
   options: PdfSecurityWorkerOptions = {},
 ): Promise<PdfStructureWorkerResult> {
-  return runSecurityJob(OPTIMIZE_WEB_TOOL, input.filename, input.bytes, {}, options);
+  return runSecurityJob(
+    OPTIMIZE_WEB_TOOL,
+    input.filename,
+    input.bytes,
+    {},
+    options,
+  );
 }
 
 /** Same qpdf-backed worker availability as protect/unlock. */
-export function canRunPdfStructure(status: WorkerStatus | null | undefined): boolean {
+export function canRunPdfStructure(
+  status: WorkerStatus | null | undefined,
+): boolean {
   return canRunPdfSecurity(status);
 }

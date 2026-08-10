@@ -14,11 +14,7 @@ import { HANDOFF_MAX_TOTAL_BYTES, totalHandoffBytes } from "./record";
 import { HandoffStore } from "./store";
 import type { HandoffFileEntry, HandoffRecord } from "./types";
 
-export type {
-  HandoffFileEntry,
-  HandoffRecord,
-  HandoffSummary,
-} from "./types";
+export type { HandoffFileEntry, HandoffRecord, HandoffSummary } from "./types";
 export {
   DEFAULT_HANDOFF_TTL_MS,
   HANDOFF_MAX_TOTAL_BYTES,
@@ -36,10 +32,7 @@ export {
   type HandoffMode,
 } from "./capability";
 export { HandoffStore } from "./store";
-export {
-  MemoryHandoffBackend,
-  type HandoffBackend,
-} from "./backend";
+export { MemoryHandoffBackend, type HandoffBackend } from "./backend";
 export { IndexedDbHandoffBackend, isIndexedDbAvailable } from "./idb";
 
 let singleton: HandoffStore | null = null;

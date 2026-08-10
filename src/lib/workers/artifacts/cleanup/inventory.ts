@@ -40,7 +40,10 @@ import {
 } from "../lifecycle";
 import { RETRIEVAL_STORAGE_PROVIDERS } from "../access";
 import { ARTIFACT_OUTPUT_KINDS, type ArtifactOutputKind } from "../types";
-import { PROCESSOR_KINDS, type ProcessorKind } from "../../observability/metrics";
+import {
+  PROCESSOR_KINDS,
+  type ProcessorKind,
+} from "../../observability/metrics";
 
 /** Caps that keep a hostile/huge synthetic inventory from becoming a DoS. */
 const MAX_INVENTORY_CHARS = 1024 * 1024; // 1 MiB — a projected inventory is small.
@@ -184,7 +187,8 @@ function asEnum<T extends string>(
   value: unknown,
   allowed: readonly T[],
 ): T | undefined {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+  return typeof value === "string" &&
+    (allowed as readonly string[]).includes(value)
     ? (value as T)
     : undefined;
 }
@@ -221,7 +225,9 @@ export function objectSizeBucket(bytes: number | null): ObjectSizeBucket {
  * retention evidence (`expiresAtMs`/`deleted`) is carried, but its lifecycle state is
  * resolved later by the evaluator against the run clock.
  */
-export function normalizeInventoryRecord(raw: unknown): ArtifactInventoryRecord {
+export function normalizeInventoryRecord(
+  raw: unknown,
+): ArtifactInventoryRecord {
   const r = asRecord(raw);
   if (!r) {
     return {
@@ -239,7 +245,8 @@ export function normalizeInventoryRecord(raw: unknown): ArtifactInventoryRecord 
   }
 
   const age =
-    asEnum(r.age, OBJECT_AGE_BUCKETS) ?? objectAgeBucket(asNonNegative(r.ageMs));
+    asEnum(r.age, OBJECT_AGE_BUCKETS) ??
+    objectAgeBucket(asNonNegative(r.ageMs));
   const size =
     asEnum(r.size, OBJECT_SIZE_BUCKETS) ??
     objectSizeBucket(asNonNegative(r.sizeBytes));
@@ -269,7 +276,9 @@ export function parseArtifactInventory(text: string): ParseInventoryResult {
   if (typeof text !== "string" || text.trim() === "") {
     return {
       ok: false,
-      issues: [{ code: "empty-document", message: "The inventory document is empty." }],
+      issues: [
+        { code: "empty-document", message: "The inventory document is empty." },
+      ],
     };
   }
   if (text.length > MAX_INVENTORY_CHARS) {
@@ -278,7 +287,8 @@ export function parseArtifactInventory(text: string): ParseInventoryResult {
       issues: [
         {
           code: "too-large",
-          message: "The inventory document exceeds the size a cleanup inventory can be.",
+          message:
+            "The inventory document exceeds the size a cleanup inventory can be.",
         },
       ],
     };
@@ -291,7 +301,10 @@ export function parseArtifactInventory(text: string): ParseInventoryResult {
     return {
       ok: false,
       issues: [
-        { code: "malformed-json", message: "The inventory document is not valid JSON." },
+        {
+          code: "malformed-json",
+          message: "The inventory document is not valid JSON.",
+        },
       ],
     };
   }
@@ -308,7 +321,8 @@ export function parseArtifactInventory(text: string): ParseInventoryResult {
         issues: [
           {
             code: "not-an-object",
-            message: "The inventory document is not an artifact inventory object or array.",
+            message:
+              "The inventory document is not an artifact inventory object or array.",
           },
         ],
       };
@@ -323,7 +337,8 @@ export function parseArtifactInventory(text: string): ParseInventoryResult {
       issues: [
         {
           code: "no-records",
-          message: "The inventory document contains no artifact records to evaluate.",
+          message:
+            "The inventory document contains no artifact records to evaluate.",
         },
       ],
     };
@@ -334,7 +349,8 @@ export function parseArtifactInventory(text: string): ParseInventoryResult {
       issues: [
         {
           code: "too-large",
-          message: "The inventory document has more records than the cleanup verifier will evaluate at once.",
+          message:
+            "The inventory document has more records than the cleanup verifier will evaluate at once.",
         },
       ],
     };

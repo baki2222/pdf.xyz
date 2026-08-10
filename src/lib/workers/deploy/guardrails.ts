@@ -188,9 +188,11 @@ export function evaluateGuardrails(
   // Strict enforces the universal safety requirements — a runnable worker and a
   // validated lifecycle backstop — but NOT a deep engine: a lossless-only worker is
   // a legitimate production choice, so requiring a native engine stays opt-in.
-  const requireDrainable = strict || flagOn(env, GUARDRAIL_ENV.requireDrainable);
+  const requireDrainable =
+    strict || flagOn(env, GUARDRAIL_ENV.requireDrainable);
   const requireDeepEngine = flagOn(env, GUARDRAIL_ENV.requireDeepEngine);
-  const requireLifecycle = strict || flagOn(env, GUARDRAIL_ENV.requireLifecycle);
+  const requireLifecycle =
+    strict || flagOn(env, GUARDRAIL_ENV.requireLifecycle);
   // Strict production runs demand atomic, race-safe queue transitions; it can also
   // be required on its own. A selected-but-non-atomic (or misconfigured) queue then
   // fails fast rather than silently degrading to last-writer-wins.
@@ -235,7 +237,9 @@ export function evaluateGuardrails(
   // Job queue: same two failure modes.
   const queueProviderRaw = read(env, REDIS_QUEUE_ENV.provider)?.toLowerCase();
   if (queueProviderRaw !== undefined) {
-    if (!(REDIS_PROVIDER_VALUES as readonly string[]).includes(queueProviderRaw)) {
+    if (
+      !(REDIS_PROVIDER_VALUES as readonly string[]).includes(queueProviderRaw)
+    ) {
       violations.push({
         code: "queue_provider_unrecognized",
         severity: "error",
@@ -419,7 +423,9 @@ export function evaluateGuardrails(
   // can't be probed here, fall back to whether OCR is *enabled* in config. Unmet when
   // OCR is disabled, not opted into, or opted into with no engine installed — fails
   // fast rather than accepting `ocr-pdf` jobs that would only fail as not-implemented.
-  const ocrRunnable = deps.ocr ? deps.ocr.ready : nativeOcrCapability(env).enabled;
+  const ocrRunnable = deps.ocr
+    ? deps.ocr.ready
+    : nativeOcrCapability(env).enabled;
   if (requireOcr && !ocrRunnable) {
     violations.push({
       code: "require_ocr_unmet",

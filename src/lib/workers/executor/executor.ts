@@ -43,9 +43,18 @@ import type { ProcessorInputFile } from "../processor/types";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { MalwareScanner } from "../scanner/types";
 import type { SoundnessGate } from "../soundness/types";
-import { buildSoundnessReceipt, type SoundnessReceipt } from "../soundness/receipt";
-import type { ArtifactManifest, ArtifactManifestGate } from "../artifacts/types";
-import { buildArtifactReceipt, type ArtifactReceipt } from "../artifacts/receipt";
+import {
+  buildSoundnessReceipt,
+  type SoundnessReceipt,
+} from "../soundness/receipt";
+import type {
+  ArtifactManifest,
+  ArtifactManifestGate,
+} from "../artifacts/types";
+import {
+  buildArtifactReceipt,
+  type ArtifactReceipt,
+} from "../artifacts/receipt";
 import {
   artifactManifestMetric,
   deadLetterMetric,
@@ -62,7 +71,12 @@ import {
   type WorkerMetricSample,
 } from "../observability/metrics";
 import type { WorkerMetricSink } from "../observability/collector";
-import type { ExecutorLogEvent, ExecutorOutcome, ExecutorStorage, ExecutorTick } from "./types";
+import type {
+  ExecutorLogEvent,
+  ExecutorOutcome,
+  ExecutorStorage,
+  ExecutorTick,
+} from "./types";
 
 /** Everything the executor needs, all injectable for deterministic tests. */
 export interface ExecutorDeps {
@@ -554,7 +568,12 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
         // check, so emit one bounded metric for it too, with an `unknown` kind.
         if (validation.checks.length === 0) {
           emit(
-            artifactManifestMetric("invalid", validation.reason, "unknown", kind),
+            artifactManifestMetric(
+              "invalid",
+              validation.reason,
+              "unknown",
+              kind,
+            ),
           );
         }
         // Emit a content-free REJECTED receipt (opt-in sink) before failing. It

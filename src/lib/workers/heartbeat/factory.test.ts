@@ -19,14 +19,24 @@ const REDIS_ENV = {
   PDFXYZ_REDIS_REST_TOKEN: "redis-rest-token-1234",
 } as const;
 
-const ENABLED_ENV = { ...REDIS_ENV, PDFXYZ_WORKER_HEARTBEAT: "enabled" } as const;
+const ENABLED_ENV = {
+  ...REDIS_ENV,
+  PDFXYZ_WORKER_HEARTBEAT: "enabled",
+} as const;
 
 describe("isHeartbeatEnabled", () => {
   it("recognizes the truthy activation values only", () => {
     for (const v of ["1", "true", "yes", "on", "enabled", "ENABLED", "On"]) {
       expect(isHeartbeatEnabled({ PDFXYZ_WORKER_HEARTBEAT: v })).toBe(true);
     }
-    for (const v of ["", "0", "false", "off", "no", undefined as unknown as string]) {
+    for (const v of [
+      "",
+      "0",
+      "false",
+      "off",
+      "no",
+      undefined as unknown as string,
+    ]) {
       expect(isHeartbeatEnabled({ PDFXYZ_WORKER_HEARTBEAT: v })).toBe(false);
     }
   });
@@ -36,13 +46,16 @@ describe("resolveHeartbeatIntervalSeconds", () => {
   it("defaults when unset and honors a bounded value", () => {
     expect(resolveHeartbeatIntervalSeconds({}).intervalSeconds).toBe(15);
     expect(
-      resolveHeartbeatIntervalSeconds({ PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS: "30" })
-        .intervalSeconds,
+      resolveHeartbeatIntervalSeconds({
+        PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS: "30",
+      }).intervalSeconds,
     ).toBe(30);
   });
 
   it("falls back to the default and reports a malformed value by name only", () => {
-    const bad = resolveHeartbeatIntervalSeconds({ PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS: "abc" });
+    const bad = resolveHeartbeatIntervalSeconds({
+      PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS: "abc",
+    });
     expect(bad.intervalSeconds).toBe(15);
     expect(bad.issue?.field).toBe("PDFXYZ_WORKER_HEARTBEAT_INTERVAL_SECONDS");
     const tooBig = resolveHeartbeatIntervalSeconds({
@@ -83,14 +96,23 @@ describe("createHeartbeatPublisher", () => {
       capabilities: emptyCapabilities(),
     });
     expect(publisher.capability.enabled).toBe(false);
-    expect(await publisher.beat()).toEqual({ published: false, reason: "disabled" });
+    expect(await publisher.beat()).toEqual({
+      published: false,
+      reason: "disabled",
+    });
   });
 
   it("returns a real publisher when enabled + configured", async () => {
     const fake = createFakeRedis();
     const publisher = createHeartbeatPublisher(ENABLED_ENV, {
       mode: "loop",
-      capabilities: { deepCompression: true, ocr: true, ocrLanguages: [], malwareScan: false, atomicQueue: true },
+      capabilities: {
+        deepCompression: true,
+        ocr: true,
+        ocrLanguages: [],
+        malwareScan: false,
+        atomicQueue: true,
+      },
       deps: { client: fake, now: () => 1_000 },
     });
     expect(publisher.capability.enabled).toBe(true);
@@ -119,12 +141,21 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
       serializeHeartbeat(
         buildHeartbeat({
           mode: "drain",
-          capabilities: { deepCompression: false, ocr: false, ocrLanguages: [], malwareScan: false, atomicQueue: true },
+          capabilities: {
+            deepCompression: false,
+            ocr: false,
+            ocrLanguages: [],
+            malwareScan: false,
+            atomicQueue: true,
+          },
           at: now,
         }),
       ),
     ]);
-    const live = await readWorkerHeartbeatLiveness(ENABLED_ENV, { client: fake, now: () => now + 3_000 });
+    const live = await readWorkerHeartbeatLiveness(ENABLED_ENV, {
+      client: fake,
+      now: () => now + 3_000,
+    });
     expect(live.state).toBe("observed");
     expect(live.observed).toBe(true);
     expect(live.mode).toBe("drain");

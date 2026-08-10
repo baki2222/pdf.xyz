@@ -19,7 +19,10 @@ import {
   exitCodeForCleanupVerdict,
   type ArtifactCleanupReport,
 } from "./evaluate";
-import { buildArtifactCleanupReceipt, type ArtifactCleanupReceipt } from "./receipt";
+import {
+  buildArtifactCleanupReceipt,
+  type ArtifactCleanupReceipt,
+} from "./receipt";
 import { renderArtifactCleanupText } from "./render";
 import { deriveArtifactCleanupMetrics } from "../../observability/derive";
 import type { WorkerMetricSample } from "../../observability/metrics";

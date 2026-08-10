@@ -140,11 +140,15 @@ export function parseNativePdfSecurityConfig(
   env: EnvSource = process.env,
 ): ParseNativePdfSecurityResult {
   const issues: FieldError[] = [];
-  const miss = (name: string, message: string) => issues.push({ field: name, message });
+  const miss = (name: string, message: string) =>
+    issues.push({ field: name, message });
 
   const enable = parseEnable(read(env, NATIVE_PDF_SECURITY_ENV.enable));
   if (!enable.ok) {
-    miss(NATIVE_PDF_SECURITY_ENV.enable, "Must be one of on/off/auto (or true/false).");
+    miss(
+      NATIVE_PDF_SECURITY_ENV.enable,
+      "Must be one of on/off/auto (or true/false).",
+    );
   }
 
   let binary = QPDF_BINARY;
@@ -208,7 +212,13 @@ export function parseNativePdfSecurityConfig(
     }
   }
 
-  if (issues.length > 0 || !enable.ok || !timeout.ok || !maxInput.ok || !maxOutput.ok) {
+  if (
+    issues.length > 0 ||
+    !enable.ok ||
+    !timeout.ok ||
+    !maxInput.ok ||
+    !maxOutput.ok
+  ) {
     return { ok: false, issues };
   }
 

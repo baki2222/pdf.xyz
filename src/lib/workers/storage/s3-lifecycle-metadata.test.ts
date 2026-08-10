@@ -16,28 +16,51 @@ const EXPIRES = Date.UTC(2026, 0, 2, 4, 0, 0);
 
 describe("artifact lifecycle object-metadata", () => {
   it("uses the lowercase x-amz-meta header name", () => {
-    expect(ARTIFACT_LIFECYCLE_METADATA_HEADER).toBe("x-amz-meta-artifact-lifecycle");
+    expect(ARTIFACT_LIFECYCLE_METADATA_HEADER).toBe(
+      "x-amz-meta-artifact-lifecycle",
+    );
   });
 
   it("round-trips a live record (window only, no tombstone)", () => {
-    const encoded = encodeArtifactLifecycleMetadata({ expiresAtMs: EXPIRES, deleted: false });
-    expect(decodeArtifactLifecycleMetadata(encoded)).toEqual({ expiresAtMs: EXPIRES, deleted: false });
+    const encoded = encodeArtifactLifecycleMetadata({
+      expiresAtMs: EXPIRES,
+      deleted: false,
+    });
+    expect(decodeArtifactLifecycleMetadata(encoded)).toEqual({
+      expiresAtMs: EXPIRES,
+      deleted: false,
+    });
   });
 
   it("round-trips a tombstoned record", () => {
-    const encoded = encodeArtifactLifecycleMetadata({ expiresAtMs: EXPIRES, deleted: true });
-    expect(decodeArtifactLifecycleMetadata(encoded)).toEqual({ expiresAtMs: EXPIRES, deleted: true });
+    const encoded = encodeArtifactLifecycleMetadata({
+      expiresAtMs: EXPIRES,
+      deleted: true,
+    });
+    expect(decodeArtifactLifecycleMetadata(encoded)).toEqual({
+      expiresAtMs: EXPIRES,
+      deleted: true,
+    });
   });
 
   it("omits the tombstone marker for a live artifact (minimal `{e}` token)", () => {
-    const live = encodeArtifactLifecycleMetadata({ expiresAtMs: EXPIRES, deleted: false });
-    const tomb = encodeArtifactLifecycleMetadata({ expiresAtMs: EXPIRES, deleted: true });
+    const live = encodeArtifactLifecycleMetadata({
+      expiresAtMs: EXPIRES,
+      deleted: false,
+    });
+    const tomb = encodeArtifactLifecycleMetadata({
+      expiresAtMs: EXPIRES,
+      deleted: true,
+    });
     expect(decodeURIComponent(live)).toBe(`{"e":${EXPIRES}}`);
     expect(decodeURIComponent(tomb)).toBe(`{"e":${EXPIRES},"d":1}`);
   });
 
   it("produces a header-safe ASCII token (no spaces, quotes, or control bytes)", () => {
-    const token = encodeArtifactLifecycleMetadata({ expiresAtMs: EXPIRES, deleted: true });
+    const token = encodeArtifactLifecycleMetadata({
+      expiresAtMs: EXPIRES,
+      deleted: true,
+    });
     expect(token).toMatch(/^[\x21-\x7e]+$/);
     expect(token).not.toContain(" ");
     expect(token).not.toContain('"');
@@ -53,8 +76,12 @@ describe("artifact lifecycle object-metadata", () => {
   it("rejects malformed encoding / JSON without throwing", () => {
     expect(decodeArtifactLifecycleMetadata("%")).toBeNull(); // bad percent-encoding
     expect(decodeArtifactLifecycleMetadata("not-json")).toBeNull();
-    expect(decodeArtifactLifecycleMetadata(encodeURIComponent("[]"))).toBeNull(); // not an object
-    expect(decodeArtifactLifecycleMetadata(encodeURIComponent("42"))).toBeNull();
+    expect(
+      decodeArtifactLifecycleMetadata(encodeURIComponent("[]")),
+    ).toBeNull(); // not an object
+    expect(
+      decodeArtifactLifecycleMetadata(encodeURIComponent("42")),
+    ).toBeNull();
   });
 
   it("rejects a non-integer / negative expiry or a wrong tombstone marker (strict)", () => {
@@ -68,7 +95,9 @@ describe("artifact lifecycle object-metadata", () => {
       { e: EXPIRES, d: "1" },
     ];
     for (const b of bad) {
-      expect(decodeArtifactLifecycleMetadata(encodeURIComponent(JSON.stringify(b)))).toBeNull();
+      expect(
+        decodeArtifactLifecycleMetadata(encodeURIComponent(JSON.stringify(b))),
+      ).toBeNull();
     }
   });
 

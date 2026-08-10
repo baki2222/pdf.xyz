@@ -40,7 +40,9 @@ describe("createQueueProvider", () => {
   });
 
   it("falls back to not-configured — never a dummy provider — when redis is selected but misconfigured", () => {
-    const q = createQueueProvider(redisEnv({ [REDIS_QUEUE_ENV.restToken]: undefined }));
+    const q = createQueueProvider(
+      redisEnv({ [REDIS_QUEUE_ENV.restToken]: undefined }),
+    );
     expect(q.id).not.toBe("redis");
     expect(q.probe().ok).toBe(false);
   });

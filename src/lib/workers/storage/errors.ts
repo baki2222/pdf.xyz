@@ -17,7 +17,9 @@ import {
 import type { StorageFailure } from "./types";
 
 /** Map a typed storage failure to a ready-to-send API error envelope. */
-export function mapStorageFailure(failure: StorageFailure): ApiResult<ApiError> {
+export function mapStorageFailure(
+  failure: StorageFailure,
+): ApiResult<ApiError> {
   switch (failure.reason) {
     case "not_configured":
       return workerNotConfigured();

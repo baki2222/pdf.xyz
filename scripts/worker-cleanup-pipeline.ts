@@ -39,7 +39,10 @@ import {
   type PipelineStages,
 } from "@/lib/workers/cleanup/pipeline";
 import { runProject } from "@/lib/workers/cleanup/project";
-import { runCleanupCheck, type CleanupCheckProvider } from "@/lib/workers/cleanup";
+import {
+  runCleanupCheck,
+  type CleanupCheckProvider,
+} from "@/lib/workers/cleanup";
 import { runArtifactCleanup } from "@/lib/workers/artifacts/cleanup";
 import { parseS3Config } from "@/lib/workers/storage/s3-config";
 import type { RetrievalStorageProvider } from "@/lib/workers/artifacts/access";
@@ -53,15 +56,20 @@ const MAX_INPUT_BYTES = 4 * 1024 * 1024; // 4 MiB
  * failure (too large, unreadable) — the caller maps it to exit 1 WITHOUT echoing the OS error or
  * the path, which could carry a filename.
  */
-function readInput(source: "stdin" | "file", filePath: string | undefined): string {
+function readInput(
+  source: "stdin" | "file",
+  filePath: string | undefined,
+): string {
   if (source === "file") {
     if (filePath === undefined) throw new Error("input-error");
-    if (statSync(filePath).size > MAX_INPUT_BYTES) throw new Error("input-too-large");
+    if (statSync(filePath).size > MAX_INPUT_BYTES)
+      throw new Error("input-too-large");
     return readFileSync(filePath, "utf8");
   }
   // stdin: read fd 0 to EOF, then bound the size defensively.
   const text = readFileSync(0, "utf8");
-  if (Buffer.byteLength(text, "utf8") > MAX_INPUT_BYTES) throw new Error("input-too-large");
+  if (Buffer.byteLength(text, "utf8") > MAX_INPUT_BYTES)
+    throw new Error("input-too-large");
   return text;
 }
 
