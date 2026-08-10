@@ -1,0 +1,9 @@
+# Revisions that changed formatting only. `git blame` skips them so the
+# attribution stays on whoever wrote the line, not whoever ran the formatter.
+#
+# Enable locally (once):
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub reads this file automatically.
+
+# style: prettier sweep over the repository (707 files, mechanical)
+feb07fa64c1bb71898e5f073e42db5740f9d358a
