@@ -27,12 +27,12 @@ test.describe("system status page", () => {
     await expect(page.getByText("Available", { exact: true })).toBeVisible();
 
     // The worker half is read live from /api/worker/status. In the production
-    // build the e2e suite runs, the worker is honestly disabled — so the fetch
-    // must resolve out of the "Checking…" state into the disabled detail. This
-    // also proves the client fetch (and its worker_status_checked event) worked.
-    await expect(
-      page.getByText(/no secure worker is configured/i),
-    ).toBeVisible();
+    // build the e2e suite runs, nothing is configured and nothing is observed —
+    // so the fetch must resolve out of the "Checking…" state into the pipeline
+    // summary's "off" verdict, which states the precise gap instead of the old
+    // deployment-wide "no secure worker is configured" claim. This also proves
+    // the client fetch (and its worker_status_checked event) worked.
+    await expect(page.getByText(/cannot drain a worker/i)).toBeVisible();
 
     // The production pipeline is broken out provider-by-provider, each honestly
     // not configured in this build — so the page names exactly what a real
@@ -63,7 +63,7 @@ test.describe("system status page", () => {
     const workerCard = page
       .locator("div")
       .filter({ has: page.getByRole("heading", { name: "Secure worker" }) })
-      .filter({ has: page.getByText(/no secure worker is configured/i) })
+      .filter({ has: page.getByText(/cannot drain a worker/i) })
       .last();
     await expect(
       workerCard.getByText("AI tools", { exact: true }),

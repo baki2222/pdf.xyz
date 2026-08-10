@@ -32,7 +32,12 @@ test("compress analyzes in-browser and honestly labels the worker path", async (
     page.getByText("Deep image compression (secure worker)"),
   ).toBeVisible();
   await expect(page.getByText("Not enabled")).toBeVisible();
-  await expect(page.getByText(/no secure worker is configured/i)).toBeVisible();
+  // The fallback detail names its own vantage (this web process) rather than
+  // making a deployment-wide claim — the old "no secure worker is configured"
+  // wording read as global and contradicted live deployments.
+  await expect(
+    page.getByText(/this web process runs no in-process worker/i),
+  ).toBeVisible();
 
   // With the worker disabled there is no run button — the file is never uploaded.
   await expect(
