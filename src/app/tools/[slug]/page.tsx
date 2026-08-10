@@ -44,8 +44,11 @@ import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import {
   breadcrumbSchema,
+  faqPageSchema,
+  howToSchema,
   toolApplicationSchema,
 } from "@/lib/structured-data";
+import { howToSteps, toolFacts, toolFaq } from "@/lib/tools/tool-facts";
 
 export function generateStaticParams() {
   return getAllToolSlugs().map((slug) => ({ slug }));
@@ -101,7 +104,11 @@ export default async function ToolPage({
   const category = getCategory(tool.category);
   const processing = getProcessingMeta(tool.processing);
   const related = getRelatedTools(tool, 3);
-  const steps = tool.how ?? [];
+  // Every tool has steps now: the catalogue's own when authored, else the
+  // mode-true default (in-browser steps never claim an upload — guarded).
+  const steps = howToSteps(tool);
+  const facts = toolFacts(tool.slug);
+  const faq = toolFaq(tool);
   const runnerKind = getRunnerKind(tool.slug);
 
   const breadcrumbs = [
@@ -129,7 +136,14 @@ export default async function ToolPage({
   return (
     <div className="py-10 sm:py-14">
       <JsonLd
-        data={[toolApplicationSchema(tool), breadcrumbSchema(breadcrumbs)]}
+        data={[
+          toolApplicationSchema(tool),
+          breadcrumbSchema(breadcrumbs),
+          howToSchema(tool.name, steps),
+          ...(faq.length > 0
+            ? [faqPageSchema(faq.map((e) => ({ q: e.question, a: e.answer })))]
+            : []),
+        ]}
       />
       <Container className="flex flex-col gap-10">
         <nav
@@ -383,6 +397,47 @@ export default async function ToolPage({
                 <WorkerPreview tool={tool} />
               )}
             </div>
+          </div>
+        )}
+
+        {(facts.length > 0 || faq.length > 0) && (
+          <div className="grid gap-6 sm:grid-cols-2">
+            {facts.length > 0 && (
+              <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
+                  What this tool can do
+                </h2>
+                <dl className="flex flex-col gap-3">
+                  {facts.map((fact) => (
+                    <div key={fact.label} className="flex flex-col gap-1">
+                      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                        {fact.label}
+                      </dt>
+                      <dd className="text-sm leading-relaxed text-slate-300">
+                        {fact.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+            {faq.length > 0 && (
+              <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
+                <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
+                  Common questions
+                </h2>
+                {faq.map((entry) => (
+                  <div key={entry.question} className="flex flex-col gap-1.5">
+                    <h3 className="text-sm font-semibold text-slate-200">
+                      {entry.question}
+                    </h3>
+                    <p className="text-sm leading-relaxed text-slate-400">
+                      {entry.answer}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
