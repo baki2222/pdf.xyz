@@ -46,6 +46,7 @@ function clear(): void {
   clearRateLimitProviderForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
   delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+  delete process.env[RATE_LIMIT_ENV.keySalt];
 }
 
 beforeEach(clear);
@@ -92,6 +93,7 @@ describe("rate-limit provider seam", () => {
   it("hands the backend only an opaque, address-free bucket token — even when trusted", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     const { provider, seenKeys } = fakeProvider();
     registerRateLimitProvider(provider);
 
@@ -138,6 +140,7 @@ describe("rate-limit provider seam", () => {
   it("never leaks the request identity into a remote decision", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     const { provider } = fakeProvider();
     registerRateLimitProvider(provider);
 

@@ -74,6 +74,18 @@ Only the first is written out here because only the first is not a secret.
 - `PDFXYZ_RATE_LIMIT_KEY_PREFIX` — defaults to `pdfxyz`. Set it only if the same
   Upstash database is shared with something else.
 - `PDFXYZ_RATE_LIMIT_FAIL_MODE` — defaults to `open`. **Leave it.** See below.
+- `PDFXYZ_RATE_LIMIT_KEY_SALT` — **required for per-client limits.** A secret,
+  identical on every instance, that salts the bucket keys so they are not a
+  plain reversible hash of a client address. Until 2026-08-10 this was generated
+  per process with `randomBytes`, which meant every serverless instance — and
+  every cold start — bucketed the same caller differently; measured on
+  production as four distinct buckets from two machines. **If it is unset the
+  guard refuses to key per client and falls back to the single shared bucket**,
+  reporting `remote-configured-shared`, rather than silently reproducing that
+  defect. Rotating it resets every counter once (one window) and is otherwise
+  safe; environment variables persist across deploys, so it does not rotate on
+  its own.
+
 - `PDFXYZ_RATE_LIMIT_TRUST_PROXY` — leave it off, but **not for the reason this
   document gave until 2026-08-10**. The old text said Vercel already supplies a
   trustworthy client address, which is true — and then the code never reads it.
@@ -146,8 +158,9 @@ removing.
 - **They are not per-visitor today.** See the note under the policy table:
   every request shares one bucket unless the forwarding header is trusted, and
   trusting that header is itself evadable. Neither setting gives honest
-  per-client accounting; that needs identity to key on the address the platform
-  sets, which the code does not yet read.
+  per-client accounting; that needs BOTH the forwarding header trusted AND
+  `PDFXYZ_RATE_LIMIT_KEY_SALT` set. Setting one without the other lands in the
+  shared bucket and says so.
 
 <!-- gap-while-absent: /sliding[- ]?window/i in src/lib/ratelimit -->
 <!-- The marker above pins "fixed windows": if a sliding-window implementation

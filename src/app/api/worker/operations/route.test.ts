@@ -332,6 +332,7 @@ describe("GET /api/worker/operations — the rate-limit posture reaches the aler
     [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
     [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
     [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+    [RATE_LIMIT_ENV.keySalt]: "test-shared-salt",
   };
 
   type AlertEntry = {

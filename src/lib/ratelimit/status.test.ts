@@ -15,6 +15,7 @@ const creds = (): Record<string, string> => ({
   [RATE_LIMIT_REDIS_ENV.restUrl]: "https://rl-example-98765.upstash.io",
   [RATE_LIMIT_REDIS_ENV.restToken]: "RL_tokenEXAMPLEvalue00000000000000000000",
   [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+  [RATE_LIMIT_ENV.keySalt]: "test-shared-salt",
 });
 
 describe("resolveRateLimitStatus — the four static states", () => {
