@@ -60,7 +60,7 @@ describe("resolveWorkerScanner", () => {
     expect(JSON.stringify(scanner.capability())).not.toContain("PDFXYZ_");
   });
 
-  it("honors required: an unreachable required scan is an error, an optional one skips", async () => {
+  it("honors required: an unreachable scan is a retryable error in both modes (never a bypass)", async () => {
     const failing: ClamavTransport = {
       async roundtrip() {
         throw new Error("boom");
@@ -75,11 +75,15 @@ describe("resolveWorkerScanner", () => {
     );
     expect((await required.scan(pdf)).verdict).toBe("error");
 
+    // Mode-independent since the 2026-08-10 ruling: an ACTIVE scanner that
+    // cannot reach clamd retries — it is never silently bypassed. The old
+    // assertion here ("optional one skips") pinned the defect that processed
+    // 26–100 MB uploads unscanned in production.
     const optional = resolveWorkerScanner(
       { PDFXYZ_MALWARE_SCANNER: "clamav://clamd.internal:3310" },
       { transport: failing },
     );
-    expect((await optional.scan(pdf)).verdict).toBe("skipped");
+    expect((await optional.scan(pdf)).verdict).toBe("error");
   });
 
   it("wires a unix-socket endpoint the same way (over an injected transport)", async () => {

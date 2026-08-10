@@ -6,7 +6,10 @@ import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
-import { aiToolUnavailableDetail } from "@/lib/workers/ai-tool-availability";
+import {
+  AI_DAILY_ALLOWANCE_NOTE,
+  aiToolUnavailableDetail,
+} from "@/lib/workers/ai-tool-availability";
 import {
   canRunChatWithPdf,
   runWorkerChatWithPdf,
@@ -90,6 +93,9 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
+          {available && (
+            <p className="text-xs leading-relaxed text-slate-400">{AI_DAILY_ALLOWANCE_NOTE}</p>
+          )}
         {available ? (
           <ChatBuilder />
         ) : (

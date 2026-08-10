@@ -29,7 +29,6 @@ import {
   scanError,
   scanInfected,
   scanInvalid,
-  scanSkipped,
   type MalwareScanCapability,
   type MalwareScanInput,
   type MalwareScanner,
@@ -78,20 +77,24 @@ export class ClamavTransportError extends Error {
 
 /** The resolved knobs the scanner enforces on every scan. Content-free. */
 export interface ClamavScannerConfig {
-  /** Per-scan deadline (ms). A round-trip that overruns it is an `error`/`skipped`. */
+  /** Per-scan deadline (ms). A round-trip that overruns it is a retryable `error`. */
   readonly timeoutMs: number;
   /**
    * Hard client-side size ceiling (bytes). An input larger than this is never
-   * streamed — it is a terminal `invalid` (required) or `skipped` (optional),
-   * because clamd would reject an over-limit stream anyway and retrying cannot help.
+   * streamed — it is a terminal `invalid` in EVERY mode, because clamd would
+   * reject an over-limit stream anyway, retrying cannot shrink it, and (with
+   * the default derived from the upload cap) it can only mean misconfiguration.
    */
   readonly maxBytes: number;
   /** INSTREAM frame size; defaults to {@link CLAMAV_DEFAULT_CHUNK_SIZE}. */
   readonly chunkSize?: number;
   /**
-   * Whether scanning is REQUIRED. Required ⇒ an unreachable/oversized scan is a
-   * fail/retry (`error`/`invalid`), never a bypass. Optional ⇒ it degrades to
-   * `skipped` (proceed, honestly not-scanned). An `infected` verdict blocks in both.
+   * Whether scanning is REQUIRED at the deployment level. Since the 2026-08-10
+   * ruling this flag no longer changes THIS scanner's fold — an active scanner
+   * that cannot clear an input refuses (`invalid`/`error`) in both modes,
+   * because "optional" means a scanner need not exist, never that an existing
+   * one may be bypassed. The flag's remaining meaning lives in the ops
+   * guardrail layer (`--check` refuses to run unscanned when required).
    */
   readonly required: boolean;
 }
@@ -162,15 +165,18 @@ export function createClamavScanner(deps: ClamavScannerDeps): MalwareScanner {
     // No detection. If every input scanned cleanly, the job is clean.
     if (!sawOversize && !sawError) return scanClean();
 
-    // Some input could not be cleared. A REQUIRED scanner refuses to let it
-    // through: an oversize input is terminal (`invalid` — retrying cannot shrink
-    // it), a transient failure is retryable (`error`). An OPTIONAL scanner degrades
-    // to `skipped` (proceed, honestly not-scanned) rather than blocking the job.
-    if (!config.required) {
-      return scanSkipped(
-        "A configured (optional) malware scan could not clear every input; scanning is not required, so the input proceeded and is reported as not scanned.",
-      );
-    }
+    // Some input could not be cleared, and a scanner is ACTIVE. "Optional"
+    // means a scanner is not required to EXIST — it must never mean an
+    // existing scanner may be silently bypassed (owner ruling, 2026-08-10:
+    // the old fold degraded oversize to `skipped` here, and a 26–100 MB
+    // upload processed unscanned under copy that says every file is scanned
+    // before any processor touches it). `skipped` is honest only when
+    // nothing was there to do the scanning — the no-op scanner's verdict,
+    // never this one's. So the fold is mode-independent: a transport failure
+    // is retryable (`error` — a clamd outage queues work instead of
+    // processing it unscanned), and an oversize input is terminal
+    // (`invalid` — retrying cannot shrink it, and with the ceiling derived
+    // from the upload cap it can only mean misconfiguration).
     if (sawError) return scanError();
     return scanInvalid();
   }

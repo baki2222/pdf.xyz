@@ -28,6 +28,7 @@ import {
   claimMetric,
   cleanupEvidencePostureMetric,
   cleanupPipelineMetric,
+  releaseGateMetric,
   cleanupProjectionMetric,
   deadLetterMetric,
   engineCapabilityMetric,
@@ -62,6 +63,13 @@ const SAMPLES: WorkerMetricSample[] = [
   runMetric("loop", "drained"),
   tickMetric("drain", "completed"),
   claimMetric("claimed"),
+  // The kept release layer's metric, previously the ONLY unsampled one here:
+  // the twelve deleted layers all had samples and the survivor had none —
+  // coverage had followed the generator rather than the value.
+  releaseGateMetric("pass"),
+  releaseGateMetric("warn"),
+  releaseGateMetric("fail"),
+  releaseGateMetric("unknown"),
   redeliveryMetric(),
   deadLetterMetric(),
   retryMetric(),

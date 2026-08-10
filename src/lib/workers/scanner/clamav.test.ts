@@ -116,13 +116,17 @@ describe("createClamavScanner — required vs optional degradation", () => {
       expect(result.verdict).toBe("error");
       expect(result.scanned).toBe(false);
     });
-    it(`optional: ${label} → skipped (proceed, not scanned)`, async () => {
+    it(`optional: ${label} → retryable error (an active scanner is never bypassed)`, async () => {
+      // The old fold degraded this to `skipped` and the job processed
+      // UNSCANNED during any clamd outage — while every user-facing surface
+      // said every file is scanned before processing. Mode-independent now:
+      // an outage queues work, it does not bypass the scanner.
       const scanner = createClamavScanner({
         transport: scriptedTransport(script),
         config: { ...CONFIG, required: false },
       });
       const result = await scanner.scan(input(PDF));
-      expect(result.verdict).toBe("skipped");
+      expect(result.verdict).toBe("error");
       expect(result.scanned).toBe(false);
     });
   }
@@ -135,12 +139,12 @@ describe("createClamavScanner — required vs optional degradation", () => {
     expect((await scanner.scan(input(PDF))).verdict).toBe("invalid");
   });
 
-  it("optional: a stream size-limit reply degrades to skipped", async () => {
+  it("optional: a stream size-limit reply is terminal invalid too (mode-independent)", async () => {
     const scanner = createClamavScanner({
       transport: scriptedTransport(["INSTREAM size limit exceeded. ERROR\0"]),
       config: { ...CONFIG, required: false },
     });
-    expect((await scanner.scan(input(PDF))).verdict).toBe("skipped");
+    expect((await scanner.scan(input(PDF))).verdict).toBe("invalid");
   });
 });
 
@@ -156,16 +160,21 @@ describe("createClamavScanner — client-side size ceiling", () => {
     expect(transport.calls.length).toBe(0); // never connected
   });
 
-  it("optional: an over-limit input degrades to skipped, still never streamed", async () => {
+  it("an ACTIVE scanner plus an over-ceiling input means the job is not processed — optional mode included", async () => {
+    // The relationship this pins (owner ruling, 2026-08-10): scanner active +
+    // input above the scan ceiling ⇒ refuse. The old fold said `skipped` here,
+    // and a 26–100 MB upload was processed unscanned in production under copy
+    // that says every file is scanned before any processor touches it.
+    // `skipped` is honest only when nothing was there to do the scanning.
     const transport = scriptedTransport(["stream: OK\0"]);
     const scanner = createClamavScanner({
       transport,
       config: { timeoutMs: 5_000, maxBytes: 3, required: false },
     });
     expect((await scanner.scan(input(new Uint8Array([1, 2, 3, 4])))).verdict).toBe(
-      "skipped",
+      "invalid",
     );
-    expect(transport.calls.length).toBe(0);
+    expect(transport.calls.length).toBe(0); // still never streamed
   });
 });
 
@@ -197,7 +206,7 @@ describe("createClamavScanner — multi-input aggregation", () => {
     expect((await scanner.scan(input(PDF, PDF))).verdict).toBe("error");
   });
 
-  it("optional: a clean + an unscannable sibling → skipped", async () => {
+  it("optional: a clean + an unscannable sibling → error (cannot vouch for all, either mode)", async () => {
     const scanner = createClamavScanner({
       transport: scriptedTransport([
         "stream: OK\0",
@@ -205,7 +214,7 @@ describe("createClamavScanner — multi-input aggregation", () => {
       ]),
       config: { ...CONFIG, required: false },
     });
-    expect((await scanner.scan(input(PDF, PDF))).verdict).toBe("skipped");
+    expect((await scanner.scan(input(PDF, PDF))).verdict).toBe("error");
   });
 });
 

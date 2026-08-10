@@ -45,13 +45,16 @@ const AI_PROVIDER_FAMILY_SET: ReadonlySet<string> = new Set(AI_PROVIDER_FAMILIES
  * tiers, never a code change or a redeploy.
  */
 export const DEFAULT_AI_MODEL: Record<AiProviderFamily, string> = {
+  // Dormant but deliberately kept: a family default is a lookup value, not a
+  // claim — it activates only if an operator selects the family. Production
+  // selects `openai` (owner decision, confirmed 2026-08-10).
   anthropic: "claude-sonnet-5",
   openai: "gpt-5.6-luna",
 };
 
 /** The environment variables this provider reads (names only; never values). */
 export const AI_ENV = {
-  /** Master opt-in switch: the provider family (`anthropic`). Unset ⇒ disabled. */
+  /** Master opt-in switch: the provider family (e.g. `openai`). Unset ⇒ disabled. */
   provider: "PDFXYZ_AI_PROVIDER",
   /** The provider API key. Presence gates readiness; its VALUE is read only in ./native. */
   apiKey: "PDFXYZ_AI_API_KEY",

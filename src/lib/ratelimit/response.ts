@@ -13,7 +13,7 @@
  * on its own.
  */
 
-import { apiError, type ApiError, type ApiResult } from "@/lib/jobs";
+import { apiError, RATE_LIMITS, type ApiError, type ApiResult } from "@/lib/jobs";
 import type { RateLimitDecision } from "./types";
 import { policyFor } from "./policy";
 
@@ -21,11 +21,23 @@ import { policyFor } from "./policy";
 export const RATE_LIMITED_MESSAGE =
   "Too many requests. This endpoint is rate-limited to protect the service; retry after the interval in the Retry-After header. See docs/SECURITY.md.";
 
+/**
+ * The AI-allowance refusal names the true reason. A user who hits the free
+ * daily allowance has not found a degraded service or a generic flood
+ * throttle — they have used the 3 runs the product gives away — and telling
+ * them anything vaguer is the "service unavailable" lie the owner ruled out.
+ * Derived from the policy constant so the numbers census owns the figure.
+ */
+export const AI_ALLOWANCE_USED_MESSAGE = `You've used your ${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs for today. The allowance resets daily — retry after the interval in the Retry-After header.`;
+
 /** Build the typed 429 error result for a denied decision. */
 export function rateLimitErrorResult(
-  _decision: RateLimitDecision,
+  decision: RateLimitDecision,
 ): ApiResult<ApiError> {
-  return apiError("rate_limited", RATE_LIMITED_MESSAGE);
+  return apiError(
+    "rate_limited",
+    decision.action === "ai.run" ? AI_ALLOWANCE_USED_MESSAGE : RATE_LIMITED_MESSAGE,
+  );
 }
 
 /**

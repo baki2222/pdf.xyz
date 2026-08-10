@@ -33,7 +33,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION, JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
 import { MAX_OCR_LANGUAGES, OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { toolCount } from "@/lib/tools";
 
@@ -87,10 +87,15 @@ const OWNED: { value: number; units: readonly string[]; source: string }[] = [
     units: ["languages", "language"],
     source: "MAX_OCR_LANGUAGES",
   },
+  {
+    value: RATE_LIMITS.aiRunsPerDayPerClient,
+    units: ["runs", "run"],
+    source: "RATE_LIMITS.aiRunsPerDayPerClient",
+  },
 ];
 
 const UNIT_PATTERN =
-  /\b(\d+(?:\.\d+)?)\s*(MB|GB|minutes?|hours?|files?|tools?|languages?|min\b)/gi;
+  /\b(\d+(?:\.\d+)?)\s*(MB|GB|minutes?|hours?|files?|tools?|languages?|runs?\b|min\b)/gi;
 
 /* ------------------------------------------------------------------ *
  *  The copy surface (same walk as pricing-honesty + the workspace UI)
@@ -199,7 +204,7 @@ function censusFindings(): Finding[] {
           rule: "must-derive",
           detail: `equals ${owner.source} — derive it so the next config change cannot turn this into a lie`,
         });
-      } else if (["mb", "gb", "minute", "hour", "file", "tool", "language", "min"].includes(unit)) {
+      } else if (["mb", "gb", "minute", "hour", "file", "tool", "language", "run", "min"].includes(unit)) {
         findings.push({
           file: relative(file),
           literal,

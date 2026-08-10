@@ -22,6 +22,7 @@ part of this repository or its tooling reads, stores, or transmits them.
 | `worker.status` | 120 | per minute |
 | `worker.operations` | 120 | per minute |
 | `interest.note` | 30 | per hour |
+| `ai.run` | 3 | per day |
 
 Per client, identified from the request. A refused request gets `429` with a
 `Retry-After`, not a silent drop.

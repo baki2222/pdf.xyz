@@ -17,6 +17,7 @@ import { RATE_LIMIT_ACTIONS } from "./types";
 
 const HOUR = 3600;
 const MINUTE = 60;
+const DAY = 86_400;
 
 /**
  * The active policy for every {@link RateLimitAction}.
@@ -87,6 +88,18 @@ export const RATE_LIMIT_POLICIES: Record<RateLimitAction, RateLimitPolicy> = {
     action: "interest.note",
     limit: 30,
     windowSeconds: HOUR,
+  },
+  // The free daily AI allowance (owner ruling, 2026-08-10): counted in runs
+  // per client per day because a user can act on "3 runs a day" and cannot
+  // act on a global dollar figure. Enforced at job creation for AI-capability
+  // tools, ON TOP of jobs.create; the refusal names the allowance, not a
+  // generic throttle. The internal spend ceiling is a separate circuit
+  // breaker, never published, never this policy.
+  "ai.run": {
+    id: "ai.run",
+    action: "ai.run",
+    limit: RATE_LIMITS.aiRunsPerDayPerClient,
+    windowSeconds: DAY,
   },
 };
 
