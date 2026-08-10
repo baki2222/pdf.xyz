@@ -3,6 +3,7 @@
 import { useCallback, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { FileText, ShieldCheck, UploadCloud, X } from "lucide-react";
+import { JOB_LIMITS } from "@/lib/jobs/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import { useEarlyFilePick } from "./use-early-file-pick";
@@ -19,7 +20,7 @@ export function UploadZone({
   multiple = true,
   ctaLabel = "Open in workspace",
   ctaHref = "/workspace",
-  hint = "PDF, images, Word, and more · Max 100 MB per file",
+  hint = `PDF, images, Word, and more · Max ${JOB_LIMITS.maxFileBytes / (1024 * 1024)} MB per file`,
   className,
 }: {
   accept?: string;

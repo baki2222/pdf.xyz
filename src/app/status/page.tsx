@@ -20,11 +20,22 @@ export const metadata: Metadata = buildMetadata({
   path: "/status",
 });
 
-/** Client-safe list of the tools that have a real in-browser runner today. */
+/**
+ * Tools that run ENTIRELY in the browser — `processing: "client"`, not merely
+ * "has an in-browser runner".
+ *
+ * The distinction is load-bearing because this list sits under the sentence
+ * "your files never leave the browser". `compress-pdf` is `hybrid`: it really
+ * does have a local lossless path, so it passed the has-a-runner test, and it
+ * also has a secure-worker path that uploads — which the same page says a few
+ * hundred pixels further down. A tool whose files CAN leave the browser cannot
+ * appear under a promise that they never do.
+ */
 const localTools: LocalToolRef[] = supportedToolSlugs
   .map((slug) => {
     const tool = getToolBySlug(slug);
-    return tool ? { slug, name: tool.name } : null;
+    if (!tool || tool.processing !== "client") return null;
+    return { slug, name: tool.name };
   })
   .filter((entry): entry is LocalToolRef => entry !== null);
 

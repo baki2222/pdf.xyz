@@ -158,8 +158,10 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
         >
           <p className="text-sm leading-relaxed text-slate-400">
             {localTools.length} tool{localTools.length === 1 ? "" : "s"} run
-            entirely on your device with WebAssembly and browser APIs. They work
-            offline once loaded, and your files never leave the browser.
+            entirely on your device with WebAssembly and browser APIs — your
+            files never leave the browser. The page and its processing engine
+            load over the network, with the engine fetched the first time you
+            use a tool; after that the work itself runs on your device.
           </p>
           {localTools.length > 0 && (
             <ul
