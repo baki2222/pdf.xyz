@@ -14,6 +14,10 @@ const eslintConfig = [
     ignores: [
       ".next/**",
       "node_modules/**",
+      // pdfjs's own decoder assets, copied verbatim out of the package by
+      // scripts/copy-pdfjs-wasm.ts. Vendor bundles we neither wrote nor edit —
+      // linting them reported 83 errors that no one could act on.
+      "public/pdfjs-wasm/**",
       "out/**",
       "build/**",
       "coverage/**",
