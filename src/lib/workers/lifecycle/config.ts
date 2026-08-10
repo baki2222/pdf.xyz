@@ -46,10 +46,7 @@ export const LIFECYCLE_ENV = {
  * - `invalid`: a declared value is malformed (unknown provider, bad boolean).
  */
 export type LifecycleReadinessState =
-  | "validated"
-  | "declared"
-  | "unknown"
-  | "invalid";
+  "validated" | "declared" | "unknown" | "invalid";
 
 /** Presence-only lifecycle readiness. Names no bucket, endpoint, or value. */
 export interface LifecycleReadiness {
@@ -129,12 +126,18 @@ export function parseLifecycleConfig(
 
   const validated = parseBool(read(env, LIFECYCLE_ENV.validated), false);
   if (!validated.ok) {
-    issues.push({ field: LIFECYCLE_ENV.validated, message: "Must be true or false." });
+    issues.push({
+      field: LIFECYCLE_ENV.validated,
+      message: "Must be true or false.",
+    });
   }
 
   const versioned = parseBool(read(env, LIFECYCLE_ENV.versioned), false);
   if (!versioned.ok) {
-    issues.push({ field: LIFECYCLE_ENV.versioned, message: "Must be true or false." });
+    issues.push({
+      field: LIFECYCLE_ENV.versioned,
+      message: "Must be true or false.",
+    });
   }
 
   if (!providerOk || !validated.ok || !versioned.ok || issues.length > 0) {
@@ -172,7 +175,9 @@ export function resolveLifecycleReadiness(
 ): LifecycleReadiness {
   const parsed = parseLifecycleConfig(env);
   if (!parsed.ok) {
-    const state: LifecycleReadinessState = parsed.selected ? "invalid" : "unknown";
+    const state: LifecycleReadinessState = parsed.selected
+      ? "invalid"
+      : "unknown";
     return { state, provider: null, versioned: null, detail: DETAIL[state] };
   }
   const state: LifecycleReadinessState = parsed.config.validated

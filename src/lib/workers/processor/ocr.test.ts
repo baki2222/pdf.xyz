@@ -201,7 +201,9 @@ describe("ocr processor — maps a runner failure to a typed, content-free error
 
   it("catches a runner throw and never lets process() throw or leak the message", async () => {
     const runner: OcrRunner = async () => {
-      throw new Error("ocrmypdf exited 2 on /tmp/pdfxyz-ocr-xyz/input.pdf: EICAR");
+      throw new Error(
+        "ocrmypdf exited 2 on /tmp/pdfxyz-ocr-xyz/input.pdf: EICAR",
+      );
     };
     const proc = createOcrProcessor(readyDeps(runner));
     const result = await proc.process({

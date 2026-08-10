@@ -51,9 +51,9 @@ describe("presignS3Url — AWS known-answer vector", () => {
         "UNSIGNED-PAYLOAD",
       ].join("\n"),
     );
-    expect(result.stringToSign.startsWith("AWS4-HMAC-SHA256\n20130524T000000Z\n")).toBe(
-      true,
-    );
+    expect(
+      result.stringToSign.startsWith("AWS4-HMAC-SHA256\n20130524T000000Z\n"),
+    ).toBe(true);
     expect(result.credentialScope).toBe("20130524/us-east-1/s3/aws4_request");
   });
 
@@ -97,7 +97,10 @@ describe("presignS3Url — behavior", () => {
   });
 
   it("carries an STS session token when present", () => {
-    const { url } = presignS3Url({ ...base, sessionToken: "FQoGZXIvYXdzEXAMPLE" });
+    const { url } = presignS3Url({
+      ...base,
+      sessionToken: "FQoGZXIvYXdzEXAMPLE",
+    });
     expect(new URL(url).searchParams.get("X-Amz-Security-Token")).toBe(
       "FQoGZXIvYXdzEXAMPLE",
     );

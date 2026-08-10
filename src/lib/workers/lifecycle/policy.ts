@@ -107,8 +107,7 @@ export interface LifecyclePolicyIssue {
 
 /** Outcome of validating a policy. */
 export type ValidateLifecycleResult =
-  | { ok: true }
-  | { ok: false; issues: LifecyclePolicyIssue[] };
+  { ok: true } | { ok: false; issues: LifecyclePolicyIssue[] };
 
 /**
  * Convert a minute-granularity retention TTL into a day-granularity backstop: round
@@ -174,7 +173,9 @@ export function buildLifecyclePolicy(
   const versioned = options.versioned ?? false;
 
   const inputBackstopDays = minutesToBackstopDays(retention.inputTtlMinutes);
-  const artifactBackstopDays = minutesToBackstopDays(retention.artifactTtlMinutes);
+  const artifactBackstopDays = minutesToBackstopDays(
+    retention.artifactTtlMinutes,
+  );
   const multipartAbortDays = hoursToDays(retention.multipartAbortHours);
 
   const inputPrefix = `${prefix}${LIFECYCLE_PREFIXES.input}`;

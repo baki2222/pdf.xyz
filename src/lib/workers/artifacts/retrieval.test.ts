@@ -11,10 +11,19 @@ import {
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
-const READY: RetrievalStorageCapability = { provider: "remote-configured", ready: true };
-const NOT_READY: RetrievalStorageCapability = { provider: "not-configured", ready: false };
+const READY: RetrievalStorageCapability = {
+  provider: "remote-configured",
+  ready: true,
+};
+const NOT_READY: RetrievalStorageCapability = {
+  provider: "not-configured",
+  ready: false,
+};
 
-function pdfManifest(byteCount: number, over: Partial<ArtifactManifest> = {}): ArtifactManifest {
+function pdfManifest(
+  byteCount: number,
+  over: Partial<ArtifactManifest> = {},
+): ArtifactManifest {
   return {
     outputKind: "pdf",
     contentType: "application/pdf",
@@ -64,9 +73,10 @@ describe("decideRetrieval — taxonomy", () => {
       READY,
     );
     expect(decision.ok).toBe(true);
-    if (decision.ok) expect(decision.headers["content-disposition"]).toBe(
-      'attachment; filename="document.pdf"',
-    );
+    if (decision.ok)
+      expect(decision.headers["content-disposition"]).toBe(
+        'attachment; filename="document.pdf"',
+      );
     expect(out).toBe(bytes);
   });
 
@@ -102,7 +112,10 @@ describe("decideRetrieval — taxonomy", () => {
 
   it("denies invalid_manifest when the recorded byte-count desyncs from the bytes", () => {
     const bytes = enc("%PDF desync");
-    const result = live({ bytes, manifest: pdfManifest(bytes.byteLength + 99) });
+    const result = live({
+      bytes,
+      manifest: pdfManifest(bytes.byteLength + 99),
+    });
     const { decision } = decideRetrieval(result, READY);
     expect(decision.ok).toBe(false);
     if (!decision.ok) expect(decision.reason).toBe("invalid_manifest");
@@ -134,7 +147,11 @@ describe("decideRetrieval — taxonomy", () => {
     expect(matched.ok).toBe(true);
 
     // Storage-backed (no owning-job record): the assertion is honestly skipped, not denied.
-    const noRecord = decideRetrieval(live({ bytes }), READY, "job_anything000000").decision;
+    const noRecord = decideRetrieval(
+      live({ bytes }),
+      READY,
+      "job_anything000000",
+    ).decision;
     expect(noRecord.ok).toBe(true);
   });
 });

@@ -40,7 +40,8 @@ export async function GET(request: Request): Promise<Response> {
     // Config-aware probe: honors the native-compression enable flag, engine pin,
     // and binary-path overrides, so the client status matches what the worker will
     // actually run. Reports engine *names* only — never a path or variable value.
-    const { probeNativeTools } = await import("@/lib/workers/compression/native");
+    const { probeNativeTools } =
+      await import("@/lib/workers/compression/native");
     tools = probeNativeTools(process.env);
     // Dedicated qpdf-security probe (honors the PDF-security enable flag / binary
     // override), so protect/unlock availability is decoupled from compression's
@@ -77,7 +78,9 @@ export async function GET(request: Request): Promise<Response> {
   // read as "did not say" and fall back to the catalogue — not as "has no languages",
   // which would empty the picker on a perfectly healthy deployment.
   const workerOcrLanguages =
-    observed && capabilities?.ocrLanguages?.length ? capabilities.ocrLanguages : undefined;
+    observed && capabilities?.ocrLanguages?.length
+      ? capabilities.ocrLanguages
+      : undefined;
 
   return respond(
     ok(

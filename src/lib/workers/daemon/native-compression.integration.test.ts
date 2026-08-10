@@ -41,10 +41,7 @@ import {
   encodeFilenameMetadata,
 } from "../storage/s3-metadata";
 import type { StorageObjectKind } from "../storage/types";
-import type {
-  CompressionDeps,
-  NativeCompressor,
-} from "../compression/engine";
+import type { CompressionDeps, NativeCompressor } from "../compression/engine";
 import { createWorkerDaemon, type DaemonLogEvent } from "./daemon";
 import { resolveWorkerRuntime } from "./runtime";
 
@@ -185,11 +182,14 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
       options: { profile: "lossless" },
     });
 
-    const runtime = resolveWorkerRuntime({}, {
-      queue,
-      storage,
-      compression: noEngines,
-    });
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        queue,
+        storage,
+        compression: noEngines,
+      },
+    );
     expect(runtime.executor).toBeDefined();
     // Health is honest: a worker with no native engine is lossless-only.
     expect(runtime.compression).toMatchObject({
@@ -219,7 +219,9 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     expect(artifact!.url).not.toContain(S3_SECRET);
 
     // The artifact bytes REALLY landed in the bucket and are a valid PDF.
-    const stored = bucket.objects.get(keyPath("artifact", artifact!.artifactId));
+    const stored = bucket.objects.get(
+      keyPath("artifact", artifact!.artifactId),
+    );
     expect(stored).toBeDefined();
     expect(stored!.bytes.byteLength).toBe(artifact!.bytes);
     const reloaded = await PDFDocument.load(stored!.bytes);
@@ -228,7 +230,9 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     // The input object was wiped (signed DELETE) after processing.
     expect(bucket.objects.has(keyPath("input", fileId))).toBe(false);
     expect(
-      bucket.calls.some((c) => c.method === "DELETE" && c.key === keyPath("input", fileId)),
+      bucket.calls.some(
+        (c) => c.method === "DELETE" && c.key === keyPath("input", fileId),
+      ),
     ).toBe(true);
   });
 
@@ -252,11 +256,14 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
       options: { profile: "lossless" },
     });
 
-    const runtime = resolveWorkerRuntime({}, {
-      queue,
-      storage,
-      compression: noEngines,
-    });
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        queue,
+        storage,
+        compression: noEngines,
+      },
+    );
     await createWorkerDaemon({ executor: runtime.executor! }).run({
       mode: "once",
     });
@@ -287,11 +294,14 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
       options: { profile: "lossless" },
     });
 
-    const runtime = resolveWorkerRuntime({}, {
-      queue,
-      storage,
-      compression: noEngines,
-    });
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        queue,
+        storage,
+        compression: noEngines,
+      },
+    );
     await createWorkerDaemon({ executor: runtime.executor! }).run({
       mode: "once",
     });
@@ -320,8 +330,11 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     // A deterministic stand-in for Ghostscript: returns a real, smaller PDF so the
     // native path is exercised faithfully without shipping a binary in CI.
     const deepOutput = await makePdf(2);
-    const runnerCalls: { engine: string; inputBytes: number; targetDpi: number }[] =
-      [];
+    const runnerCalls: {
+      engine: string;
+      inputBytes: number;
+      targetDpi: number;
+    }[] = [];
     const native: NativeCompressor = async (input, ctx) => {
       runnerCalls.push({
         engine: ctx.engine,
@@ -349,7 +362,11 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
 
     // The native runner really ran, over the exact input bytes read from S3.
     expect(runnerCalls).toEqual([
-      { engine: "ghostscript", inputBytes: original.byteLength, targetDpi: 150 },
+      {
+        engine: "ghostscript",
+        inputBytes: original.byteLength,
+        targetDpi: 150,
+      },
     ]);
 
     const job = store.getJob("job_deep00000001");
@@ -358,7 +375,9 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     expect(artifact).toBeDefined();
 
     // The artifact persisted to the bucket is EXACTLY the native runner's output.
-    const stored = bucket.objects.get(keyPath("artifact", artifact!.artifactId));
+    const stored = bucket.objects.get(
+      keyPath("artifact", artifact!.artifactId),
+    );
     expect(stored!.bytes).toEqual(deepOutput);
     expect(artifact!.bytes).toBe(deepOutput.byteLength);
     expect(bucket.objects.has(keyPath("input", fileId))).toBe(false);
@@ -379,17 +398,24 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
       options: { profile: "deep" },
     });
 
-    const runtime = resolveWorkerRuntime({}, {
-      queue,
-      storage,
-      compression: noEngines,
-    });
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        queue,
+        storage,
+        compression: noEngines,
+      },
+    );
     expect(runtime.compression.deep).toBe(false);
 
     const summary = await createWorkerDaemon({
       executor: runtime.executor!,
     }).run({ mode: "drain" });
-    expect(summary).toMatchObject({ completed: 0, failed: 1, reason: "drained" });
+    expect(summary).toMatchObject({
+      completed: 0,
+      failed: 1,
+      reason: "drained",
+    });
 
     const job = store.getJob("job_nodeep00001");
     expect(job?.status).toBe("failed");
@@ -401,9 +427,9 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
       (c) => c.method === "PUT" && c.key.includes("/artifacts/"),
     );
     expect(artifactPuts).toHaveLength(0);
-    expect([...bucket.objects.keys()].some((k) => k.includes("/artifacts/"))).toBe(
-      false,
-    );
+    expect(
+      [...bucket.objects.keys()].some((k) => k.includes("/artifacts/")),
+    ).toBe(false);
     // The input was still wiped after the terminal failure.
     expect(bucket.objects.has(keyPath("input", fileId))).toBe(false);
   });
@@ -429,12 +455,15 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
 
     const executorLogs: ExecutorLogEvent[] = [];
     const daemonLogs: DaemonLogEvent[] = [];
-    const runtime = resolveWorkerRuntime({}, {
-      queue,
-      storage,
-      compression: noEngines,
-      log: (e) => executorLogs.push(e),
-    });
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        queue,
+        storage,
+        compression: noEngines,
+        log: (e) => executorLogs.push(e),
+      },
+    );
     await createWorkerDaemon({
       executor: runtime.executor!,
       log: (e) => daemonLogs.push(e),

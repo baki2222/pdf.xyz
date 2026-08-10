@@ -25,8 +25,14 @@ describe("parseOpsCheckArgs — defaults + sources", () => {
   });
 
   it("reads --file=<path> and --file <path>", () => {
-    expect(run(["--file=snap.json"])).toMatchObject({ source: "file", filePath: "snap.json" });
-    expect(run(["--file", "snap.json"])).toMatchObject({ source: "file", filePath: "snap.json" });
+    expect(run(["--file=snap.json"])).toMatchObject({
+      source: "file",
+      filePath: "snap.json",
+    });
+    expect(run(["--file", "snap.json"])).toMatchObject({
+      source: "file",
+      filePath: "snap.json",
+    });
   });
 });
 
@@ -38,7 +44,10 @@ describe("parseOpsCheckArgs — formats", () => {
   });
 
   it("combines a source and a format", () => {
-    expect(run(["--web", "--prometheus"])).toEqual({ source: "web", format: "prometheus" });
+    expect(run(["--web", "--prometheus"])).toEqual({
+      source: "web",
+      format: "prometheus",
+    });
   });
 });
 

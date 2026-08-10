@@ -25,9 +25,10 @@ const KEYS: TransitionKeys = {
 };
 
 /** A stub REST client that records commands and replays one canned reply. */
-function stubClient(
-  reply: RedisResult<RedisValue>,
-): { client: RedisClient; calls: RedisArg[][] } {
+function stubClient(reply: RedisResult<RedisValue>): {
+  client: RedisClient;
+  calls: RedisArg[][];
+} {
   const calls: RedisArg[][] = [];
   const client: RedisClient = {
     async command(args) {
@@ -58,7 +59,12 @@ describe("transition scripts — parameterization & injection safety", () => {
 
   it("guarded transitions read the authoritative record and check ownership", () => {
     // The ownership guard is expressed against the stored lease's attempt count.
-    for (const name of ["heartbeat", "advance", "finalize", "requeue"] as const) {
+    for (const name of [
+      "heartbeat",
+      "advance",
+      "finalize",
+      "requeue",
+    ] as const) {
       expect(TRANSITION_SCRIPTS[name], name).toContain("attempts");
     }
     // The claim commit / redelivery re-read the job status before writing.
@@ -120,7 +126,9 @@ describe("runTransition — REST command shape", () => {
 
   it("maps a transport failure to unavailable", async () => {
     const { client } = stubClient({ ok: false, error: "unreachable" });
-    expect(await runTransition(client, "advance", KEYS, [])).toBe("unavailable");
+    expect(await runTransition(client, "advance", KEYS, [])).toBe(
+      "unavailable",
+    );
   });
 
   it("declares exactly the five positional keys for every script", async () => {

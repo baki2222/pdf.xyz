@@ -128,9 +128,12 @@ export function createClamavScanner(deps: ClamavScannerDeps): MalwareScanner {
     if (bytes.length > config.maxBytes) return "oversize";
     let reply;
     try {
-      const raw = await transport.roundtrip(buildInstreamRequest(bytes, chunkSize), {
-        timeoutMs: config.timeoutMs,
-      });
+      const raw = await transport.roundtrip(
+        buildInstreamRequest(bytes, chunkSize),
+        {
+          timeoutMs: config.timeoutMs,
+        },
+      );
       reply = parseInstreamReply(raw);
     } catch {
       // Any transport failure (timeout/unreachable/closed) — the error is

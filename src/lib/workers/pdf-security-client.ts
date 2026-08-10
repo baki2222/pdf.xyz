@@ -101,7 +101,6 @@ export interface PdfSecurityWorkerOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
-
 const defaultFetch: FetchLike = (input, init) =>
   fetch(input, init as RequestInit);
 

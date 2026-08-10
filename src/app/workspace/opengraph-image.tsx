@@ -26,78 +26,83 @@ export default async function WorkspaceOpengraphImage() {
   const fonts = await loadCardFonts();
 
   return new ImageResponse(
-    (
-      <div
-        style={{
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          width: "100%",
-          height: "100%",
-          padding: "72px 80px",
-          backgroundImage: OG_BACKGROUND_IMAGE,
-          color: "#ffffff",
-          fontFamily: "Inter",
-        }}
-      >
-        <OgWordmark />
+    <div
+      style={{
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        width: "100%",
+        height: "100%",
+        padding: "72px 80px",
+        backgroundImage: OG_BACKGROUND_IMAGE,
+        color: "#ffffff",
+        fontFamily: "Inter",
+      }}
+    >
+      <OgWordmark />
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div
-            style={{
-              display: "flex",
-              fontSize: 22,
-              fontWeight: 700,
-              letterSpacing: 4,
-              textTransform: "uppercase",
-              color: "#a5b4fc",
-            }}
-          >
-            Workspace
-          </div>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              fontSize: 88,
-              fontWeight: 700,
-              lineHeight: 1.02,
-              letterSpacing: -2,
-            }}
-          >
-            <span>Your files never</span>
-            <span style={{ color: "#6ee7b7" }}>leave the browser.</span>
-          </div>
-          <div style={{ display: "flex", fontSize: 32, color: "#94a3b8", maxWidth: 940 }}>
-            Stage a batch, get tool suggestions from the file mix, and queue the
-            work — all locally, with nothing uploaded.
-          </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <div
+          style={{
+            display: "flex",
+            fontSize: 22,
+            fontWeight: 700,
+            letterSpacing: 4,
+            textTransform: "uppercase",
+            color: "#a5b4fc",
+          }}
+        >
+          Workspace
         </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {["Stays on device", "No account", "Clear it any time"].map((chip) => (
-            <div
-              key={chip}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "12px 24px",
-                borderRadius: 9999,
-                // The green the product uses everywhere for "runs in your browser".
-                border: "1px solid rgba(52,211,153,0.32)",
-                background: "rgba(52,211,153,0.12)",
-                fontSize: 24,
-                fontWeight: 700,
-                color: "#6ee7b7",
-              }}
-            >
-              {chip}
-            </div>
-          ))}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            fontSize: 88,
+            fontWeight: 700,
+            lineHeight: 1.02,
+            letterSpacing: -2,
+          }}
+        >
+          <span>Your files never</span>
+          <span style={{ color: "#6ee7b7" }}>leave the browser.</span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            fontSize: 32,
+            color: "#94a3b8",
+            maxWidth: 940,
+          }}
+        >
+          Stage a batch, get tool suggestions from the file mix, and queue the
+          work — all locally, with nothing uploaded.
         </div>
       </div>
-    ),
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {["Stays on device", "No account", "Clear it any time"].map((chip) => (
+          <div
+            key={chip}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "12px 24px",
+              borderRadius: 9999,
+              // The green the product uses everywhere for "runs in your browser".
+              border: "1px solid rgba(52,211,153,0.32)",
+              background: "rgba(52,211,153,0.12)",
+              fontSize: 24,
+              fontWeight: 700,
+              color: "#6ee7b7",
+            }}
+          >
+            {chip}
+          </div>
+        ))}
+      </div>
+    </div>,
     { ...size, fonts },
   );
 }

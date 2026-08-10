@@ -34,7 +34,9 @@ describe("format mapping", () => {
 
 describe("resolution presets", () => {
   it("exposes a default that exists in the preset list", () => {
-    expect(RASTER_RESOLUTIONS.some((r) => r.id === DEFAULT_RESOLUTION_ID)).toBe(true);
+    expect(RASTER_RESOLUTIONS.some((r) => r.id === DEFAULT_RESOLUTION_ID)).toBe(
+      true,
+    );
   });
 
   it("orders presets from lowest to highest dpi", () => {
@@ -72,7 +74,9 @@ describe("clampJpegQuality", () => {
 
   it("falls back to the default for non-finite input", () => {
     expect(clampJpegQuality(Number.NaN)).toBe(DEFAULT_JPEG_QUALITY);
-    expect(clampJpegQuality(Number.POSITIVE_INFINITY)).toBe(DEFAULT_JPEG_QUALITY);
+    expect(clampJpegQuality(Number.POSITIVE_INFINITY)).toBe(
+      DEFAULT_JPEG_QUALITY,
+    );
   });
 });
 
@@ -106,9 +110,15 @@ describe("pageImageName", () => {
   });
 
   it("adds a zero-padded page suffix for multi-page documents", () => {
-    expect(pageImageName("report.pdf", 0, 12, "png")).toBe("report-page-01.png");
-    expect(pageImageName("report.pdf", 11, 12, "jpg")).toBe("report-page-12.jpg");
-    expect(pageImageName("report.pdf", 4, 200, "png")).toBe("report-page-005.png");
+    expect(pageImageName("report.pdf", 0, 12, "png")).toBe(
+      "report-page-01.png",
+    );
+    expect(pageImageName("report.pdf", 11, 12, "jpg")).toBe(
+      "report-page-12.jpg",
+    );
+    expect(pageImageName("report.pdf", 4, 200, "png")).toBe(
+      "report-page-005.png",
+    );
   });
 
   it("sanitizes unsafe characters and falls back for empty names", () => {

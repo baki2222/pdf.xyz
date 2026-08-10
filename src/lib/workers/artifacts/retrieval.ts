@@ -170,6 +170,10 @@ export function decideRetrieval(
   );
 
   return decision.ok
-    ? { decision, bytes: artifact.bytes, reportedLength: artifact.reportedLength ?? null }
+    ? {
+        decision,
+        bytes: artifact.bytes,
+        reportedLength: artifact.reportedLength ?? null,
+      }
     : { decision };
 }

@@ -17,8 +17,14 @@
 
 import { resolveWorkerMode, type WorkerMode } from "../mode";
 import { DevWorkerStore, devWorkerStore } from "../store";
-import type { RetrievalStorageCapability, RetrievalStorageProvider } from "./access";
-import type { ArtifactRetrievalBackend, ArtifactRetrievalResult } from "./retrieval";
+import type {
+  RetrievalStorageCapability,
+  RetrievalStorageProvider,
+} from "./access";
+import type {
+  ArtifactRetrievalBackend,
+  ArtifactRetrievalResult,
+} from "./retrieval";
 
 /** Injectable seams so the backend is fully unit-testable with a fake store/mode. */
 export interface LocalDevRetrievalDeps {

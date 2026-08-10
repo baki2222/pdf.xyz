@@ -242,7 +242,10 @@ function pageDims(size: PageSize): string {
  * out-of-range opacity, non-finite coordinates, empty shapes/text, geometry that
  * spills off the page, and missing/mismatched image bytes.
  */
-export function validateEditOps(ops: EditOp[], pageSizes: PageSize[]): EditIssue[] {
+export function validateEditOps(
+  ops: EditOp[],
+  pageSizes: PageSize[],
+): EditIssue[] {
   const issues: EditIssue[] = [];
   const pageCount = pageSizes.length;
 
@@ -252,7 +255,10 @@ export function validateEditOps(ops: EditOp[], pageSizes: PageSize[]): EditIssue
       issues.push({ index, code, message: `${label}: ${message}` });
 
     if (!Number.isInteger(op.page) || op.page < 1 || op.page > pageCount) {
-      add("page-out-of-range", `page ${op.page} is out of range (1–${pageCount}).`);
+      add(
+        "page-out-of-range",
+        `page ${op.page} is out of range (1–${pageCount}).`,
+      );
       return;
     }
 
@@ -291,7 +297,10 @@ export function validateEditOps(ops: EditOp[], pageSizes: PageSize[]): EditIssue
         return;
       }
       if (!pointOnPage(x, y, size)) {
-        add("out-of-bounds", `the text sits outside the ${pageDims(size)} page.`);
+        add(
+          "out-of-bounds",
+          `the text sits outside the ${pageDims(size)} page.`,
+        );
       }
       return;
     }
@@ -314,7 +323,10 @@ export function validateEditOps(ops: EditOp[], pageSizes: PageSize[]): EditIssue
         return;
       }
       if (!rectInPage(x, y, width, height, size)) {
-        add("out-of-bounds", `the box extends outside the ${pageDims(size)} page.`);
+        add(
+          "out-of-bounds",
+          `the box extends outside the ${pageDims(size)} page.`,
+        );
       }
       return;
     }
@@ -342,7 +354,10 @@ export function validateEditOps(ops: EditOp[], pageSizes: PageSize[]): EditIssue
         return;
       }
       if (!rectInPage(x, y, width, height, size)) {
-        add("out-of-bounds", `the image extends outside the ${pageDims(size)} page.`);
+        add(
+          "out-of-bounds",
+          `the image extends outside the ${pageDims(size)} page.`,
+        );
       }
       return;
     }
@@ -365,7 +380,10 @@ export function validateEditOps(ops: EditOp[], pageSizes: PageSize[]): EditIssue
       return;
     }
     if (!pointOnPage(x1, y1, size) || !pointOnPage(x2, y2, size)) {
-      add("out-of-bounds", `an endpoint sits outside the ${pageDims(size)} page.`);
+      add(
+        "out-of-bounds",
+        `an endpoint sits outside the ${pageDims(size)} page.`,
+      );
     }
   });
 
@@ -382,7 +400,10 @@ export async function getEditPageSizes(bytes: Uint8Array): Promise<PageSize[]> {
 }
 
 /** Resolve an op's validated hex color into a pdf-lib color. */
-function opColor(rgbFn: (r: number, g: number, b: number) => PdfLibRGB, color: string) {
+function opColor(
+  rgbFn: (r: number, g: number, b: number) => PdfLibRGB,
+  color: string,
+) {
   const parsed = parseHexColor(color) ?? { r: 0, g: 0, b: 0 };
   return rgbFn(parsed.r, parsed.g, parsed.b);
 }
@@ -436,7 +457,9 @@ function drawShapeOp(
       });
     } else {
       const borderWidth =
-        op.borderWidth && op.borderWidth > 0 ? op.borderWidth : DEFAULT_BORDER_WIDTH;
+        op.borderWidth && op.borderWidth > 0
+          ? op.borderWidth
+          : DEFAULT_BORDER_WIDTH;
       // Pass only borderColor (no `color`) so pdf-lib strokes an outline without
       // filling — see its drawRectangle default-color behavior.
       page.drawRectangle({
@@ -464,7 +487,13 @@ function drawShapeOp(
   if (op.arrow) {
     const head = Math.max(6, thickness * 4);
     for (const seg of arrowHeadSegments(op.x1, op.y1, op.x2, op.y2, head)) {
-      page.drawLine({ start: seg.start, end: seg.end, thickness, color, opacity });
+      page.drawLine({
+        start: seg.start,
+        end: seg.end,
+        thickness,
+        color,
+        opacity,
+      });
     }
   }
 }
@@ -477,7 +506,10 @@ function drawShapeOp(
  * Throws a typed, user-facing {@link PdfEngineError} when there are no edits, the
  * file can't be read, an edit fails validation, or an image can't be decoded.
  */
-export async function editPdf(bytes: Uint8Array, ops: EditOp[]): Promise<EditResult> {
+export async function editPdf(
+  bytes: Uint8Array,
+  ops: EditOp[],
+): Promise<EditResult> {
   const { rgb } = await loadPdfLib();
   const list = ops ?? [];
   if (list.length === 0) {
@@ -504,7 +536,12 @@ export async function editPdf(bytes: Uint8Array, ops: EditOp[]): Promise<EditRes
 
   // Embed the font lazily — an image/shape-only edit needs no font.
   let font: PDFFont | null = null;
-  const counts: Record<EditOpType, number> = { text: 0, rect: 0, line: 0, image: 0 };
+  const counts: Record<EditOpType, number> = {
+    text: 0,
+    rect: 0,
+    line: 0,
+    image: 0,
+  };
 
   for (const op of list) {
     const page = pages[op.page - 1];

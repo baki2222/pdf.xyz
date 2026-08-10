@@ -5,7 +5,11 @@
  * cleanup-verification metric contract.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { recordProjection, resetProjectionSink, setProjectionSink } from "./metrics";
+import {
+  recordProjection,
+  resetProjectionSink,
+  setProjectionSink,
+} from "./metrics";
 import { PROJECTION_TARGETS, PROJECTION_VERDICTS } from "./types";
 
 afterEach(resetProjectionSink);
@@ -36,7 +40,9 @@ describe("recordProjection", () => {
         recordProjection(target, verdict);
       }
     }
-    expect(sink).toHaveBeenCalledTimes(PROJECTION_TARGETS.length * PROJECTION_VERDICTS.length);
+    expect(sink).toHaveBeenCalledTimes(
+      PROJECTION_TARGETS.length * PROJECTION_VERDICTS.length,
+    );
   });
 
   it("stops forwarding after reset", () => {

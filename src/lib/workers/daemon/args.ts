@@ -8,7 +8,11 @@
  * that reads the real `argv`, prints {@link DAEMON_USAGE}, and exits.
  */
 
-import { isLifecycleProvider, LIFECYCLE_PROVIDERS, type LifecycleProvider } from "../lifecycle";
+import {
+  isLifecycleProvider,
+  LIFECYCLE_PROVIDERS,
+  type LifecycleProvider,
+} from "../lifecycle";
 
 /** How the daemon runs one invocation. */
 export type DaemonMode =
@@ -143,11 +147,17 @@ function parseBoundedInt(
     return { ok: false, message: `${flagName} requires a value.` };
   }
   if (!/^\d{1,10}$/.test(raw)) {
-    return { ok: false, message: `${flagName} must be a non-negative integer.` };
+    return {
+      ok: false,
+      message: `${flagName} must be a non-negative integer.`,
+    };
   }
   const value = Number(raw);
   if (!Number.isInteger(value) || value < min || value > max) {
-    return { ok: false, message: `${flagName} must be between ${min} and ${max}.` };
+    return {
+      ok: false,
+      message: `${flagName} must be between ${min} and ${max}.`,
+    };
   }
   return { ok: true, value };
 }
@@ -199,7 +209,12 @@ export function parseDaemonArgs(argv: readonly string[]): ParseArgsResult {
 
     switch (name) {
       case "--max-ticks": {
-        const parsed = parseBoundedInt(name, takeValue(), MIN_MAX_TICKS, MAX_MAX_TICKS);
+        const parsed = parseBoundedInt(
+          name,
+          takeValue(),
+          MIN_MAX_TICKS,
+          MAX_MAX_TICKS,
+        );
         if (!parsed.ok) return parsed;
         maxTicks = parsed.value;
         break;
@@ -216,7 +231,12 @@ export function parseDaemonArgs(argv: readonly string[]): ParseArgsResult {
         break;
       }
       case "--lease-ms": {
-        const parsed = parseBoundedInt(name, takeValue(), MIN_LEASE_MS, MAX_LEASE_MS);
+        const parsed = parseBoundedInt(
+          name,
+          takeValue(),
+          MIN_LEASE_MS,
+          MAX_LEASE_MS,
+        );
         if (!parsed.ok) return parsed;
         leaseMs = parsed.value;
         break;

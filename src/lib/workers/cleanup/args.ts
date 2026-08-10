@@ -111,7 +111,8 @@ function parseGraceHours(raw: string): number | null {
   const trimmed = raw.trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
   const value = Number(trimmed);
-  if (!Number.isFinite(value) || value < 0 || value > MAX_GRACE_HOURS) return null;
+  if (!Number.isFinite(value) || value < 0 || value > MAX_GRACE_HOURS)
+    return null;
   return value;
 }
 
@@ -137,7 +138,9 @@ export function parseCleanupCheckArgs(
       return { ok: true, kind: "help" };
     }
 
-    const setSource = (next: CleanupCheckSource): ParseCleanupCheckArgsResult | undefined => {
+    const setSource = (
+      next: CleanupCheckSource,
+    ): ParseCleanupCheckArgsResult | undefined => {
       if (source !== undefined && source !== next) {
         return {
           ok: false,
@@ -183,7 +186,10 @@ export function parseCleanupCheckArgs(
         }
       }
       if (value === undefined) {
-        return { ok: false, message: "--grace-hours requires a numeric value." };
+        return {
+          ok: false,
+          message: "--grace-hours requires a numeric value.",
+        };
       }
       const parsed = parseGraceHours(value);
       if (parsed === null) {

@@ -110,14 +110,14 @@ test.describe("system status page", () => {
     await expect(
       page.getByText("Configure the queue and storage"),
     ).toBeVisible();
-    await expect(page.getByText("Blocked", { exact: true }).first()).toBeVisible();
+    await expect(
+      page.getByText("Blocked", { exact: true }).first(),
+    ).toBeVisible();
 
     // The load-bearing honesty caveat: the web vantage can never observe a running
     // worker, and that must NOT read as "the worker is down". The page says so
     // explicitly and points operators at the daemon logs / process supervisor.
-    await expect(
-      page.getByText(/can.?t see a running worker/i),
-    ).toBeVisible();
+    await expect(page.getByText(/can.?t see a running worker/i)).toBeVisible();
     await expect(
       page.getByText(/cannot observe a separate worker process/i),
     ).toBeVisible();
@@ -126,9 +126,7 @@ test.describe("system status page", () => {
     // The bounded subsystem grid and honest engine proofs render.
     await expect(page.getByText("Drainability")).toBeVisible();
     await expect(page.getByText("Deployment guardrails")).toBeVisible();
-    await expect(
-      page.getByText("Unknown from here").first(),
-    ).toBeVisible();
+    await expect(page.getByText("Unknown from here").first()).toBeVisible();
 
     // Honesty: the operations region is content-free — even scoped to that section,
     // no endpoint, object key, or secret string appears (there is none to leak).

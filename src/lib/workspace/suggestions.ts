@@ -48,7 +48,8 @@ export function suggestTools(
   const best = new Map<string, ToolSuggestion>();
   const add = (slug: string, reason: string, score: number) => {
     const current = best.get(slug);
-    if (!current || score > current.score) best.set(slug, { slug, reason, score });
+    if (!current || score > current.score)
+      best.set(slug, { slug, reason, score });
   };
 
   if (c.pdf >= 2) {
@@ -70,16 +71,32 @@ export function suggestTools(
     add(slug, `Turn your ${c.image} image${plural(c.image)} into a PDF.`, 90);
   }
   if (c.word >= 1) {
-    add("word-to-pdf", `Convert ${c.word} Word file${plural(c.word)} to PDF.`, 86);
+    add(
+      "word-to-pdf",
+      `Convert ${c.word} Word file${plural(c.word)} to PDF.`,
+      86,
+    );
   }
   if (c.excel >= 1) {
-    add("excel-to-pdf", `Convert ${c.excel} spreadsheet${plural(c.excel)} to PDF.`, 85);
+    add(
+      "excel-to-pdf",
+      `Convert ${c.excel} spreadsheet${plural(c.excel)} to PDF.`,
+      85,
+    );
   }
   if (c.powerpoint >= 1) {
-    add("powerpoint-to-pdf", `Convert ${c.powerpoint} slide deck${plural(c.powerpoint)} to PDF.`, 85);
+    add(
+      "powerpoint-to-pdf",
+      `Convert ${c.powerpoint} slide deck${plural(c.powerpoint)} to PDF.`,
+      85,
+    );
   }
   if (c.text >= 1) {
-    add("text-to-pdf", `Turn ${c.text} text file${plural(c.text)} into a formatted PDF.`, 80);
+    add(
+      "text-to-pdf",
+      `Turn ${c.text} text file${plural(c.text)} into a formatted PDF.`,
+      80,
+    );
   }
 
   return [...best.values()]

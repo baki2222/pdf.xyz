@@ -19,13 +19,34 @@ function args(over: Partial<ArtifactCleanupArgs> = {}): ArtifactCleanupArgs {
 }
 
 const CLEAN = JSON.stringify({
-  artifacts: [{ lifecycle: "live", manifest: "valid", provider: "remote-configured", kind: "pdf" }],
+  artifacts: [
+    {
+      lifecycle: "live",
+      manifest: "valid",
+      provider: "remote-configured",
+      kind: "pdf",
+    },
+  ],
 });
 const DRIFT = JSON.stringify({
-  artifacts: [{ expiresAtMs: 1000, manifest: "valid", provider: "remote-configured", kind: "pdf" }],
+  artifacts: [
+    {
+      expiresAtMs: 1000,
+      manifest: "valid",
+      provider: "remote-configured",
+      kind: "pdf",
+    },
+  ],
 });
 const BREACH = JSON.stringify({
-  artifacts: [{ deleted: true, manifest: "valid", provider: "remote-configured", kind: "pdf" }],
+  artifacts: [
+    {
+      deleted: true,
+      manifest: "valid",
+      provider: "remote-configured",
+      kind: "pdf",
+    },
+  ],
 });
 
 describe("runArtifactCleanup", () => {
@@ -34,8 +55,12 @@ describe("runArtifactCleanup", () => {
     expect(runArtifactCleanup(DRIFT, args(), NOW, AT).exitCode).toBe(3);
     expect(runArtifactCleanup(BREACH, args(), NOW, AT).exitCode).toBe(4);
     expect(
-      runArtifactCleanup(JSON.stringify({ artifacts: [{ provider: "not-configured" }] }), args(), NOW, AT)
-        .exitCode,
+      runArtifactCleanup(
+        JSON.stringify({ artifacts: [{ provider: "not-configured" }] }),
+        args(),
+        NOW,
+        AT,
+      ).exitCode,
     ).toBe(2);
   });
 
@@ -44,17 +69,25 @@ describe("runArtifactCleanup", () => {
     expect(r.exitCode).toBe(1);
     expect(r.report).toBeNull();
     const parsed = JSON.parse(r.output);
-    expect(parsed.error).toMatchObject({ reason: "invalid-inventory", issues: ["malformed-json"] });
+    expect(parsed.error).toMatchObject({
+      reason: "invalid-inventory",
+      issues: ["malformed-json"],
+    });
   });
 
   it("emits a stable JSON document with report + receipt", () => {
-    const parsed = JSON.parse(runArtifactCleanup(DRIFT, args(), NOW, AT).output);
+    const parsed = JSON.parse(
+      runArtifactCleanup(DRIFT, args(), NOW, AT).output,
+    );
     expect(parsed.tool).toBe("worker-artifact-cleanup");
     expect(parsed.schema).toBe(ARTIFACT_CLEANUP_SCHEMA);
     expect(parsed.dryRun).toBe(true);
     expect(parsed.report.verdict).toBe("drift");
     expect(parsed.report.cleanupRecommended).toBe(1);
-    expect(parsed.receipt).toMatchObject({ category: "artifact-cleanup", verdict: "drift" });
+    expect(parsed.receipt).toMatchObject({
+      category: "artifact-cleanup",
+      verdict: "drift",
+    });
   });
 
   it("gates the plan and breakdown behind their flags", () => {
@@ -63,23 +96,38 @@ describe("runArtifactCleanup", () => {
     expect(bare.report.breakdown).toBeUndefined();
 
     const full = JSON.parse(
-      runArtifactCleanup(DRIFT, args({ includePlan: true, includeBreakdown: true }), NOW, AT).output,
+      runArtifactCleanup(
+        DRIFT,
+        args({ includePlan: true, includeBreakdown: true }),
+        NOW,
+        AT,
+      ).output,
     );
     expect(Array.isArray(full.report.plan)).toBe(true);
     expect(full.report.breakdown.providers["remote-configured"]).toBe(1);
   });
 
   it("includes derived content-free metric samples under --metrics", () => {
-    const parsed = JSON.parse(runArtifactCleanup(DRIFT, args({ includeMetrics: true }), NOW, AT).output);
+    const parsed = JSON.parse(
+      runArtifactCleanup(DRIFT, args({ includeMetrics: true }), NOW, AT).output,
+    );
     expect(Array.isArray(parsed.metrics)).toBe(true);
     for (const sample of parsed.metrics) {
       expect(sample.metric).toBe("worker_artifact_cleanup_total");
-      expect(Object.keys(sample.labels).sort()).toEqual(["category", "severity"]);
+      expect(Object.keys(sample.labels).sort()).toEqual([
+        "category",
+        "severity",
+      ]);
     }
   });
 
   it("renders human-readable text", () => {
-    const out = runArtifactCleanup(DRIFT, args({ format: "text", includePlan: true }), NOW, AT).output;
+    const out = runArtifactCleanup(
+      DRIFT,
+      args({ format: "text", includePlan: true }),
+      NOW,
+      AT,
+    ).output;
     expect(out).toMatch(/cleanup verifier \(dry-run\)/i);
     expect(out).toMatch(/verdict\s+drift \(exit 3\)/);
     expect(out).toMatch(/never deletes/i);
@@ -93,7 +141,8 @@ describe("no-leak contract against hostile inventory input", () => {
         // hostile EXTRA fields (ignored) ...
         objectKey: "artifacts/2024/ACME-Q3-SECRET.pdf",
         bucket: "prod-user-uploads",
-        signedUrl: "https://prod.s3.amazonaws.com/x?X-Amz-Signature=deadbeefcafe",
+        signedUrl:
+          "https://prod.s3.amazonaws.com/x?X-Amz-Signature=deadbeefcafe",
         filename: "Bank Statement.pdf",
         ocrText: "Account 1234 balance is 9999 dollars",
         env: "AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE",
@@ -135,13 +184,19 @@ describe("no-leak contract against hostile inventory input", () => {
     ).output.toLowerCase();
     for (const needle of FORBIDDEN) expect(out).not.toContain(needle);
     // The hostile object still classifies (expired evidence honored).
-    const parsed = JSON.parse(runArtifactCleanup(HOSTILE, args(), NOW, AT).output);
+    const parsed = JSON.parse(
+      runArtifactCleanup(HOSTILE, args(), NOW, AT).output,
+    );
     expect(parsed.report.categories["expired-but-present"]).toBe(1);
   });
 
   it("leaks nothing into text output", () => {
-    const out = runArtifactCleanup(HOSTILE, args({ format: "text", includePlan: true, includeBreakdown: true }), NOW, AT)
-      .output.toLowerCase();
+    const out = runArtifactCleanup(
+      HOSTILE,
+      args({ format: "text", includePlan: true, includeBreakdown: true }),
+      NOW,
+      AT,
+    ).output.toLowerCase();
     for (const needle of FORBIDDEN) expect(out).not.toContain(needle);
   });
 });

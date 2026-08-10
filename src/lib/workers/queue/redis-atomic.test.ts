@@ -25,7 +25,9 @@ const TOKEN = "AX_tokenEXAMPLEvalue000000000000000000000";
 const HOUR_MS = 60 * 60_000;
 const JOB_ID = "job_test000001";
 
-function config(overrides: Record<string, string | undefined> = {}): RedisQueueConfig {
+function config(
+  overrides: Record<string, string | undefined> = {},
+): RedisQueueConfig {
   const parsed = parseRedisQueueConfig({
     [REDIS_QUEUE_ENV.provider]: "redis",
     [REDIS_QUEUE_ENV.restUrl]: "https://example.upstash.io",
@@ -84,7 +86,11 @@ async function seed(
   opts: { status?: JobStatus; attempts?: number } = {},
 ) {
   if (opts.status) {
-    await fake.command(["SET", KEYS.job, JSON.stringify({ status: opts.status })]);
+    await fake.command([
+      "SET",
+      KEYS.job,
+      JSON.stringify({ status: opts.status }),
+    ]);
   }
   await fake.command(["SET", KEYS.spec, "{}"]);
   if (opts.attempts !== undefined) {
@@ -149,16 +155,16 @@ describe("atomic transition scripts (executed against the faithful fake)", () =>
     // Wrong status → invalid_state.
     const wrong = createFakeRedis();
     await seed(wrong, { status: "scanning", attempts: 2 });
-    expect(await runTransition(wrong, "finalize", KEYS, finalizeArgv("2"))).toBe(
-      "invalid_state",
-    );
+    expect(
+      await runTransition(wrong, "finalize", KEYS, finalizeArgv("2")),
+    ).toBe("invalid_state");
 
     // Right status, wrong attempt → stale_lease (a stolen lease).
     const stale = createFakeRedis();
     await seed(stale, { status: "processing", attempts: 3 });
-    expect(await runTransition(stale, "finalize", KEYS, finalizeArgv("2"))).toBe(
-      "stale_lease",
-    );
+    expect(
+      await runTransition(stale, "finalize", KEYS, finalizeArgv("2")),
+    ).toBe("stale_lease");
 
     // No job record → missing_job.
     const gone = createFakeRedis();
@@ -186,11 +192,21 @@ describe("atomic transition scripts (executed against the faithful fake)", () =>
     await seed(fake, { status: "scanning", attempts: 2 });
     // A stale fingerprint (attempt 1) is rejected without touching the lease.
     expect(
-      await runTransition(fake, "heartbeat", KEYS, ["5000", "1", "3600", "job_1"]),
+      await runTransition(fake, "heartbeat", KEYS, [
+        "5000",
+        "1",
+        "3600",
+        "job_1",
+      ]),
     ).toBe("stale_lease");
     // The owner (attempt 2) succeeds and only the deadline moves; attempts unchanged.
     expect(
-      await runTransition(fake, "heartbeat", KEYS, ["5000", "2", "3600", "job_1"]),
+      await runTransition(fake, "heartbeat", KEYS, [
+        "5000",
+        "2",
+        "3600",
+        "job_1",
+      ]),
     ).toBe("applied");
     const leaseRes = await fake.command(["GET", KEYS.lease]);
     expect(leaseRes.ok).toBe(true);
@@ -230,7 +246,11 @@ describe("atomic transition scripts (executed against the faithful fake)", () =>
 describe("createRedisQueue — race semantics (Phase 21)", () => {
   it("two workers claiming one queued job: exactly one wins", async () => {
     const { q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_x00000000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_x00000000001"],
+      options: {},
+    });
     const a = await q.claim({ leaseMs: 30_000 });
     const b = await q.claim({ leaseMs: 30_000 });
     const winners = [a, b].filter((r) => r.ok && r.value).length;
@@ -239,7 +259,11 @@ describe("createRedisQueue — race semantics (Phase 21)", () => {
 
   it("rejects a heartbeat after the lease was stolen (no resurrection)", async () => {
     const { q, clock } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_x00000000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_x00000000001"],
+      options: {},
+    });
     const first = await q.claim({ leaseMs: 30_000 }); // attempt 1, expires 31_000
     expect(first.ok && first.value?.attempt).toBe(1);
     clock.ms = 31_000; // lease expires; a fresh claim reclaims it as attempt 2
@@ -256,7 +280,11 @@ describe("createRedisQueue — race semantics (Phase 21)", () => {
 
   it("rejects complete/fail from a worker whose lease was stolen — no corruption", async () => {
     const { q, clock } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_x00000000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_x00000000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 30_000 }); // attempt 1
     clock.ms = 31_000;
     await q.claim({ leaseMs: 30_000 }); // attempt 2 reclaims it
@@ -281,7 +309,11 @@ describe("createRedisQueue — race semantics (Phase 21)", () => {
 
   it("cancel racing a running complete is deterministic — cancel first wins", async () => {
     const { q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_x00000000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_x00000000001"],
+      options: {},
+    });
     const claim = await q.claim({ leaseMs: 30_000 });
     const attempt = claim.ok && claim.value ? claim.value.attempt : 0;
     await q.advance(JOB_ID, { status: "processing" }, attempt);
@@ -299,7 +331,11 @@ describe("createRedisQueue — race semantics (Phase 21)", () => {
 
   it("cancel racing a running complete is deterministic — complete first wins", async () => {
     const { q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_x00000000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_x00000000001"],
+      options: {},
+    });
     const claim = await q.claim({ leaseMs: 30_000 });
     const attempt = claim.ok && claim.value ? claim.value.attempt : 0;
     await q.advance(JOB_ID, { status: "processing" }, attempt);
@@ -316,7 +352,11 @@ describe("createRedisQueue — race semantics (Phase 21)", () => {
 
   it("does not expire an actively-leased job (only completed outputs expire)", async () => {
     const { q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_x00000000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_x00000000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 30_000 }); // scanning, leased
     const res = await q.expire(JOB_ID);
     expect(res.ok).toBe(false);
@@ -327,7 +367,11 @@ describe("createRedisQueue — race semantics (Phase 21)", () => {
 
   it("redelivery is bounded — a job cannot be redelivered past the dead-letter cap", async () => {
     const { q, clock } = make({ [REDIS_QUEUE_ENV.maxAttempts]: "2" });
-    await q.submit({ job: jobAt("queued"), inputs: ["f_x00000000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_x00000000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 10_000 }); // attempt 1
     clock.ms += 10_001;
     await q.claim({ leaseMs: 10_000 }); // attempt 2 (redelivered)

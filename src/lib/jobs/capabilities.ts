@@ -136,7 +136,9 @@ export interface PipelineStage {
  * Callers that cannot observe one pass `false` — the safe direction for a security
  * control, since under-claiming misleads nobody.
  */
-export function workerPipelineStages(malwareScanActive: boolean): readonly PipelineStage[] {
+export function workerPipelineStages(
+  malwareScanActive: boolean,
+): readonly PipelineStage[] {
   return [
     {
       id: "upload",

@@ -19,7 +19,10 @@
  */
 
 import { artifactExpiryMetric } from "../observability/metrics";
-import { NOOP_METRIC_SINK, type WorkerMetricSink } from "../observability/collector";
+import {
+  NOOP_METRIC_SINK,
+  type WorkerMetricSink,
+} from "../observability/collector";
 import type { StorageArtifactLifecycle } from "./lifecycle";
 import type { RetrievalStorageProvider } from "./access";
 

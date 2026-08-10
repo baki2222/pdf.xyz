@@ -38,8 +38,12 @@ describe("resolveTelemetryConfig — endpoint validation", () => {
     expect(resolveTelemetryConfig("javascript:alert(1)")).toMatchObject({
       enabled: false,
     });
-    expect(resolveTelemetryConfig("ftp://x/y")).toMatchObject({ enabled: false });
-    expect(resolveTelemetryConfig("not a url")).toMatchObject({ enabled: false });
+    expect(resolveTelemetryConfig("ftp://x/y")).toMatchObject({
+      enabled: false,
+    });
+    expect(resolveTelemetryConfig("not a url")).toMatchObject({
+      enabled: false,
+    });
   });
 });
 

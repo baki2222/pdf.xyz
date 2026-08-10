@@ -141,7 +141,8 @@ export type AlertAction = (typeof ALERT_ACTIONS)[number];
 // Compile-time proof that every snapshot RecommendedAction is a valid AlertAction, so
 // `report.action` (taken verbatim from the snapshot) always fits the alert vocabulary.
 // If snapshot.ts adds a RecommendedAction, this fails to type-check until it is listed.
-const _recommendedIsAlertAction: AssertExtends<RecommendedAction, AlertAction> = true;
+const _recommendedIsAlertAction: AssertExtends<RecommendedAction, AlertAction> =
+  true;
 void _recommendedIsAlertAction;
 
 /** Content-free detail for the SLO-oriented actions the snapshot has no copy for. */
@@ -208,7 +209,9 @@ export function severityForSlo(status: SloStatus): AlertSeverity {
 }
 
 /** Fold a list of severities to the worst (`unknown` never wins over `ok`). */
-export function worstSeverity(severities: readonly AlertSeverity[]): AlertSeverity {
+export function worstSeverity(
+  severities: readonly AlertSeverity[],
+): AlertSeverity {
   let worst: AlertSeverity = "ok";
   for (const s of severities) {
     if (SEVERITY_RANK[s] > SEVERITY_RANK[worst]) worst = s;
@@ -280,12 +283,19 @@ const LIVENESS_DETAIL: Record<DaemonLivenessState, string> = {
  * actionable ONLY when observation is enabled (states `stale`/`unknown`); a `disabled`
  * seam is a neutral confirm-out-of-band, never a page.
  */
-export function livenessAlert(snapshot: WorkerOperationsSnapshot): LivenessAlert {
+export function livenessAlert(
+  snapshot: WorkerOperationsSnapshot,
+): LivenessAlert {
   const state = snapshot.daemon.state;
   const base = { state, detail: LIVENESS_DETAIL[state] };
   switch (state) {
     case "observed":
-      return { ...base, severity: "ok", reason: "liveness-observed", action: "monitor" };
+      return {
+        ...base,
+        severity: "ok",
+        reason: "liveness-observed",
+        action: "monitor",
+      };
     case "stale":
       return {
         ...base,
@@ -353,8 +363,14 @@ function subsystemReasonAction(
       // posture can never disagree: a failing store is investigated, a missing
       // config is fixed.
       return snapshot.rateLimit.code === "remote-error-fail-open"
-        ? { reason: "rate-limit-fail-open", action: "investigate-rate-limit-store" }
-        : { reason: "rate-limit-misconfigured", action: "fix-rate-limit-config" };
+        ? {
+            reason: "rate-limit-fail-open",
+            action: "investigate-rate-limit-store",
+          }
+        : {
+            reason: "rate-limit-misconfigured",
+            action: "fix-rate-limit-config",
+          };
     case "lifecycle":
       // undeclared (warn, no backstop) vs declared-but-unverified vs invalid (blocked).
       if (snapshot.recommendedAction === "declare-lifecycle") {
@@ -373,15 +389,27 @@ function subsystemReasonAction(
       // report-specific reaches the alert.
       const state = snapshot.cleanupEvidence.state;
       if (state === "critical") {
-        return { reason: "cleanup-evidence-breach", action: "reconcile-cleanup" };
+        return {
+          reason: "cleanup-evidence-breach",
+          action: "reconcile-cleanup",
+        };
       }
       if (state === "warning") {
-        return { reason: "cleanup-evidence-drift", action: "reconcile-cleanup" };
+        return {
+          reason: "cleanup-evidence-drift",
+          action: "reconcile-cleanup",
+        };
       }
       if (state === "invalid") {
-        return { reason: "cleanup-evidence-invalid", action: "refresh-cleanup-evidence" };
+        return {
+          reason: "cleanup-evidence-invalid",
+          action: "refresh-cleanup-evidence",
+        };
       }
-      return { reason: "cleanup-evidence-stale", action: "refresh-cleanup-evidence" };
+      return {
+        reason: "cleanup-evidence-stale",
+        action: "refresh-cleanup-evidence",
+      };
     }
     case "guardrails":
       return blocked
@@ -401,7 +429,11 @@ function subsystemAlert(
   snapshot: WorkerOperationsSnapshot,
 ): Alert | null {
   if (sub.health === "ok" || sub.health === "unknown") return null;
-  const { reason, action } = subsystemReasonAction(sub.id, sub.health, snapshot);
+  const { reason, action } = subsystemReasonAction(
+    sub.id,
+    sub.health,
+    snapshot,
+  );
   return {
     source: sub.id,
     severity: severityForHealth(sub.health),
@@ -503,7 +535,8 @@ export function reportSummary(
     return `${SEVERITY_SUMMARY[severity]}. Next action: ${action}.`;
   }
   if (alertCount > 0) {
-    const rows = alertCount === 1 ? "the alert row" : `the ${alertCount} alert rows`;
+    const rows =
+      alertCount === 1 ? "the alert row" : `the ${alertCount} alert rows`;
     return `${SEVERITY_SUMMARY[severity]}. Start with ${rows} below.`;
   }
   return `${SEVERITY_SUMMARY[severity]}. No concrete alert accompanies it — treat this as unconfirmed, never as a pass.`;
@@ -582,7 +615,11 @@ export function evaluateOperationsAlerts(
   return {
     severity,
     action: snapshot.recommendedAction,
-    actionDetail: reportActionDetail(severity, snapshot.recommendedAction, alerts.length),
+    actionDetail: reportActionDetail(
+      severity,
+      snapshot.recommendedAction,
+      alerts.length,
+    ),
     liveness,
     alerts,
     summary: reportSummary(severity, snapshot.recommendedAction, alerts.length),
@@ -615,7 +652,8 @@ export const OPS_CHECK_EXIT = {
   CRITICAL: 4,
 } as const;
 
-export type OpsCheckExitCode = (typeof OPS_CHECK_EXIT)[keyof typeof OPS_CHECK_EXIT];
+export type OpsCheckExitCode =
+  (typeof OPS_CHECK_EXIT)[keyof typeof OPS_CHECK_EXIT];
 
 /** Map an alert severity to its operational exit code (never the usage code). */
 export function exitCodeForSeverity(severity: AlertSeverity): OpsCheckExitCode {

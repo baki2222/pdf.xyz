@@ -53,7 +53,13 @@ export function OrganizeRunner() {
   );
 }
 
-function OrganizeEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function OrganizeEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const initial = useMemo<OrganizeItem[]>(
     () =>
       pdf.rotations.map((rotation, i) => ({
@@ -157,7 +163,9 @@ function OrganizeEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
           announce(`Dropped page ${src} at position ${i + 1} of ${n}.`);
         } else {
           setGrabbedUid(item.uid);
-          announce(`Grabbed page ${src}. Use arrow keys to move, Enter to drop.`);
+          announce(
+            `Grabbed page ${src}. Use arrow keys to move, Enter to drop.`,
+          );
         }
         return;
       }
@@ -249,7 +257,11 @@ function OrganizeEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
         }
       >
         <div className="flex flex-wrap items-center gap-2">
-          <ChipButton onClick={doUndo} disabled={!undoable} title="Undo (Ctrl/⌘+Z)">
+          <ChipButton
+            onClick={doUndo}
+            disabled={!undoable}
+            title="Undo (Ctrl/⌘+Z)"
+          >
             <Undo2 className="size-3.5" aria-hidden />
             Undo
           </ChipButton>
@@ -325,7 +337,9 @@ function OrganizeEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
               setDragIndex(null);
               setOverIndex(null);
             }}
-            dropTarget={overIndex === i && dragIndex !== null && dragIndex !== i}
+            dropTarget={
+              overIndex === i && dragIndex !== null && dragIndex !== i
+            }
             dimmed={dragIndex === i}
             dragHandle={{
               grabbed: grabbedUid === item.uid,

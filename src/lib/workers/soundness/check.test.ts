@@ -52,20 +52,33 @@ describe("checkSoundness — gate on/off", () => {
       tool: "compress-pdf",
       inputs: [file(VALID_PDF)],
     });
-    expect(result).toMatchObject({ verdict: "sound", checked: true, reason: "ok" });
+    expect(result).toMatchObject({
+      verdict: "sound",
+      checked: true,
+      reason: "ok",
+    });
   });
 });
 
 describe("checkSoundness — reject taxonomy", () => {
   it("missing_input when a FILE-input job carries no inputs", () => {
-    const result = checkSoundness(policy(), { tool: "compress-pdf", inputs: [] });
-    expect(result).toMatchObject({ verdict: "unsound", reason: "missing_input" });
+    const result = checkSoundness(policy(), {
+      tool: "compress-pdf",
+      inputs: [],
+    });
+    expect(result).toMatchObject({
+      verdict: "unsound",
+      reason: "missing_input",
+    });
   });
 
   it("skips — never rejects — a URL-input tool, which has no files by design", () => {
     // webpage-to-pdf takes `options.url` and an empty `inputs`; treating that as a
     // missing file blocked every one of its jobs before the processor ever ran.
-    const result = checkSoundness(policy(), { tool: "webpage-to-pdf", inputs: [] });
+    const result = checkSoundness(policy(), {
+      tool: "webpage-to-pdf",
+      inputs: [],
+    });
     expect(result).toMatchObject({
       verdict: "skipped",
       checked: false,
@@ -86,7 +99,10 @@ describe("checkSoundness — reject taxonomy", () => {
       tool: "compress-pdf",
       inputs: [file(VALID_PDF)],
     });
-    expect(result).toMatchObject({ verdict: "unsound", reason: "file_too_large" });
+    expect(result).toMatchObject({
+      verdict: "unsound",
+      reason: "file_too_large",
+    });
   });
 
   it("does not apply the max-bytes check when it is 0 (disabled)", () => {
@@ -131,7 +147,10 @@ describe("checkSoundness — reject taxonomy", () => {
       tool: "compress-pdf",
       inputs: [file(HEADER_ONLY_PDF)],
     });
-    expect(withEof).toMatchObject({ verdict: "unsound", reason: "malformed_pdf" });
+    expect(withEof).toMatchObject({
+      verdict: "unsound",
+      reason: "malformed_pdf",
+    });
   });
 });
 
@@ -251,18 +270,30 @@ function named(
 
 describe("checkSoundness — declared-size consistency", () => {
   it("size_mismatch when the fetched count differs from the declared size", () => {
-    const f = named(VALID_PDF, "report.pdf", "application/pdf", VALID_PDF.byteLength + 1);
-    expect(checkSoundness(policy(), { tool: "compress-pdf", inputs: [f] })).toMatchObject({
+    const f = named(
+      VALID_PDF,
+      "report.pdf",
+      "application/pdf",
+      VALID_PDF.byteLength + 1,
+    );
+    expect(
+      checkSoundness(policy(), { tool: "compress-pdf", inputs: [f] }),
+    ).toMatchObject({
       verdict: "unsound",
       reason: "size_mismatch",
     });
   });
 
   it("sound when the declared size matches the fetched size", () => {
-    const f = named(VALID_PDF, "report.pdf", "application/pdf", VALID_PDF.byteLength);
-    expect(checkSoundness(policy(), { tool: "compress-pdf", inputs: [f] }).verdict).toBe(
-      "sound",
+    const f = named(
+      VALID_PDF,
+      "report.pdf",
+      "application/pdf",
+      VALID_PDF.byteLength,
     );
+    expect(
+      checkSoundness(policy(), { tool: "compress-pdf", inputs: [f] }).verdict,
+    ).toBe("sound");
   });
 
   it("skips the size check when no declared size / a non-positive one was recorded", () => {
@@ -275,7 +306,12 @@ describe("checkSoundness — declared-size consistency", () => {
   });
 
   it("honors checkSize:false (a mismatch is not rejected)", () => {
-    const f = named(VALID_PDF, "report.pdf", "application/pdf", VALID_PDF.byteLength + 999);
+    const f = named(
+      VALID_PDF,
+      "report.pdf",
+      "application/pdf",
+      VALID_PDF.byteLength + 999,
+    );
     expect(
       checkSoundness(policy({ checkSize: false }), {
         tool: "compress-pdf",
@@ -289,7 +325,9 @@ describe("checkSoundness — metadata coherence", () => {
   it("metadata_mismatch when the content-type family disagrees with the extension", () => {
     // Declared PDF (accepted by the tool) but named `.png` — internally inconsistent.
     const f = named(VALID_PDF, "invoice.png", "application/pdf");
-    expect(checkSoundness(policy(), { tool: "compress-pdf", inputs: [f] })).toMatchObject({
+    expect(
+      checkSoundness(policy(), { tool: "compress-pdf", inputs: [f] }),
+    ).toMatchObject({
       verdict: "unsound",
       reason: "metadata_mismatch",
     });
@@ -311,7 +349,10 @@ describe("checkSoundness — count + policy guard", () => {
       tool: "compress-pdf",
       inputs: [file(VALID_PDF), file(VALID_PDF)],
     });
-    expect(result).toMatchObject({ verdict: "unsound", reason: "too_many_inputs" });
+    expect(result).toMatchObject({
+      verdict: "unsound",
+      reason: "too_many_inputs",
+    });
   });
 
   it("policy_unavailable (fail closed) when handed a nullish/malformed policy", () => {
@@ -319,7 +360,9 @@ describe("checkSoundness — count + policy guard", () => {
       tool: "compress-pdf",
       inputs: [file(VALID_PDF)],
     });
-    expect(result).toMatchObject({ verdict: "unsound", reason: "policy_unavailable" });
+    expect(result).toMatchObject({
+      verdict: "unsound",
+      reason: "policy_unavailable",
+    });
   });
 });
-

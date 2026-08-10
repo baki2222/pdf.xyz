@@ -26,7 +26,9 @@ const ROUTES = [
 
 /** Title elements in source order, exactly as a non-JS consumer parses them. */
 function titlesIn(html: string): string[] {
-  return [...html.matchAll(/<title[^>]*>([\s\S]*?)<\/title>/g)].map((m) => m[1]!);
+  return [...html.matchAll(/<title[^>]*>([\s\S]*?)<\/title>/g)].map(
+    (m) => m[1]!,
+  );
 }
 
 test.describe("served document metadata", () => {
@@ -50,7 +52,9 @@ test.describe("served document metadata", () => {
     });
   }
 
-  test("no route serves the brand title ahead of a page title", async ({ request }) => {
+  test("no route serves the brand title ahead of a page title", async ({
+    request,
+  }) => {
     // The failure this pins is specifically about ORDER: two titles where the
     // generic one happens to come second would still be wrong markup, but it
     // would not have changed what crawlers displayed. Assert the shape that
@@ -58,7 +62,9 @@ test.describe("served document metadata", () => {
     const generic = "pdf.xyz — Every PDF tool. Private by design.";
     for (const route of ROUTES.filter((r) => r.path !== "/")) {
       const titles = titlesIn(await (await request.get(route.path)).text());
-      expect(titles[0], `${route.path} leads with the brand title`).not.toBe(generic);
+      expect(titles[0], `${route.path} leads with the brand title`).not.toBe(
+        generic,
+      );
     }
   });
 });

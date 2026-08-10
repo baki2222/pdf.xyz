@@ -24,9 +24,9 @@ describe("resolveArtifactPolicy — defaults", () => {
 describe("resolveArtifactPolicy — master switch", () => {
   it("disables on a recognized OFF token", () => {
     for (const off of ["0", "false", "no", "off", "disabled"]) {
-      expect(resolveArtifactPolicy({ [ARTIFACT_ENV.enabled]: off }).enabled).toBe(
-        false,
-      );
+      expect(
+        resolveArtifactPolicy({ [ARTIFACT_ENV.enabled]: off }).enabled,
+      ).toBe(false);
     }
   });
 
@@ -51,11 +51,13 @@ describe("resolveArtifactPolicy — bounded integer knobs", () => {
     for (const bad of ["0", "-1", "1e6", "0x10", "1.5", "1kb", "abc"]) {
       // maxArtifacts min is 1, so "0"/"-1" are out of range too.
       expect(
-        resolveArtifactPolicy({ [ARTIFACT_ENV.maxArtifacts]: bad }).maxArtifacts,
+        resolveArtifactPolicy({ [ARTIFACT_ENV.maxArtifacts]: bad })
+          .maxArtifacts,
       ).toBe(DEFAULT_ARTIFACT_POLICY.maxArtifacts);
     }
     expect(
-      resolveArtifactPolicy({ [ARTIFACT_ENV.maxBytes]: "9999999999999" }).maxBytes,
+      resolveArtifactPolicy({ [ARTIFACT_ENV.maxBytes]: "9999999999999" })
+        .maxBytes,
     ).toBe(DEFAULT_ARTIFACT_POLICY.maxBytes);
   });
 });

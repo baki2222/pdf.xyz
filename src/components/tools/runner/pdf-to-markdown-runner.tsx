@@ -1,6 +1,12 @@
 "use client";
 
-import { Download, FileText, FileCode2, ShieldCheck, ScanText } from "lucide-react";
+import {
+  Download,
+  FileText,
+  FileCode2,
+  ShieldCheck,
+  ScanText,
+} from "lucide-react";
 import { downloadBlob } from "@/lib/pdf/browser";
 import { extractPdfText } from "@/lib/pdf/text";
 import {
@@ -49,7 +55,9 @@ function PdfToMarkdownEditor({
     const filename = markdownOutputName(pdf.file.name);
     return (
       <ResultPanel
-        title={result.hasMarkdown ? "Markdown created" : "No selectable text found"}
+        title={
+          result.hasMarkdown ? "Markdown created" : "No selectable text found"
+        }
         summary={
           result.hasMarkdown
             ? `${result.characterCount.toLocaleString()} Markdown characters from ${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`
@@ -59,14 +67,16 @@ function PdfToMarkdownEditor({
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
-            <div className="max-h-72 overflow-auto rounded-2xl border border-white/10 bg-black/20 p-4 font-mono text-sm leading-6 text-slate-200 whitespace-pre-wrap">
+            <div className="max-h-72 overflow-auto rounded-2xl border border-white/10 bg-black/20 p-4 font-mono text-sm leading-6 whitespace-pre-wrap text-slate-200">
               {result.markdown}
             </div>
             <button
               type="button"
               onClick={() =>
                 downloadBlob(
-                  new Blob([result.markdown], { type: "text/markdown;charset=utf-8" }),
+                  new Blob([result.markdown], {
+                    type: "text/markdown;charset=utf-8",
+                  }),
                   filename,
                 )
               }
@@ -78,8 +88,9 @@ function PdfToMarkdownEditor({
           </div>
         ) : (
           <p className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-100">
-            This PDF does not contain selectable text. Use OCR PDF first for scanned
-            pages, or Extract Tables for table-heavy documents when AI table extraction is enabled.
+            This PDF does not contain selectable text. Use OCR PDF first for
+            scanned pages, or Extract Tables for table-heavy documents when AI
+            table extraction is enabled.
           </p>
         )}
       </ResultPanel>
@@ -92,7 +103,11 @@ function PdfToMarkdownEditor({
 
       <RunnerSection
         title="Convert selectable text to Markdown"
-        aside={<span className="text-xs text-slate-400">{pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}</span>}
+        aside={
+          <span className="text-xs text-slate-400">
+            {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}
+          </span>
+        }
       >
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile

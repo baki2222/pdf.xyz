@@ -95,7 +95,9 @@ describe("worker daemon — native deep compression end-to-end", () => {
     );
     expect(runtime.executor).toBeDefined();
 
-    const summary = await createWorkerDaemon({ executor: runtime.executor! }).run({
+    const summary = await createWorkerDaemon({
+      executor: runtime.executor!,
+    }).run({
       mode: "drain",
     });
 
@@ -136,7 +138,9 @@ describe("worker daemon — native deep compression end-to-end", () => {
     const storage = createLocalDevExecutorStorage({ store, now: () => clock });
     const runtime = resolveWorkerRuntime({}, { queue, storage, registry });
 
-    const summary = await createWorkerDaemon({ executor: runtime.executor! }).run({
+    const summary = await createWorkerDaemon({
+      executor: runtime.executor!,
+    }).run({
       mode: "drain",
     });
 

@@ -5,7 +5,12 @@
     "mode": "remote-configured",
     "drainable": true,
     "daemonObserved": true,
-    "daemon": { "state": "observed", "source": "queue-broker", "lastSeen": "under-30s", "mode": "loop" },
+    "daemon": {
+      "state": "observed",
+      "source": "queue-broker",
+      "lastSeen": "under-30s",
+      "mode": "loop"
+    },
     "health": "ok",
     "recommendedAction": "none",
     "subsystems": [
@@ -21,7 +26,11 @@
     ],
     "proofs": { "compressionDeep": "available", "ocr": "unavailable" },
     "lifecycleVerification": { "verdict": "verified", "health": "ok" },
-    "rateLimit": { "code": "remote-error-fail-open", "enforced": false, "distributed": true },
+    "rateLimit": {
+      "code": "remote-error-fail-open",
+      "enforced": false,
+      "distributed": true
+    },
     "lastLoop": null
   }
 }

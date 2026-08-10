@@ -100,7 +100,8 @@ export const CLEANUP_EVIDENCE_PROVIDERS = [
   "not-configured",
   "unknown",
 ] as const;
-export type CleanupEvidenceProvider = (typeof CLEANUP_EVIDENCE_PROVIDERS)[number];
+export type CleanupEvidenceProvider =
+  (typeof CLEANUP_EVIDENCE_PROVIDERS)[number];
 
 /**
  * A coarse freshness tri-state, derived from the report's own `generatedAt` (or, as a documented
@@ -110,8 +111,13 @@ export type CleanupEvidenceProvider = (typeof CLEANUP_EVIDENCE_PROVIDERS)[number
  *  - `unknown` — no usable timestamp at all (so freshness cannot be claimed — never treated as
  *    fresh, which is why a would-be-healthy report with no timestamp degrades to `stale`).
  */
-export const CLEANUP_EVIDENCE_FRESHNESS = ["fresh", "stale", "unknown"] as const;
-export type CleanupEvidenceFreshness = (typeof CLEANUP_EVIDENCE_FRESHNESS)[number];
+export const CLEANUP_EVIDENCE_FRESHNESS = [
+  "fresh",
+  "stale",
+  "unknown",
+] as const;
+export type CleanupEvidenceFreshness =
+  (typeof CLEANUP_EVIDENCE_FRESHNESS)[number];
 
 /**
  * A coarse age bucket for the report, for a dashboard to show "how old" WITHOUT a raw timestamp
@@ -137,7 +143,8 @@ export const CLEANUP_EVIDENCE_REPORT_KINDS = [
   "artifact-cleanup",
   "none",
 ] as const;
-export type CleanupEvidenceReportKind = (typeof CLEANUP_EVIDENCE_REPORT_KINDS)[number];
+export type CleanupEvidenceReportKind =
+  (typeof CLEANUP_EVIDENCE_REPORT_KINDS)[number];
 
 /**
  * The full, content-free cleanup evidence posture the operations surface embeds and renders.
@@ -162,7 +169,8 @@ export interface CleanupEvidencePosture {
 }
 
 /** Stable identity of the cleanup evidence monitoring policy — for docs/receipts/audit. */
-export const CLEANUP_EVIDENCE_POLICY_ID = "pdfxyz-worker-cleanup-evidence-monitor";
+export const CLEANUP_EVIDENCE_POLICY_ID =
+  "pdfxyz-worker-cleanup-evidence-monitor";
 /** Bump when the posture/reason taxonomy or its resolution semantics change. */
 export const CLEANUP_EVIDENCE_POLICY_VERSION = 1;
 

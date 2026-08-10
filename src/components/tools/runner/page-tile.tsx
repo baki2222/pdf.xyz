@@ -158,13 +158,13 @@ export function PageTile({
           ? "border-violet-400/60 bg-violet-500/10 ring-2 ring-violet-400/40"
           : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
         dropTarget && "ring-2 ring-violet-400/70",
-        grabbed && "ring-2 ring-violet-400/80 ring-offset-2 ring-offset-ink",
+        grabbed && "ring-offset-ink ring-2 ring-violet-400/80 ring-offset-2",
         dimmed && "opacity-40",
         className,
       )}
     >
       {selectable && (
-        <span className="absolute left-2 top-2 z-10 text-violet-300">
+        <span className="absolute top-2 left-2 z-10 text-violet-300">
           {selected ? (
             <CheckSquare className="size-4" aria-hidden />
           ) : (
@@ -184,17 +184,17 @@ export function PageTile({
             dragHandle.onToggle();
           }}
           className={cn(
-            "absolute left-2 top-2 z-10 grid size-6 cursor-grab place-items-center rounded-md border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60 active:cursor-grabbing",
+            "absolute top-2 left-2 z-10 grid size-6 cursor-grab place-items-center rounded-md border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60 active:cursor-grabbing",
             grabbed
               ? "border-violet-400/60 bg-violet-500/25 text-violet-100"
-              : "border-white/10 bg-ink/70 text-slate-400 hover:text-white",
+              : "bg-ink/70 border-white/10 text-slate-400 hover:text-white",
           )}
         >
           <GripVertical className="size-3.5" aria-hidden />
         </button>
       )}
       {cornerBadge && (
-        <span className="absolute right-2 top-2 z-10 grid min-w-5 place-items-center rounded-full bg-ink/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-200 ring-1 ring-white/10">
+        <span className="bg-ink/80 absolute top-2 right-2 z-10 grid min-w-5 place-items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-slate-200 tabular-nums ring-1 ring-white/10">
           {cornerBadge}
         </span>
       )}
@@ -205,13 +205,13 @@ export function PageTile({
             src={thumbnail.url}
             alt=""
             draggable={false}
-            className="max-h-[80%] max-w-[80%] rounded-[2px] bg-white object-contain shadow-md shadow-black/40 ring-1 ring-black/5 transition-transform duration-300"
+            className="max-h-[80%] max-w-[80%] rounded-[2px] bg-white object-contain shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300"
             style={{ transform: `rotate(${rotation}deg)` }}
           />
         ) : (
           <div
             className={cn(
-              "relative aspect-[1/1.414] h-[78%] overflow-hidden rounded-[3px] bg-gradient-to-br from-white/95 to-slate-200/85 shadow-md shadow-black/40 ring-1 ring-black/5 transition-transform duration-300",
+              "relative aspect-[1/1.414] h-[78%] overflow-hidden rounded-[3px] bg-gradient-to-br from-white/95 to-slate-200/85 shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300",
               loading && "animate-pulse",
             )}
             style={{ transform: `rotate(${rotation}deg)` }}
@@ -224,7 +224,7 @@ export function PageTile({
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-medium text-slate-300">{label}</span>
         {rotation !== 0 && (
-          <span className="rounded bg-white/10 px-1 text-[10px] font-semibold tabular-nums text-slate-300">
+          <span className="rounded bg-white/10 px-1 text-[10px] font-semibold text-slate-300 tabular-nums">
             {rotation}°
           </span>
         )}
@@ -273,7 +273,8 @@ export function TileAction({
       }}
       className={cn(
         "grid size-7 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-300 transition hover:bg-white/10 hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
-        danger && "hover:border-red-400/40 hover:bg-red-500/15 hover:text-red-200",
+        danger &&
+          "hover:border-red-400/40 hover:bg-red-500/15 hover:text-red-200",
       )}
     >
       {children}

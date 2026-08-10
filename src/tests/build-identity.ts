@@ -37,7 +37,8 @@ export function discriminatingChunk(nextDir: string): string | null {
       if (entry.isDirectory()) walk(full);
       else if (entry.name.endsWith(".js")) {
         const mtimeMs = statSync(full).mtimeMs;
-        if (!newest || mtimeMs > newest.mtimeMs) newest = { file: full, mtimeMs };
+        if (!newest || mtimeMs > newest.mtimeMs)
+          newest = { file: full, mtimeMs };
       }
     }
   };
@@ -52,7 +53,10 @@ export function discriminatingChunk(nextDir: string): string | null {
 
 export type AdoptedBuildVerdict =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: "no-local-build" | "chunk-not-served" };
+  | {
+      readonly ok: false;
+      readonly reason: "no-local-build" | "chunk-not-served";
+    };
 
 /**
  * Decide whether an adopted server serves THIS checkout's build. `fetchImpl`
@@ -70,7 +74,9 @@ export async function verifyAdoptedServerBuild(
   if (!chunk) return { ok: false, reason: "no-local-build" };
   try {
     const res = await fetchImpl(new URL(chunk, baseURL).toString());
-    return res.status === 200 ? { ok: true } : { ok: false, reason: "chunk-not-served" };
+    return res.status === 200
+      ? { ok: true }
+      : { ok: false, reason: "chunk-not-served" };
   } catch {
     return { ok: false, reason: "chunk-not-served" };
   }

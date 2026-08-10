@@ -107,7 +107,9 @@ describe("renderOpsCheckPrometheus", () => {
     expect(out).toMatch(/^pdfxyz_ops_check_severity 1$/m); // warn → code 1
     expect(out).toMatch(/pdfxyz_ops_check_info\{[^}]*severity="warn"[^}]*\} 1/);
     expect(out).toMatch(/pdfxyz_ops_check_daemon_observed 1/);
-    expect(out).toMatch(/pdfxyz_ops_check_subsystem\{subsystem="malware-scan",health="warn"\} 1/);
+    expect(out).toMatch(
+      /pdfxyz_ops_check_subsystem\{subsystem="malware-scan",health="warn"\} 1/,
+    );
   });
 
   it("maps each severity to its distinct scrape code", () => {
@@ -129,7 +131,9 @@ describe("renderOpsCheckPrometheus", () => {
   it("keeps every label value a bounded enum (no free text)", () => {
     const out = renderOpsCheckPrometheus(makeResult({ severity: "critical" }));
     // Extract every label value and confirm none contains whitespace/quotes/paths.
-    const labelValues = [...out.matchAll(/([a-z_]+)="([^"]*)"/g)].map((m) => m[2]);
+    const labelValues = [...out.matchAll(/([a-z_]+)="([^"]*)"/g)].map(
+      (m) => m[2],
+    );
     expect(labelValues.length).toBeGreaterThan(0);
     for (const v of labelValues) {
       expect(v).toMatch(/^[a-z0-9_-]+$/); // bounded enum shape only
@@ -148,7 +152,8 @@ describe("renderOpsCheckText", () => {
     const out = renderOpsCheckText(
       makeResult({
         severity: "warn",
-        summary: "WARNING — a recommended fix is outstanding. Next action: fix-scanner.",
+        summary:
+          "WARNING — a recommended fix is outstanding. Next action: fix-scanner.",
         alerts: [
           {
             source: "malware-scan",
@@ -172,8 +177,12 @@ describe("renderOpsCheckText", () => {
 
 describe("renderOpsCheck dispatch", () => {
   it("routes to the requested format", () => {
-    expect(() => JSON.parse(renderOpsCheck(makeResult(), "json"))).not.toThrow();
-    expect(renderOpsCheck(makeResult(), "prometheus")).toContain("pdfxyz_ops_check_severity");
+    expect(() =>
+      JSON.parse(renderOpsCheck(makeResult(), "json")),
+    ).not.toThrow();
+    expect(renderOpsCheck(makeResult(), "prometheus")).toContain(
+      "pdfxyz_ops_check_severity",
+    );
     expect(renderOpsCheck(makeResult(), "text")).toContain("OK");
   });
 });
@@ -197,14 +206,24 @@ describe("cleanup evidence rendering (Phase 44)", () => {
     });
 
   it("JSON carries the bounded cleanup evidence digest", () => {
-    const ce = { state: "warning", reason: "cleanup_drift", provider: "remote-configured", freshness: "fresh" } as const;
+    const ce = {
+      state: "warning",
+      reason: "cleanup_drift",
+      provider: "remote-configured",
+      freshness: "fresh",
+    } as const;
     const parsed = JSON.parse(renderOpsCheckJson(withCleanup(ce)));
     expect(parsed.snapshot.cleanupEvidence).toEqual(ce);
   });
 
   it("Prometheus emits a bounded pdfxyz_ops_check_cleanup_evidence gauge", () => {
     const out = renderOpsCheckPrometheus(
-      withCleanup({ state: "stale", reason: "report_stale", provider: "unknown", freshness: "stale" }),
+      withCleanup({
+        state: "stale",
+        reason: "report_stale",
+        provider: "unknown",
+        freshness: "stale",
+      }),
     );
     expect(out).toContain(
       'pdfxyz_ops_check_cleanup_evidence{state="stale",reason="report_stale",provider="unknown",freshness="stale"} 1',
@@ -213,7 +232,12 @@ describe("cleanup evidence rendering (Phase 44)", () => {
 
   it("text summarizes the cleanup evidence state", () => {
     const out = renderOpsCheckText(
-      withCleanup({ state: "critical", reason: "cleanup_breach", provider: "unknown", freshness: "fresh" }),
+      withCleanup({
+        state: "critical",
+        reason: "cleanup_breach",
+        provider: "unknown",
+        freshness: "fresh",
+      }),
     );
     expect(out).toContain("cleanup evidence: critical (cleanup_breach, fresh)");
   });

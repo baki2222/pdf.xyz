@@ -5,7 +5,12 @@
     "mode": "disabled",
     "drainable": false,
     "daemonObserved": false,
-    "daemon": { "state": "disabled", "source": "none", "lastSeen": null, "mode": null },
+    "daemon": {
+      "state": "disabled",
+      "source": "none",
+      "lastSeen": null,
+      "mode": null
+    },
     "health": "unknown",
     "recommendedAction": "confirm-worker-deployment",
     "subsystems": [

@@ -44,10 +44,15 @@ const MS_PER_DAY = 24 * MS_PER_HOUR;
  *    recognized content-free summary (`report_malformed`, incl. a raw export the parser refused).
  */
 export type CleanupEvidenceObservation =
-  | { readonly kind: "report"; readonly report: ParsedCleanupReport; readonly mtimeMs: number | null }
+  | {
+      readonly kind: "report";
+      readonly report: ParsedCleanupReport;
+      readonly mtimeMs: number | null;
+    }
   | {
       readonly kind: "error";
-      readonly reason: "report_missing" | "report_unreadable" | "report_malformed";
+      readonly reason:
+        "report_missing" | "report_unreadable" | "report_malformed";
     };
 
 /**
@@ -98,7 +103,9 @@ function posture(
 }
 
 /** Map a parsed report's verdict class to its base (pre-freshness) state. */
-function baseStateForVerdict(verdictClass: CleanupVerdictClass): CleanupEvidenceState {
+function baseStateForVerdict(
+  verdictClass: CleanupVerdictClass,
+): CleanupEvidenceState {
   switch (verdictClass) {
     case "verified":
       return "healthy";
@@ -165,14 +172,40 @@ export function resolveObservationPosture(
   if (observation.kind === "error") {
     switch (observation.reason) {
       case "report_missing":
-        return posture("stale", "report_missing", "unknown", "unknown", "unknown", "none");
+        return posture(
+          "stale",
+          "report_missing",
+          "unknown",
+          "unknown",
+          "unknown",
+          "none",
+        );
       case "report_unreadable":
-        return posture("invalid", "report_unreadable", "unknown", "unknown", "unknown", "none");
+        return posture(
+          "invalid",
+          "report_unreadable",
+          "unknown",
+          "unknown",
+          "unknown",
+          "none",
+        );
       case "report_malformed":
-        return posture("invalid", "report_malformed", "unknown", "unknown", "unknown", "none");
+        return posture(
+          "invalid",
+          "report_malformed",
+          "unknown",
+          "unknown",
+          "unknown",
+          "none",
+        );
     }
   }
-  return resolveReportPosture(observation.report, observation.mtimeMs, config, now);
+  return resolveReportPosture(
+    observation.report,
+    observation.mtimeMs,
+    config,
+    now,
+  );
 }
 
 /**
@@ -189,12 +222,22 @@ export function resolveCleanupEvidencePosture(
 ): CleanupEvidencePosture {
   if (!config.enabled) return DISABLED_CLEANUP_EVIDENCE_POSTURE;
   if (observations.length === 0) {
-    return posture("stale", "report_missing", "unknown", "unknown", "unknown", "none");
+    return posture(
+      "stale",
+      "report_missing",
+      "unknown",
+      "unknown",
+      "unknown",
+      "none",
+    );
   }
   let worst: CleanupEvidencePosture | null = null;
   for (const observation of observations) {
     const candidate = resolveObservationPosture(observation, config, now);
-    if (worst === null || STATE_WORSENESS[candidate.state] > STATE_WORSENESS[worst.state]) {
+    if (
+      worst === null ||
+      STATE_WORSENESS[candidate.state] > STATE_WORSENESS[worst.state]
+    ) {
       worst = candidate;
     }
   }

@@ -15,7 +15,12 @@ import type {
   ExtractedImage,
   SkippedImage,
 } from "@/lib/pdf/extract-images";
-import { downloadBlob, downloadBytes, outputName, zipFiles } from "@/lib/pdf/browser";
+import {
+  downloadBlob,
+  downloadBytes,
+  outputName,
+  zipFiles,
+} from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -71,7 +76,10 @@ function ExtractImagesEditor({
       const extracted = await extractPdfImages(pdf.bytes);
       return {
         ...extracted,
-        totalBytes: extracted.images.reduce((sum, i) => sum + i.bytes.byteLength, 0),
+        totalBytes: extracted.images.reduce(
+          (sum, i) => sum + i.bytes.byteLength,
+          0,
+        ),
       } satisfies Extraction;
     });
   };
@@ -93,7 +101,9 @@ function ExtractImagesEditor({
 
       <RunnerSection
         title="What gets extracted"
-        aside={<span className="text-xs text-slate-400">Original resolution</span>}
+        aside={
+          <span className="text-xs text-slate-400">Original resolution</span>
+        }
       >
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
@@ -156,7 +166,7 @@ function ExtractionResult({
         {...empty}
         role="group"
         aria-label="No extractable images found"
-        className="flex flex-col gap-5 rounded-3xl border border-amber-400/25 bg-amber-500/[0.06] p-6 animate-float-up outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+        className="animate-float-up flex flex-col gap-5 rounded-3xl border border-amber-400/25 bg-amber-500/[0.06] p-6 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
       >
         <div className="flex items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-amber-500/15 text-amber-300">
@@ -194,12 +204,7 @@ function ExtractionResult({
         <>
           Original resolution · {formatBytes(result.totalBytes)}
           {zip ? " · bundled as a ZIP" : ""}
-          {skipped.length > 0 && (
-            <>
-              {" "}
-              · {skipped.length} skipped
-            </>
-          )}
+          {skipped.length > 0 && <> · {skipped.length} skipped</>}
         </>
       }
       onReset={onStartOver}
@@ -318,7 +323,9 @@ function ImageGrid({
       if (cancelled) return;
       for (const image of images.slice(0, PREVIEW_LIMIT)) {
         created.push(
-          URL.createObjectURL(new Blob([bufferOf(image.bytes)], { type: MIME[image.format] })),
+          URL.createObjectURL(
+            new Blob([bufferOf(image.bytes)], { type: MIME[image.format] }),
+          ),
         );
       }
       setPreviews(created);
@@ -367,8 +374,8 @@ function ImageGrid({
       </div>
       {hiddenCount > 0 && (
         <p className="text-xs text-slate-400">
-          Showing the first {previews.length} previews — all {images.length} images
-          are included in the ZIP.
+          Showing the first {previews.length} previews — all {images.length}{" "}
+          images are included in the ZIP.
         </p>
       )}
     </div>
@@ -378,7 +385,8 @@ function ImageGrid({
 /** Honest disclosure of the images we found but did not extract, with reasons. */
 function SkippedNote({ skipped }: { skipped: SkippedImage[] }) {
   const groups = new Map<string, number>();
-  for (const s of skipped) groups.set(s.reason, (groups.get(s.reason) ?? 0) + 1);
+  for (const s of skipped)
+    groups.set(s.reason, (groups.get(s.reason) ?? 0) + 1);
   const rows = [...groups.entries()].sort((a, b) => b[1] - a[1]);
 
   return (
@@ -390,7 +398,9 @@ function SkippedNote({ skipped }: { skipped: SkippedImage[] }) {
       <ul className="flex flex-col gap-1 text-xs leading-relaxed text-slate-400">
         {rows.map(([reason, count]) => (
           <li key={reason} className="flex gap-2">
-            <span className="shrink-0 tabular-nums text-slate-400">{count}×</span>
+            <span className="shrink-0 text-slate-400 tabular-nums">
+              {count}×
+            </span>
             <span>{reason}</span>
           </li>
         ))}

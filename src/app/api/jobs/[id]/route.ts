@@ -38,7 +38,9 @@ export async function GET(
   const adapter = await getWorkerAdapter();
   const outcome = await adapter.getJob(id);
   return respond(
-    outcome.ok ? { status: outcome.status, body: outcome.value } : outcome.error,
+    outcome.ok
+      ? { status: outcome.status, body: outcome.value }
+      : outcome.error,
   );
 }
 
@@ -71,6 +73,8 @@ export async function DELETE(
   const adapter = await getWorkerAdapter();
   const outcome = await adapter.cancelJob(id);
   return respond(
-    outcome.ok ? { status: outcome.status, body: outcome.value } : outcome.error,
+    outcome.ok
+      ? { status: outcome.status, body: outcome.value }
+      : outcome.error,
   );
 }

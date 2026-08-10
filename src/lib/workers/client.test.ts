@@ -69,7 +69,11 @@ const SESSION: UploadSession = {
     },
   ],
   expiresAt: new Date(0).toISOString(),
-  retention: { inputTtlMinutes: 60, outputTtlMinutes: 60, persistsAfterJob: false },
+  retention: {
+    inputTtlMinutes: 60,
+    outputTtlMinutes: 60,
+    persistsAfterJob: false,
+  },
 };
 
 function completedJob(): Job {
@@ -92,7 +96,11 @@ function completedJob(): Job {
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
     expiresAt: new Date(0).toISOString(),
-    retention: { inputTtlMinutes: 60, outputTtlMinutes: 60, persistsAfterJob: false },
+    retention: {
+      inputTtlMinutes: 60,
+      outputTtlMinutes: 60,
+      persistsAfterJob: false,
+    },
   };
 }
 
@@ -108,14 +116,21 @@ const OUTPUT = new Uint8Array([9, 9, 9]);
 describe("runWorkerCompression", () => {
   it("drives upload → job → download and returns the real output", async () => {
     const { fetchImpl, calls } = makeFetch([
-      { match: (u, m) => u === "/api/uploads" && m === "POST", respond: () => jsonResp(201, SESSION) },
+      {
+        match: (u, m) => u === "/api/uploads" && m === "POST",
+        respond: () => jsonResp(201, SESSION),
+      },
       {
         match: (u, m) => u === "/api/uploads/local/f_abcdefghij" && m === "PUT",
         respond: () => jsonResp(200, { ok: true }),
       },
-      { match: (u, m) => u === "/api/jobs" && m === "POST", respond: () => jsonResp(201, completedJob()) },
       {
-        match: (u, m) => u === "/api/artifacts/local/art_abcdefghij" && m === "GET",
+        match: (u, m) => u === "/api/jobs" && m === "POST",
+        respond: () => jsonResp(201, completedJob()),
+      },
+      {
+        match: (u, m) =>
+          u === "/api/artifacts/local/art_abcdefghij" && m === "GET",
         respond: () => bytesResp(200, OUTPUT),
       },
     ]);
@@ -164,13 +179,20 @@ describe("runWorkerCompression", () => {
       artifacts: undefined,
       error: {
         code: "not_implemented",
-        message: "Deep image compression requires a native engine. Install one of: ghostscript, qpdf, mutool.",
+        message:
+          "Deep image compression requires a native engine. Install one of: ghostscript, qpdf, mutool.",
         retryable: false,
       },
     };
     const { fetchImpl, calls } = makeFetch([
-      { match: (u) => u === "/api/uploads", respond: () => jsonResp(201, SESSION) },
-      { match: (u) => u.startsWith("/api/uploads/local/"), respond: () => jsonResp(200, { ok: true }) },
+      {
+        match: (u) => u === "/api/uploads",
+        respond: () => jsonResp(201, SESSION),
+      },
+      {
+        match: (u) => u.startsWith("/api/uploads/local/"),
+        respond: () => jsonResp(200, { ok: true }),
+      },
       { match: (u) => u === "/api/jobs", respond: () => jsonResp(201, failed) },
     ]);
 
@@ -206,12 +228,19 @@ describe("runWorkerCompression", () => {
 
   it("fails honestly when the upload transport rejects the bytes", async () => {
     const { fetchImpl, calls } = makeFetch([
-      { match: (u) => u === "/api/uploads", respond: () => jsonResp(201, SESSION) },
+      {
+        match: (u) => u === "/api/uploads",
+        respond: () => jsonResp(201, SESSION),
+      },
       {
         match: (u) => u.startsWith("/api/uploads/local/"),
         respond: () =>
           jsonResp(413, {
-            error: { code: "payload_too_large", message: "Too large.", docs: "x" },
+            error: {
+              code: "payload_too_large",
+              message: "Too large.",
+              docs: "x",
+            },
           }),
       },
     ]);
@@ -226,22 +255,42 @@ describe("runWorkerCompression", () => {
   it("polls a non-terminal job to completion", async () => {
     let jobFetches = 0;
     const { fetchImpl, calls } = makeFetch([
-      { match: (u) => u === "/api/uploads", respond: () => jsonResp(201, SESSION) },
-      { match: (u) => u.startsWith("/api/uploads/local/"), respond: () => jsonResp(200, { ok: true }) },
+      {
+        match: (u) => u === "/api/uploads",
+        respond: () => jsonResp(201, SESSION),
+      },
+      {
+        match: (u) => u.startsWith("/api/uploads/local/"),
+        respond: () => jsonResp(200, { ok: true }),
+      },
       {
         match: (u, m) => u === "/api/jobs" && m === "POST",
-        respond: () => jsonResp(201, { ...completedJob(), status: "processing", progress: 20, artifacts: undefined }),
+        respond: () =>
+          jsonResp(201, {
+            ...completedJob(),
+            status: "processing",
+            progress: 20,
+            artifacts: undefined,
+          }),
       },
       {
         match: (u, m) => u.startsWith("/api/jobs/job_") && m === "GET",
         respond: () => {
           jobFetches += 1;
           return jobFetches < 2
-            ? jsonResp(200, { ...completedJob(), status: "processing", progress: 60, artifacts: undefined })
+            ? jsonResp(200, {
+                ...completedJob(),
+                status: "processing",
+                progress: 60,
+                artifacts: undefined,
+              })
             : jsonResp(200, completedJob());
         },
       },
-      { match: (u) => u.startsWith("/api/artifacts/"), respond: () => bytesResp(200, OUTPUT) },
+      {
+        match: (u) => u.startsWith("/api/artifacts/"),
+        respond: () => bytesResp(200, OUTPUT),
+      },
     ]);
 
     const result = await runWorkerCompression(input, {
@@ -250,15 +299,39 @@ describe("runWorkerCompression", () => {
     });
     expect(result.ok).toBe(true);
     expect(jobFetches).toBe(2);
-    expect(calls.filter((c) => c.url.startsWith("/api/jobs/job_")).length).toBe(2);
+    expect(calls.filter((c) => c.url.startsWith("/api/jobs/job_")).length).toBe(
+      2,
+    );
   });
 
   it("gives up honestly if the job never reaches a terminal state", async () => {
     const { fetchImpl } = makeFetch([
-      { match: (u) => u === "/api/uploads", respond: () => jsonResp(201, SESSION) },
-      { match: (u) => u.startsWith("/api/uploads/local/"), respond: () => jsonResp(200, { ok: true }) },
-      { match: (u, m) => u === "/api/jobs" && m === "POST", respond: () => jsonResp(201, { ...completedJob(), status: "processing", artifacts: undefined }) },
-      { match: (u, m) => u.startsWith("/api/jobs/job_") && m === "GET", respond: () => jsonResp(200, { ...completedJob(), status: "queued", artifacts: undefined }) },
+      {
+        match: (u) => u === "/api/uploads",
+        respond: () => jsonResp(201, SESSION),
+      },
+      {
+        match: (u) => u.startsWith("/api/uploads/local/"),
+        respond: () => jsonResp(200, { ok: true }),
+      },
+      {
+        match: (u, m) => u === "/api/jobs" && m === "POST",
+        respond: () =>
+          jsonResp(201, {
+            ...completedJob(),
+            status: "processing",
+            artifacts: undefined,
+          }),
+      },
+      {
+        match: (u, m) => u.startsWith("/api/jobs/job_") && m === "GET",
+        respond: () =>
+          jsonResp(200, {
+            ...completedJob(),
+            status: "queued",
+            artifacts: undefined,
+          }),
+      },
     ]);
 
     const result = await runWorkerCompression(input, {

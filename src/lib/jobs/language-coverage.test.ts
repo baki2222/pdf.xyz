@@ -24,7 +24,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { OCR_LANGUAGES } from "@/lib/jobs/ocr";
-import { TRANSLATE_LANGUAGES, type TranslateLanguage } from "@/lib/jobs/translate-pdf";
+import {
+  TRANSLATE_LANGUAGES,
+  type TranslateLanguage,
+} from "@/lib/jobs/translate-pdf";
 
 /**
  * ISO 639-1 (translation) to Tesseract traineddata name (OCR). The two tools use
@@ -70,7 +73,10 @@ describe("every translatable language can also be recognized", () => {
   it("offers OCR for each translation language, so scan → OCR → translate never dead-ends", () => {
     const unreadable = TRANSLATE_LANGUAGES.filter(
       (code) => !ocrCodes.has(OCR_CODE_FOR_TRANSLATE_LANGUAGE[code]),
-    ).map((code) => `${code} (needs OCR language ${OCR_CODE_FOR_TRANSLATE_LANGUAGE[code]})`);
+    ).map(
+      (code) =>
+        `${code} (needs OCR language ${OCR_CODE_FOR_TRANSLATE_LANGUAGE[code]})`,
+    );
     // Add the language to OCR_LANGUAGES *and* its pack to the Dockerfile — see
     // `src/deploy/ocr-languages.test.ts`, which enforces that second half.
     expect(unreadable).toEqual([]);

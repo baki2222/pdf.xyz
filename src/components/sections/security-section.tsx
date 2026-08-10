@@ -55,7 +55,7 @@ export function SecuritySection() {
           {pillars.map(({ icon: Icon, title, body }) => (
             <div
               key={title}
-              className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6"
+              className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-6"
             >
               <span className="grid size-11 place-items-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
                 <Icon className="size-5" strokeWidth={1.75} aria-hidden />

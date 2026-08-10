@@ -94,9 +94,15 @@ export function SinglePdfRunner({
 }
 
 /** Consistent file header shown at the top of each single-file editor. */
-export function FileHeader({ pdf, aside }: { pdf: LoadedPdf; aside?: ReactNode }) {
+export function FileHeader({
+  pdf,
+  aside,
+}: {
+  pdf: LoadedPdf;
+  aside?: ReactNode;
+}) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-surface-2 px-3.5 py-3">
+    <div className="bg-surface-2 flex items-center gap-3 rounded-2xl border border-white/10 px-3.5 py-3">
       <FileText className="size-4 shrink-0 text-violet-300" aria-hidden />
       <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
         {pdf.file.name}

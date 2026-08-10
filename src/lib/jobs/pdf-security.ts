@@ -26,7 +26,10 @@
  */
 
 import { apiError, type ParseResult } from "./responses";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "./filenames";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "./filenames";
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -85,8 +88,8 @@ export function isPdfKeyLength(value: unknown): value is PdfKeyLength {
 /** Human label for an encryption key length (falls back to a bit count). */
 export function describePdfKeyLength(keyLength: PdfKeyLength): string {
   return (
-    PDF_ENCRYPTION_LEVELS.find((level) => level.keyLength === keyLength)?.label ??
-    `${keyLength}-bit`
+    PDF_ENCRYPTION_LEVELS.find((level) => level.keyLength === keyLength)
+      ?.label ?? `${keyLength}-bit`
   );
 }
 
@@ -165,7 +168,11 @@ function parsePassword(
 export function parseProtectPdfOptions(
   options: Record<string, unknown>,
 ): ParseResult<ProtectPdfOptions> {
-  const password = parsePassword(options.password, "options.password", "Password");
+  const password = parsePassword(
+    options.password,
+    "options.password",
+    "Password",
+  );
   if (!password.ok) return password;
 
   // Owner password is optional; when present it is validated by the same rules,
@@ -194,7 +201,10 @@ export function parseProtectPdfOptions(
     keyLength = options.keyLength;
   }
 
-  return { ok: true, value: { password: password.value, ownerPassword, keyLength } };
+  return {
+    ok: true,
+    value: { password: password.value, ownerPassword, keyLength },
+  };
 }
 
 /**
@@ -207,7 +217,11 @@ export function parseProtectPdfOptions(
 export function parseUnlockPdfOptions(
   options: Record<string, unknown>,
 ): ParseResult<UnlockPdfOptions> {
-  const password = parsePassword(options.password, "options.password", "Password");
+  const password = parsePassword(
+    options.password,
+    "options.password",
+    "Password",
+  );
   if (!password.ok) return password;
   return { ok: true, value: { password: password.value } };
 }

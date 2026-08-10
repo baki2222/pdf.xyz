@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { DEFAULT_RETENTION_SETTINGS, type RetentionSettings } from "./retention";
+import {
+  DEFAULT_RETENTION_SETTINGS,
+  type RetentionSettings,
+} from "./retention";
 import { buildLifecyclePolicy } from "./policy";
 import { renderLifecyclePolicy } from "./render";
 import {
@@ -56,7 +59,12 @@ describe("parseObservedLifecycle — shapes", () => {
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "x", Prefix: "artifacts/", Status: "Disabled", Expiration: { Days: 2 } },
+          {
+            ID: "x",
+            Prefix: "artifacts/",
+            Status: "Disabled",
+            Expiration: { Days: 2 },
+          },
         ],
       }),
     );
@@ -72,14 +80,18 @@ describe("parseObservedLifecycle — shapes", () => {
     const observed = observe(generic.document);
     // The agnostic model has no status; every recovered rule is treated as enabled.
     expect(observed.rules.every((r) => r.enabled)).toBe(true);
-    expect(observed.rules.find((r) => r.prefix === "inputs/")?.expireAfterDays).toBe(1);
+    expect(
+      observed.rules.find((r) => r.prefix === "inputs/")?.expireAfterDays,
+    ).toBe(1);
     expect(
       observed.rules.some((r) => r.expiredObjectDeleteMarker === true),
     ).toBe(true);
   });
 
   it("recovers the delete-marker and noncurrent rules from an S3 document", () => {
-    const observed = observe(renderLifecyclePolicy(expectedVersioned, "aws-s3").document);
+    const observed = observe(
+      renderLifecyclePolicy(expectedVersioned, "aws-s3").document,
+    );
     expect(
       observed.rules.some((r) => r.noncurrentVersionExpireAfterDays === 1),
     ).toBe(true);
@@ -130,7 +142,9 @@ describe("parseObservedLifecycle — rejects bad documents", () => {
     if (!huge.ok) expect(huge.issues[0]?.code).toBe("too-large");
 
     const tooMany = parseObservedLifecycle(
-      JSON.stringify({ Rules: new Array(1_001).fill({ ID: "x", Status: "Enabled" }) }),
+      JSON.stringify({
+        Rules: new Array(1_001).fill({ ID: "x", Status: "Enabled" }),
+      }),
     );
     expect(tooMany.ok).toBe(false);
     if (!tooMany.ok) expect(tooMany.issues[0]?.code).toBe("too-large");
@@ -143,7 +157,10 @@ describe("verifyLifecyclePolicy — round-trip is verified", () => {
   it("verifies the app's own rendered policy against itself for every S3 provider", () => {
     for (const provider of ["aws-s3", "minio", "cloudflare-r2"] as const) {
       const rendered = renderLifecyclePolicy(expected, provider);
-      const result = verifyLifecyclePolicy(expected, observe(rendered.document));
+      const result = verifyLifecyclePolicy(
+        expected,
+        observe(rendered.document),
+      );
       expect(result.verdict).toBe("verified");
       expect(result.checks.every((c) => c.status === "satisfied")).toBe(true);
       expect(result.plan.every((p) => p.action === "none")).toBe(true);
@@ -152,7 +169,10 @@ describe("verifyLifecyclePolicy — round-trip is verified", () => {
 
   it("verifies a versioned policy against its own rendered document", () => {
     const rendered = renderLifecyclePolicy(expectedVersioned, "aws-s3");
-    const result = verifyLifecyclePolicy(expectedVersioned, observe(rendered.document));
+    const result = verifyLifecyclePolicy(
+      expectedVersioned,
+      observe(rendered.document),
+    );
     expect(result.verdict).toBe("verified");
     expect(result.checks).toHaveLength(expectedVersioned.rules.length);
   });
@@ -162,8 +182,17 @@ describe("verifyLifecyclePolicy — round-trip is verified", () => {
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "expire-everything", Filter: { Prefix: "" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "kill-stalled-parts", Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
+          {
+            ID: "expire-everything",
+            Filter: { Prefix: "" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "kill-stalled-parts",
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          },
         ],
       }),
     );
@@ -175,8 +204,14 @@ describe("verifyLifecyclePolicy — round-trip is verified", () => {
     const observed = observe(
       JSON.stringify({
         Rules: [
-          ...JSON.parse(renderLifecyclePolicy(expected, "aws-s3").document).Rules,
-          { ID: "app-logs", Filter: { Prefix: "logs/" }, Status: "Enabled", Expiration: { Days: 30 } },
+          ...JSON.parse(renderLifecyclePolicy(expected, "aws-s3").document)
+            .Rules,
+          {
+            ID: "app-logs",
+            Filter: { Prefix: "logs/" },
+            Status: "Enabled",
+            Expiration: { Days: 30 },
+          },
         ],
       }),
     );
@@ -192,15 +227,24 @@ describe("verifyLifecyclePolicy — detects drift", () => {
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "in", Filter: { Prefix: "inputs/" }, Status: "Enabled", Expiration: { Days: 1 } },
+          {
+            ID: "in",
+            Filter: { Prefix: "inputs/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
         ],
       }),
     );
     const result = verifyLifecyclePolicy(expected, observed);
     expect(result.verdict).toBe("drift");
-    const artifact = result.checks.find((c) => c.role === "artifact-expiration");
+    const artifact = result.checks.find(
+      (c) => c.role === "artifact-expiration",
+    );
     expect(artifact?.status).toBe("missing");
-    expect(result.plan.find((p) => p.ruleId === artifact?.ruleId)?.action).toBe("create");
+    expect(result.plan.find((p) => p.ruleId === artifact?.ruleId)?.action).toBe(
+      "create",
+    );
   });
 
   it("flags a weaker (longer) expiration as drift — objects outlive the ceiling", () => {
@@ -212,9 +256,23 @@ describe("verifyLifecyclePolicy — detects drift", () => {
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "in", Filter: { Prefix: "inputs/" }, Status: "Enabled", Expiration: { Days: 30 } },
-          { ID: "art", Filter: { Prefix: "artifacts/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "mp", Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
+          {
+            ID: "in",
+            Filter: { Prefix: "inputs/" },
+            Status: "Enabled",
+            Expiration: { Days: 30 },
+          },
+          {
+            ID: "art",
+            Filter: { Prefix: "artifacts/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "mp",
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          },
         ],
       }),
     );
@@ -222,16 +280,32 @@ describe("verifyLifecyclePolicy — detects drift", () => {
     expect(result.verdict).toBe("drift");
     const input = result.checks.find((c) => c.role === "input-expiration");
     expect(input?.status).toBe("weaker");
-    expect(result.plan.find((p) => p.ruleId === input?.ruleId)?.action).toBe("update");
+    expect(result.plan.find((p) => p.ruleId === input?.ruleId)?.action).toBe(
+      "update",
+    );
   });
 
   it("flags a disabled matching rule as drift with an update action", () => {
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "in", Filter: { Prefix: "inputs/" }, Status: "Disabled", Expiration: { Days: 1 } },
-          { ID: "art", Filter: { Prefix: "artifacts/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "mp", Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
+          {
+            ID: "in",
+            Filter: { Prefix: "inputs/" },
+            Status: "Disabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "art",
+            Filter: { Prefix: "artifacts/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "mp",
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          },
         ],
       }),
     );
@@ -251,9 +325,23 @@ describe("verifyLifecyclePolicy — detects drift", () => {
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "in", Filter: { Prefix: "inputs/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "art", Filter: { Prefix: "artifacts/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "mp", Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
+          {
+            ID: "in",
+            Filter: { Prefix: "inputs/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "art",
+            Filter: { Prefix: "artifacts/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "mp",
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          },
         ],
       }),
     );
@@ -261,7 +349,9 @@ describe("verifyLifecyclePolicy — detects drift", () => {
     expect(result.verdict).toBe("verified"); // privacy ceiling still honored
     const input = result.checks.find((c) => c.role === "input-expiration");
     expect(input?.status).toBe("stricter");
-    expect(result.plan.find((p) => p.ruleId === input?.ruleId)?.action).toBe("review");
+    expect(result.plan.find((p) => p.ruleId === input?.ruleId)?.action).toBe(
+      "review",
+    );
   });
 
   it("applies the shortest of several covering rules (earliest expiration wins)", () => {
@@ -270,17 +360,36 @@ describe("verifyLifecyclePolicy — detects drift", () => {
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "wide", Filter: { Prefix: "" }, Status: "Enabled", Expiration: { Days: 30 } },
-          { ID: "in", Filter: { Prefix: "inputs/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "art", Filter: { Prefix: "artifacts/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "mp", Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
+          {
+            ID: "wide",
+            Filter: { Prefix: "" },
+            Status: "Enabled",
+            Expiration: { Days: 30 },
+          },
+          {
+            ID: "in",
+            Filter: { Prefix: "inputs/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "art",
+            Filter: { Prefix: "artifacts/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "mp",
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          },
         ],
       }),
     );
     const result = verifyLifecyclePolicy(expected, observed);
-    expect(result.checks.find((c) => c.role === "input-expiration")?.status).toBe(
-      "satisfied",
-    );
+    expect(
+      result.checks.find((c) => c.role === "input-expiration")?.status,
+    ).toBe("satisfied");
   });
 });
 
@@ -294,7 +403,9 @@ describe("verifyLifecyclePolicy — scoped filters fail safe (no false pass)", (
         Rules: [
           {
             ID: "expire-tagged-inputs",
-            Filter: { And: { Prefix: "inputs/", Tags: [{ Key: "tmp", Value: "1" }] } },
+            Filter: {
+              And: { Prefix: "inputs/", Tags: [{ Key: "tmp", Value: "1" }] },
+            },
             Status: "Enabled",
             Expiration: { Days: 1 },
           },
@@ -324,15 +435,31 @@ describe("verifyLifecyclePolicy — scoped filters fail safe (no false pass)", (
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "wide", Filter: { Prefix: "" }, Status: "Enabled", Expiration: { Days: 30 } },
+          {
+            ID: "wide",
+            Filter: { Prefix: "" },
+            Status: "Enabled",
+            Expiration: { Days: 30 },
+          },
           {
             ID: "tagged-fast",
-            Filter: { And: { Prefix: "inputs/", Tags: [{ Key: "x", Value: "y" }] } },
+            Filter: {
+              And: { Prefix: "inputs/", Tags: [{ Key: "x", Value: "y" }] },
+            },
             Status: "Enabled",
             Expiration: { Days: 1 },
           },
-          { ID: "art", Filter: { Prefix: "artifacts/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "mp", Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
+          {
+            ID: "art",
+            Filter: { Prefix: "artifacts/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "mp",
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          },
         ],
       }),
     );
@@ -348,7 +475,12 @@ describe("verifyLifecyclePolicy — scoped filters fail safe (no false pass)", (
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "weird", Filter: "inputs/", Status: "Enabled", Expiration: { Days: 1 } },
+          {
+            ID: "weird",
+            Filter: "inputs/",
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
         ],
       }),
     );
@@ -361,8 +493,18 @@ describe("verifyLifecyclePolicy — scoped filters fail safe (no false pass)", (
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "everything", Filter: {}, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "mp", Filter: {}, Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
+          {
+            ID: "everything",
+            Filter: {},
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "mp",
+            Filter: {},
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          },
         ],
       }),
     );
@@ -377,14 +519,35 @@ describe("verifyLifecyclePolicy — scoped filters fail safe (no false pass)", (
     const observed = observe(
       JSON.stringify({
         Rules: [
-          { ID: "in", Filter: { Prefix: "inputs/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "art", Filter: { Prefix: "artifacts/" }, Status: "Enabled", Expiration: { Days: 1 } },
-          { ID: "mp", Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
-          { ID: "dm", Status: "Enabled", Expiration: { ExpiredObjectDeleteMarker: true } },
+          {
+            ID: "in",
+            Filter: { Prefix: "inputs/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "art",
+            Filter: { Prefix: "artifacts/" },
+            Status: "Enabled",
+            Expiration: { Days: 1 },
+          },
+          {
+            ID: "mp",
+            Status: "Enabled",
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          },
+          {
+            ID: "dm",
+            Status: "Enabled",
+            Expiration: { ExpiredObjectDeleteMarker: true },
+          },
           {
             ID: "keep-5-versions",
             Status: "Enabled",
-            NoncurrentVersionExpiration: { NoncurrentDays: 1, NewerNoncurrentVersions: 5 },
+            NoncurrentVersionExpiration: {
+              NoncurrentDays: 1,
+              NewerNoncurrentVersions: 5,
+            },
           },
         ],
       }),
@@ -392,7 +555,8 @@ describe("verifyLifecyclePolicy — scoped filters fail safe (no false pass)", (
     const result = verifyLifecyclePolicy(expectedVersioned, observed);
     expect(result.verdict).toBe("drift");
     expect(
-      result.checks.find((c) => c.role === "noncurrent-version-expiration")?.status,
+      result.checks.find((c) => c.role === "noncurrent-version-expiration")
+        ?.status,
     ).toBe("missing");
   });
 });

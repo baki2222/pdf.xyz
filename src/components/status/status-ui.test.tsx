@@ -28,7 +28,12 @@ describe("RecoverableError", () => {
   it("offers a recovery action that calls back", () => {
     const onRetry = vi.fn();
     render(
-      <RecoverableError title="Oops" message="Try again." onRetry={onRetry} retryLabel="Retry" />,
+      <RecoverableError
+        title="Oops"
+        message="Try again."
+        onRetry={onRetry}
+        retryLabel="Retry"
+      />,
     );
     screen.getByRole("button", { name: /retry/i }).click();
     expect(onRetry).toHaveBeenCalledTimes(1);

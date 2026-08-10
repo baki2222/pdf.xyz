@@ -31,7 +31,9 @@ const FORBIDDEN = [
 const enc = (s: string) => new TextEncoder().encode(s);
 
 /** An output whose filename, bytes, and content-type parameter are loaded with secrets. */
-function hostileArtifact(over: Partial<ProcessorArtifact> = {}): ProcessorArtifact {
+function hostileArtifact(
+  over: Partial<ProcessorArtifact> = {},
+): ProcessorArtifact {
   return {
     filename: "/etc/passwd Confidential Salaries.pdf",
     contentType: "application/pdf; note=AWS_SECRET_ACCESS_KEY",
@@ -78,7 +80,9 @@ describe("artifact-manifest validations are content-free", () => {
       name: "reject: content_type_mismatch",
       input: hostileInput({
         artifacts: [
-          hostileArtifact({ contentType: "text/plain; k=AWS_SECRET_ACCESS_KEY" }),
+          hostileArtifact({
+            contentType: "text/plain; k=AWS_SECRET_ACCESS_KEY",
+          }),
         ],
       }),
     },
@@ -134,7 +138,9 @@ describe("artifact-manifest validations are content-free", () => {
   it("a metric built from a hostile check carries only bounded enum labels", () => {
     const v = checkArtifacts(
       DEFAULT_ARTIFACT_POLICY,
-      hostileInput({ artifacts: [hostileArtifact({ bytes: new Uint8Array() })] }),
+      hostileInput({
+        artifacts: [hostileArtifact({ bytes: new Uint8Array() })],
+      }),
     );
     const sample = artifactManifestMetric(
       v.checks[0]!.verdict,
@@ -156,9 +162,9 @@ describe("artifact-manifest validations are content-free", () => {
   });
 
   it("the gate capability detail names no variable, value, or secret", () => {
-    const detail = createArtifactManifestGate(DEFAULT_ARTIFACT_POLICY)
-      .capability()
-      .detail;
+    const detail = createArtifactManifestGate(
+      DEFAULT_ARTIFACT_POLICY,
+    ).capability().detail;
     for (const secret of [...FORBIDDEN, "PDFXYZ_"]) {
       expect(detail).not.toContain(secret);
     }
@@ -167,12 +173,16 @@ describe("artifact-manifest validations are content-free", () => {
   it("a reject detail is a fixed string independent of the output bytes", () => {
     const a = checkArtifacts(
       DEFAULT_ARTIFACT_POLICY,
-      hostileInput({ artifacts: [hostileArtifact({ bytes: enc("AAAA one") })] }),
+      hostileInput({
+        artifacts: [hostileArtifact({ bytes: enc("AAAA one") })],
+      }),
     );
     const b = checkArtifacts(
       DEFAULT_ARTIFACT_POLICY,
       hostileInput({
-        artifacts: [hostileArtifact({ bytes: enc("BBBB totally different two") })],
+        artifacts: [
+          hostileArtifact({ bytes: enc("BBBB totally different two") }),
+        ],
       }),
     );
     // Same shape ⇒ byte-identical detail; the output never colors the message.

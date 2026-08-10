@@ -1,9 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import {
-  parseArtifactCleanupArgs,
-  type ArtifactCleanupArgs,
-} from "./args";
+import { parseArtifactCleanupArgs, type ArtifactCleanupArgs } from "./args";
 
 /** Assert a run parse and return its args. */
 function run(argv: string[]): ArtifactCleanupArgs {
@@ -45,7 +42,13 @@ describe("parseArtifactCleanupArgs", () => {
   });
 
   it("honors output + section flags", () => {
-    const args = run(["--file=in.json", "--text", "--plan", "--breakdown", "--metrics"]);
+    const args = run([
+      "--file=in.json",
+      "--text",
+      "--plan",
+      "--breakdown",
+      "--metrics",
+    ]);
     expect(args).toMatchObject({
       format: "text",
       includePlan: true,
@@ -56,7 +59,9 @@ describe("parseArtifactCleanupArgs", () => {
 
   it("parses --now as epoch ms and ISO", () => {
     expect(run(["--stdin", "--now=1700000000000"]).nowMs).toBe(1700000000000);
-    expect(run(["--stdin", "--now=2023-11-14T22:13:20.000Z"]).nowMs).toBe(1700000000000);
+    expect(run(["--stdin", "--now=2023-11-14T22:13:20.000Z"]).nowMs).toBe(
+      1700000000000,
+    );
   });
 
   it("accepts --dry-run as a no-op", () => {
@@ -87,8 +92,12 @@ describe("parseArtifactCleanupArgs", () => {
   });
 
   it("refuses --apply / --delete: the tool never deletes", () => {
-    expect(reject(["--stdin", "--apply"])).toMatch(/dry-run only and never deletes/i);
-    expect(reject(["--stdin", "--delete"])).toMatch(/dry-run only and never deletes/i);
+    expect(reject(["--stdin", "--apply"])).toMatch(
+      /dry-run only and never deletes/i,
+    );
+    expect(reject(["--stdin", "--delete"])).toMatch(
+      /dry-run only and never deletes/i,
+    );
   });
 
   it("echoes an unknown flag name but never a bare positional (which could be a filename)", () => {

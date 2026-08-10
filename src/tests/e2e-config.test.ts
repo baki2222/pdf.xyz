@@ -18,9 +18,10 @@ import { resolvePnpmInvocation } from "@/lib/workers/exec-pnpm";
 import { shellQuote } from "@/lib/workers/shell-quote";
 
 describe("playwright webServer command", () => {
-  const command = config.webServer && !Array.isArray(config.webServer)
-    ? config.webServer.command
-    : undefined;
+  const command =
+    config.webServer && !Array.isArray(config.webServer)
+      ? config.webServer.command
+      : undefined;
 
   it("is defined as a single shell command", () => {
     expect(typeof command).toBe("string");

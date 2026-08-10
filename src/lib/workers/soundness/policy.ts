@@ -152,7 +152,11 @@ function boundedInt(
   // Reject anything that is not a plain base-10 integer (no `1e9`, `0x10`, `1.5`, `1kb`).
   if (!/^-?\d+$/.test(raw)) return fallback;
   const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < bounds.min || value > bounds.max) {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < bounds.min ||
+    value > bounds.max
+  ) {
     return fallback;
   }
   return value;
@@ -167,7 +171,11 @@ export function resolveSoundnessPolicy(
   env: EnvSource = process.env,
 ): SoundnessPolicy {
   return {
-    enabled: readBool(env, SOUNDNESS_ENV.enabled, DEFAULT_SOUNDNESS_POLICY.enabled),
+    enabled: readBool(
+      env,
+      SOUNDNESS_ENV.enabled,
+      DEFAULT_SOUNDNESS_POLICY.enabled,
+    ),
     maxBytes: boundedInt(
       env,
       SOUNDNESS_ENV.maxBytes,

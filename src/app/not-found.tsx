@@ -19,7 +19,7 @@ export default function NotFound() {
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
             This page took a wrong turn
           </h1>
-          <p className="max-w-md text-pretty text-base leading-relaxed text-slate-400">
+          <p className="max-w-md text-base leading-relaxed text-pretty text-slate-400">
             We couldn&apos;t find what you were looking for. Try one of our{" "}
             {toolCount} tools, or head back home.
           </p>
@@ -47,7 +47,7 @@ export default function NotFound() {
             <Link
               key={tool.slug}
               href={`/tools/${tool.slug}`}
-              className="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pl-1.5 pr-4 text-sm font-medium text-slate-200 transition-colors hover:border-white/20 hover:bg-white/10 hover:text-white"
+              className="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pr-4 pl-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-white/20 hover:bg-white/10 hover:text-white"
             >
               <ToolIcon
                 icon={tool.icon}

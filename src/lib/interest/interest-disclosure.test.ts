@@ -49,7 +49,7 @@ describe("the interest counter never exists without its disclosures", () => {
       "Pressing it sends us the tool&apos;s name — nothing about you.",
     );
     // And the beacon carries the slug alone — the one-dimension rule.
-    expect(button).toContain('JSON.stringify({ slug: tool.slug })');
+    expect(button).toContain("JSON.stringify({ slug: tool.slug })");
   });
 
   it("the passive-analytics claim the disclosure sits beside is still present", () => {

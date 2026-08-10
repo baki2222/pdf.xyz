@@ -34,7 +34,9 @@ type EnvSource = Record<string, string | undefined>;
 export const AI_PROVIDER_FAMILIES = ["anthropic", "openai"] as const;
 export type AiProviderFamily = (typeof AI_PROVIDER_FAMILIES)[number];
 
-const AI_PROVIDER_FAMILY_SET: ReadonlySet<string> = new Set(AI_PROVIDER_FAMILIES);
+const AI_PROVIDER_FAMILY_SET: ReadonlySet<string> = new Set(
+  AI_PROVIDER_FAMILIES,
+);
 
 /**
  * Default public model id per provider family, used when `PDFXYZ_AI_MODEL` is
@@ -195,7 +197,9 @@ function parseBoundedInt(
  * (`missing_api_key`), or any variable is malformed (`invalid`, naming the offending
  * variable — never its value). `env` is injectable for deterministic tests.
  */
-export function resolveAiConfig(env: EnvSource = process.env): AiConfigResolution {
+export function resolveAiConfig(
+  env: EnvSource = process.env,
+): AiConfigResolution {
   const parsedFamily = parseProviderFamily(env);
   if (parsedFamily.state === "absent") {
     return { enabled: false, reason: "not_configured" };
@@ -213,7 +217,10 @@ export function resolveAiConfig(env: EnvSource = process.env): AiConfigResolutio
     return {
       enabled: false,
       reason: "missing_api_key",
-      error: fieldError(AI_ENV.apiKey, "is required to enable the AI provider."),
+      error: fieldError(
+        AI_ENV.apiKey,
+        "is required to enable the AI provider.",
+      ),
     };
   }
 
@@ -248,7 +255,8 @@ export function resolveAiConfig(env: EnvSource = process.env): AiConfigResolutio
     AI_ENV.timeoutMs,
     AI_TIMEOUT_MS_BOUNDS,
   );
-  if (!timeout.ok) return { enabled: false, reason: "invalid", error: timeout.error };
+  if (!timeout.ok)
+    return { enabled: false, reason: "invalid", error: timeout.error };
 
   const maxOutput = parseBoundedInt(
     env[AI_ENV.maxOutputTokens],
@@ -295,10 +303,13 @@ export type AiDeclaration =
  * touches the API key, so it is safe to evaluate in a process that holds no
  * secret. `env` is injectable for deterministic tests.
  */
-export function resolveAiDeclaration(env: EnvSource = process.env): AiDeclaration {
+export function resolveAiDeclaration(
+  env: EnvSource = process.env,
+): AiDeclaration {
   const family = parseProviderFamily(env);
   if (family.state === "absent") return { state: "absent" };
-  if (family.state === "invalid") return { state: "invalid", error: family.error };
+  if (family.state === "invalid")
+    return { state: "invalid", error: family.error };
 
   const model = parseModel(env, family.family);
   if (!model.ok) return { state: "invalid", error: model.error };
@@ -307,7 +318,9 @@ export function resolveAiDeclaration(env: EnvSource = process.env): AiDeclaratio
 }
 
 /** One-line, client-safe explanation for each disabled reason. Never names a value. */
-function disabledDetail(resolution: Extract<AiConfigResolution, { enabled: false }>): string {
+function disabledDetail(
+  resolution: Extract<AiConfigResolution, { enabled: false }>,
+): string {
   switch (resolution.reason) {
     case "not_configured":
       return `AI is not configured. An operator enables it by setting ${AI_ENV.provider} (one of ${AI_PROVIDER_FAMILIES.join(", ")}) and ${AI_ENV.apiKey}.`;

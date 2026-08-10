@@ -51,7 +51,8 @@ export const ARTIFACT_LIFECYCLE_STATES = [
   "deleted",
   "unknown",
 ] as const;
-export type StorageArtifactLifecycle = (typeof ARTIFACT_LIFECYCLE_STATES)[number];
+export type StorageArtifactLifecycle =
+  (typeof ARTIFACT_LIFECYCLE_STATES)[number];
 
 /**
  * The content-free lifecycle evidence decoded from a storage-backed artifact object's signed
@@ -102,7 +103,11 @@ export function evaluateArtifactLifecycle(
   if (meta.deleted) return "deleted";
   // A retention deadline that has passed — but only when both the deadline and the clock are
   // usable instants, so neither a placeholder deadline nor an unreadable clock denies falsely.
-  if (usableInstant(meta.expiresAtMs) && usableInstant(nowMs) && nowMs >= meta.expiresAtMs) {
+  if (
+    usableInstant(meta.expiresAtMs) &&
+    usableInstant(nowMs) &&
+    nowMs >= meta.expiresAtMs
+  ) {
     return "expired";
   }
   return "live";

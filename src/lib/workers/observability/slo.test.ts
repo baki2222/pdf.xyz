@@ -33,7 +33,9 @@ import {
   SLO_IDS,
 } from "./slo";
 
-function snapshotOf(build: (c: ReturnType<typeof createWorkerMetricsCollector>) => void) {
+function snapshotOf(
+  build: (c: ReturnType<typeof createWorkerMetricsCollector>) => void,
+) {
   const c = createWorkerMetricsCollector();
   build(c);
   return c.snapshot();
@@ -64,12 +66,18 @@ describe("job success rate", () => {
 
 describe("latency quantile", () => {
   it("is null with no observations", () => {
-    expect(latencyQuantile(snapshotOf(() => {}), 0.95).seconds).toBeNull();
+    expect(
+      latencyQuantile(
+        snapshotOf(() => {}),
+        0.95,
+      ).seconds,
+    ).toBeNull();
   });
 
   it("resolves p95/p99 to the histogram bucket bound", () => {
     const snap = snapshotOf((c) => {
-      for (let i = 0; i < 19; i++) c.record(processorLatencyMetric("compress", 500)); // le 0.5
+      for (let i = 0; i < 19; i++)
+        c.record(processorLatencyMetric("compress", 500)); // le 0.5
       c.record(processorLatencyMetric("compress", 45_000)); // le 60
     });
     expect(latencyQuantile(snap, 0.95).le).toBe("0.5");
@@ -77,7 +85,9 @@ describe("latency quantile", () => {
   });
 
   it("clamps q into (0, 1]", () => {
-    const snap = snapshotOf((c) => c.record(processorLatencyMetric("ocr", 100)));
+    const snap = snapshotOf((c) =>
+      c.record(processorLatencyMetric("ocr", 100)),
+    );
     expect(latencyQuantile(snap, 0).le).toBe("0.1");
     expect(latencyQuantile(snap, 5).le).toBe("0.1");
   });
@@ -119,19 +129,37 @@ describe("presence-only indicators", () => {
   it("engine readiness: unprobed unknown, deep ok, lossless-only warn", () => {
     expect(engineReadiness(snapshotOf(() => {})).status).toBe("unknown");
     const deep = snapshotOf((c) => {
-      for (const s of deriveEngineCapabilityMetrics({ compressionDeep: true, ocrReady: false, scannerActive: false })) c.record(s);
+      for (const s of deriveEngineCapabilityMetrics({
+        compressionDeep: true,
+        ocrReady: false,
+        scannerActive: false,
+      }))
+        c.record(s);
     });
     expect(engineReadiness(deep).status).toBe("ok");
     const lossless = snapshotOf((c) => {
-      for (const s of deriveEngineCapabilityMetrics({ compressionDeep: false, ocrReady: false, scannerActive: false })) c.record(s);
+      for (const s of deriveEngineCapabilityMetrics({
+        compressionDeep: false,
+        ocrReady: false,
+        scannerActive: false,
+      }))
+        c.record(s);
     });
     expect(engineReadiness(lossless).status).toBe("warn");
   });
 
   it("lifecycle drift: verified ok, any drift breach, unverified unknown", () => {
     expect(lifecycleDrift(snapshotOf(() => {})).status).toBe("unknown");
-    expect(lifecycleDrift(snapshotOf((c) => c.record(lifecycleVerificationMetric("verified")))).status).toBe("ok");
-    expect(lifecycleDrift(snapshotOf((c) => c.record(lifecycleVerificationMetric("drift")))).status).toBe("breach");
+    expect(
+      lifecycleDrift(
+        snapshotOf((c) => c.record(lifecycleVerificationMetric("verified"))),
+      ).status,
+    ).toBe("ok");
+    expect(
+      lifecycleDrift(
+        snapshotOf((c) => c.record(lifecycleVerificationMetric("drift"))),
+      ).status,
+    ).toBe("breach");
     const driftRules = snapshotOf((c) => {
       c.record(lifecycleVerificationMetric("verified"));
       c.record(lifecycleDriftMetric(2));
@@ -157,13 +185,16 @@ describe("evaluateSlos", () => {
       c.record(jobTerminalMetric("failed")); // 90% success → breach
     });
     const report = evaluateSlos(breachSnap);
-    expect(report.slos.find((s) => s.id === "job_success_rate")?.status).toBe("breach");
+    expect(report.slos.find((s) => s.id === "job_success_rate")?.status).toBe(
+      "breach",
+    );
     expect(report.worst).toBe("breach");
   });
 
   it("treats p99 at a bucket bound as warn under default thresholds", () => {
     const snap = snapshotOf((c) => {
-      for (let i = 0; i < 19; i++) c.record(processorLatencyMetric("compress", 500));
+      for (let i = 0; i < 19; i++)
+        c.record(processorLatencyMetric("compress", 500));
       c.record(processorLatencyMetric("compress", 45_000)); // p99 → le 60
     });
     const report = evaluateSlos(snap);
@@ -178,12 +209,18 @@ describe("evaluateSlos", () => {
       c.record(queueAgeMetric(10_000)); // 5-30s → below warn(2-10m) → ok
     });
     const report = evaluateSlos(snap);
-    expect(report.slos.find((s) => s.id === "queue_depth")?.status).toBe("warn");
+    expect(report.slos.find((s) => s.id === "queue_depth")?.status).toBe(
+      "warn",
+    );
     expect(report.slos.find((s) => s.id === "queue_age")?.status).toBe("ok");
   });
 
   it("ships sane default thresholds", () => {
-    expect(DEFAULT_SLO_THRESHOLDS.jobSuccessRate.breach).toBeLessThan(DEFAULT_SLO_THRESHOLDS.jobSuccessRate.warn);
-    expect(DEFAULT_SLO_THRESHOLDS.latencyP95Seconds.warn).toBeLessThan(DEFAULT_SLO_THRESHOLDS.latencyP95Seconds.breach);
+    expect(DEFAULT_SLO_THRESHOLDS.jobSuccessRate.breach).toBeLessThan(
+      DEFAULT_SLO_THRESHOLDS.jobSuccessRate.warn,
+    );
+    expect(DEFAULT_SLO_THRESHOLDS.latencyP95Seconds.warn).toBeLessThan(
+      DEFAULT_SLO_THRESHOLDS.latencyP95Seconds.breach,
+    );
   });
 });

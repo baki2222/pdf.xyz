@@ -9,24 +9,49 @@ import {
 } from "./engine";
 import type { SignatureRequestOptions } from "@/lib/jobs/request-signatures";
 
-const PDF = new TextEncoder().encode("%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+const PDF = new TextEncoder().encode(
+  "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
+);
 
 function geometry(pageCount = 1): PdfGeometry {
   return {
     pageCount,
-    pageSizes: Array.from({ length: pageCount }, () => ({ width: 612, height: 792 })),
+    pageSizes: Array.from({ length: pageCount }, () => ({
+      width: 612,
+      height: 792,
+    })),
   };
 }
 
-function options(over: Partial<SignatureRequestOptions> = {}): SignatureRequestOptions {
+function options(
+  over: Partial<SignatureRequestOptions> = {},
+): SignatureRequestOptions {
   return {
     signers: [
       { name: "Ada Lovelace", email: "ada@example.com" },
       { name: "Alan Turing", email: "alan@example.com" },
     ],
     fields: [
-      { signer: 0, page: 1, type: "signature", x: 0.1, y: 0.1, width: 0.35, height: 0.06, required: true },
-      { signer: 1, page: 1, type: "date", x: 0.55, y: 0.1, width: 0.2, height: 0.05, required: true },
+      {
+        signer: 0,
+        page: 1,
+        type: "signature",
+        x: 0.1,
+        y: 0.1,
+        width: 0.35,
+        height: 0.06,
+        required: true,
+      },
+      {
+        signer: 1,
+        page: 1,
+        type: "date",
+        x: 0.55,
+        y: 0.1,
+        width: 0.2,
+        height: 0.05,
+        required: true,
+      },
     ],
     routing: "sequential",
     deliver: false,
@@ -87,9 +112,13 @@ describe("runSignatureRequest", () => {
 
     const zip = await JSZip.loadAsync(run.output);
     // Prepared PDF is the placer's real output.
-    expect(await zip.file("prepared.pdf")!.async("uint8array")).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(await zip.file("prepared.pdf")!.async("uint8array")).toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
 
-    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
     expect(manifest.tool).toBe("request-signatures");
     expect(manifest.status).toBe("prepared");
     expect(manifest.document.sha256).toBe("a".repeat(64));
@@ -105,8 +134,12 @@ describe("runSignatureRequest", () => {
     expect(manifest.delivery.mode).toBe("manual");
 
     // A human-readable README and a seed audit trail with a single real event.
-    expect(await zip.file("README.txt")!.async("string")).toMatch(/signature request/i);
-    const audit = JSON.parse(await zip.file("audit-trail.json")!.async("string"));
+    expect(await zip.file("README.txt")!.async("string")).toMatch(
+      /signature request/i,
+    );
+    const audit = JSON.parse(
+      await zip.file("audit-trail.json")!.async("string"),
+    );
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0].type).toBe("request.prepared");
   });
@@ -116,7 +149,18 @@ describe("runSignatureRequest", () => {
     const run = await runSignatureRequest(
       PDF,
       options({
-        fields: [{ signer: 0, page: 3, type: "signature", x: 0.1, y: 0.1, width: 0.2, height: 0.05, required: true }],
+        fields: [
+          {
+            signer: 0,
+            page: 3,
+            type: "signature",
+            x: 0.1,
+            y: 0.1,
+            width: 0.2,
+            height: 0.05,
+            required: true,
+          },
+        ],
       }),
       d,
     );
@@ -149,7 +193,9 @@ describe("runSignatureRequest", () => {
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     const zip = await JSZip.loadAsync(run.output);
-    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
     expect(manifest.delivery.mode).toBe("provider");
     expect(manifest.delivery.provider).toBe("example-esign");
     // Still honest: handed off, never "completed"/"signed".

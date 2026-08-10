@@ -18,7 +18,9 @@ import { createRedisQueue } from "./redis";
 const TOKEN = "AX_tokenEXAMPLEvalue000000000000000000000";
 const HOUR_MS = 60 * 60_000;
 
-function config(overrides: Record<string, string | undefined> = {}): RedisQueueConfig {
+function config(
+  overrides: Record<string, string | undefined> = {},
+): RedisQueueConfig {
   const parsed = parseRedisQueueConfig({
     [REDIS_QUEUE_ENV.provider]: "redis",
     [REDIS_QUEUE_ENV.restUrl]: "https://example.upstash.io",
@@ -124,7 +126,11 @@ describe("createRedisQueue — keys are namespaced and never user-controlled", (
   it("prefixes every key and hashes the client idempotency key", async () => {
     const { fake, q } = make();
     await q.submit(
-      { job: jobAt("queued"), inputs: ["f_input0000001"], options: { level: "high" } },
+      {
+        job: jobAt("queued"),
+        inputs: ["f_input0000001"],
+        options: { level: "high" },
+      },
       "user:secret-idem-key",
     );
     const keys = fake.keys();
@@ -144,7 +150,11 @@ describe("createRedisQueue — keys are namespaced and never user-controlled", (
 
   it("honors a custom, sanitized key prefix", async () => {
     const { fake, q } = make({ [REDIS_QUEUE_ENV.keyPrefix]: "tenant-a" });
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     expect(fake.keys().every((k) => k.startsWith("tenant-a:"))).toBe(true);
   });
 });
@@ -197,7 +207,11 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
 
   it("clamps the lease to the configured ceiling", async () => {
     const { q, clock } = make({ [REDIS_QUEUE_ENV.leaseSeconds]: "60" });
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     const claim = await q.claim({ leaseMs: 10 * 60_000 }); // ask for 10 min
     if (!claim.ok || !claim.value) throw new Error("expected a claim");
     expect(claim.value.leaseExpiresAt).toBe(clock.ms + 60_000); // clamped to 60s
@@ -205,11 +219,20 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
 
   it("advances scanning → processing → completed and clears execution state", async () => {
     const { q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 30_000 });
-    expect((await q.advance("job_test000001", { status: "processing", progress: 40 })).ok).toBe(
-      true,
-    );
+    expect(
+      (
+        await q.advance("job_test000001", {
+          status: "processing",
+          progress: 40,
+        })
+      ).ok,
+    ).toBe(true);
     const done = await q.complete("job_test000001", [ARTIFACT]);
     expect(done.ok).toBe(true);
     if (!done.ok) return;
@@ -224,7 +247,11 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
 
   it("persists sanitized OCR result metadata through the durable record (survives a status round-trip)", async () => {
     const { q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 30_000 });
     await q.advance("job_test000001", { status: "processing" });
     // A runner reports a hostile engine/language alongside real facts; the boundary
@@ -276,7 +303,11 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
 
   it("extends a lease on heartbeat so the job is not redelivered", async () => {
     const { q, clock } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 30_000 }); // clock 1000 → lease expires 31_000
     clock.ms = 20_000;
     expect((await q.heartbeat("job_test000001", 30_000)).ok).toBe(true); // → 50_000
@@ -298,7 +329,11 @@ describe("createRedisQueue — submit / claim / execution loop", () => {
 describe("createRedisQueue — retries, redelivery, and the dead-letter cap", () => {
   it("requeues a retryable failure, carrying the attempt count forward", async () => {
     const { q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     const first = await q.claim({ leaseMs: 30_000 });
     expect(first.ok && first.value?.attempt).toBe(1);
     const failed = await q.fail(
@@ -313,19 +348,28 @@ describe("createRedisQueue — retries, redelivery, and the dead-letter cap", ()
 
   it("redelivers a job whose lease expired and bumps its attempt", async () => {
     const { q, clock } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 30_000 }); // clock 1000 → expires 31_000
     clock.ms = 31_000; // lease now expired
     const redelivered = await q.claim({ leaseMs: 30_000 });
     expect(redelivered.ok).toBe(true);
-    if (!redelivered.ok || !redelivered.value) throw new Error("expected redelivery");
+    if (!redelivered.ok || !redelivered.value)
+      throw new Error("expected redelivery");
     expect(redelivered.value.attempt).toBe(2);
     expect(redelivered.value.job.status).toBe("scanning");
   });
 
   it("dead-letters a job that exceeds the max attempts instead of re-claiming", async () => {
     const { q } = make({ [REDIS_QUEUE_ENV.maxAttempts]: "1" });
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 30_000 }); // attempt 1
     await q.fail(
       "job_test000001",
@@ -342,7 +386,11 @@ describe("createRedisQueue — retries, redelivery, and the dead-letter cap", ()
 
   it("fails a job terminally with its typed error when not requeued", async () => {
     const { q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     await q.claim({ leaseMs: 30_000 });
     const res = await q.fail(
       "job_test000001",
@@ -358,7 +406,11 @@ describe("createRedisQueue — cancel / expire state machine", () => {
   it("cancels an in-flight job, stamps updatedAt, and removes it from the queue", async () => {
     const { q, clock } = make();
     clock.ms = 5_000;
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     const res = await q.cancel("job_test000001");
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -400,12 +452,20 @@ describe("createRedisQueue — cancel / expire state machine", () => {
 describe("createRedisQueue — honest unavailable on transport failure", () => {
   it("maps a broker outage to a typed unavailable on every operation", async () => {
     const { fake, q } = make();
-    await q.submit({ job: jobAt("queued"), inputs: ["f_input0000001"], options: {} });
+    await q.submit({
+      job: jobAt("queued"),
+      inputs: ["f_input0000001"],
+      options: {},
+    });
     fake.failing = true;
     for (const res of [
       await q.status("job_test000001"),
       await q.enqueue(jobAt("queued", "job_other00001")),
-      await q.submit({ job: jobAt("queued"), inputs: ["f_x00000000001"], options: {} }),
+      await q.submit({
+        job: jobAt("queued"),
+        inputs: ["f_x00000000001"],
+        options: {},
+      }),
       await q.lookupIdempotent("k"),
       await q.claim({ leaseMs: 30_000 }),
       await q.cancel("job_test000001"),

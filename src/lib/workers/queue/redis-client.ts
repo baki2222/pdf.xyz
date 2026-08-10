@@ -25,8 +25,7 @@ export type RedisArg = string | number;
 
 /** A typed transport result: a value, or a secret-free failure reason. */
 export type RedisResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: string };
+  { ok: true; value: T } | { ok: false; error: string };
 
 /**
  * The minimal HTTP response shape the client needs — deliberately not the DOM
@@ -89,7 +88,10 @@ export function createRedisClient(options: RedisClientOptions): RedisClient {
   } as const;
 
   /** POST a JSON body to a sub-path and return the parsed JSON, or a failure. */
-  async function post(path: string, body: unknown): Promise<RedisResult<unknown>> {
+  async function post(
+    path: string,
+    body: unknown,
+  ): Promise<RedisResult<unknown>> {
     let res: RedisHttpResponse;
     try {
       res = await fetchImpl(`${options.baseUrl}${path}`, {
@@ -113,7 +115,8 @@ export function createRedisClient(options: RedisClientOptions): RedisClient {
     async command(args) {
       const res = await post("", args.map(String));
       if (!res.ok) return res;
-      if (!isEnvelope(res.value)) return { ok: false, error: "malformed_response" };
+      if (!isEnvelope(res.value))
+        return { ok: false, error: "malformed_response" };
       if (res.value.error) return { ok: false, error: "command_error" };
       return { ok: true, value: res.value.result ?? null };
     },
@@ -133,7 +136,8 @@ export function createRedisClient(options: RedisClientOptions): RedisClient {
       }
       const values: RedisValue[] = [];
       for (const item of res.value) {
-        if (!isEnvelope(item)) return { ok: false, error: "malformed_response" };
+        if (!isEnvelope(item))
+          return { ok: false, error: "malformed_response" };
         if (item.error) return { ok: false, error: "transaction_error" };
         values.push(item.result ?? null);
       }

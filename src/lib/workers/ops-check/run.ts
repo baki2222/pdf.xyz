@@ -41,7 +41,10 @@ import {
  */
 export interface OpsCheckProvider {
   collectLive(source: "runtime" | "web"): Promise<CollectedOperations>;
-  readInput(source: "stdin" | "file", filePath: string | undefined): Promise<string>;
+  readInput(
+    source: "stdin" | "file",
+    filePath: string | undefined,
+  ): Promise<string>;
   now(): string;
 }
 
@@ -100,7 +103,10 @@ function buildResult(
       health: snapshot.health,
       drainable: snapshot.drainable,
       daemonObserved: snapshot.daemonObserved,
-      subsystems: snapshot.subsystems.map((s) => ({ id: s.id, health: s.health })),
+      subsystems: snapshot.subsystems.map((s) => ({
+        id: s.id,
+        health: s.health,
+      })),
       proofs: {
         compressionDeep: snapshot.proofs.compressionDeep,
         ocr: snapshot.proofs.ocr,
@@ -153,12 +159,18 @@ async function ingest(
   filePath: string | undefined,
   provider: OpsCheckProvider,
   generatedAt: string,
-): Promise<{ ok: true; collected: CollectedOperations } | { ok: false; error: OpsCheckUsageError }> {
+): Promise<
+  | { ok: true; collected: CollectedOperations }
+  | { ok: false; error: OpsCheckUsageError }
+> {
   let text: string;
   try {
     text = await provider.readInput(source, filePath);
   } catch {
-    return { ok: false, error: usageError(source, generatedAt, ["input-unreadable"]) };
+    return {
+      ok: false,
+      error: usageError(source, generatedAt, ["input-unreadable"]),
+    };
   }
   const parsed = parseIngestedOperations(text);
   if (!parsed.ok) {
@@ -191,7 +203,12 @@ export async function runOpsCheck(
   let metricsForRender: CollectedOperations["metrics"] = null;
 
   if (args.source === "stdin" || args.source === "file") {
-    const result = await ingest(args.source, args.filePath, provider, generatedAt);
+    const result = await ingest(
+      args.source,
+      args.filePath,
+      provider,
+      generatedAt,
+    );
     if (!result.ok) {
       outcome = result.error;
     } else {

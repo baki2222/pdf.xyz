@@ -55,7 +55,9 @@ suite("qpdf runner (real binary)", () => {
       ownerPassword: password,
       keyLength: 256,
     });
-    const attempt = await runner.unlock(encrypted, { password: "not-the-password" });
+    const attempt = await runner.unlock(encrypted, {
+      password: "not-the-password",
+    });
     expect(attempt).toEqual({ ok: false, wrongPassword: true });
   });
 

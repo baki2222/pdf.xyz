@@ -59,7 +59,11 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       processor: {
         ready: true,
         configured: true,
-        executor: { mode: "not-implemented", ready: false, detail: "out-of-band" },
+        executor: {
+          mode: "not-implemented",
+          ready: false,
+          detail: "out-of-band",
+        },
         detail: "ready",
       },
     },
@@ -72,7 +76,12 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       detail: "daemon can drain",
     },
     ai: AI_READY,
-    pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
+    pipeline: {
+      verdict: "off",
+      observed: false,
+      drainable: false,
+      detail: "no worker observed",
+    },
     ...overrides,
   };
 }
@@ -92,7 +101,11 @@ describe("canRunAiTool", () => {
     expect(
       canRunAiTool(
         status({
-          daemon: { ...status().daemon, drainable: false, queueConfigured: false },
+          daemon: {
+            ...status().daemon,
+            drainable: false,
+            queueConfigured: false,
+          },
           providers: {
             ...status().providers,
             queue: { ...status().providers.queue, ready: false },
@@ -120,7 +133,11 @@ describe("aiToolUnavailableDetail", () => {
   it("blames the pipeline when the daemon cannot drain", () => {
     const broken = status({
       ai: AI_READY,
-      daemon: { ...status().daemon, drainable: false, detail: "nothing to drain" },
+      daemon: {
+        ...status().daemon,
+        drainable: false,
+        detail: "nothing to drain",
+      },
     });
     expect(aiToolUnavailableDetail(broken)).toBe("nothing to drain");
   });

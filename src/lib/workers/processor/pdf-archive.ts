@@ -1,5 +1,8 @@
 import type { JobError } from "@/lib/jobs";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "@/lib/jobs";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "@/lib/jobs";
 import {
   PDF_TO_PDFA_TOOL,
   runPdfToPdfA,
@@ -41,9 +44,17 @@ function jobError(run: PdfArchiveFailure): JobError {
         retryable: false,
       };
     case "too_large":
-      return { code: "payload_too_large", message: run.message, retryable: false };
+      return {
+        code: "payload_too_large",
+        message: run.message,
+        retryable: false,
+      };
     case "invalid_pdf":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };
@@ -59,7 +70,9 @@ function toProcessorMeta(meta: PdfArchiveResultMeta): ProcessorMeta {
   };
 }
 
-function singleInput(input: Parameters<Processor["process"]>[0]): ProcessorResult | undefined {
+function singleInput(
+  input: Parameters<Processor["process"]>[0],
+): ProcessorResult | undefined {
   const file = input.inputs[0];
   if (input.inputs.length !== 1 || !file) {
     return processorFail({
@@ -103,7 +116,13 @@ export function createPdfArchiveProcessor(deps: PdfArchiveDeps): Processor {
       const run = await runPdfToPdfA(file.bytes, deps);
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
-        [{ filename: pdfaOutputName(file.filename), contentType: OUTPUT_CONTENT_TYPE, bytes: run.output }],
+        [
+          {
+            filename: pdfaOutputName(file.filename),
+            contentType: OUTPUT_CONTENT_TYPE,
+            bytes: run.output,
+          },
+        ],
         toProcessorMeta(run.meta),
       );
     },

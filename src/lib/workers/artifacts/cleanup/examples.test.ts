@@ -3,7 +3,10 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseArtifactInventory } from "./inventory";
-import { evaluateArtifactInventory, exitCodeForCleanupVerdict } from "./evaluate";
+import {
+  evaluateArtifactInventory,
+  exitCodeForCleanupVerdict,
+} from "./evaluate";
 import type { CleanupVerdict } from "./taxonomy";
 
 const DIR = join(process.cwd(), "docs", "examples", "artifacts", "cleanup");
@@ -12,7 +15,11 @@ const read = (f: string): string => readFileSync(join(DIR, f), "utf8");
 /** A fixed clock; fixtures use extreme expiresAtMs so the verdict is clock-robust anyway. */
 const NOW = 1_700_000_000_000;
 
-const CASES: Array<{ file: string; verdict: CleanupVerdict; exitCode: number }> = [
+const CASES: Array<{
+  file: string;
+  verdict: CleanupVerdict;
+  exitCode: number;
+}> = [
   { file: "inventory-clean.json", verdict: "ok", exitCode: 0 },
   { file: "inventory-unknown.json", verdict: "unknown", exitCode: 2 },
   { file: "inventory-drift.json", verdict: "drift", exitCode: 3 },
@@ -68,6 +75,15 @@ describe("cleanup example inventories", () => {
     const readme = read("README.md");
     for (const { file } of CASES) expect(readme).toContain(file);
     expect(readme).toContain("worker:artifact-cleanup");
-    for (const code of ["0", "1", "2", "3", "4"]) expect(readme).toContain(`| ${code} |`);
+    // Padding-insensitive: the claim is "this exit code has its own row in a
+    // table", not "the author typed exactly one space around it". Pinned to
+    // the literal `| 0 |`, this broke the moment a formatter aligned the
+    // table's columns — a guard tied to whitespace rather than to the
+    // relationship it means to protect.
+    for (const code of ["0", "1", "2", "3", "4"])
+      expect(
+        readme,
+        `the README has no table row for exit code ${code}`,
+      ).toMatch(new RegExp(`\\|\\s*${code}\\s*\\|`));
   });
 });

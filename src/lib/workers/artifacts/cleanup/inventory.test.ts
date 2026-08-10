@@ -40,7 +40,9 @@ describe("parseArtifactInventory", () => {
   });
 
   it("rejects too many records", () => {
-    const r = parseArtifactInventory(JSON.stringify(new Array(100_001).fill({})));
+    const r = parseArtifactInventory(
+      JSON.stringify(new Array(100_001).fill({})),
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.issues[0]!.code).toBe("too-large");
   });
@@ -68,7 +70,9 @@ describe("parseArtifactInventory", () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.inventory.records).toHaveLength(4);
-      expect(r.inventory.records.filter((rec) => !rec.wellFormed)).toHaveLength(3);
+      expect(r.inventory.records.filter((rec) => !rec.wellFormed)).toHaveLength(
+        3,
+      );
     }
   });
 });
@@ -140,7 +144,10 @@ describe("normalizeInventoryRecord", () => {
   });
 
   it("prefers a pre-bucketed age/size string when present", () => {
-    const rec = normalizeInventoryRecord({ age: "over-30d", size: "over-100mb" });
+    const rec = normalizeInventoryRecord({
+      age: "over-30d",
+      size: "over-100mb",
+    });
     expect(rec.age).toBe("over-30d");
     expect(rec.size).toBe("over-100mb");
   });

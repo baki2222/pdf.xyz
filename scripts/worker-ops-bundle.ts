@@ -42,11 +42,15 @@ import { readFileSync, statSync, writeFileSync } from "node:fs";
 const MAX_INPUT_BYTES = 1_048_576; // 1 MiB
 
 /** Read the raw text for the ops-check result (`stdin`/`file`), bounding the size. Throws on failure. */
-async function readOpsCheck(source: "stdin" | "file", filePath: string | undefined): Promise<string> {
+async function readOpsCheck(
+  source: "stdin" | "file",
+  filePath: string | undefined,
+): Promise<string> {
   if (source === "file") {
     // The path is the operator's own file reference; it is never logged. Bound the size first.
     const path = filePath ?? "";
-    if (statSync(path).size > MAX_INPUT_BYTES) throw new Error("input-too-large");
+    if (statSync(path).size > MAX_INPUT_BYTES)
+      throw new Error("input-too-large");
     return readFileSync(path, "utf8");
   }
   // stdin (fd 0): read to EOF (a pipe from worker:ops-check), then bound the size.
@@ -57,7 +61,8 @@ async function readOpsCheck(source: "stdin" | "file", filePath: string | undefin
 
 /** Read the raw text for an optional pipeline summary file, bounding the size. Throws on failure. */
 async function readPipeline(filePath: string): Promise<string> {
-  if (statSync(filePath).size > MAX_INPUT_BYTES) throw new Error("input-too-large");
+  if (statSync(filePath).size > MAX_INPUT_BYTES)
+    throw new Error("input-too-large");
   return readFileSync(filePath, "utf8");
 }
 
@@ -84,7 +89,9 @@ async function main(): Promise<number> {
       writeFileSync(parsed.args.outputPath, output, "utf8");
     } catch {
       // Never echo the destination path: it may be an operator-local path.
-      process.stderr.write(`Could not write ops bundle output.\n\n${OPS_BUNDLE_USAGE}\n`);
+      process.stderr.write(
+        `Could not write ops bundle output.\n\n${OPS_BUNDLE_USAGE}\n`,
+      );
       return OPS_BUNDLE_EXIT.USAGE;
     }
   } else {

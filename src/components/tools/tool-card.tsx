@@ -20,7 +20,7 @@ export function ToolCard({
     <Link
       href={`/tools/${tool.slug}`}
       className={cn(
-        "card-hover group relative flex h-full flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5 hover:border-white/20 hover:bg-white/[0.05] hover:shadow-xl hover:shadow-black/20",
+        "card-hover group bg-surface-2 relative flex h-full flex-col gap-4 rounded-2xl border border-white/10 p-5 hover:border-white/20 hover:bg-white/[0.05] hover:shadow-xl hover:shadow-black/20",
         className,
       )}
     >
@@ -29,7 +29,7 @@ export function ToolCard({
         <div className="flex items-center gap-2">
           {tool.badge && <ToolBadgePill badge={tool.badge} />}
           <ArrowUpRight
-            className="size-4 shrink-0 text-slate-400 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-white"
+            className="size-4 shrink-0 text-slate-400 transition-all duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-white"
             aria-hidden
           />
         </div>

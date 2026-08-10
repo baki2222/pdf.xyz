@@ -13,7 +13,12 @@
  * on its own.
  */
 
-import { apiError, RATE_LIMITS, type ApiError, type ApiResult } from "@/lib/jobs";
+import {
+  apiError,
+  RATE_LIMITS,
+  type ApiError,
+  type ApiResult,
+} from "@/lib/jobs";
 import type { RateLimitDecision } from "./types";
 import { policyFor } from "./policy";
 
@@ -36,7 +41,9 @@ export function rateLimitErrorResult(
 ): ApiResult<ApiError> {
   return apiError(
     "rate_limited",
-    decision.action === "ai.run" ? AI_ALLOWANCE_USED_MESSAGE : RATE_LIMITED_MESSAGE,
+    decision.action === "ai.run"
+      ? AI_ALLOWANCE_USED_MESSAGE
+      : RATE_LIMITED_MESSAGE,
   );
 }
 

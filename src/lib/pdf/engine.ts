@@ -1,6 +1,11 @@
 import type { PDFDocument } from "pdf-lib";
 import { loadPdfLib } from "./pdf-lib";
-import type { NamedBytes, OrganizePlanItem, Rotation, SplitPart } from "./types";
+import type {
+  NamedBytes,
+  OrganizePlanItem,
+  Rotation,
+  SplitPart,
+} from "./types";
 
 /**
  * The core client-side PDF engine. Every function takes and returns plain byte
@@ -67,7 +72,7 @@ function sanitizeIndices(indices: number[], count: number): number[] {
 
 /** Snap any angle to the nearest valid PDF rotation (0 | 90 | 180 | 270). */
 export function normalizeAngle(angle: number): Rotation {
-  const snapped = ((Math.round(angle / 90) * 90) % 360 + 360) % 360;
+  const snapped = (((Math.round(angle / 90) * 90) % 360) + 360) % 360;
   return snapped as Rotation;
 }
 
@@ -81,7 +86,9 @@ export async function getPageCount(bytes: Uint8Array): Promise<number> {
 export async function getPageRotations(bytes: Uint8Array): Promise<Rotation[]> {
   const doc = await load(bytes);
   const { toDegrees } = await loadPdfLib();
-  return doc.getPages().map((page) => normalizeAngle(toDegrees(page.getRotation())));
+  return doc
+    .getPages()
+    .map((page) => normalizeAngle(toDegrees(page.getRotation())));
 }
 
 /** Concatenate several PDFs into one, in the order given. */
@@ -132,7 +139,9 @@ export async function deletePages(
   }
   const keep = toIndexList(count).filter((i) => !remove.has(i));
   if (keep.length === 0) {
-    throw new PdfEngineError("You can't delete every page — keep at least one.");
+    throw new PdfEngineError(
+      "You can't delete every page — keep at least one.",
+    );
   }
   const out = await PDFDocument.create();
   const pages = await out.copyPages(src, keep);
@@ -207,7 +216,10 @@ export async function organizePages(
   const src = await load(bytes);
   const count = src.getPageCount();
   const valid = plan.filter(
-    (item) => Number.isInteger(item.sourceIndex) && item.sourceIndex >= 0 && item.sourceIndex < count,
+    (item) =>
+      Number.isInteger(item.sourceIndex) &&
+      item.sourceIndex >= 0 &&
+      item.sourceIndex < count,
   );
   if (valid.length === 0) {
     throw new PdfEngineError("Keep at least one page.");

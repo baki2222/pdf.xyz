@@ -1,7 +1,21 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { Download, FilePlus2, Info, Plus, Trash2, TriangleAlert } from "lucide-react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  Download,
+  FilePlus2,
+  Info,
+  Plus,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import {
   createdFormOutputName,
   createFormFields,
@@ -30,7 +44,12 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
-import { NumberField, PrivacyLine, SegmentedControl, TextField } from "./stamp-controls";
+import {
+  NumberField,
+  PrivacyLine,
+  SegmentedControl,
+  TextField,
+} from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
 export function CreateFormsRunner() {
@@ -54,7 +73,13 @@ type ContextState =
   | { status: "error"; message: string }
   | { status: "ready"; context: NewFormContext };
 
-function FormBuilderStage({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function FormBuilderStage({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   // Keyed by file upstream, so this remounts (fresh "loading") for each PDF.
   const [state, setState] = useState<ContextState>({ status: "loading" });
 
@@ -147,14 +172,31 @@ function draftToSpec(d: FieldDraft): NewFormField {
   const { name, page, x, y, width, height } = d;
   switch (d.type) {
     case "text": {
-      const spec: NewTextField = { type: "text", name, page, x, y, width, height };
+      const spec: NewTextField = {
+        type: "text",
+        name,
+        page,
+        x,
+        y,
+        width,
+        height,
+      };
       if (d.defaultValue) spec.defaultValue = d.defaultValue;
       if (d.multiline) spec.multiline = true;
       if (d.maxLength.trim() !== "") spec.maxLength = Number(d.maxLength);
       return spec;
     }
     case "checkbox":
-      return { type: "checkbox", name, page, x, y, width, height, checked: d.checked };
+      return {
+        type: "checkbox",
+        name,
+        page,
+        x,
+        y,
+        width,
+        height,
+        checked: d.checked,
+      };
     case "dropdown": {
       const spec: NewDropdownField = {
         type: "dropdown",
@@ -228,7 +270,9 @@ function FormBuilder({
 }) {
   const { busy, error, result, run } = useAsyncRun<CreateFormResult>();
   const counter = useRef(1);
-  const [drafts, setDrafts] = useState<FieldDraft[]>(() => [makeDraft("f1", 1)]);
+  const [drafts, setDrafts] = useState<FieldDraft[]>(() => [
+    makeDraft("f1", 1),
+  ]);
 
   const specs = useMemo(() => drafts.map(draftToSpec), [drafts]);
   const errors = useMemo(
@@ -254,7 +298,9 @@ function FormBuilder({
   const removeField = (id: string) =>
     setDrafts((prev) => prev.filter((d) => d.id !== id));
   const updateField = (id: string, patch: Partial<FieldDraft>) =>
-    setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+    setDrafts((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+    );
 
   const onRun = () => {
     void run(async () => createFormFields(pdf.bytes, drafts.map(draftToSpec)));
@@ -266,14 +312,17 @@ function FormBuilder({
         title="Fillable form ready"
         summary={
           <>
-            {result.fieldCount} field{result.fieldCount === 1 ? "" : "s"} added to your PDF
+            {result.fieldCount} field{result.fieldCount === 1 ? "" : "s"} added
+            to your PDF
           </>
         }
         onReset={onReset}
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result.bytes, createdFormOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result.bytes, createdFormOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -281,7 +330,8 @@ function FormBuilder({
         </button>
         <p className="text-xs text-slate-400">
           Open it in any PDF viewer, or use{" "}
-          <span className="text-slate-200">Fill Forms</span> to complete the new fields.
+          <span className="text-slate-200">Fill Forms</span> to complete the new
+          fields.
         </p>
       </ResultPanel>
     );
@@ -340,7 +390,8 @@ function FormBuilder({
       <div className="flex flex-wrap items-center justify-end gap-3">
         {errors.length > 0 && drafts.length > 0 && (
           <span className="text-xs text-amber-300/90">
-            Fix {errors.length} issue{errors.length === 1 ? "" : "s"} above to continue.
+            Fix {errors.length} issue{errors.length === 1 ? "" : "s"} above to
+            continue.
           </span>
         )}
         <RunButton
@@ -368,16 +419,18 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
       <Info className="mt-0.5 size-4 shrink-0 text-violet-300" aria-hidden />
       <div className="flex flex-col gap-1 text-xs leading-relaxed text-slate-400">
         <span>
-          Positions are <span className="text-slate-200">PDF points</span> (1 pt = 1/72&quot;),
-          measured from the <span className="text-slate-200">bottom-left</span> corner of the page —
-          X goes right, Y goes up.
+          Positions are <span className="text-slate-200">PDF points</span> (1 pt
+          = 1/72&quot;), measured from the{" "}
+          <span className="text-slate-200">bottom-left</span> corner of the page
+          — X goes right, Y goes up.
           {first
             ? ` Page 1 is ${Math.round(first.width)} × ${Math.round(first.height)} pt.`
             : ""}
         </span>
         <span className="text-slate-400">
-          This adds classic fillable AcroForm fields by coordinates — it isn&apos;t a visual
-          drag-and-drop editor, and it doesn&apos;t create signature fields.
+          This adds classic fillable AcroForm fields by coordinates — it
+          isn&apos;t a visual drag-and-drop editor, and it doesn&apos;t create
+          signature fields.
           {context.existingNames.length > 0
             ? ` This PDF already has ${context.existingNames.length} field${
                 context.existingNames.length === 1 ? "" : "s"
@@ -410,7 +463,9 @@ function FieldCard({
   onRemove: () => void;
 }) {
   const size =
-    Number.isInteger(draft.page) && draft.page >= 1 && draft.page <= context.pageCount
+    Number.isInteger(draft.page) &&
+    draft.page >= 1 &&
+    draft.page <= context.pageCount
       ? context.pageSizes[draft.page - 1]
       : undefined;
   const pageHint = size
@@ -447,7 +502,12 @@ function FieldCard({
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-medium text-slate-300">Placement</span>
-          <span className={cn("text-[11px]", size ? "text-slate-400" : "text-amber-300/90")}>
+          <span
+            className={cn(
+              "text-[11px]",
+              size ? "text-slate-400" : "text-amber-300/90",
+            )}
+          >
             {pageHint}
           </span>
         </div>
@@ -495,7 +555,10 @@ function FieldCard({
       {errors.length > 0 && (
         <ul className="flex flex-col gap-1">
           {errors.map((message) => (
-            <li key={message} className="flex items-start gap-1.5 text-xs text-rose-300">
+            <li
+              key={message}
+              className="flex items-start gap-1.5 text-xs text-rose-300"
+            >
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
               <span>{message}</span>
             </li>
@@ -523,7 +586,11 @@ function TypeOptions({
   const setOptions = (optionsText: string) => {
     const next = parseOptions(optionsText);
     const patch: Partial<FieldDraft> = { optionsText };
-    if (draft.defaultValue && !draft.editable && !next.includes(draft.defaultValue)) {
+    if (
+      draft.defaultValue &&
+      !draft.editable &&
+      !next.includes(draft.defaultValue)
+    ) {
       patch.defaultValue = "";
     }
     onChange(patch);
@@ -656,7 +723,11 @@ function OptionsEditor({
         className={cn(INPUT_CLASS, "resize-y font-mono text-xs")}
         placeholder={"Option A\nOption B\nOption C"}
       />
-      {hint && <span className="text-[11px] leading-relaxed text-slate-400">{hint}</span>}
+      {hint && (
+        <span className="text-[11px] leading-relaxed text-slate-400">
+          {hint}
+        </span>
+      )}
     </div>
   );
 }
@@ -716,7 +787,9 @@ function Toggle({
       <span className="flex flex-col gap-0.5">
         <span className="text-sm font-medium text-slate-200">{label}</span>
         {description && (
-          <span className="text-xs leading-relaxed text-slate-400">{description}</span>
+          <span className="text-xs leading-relaxed text-slate-400">
+            {description}
+          </span>
         )}
       </span>
     </label>

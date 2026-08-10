@@ -1,5 +1,9 @@
 import type { WorkerStatus } from "./status";
-import { runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import {
+  runSecurityJob,
+  type PdfSecurityWorkerOptions,
+  type PdfSecurityWorkerResult,
+} from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
 import type { SummaryFormat, SummaryLength } from "@/lib/jobs/summarize-pdf";
 
@@ -34,7 +38,13 @@ export function runWorkerSummarize(
     format: input.format,
   };
   if (input.focus !== undefined) jobOptions.focus = input.focus;
-  return runSecurityJob("summarize-pdf", input.filename, input.bytes, jobOptions, options);
+  return runSecurityJob(
+    "summarize-pdf",
+    input.filename,
+    input.bytes,
+    jobOptions,
+    options,
+  );
 }
 
 /**
@@ -42,6 +52,8 @@ export function runWorkerSummarize(
  * remote pipeline AND a declared AI provider. See `./ai-tool-availability` for why
  * the AI half is checked here rather than left to fail after the upload.
  */
-export function canRunSummarize(status: WorkerStatus | null | undefined): boolean {
+export function canRunSummarize(
+  status: WorkerStatus | null | undefined,
+): boolean {
   return canRunAiTool(status);
 }

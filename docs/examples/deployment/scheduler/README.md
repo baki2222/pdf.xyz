@@ -11,25 +11,25 @@ copy them next to your deploy, adapt paths/user/cadence, and wire your own notif
 `worker:ops-check` returns a stable, documented code — the whole point is that a dumb
 scheduler can act on it:
 
-| Code | Meaning | Scheduler action |
-| ---- | ------- | ---------------- |
-| `0` | OK — healthy | nothing |
-| `1` | **usage** — the *check itself* was misconfigured (bad flag / unreadable input) | **never page** — fix the check, not the worker |
-| `2` | UNKNOWN — health could not be determined (no data) | alert |
-| `3` | WARNING — a recommended fix is outstanding | alert |
-| `4` | CRITICAL — a worker cannot run correctly, or an SLO breached | page |
+| Code | Meaning                                                                        | Scheduler action                               |
+| ---- | ------------------------------------------------------------------------------ | ---------------------------------------------- |
+| `0`  | OK — healthy                                                                   | nothing                                        |
+| `1`  | **usage** — the _check itself_ was misconfigured (bad flag / unreadable input) | **never page** — fix the check, not the worker |
+| `2`  | UNKNOWN — health could not be determined (no data)                             | alert                                          |
+| `3`  | WARNING — a recommended fix is outstanding                                     | alert                                          |
+| `4`  | CRITICAL — a worker cannot run correctly, or an SLO breached                   | page                                           |
 
 The rule the templates encode: **alert on a non-zero, non-`1` exit.** `1` is a distinct
 band so a broken monitor is never mistaken for a broken worker.
 
 ## Files
 
-| File | Context | What it shows |
-| ---- | ------- | ------------- |
-| [`ops-check-notify.sh`](ops-check-notify.sh) | cron / systemd / supervisor | The canonical **inert** consumer: run the check, map the exit code to a severity, and show where a real pager/webhook would forward the content-free JSON. Posts nowhere unless you wire a webhook out-of-band. |
-| [`ops-check.cron`](ops-check.cron) | `/etc/cron.d` | A crontab row that runs the wrapper every 5 min as an unprivileged user, with `MAILTO` for incident mail. |
-| [`pdfxyz-ops-check.service`](pdfxyz-ops-check.service) | systemd | A hardened `oneshot` unit that runs the wrapper (`--runtime` on the worker host). |
-| [`pdfxyz-ops-check.timer`](pdfxyz-ops-check.timer) | systemd | The timer that drives the service on a cadence (`Persistent=true` catches up a missed run). |
+| File                                                   | Context                     | What it shows                                                                                                                                                                                                   |
+| ------------------------------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`ops-check-notify.sh`](ops-check-notify.sh)           | cron / systemd / supervisor | The canonical **inert** consumer: run the check, map the exit code to a severity, and show where a real pager/webhook would forward the content-free JSON. Posts nowhere unless you wire a webhook out-of-band. |
+| [`ops-check.cron`](ops-check.cron)                     | `/etc/cron.d`               | A crontab row that runs the wrapper every 5 min as an unprivileged user, with `MAILTO` for incident mail.                                                                                                       |
+| [`pdfxyz-ops-check.service`](pdfxyz-ops-check.service) | systemd                     | A hardened `oneshot` unit that runs the wrapper (`--runtime` on the worker host).                                                                                                                               |
+| [`pdfxyz-ops-check.timer`](pdfxyz-ops-check.timer)     | systemd                     | The timer that drives the service on a cadence (`Persistent=true` catches up a missed run).                                                                                                                     |
 
 ## Contexts
 

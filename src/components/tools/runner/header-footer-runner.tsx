@@ -80,7 +80,8 @@ function HeaderFooterEditor({
   const headerPreview = applyTokens(headerText, sampleTokens);
   const footerPreview = applyTokens(footerText, sampleTokens);
 
-  const hasContent = headerText.trim().length > 0 || footerText.trim().length > 0;
+  const hasContent =
+    headerText.trim().length > 0 || footerText.trim().length > 0;
 
   const onRun = () => {
     const header: HeaderFooterZone | undefined = headerText.trim()

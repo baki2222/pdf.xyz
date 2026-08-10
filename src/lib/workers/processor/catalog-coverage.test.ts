@@ -55,7 +55,9 @@ describe("catalog ↔ processor registry coverage", () => {
   });
 
   it("every worker-backed catalog tool resolves to a processor", () => {
-    const orphans = workerBackedSlugs().filter((slug) => !registry.resolve(slug));
+    const orphans = workerBackedSlugs().filter(
+      (slug) => !registry.resolve(slug),
+    );
     // An orphan means the site accepts an upload for a job that can only ever
     // fail. Either register a processor, or mark the tool `processing: "client"`.
     expect(orphans).toEqual([]);
@@ -78,7 +80,9 @@ describe("catalog ↔ processor registry coverage", () => {
       .flatMap((processor) => processor.tools)
       .filter((slug) => {
         const tool = getToolBySlug(slug);
-        return tool ? !usesWorkerBackend(capabilityForMode(tool.processing)) : false;
+        return tool
+          ? !usesWorkerBackend(capabilityForMode(tool.processing))
+          : false;
       });
     expect(clientOnly).toEqual([]);
   });

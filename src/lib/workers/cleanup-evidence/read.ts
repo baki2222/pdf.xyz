@@ -35,7 +35,11 @@ export const MAX_REPORT_BYTES = 1_048_576; // 1 MiB
 
 /** The bounded outcome of reading one report file — no Node error object ever escapes. */
 export type ReadReportOutcome =
-  | { readonly kind: "ok"; readonly text: string; readonly mtimeMs: number | null }
+  | {
+      readonly kind: "ok";
+      readonly text: string;
+      readonly mtimeMs: number | null;
+    }
   | { readonly kind: "missing" }
   | { readonly kind: "unreadable" };
 
@@ -86,10 +90,15 @@ const DEFAULT_DEPS: CleanupEvidenceReadDeps = {
 };
 
 /** Turn one configured path into a bounded observation the resolver can fold. */
-function observe(path: string, deps: CleanupEvidenceReadDeps): CleanupEvidenceObservation {
+function observe(
+  path: string,
+  deps: CleanupEvidenceReadDeps,
+): CleanupEvidenceObservation {
   const outcome = deps.readReportFile(path);
-  if (outcome.kind === "missing") return { kind: "error", reason: "report_missing" };
-  if (outcome.kind === "unreadable") return { kind: "error", reason: "report_unreadable" };
+  if (outcome.kind === "missing")
+    return { kind: "error", reason: "report_missing" };
+  if (outcome.kind === "unreadable")
+    return { kind: "error", reason: "report_unreadable" };
   const parsed = parseCleanupReportText(outcome.text);
   if (!parsed.ok) return { kind: "error", reason: "report_malformed" };
   return { kind: "report", report: parsed.report, mtimeMs: outcome.mtimeMs };

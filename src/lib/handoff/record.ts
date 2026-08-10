@@ -4,11 +4,7 @@
  * TTL/expiry and summarization deterministic and unit-testable.
  */
 
-import type {
-  HandoffFileEntry,
-  HandoffRecord,
-  HandoffSummary,
-} from "./types";
+import type { HandoffFileEntry, HandoffRecord, HandoffSummary } from "./types";
 
 /** How long a handoff stays valid before it's treated as expired (30 minutes). */
 export const DEFAULT_HANDOFF_TTL_MS = 30 * 60 * 1000;
@@ -45,7 +41,8 @@ export function makeHandoffRecord({
   now,
   ttlMs = DEFAULT_HANDOFF_TTL_MS,
 }: MakeHandoffInput): HandoffRecord {
-  const ttl = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_HANDOFF_TTL_MS;
+  const ttl =
+    Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_HANDOFF_TTL_MS;
   return {
     id,
     toolSlug,

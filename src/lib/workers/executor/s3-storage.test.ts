@@ -99,7 +99,9 @@ const throwingFetch: S3ObjectFetch = async () => {
 describe("filenameForContentType", () => {
   it("names a PDF and falls back to a neutral name otherwise", () => {
     expect(filenameForContentType("application/pdf")).toBe("document.pdf");
-    expect(filenameForContentType("application/pdf; charset=binary")).toBe("document.pdf");
+    expect(filenameForContentType("application/pdf; charset=binary")).toBe(
+      "document.pdf",
+    );
     expect(filenameForContentType("image/png")).toBe("input");
   });
 });
@@ -136,7 +138,9 @@ describe("createS3ExecutorStorage — readInput", () => {
 
   it("falls back to a content-type name when no metadata is present (legacy)", async () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
-    const { fn } = fakeFetch([{ status: 200, contentType: "application/pdf", bytes }]);
+    const { fn } = fakeFetch([
+      { status: 200, contentType: "application/pdf", bytes },
+    ]);
     const storage = createS3ExecutorStorage(config(), { now, fetchImpl: fn });
 
     const file = await storage.readInput(fileId);
@@ -227,7 +231,9 @@ describe("createS3ExecutorStorage — writeArtifact", () => {
     const put = calls.find((c) => c.method === "PUT");
     expect(put).toBeDefined();
     expect(put!.body).toEqual(input.bytes);
-    expect(new URL(put!.url).pathname).toContain(`/artifacts/${artifact.artifactId}`);
+    expect(new URL(put!.url).pathname).toContain(
+      `/artifacts/${artifact.artifactId}`,
+    );
     expect(put!.headers?.["content-type"]).toBe("application/pdf");
     expect(put!.headers?.["content-disposition"]).toBe(
       "attachment; filename=\"report-compressed.pdf\"; filename*=UTF-8''report-compressed.pdf",
@@ -284,9 +290,9 @@ describe("createS3ExecutorStorage — writeArtifact", () => {
     await storage.writeArtifact(input); // no manifest
     const put = calls.find((c) => c.method === "PUT")!;
     expect(put.headers?.[ARTIFACT_MANIFEST_METADATA_HEADER]).toBeUndefined();
-    expect(new URL(put.url).searchParams.get("X-Amz-SignedHeaders")).not.toContain(
-      ARTIFACT_MANIFEST_METADATA_HEADER,
-    );
+    expect(
+      new URL(put.url).searchParams.get("X-Amz-SignedHeaders"),
+    ).not.toContain(ARTIFACT_MANIFEST_METADATA_HEADER);
   });
 
   it("throws when the artifact PUT is rejected (job not completed)", async () => {
@@ -304,8 +310,13 @@ describe("createS3ExecutorStorage — deletes are best-effort and idempotent", (
     await storage.deleteArtifact("art_abcdefghij0123456789");
     expect(calls.map((c) => c.method)).toEqual(["DELETE", "DELETE"]);
 
-    const failing = createS3ExecutorStorage(config(), { now, fetchImpl: throwingFetch });
-    await expect(failing.deleteInput("f_abcdefghij0123456789")).resolves.toBeUndefined();
+    const failing = createS3ExecutorStorage(config(), {
+      now,
+      fetchImpl: throwingFetch,
+    });
+    await expect(
+      failing.deleteInput("f_abcdefghij0123456789"),
+    ).resolves.toBeUndefined();
     await expect(
       failing.deleteArtifact("art_abcdefghij0123456789"),
     ).resolves.toBeUndefined();

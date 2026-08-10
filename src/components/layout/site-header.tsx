@@ -20,7 +20,7 @@ export function SiteHeader() {
     (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
   return (
-    <header className="sticky top-0 z-50 border-b border-white/10 bg-ink/70 backdrop-blur-xl">
+    <header className="bg-ink/70 sticky top-0 z-50 border-b border-white/10 backdrop-blur-xl">
       <Container className="flex h-16 items-center justify-between gap-4">
         <Logo />
 
@@ -76,7 +76,7 @@ export function SiteHeader() {
       {open && (
         <div
           id="mobile-menu"
-          className="border-t border-white/10 bg-ink/95 backdrop-blur-xl md:hidden"
+          className="bg-ink/95 border-t border-white/10 backdrop-blur-xl md:hidden"
         >
           <Container className="flex flex-col gap-1 py-4">
             {primaryNav.map((item) => (

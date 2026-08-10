@@ -35,7 +35,13 @@ export function FlattenRunner() {
   );
 }
 
-function FlattenEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function FlattenEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const { busy, error, result, run } = useAsyncRun<FlattenResult>();
   const [fieldCount, setFieldCount] = useState<number | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
@@ -47,7 +53,10 @@ function FlattenEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
         if (alive) setFieldCount(count);
       })
       .catch(() => {
-        if (alive) setCountError("We couldn't inspect the form fields, but you can still try flattening the PDF.");
+        if (alive)
+          setCountError(
+            "We couldn't inspect the form fields, but you can still try flattening the PDF.",
+          );
       });
     return () => {
       alive = false;
@@ -73,13 +82,15 @@ function FlattenEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
           {!result.hadForm && (
             <p className="max-w-2xl rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
               This PDF did not contain AcroForm fields to flatten. Comments,
-              markup annotations, and optional-content layers are not flattened by
-              this browser tool.
+              markup annotations, and optional-content layers are not flattened
+              by this browser tool.
             </p>
           )}
           <button
             type="button"
-            onClick={() => downloadBytes(result.bytes, flattenedOutputName(pdf.file.name))}
+            onClick={() =>
+              downloadBytes(result.bytes, flattenedOutputName(pdf.file.name))
+            }
             className={buttonVariants({ variant: "primary", size: "lg" })}
           >
             <Download className="size-4" aria-hidden />

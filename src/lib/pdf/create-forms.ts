@@ -19,7 +19,8 @@ import { loadPdf, stampProducer } from "./stamp";
  */
 
 /** The field kinds this tool can create. */
-export type NewFieldType = "text" | "checkbox" | "dropdown" | "radio" | "optionlist";
+export type NewFieldType =
+  "text" | "checkbox" | "dropdown" | "radio" | "optionlist";
 
 /** Human-facing label for each creatable field type. */
 export const FIELD_TYPE_LABELS: Record<NewFieldType, string> = {
@@ -129,7 +130,11 @@ export type NewFormField =
 type ChoiceField = NewDropdownField | NewOptionListField | NewRadioField;
 
 function isChoiceField(spec: NewFormField): spec is ChoiceField {
-  return spec.type === "dropdown" || spec.type === "optionlist" || spec.type === "radio";
+  return (
+    spec.type === "dropdown" ||
+    spec.type === "optionlist" ||
+    spec.type === "radio"
+  );
 }
 
 /** The displayed size of one page, in points. */
@@ -239,14 +244,18 @@ export function validateFormFields(
     if (!name) {
       push("Give this field a name.");
     } else if (reserved.has(name)) {
-      push(`A field named "${name}" already exists in this PDF — choose another name.`);
+      push(
+        `A field named "${name}" already exists in this PDF — choose another name.`,
+      );
     } else if ((nameCounts.get(name) ?? 0) > 1) {
       push(`Duplicate field name "${name}" — names must be unique.`);
     }
 
     // Page — a whole number within the document.
     const pageValid =
-      Number.isInteger(spec.page) && spec.page >= 1 && spec.page <= pageSizes.length;
+      Number.isInteger(spec.page) &&
+      spec.page >= 1 &&
+      spec.page <= pageSizes.length;
     if (!pageValid) {
       push(
         pageSizes.length > 0
@@ -299,7 +308,9 @@ export function validateFormFields(
         seen.add(o);
       }
       if (dupes.size > 0) {
-        push(`Duplicate option${dupes.size === 1 ? "" : "s"}: ${[...dupes].join(", ")}.`);
+        push(
+          `Duplicate option${dupes.size === 1 ? "" : "s"}: ${[...dupes].join(", ")}.`,
+        );
       }
 
       // Default selection must be a real option (unless a combo box).
@@ -314,8 +325,13 @@ export function validateFormFields(
     if (spec.type === "text" && spec.maxLength !== undefined) {
       if (!Number.isInteger(spec.maxLength) || spec.maxLength <= 0) {
         push("Max length must be a positive whole number.");
-      } else if (spec.defaultValue && spec.defaultValue.length > spec.maxLength) {
-        push(`Default text is longer than the ${spec.maxLength}-character limit.`);
+      } else if (
+        spec.defaultValue &&
+        spec.defaultValue.length > spec.maxLength
+      ) {
+        push(
+          `Default text is longer than the ${spec.maxLength}-character limit.`,
+        );
       }
     }
   });
@@ -329,13 +345,18 @@ export function validateFormFields(
  * already exist (which new fields must not collide with). Loading here also
  * surfaces a friendly error early if the file isn't a readable PDF.
  */
-export async function readFormContext(bytes: Uint8Array): Promise<NewFormContext> {
+export async function readFormContext(
+  bytes: Uint8Array,
+): Promise<NewFormContext> {
   const doc = await loadPdf(bytes);
   const pageSizes = doc.getPages().map((page) => {
     const { width, height } = page.getSize();
     return { width, height };
   });
-  const existingNames = doc.getForm().getFields().map((field) => field.getName());
+  const existingNames = doc
+    .getForm()
+    .getFields()
+    .map((field) => field.getName());
   return { pageCount: pageSizes.length, pageSizes, existingNames };
 }
 

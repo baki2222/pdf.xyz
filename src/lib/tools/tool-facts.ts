@@ -51,20 +51,43 @@ export interface ToolFact {
 
 const FACTS: Record<string, readonly ToolFact[]> = {
   "rotate-pdf": [
-    { label: "Angles", value: "Rotate in 90° steps, left or right — 90°, 180° or 270° in either direction." },
-    { label: "Scope", value: "Rotate every page, or only the pages you select." },
+    {
+      label: "Angles",
+      value:
+        "Rotate in 90° steps, left or right — 90°, 180° or 270° in either direction.",
+    },
+    {
+      label: "Scope",
+      value: "Rotate every page, or only the pages you select.",
+    },
   ],
   "merge-pdf": [
-    { label: "Ordering", value: "Drag files to reorder before merging, or use each row's move buttons — the output follows top to bottom." },
+    {
+      label: "Ordering",
+      value:
+        "Drag files to reorder before merging, or use each row's move buttons — the output follows top to bottom.",
+    },
   ],
   "split-pdf": [
-    { label: "Split modes", value: "Three ways to split: custom page ranges, every N pages, or one file per page." },
+    {
+      label: "Split modes",
+      value:
+        "Three ways to split: custom page ranges, every N pages, or one file per page.",
+    },
   ],
   "organize-pages": [
-    { label: "Operations", value: "Reorder, rotate, duplicate, or delete pages in one pass — drag pages or use keyboard moves." },
+    {
+      label: "Operations",
+      value:
+        "Reorder, rotate, duplicate, or delete pages in one pass — drag pages or use keyboard moves.",
+    },
   ],
   "watermark-pdf": [
-    { label: "Colors", value: "Gray, red, or blue watermark text, placed diagonally across each page." },
+    {
+      label: "Colors",
+      value:
+        "Gray, red, or blue watermark text, placed diagonally across each page.",
+    },
   ],
   "page-numbers": [
     {
@@ -79,42 +102,100 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
   ],
   "sign-pdf": [
-    { label: "Signature modes", value: "Five ways to make a signature: draw it, type it, pick an image, use a script font, or print-and-scan style." },
+    {
+      label: "Signature modes",
+      value:
+        "Five ways to make a signature: draw it, type it, pick an image, use a script font, or print-and-scan style.",
+    },
   ],
   "crop-pdf": [
-    { label: "Crop modes", value: "Uniform margins or per-side control, applied to all pages or only the ones you select." },
+    {
+      label: "Crop modes",
+      value:
+        "Uniform margins or per-side control, applied to all pages or only the ones you select.",
+    },
   ],
   "edit-pdf": [
-    { label: "Elements", value: "Eight element types, including text, boxes, lines, images, and filled shapes." },
+    {
+      label: "Elements",
+      value:
+        "Eight element types, including text, boxes, lines, images, and filled shapes.",
+    },
   ],
   "create-forms": [
-    { label: "Field types", value: "Five field types: text, checkbox, dropdown, radio, and list." },
+    {
+      label: "Field types",
+      value: "Five field types: text, checkbox, dropdown, radio, and list.",
+    },
   ],
   "annotate-pdf": [
-    { label: "Annotation kinds", value: "Six annotation kinds, including highlights, boxes, notes, and lines." },
+    {
+      label: "Annotation kinds",
+      value:
+        "Six annotation kinds, including highlights, boxes, notes, and lines.",
+    },
   ],
   "jpg-to-pdf": [
-    { label: "Per-image limit", value: `Up to ${MAX_IMAGE_MB} MB per image, assembled into one PDF on your device.` },
+    {
+      label: "Per-image limit",
+      value: `Up to ${MAX_IMAGE_MB} MB per image, assembled into one PDF on your device.`,
+    },
   ],
   "png-to-pdf": [
-    { label: "Per-image limit", value: `Up to ${MAX_IMAGE_MB} MB per image, assembled into one PDF on your device.` },
+    {
+      label: "Per-image limit",
+      value: `Up to ${MAX_IMAGE_MB} MB per image, assembled into one PDF on your device.`,
+    },
   ],
   "text-to-pdf": [
-    { label: "Source limit", value: `Plain-text sources up to ${MAX_SOURCE_MB} MB, typeset in your browser.` },
+    {
+      label: "Source limit",
+      value: `Plain-text sources up to ${MAX_SOURCE_MB} MB, typeset in your browser.`,
+    },
   ],
   "markdown-to-pdf": [
-    { label: "Source limit", value: `Markdown sources up to ${MAX_SOURCE_MB} MB, rendered and typeset in your browser.` },
+    {
+      label: "Source limit",
+      value: `Markdown sources up to ${MAX_SOURCE_MB} MB, rendered and typeset in your browser.`,
+    },
   ],
   "compress-pdf": [
-    { label: "Two paths", value: "Lossless structural repack always runs in your browser; deep image compression is an optional, clearly-labeled secure-worker step that needs a native engine." },
+    {
+      label: "Two paths",
+      value:
+        "Lossless structural repack always runs in your browser; deep image compression is an optional, clearly-labeled secure-worker step that needs a native engine.",
+    },
   ],
   "ocr-pdf": [
-    { label: "Languages", value: `${OCR_LANGUAGES.length} recognition languages advertised, up to ${MAX_OCR_LANGUAGES} per job — the worker's own live report governs which packs are actually installed.` },
+    {
+      label: "Languages",
+      value: `${OCR_LANGUAGES.length} recognition languages advertised, up to ${MAX_OCR_LANGUAGES} per job — the worker's own live report governs which packs are actually installed.`,
+    },
   ],
-  "summarize-pdf": [{ label: "Free allowance", value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.` }],
-  "translate-pdf": [{ label: "Free allowance", value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.` }],
-  "ai-extract": [{ label: "Free allowance", value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.` }],
-  "chat-with-pdf": [{ label: "Free allowance", value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.` }],
+  "summarize-pdf": [
+    {
+      label: "Free allowance",
+      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`,
+    },
+  ],
+  "translate-pdf": [
+    {
+      label: "Free allowance",
+      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`,
+    },
+  ],
+  "ai-extract": [
+    {
+      label: "Free allowance",
+      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`,
+    },
+  ],
+  "chat-with-pdf": [
+    {
+      label: "Free allowance",
+      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`,
+    },
+  ],
 };
 
 export function toolFacts(slug: string): readonly ToolFact[] {

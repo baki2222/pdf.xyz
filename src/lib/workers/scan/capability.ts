@@ -40,7 +40,9 @@ const NOT_SCANNING =
  * @param observedOnWorker whether a live worker heartbeat reports an active scanner.
  * Omitted by any caller that cannot observe one, which resolves to not scanning.
  */
-export function buildScanCapability(observedOnWorker?: boolean): ScanCapability {
+export function buildScanCapability(
+  observedOnWorker?: boolean,
+): ScanCapability {
   return observedOnWorker === true
     ? { active: true, detail: SCANNING }
     : { active: false, detail: NOT_SCANNING };

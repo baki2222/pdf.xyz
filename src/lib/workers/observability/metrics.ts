@@ -197,7 +197,11 @@ export type LifecycleMetricVerdict = (typeof LIFECYCLE_VERDICTS)[number];
 // ── Enums owned elsewhere: pinned tuples + exhaustiveness guards ──
 
 /** Daemon run modes ({@link DaemonRunMode}). */
-export const RUN_MODES = ["once", "drain", "loop"] as const satisfies readonly DaemonRunMode[];
+export const RUN_MODES = [
+  "once",
+  "drain",
+  "loop",
+] as const satisfies readonly DaemonRunMode[];
 const _runModesExhaustive: AssertNever<
   Exclude<DaemonRunMode, (typeof RUN_MODES)[number]>
 > = true;
@@ -364,7 +368,8 @@ export type QueueAgeBucket = (typeof QUEUE_AGE_BUCKETS)[number];
 
 /** Bucket a queue age in milliseconds. */
 export function queueAgeBucket(ms: number): QueueAgeBucket {
-  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "unknown";
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0)
+    return "unknown";
   const s = ms / 1000;
   if (s < 5) return "<5s";
   if (s < 30) return "5-30s";
@@ -445,7 +450,9 @@ export interface MetricLabelSchema {
  * schema tests. A dashboard or alert may only reference a metric and label values
  * that appear here; a builder may only construct a sample that satisfies it.
  */
-export const METRIC_SCHEMA: Readonly<Record<WorkerMetricName, MetricLabelSchema>> = {
+export const METRIC_SCHEMA: Readonly<
+  Record<WorkerMetricName, MetricLabelSchema>
+> = {
   worker_run_total: {
     kind: "counter",
     labels: { mode: RUN_MODES, reason: RUN_REASONS },
@@ -634,17 +641,32 @@ export function claimMetric(result: ClaimResult): WorkerMetricSample {
 
 /** A claimed job was a redelivery (a prior lease expired or a retryable requeue). */
 export function redeliveryMetric(): WorkerMetricSample {
-  return { metric: "worker_redelivery_total", kind: "counter", labels: {}, value: 1 };
+  return {
+    metric: "worker_redelivery_total",
+    kind: "counter",
+    labels: {},
+    value: 1,
+  };
 }
 
 /** A job failed terminally only because its retries were exhausted (a dead letter). */
 export function deadLetterMetric(): WorkerMetricSample {
-  return { metric: "worker_dead_letter_total", kind: "counter", labels: {}, value: 1 };
+  return {
+    metric: "worker_dead_letter_total",
+    kind: "counter",
+    labels: {},
+    value: 1,
+  };
 }
 
 /** A retryable failure was requeued for another attempt. */
 export function retryMetric(): WorkerMetricSample {
-  return { metric: "worker_retry_total", kind: "counter", labels: {}, value: 1 };
+  return {
+    metric: "worker_retry_total",
+    kind: "counter",
+    labels: {},
+    value: 1,
+  };
 }
 
 /** A processor run of `processor` kind reached `outcome`. */
@@ -941,7 +963,9 @@ export function cleanupEvidencePostureMetric(
  * closed, redaction-stable enum — never a filename, path, object key, bucket, URL, endpoint,
  * region, instant, size, or document content.
  */
-export function opsBundleMetric(severity: OpsBundleSeverity): WorkerMetricSample {
+export function opsBundleMetric(
+  severity: OpsBundleSeverity,
+): WorkerMetricSample {
   return {
     metric: "worker_ops_bundle_total",
     kind: "counter",
@@ -959,7 +983,9 @@ export function opsBundleMetric(severity: OpsBundleSeverity): WorkerMetricSample
  * promotion, or a claim about bucket bytes. The one label is a closed, redaction-stable enum — never
  * a filename, path, object key, bucket, URL, endpoint, region, instant, size, or document content.
  */
-export function releaseGateMetric(verdict: ReleaseGateVerdict): WorkerMetricSample {
+export function releaseGateMetric(
+  verdict: ReleaseGateVerdict,
+): WorkerMetricSample {
   return {
     metric: "worker_release_gate_total",
     kind: "counter",
@@ -1045,10 +1071,17 @@ export function lifecycleVerificationMetric(
  */
 export function lifecycleDriftMetric(driftedRules: number): WorkerMetricSample {
   const value =
-    typeof driftedRules === "number" && Number.isFinite(driftedRules) && driftedRules >= 0
+    typeof driftedRules === "number" &&
+    Number.isFinite(driftedRules) &&
+    driftedRules >= 0
       ? Math.floor(driftedRules)
       : 0;
-  return { metric: "worker_lifecycle_drift_rules", kind: "gauge", labels: {}, value };
+  return {
+    metric: "worker_lifecycle_drift_rules",
+    kind: "gauge",
+    labels: {},
+    value,
+  };
 }
 
 /** A job reached a terminal `outcome` with the given coarse `failureClass`. */
@@ -1143,7 +1176,11 @@ export function sanitizeMetric(
   const clean: Record<string, string> = {};
   for (const key of allowedKeys) {
     const raw = labels[key];
-    if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_LABEL_LEN) {
+    if (
+      typeof raw !== "string" ||
+      raw.length === 0 ||
+      raw.length > MAX_LABEL_LEN
+    ) {
       return null;
     }
     const allowed = schema.labels[key]!;
@@ -1154,5 +1191,10 @@ export function sanitizeMetric(
     clean[key] = raw;
   }
 
-  return { metric: sample.metric, kind: sample.kind, labels: clean, value: sample.value };
+  return {
+    metric: sample.metric,
+    kind: sample.kind,
+    labels: clean,
+    value: sample.value,
+  };
 }

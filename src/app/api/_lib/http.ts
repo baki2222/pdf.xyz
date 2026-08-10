@@ -7,7 +7,12 @@
  * them) so the routes carry no Next-only coupling and are trivially testable.
  */
 
-import { apiError, type ApiError, type ApiResult, type ParseResult } from "@/lib/jobs";
+import {
+  apiError,
+  type ApiError,
+  type ApiResult,
+  type ParseResult,
+} from "@/lib/jobs";
 import { JOB_LIMITS } from "@/lib/jobs";
 import {
   rateLimitErrorResult,
@@ -47,9 +52,10 @@ export function respondRateLimited(decision: RateLimitDecision): Response {
   return respond(rateLimitErrorResult(decision), rateLimitHeaders(decision));
 }
 
-function errorResult(
-  ...args: Parameters<typeof apiError>
-): { ok: false; error: ApiResult<ApiError> } {
+function errorResult(...args: Parameters<typeof apiError>): {
+  ok: false;
+  error: ApiResult<ApiError>;
+} {
   return { ok: false, error: apiError(...args) };
 }
 

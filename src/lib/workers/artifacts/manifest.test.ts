@@ -73,7 +73,9 @@ describe("output-kind classification", () => {
   });
 
   it("classifies an unrecognized or empty content-type as unknown", () => {
-    expect(outputKindForContentType("application/x-msdownload")).toBe("unknown");
+    expect(outputKindForContentType("application/x-msdownload")).toBe(
+      "unknown",
+    );
     expect(outputKindForContentType("")).toBe("unknown");
   });
 
@@ -150,7 +152,11 @@ describe("buildArtifactManifest — content-free projection", () => {
   it("records only structural provenance, normalizing the content-type", () => {
     const m = buildArtifactManifest(
       { tool: "ocr-pdf", processor: "ocr" },
-      { filename: "scan.txt", contentType: "text/plain; charset=utf-8", bytes: enc("hi") },
+      {
+        filename: "scan.txt",
+        contentType: "text/plain; charset=utf-8",
+        bytes: enc("hi"),
+      },
       "short",
     );
     expect(m).toEqual({
@@ -184,7 +190,11 @@ describe("checkArtifacts — valid outputs", () => {
         tool: "ocr-pdf",
         processor: "ocr",
         artifacts: [
-          { filename: "scan-ocr.pdf", contentType: "application/pdf", bytes: PDF },
+          {
+            filename: "scan-ocr.pdf",
+            contentType: "application/pdf",
+            bytes: PDF,
+          },
           {
             filename: "scan.txt",
             contentType: "text/plain; charset=utf-8",
@@ -215,7 +225,10 @@ describe("checkArtifacts — rejects each malformed/ambiguous shape", () => {
       { ...DEFAULT_ARTIFACT_POLICY, maxArtifacts: 2 },
       input({ artifacts: many }),
     );
-    expect(r).toMatchObject({ verdict: "invalid", reason: "too_many_artifacts" });
+    expect(r).toMatchObject({
+      verdict: "invalid",
+      reason: "too_many_artifacts",
+    });
     expect(r.checks).toHaveLength(0); // set-level: no per-output checks
   });
 
@@ -228,10 +241,13 @@ describe("checkArtifacts — rejects each malformed/ambiguous shape", () => {
 
   it("oversize_artifact: over the opt-in byte ceiling", () => {
     expect(
-      reasonOf({ artifacts: [artifact()] }, {
-        ...DEFAULT_ARTIFACT_POLICY,
-        maxBytes: 1,
-      }),
+      reasonOf(
+        { artifacts: [artifact()] },
+        {
+          ...DEFAULT_ARTIFACT_POLICY,
+          maxBytes: 1,
+        },
+      ),
     ).toEqual({ verdict: "invalid", reason: "oversize_artifact" });
   });
 
@@ -249,7 +265,9 @@ describe("checkArtifacts — rejects each malformed/ambiguous shape", () => {
     expect(
       reasonOf({
         // Named .pdf but typed text/plain — a recognized-but-incoherent output.
-        artifacts: [artifact({ filename: "out.pdf", contentType: "text/plain" })],
+        artifacts: [
+          artifact({ filename: "out.pdf", contentType: "text/plain" }),
+        ],
       }),
     ).toEqual({ verdict: "invalid", reason: "content_type_mismatch" });
   });
@@ -259,7 +277,9 @@ describe("checkArtifacts — rejects each malformed/ambiguous shape", () => {
       reasonOf({
         // Compression producing a coherent text sidecar — a kind it must not emit.
         processor: "compress",
-        artifacts: [artifact({ filename: "out.txt", contentType: "text/plain" })],
+        artifacts: [
+          artifact({ filename: "out.txt", contentType: "text/plain" }),
+        ],
       }),
     ).toEqual({ verdict: "invalid", reason: "unsupported_content_type" });
   });
@@ -285,7 +305,10 @@ describe("checkArtifacts — rejects each malformed/ambiguous shape", () => {
 
   it("policy_unavailable: fails closed when the policy is missing", () => {
     const r = checkArtifacts(null, input());
-    expect(r).toMatchObject({ verdict: "invalid", reason: "policy_unavailable" });
+    expect(r).toMatchObject({
+      verdict: "invalid",
+      reason: "policy_unavailable",
+    });
   });
 });
 
@@ -295,7 +318,11 @@ describe("checkArtifacts — disabled + config toggles", () => {
       { ...DEFAULT_ARTIFACT_POLICY, enabled: false },
       input({ artifacts: [] }), // would fail, but the gate is off
     );
-    expect(r).toMatchObject({ verdict: "skipped", checked: false, reason: "not_validated" });
+    expect(r).toMatchObject({
+      verdict: "skipped",
+      checked: false,
+      reason: "not_validated",
+    });
     expect(r.checks).toHaveLength(0);
   });
 

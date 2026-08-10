@@ -16,7 +16,9 @@ function pdf(pad = 40): Uint8Array {
   return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
 }
 
-function config(over: Partial<NativePdfStructureConfig> = {}): NativePdfStructureConfig {
+function config(
+  over: Partial<NativePdfStructureConfig> = {},
+): NativePdfStructureConfig {
   return {
     enabled: true,
     binary: "qpdf",
@@ -84,7 +86,10 @@ describe("createNativeQpdfStructureRunner", () => {
     expect(calls).toEqual([
       {
         command: "qpdf",
-        args: [expect.stringMatching(/input\.pdf$/), expect.stringMatching(/output\.pdf$/)],
+        args: [
+          expect.stringMatching(/input\.pdf$/),
+          expect.stringMatching(/output\.pdf$/),
+        ],
       },
     ]);
     expect(rmCount()).toBe(1);
@@ -115,10 +120,13 @@ describe("createNativeQpdfStructureRunner", () => {
   it("rejects oversized input before spawning", async () => {
     const { fs, rmCount } = fakeFs(pdf());
     const { exec, calls } = fakeExec(OK);
-    const runner = createNativeQpdfStructureRunner(config({ maxInputBytes: 4 }), {
-      exec,
-      fs,
-    });
+    const runner = createNativeQpdfStructureRunner(
+      config({ maxInputBytes: 4 }),
+      {
+        exec,
+        fs,
+      },
+    );
     await expect(runner.linearize(pdf(64))).rejects.toThrow();
     expect(calls).toHaveLength(0);
     expect(rmCount()).toBe(0);
@@ -127,13 +135,24 @@ describe("createNativeQpdfStructureRunner", () => {
 
 describe("probe/native deps", () => {
   it("probes PATH unless disabled or overridden", () => {
-    expect(probeQpdfStructureFromConfig(config({ enabled: false }), { resolveOnPath: () => true })).toBe(false);
-    expect(probeQpdfStructureFromConfig(config(), { resolveOnPath: () => true })).toBe(true);
-    expect(probeQpdfStructureFromConfig(config(), { resolveOnPath: () => false })).toBe(false);
     expect(
-      probeQpdfStructureFromConfig(config({ overridden: true, binary: "/opt/qpdf" }), {
-        fileExists: (p) => p === "/opt/qpdf",
+      probeQpdfStructureFromConfig(config({ enabled: false }), {
+        resolveOnPath: () => true,
       }),
+    ).toBe(false);
+    expect(
+      probeQpdfStructureFromConfig(config(), { resolveOnPath: () => true }),
+    ).toBe(true);
+    expect(
+      probeQpdfStructureFromConfig(config(), { resolveOnPath: () => false }),
+    ).toBe(false);
+    expect(
+      probeQpdfStructureFromConfig(
+        config({ overridden: true, binary: "/opt/qpdf" }),
+        {
+          fileExists: (p) => p === "/opt/qpdf",
+        },
+      ),
     ).toBe(true);
   });
 

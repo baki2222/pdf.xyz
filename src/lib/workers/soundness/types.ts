@@ -140,7 +140,8 @@ const SKIPPED_DETAIL =
 
 /** Content-free explanations per reject reason. Never names a file, size, or content. */
 const REJECT_DETAIL: Record<SoundnessRejectReason, string> = {
-  missing_input: "The job carried no input bytes to check; it was not processed.",
+  missing_input:
+    "The job carried no input bytes to check; it was not processed.",
   too_many_inputs:
     "The job referenced more inputs than the worker soundness ceiling; it was not processed.",
   empty: "An input was empty; it was not processed.",

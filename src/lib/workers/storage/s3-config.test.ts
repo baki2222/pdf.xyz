@@ -130,22 +130,30 @@ describe("parseS3Config — malformed values", () => {
 
   it("rejects malformed bucket, region, and access key id", () => {
     expect(parseS3Config(validEnv({ [S3_ENV.bucket]: "a" })).ok).toBe(false);
-    expect(parseS3Config(validEnv({ [S3_ENV.bucket]: "bad/slash" })).ok).toBe(false);
-    expect(parseS3Config(validEnv({ [S3_ENV.region]: "us east 1" })).ok).toBe(false);
-    expect(parseS3Config(validEnv({ [S3_ENV.accessKeyId]: "has space" })).ok).toBe(
+    expect(parseS3Config(validEnv({ [S3_ENV.bucket]: "bad/slash" })).ok).toBe(
       false,
     );
+    expect(parseS3Config(validEnv({ [S3_ENV.region]: "us east 1" })).ok).toBe(
+      false,
+    );
+    expect(
+      parseS3Config(validEnv({ [S3_ENV.accessKeyId]: "has space" })).ok,
+    ).toBe(false);
   });
 
   it("rejects a secret containing whitespace", () => {
-    const result = parseS3Config(validEnv({ [S3_ENV.secretAccessKey]: "bad secret" }));
+    const result = parseS3Config(
+      validEnv({ [S3_ENV.secretAccessKey]: "bad secret" }),
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues.map((i) => i.field)).toContain(S3_ENV.secretAccessKey);
   });
 
   it("rejects an unrecognized force-path-style flag", () => {
-    const result = parseS3Config(validEnv({ [S3_ENV.forcePathStyle]: "maybe" }));
+    const result = parseS3Config(
+      validEnv({ [S3_ENV.forcePathStyle]: "maybe" }),
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues.map((i) => i.field)).toContain(S3_ENV.forcePathStyle);
@@ -153,16 +161,22 @@ describe("parseS3Config — malformed values", () => {
 
   it("rejects a traversal / illegal key prefix", () => {
     for (const prefix of ["../escape", "a/../b", "bad space"]) {
-      expect(parseS3Config(validEnv({ [S3_ENV.keyPrefix]: prefix })).ok).toBe(false);
+      expect(parseS3Config(validEnv({ [S3_ENV.keyPrefix]: prefix })).ok).toBe(
+        false,
+      );
     }
   });
 
   it("rejects out-of-range or non-integer TTLs", () => {
     for (const ttl of ["0", "abc", "999999999", "12.5"]) {
-      const result = parseS3Config(validEnv({ [S3_ENV.uploadTtlSeconds]: ttl }));
+      const result = parseS3Config(
+        validEnv({ [S3_ENV.uploadTtlSeconds]: ttl }),
+      );
       expect(result.ok).toBe(false);
       if (result.ok) continue;
-      expect(result.issues.map((i) => i.field)).toContain(S3_ENV.uploadTtlSeconds);
+      expect(result.issues.map((i) => i.field)).toContain(
+        S3_ENV.uploadTtlSeconds,
+      );
     }
   });
 });

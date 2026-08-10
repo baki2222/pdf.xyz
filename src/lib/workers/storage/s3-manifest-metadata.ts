@@ -65,7 +65,9 @@ function encodeRfc3986(value: string): string {
  * stable (a client/proxy could compare it byte-for-byte). Total: any manifest yields
  * a header-safe token.
  */
-export function encodeArtifactManifestMetadata(manifest: ArtifactManifest): string {
+export function encodeArtifactManifestMetadata(
+  manifest: ArtifactManifest,
+): string {
   const projection = {
     k: manifest.outputKind,
     c: manifest.contentType,
@@ -84,7 +86,9 @@ function isMember<T extends string>(
   allowed: readonly T[],
   value: unknown,
 ): value is T {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value);
+  return (
+    typeof value === "string" && (allowed as readonly string[]).includes(value)
+  );
 }
 
 /** A finite, non-negative integer (a byte count or a schema version). */
@@ -94,7 +98,11 @@ function isCount(value: unknown): value is number {
 
 /** A bounded, non-empty string field (tool slug / policy id / content-type). */
 function isBoundedString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= MAX_STRING_LENGTH;
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_STRING_LENGTH
+  );
 }
 
 /**
@@ -134,7 +142,10 @@ export function decodeArtifactManifestMetadata(
     !isMember<ArtifactOutputKind>(ARTIFACT_OUTPUT_KINDS, outputKind) ||
     !isBoundedString(contentType) ||
     !isCount(byteCount) ||
-    !isMember<ArtifactRetentionClass>(ARTIFACT_RETENTION_CLASSES, retentionClass) ||
+    !isMember<ArtifactRetentionClass>(
+      ARTIFACT_RETENTION_CLASSES,
+      retentionClass,
+    ) ||
     !isBoundedString(toolSlug) ||
     !isMember<ProcessorKind>(PROCESSOR_KINDS, processor) ||
     !isBoundedString(policyId) ||

@@ -12,7 +12,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { runReleaseGate, type ProbeResult, type ReleaseGateProvider } from "./run";
+import {
+  runReleaseGate,
+  type ProbeResult,
+  type ReleaseGateProvider,
+} from "./run";
 import { reduceCheck } from "./run";
 import { RELEASE_CHECKS } from "./checks";
 import type { ReleaseGateArgs } from "./args";
@@ -43,7 +47,13 @@ const FORBIDDEN_OUTPUT = [
  * Substrings that must never appear because they are INTERNAL catalog fixture paths — the gate must
  * not leak the paths it runs its checks over (deliverable 4: "or fixture paths").
  */
-const FORBIDDEN_PATHS = ["docs/examples", ".json", ".aws-s3", "raw-unsafe-tombstoned", "observed-verified"];
+const FORBIDDEN_PATHS = [
+  "docs/examples",
+  ".json",
+  ".aws-s3",
+  "raw-unsafe-tombstoned",
+  "observed-verified",
+];
 
 /** A poisoned probe: raw output full of secrets, and a WRONG exit so the fail path is exercised. */
 function poisonedProbe(): ProbeResult {
@@ -57,7 +67,9 @@ function poisonedProbe(): ProbeResult {
 }
 
 /** A provider whose every check returns a poisoned probe. */
-function poisonedProvider(over: Partial<ReleaseGateProvider> = {}): ReleaseGateProvider {
+function poisonedProvider(
+  over: Partial<ReleaseGateProvider> = {},
+): ReleaseGateProvider {
   return {
     runCheck: async () => poisonedProbe(),
     now: () => NOW,
@@ -76,7 +88,10 @@ describe("release-gate no-leak by construction", () => {
   });
 
   it("never echoes poisoned subprocess output in text output", async () => {
-    const run = await runReleaseGate({ ...ARGS, format: "text" }, poisonedProvider());
+    const run = await runReleaseGate(
+      { ...ARGS, format: "text" },
+      poisonedProvider(),
+    );
     for (const bad of FORBIDDEN_OUTPUT) expect(run.output).not.toContain(bad);
     expect(run.output).not.toContain("POISON-");
   });
@@ -84,7 +99,13 @@ describe("release-gate no-leak by construction", () => {
   it("never leaks the internal catalog fixture paths into a report", async () => {
     // Even a fully-passing run must not surface the paths the checks ran over.
     const passing = poisonedProvider({
-      runCheck: async (spec) => ({ exitCode: spec.expectedExit, stdout: "", stderr: "", timedOut: false, spawnError: false }),
+      runCheck: async (spec) => ({
+        exitCode: spec.expectedExit,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        spawnError: false,
+      }),
     });
     for (const format of ["json", "text"] as const) {
       const run = await runReleaseGate({ ...ARGS, format }, passing);
@@ -94,11 +115,14 @@ describe("release-gate no-leak by construction", () => {
   });
 
   it("treats a thrown seam as unknown and never echoes the thrown secret", async () => {
-    const run = await runReleaseGate(ARGS, poisonedProvider({
-      runCheck: async () => {
-        throw new Error(`POISON-${SECRET}`);
-      },
-    }));
+    const run = await runReleaseGate(
+      ARGS,
+      poisonedProvider({
+        runCheck: async () => {
+          throw new Error(`POISON-${SECRET}`);
+        },
+      }),
+    );
     expect(run.outcome.rollup.verdict).toBe("unknown");
     expect(run.outcome.checks.every((c) => c.status === "unknown")).toBe(true);
     for (const bad of FORBIDDEN_OUTPUT) expect(run.output).not.toContain(bad);

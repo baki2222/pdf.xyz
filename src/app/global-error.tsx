@@ -41,7 +41,11 @@ export default function GlobalError({
       >
         <main style={{ maxWidth: "28rem", textAlign: "center" }}>
           <h1
-            style={{ fontSize: "1.5rem", fontWeight: 700, margin: "0 0 0.75rem" }}
+            style={{
+              fontSize: "1.5rem",
+              fontWeight: 700,
+              margin: "0 0 0.75rem",
+            }}
           >
             Something went wrong
           </h1>
@@ -72,7 +76,13 @@ export default function GlobalError({
             Try again
           </button>
           {error.digest && (
-            <p style={{ marginTop: "1.5rem", fontSize: "0.75rem", color: "#475569" }}>
+            <p
+              style={{
+                marginTop: "1.5rem",
+                fontSize: "0.75rem",
+                color: "#475569",
+              }}
+            >
               Reference: {error.digest}
             </p>
           )}

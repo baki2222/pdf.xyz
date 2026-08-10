@@ -13,10 +13,18 @@
  */
 
 import { buildOpsBundle, buildUsageError } from "./build";
-import { ingestOpsCheckResult, ingestPipelineSummary, unreadablePipeline } from "./ingest";
+import {
+  ingestOpsCheckResult,
+  ingestPipelineSummary,
+  unreadablePipeline,
+} from "./ingest";
 import { recordOpsBundle, severityForOutcome } from "./metrics";
 import { renderOpsBundle } from "./render";
-import { opsBundleExitCode, type OpsBundleOutcome, type OpsBundlePipelineSection } from "./types";
+import {
+  opsBundleExitCode,
+  type OpsBundleOutcome,
+  type OpsBundlePipelineSection,
+} from "./types";
 import type { OpsBundleArgs } from "./args";
 
 /**
@@ -26,7 +34,10 @@ import type { OpsBundleArgs } from "./args";
  * kept behind a seam so tests are deterministic).
  */
 export interface OpsBundleProvider {
-  readOpsCheck(source: "stdin" | "file", filePath: string | undefined): Promise<string>;
+  readOpsCheck(
+    source: "stdin" | "file",
+    filePath: string | undefined,
+  ): Promise<string>;
   readPipeline(filePath: string): Promise<string>;
   now(): string;
 }
@@ -57,13 +68,20 @@ export async function runOpsBundle(
     } catch {
       /* ignore */
     }
-    return { exitCode: opsBundleExitCode(outcome), output: renderOpsBundle(outcome, args.format, args.pretty), outcome };
+    return {
+      exitCode: opsBundleExitCode(outcome),
+      output: renderOpsBundle(outcome, args.format, args.pretty),
+      outcome,
+    };
   };
 
   // REQUIRED: the ops-check result. An unreadable read or a bad shape is a usage error.
   let opsText: string;
   try {
-    opsText = await provider.readOpsCheck(args.opsCheckSource, args.opsCheckPath);
+    opsText = await provider.readOpsCheck(
+      args.opsCheckSource,
+      args.opsCheckPath,
+    );
   } catch {
     return finish(buildUsageError(generatedAt, ["ops-check-input-unreadable"]));
   }
@@ -79,7 +97,9 @@ export async function runOpsBundle(
     pipeline = ingestPipelineSummary(null);
   } else {
     try {
-      pipeline = ingestPipelineSummary(await provider.readPipeline(args.pipelinePath));
+      pipeline = ingestPipelineSummary(
+        await provider.readPipeline(args.pipelinePath),
+      );
     } catch {
       pipeline = unreadablePipeline();
     }

@@ -87,7 +87,10 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
               className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-300"
               title="No worker backend is configured in this environment."
             >
-              <span className="size-1.5 rounded-full bg-amber-400" aria-hidden />
+              <span
+                className="size-1.5 rounded-full bg-amber-400"
+                aria-hidden
+              />
               Not yet enabled
             </span>
           </div>
@@ -95,8 +98,9 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
             {tool.name} runs on a {descriptor.label.toLowerCase()}
           </h2>
           <p className="text-sm leading-relaxed text-slate-400">
-            {descriptor.summary} We&apos;d rather show you the real flow than fake
-            it in the browser — here&apos;s exactly what will happen to your file.
+            {descriptor.summary} We&apos;d rather show you the real flow than
+            fake it in the browser — here&apos;s exactly what will happen to
+            your file.
           </p>
         </div>
 
@@ -108,10 +112,7 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
                   <StageIcon id={stage.id} className="size-4" />
                 </span>
                 {i < all.length - 1 && (
-                  <span
-                    className="my-1 w-px flex-1 bg-white/10"
-                    aria-hidden
-                  />
+                  <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />
                 )}
               </div>
               <div className="flex flex-col gap-0.5 pb-3">
@@ -126,8 +127,12 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
           ))}
         </ol>
 
-        <div className="rounded-2xl border border-white/10 bg-surface-2 px-4 py-1 divide-y divide-white/5">
-          <SpecRow icon={FileUp} label="Inputs" value={tool.accept.join(", ")} />
+        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
+          <SpecRow
+            icon={FileUp}
+            label="Inputs"
+            value={tool.accept.join(", ")}
+          />
           <SpecRow
             icon={FileDown}
             label="Outputs"

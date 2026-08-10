@@ -5,7 +5,10 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "@/lib/jobs";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "@/lib/jobs";
 import {
   OPTIMIZE_WEB_TOOL,
   PDF_STRUCTURE_TOOLS,
@@ -59,9 +62,17 @@ export function pdfStructureJobError(run: PdfStructureFailure): JobError {
         retryable: false,
       };
     case "too_large":
-      return { code: "payload_too_large", message: run.message, retryable: false };
+      return {
+        code: "payload_too_large",
+        message: run.message,
+        retryable: false,
+      };
     case "invalid_pdf":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };
@@ -77,7 +88,9 @@ function toProcessorMeta(meta: PdfStructureResultMeta): ProcessorMeta {
   };
 }
 
-function singleInput(input: Parameters<Processor["process"]>[0]): ProcessorResult | undefined {
+function singleInput(
+  input: Parameters<Processor["process"]>[0],
+): ProcessorResult | undefined {
   const file = input.inputs[0];
   if (input.inputs.length !== 1 || !file) {
     return processorFail({

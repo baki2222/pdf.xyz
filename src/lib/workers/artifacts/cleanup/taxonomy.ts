@@ -121,12 +121,13 @@ export const CLEANUP_ACTION_BY_CATEGORY: Readonly<
 };
 
 /** Ascending rank for a severity, so "worst" is a simple max. */
-export const CLEANUP_SEVERITY_RANK: Readonly<Record<CleanupSeverity, number>> = {
-  ok: 0,
-  unknown: 1,
-  drift: 2,
-  breach: 3,
-};
+export const CLEANUP_SEVERITY_RANK: Readonly<Record<CleanupSeverity, number>> =
+  {
+    ok: 0,
+    unknown: 1,
+    drift: 2,
+    breach: 3,
+  };
 
 /** Return the worse (higher-rank) of two severities. */
 export function worseSeverity(

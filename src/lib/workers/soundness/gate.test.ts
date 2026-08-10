@@ -45,9 +45,9 @@ describe("createSoundnessGate — capability", () => {
 describe("createSoundnessGate — check delegates to the evaluation", () => {
   it("passes a valid PDF and blocks a non-PDF for a PDF tool", () => {
     const gate = createSoundnessGate(DEFAULT_SOUNDNESS_POLICY);
-    expect(gate.check({ tool: "compress-pdf", inputs: [file(VALID_PDF)] }).verdict).toBe(
-      "sound",
-    );
+    expect(
+      gate.check({ tool: "compress-pdf", inputs: [file(VALID_PDF)] }).verdict,
+    ).toBe("sound");
     expect(
       gate.check({ tool: "compress-pdf", inputs: [file(enc("nope"))] }).verdict,
     ).toBe("unsound");

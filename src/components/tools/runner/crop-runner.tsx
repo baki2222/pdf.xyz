@@ -123,7 +123,9 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result, croppedOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result, croppedOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -186,7 +188,9 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                 value={margins.right}
                 min={0}
                 max={MAX_MARGIN}
-                onChange={(value) => setMargins((m) => ({ ...m, right: value }))}
+                onChange={(value) =>
+                  setMargins((m) => ({ ...m, right: value }))
+                }
                 format={formatPt}
               />
               <RangeField

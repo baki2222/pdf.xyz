@@ -65,7 +65,11 @@ describe("instrumentation.register — wires the distributed provider honestly",
     expect(info).toHaveBeenCalledTimes(1);
     const line = info.mock.calls[0]?.join(" ") ?? "";
     expect(line).toContain("remote-configured");
-    for (const leak of ["rl-example-98765", "upstash.io", CREDS[RATE_LIMIT_REDIS_ENV.restToken]]) {
+    for (const leak of [
+      "rl-example-98765",
+      "upstash.io",
+      CREDS[RATE_LIMIT_REDIS_ENV.restToken],
+    ]) {
       expect(line).not.toContain(leak);
     }
   });

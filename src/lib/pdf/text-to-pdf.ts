@@ -10,7 +10,10 @@ const MARGIN = 54;
 const FONT_SIZE = 11;
 const LINE_HEIGHT = 16;
 // The cap the tool page advertises, so the gate and the promise are one value.
-import { MAX_SOURCE_BYTES as MAX_TEXT_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
+import {
+  MAX_SOURCE_BYTES as MAX_TEXT_BYTES,
+  MAX_SOURCE_MB,
+} from "@/lib/tools/limits";
 
 export interface TextToPdfOptions {
   title?: string;
@@ -32,7 +35,9 @@ export function validatePlainTextInput(text: string): void {
   }
   const bytes = new TextEncoder().encode(text).byteLength;
   if (bytes > MAX_TEXT_BYTES) {
-    throw new PdfEngineError(`This text file is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`);
+    throw new PdfEngineError(
+      `This text file is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`,
+    );
   }
 }
 
@@ -44,7 +49,12 @@ function normalizeInput(text: string): string {
   return text.replace(/\r\n?/g, "\n").replace(/\t/g, "    ");
 }
 
-function splitLongWord(word: string, font: PDFFont, maxWidth: number, fontSize: number): string[] {
+function splitLongWord(
+  word: string,
+  font: PDFFont,
+  maxWidth: number,
+  fontSize: number,
+): string[] {
   const chunks: string[] = [];
   let current = "";
   for (const char of word) {
@@ -72,9 +82,10 @@ export function wrapTextLine(
   let current = "";
 
   for (const part of words) {
-    const candidates = font.widthOfTextAtSize(part, fontSize) > maxWidth
-      ? splitLongWord(part, font, maxWidth, fontSize)
-      : [part];
+    const candidates =
+      font.widthOfTextAtSize(part, fontSize) > maxWidth
+        ? splitLongWord(part, font, maxWidth, fontSize)
+        : [part];
 
     for (const piece of candidates) {
       const next = current + piece;
@@ -97,14 +108,17 @@ export function layoutPlainText(
   linesPerPage = Math.floor((PAGE_HEIGHT - MARGIN * 2) / LINE_HEIGHT),
 ): TextLayout {
   const normalized = normalizeInput(text);
-  const allLines = normalized.split("\n").flatMap((line) =>
-    wrapTextLine(line, font, maxWidth),
-  );
+  const allLines = normalized
+    .split("\n")
+    .flatMap((line) => wrapTextLine(line, font, maxWidth));
   const pages: TextLayoutPage[] = [];
   for (let i = 0; i < allLines.length; i += linesPerPage) {
     pages.push({ lines: allLines.slice(i, i + linesPerPage) });
   }
-  return { pages: pages.length ? pages : [{ lines: [""] }], lineCount: allLines.length };
+  return {
+    pages: pages.length ? pages : [{ lines: [""] }],
+    lineCount: allLines.length,
+  };
 }
 
 /** Convert plain text into a clean, paginated, in-browser PDF. */

@@ -41,7 +41,8 @@ describe("buildArtifactRetrievalReceipt", () => {
   it("carries the bounded storage provider (local vs remote) verbatim", () => {
     for (const provider of RETRIEVAL_STORAGE_PROVIDERS) {
       expect(
-        buildArtifactRetrievalReceipt({ reason: "ok", kind: "pdf", provider }).provider,
+        buildArtifactRetrievalReceipt({ reason: "ok", kind: "pdf", provider })
+          .provider,
       ).toBe(provider);
     }
   });
@@ -114,7 +115,11 @@ describe("retrieval-receipt observer", () => {
       throw new Error("sink is down");
     });
     expect(() =>
-      emitArtifactRetrievalReceipt({ reason: "ok", kind: "pdf", provider: "local-dev" }),
+      emitArtifactRetrievalReceipt({
+        reason: "ok",
+        kind: "pdf",
+        provider: "local-dev",
+      }),
     ).not.toThrow();
   });
 });

@@ -19,7 +19,11 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
 import { cn, formatBytes } from "@/lib/utils";
-import { FILE_FAMILIES, type FileFamily, type WorkspaceAction } from "@/lib/workspace";
+import {
+  FILE_FAMILIES,
+  type FileFamily,
+  type WorkspaceAction,
+} from "@/lib/workspace";
 import { BatchPanel } from "./batch-panel";
 import type { WorkspaceToolSummary } from "./summary";
 import { SuggestedTools } from "./suggested-tools";
@@ -46,7 +50,8 @@ const FAMILY_ICON: Record<FileFamily, typeof FileText> = {
   other: File,
 };
 
-const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv";
+const ACCEPT =
+  ".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv";
 
 /** Compact relative time for the activity log (client-only, post-hydration). */
 function formatRelative(at: number, now: number): string {
@@ -143,7 +148,11 @@ export function WorkspaceClient({
                 }}
               />
               <span className="grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500 text-white shadow-lg shadow-violet-500/30 transition-transform duration-200 group-hover:scale-105">
-                <UploadCloud className="size-7" strokeWidth={1.75} aria-hidden />
+                <UploadCloud
+                  className="size-7"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
               </span>
               <span className="flex flex-col gap-1">
                 <span className="text-base font-semibold text-white">
@@ -153,7 +162,8 @@ export function WorkspaceClient({
                   </span>
                 </span>
                 <span className="text-sm text-slate-400">
-                  PDF, images, Word, Excel, PowerPoint, text · Max {MAX_FILE_MB} MB per file
+                  PDF, images, Word, Excel, PowerPoint, text · Max {MAX_FILE_MB}{" "}
+                  MB per file
                 </span>
               </span>
             </label>
@@ -167,8 +177,8 @@ export function WorkspaceClient({
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-200">
                     <AlertTriangle className="size-4" aria-hidden />
-                    {rejected.length} file{rejected.length === 1 ? "" : "s"} couldn&apos;t
-                    be staged
+                    {rejected.length} file{rejected.length === 1 ? "" : "s"}{" "}
+                    couldn&apos;t be staged
                   </span>
                   <button
                     type="button"
@@ -182,7 +192,10 @@ export function WorkspaceClient({
                 <ul className="flex flex-col gap-1 text-xs text-amber-100/80">
                   {rejected.map((r, i) => (
                     <li key={`${r.name}-${i}`}>
-                      <span className="font-medium text-amber-100">{r.name}</span> — {r.reason}
+                      <span className="font-medium text-amber-100">
+                        {r.name}
+                      </span>{" "}
+                      — {r.reason}
                     </li>
                   ))}
                 </ul>
@@ -197,15 +210,17 @@ export function WorkspaceClient({
                   return (
                     <li
                       key={file.id}
-                      className="flex items-center gap-3 rounded-xl border border-white/10 bg-surface-2 px-3 py-2.5"
+                      className="bg-surface-2 flex items-center gap-3 rounded-xl border border-white/10 px-3 py-2.5"
                     >
                       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/5 text-violet-300">
                         <Icon className="size-4" aria-hidden />
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-sm text-slate-200">{file.name}</span>
+                        <span className="truncate text-sm text-slate-200">
+                          {file.name}
+                        </span>
                         <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-400">
-                          <span className="rounded border border-white/10 bg-white/5 px-1 py-px text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          <span className="rounded border border-white/10 bg-white/5 px-1 py-px text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
                             {file.kind}
                           </span>
                           <span className="truncate tabular-nums">
@@ -230,10 +245,12 @@ export function WorkspaceClient({
               </ul>
             ) : (
               <div className="flex flex-col items-center gap-1 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-8 text-center">
-                <p className="text-sm font-medium text-slate-300">No files staged yet</p>
+                <p className="text-sm font-medium text-slate-300">
+                  No files staged yet
+                </p>
                 <p className="max-w-sm text-xs text-slate-400">
-                  Drop documents above to see file-aware tool suggestions and build a
-                  batch. Nothing is uploaded.
+                  Drop documents above to see file-aware tool suggestions and
+                  build a batch. Nothing is uploaded.
                 </p>
               </div>
             )}
@@ -242,18 +259,27 @@ export function WorkspaceClient({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-col gap-1.5">
                 <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-                  <ShieldCheck className="size-3.5 text-emerald-400" aria-hidden />
+                  <ShieldCheck
+                    className="size-3.5 text-emerald-400"
+                    aria-hidden
+                  />
                   {hasFiles ? (
                     <span>
-                      {state.files.length} file{state.files.length === 1 ? "" : "s"} ·{" "}
+                      {state.files.length} file
+                      {state.files.length === 1 ? "" : "s"} ·{" "}
                       {formatBytes(totalBytes)} — staged in this browser only.
                     </span>
                   ) : (
-                    <span>Files stay in this browser. Nothing is uploaded.</span>
+                    <span>
+                      Files stay in this browser. Nothing is uploaded.
+                    </span>
                   )}
                 </p>
                 {familyChips.length > 0 && (
-                  <ul className="flex flex-wrap gap-1.5" aria-label="File types staged">
+                  <ul
+                    className="flex flex-wrap gap-1.5"
+                    aria-label="File types staged"
+                  >
                     {familyChips.map(({ family, count }) => (
                       <li
                         key={family}
@@ -321,11 +347,14 @@ export function WorkspaceClient({
         />
 
         <p className="flex items-start gap-2 rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.04] p-4 text-xs leading-relaxed text-slate-400">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-400" aria-hidden />
+          <ShieldCheck
+            className="mt-0.5 size-4 shrink-0 text-emerald-400"
+            aria-hidden
+          />
           <span>
-            Browser tools never upload — your files stay in this tab and clear when
-            you close it. Only your tool choices are remembered on this device;
-            file names and contents never are.
+            Browser tools never upload — your files stay in this tab and clear
+            when you close it. Only your tool choices are remembered on this
+            device; file names and contents never are.
           </span>
         </p>
       </aside>
@@ -349,7 +378,7 @@ function RecentActivity({
   return (
     <section
       aria-labelledby="activity-heading"
-      className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-5"
+      className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-5"
     >
       <div className="flex items-center justify-between gap-2">
         <h2
@@ -375,7 +404,10 @@ function RecentActivity({
       {!hydrated ? (
         <ul className="flex flex-col gap-2" aria-hidden>
           {[0, 1].map((i) => (
-            <li key={i} className="h-9 animate-pulse rounded-lg bg-white/[0.04]" />
+            <li
+              key={i}
+              className="h-9 animate-pulse rounded-lg bg-white/[0.04]"
+            />
           ))}
         </ul>
       ) : actions.length === 0 ? (
@@ -391,11 +423,14 @@ function RecentActivity({
                 key={action.id}
                 className="flex items-center gap-2.5 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-1.5"
               >
-                <Icon className="size-3.5 shrink-0 text-slate-400" aria-hidden />
+                <Icon
+                  className="size-3.5 shrink-0 text-slate-400"
+                  aria-hidden
+                />
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
                   {action.label}
                 </span>
-                <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+                <span className="shrink-0 text-[11px] text-slate-400 tabular-nums">
                   {formatRelative(action.at, now)}
                 </span>
               </li>

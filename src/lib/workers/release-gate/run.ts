@@ -72,8 +72,12 @@ export interface ReleaseGateRun {
  * the raw stdout/stderr are never touched — and authors `summary`/`remediation` from the spec's
  * app-owned prose, so no byte of subprocess output can reach the outcome.
  */
-export function reduceCheck(spec: ReleaseCheckSpec, probe: ProbeResult): ReleaseCheckOutcome {
-  const indeterminate = probe.spawnError || probe.timedOut || probe.exitCode === null;
+export function reduceCheck(
+  spec: ReleaseCheckSpec,
+  probe: ProbeResult,
+): ReleaseCheckOutcome {
+  const indeterminate =
+    probe.spawnError || probe.timedOut || probe.exitCode === null;
   const observedExit = probe.exitCode;
 
   let status: ReleaseCheckStatus;
@@ -92,7 +96,10 @@ export function reduceCheck(spec: ReleaseCheckSpec, probe: ProbeResult): Release
     expectedExit: spec.expectedExit,
     // Keep the observed code only if it is a small, finite, non-negative integer; otherwise null.
     observedExit:
-      typeof observedExit === "number" && Number.isInteger(observedExit) && observedExit >= 0 && observedExit <= 255
+      typeof observedExit === "number" &&
+      Number.isInteger(observedExit) &&
+      observedExit >= 0 &&
+      observedExit <= 255
         ? observedExit
         : null,
     summary: status === "pass" ? spec.passSummary : spec.remediation,
@@ -108,7 +115,8 @@ function skippedOutcome(spec: ReleaseCheckSpec): ReleaseCheckOutcome {
     severity: spec.severity,
     expectedExit: spec.expectedExit,
     observedExit: null,
-    summary: "Skipped by scope flag; not run and not counted toward the verdict.",
+    summary:
+      "Skipped by scope flag; not run and not counted toward the verdict.",
     remediation: spec.remediation,
   };
 }
@@ -145,7 +153,13 @@ export async function runReleaseGate(
     } catch {
       // A thrown seam is an indeterminate check — we could not learn its exit code. Fail closed to
       // `unknown` (which blocks a `pass`); never echo the thrown error.
-      probe = { exitCode: null, stdout: "", stderr: "", timedOut: false, spawnError: true };
+      probe = {
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        spawnError: true,
+      };
     }
     checks.push(reduceCheck(spec, probe));
   }

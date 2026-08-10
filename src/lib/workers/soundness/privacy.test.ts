@@ -91,7 +91,8 @@ describe("soundness results are content-free", () => {
   }
 
   it("the gate capability detail names no variable or value", () => {
-    const detail = createSoundnessGate(DEFAULT_SOUNDNESS_POLICY).capability().detail;
+    const detail = createSoundnessGate(DEFAULT_SOUNDNESS_POLICY).capability()
+      .detail;
     for (const secret of [...FORBIDDEN, "PDFXYZ_"]) {
       expect(detail).not.toContain(secret);
     }
@@ -111,4 +112,3 @@ describe("soundness results are content-free", () => {
     expect(a.detail).toBe(b.detail);
   });
 });
-

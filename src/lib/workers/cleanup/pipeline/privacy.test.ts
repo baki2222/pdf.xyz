@@ -22,7 +22,10 @@ const HOSTILE = JSON.stringify({
       Bucket: "prod-user-uploads",
       signedUrl: "https://prod.s3.amazonaws.com/x?X-Amz-Signature=deadbeefcafe",
       region: "us-east-1",
-      Metadata: { "ocr-text": "Account 1234 balance", secret: "AKIAIOSFODNN7EXAMPLE" },
+      Metadata: {
+        "ocr-text": "Account 1234 balance",
+        secret: "AKIAIOSFODNN7EXAMPLE",
+      },
     },
   ],
 });
@@ -83,6 +86,7 @@ describe("orchestrator output is content-free regardless of stage input", () => 
   it("the text format is likewise content-free", async () => {
     const run = await runPipeline(HOSTILE, hostileStages, AT, "text");
     const text = run.output.toLowerCase();
-    for (const needle of NEEDLES) expect(text, `leaked ${needle}`).not.toContain(needle);
+    for (const needle of NEEDLES)
+      expect(text, `leaked ${needle}`).not.toContain(needle);
   });
 });

@@ -44,20 +44,23 @@ export function renderArtifactCleanupText(
   const lines: string[] = [];
   lines.push("pdf.xyz storage-artifact cleanup verifier (dry-run)");
   lines.push(
-    row("verdict", `${report.verdict} (exit ${exitCodeForCleanupVerdict(report.verdict)})`),
+    row(
+      "verdict",
+      `${report.verdict} (exit ${exitCodeForCleanupVerdict(report.verdict)})`,
+    ),
   );
   lines.push(row("artifacts evaluated", report.total));
   lines.push(row("cleanup recommended", report.cleanupRecommended));
-  lines.push(
-    row("policy", `${report.policyId} v${report.policyVersion}`),
-  );
+  lines.push(row("policy", `${report.policyId} v${report.policyVersion}`));
   lines.push("");
   lines.push(row("severities", counts(CLEANUP_SEVERITIES, report.severities)));
   lines.push(row("categories", counts(CLEANUP_CATEGORIES, report.categories)));
 
   if (options.includePlan) {
     lines.push("");
-    lines.push("plan (dry-run — this tool never deletes; deletion is operator-owned):");
+    lines.push(
+      "plan (dry-run — this tool never deletes; deletion is operator-owned):",
+    );
     if (report.plan.length === 0) {
       lines.push("  (empty)");
     } else {
@@ -75,7 +78,9 @@ export function renderArtifactCleanupText(
     lines.push("breakdown:");
     lines.push(row("providers", counts(Object.keys(b.providers), b.providers)));
     lines.push(row("kinds", counts(Object.keys(b.kinds), b.kinds)));
-    lines.push(row("processors", counts(Object.keys(b.processors), b.processors)));
+    lines.push(
+      row("processors", counts(Object.keys(b.processors), b.processors)),
+    );
     lines.push(row("ages", counts(Object.keys(b.ages), b.ages)));
     lines.push(row("sizes", counts(Object.keys(b.sizes), b.sizes)));
   }

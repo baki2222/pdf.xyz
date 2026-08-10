@@ -30,14 +30,14 @@ the rendered output stays content-free.
 
 ## The fixtures
 
-| File | Scenario | Severity | Exit code |
-| ---- | -------- | -------- | --------- |
-| `healthy.json` | Fully green stack; a fresh liveness heartbeat is visible. | `ok` | `0` |
-| `stale-heartbeat.json` | Everything configured, but the worker's heartbeat is older than the freshness window (observation is enabled). | `warn` | `3` |
-| `lifecycle-drift.json` | A verified retention-backstop drift: the snapshot flags it and the `metrics` series carries the drifted-rule count, so the SLO breaches. | `critical` | `4` |
-| `scanner-unavailable-spike.json` | A malware scanner is selected but a spike of engaged scans could not complete (`worker_scan_total{verdict=error}` dominates), so the scanner-unavailable SLO breaches. | `critical` | `4` |
-| `no-config-development.json` | A development / disabled-mode context where nothing is configured and no worker is observable, so health is genuinely indeterminate. | `unknown` | `2` |
-| `rate-limit-fail-open.json` | Everything else is healthy, but the configured distributed rate limiter's store is failing and the guard is failing OPEN (`rateLimit.code: "remote-error-fail-open"`) — traffic passes unthrottled, so the abuse guard raises the documented alert. | `warn` | `3` |
+| File                             | Scenario                                                                                                                                                                                                                                            | Severity   | Exit code |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | --------- |
+| `healthy.json`                   | Fully green stack; a fresh liveness heartbeat is visible.                                                                                                                                                                                           | `ok`       | `0`       |
+| `stale-heartbeat.json`           | Everything configured, but the worker's heartbeat is older than the freshness window (observation is enabled).                                                                                                                                      | `warn`     | `3`       |
+| `lifecycle-drift.json`           | A verified retention-backstop drift: the snapshot flags it and the `metrics` series carries the drifted-rule count, so the SLO breaches.                                                                                                            | `critical` | `4`       |
+| `scanner-unavailable-spike.json` | A malware scanner is selected but a spike of engaged scans could not complete (`worker_scan_total{verdict=error}` dominates), so the scanner-unavailable SLO breaches.                                                                              | `critical` | `4`       |
+| `no-config-development.json`     | A development / disabled-mode context where nothing is configured and no worker is observable, so health is genuinely indeterminate.                                                                                                                | `unknown`  | `2`       |
+| `rate-limit-fail-open.json`      | Everything else is healthy, but the configured distributed rate limiter's store is failing and the guard is failing OPEN (`rateLimit.code: "remote-error-fail-open"`) — traffic passes unthrottled, so the abuse guard raises the documented alert. | `warn`     | `3`       |
 
 ## Exit-code contract
 
@@ -46,13 +46,13 @@ supervisor keys on. The operational ladder is monotonic in severity; `1` is a di
 "the check itself was misused" band, so a misconfigured monitor is never mistaken for a
 (un)healthy worker:
 
-| Code | Meaning |
-| ---- | ------- |
-| `0` | OK — everything observable is healthy |
-| `1` | usage — a bad flag, or unreadable/malformed input |
-| `2` | UNKNOWN — worker health could not be determined (no data) |
-| `3` | WARNING — a recommended fix is outstanding (a worker can still run) |
-| `4` | CRITICAL — a worker cannot run correctly here, or an SLO breached |
+| Code | Meaning                                                             |
+| ---- | ------------------------------------------------------------------- |
+| `0`  | OK — everything observable is healthy                               |
+| `1`  | usage — a bad flag, or unreadable/malformed input                   |
+| `2`  | UNKNOWN — worker health could not be determined (no data)           |
+| `3`  | WARNING — a recommended fix is outstanding (a worker can still run) |
+| `4`  | CRITICAL — a worker cannot run correctly here, or an SLO breached   |
 
 ## On the honest "unknown" (development)
 

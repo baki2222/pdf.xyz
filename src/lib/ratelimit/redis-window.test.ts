@@ -21,7 +21,10 @@
  * pins the *semantics* the script encodes.
  */
 import { describe, expect, it } from "vitest";
-import type { RedisFetch, RedisHttpResponse } from "@/lib/workers/queue/redis-client";
+import type {
+  RedisFetch,
+  RedisHttpResponse,
+} from "@/lib/workers/queue/redis-client";
 import { policyFor } from "./policy";
 import { FIXED_WINDOW_SCRIPT, createRedisRateLimitProvider } from "./redis";
 import type { RateLimitRedisConfig } from "./redis-config";
@@ -46,7 +49,10 @@ function policy(limit: number, windowSeconds = 60): RateLimitPolicy {
 function clockStore() {
   let clockMs = 0;
   let failing = false;
-  const entries = new Map<string, { count: number; expireAtMs: number | null }>();
+  const entries = new Map<
+    string,
+    { count: number; expireAtMs: number | null }
+  >();
 
   const live = (key: string) => {
     const e = entries.get(key);
@@ -90,7 +96,11 @@ function clockStore() {
       throw new Error("clockStore: unexpected command");
     }
     const result = runFixedWindow(args[3]!, Number(args[4]));
-    return { ok: true, status: 200, json: async () => ({ result }) } satisfies RedisHttpResponse;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ result }),
+    } satisfies RedisHttpResponse;
   };
 
   return {
@@ -108,7 +118,9 @@ function clockStore() {
 describe("redis limiter — window reset & bounded TTL", () => {
   it("begins a fresh budget once the window TTL elapses", async () => {
     const store = clockStore();
-    const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl: store.fetchImpl });
+    const provider = createRedisRateLimitProvider(CONFIG, {
+      fetchImpl: store.fetchImpl,
+    });
     const p = policy(3, 60);
 
     for (let i = 0; i < p.limit; i++) {
@@ -122,7 +134,9 @@ describe("redis limiter — window reset & bounded TTL", () => {
 
   it("keeps the window FIXED from the first hit — retry-after counts down, never slides", async () => {
     const store = clockStore();
-    const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl: store.fetchImpl });
+    const provider = createRedisRateLimitProvider(CONFIG, {
+      fetchImpl: store.fetchImpl,
+    });
     const p = policy(2, 60);
 
     for (let i = 0; i < p.limit; i++) await provider.check(p, "shared", 0);
@@ -138,7 +152,9 @@ describe("redis limiter — window reset & bounded TTL", () => {
 
   it("self-expires every key, so a flood of distinct clients cannot grow the keyspace", async () => {
     const store = clockStore();
-    const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl: store.fetchImpl });
+    const provider = createRedisRateLimitProvider(CONFIG, {
+      fetchImpl: store.fetchImpl,
+    });
     const p = policy(1, 60);
 
     for (let i = 0; i < 50; i++) await provider.check(p, `c_${i}`, 0);
@@ -152,11 +168,15 @@ describe("redis limiter — window reset & bounded TTL", () => {
 describe("redis limiter — atomic under concurrency", () => {
   it("admits EXACTLY the limit under a concurrent burst (never over-admits)", async () => {
     const store = clockStore();
-    const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl: store.fetchImpl });
+    const provider = createRedisRateLimitProvider(CONFIG, {
+      fetchImpl: store.fetchImpl,
+    });
     const p = policy(5, 60);
 
     const burst = await Promise.all(
-      Array.from({ length: p.limit + 25 }, () => provider.check(p, "shared", 0)),
+      Array.from({ length: p.limit + 25 }, () =>
+        provider.check(p, "shared", 0),
+      ),
     );
     expect(burst.filter((v) => v.allowed).length).toBe(p.limit);
     expect(burst.filter((v) => !v.allowed).length).toBe(25);
@@ -164,12 +184,18 @@ describe("redis limiter — atomic under concurrency", () => {
 
   it("keeps concurrent buckets independent", async () => {
     const store = clockStore();
-    const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl: store.fetchImpl });
+    const provider = createRedisRateLimitProvider(CONFIG, {
+      fetchImpl: store.fetchImpl,
+    });
     const p = policy(4, 60);
 
     const mixed = await Promise.all([
-      ...Array.from({ length: p.limit + 3 }, () => provider.check(p, "c_aaa", 0)),
-      ...Array.from({ length: p.limit + 3 }, () => provider.check(p, "c_bbb", 0)),
+      ...Array.from({ length: p.limit + 3 }, () =>
+        provider.check(p, "c_aaa", 0),
+      ),
+      ...Array.from({ length: p.limit + 3 }, () =>
+        provider.check(p, "c_bbb", 0),
+      ),
     ]);
     // Each of the two buckets admits exactly its own limit.
     expect(mixed.filter((v) => v.allowed).length).toBe(p.limit * 2);
@@ -179,7 +205,9 @@ describe("redis limiter — atomic under concurrency", () => {
 describe("redis limiter — retry-after honors the live TTL", () => {
   it("derives the deny retry-after from the store's remaining PTTL", async () => {
     const store = clockStore();
-    const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl: store.fetchImpl });
+    const provider = createRedisRateLimitProvider(CONFIG, {
+      fetchImpl: store.fetchImpl,
+    });
     const p = policyFor("jobs.status"); // a real per-minute policy
 
     for (let i = 0; i < p.limit; i++) await provider.check(p, "shared", 0);

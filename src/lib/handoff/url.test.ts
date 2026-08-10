@@ -36,7 +36,9 @@ describe("stripHandoffFromUrl", () => {
 
   it("collapses to a clean path when the token was the only param", () => {
     expect(
-      stripHandoffFromUrl("https://pdf.xyz/tools/rotate-pdf?handoff=h_deadbeef00"),
+      stripHandoffFromUrl(
+        "https://pdf.xyz/tools/rotate-pdf?handoff=h_deadbeef00",
+      ),
     ).toBe("https://pdf.xyz/tools/rotate-pdf");
   });
 

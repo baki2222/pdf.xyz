@@ -1,4 +1,8 @@
-import type { PdfLayout, PdfLayoutPage, PositionedTextItem } from "@/lib/workers/table-extract/engine";
+import type {
+  PdfLayout,
+  PdfLayoutPage,
+  PositionedTextItem,
+} from "@/lib/workers/table-extract/engine";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 
 /**
@@ -34,7 +38,9 @@ async function loadPdfjs() {
 }
 
 /** Convert a raw pdfjs text-content items array into positioned runs. */
-export function textItemsToPositioned(items: PdfTextItemLike[]): PositionedTextItem[] {
+export function textItemsToPositioned(
+  items: PdfTextItemLike[],
+): PositionedTextItem[] {
   const positioned: PositionedTextItem[] = [];
   for (const item of items) {
     if (typeof item.str !== "string" || item.str.trim().length === 0) continue;
@@ -44,7 +50,10 @@ export function textItemsToPositioned(items: PdfTextItemLike[]): PositionedTextI
     const y = Number(transform[5]);
     const width = typeof item.width === "number" ? item.width : 0;
     // pdfjs height can be 0 for some fonts; fall back to the transform's scale.
-    const height = typeof item.height === "number" && item.height > 0 ? item.height : Math.abs(Number(transform[3])) || 0;
+    const height =
+      typeof item.height === "number" && item.height > 0
+        ? item.height
+        : Math.abs(Number(transform[3])) || 0;
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     positioned.push({ text: item.str, x, y, width, height });
   }
@@ -68,7 +77,9 @@ export async function extractPdfLayout(bytes: Uint8Array): Promise<PdfLayout> {
       const page = await doc.getPage(pageNumber);
       try {
         const viewport = page.getViewport({ scale: 1 });
-        const content = await page.getTextContent({ includeMarkedContent: false });
+        const content = await page.getTextContent({
+          includeMarkedContent: false,
+        });
         pages.push({
           pageNumber,
           width: viewport.width,

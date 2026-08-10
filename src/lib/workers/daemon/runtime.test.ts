@@ -97,14 +97,21 @@ describe("resolveWorkerRuntime — gating", () => {
   });
 
   it("threads injected qpdf structure deps into the standard processor registry", () => {
-    const output = new TextEncoder().encode(`%PDF-1.7\n${"1".repeat(32)}\n%%EOF\n`);
+    const output = new TextEncoder().encode(
+      `%PDF-1.7\n${"1".repeat(32)}\n%%EOF\n`,
+    );
     const qpdf: QpdfStructureRunner = {
       repair: async () => output,
       linearize: async () => output,
     };
     const runtime = resolveWorkerRuntime(
       {},
-      { queue: fakeClaimable, storage: fakeStorage, compression: noEngines, pdfStructure: { qpdf } },
+      {
+        queue: fakeClaimable,
+        storage: fakeStorage,
+        compression: noEngines,
+        pdfStructure: { qpdf },
+      },
     );
     const facet = runtime.processors.find((p) => p.id === "pdf-structure");
     expect(facet).toMatchObject({
@@ -143,7 +150,10 @@ describe("resolveWorkerRuntime — malware-scan gate", () => {
   it("wires an ACTIVE clamav scanner when configured, leaking nothing", () => {
     const runtime = resolveWorkerRuntime(
       { PDFXYZ_MALWARE_SCANNER: "clamav://scanner.internal:3310" },
-      { compression: noEngines, scannerTransport: fixedTransport("stream: OK\0") },
+      {
+        compression: noEngines,
+        scannerTransport: fixedTransport("stream: OK\0"),
+      },
     );
     expect(runtime.scanner.active).toBe(true);
     expect(runtime.scanner.provider).toBe("clamav");
@@ -218,7 +228,11 @@ describe("resolveWorkerRuntime — compression-engine health vs drainability", (
   it("reports deep-capable health from the wired engine, independent of drainability", () => {
     const runtime = resolveWorkerRuntime(
       {},
-      { compression: { tools: { ghostscript: true, qpdf: false, mutool: false } } },
+      {
+        compression: {
+          tools: { ghostscript: true, qpdf: false, mutool: false },
+        },
+      },
     );
     expect(runtime.compression).toMatchObject({
       deep: true,
@@ -336,15 +350,20 @@ describe("worker daemon runtime — honesty end-to-end", () => {
 
     // `compression: noEngines` keeps the derived compression health hermetic (no
     // host PATH probe); the injected `registry` is what actually runs the job.
-    const runtime = resolveWorkerRuntime({}, {
-      queue,
-      storage,
-      registry,
-      compression: noEngines,
-    });
+    const runtime = resolveWorkerRuntime(
+      {},
+      {
+        queue,
+        storage,
+        registry,
+        compression: noEngines,
+      },
+    );
     expect(runtime.executor).toBeDefined();
 
-    const summary = await createWorkerDaemon({ executor: runtime.executor! }).run({
+    const summary = await createWorkerDaemon({
+      executor: runtime.executor!,
+    }).run({
       mode: "drain",
     });
 
@@ -387,7 +406,9 @@ describe("worker daemon runtime — honesty end-to-end", () => {
     );
     expect(runtime.scanner.active).toBe(true);
 
-    const summary = await createWorkerDaemon({ executor: runtime.executor! }).run({
+    const summary = await createWorkerDaemon({
+      executor: runtime.executor!,
+    }).run({
       mode: "drain",
     });
 
@@ -418,7 +439,9 @@ describe("worker daemon runtime — honesty end-to-end", () => {
     });
 
     // A structurally-valid searchable PDF the injected runner "produces".
-    const ocrPdf = new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(64)}\n%%EOF\n`);
+    const ocrPdf = new TextEncoder().encode(
+      `%PDF-1.7\n${"x".repeat(64)}\n%%EOF\n`,
+    );
     const runtime = resolveWorkerRuntime(
       {},
       {
@@ -429,7 +452,11 @@ describe("worker daemon runtime — honesty end-to-end", () => {
           engines: { ocrmypdf: true, tesseract: false },
           runner: async () => ({
             artifacts: [
-              { filename: "scan-ocr.pdf", contentType: "application/pdf", bytes: ocrPdf },
+              {
+                filename: "scan-ocr.pdf",
+                contentType: "application/pdf",
+                bytes: ocrPdf,
+              },
             ],
             meta: buildOcrResultMeta({
               engine: "ocrmypdf",
@@ -445,9 +472,13 @@ describe("worker daemon runtime — honesty end-to-end", () => {
     );
     // The wired OCR processor reports ready, and the deployment facet agrees.
     expect(runtime.processors.find((p) => p.id === "ocr")?.ready).toBe(true);
-    expect(runtime.deployment.facets.find((f) => f.id === "ocr")?.state).toBe("ready");
+    expect(runtime.deployment.facets.find((f) => f.id === "ocr")?.state).toBe(
+      "ready",
+    );
 
-    const summary = await createWorkerDaemon({ executor: runtime.executor! }).run({
+    const summary = await createWorkerDaemon({
+      executor: runtime.executor!,
+    }).run({
       mode: "drain",
     });
 

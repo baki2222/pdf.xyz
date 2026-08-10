@@ -9,11 +9,15 @@ import {
 
 describe("markdown-to-pdf", () => {
   it("rejects empty markdown", () => {
-    expect(() => validateMarkdownInput("  \n\t  ")).toThrow(/Add some Markdown/);
+    expect(() => validateMarkdownInput("  \n\t  ")).toThrow(
+      /Add some Markdown/,
+    );
   });
 
   it("parses headings, bullets, ordered items, blockquotes, code fences, and paragraphs", () => {
-    const blocks = parseMarkdownBlocks(`# Title\n\nIntro **bold** text.\n\n- one\n- two\n\n1. first\n2. second\n\n> quoted\n\n\`\`\`ts\nconst x = 1;\n\`\`\``);
+    const blocks = parseMarkdownBlocks(
+      `# Title\n\nIntro **bold** text.\n\n- one\n- two\n\n1. first\n2. second\n\n> quoted\n\n\`\`\`ts\nconst x = 1;\n\`\`\``,
+    );
     expect(blocks.map((block) => block.kind)).toEqual([
       "heading",
       "paragraph",
@@ -24,14 +28,29 @@ describe("markdown-to-pdf", () => {
       "quote",
       "code",
     ]);
-    expect(blocks[0]).toMatchObject({ kind: "heading", depth: 1, text: "Title" });
-    expect(blocks[2]).toMatchObject({ kind: "list-item", ordered: false, text: "one" });
-    expect(blocks[4]).toMatchObject({ kind: "list-item", ordered: true, index: 1, text: "first" });
+    expect(blocks[0]).toMatchObject({
+      kind: "heading",
+      depth: 1,
+      text: "Title",
+    });
+    expect(blocks[2]).toMatchObject({
+      kind: "list-item",
+      ordered: false,
+      text: "one",
+    });
+    expect(blocks[4]).toMatchObject({
+      kind: "list-item",
+      ordered: true,
+      index: 1,
+      text: "first",
+    });
     expect(blocks[7]).toMatchObject({ kind: "code", language: "ts" });
   });
 
   it("strips common inline markdown marks to readable PDF text", () => {
-    const blocks = parseMarkdownBlocks("**Bold** and _em_ with [link](https://example.com) and `code`");
+    const blocks = parseMarkdownBlocks(
+      "**Bold** and _em_ with [link](https://example.com) and `code`",
+    );
     expect(blocks).toHaveLength(1);
     expect(blocks[0]).toMatchObject({
       kind: "paragraph",
@@ -40,7 +59,10 @@ describe("markdown-to-pdf", () => {
   });
 
   it("creates a valid PDF with document metadata", async () => {
-    const bytes = await markdownToPdf("# Release notes\n\n- Repair PDF\n- Optimize for Web", { title: "notes.md" });
+    const bytes = await markdownToPdf(
+      "# Release notes\n\n- Repair PDF\n- Optimize for Web",
+      { title: "notes.md" },
+    );
     const doc = await PDFDocument.load(bytes);
     expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
     expect(doc.getTitle()).toBe("notes.md");

@@ -21,11 +21,7 @@ import { DevWorkerStore } from "../store";
 import { createLocalDevQueue } from "../queue/local-dev";
 import { ProcessorRegistry } from "../processor/registry";
 import { processorOk, type Processor } from "../processor/types";
-import {
-  fakeScanner,
-  scanInfected,
-  type MalwareScanResult,
-} from "../scanner";
+import { fakeScanner, scanInfected, type MalwareScanResult } from "../scanner";
 import {
   createSoundnessGate,
   defaultSoundnessGate,
@@ -44,7 +40,9 @@ const CLOCK = 1_700_000_000_000;
 const enc = (s: string) => new TextEncoder().encode(s);
 const VALID_PDF = enc(`%PDF-1.7\n${"0".repeat(64)}\n%%EOF\n`);
 // Junk that is NOT a PDF and embeds strings we assert never leak into logs/receipts.
-const NOT_PDF = enc("this is not a pdf — /etc/passwd AWS_SECRET_ACCESS_KEY=abc123");
+const NOT_PDF = enc(
+  "this is not a pdf — /etc/passwd AWS_SECRET_ACCESS_KEY=abc123",
+);
 
 function queuedJob(jobId: string, tool = "compress-pdf"): Job {
   return {
@@ -76,7 +74,11 @@ function spyProcessor() {
     process: async (input) => {
       calls.push(input.inputs.length);
       return processorOk([
-        { filename: "out.pdf", contentType: "application/pdf", bytes: enc("ok") },
+        {
+          filename: "out.pdf",
+          contentType: "application/pdf",
+          bytes: enc("ok"),
+        },
       ]);
     },
   };
@@ -161,7 +163,16 @@ function harness(
     await executor.drain();
   };
 
-  return { store, logs, metrics, receipts, calls, scanCalls, fileId: slot.fileId, run };
+  return {
+    store,
+    logs,
+    metrics,
+    receipts,
+    calls,
+    scanCalls,
+    fileId: slot.fileId,
+    run,
+  };
 }
 
 const soundnessSample = (metrics: WorkerMetricSample[]) =>
@@ -210,24 +221,37 @@ describe("executor file-soundness gate — rejects before the scanner AND proces
     });
     await h.run();
 
-    expect(soundnessSample(h.metrics)?.labels).toEqual({ verdict: "sound", reason: "ok" });
+    expect(soundnessSample(h.metrics)?.labels).toEqual({
+      verdict: "sound",
+      reason: "ok",
+    });
     expect(h.scanCalls).toEqual([1]); // the scanner ran after a sound verdict
     expect(h.calls).toEqual([]); // …and blocked before the processor
-    expect(h.store.getJob("job_snd0000001")?.error?.code).toBe("malware_detected");
+    expect(h.store.getJob("job_snd0000001")?.error?.code).toBe(
+      "malware_detected",
+    );
   });
 
   it("classifies the terminal failure as `unsound` (distinct from a scan block)", async () => {
     const h = harness(NOT_PDF, { soundness: defaultSoundnessGate() });
     await h.run();
-    const terminal = h.metrics.find((m) => m.metric === "worker_job_terminal_total");
-    expect(terminal?.labels).toMatchObject({ outcome: "failed", failure_class: "unsound" });
+    const terminal = h.metrics.find(
+      (m) => m.metric === "worker_job_terminal_total",
+    );
+    expect(terminal?.labels).toMatchObject({
+      outcome: "failed",
+      failure_class: "unsound",
+    });
   });
 
   it("blocks an empty input with the `empty` reason", async () => {
     const h = harness(new Uint8Array(), { soundness: defaultSoundnessGate() });
     await h.run();
     expect(h.calls).toEqual([]);
-    expect(soundnessSample(h.metrics)?.labels).toEqual({ verdict: "unsound", reason: "empty" });
+    expect(soundnessSample(h.metrics)?.labels).toEqual({
+      verdict: "unsound",
+      reason: "empty",
+    });
   });
 
   it("blocks an unsupported family (image sent to a PDF-only tool)", async () => {
@@ -302,7 +326,10 @@ describe("executor file-soundness gate — sound + honest off", () => {
     expect(h.calls).toEqual([1]); // the processor really ran, over the one input
     expect(h.store.getJob("job_snd0000001")?.status).toBe("completed");
     expect(h.logs.some((e) => e.event === "soundness_ok")).toBe(true);
-    expect(soundnessSample(h.metrics)?.labels).toEqual({ verdict: "sound", reason: "ok" });
+    expect(soundnessSample(h.metrics)?.labels).toEqual({
+      verdict: "sound",
+      reason: "ok",
+    });
   });
 
   it("with NO gate wired, junk bytes reach the processor (byte-for-byte unchanged)", async () => {
@@ -310,7 +337,9 @@ describe("executor file-soundness gate — sound + honest off", () => {
     await h.run();
     expect(h.calls).toEqual([1]);
     expect(h.store.getJob("job_snd0000001")?.status).toBe("completed");
-    expect(h.metrics.some((m) => m.metric === "worker_soundness_total")).toBe(false);
+    expect(h.metrics.some((m) => m.metric === "worker_soundness_total")).toBe(
+      false,
+    );
   });
 
   it("a disabled gate is skipped: junk reaches the processor, metric records skipped", async () => {
@@ -326,8 +355,13 @@ describe("executor file-soundness gate — sound + honest off", () => {
   });
 
   it("respects a custom policy (EOF required) via an injected gate", async () => {
-    const gate = createSoundnessGate({ ...DEFAULT_SOUNDNESS_POLICY, requireEof: true });
-    const h = harness(enc(`%PDF-1.7\n${"0".repeat(64)}\n`), { soundness: gate });
+    const gate = createSoundnessGate({
+      ...DEFAULT_SOUNDNESS_POLICY,
+      requireEof: true,
+    });
+    const h = harness(enc(`%PDF-1.7\n${"0".repeat(64)}\n`), {
+      soundness: gate,
+    });
     await h.run();
     expect(h.calls).toEqual([]);
     expect(soundnessSample(h.metrics)?.labels).toEqual({

@@ -88,10 +88,20 @@ const CONFIGURED_NOT_OBSERVED: WorkerStatus = buildWorkerStatus(
 );
 
 /** Nothing configured, nothing observed. */
-const ALL_DEAD: WorkerStatus = buildWorkerStatus("disabled", undefined, undefined, {});
+const ALL_DEAD: WorkerStatus = buildWorkerStatus(
+  "disabled",
+  undefined,
+  undefined,
+  {},
+);
 
 /** The developer-only in-process worker. */
-const LOCAL_DEV: WorkerStatus = buildWorkerStatus("local-dev", undefined, undefined, {});
+const LOCAL_DEV: WorkerStatus = buildWorkerStatus(
+  "local-dev",
+  undefined,
+  undefined,
+  {},
+);
 
 /* ------------------------------------------------------------------ *
  *  The predicates — one place each, health-checked below.
@@ -126,16 +136,22 @@ interface CardView {
 async function renderCard(status: WorkerStatus): Promise<CardView> {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockImplementation(async () => ({ ok: true, json: async () => status })),
+    vi
+      .fn()
+      .mockImplementation(async () => ({ ok: true, json: async () => status })),
   );
   render(<SystemStatus localTools={[]} />);
-  const heading = await screen.findByRole("heading", { name: /secure worker/i });
+  const heading = await screen.findByRole("heading", {
+    name: /secure worker/i,
+  });
   const header = heading.parentElement as HTMLElement;
   const card = header.parentElement as HTMLElement;
   // Ready state: the OCR row exists once the fetch resolved.
   await within(card).findByText("OCR");
   await waitFor(() => expect(card.querySelector("p")).not.toBeNull());
-  const headlineBadge = (header.textContent ?? "").replace(/Secure worker/i, "").trim();
+  const headlineBadge = (header.textContent ?? "")
+    .replace(/Secure worker/i, "")
+    .trim();
   const lead = card.querySelector("p")?.textContent ?? "";
   const rowBadges = (re: RegExp) =>
     within(card)
@@ -164,7 +180,10 @@ function expectNoContradiction(view: CardView, label: string) {
   ).toBe(false);
 
   const denies = CLAIMS_NOTHING_CONFIGURED.test(view.lead);
-  const present = [...view.rowBadges(BADGE_LIVE), ...view.rowBadges(BADGE_CONFIGURED)];
+  const present = [
+    ...view.rowBadges(BADGE_LIVE),
+    ...view.rowBadges(BADGE_CONFIGURED),
+  ];
   expect(
     denies && present.length > 0,
     `${label}: the lead claims nothing is configured ("${view.lead.slice(0, 80)}…") while rows say [${present.join(", ")}]`,
@@ -193,7 +212,10 @@ describe("the secure-worker card renders one verdict", () => {
   });
 
   it("the headline may not deny what a row asserts — production shape, 2026-08-10", async () => {
-    expectNoContradiction(await renderCard(PRODUCTION_SHAPE), "observed-worker production shape");
+    expectNoContradiction(
+      await renderCard(PRODUCTION_SHAPE),
+      "observed-worker production shape",
+    );
   });
 
   it("the lead may not claim nothing is configured while the pipeline is drainable", async () => {

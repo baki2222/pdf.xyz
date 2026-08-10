@@ -38,7 +38,12 @@ const DISABLED: WorkerStatus = {
   providers: getProviderReadiness("disabled"),
   daemon: resolveDaemonReadiness({}),
   ai: resolveAiReadiness({}),
-  pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
+  pipeline: {
+    verdict: "off",
+    observed: false,
+    drainable: false,
+    detail: "no worker observed",
+  },
 };
 
 const AVAILABLE: WorkerStatus = {
@@ -52,7 +57,8 @@ const AVAILABLE: WorkerStatus = {
     available: true,
     engine: "ocrmypdf",
     languages: [...OCR_LANGUAGE_CODES],
-    detail: "OCR runs on ocrmypdf on an encrypted, auto-deleting secure worker.",
+    detail:
+      "OCR runs on ocrmypdf on an encrypted, auto-deleting secure worker.",
   },
   security: {
     available: false,
@@ -62,7 +68,12 @@ const AVAILABLE: WorkerStatus = {
   providers: getProviderReadiness("remote-configured"),
   daemon: resolveDaemonReadiness({}),
   ai: resolveAiReadiness({}),
-  pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
+  pipeline: {
+    verdict: "off",
+    observed: false,
+    drainable: false,
+    detail: "no worker observed",
+  },
 };
 
 function stubFetch(status: WorkerStatus) {
@@ -90,19 +101,31 @@ describe("OcrWorkerPanel", () => {
     expect(await screen.findByText(DISABLED.ocr.detail)).toBeInTheDocument();
 
     // OCR-specific configuration is present.
-    expect(screen.getByRole("group", { name: /ocr languages/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /english/i })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Searchable PDF" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Text sidecar" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("group", { name: /ocr languages/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /english/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: "Searchable PDF" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: "Text sidecar" }),
+    ).toBeInTheDocument();
 
     // Honest availability badge + notify placeholder, and NO uploader.
     expect(screen.getByText("Not enabled")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /notify me/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /notify me/i }),
+    ).toBeInTheDocument();
     expect(fileInput()).toBeNull();
 
     // It never fabricates a produced result / download in the disabled state.
     expect(screen.queryByText(/OCR complete/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /run ocr on the worker/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /run ocr on the worker/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("emits a privacy-safe worker_status_checked event", async () => {
@@ -150,9 +173,13 @@ describe("OcrWorkerPanel", () => {
     // The single most useful sentence on the page, and it costs no new data: a user
     // who leaves the default alone otherwise gets a successful job and unusable output
     // with nothing to explain why.
-    expect(screen.getByText(/plausible-looking gibberish/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/plausible-looking gibberish/i),
+    ).toBeInTheDocument();
     // And the instruction the measurement actually supports.
-    expect(screen.getByText(/select every language printed on the page/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/select every language printed on the page/i),
+    ).toBeInTheDocument();
   });
 
   it("mounts the real uploader + run action only when OCR is available", async () => {
@@ -203,7 +230,9 @@ describe("OcrResultSummary — safe, structural job metadata", () => {
     // echoes the language back and warns the wrong one yields gibberish rather than
     // an error. That note is the only warning a user gets before trusting the output.
     expect(screen.getAllByText("English, Spanish")).toHaveLength(2);
-    expect(screen.getByText(/plausible-looking gibberish/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/plausible-looking gibberish/i),
+    ).toBeInTheDocument();
     expect(screen.getByText("1,240 characters")).toBeInTheDocument();
 
     // Structural only: the engine token and the raw language CODES are backend

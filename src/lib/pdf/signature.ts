@@ -90,7 +90,10 @@ export interface PlaceBoxInput {
  * in the page's content space (bottom-left origin). Returns the bottom-left
  * corner where the image/text should be drawn.
  */
-export function placeSignatureBox(input: PlaceBoxInput): { x: number; y: number } {
+export function placeSignatureBox(input: PlaceBoxInput): {
+  x: number;
+  y: number;
+} {
   const x =
     input.h === "left"
       ? input.margin
@@ -120,8 +123,6 @@ export function fontSizeForWidth(
   return clamp(targetWidth / unitWidth, min, max);
 }
 
-
-
 /**
  * Draw a signature onto one page of a PDF and return the new bytes. Typed
  * signatures are auto-sized to the requested width; image signatures preserve
@@ -138,13 +139,21 @@ export async function signPdf(
   const doc = await loadPdf(bytes);
   const pages = doc.getPages();
   const { pageIndex } = placement;
-  if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= pages.length) {
+  if (
+    !Number.isInteger(pageIndex) ||
+    pageIndex < 0 ||
+    pageIndex >= pages.length
+  ) {
     throw new PdfEngineError("Choose a page that exists in the document.");
   }
   const page = pages[pageIndex]!;
   const { width: pageWidth, height: pageHeight } = page.getSize();
   const { h, v } = resolveAlign(placement.position);
-  const margin = clamp(placement.margin ?? 24, 0, Math.min(pageWidth, pageHeight) / 2);
+  const margin = clamp(
+    placement.margin ?? 24,
+    0,
+    Math.min(pageWidth, pageHeight) / 2,
+  );
   const targetWidth = clamp(
     placement.width,
     MIN_SIGNATURE_WIDTH,
@@ -176,7 +185,9 @@ export async function signPdf(
     const text = input.text.trim();
     const { StandardFonts } = await loadPdfLib();
     const font = await doc.embedFont(
-      input.style === "signature" ? StandardFonts.TimesRomanItalic : StandardFonts.Helvetica,
+      input.style === "signature"
+        ? StandardFonts.TimesRomanItalic
+        : StandardFonts.Helvetica,
     );
     const size = fontSizeForWidth(font.widthOfTextAtSize(text, 1), targetWidth);
     const boxWidth = font.widthOfTextAtSize(text, size);
@@ -191,7 +202,13 @@ export async function signPdf(
       margin,
     });
     const { rgb } = await loadPdfLib();
-    page.drawText(text, { x, y, size, font, color: toRgb(rgb, input.color ?? INK) });
+    page.drawText(text, {
+      x,
+      y,
+      size,
+      font,
+      color: toRgb(rgb, input.color ?? INK),
+    });
   }
 
   stampProducer(doc);

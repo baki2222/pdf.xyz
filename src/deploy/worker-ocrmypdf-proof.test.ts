@@ -47,7 +47,9 @@ const CODE = SOURCE.split("\n")
 
 /** Resolve a coreutil's absolute path using the current PATH, once. */
 function realPath(bin: string): string {
-  return execFileSync("sh", ["-c", `command -v ${bin}`], { encoding: "utf8" }).trim();
+  return execFileSync("sh", ["-c", `command -v ${bin}`], {
+    encoding: "utf8",
+  }).trim();
 }
 
 // A PATH with ONLY the coreutils the script invokes (NO gs/ocrmypdf/pdftotext) — so the
@@ -94,7 +96,7 @@ writeFileSync(
     "sidecar=''; prev=''",
     'for a in "$@"; do case "$prev" in --sidecar) sidecar=$a ;; esac; prev=$a; done',
     'for a in "$@"; do out=$a; done', // last positional is the output PDF
-    'mode=${STUB_OCRMYPDF_MODE:-ok}',
+    "mode=${STUB_OCRMYPDF_MODE:-ok}",
     'case "$mode" in',
     "  no-pdf) : ;;",
     // not-searchable: a %PDF is written but WITHOUT the OCR-layer marker, so the stub
@@ -103,8 +105,8 @@ writeFileSync(
     "  *) printf '%%PDF-1.5\\nPDFXYZ-OCR-LAYER OCRPROOF\\n%%%%EOF\\n' > \"$out\" ;;",
     "esac",
     'case "$mode" in',
-    "  no-sidecar-sentinel) [ -n \"$sidecar\" ] && printf 'lorem ipsum dolor sit\\n' > \"$sidecar\" ;;",
-    "  *) [ -n \"$sidecar\" ] && printf 'OCRPROOF recognized body line\\n' > \"$sidecar\" ;;",
+    '  no-sidecar-sentinel) [ -n "$sidecar" ] && printf \'lorem ipsum dolor sit\\n\' > "$sidecar" ;;',
+    '  *) [ -n "$sidecar" ] && printf \'OCRPROOF recognized body line\\n\' > "$sidecar" ;;',
     "esac",
     "exit 0",
     "",
@@ -148,7 +150,11 @@ interface Run {
 }
 
 /** Run the proof with an isolated PATH + a private TMPDIR; report exit, output, leftovers. */
-function run(pathValue: string, env: Record<string, string> = {}, args: string[] = []): Run {
+function run(
+  pathValue: string,
+  env: Record<string, string> = {},
+  args: string[] = [],
+): Run {
   const tmpdir = mkdtempSync(path.join(os.tmpdir(), "ocrmypdf-tmp-"));
   let code = 0;
   let stdout = "";
@@ -162,7 +168,9 @@ function run(pathValue: string, env: Record<string, string> = {}, args: string[]
     code = err.status ?? 1;
     stdout = `${err.stdout ?? ""}${err.stderr ?? ""}`;
   }
-  const leftover = readdirSync(tmpdir).filter((n) => n.startsWith("pdfxyz-ocrmypdf-proof."));
+  const leftover = readdirSync(tmpdir).filter((n) =>
+    n.startsWith("pdfxyz-ocrmypdf-proof."),
+  );
   rmSync(tmpdir, { recursive: true, force: true });
   return { code, stdout, leftover };
 }
@@ -189,7 +197,9 @@ describe("worker-ocrmypdf-proof.sh — prerequisite + flag contract", () => {
 
 describe("worker-ocrmypdf-proof.sh — full pipeline under stub tools (every check is enforced)", () => {
   it("passes (exit 0) when the source is image-only and the OUTPUT is searchable, and cleans up", () => {
-    const { code, stdout, leftover } = run(WITH_STUB_TOOLS, { STUB_OCRMYPDF_MODE: "ok" });
+    const { code, stdout, leftover } = run(WITH_STUB_TOOLS, {
+      STUB_OCRMYPDF_MODE: "ok",
+    });
     expect(code).toBe(0);
     expect(stdout).toMatch(/all checks passed/);
     expect(stdout).toMatch(/no selectable sentinel text \(is image-only\)/);
@@ -200,7 +210,9 @@ describe("worker-ocrmypdf-proof.sh — full pipeline under stub tools (every che
   });
 
   it("FAILS (exit 3) when the OUTPUT PDF is not searchable — the searchability check is real", () => {
-    const { code, stdout, leftover } = run(WITH_STUB_TOOLS, { STUB_OCRMYPDF_MODE: "not-searchable" });
+    const { code, stdout, leftover } = run(WITH_STUB_TOOLS, {
+      STUB_OCRMYPDF_MODE: "not-searchable",
+    });
     expect(code).toBe(3);
     expect(stdout).toMatch(/FAIL {2}the output PDF is searchable/);
     expect(stdout).toMatch(/worker ocrmypdf proof: FAILED/);
@@ -209,13 +221,17 @@ describe("worker-ocrmypdf-proof.sh — full pipeline under stub tools (every che
   });
 
   it("FAILS (exit 3) when no searchable PDF is produced", () => {
-    const { code, stdout } = run(WITH_STUB_TOOLS, { STUB_OCRMYPDF_MODE: "no-pdf" });
+    const { code, stdout } = run(WITH_STUB_TOOLS, {
+      STUB_OCRMYPDF_MODE: "no-pdf",
+    });
     expect(code).toBe(3);
     expect(stdout).toMatch(/FAIL {2}a searchable PDF was produced/);
   });
 
   it("FAILS (exit 3) when the sidecar lacks the sentinel — corroboration is enforced", () => {
-    const { code, stdout } = run(WITH_STUB_TOOLS, { STUB_OCRMYPDF_MODE: "no-sidecar-sentinel" });
+    const { code, stdout } = run(WITH_STUB_TOOLS, {
+      STUB_OCRMYPDF_MODE: "no-sidecar-sentinel",
+    });
     expect(code).toBe(3);
     expect(stdout).toMatch(/FAIL {2}the sidecar corroborates recognition/);
     // …and the recognized sidecar text is NEVER printed, even on failure.
@@ -226,16 +242,22 @@ describe("worker-ocrmypdf-proof.sh — full pipeline under stub tools (every che
   it("FAILS (exit 3) when the source PDF already has selectable text — the image-only precondition is enforced", () => {
     const { code, stdout } = run(WITH_STUB_TOOLS, { STUB_GS_MODE: "hastext" });
     expect(code).toBe(3);
-    expect(stdout).toMatch(/FAIL {2}the source PDF has no selectable sentinel text/);
+    expect(stdout).toMatch(
+      /FAIL {2}the source PDF has no selectable sentinel text/,
+    );
   });
 
   it("FAILS (exit 3) when no source PDF is produced — a missing source is never a spurious 'image-only' pass", () => {
     // Even though the stub OCRmyPDF would gladly emit a searchable-looking output, a
     // missing image-only SOURCE means there is nothing to prove image-only→searchable
     // against — so the proof fails honestly rather than reading a spurious "ok".
-    const { code, stdout, leftover } = run(WITH_STUB_TOOLS, { STUB_GS_MODE: "no-source" });
+    const { code, stdout, leftover } = run(WITH_STUB_TOOLS, {
+      STUB_GS_MODE: "no-source",
+    });
     expect(code).toBe(3);
-    expect(stdout).toMatch(/FAIL {2}a source PDF exists to verify it is image-only/);
+    expect(stdout).toMatch(
+      /FAIL {2}a source PDF exists to verify it is image-only/,
+    );
     expect(leftover).toEqual([]);
   });
 
@@ -272,7 +294,9 @@ describe("worker-ocrmypdf-proof.sh — static hygiene guarantees", () => {
     expect(SOURCE).toMatch(/-sDEVICE=pdfimage\d+/);
     expect(SOURCE).toMatch(/gs [^\n]*-dSAFER/);
     // OCRmyPDF is invoked by argv with the runner's option shape (sidecar, plain-PDF output).
-    expect(SOURCE).toMatch(/ocrmypdf --language eng --output-type pdf --sidecar "\$sidecar" --quiet "\$pdf_in" "\$pdf_out"/);
+    expect(SOURCE).toMatch(
+      /ocrmypdf --language eng --output-type pdf --sidecar "\$sidecar" --quiet "\$pdf_in" "\$pdf_out"/,
+    );
     // No eval / `sh -c` building a command from interpolated values (executable code only).
     expect(CODE).not.toMatch(/\beval\b/);
     expect(CODE).not.toMatch(/sh -c/);
@@ -280,11 +304,17 @@ describe("worker-ocrmypdf-proof.sh — static hygiene guarantees", () => {
 
   it("contacts no cloud service, queue, store, scanner, or secret (executable code only)", () => {
     // Prose comments NAME what the proof avoids ("no … secret"); scan executable lines.
-    expect(CODE).not.toMatch(/redis|upstash|s3|r2|clamav|clamd|secret|token|password/i);
+    expect(CODE).not.toMatch(
+      /redis|upstash|s3|r2|clamav|clamd|secret|token|password/i,
+    );
   });
 
   it("is wired as a package script", () => {
-    const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8"));
-    expect(pkg.scripts["worker:ocrmypdf-proof"]).toBe("sh scripts/worker-ocrmypdf-proof.sh");
+    const pkg = JSON.parse(
+      readFileSync(path.join(ROOT, "package.json"), "utf8"),
+    );
+    expect(pkg.scripts["worker:ocrmypdf-proof"]).toBe(
+      "sh scripts/worker-ocrmypdf-proof.sh",
+    );
   });
 });

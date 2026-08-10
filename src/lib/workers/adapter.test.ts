@@ -32,7 +32,10 @@ const uploadReq: CreateUploadSessionRequest = {
   tool: "compress-pdf",
   files: [{ filename: "a.pdf", contentType: "application/pdf", bytes: 10 }],
 };
-const jobReq: CreateJobRequest = { tool: "compress-pdf", inputs: ["f_1234567890"] };
+const jobReq: CreateJobRequest = {
+  tool: "compress-pdf",
+  inputs: ["f_1234567890"],
+};
 
 describe("getWorkerAdapter selection", () => {
   it("returns the disabled adapter by default (503 worker_not_configured)", async () => {
@@ -141,7 +144,10 @@ describe("getWorkerAdapter — storage + queue composition", () => {
       { ...s3Env(), ...redisEnv() },
       { queue: { client: fake } },
     );
-    const withKey: CreateJobRequest = { ...jobReq, idempotencyKey: "replay-key-1" };
+    const withKey: CreateJobRequest = {
+      ...jobReq,
+      idempotencyKey: "replay-key-1",
+    };
     const first = await adapter.createJob(withKey);
     const second = await adapter.createJob(withKey);
     expect(first.ok && second.ok).toBe(true);
@@ -154,7 +160,9 @@ describe("getWorkerAdapter — storage + queue composition", () => {
     // Queue-only: a job's inputs have nowhere to be uploaded, so createJob denies
     // honestly (503) rather than enqueuing an unrunnable job.
     const fake = createFakeRedis();
-    const adapter = await getWorkerAdapter(redisEnv(), { queue: { client: fake } });
+    const adapter = await getWorkerAdapter(redisEnv(), {
+      queue: { client: fake },
+    });
 
     const upload = await adapter.createUploadSession(uploadReq);
     expect(upload.ok).toBe(false); // storage not configured

@@ -61,7 +61,11 @@ export function fileFamily(name: string, mime = ""): FileFamily {
   if (m.startsWith("application/pdf")) return "pdf";
   if (m.startsWith("image/")) return "image";
   // Office MIME subtypes before the generic text/* check.
-  if (m.includes("word") || m.includes("msword") || m.includes("opendocument.text"))
+  if (
+    m.includes("word") ||
+    m.includes("msword") ||
+    m.includes("opendocument.text")
+  )
     return "word";
   if (m.includes("sheet") || m.includes("excel") || m.includes("csv"))
     return "excel";
@@ -78,7 +82,7 @@ export function fileFamily(name: string, mime = ""): FileFamily {
 export function fileKind(name: string, mime = ""): string {
   const ext = extensionOf(name);
   if (ext && ext.length <= 5) return ext.toUpperCase();
-  const sub = mime.includes("/") ? mime.split("/").pop() ?? "" : "";
+  const sub = mime.includes("/") ? (mime.split("/").pop() ?? "") : "";
   return sub && sub.length <= 8 ? sub.toUpperCase() : "FILE";
 }
 

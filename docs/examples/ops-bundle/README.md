@@ -9,7 +9,7 @@ produce — never a raw provider export, secret, bucket, or byte:
   all as bounded enums). The `ops-check-healthy`, `-degraded`, `-critical`, and `-unknown`
   fixtures were generated from the committed `docs/examples/observability/healthcheck/*` snapshots.
 - `pipeline-*.json` — a `pdfxyz.cleanup-pipeline/1` summary from `pnpm worker:cleanup-pipeline
-  --json` (the composite `verify` + `sweep` posture). NOT a raw provider export.
+--json` (the composite `verify` + `sweep` posture). NOT a raw provider export.
 
 > Every value in these fixtures — and in the bundle the aggregator renders from them — is a
 > bounded enum, boolean, small count, or app-authored prose. There is no locator, object key,
@@ -37,15 +37,15 @@ pnpm worker:ops-bundle --ops-check=docs/examples/ops-bundle/ops-check-healthy.js
 
 ## Fixtures and the composite rollup each pins
 
-| Ops-check input | + pipeline input | Rollup | Exit | Why |
-| --- | --- | --- | --- | --- |
-| `ops-check-healthy.json` | — | `ok` | 0 | Every composed signal is healthy. |
-| `ops-check-healthy.json` | `pipeline-clean.json` | `ok` | 0 | Both arms of the pipeline are clean too. |
-| `ops-check-healthy.json` | `pipeline-unknown.json` | `unknown` | 2 | The pipeline could not prove cleanup this run; it escalates a healthy stack to indeterminate. |
-| `ops-check-healthy.json` | `pipeline-breach.json` | `critical` | 4 | A pipeline breach (a should-be-gone object) dominates the rollup. |
-| `ops-check-degraded.json` | — | `warn` | 3 | A recommended fix is outstanding (a stale heartbeat). |
-| `ops-check-critical.json` | — | `critical` | 4 | A worker cannot run correctly (lifecycle drift). |
-| `ops-check-unknown.json` | — | `unknown` | 2 | Worker health could not be determined (no config). |
+| Ops-check input           | + pipeline input        | Rollup     | Exit | Why                                                                                           |
+| ------------------------- | ----------------------- | ---------- | ---- | --------------------------------------------------------------------------------------------- |
+| `ops-check-healthy.json`  | —                       | `ok`       | 0    | Every composed signal is healthy.                                                             |
+| `ops-check-healthy.json`  | `pipeline-clean.json`   | `ok`       | 0    | Both arms of the pipeline are clean too.                                                      |
+| `ops-check-healthy.json`  | `pipeline-unknown.json` | `unknown`  | 2    | The pipeline could not prove cleanup this run; it escalates a healthy stack to indeterminate. |
+| `ops-check-healthy.json`  | `pipeline-breach.json`  | `critical` | 4    | A pipeline breach (a should-be-gone object) dominates the rollup.                             |
+| `ops-check-degraded.json` | —                       | `warn`     | 3    | A recommended fix is outstanding (a stale heartbeat).                                         |
+| `ops-check-critical.json` | —                       | `critical` | 4    | A worker cannot run correctly (lifecycle drift).                                              |
+| `ops-check-unknown.json`  | —                       | `unknown`  | 2    | Worker health could not be determined (no config).                                            |
 
 The operations severity already folds readiness, liveness, every subsystem (including
 cleanup-evidence and lifecycle-verification), and the SLO window, so the rollup adds only the
@@ -55,10 +55,10 @@ fixed instant for determinism; the aggregator re-stamps its own `generatedAt` fr
 
 ## Exit codes
 
-| Code | Composite severity | Meaning |
-| --- | --- | --- |
-| 0 | `ok` | Every composed signal is healthy; no action needed. |
-| 1 | `usage` | The CLI was misused, or the REQUIRED ops-check input was unreadable / malformed. |
-| 2 | `unknown` | A composed signal is indeterminate (no data, or an unreadable optional input). |
-| 3 | `warn` | A composed signal is degraded (a recommended fix is outstanding, or a drift). |
-| 4 | `critical` | A composed signal is critical (a worker cannot run correctly, or a breach). |
+| Code | Composite severity | Meaning                                                                          |
+| ---- | ------------------ | -------------------------------------------------------------------------------- |
+| 0    | `ok`               | Every composed signal is healthy; no action needed.                              |
+| 1    | `usage`            | The CLI was misused, or the REQUIRED ops-check input was unreadable / malformed. |
+| 2    | `unknown`          | A composed signal is indeterminate (no data, or an unreadable optional input).   |
+| 3    | `warn`             | A composed signal is degraded (a recommended fix is outstanding, or a drift).    |
+| 4    | `critical`         | A composed signal is critical (a worker cannot run correctly, or a breach).      |

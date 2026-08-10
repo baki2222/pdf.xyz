@@ -19,7 +19,12 @@ const artifact: JobArtifact = {
 
 describe("job state helpers", () => {
   it("classifies terminal vs in-flight statuses", () => {
-    for (const status of ["completed", "failed", "expired", "canceled"] as JobStatus[]) {
+    for (const status of [
+      "completed",
+      "failed",
+      "expired",
+      "canceled",
+    ] as JobStatus[]) {
       expect(isTerminalStatus(status), status).toBe(true);
     }
     for (const status of ["queued", "scanning", "processing"] as JobStatus[]) {
@@ -34,10 +39,14 @@ describe("job state helpers", () => {
   });
 
   it("marks download ready only for completed jobs with artifacts", () => {
-    expect(isDownloadReady({ status: "completed", artifacts: [artifact] })).toBe(true);
+    expect(
+      isDownloadReady({ status: "completed", artifacts: [artifact] }),
+    ).toBe(true);
     expect(isDownloadReady({ status: "completed", artifacts: [] })).toBe(false);
     expect(isDownloadReady({ status: "completed" })).toBe(false);
-    expect(isDownloadReady({ status: "processing", artifacts: [artifact] })).toBe(false);
+    expect(
+      isDownloadReady({ status: "processing", artifacts: [artifact] }),
+    ).toBe(false);
     expect(isDownloadReady({ status: "failed" })).toBe(false);
   });
 });

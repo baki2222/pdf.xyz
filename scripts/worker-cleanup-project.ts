@@ -45,10 +45,14 @@ const MAX_INPUT_BYTES = 4 * 1024 * 1024; // 4 MiB — mirrors the projector's ow
  * failure (too large, unreadable) — the caller maps it to exit 1 WITHOUT echoing the OS error
  * or the path, which could carry a filename.
  */
-function readInput(source: "stdin" | "file", filePath: string | undefined): string {
+function readInput(
+  source: "stdin" | "file",
+  filePath: string | undefined,
+): string {
   if (source === "file") {
     if (filePath === undefined) throw new Error("input-error");
-    if (statSync(filePath).size > MAX_INPUT_BYTES) throw new Error("input-too-large");
+    if (statSync(filePath).size > MAX_INPUT_BYTES)
+      throw new Error("input-too-large");
     return readFileSync(filePath, "utf8");
   }
   // stdin: read fd 0 to EOF, then bound the size defensively.

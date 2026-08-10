@@ -47,7 +47,8 @@ import {
  *  Fixtures
  * ------------------------------------------------------------------ */
 
-const HOSTILE_LOCATOR_FIXTURE = "s3://leaky-bucket/secret-file.pdf?sig=deadbeef";
+const HOSTILE_LOCATOR_FIXTURE =
+  "s3://leaky-bucket/secret-file.pdf?sig=deadbeef";
 
 interface SnapshotOverrides {
   health?: HealthClass;
@@ -89,7 +90,12 @@ function makeSnapshot(o: SnapshotOverrides = {}): WorkerOperationsSnapshot {
     recommendedActionDetail: prose,
     subsystems: o.subsystems ?? [],
     proofs: { compressionDeep: "unknown", ocr: "unknown" },
-    lifecycleVerification: { known: false, verdict: "unknown", health: "unknown", detail: prose },
+    lifecycleVerification: {
+      known: false,
+      verdict: "unknown",
+      health: "unknown",
+      detail: prose,
+    },
     cleanupEvidence: o.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE,
     rateLimit: o.rateLimit ?? UNOBSERVED_RATE_LIMIT_POSTURE,
     lastLoop: null,
@@ -102,12 +108,23 @@ function sloEval(
   observed = "x",
   threshold = "y",
 ): SloEvaluation {
-  return { id, status, observed, threshold, detail: "authored by evaluateSlos" };
+  return {
+    id,
+    status,
+    observed,
+    threshold,
+    detail: "authored by evaluateSlos",
+  };
 }
 
 function sloReport(...slos: SloEvaluation[]): SloReport {
   const worst = slos.reduce<SloStatus>((acc, s) => {
-    const rank: Record<SloStatus, number> = { ok: 0, unknown: 0, warn: 1, breach: 2 };
+    const rank: Record<SloStatus, number> = {
+      ok: 0,
+      unknown: 0,
+      warn: 1,
+      breach: 2,
+    };
     return rank[s.status] > rank[acc] ? s.status : acc;
   }, "ok");
   return { slos, worst };
@@ -156,7 +173,13 @@ describe("exit-code policy", () => {
     // The contract cron jobs / monitors / CI pin: 0 ok, 1 usage, 2 unknown, 3 warn,
     // 4 critical. `1` is the "the check itself was misused" band, never an operational
     // severity, so a misconfigured monitor is never read as a (un)healthy worker.
-    expect(OPS_CHECK_EXIT).toEqual({ OK: 0, USAGE: 1, UNKNOWN: 2, WARN: 3, CRITICAL: 4 });
+    expect(OPS_CHECK_EXIT).toEqual({
+      OK: 0,
+      USAGE: 1,
+      UNKNOWN: 2,
+      WARN: 3,
+      CRITICAL: 4,
+    });
     const all = Object.values(OPS_CHECK_EXIT);
     expect(new Set(all).size).toBe(all.length); // every code is distinct
     const operational = [
@@ -180,7 +203,12 @@ describe("liveness alert", () => {
     reason: AlertReason;
     action: string;
   }> = [
-    { state: "observed", severity: "ok", reason: "liveness-observed", action: "monitor" },
+    {
+      state: "observed",
+      severity: "ok",
+      reason: "liveness-observed",
+      action: "monitor",
+    },
     {
       state: "stale",
       severity: "warn",
@@ -213,7 +241,9 @@ describe("liveness alert", () => {
   }
 
   it("a disabled heartbeat is neutral — never in the actionable alerts list", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot({ daemonState: "disabled" }));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot({ daemonState: "disabled" }),
+    );
     expect(report.liveness.state).toBe("disabled");
     expect(report.alerts.find((a) => a.source === "liveness")).toBeUndefined();
     expect(report.severity).toBe("ok");
@@ -236,7 +266,11 @@ describe("liveness alert", () => {
 
   it("an observed heartbeat keeps the stack OK and out of the alerts list", () => {
     const report = evaluateOperationsAlerts(
-      makeSnapshot({ daemonState: "observed", health: "ok", recommendedAction: "none" }),
+      makeSnapshot({
+        daemonState: "observed",
+        health: "ok",
+        recommendedAction: "none",
+      }),
     );
     expect(report.liveness.reason).toBe("liveness-observed");
     expect(report.alerts.find((a) => a.source === "liveness")).toBeUndefined();
@@ -278,12 +312,28 @@ describe("subsystem alert mapping", () => {
     expect(report.alerts[0]?.severity).toBe("critical");
   });
 
-  const warnCases: Array<{ id: SnapshotSubsystemId; reason: AlertReason; action: string }> = [
-    { id: "compression-engine", reason: "engine-degraded", action: "install-deep-engine" },
+  const warnCases: Array<{
+    id: SnapshotSubsystemId;
+    reason: AlertReason;
+    action: string;
+  }> = [
+    {
+      id: "compression-engine",
+      reason: "engine-degraded",
+      action: "install-deep-engine",
+    },
     { id: "ocr", reason: "ocr-unavailable", action: "install-ocr-engine" },
-    { id: "malware-scan", reason: "scanner-unavailable", action: "fix-scanner" },
+    {
+      id: "malware-scan",
+      reason: "scanner-unavailable",
+      action: "fix-scanner",
+    },
     { id: "guardrails", reason: "guardrail-warning", action: "monitor" },
-    { id: "daemon-loop", reason: "loop-errors", action: "investigate-loop-errors" },
+    {
+      id: "daemon-loop",
+      reason: "loop-errors",
+      action: "investigate-loop-errors",
+    },
   ];
 
   for (const c of warnCases) {
@@ -312,7 +362,9 @@ describe("subsystem alert mapping", () => {
         subsystems: [sub("lifecycle-verification", "warn")],
       }),
     );
-    const alert = report.alerts.find((a) => a.source === "lifecycle-verification");
+    const alert = report.alerts.find(
+      (a) => a.source === "lifecycle-verification",
+    );
     expect(alert).toBeDefined();
     expect(alert?.reason).toBe("lifecycle-drift");
     expect(alert?.action).toBe("reconcile-lifecycle-drift");
@@ -327,9 +379,9 @@ describe("subsystem alert mapping", () => {
         subsystems: [sub("lifecycle", "warn")],
       }),
     );
-    expect(undeclared.alerts.find((a) => a.source === "lifecycle")?.reason).toBe(
-      "lifecycle-undeclared",
-    );
+    expect(
+      undeclared.alerts.find((a) => a.source === "lifecycle")?.reason,
+    ).toBe("lifecycle-undeclared");
 
     const unverified = evaluateOperationsAlerts(
       makeSnapshot({
@@ -338,9 +390,9 @@ describe("subsystem alert mapping", () => {
         subsystems: [sub("lifecycle", "warn")],
       }),
     );
-    expect(unverified.alerts.find((a) => a.source === "lifecycle")?.reason).toBe(
-      "lifecycle-unverified",
-    );
+    expect(
+      unverified.alerts.find((a) => a.source === "lifecycle")?.reason,
+    ).toBe("lifecycle-unverified");
   });
 
   it("maps a blocked guardrails subsystem to a critical guardrail-error", () => {
@@ -400,7 +452,10 @@ describe("SLO alert mapping", () => {
   it("ignores ok/unknown SLO indicators", () => {
     const report = evaluateOperationsAlerts(
       makeSnapshot(),
-      sloReport(sloEval("retry_rate", "unknown"), sloEval("engine_readiness", "ok")),
+      sloReport(
+        sloEval("retry_rate", "unknown"),
+        sloEval("engine_readiness", "ok"),
+      ),
     );
     expect(report.alerts).toHaveLength(0);
     expect(report.severity).toBe("ok");
@@ -414,7 +469,11 @@ describe("SLO alert mapping", () => {
 describe("overall verdict", () => {
   it("is OK for a fully healthy stack with no alerts", () => {
     const report = evaluateOperationsAlerts(
-      makeSnapshot({ health: "ok", recommendedAction: "none", daemonState: "observed" }),
+      makeSnapshot({
+        health: "ok",
+        recommendedAction: "none",
+        daemonState: "observed",
+      }),
     );
     expect(report.severity).toBe("ok");
     expect(report.alerts).toHaveLength(0);
@@ -422,14 +481,19 @@ describe("overall verdict", () => {
   });
 
   it("escalates to UNKNOWN only when the snapshot's own health is indeterminate", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot({ health: "unknown" }));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot({ health: "unknown" }),
+    );
     expect(report.severity).toBe("unknown");
     expect(exitCodeForSeverity(report.severity)).toBe(OPS_CHECK_EXIT.UNKNOWN);
   });
 
   it("does not escalate to UNKNOWN when a concrete signal outranks it", () => {
     const report = evaluateOperationsAlerts(
-      makeSnapshot({ health: "warn", subsystems: [sub("malware-scan", "warn")] }),
+      makeSnapshot({
+        health: "warn",
+        subsystems: [sub("malware-scan", "warn")],
+      }),
     );
     expect(report.severity).toBe("warn");
   });
@@ -497,9 +561,13 @@ function withCleanup(
 
 describe("cleanup evidence alerting", () => {
   it("a healthy posture adds no alert and does not worsen the verdict", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("healthy", "cleanup_verified")));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withCleanup("healthy", "cleanup_verified")),
+    );
     expect(report.severity).toBe("ok");
-    expect(report.alerts.some((a) => a.source === "cleanup-evidence")).toBe(false);
+    expect(report.alerts.some((a) => a.source === "cleanup-evidence")).toBe(
+      false,
+    );
   });
 
   it("disabled / not-configured / unknown stay neutral (no alert, no page)", () => {
@@ -508,14 +576,21 @@ describe("cleanup evidence alerting", () => {
       ["not-configured", "no_report_configured"],
       ["unknown", "cleanup_unknown"],
     ] as Array<[CleanupEvidenceState, CleanupEvidenceReason]>) {
-      const report = evaluateOperationsAlerts(makeSnapshot(withCleanup(state, reason)));
+      const report = evaluateOperationsAlerts(
+        makeSnapshot(withCleanup(state, reason)),
+      );
       expect(report.severity, state).toBe("ok");
-      expect(report.alerts.some((a) => a.source === "cleanup-evidence"), state).toBe(false);
+      expect(
+        report.alerts.some((a) => a.source === "cleanup-evidence"),
+        state,
+      ).toBe(false);
     }
   });
 
   it("a stale/missing report warns (exit 3) with refresh-cleanup-evidence", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("stale", "report_missing")));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withCleanup("stale", "report_missing")),
+    );
     expect(report.severity).toBe("warn");
     expect(exitCodeForSeverity(report.severity)).toBe(OPS_CHECK_EXIT.WARN);
     const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
@@ -524,7 +599,9 @@ describe("cleanup evidence alerting", () => {
   });
 
   it("a drift report warns with reconcile-cleanup", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("warning", "cleanup_drift")));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withCleanup("warning", "cleanup_drift")),
+    );
     expect(report.severity).toBe("warn");
     const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
     expect(alert?.reason).toBe("cleanup-evidence-drift");
@@ -532,7 +609,9 @@ describe("cleanup evidence alerting", () => {
   });
 
   it("a breach is critical (exit 4) with reconcile-cleanup", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("critical", "cleanup_breach")));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withCleanup("critical", "cleanup_breach")),
+    );
     expect(report.severity).toBe("critical");
     expect(exitCodeForSeverity(report.severity)).toBe(OPS_CHECK_EXIT.CRITICAL);
     const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
@@ -541,7 +620,9 @@ describe("cleanup evidence alerting", () => {
   });
 
   it("an invalid/unreadable report is critical with refresh-cleanup-evidence", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("invalid", "report_unreadable")));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withCleanup("invalid", "report_unreadable")),
+    );
     expect(report.severity).toBe("critical");
     const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
     expect(alert?.reason).toBe("cleanup-evidence-invalid");
@@ -549,7 +630,9 @@ describe("cleanup evidence alerting", () => {
   });
 
   it("never echoes a poisoned posture detail into the alert output", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withCleanup("critical", "cleanup_breach", true)));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withCleanup("critical", "cleanup_breach", true)),
+    );
     expect(JSON.stringify(report)).not.toContain(HOSTILE_LOCATOR_FIXTURE);
     const alert = report.alerts.find((a) => a.source === "cleanup-evidence");
     expect(alert?.detail.length).toBeGreaterThan(0);
@@ -571,17 +654,23 @@ function withRateLimit(code: SnapshotRateLimitCode): SnapshotOverrides {
 
 describe("rate-limit alerting", () => {
   it("a configured store failing OPEN warns (exit 3) with investigate-rate-limit-store", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withRateLimit("remote-error-fail-open")));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withRateLimit("remote-error-fail-open")),
+    );
     expect(report.severity).toBe("warn");
     expect(exitCodeForSeverity(report.severity)).toBe(OPS_CHECK_EXIT.WARN);
     const alert = report.alerts.find((a) => a.source === "rate-limit");
     expect(alert?.reason).toBe("rate-limit-fail-open");
     expect(alert?.action).toBe("investigate-rate-limit-store");
-    expect(alert?.detail).toBe(ALERT_ACTION_DETAIL["investigate-rate-limit-store"]);
+    expect(alert?.detail).toBe(
+      ALERT_ACTION_DETAIL["investigate-rate-limit-store"],
+    );
   });
 
   it("a selected provider with an incomplete store config warns with fix-rate-limit-config", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withRateLimit("remote-missing-config")));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withRateLimit("remote-missing-config")),
+    );
     expect(report.severity).toBe("warn");
     const alert = report.alerts.find((a) => a.source === "rate-limit");
     expect(alert?.reason).toBe("rate-limit-misconfigured");
@@ -589,15 +678,26 @@ describe("rate-limit alerting", () => {
   });
 
   it("enforcing states and the deliberate off-state add no alert (a quiet default stays quiet)", () => {
-    for (const code of ["disabled", "local-memory", "remote-configured"] as const) {
-      const report = evaluateOperationsAlerts(makeSnapshot(withRateLimit(code)));
+    for (const code of [
+      "disabled",
+      "local-memory",
+      "remote-configured",
+    ] as const) {
+      const report = evaluateOperationsAlerts(
+        makeSnapshot(withRateLimit(code)),
+      );
       expect(report.severity, code).toBe("ok");
-      expect(report.alerts.some((a) => a.source === "rate-limit"), code).toBe(false);
+      expect(
+        report.alerts.some((a) => a.source === "rate-limit"),
+        code,
+      ).toBe(false);
     }
   });
 
   it("an unobservable posture (worker vantage) never pages", () => {
-    const report = evaluateOperationsAlerts(makeSnapshot(withRateLimit("unknown")));
+    const report = evaluateOperationsAlerts(
+      makeSnapshot(withRateLimit("unknown")),
+    );
     expect(report.severity).toBe("ok");
     expect(report.alerts.some((a) => a.source === "rate-limit")).toBe(false);
   });
@@ -618,9 +718,18 @@ describe("a non-ok report never claims healthy or no-action-required", () => {
    * that evaluates non-ok is in scope, not just rate-limit.
    */
   const NON_OK_WITH_NO_FIX_TO_OFFER: Array<[string, SnapshotOverrides]> = [
-    ["rate-limit fail-open (warn, action none)", withRateLimit("remote-error-fail-open")],
-    ["rate-limit misconfigured (warn, action none)", withRateLimit("remote-missing-config")],
-    ["cleanup-evidence breach (critical, action none)", withCleanup("critical", "cleanup_breach")],
+    [
+      "rate-limit fail-open (warn, action none)",
+      withRateLimit("remote-error-fail-open"),
+    ],
+    [
+      "rate-limit misconfigured (warn, action none)",
+      withRateLimit("remote-missing-config"),
+    ],
+    [
+      "cleanup-evidence breach (critical, action none)",
+      withCleanup("critical", "cleanup_breach"),
+    ],
     [
       "cleanup-evidence breach behind the healthy web residual",
       {
@@ -628,7 +737,10 @@ describe("a non-ok report never claims healthy or no-action-required", () => {
         recommendedAction: "confirm-worker-deployment",
       },
     ],
-    ["indeterminate snapshot (unknown, action none, no alerts)", { health: "unknown" }],
+    [
+      "indeterminate snapshot (unknown, action none, no alerts)",
+      { health: "unknown" },
+    ],
   ];
 
   it.each(NON_OK_WITH_NO_FIX_TO_OFFER)("%s", (_label, overrides) => {

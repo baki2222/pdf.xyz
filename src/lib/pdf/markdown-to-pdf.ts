@@ -10,7 +10,10 @@ const MARGIN = 54;
 const BODY_SIZE = 11;
 const BODY_LINE_HEIGHT = 16;
 // The cap the tool page advertises, so the gate and the promise are one value.
-import { MAX_SOURCE_BYTES as MAX_MARKDOWN_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
+import {
+  MAX_SOURCE_BYTES as MAX_MARKDOWN_BYTES,
+  MAX_SOURCE_MB,
+} from "@/lib/tools/limits";
 
 export type MarkdownBlock =
   | { kind: "heading"; depth: 1 | 2 | 3 | 4 | 5 | 6; text: string }
@@ -41,11 +44,15 @@ interface Cursor {
 
 export function validateMarkdownInput(markdown: string): void {
   if (markdown.trim().length === 0) {
-    throw new PdfEngineError("Add some Markdown or upload a non-empty .md file.");
+    throw new PdfEngineError(
+      "Add some Markdown or upload a non-empty .md file.",
+    );
   }
   const bytes = new TextEncoder().encode(markdown).byteLength;
   if (bytes > MAX_MARKDOWN_BYTES) {
-    throw new PdfEngineError(`This Markdown file is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`);
+    throw new PdfEngineError(
+      `This Markdown file is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`,
+    );
   }
 }
 
@@ -54,19 +61,26 @@ export function markdownPdfOutputName(sourceName: string): string {
 }
 
 function stripInlineMarkdown(input: string): string {
-  return input
-    // Images: keep alt text and URL so the output remains honest about omitted images.
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, url: string) => alt ? `${alt} (${url})` : url)
-    // Links: preserve visible label + URL.
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, url: string) => `${label} (${url})`)
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/_([^_]+)_/g, "$1")
-    .replace(/~~([^~]+)~~/g, "$1")
-    .replace(/\\([\\`*{}_\[\]()#+\-.!>])/g, "$1")
-    .trim();
+  return (
+    input
+      // Images: keep alt text and URL so the output remains honest about omitted images.
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, url: string) =>
+        alt ? `${alt} (${url})` : url,
+      )
+      // Links: preserve visible label + URL.
+      .replace(
+        /\[([^\]]+)\]\(([^)]+)\)/g,
+        (_m, label: string, url: string) => `${label} (${url})`,
+      )
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/_([^_]+)_/g, "$1")
+      .replace(/~~([^~]+)~~/g, "$1")
+      .replace(/\\([\\`*{}_\[\]()#+\-.!>])/g, "$1")
+      .trim()
+  );
 }
 
 function flushParagraph(lines: string[], blocks: MarkdownBlock[]): void {
@@ -131,7 +145,11 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
     const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
     if (unordered) {
       flushParagraph(paragraph, blocks);
-      blocks.push({ kind: "list-item", ordered: false, text: stripInlineMarkdown(unordered[1]!) });
+      blocks.push({
+        kind: "list-item",
+        ordered: false,
+        text: stripInlineMarkdown(unordered[1]!),
+      });
       continue;
     }
 
@@ -158,13 +176,22 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
   }
 
   if (inCode) {
-    blocks.push({ kind: "code", language: codeLanguage, text: codeLines.join("\n") });
+    blocks.push({
+      kind: "code",
+      language: codeLanguage,
+      text: codeLines.join("\n"),
+    });
   }
   flushParagraph(paragraph, blocks);
   return blocks;
 }
 
-function wrapText(text: string, font: PDFFont, maxWidth: number, size: number): string[] {
+function wrapText(
+  text: string,
+  font: PDFFont,
+  maxWidth: number,
+  size: number,
+): string[] {
   if (!text) return [""];
   const words = text.split(/(\s+)/).filter(Boolean);
   const lines: string[] = [];
@@ -194,7 +221,13 @@ function ensureSpace(cursor: Cursor, height: number): void {
 function drawLines(
   cursor: Cursor,
   lines: string[],
-  opts: { x: number; size: number; lineHeight: number; font: PDFFont; color?: PdfLibRGB },
+  opts: {
+    x: number;
+    size: number;
+    lineHeight: number;
+    font: PDFFont;
+    color?: PdfLibRGB;
+  },
 ): void {
   for (const line of lines) {
     ensureSpace(cursor, opts.lineHeight);
@@ -216,33 +249,50 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
       const size = block.depth === 1 ? 22 : block.depth === 2 ? 17 : 14;
       const lineHeight = size + 9;
       cursor.y -= block.depth === 1 ? 8 : 4;
-      drawLines(cursor, wrapText(block.text, cursor.fonts.bold, maxWidth, size), {
-        x: MARGIN,
-        size,
-        lineHeight,
-        font: cursor.fonts.bold,
-        color: cursor.rgb(0.05, 0.07, 0.14),
-      });
+      drawLines(
+        cursor,
+        wrapText(block.text, cursor.fonts.bold, maxWidth, size),
+        {
+          x: MARGIN,
+          size,
+          lineHeight,
+          font: cursor.fonts.bold,
+          color: cursor.rgb(0.05, 0.07, 0.14),
+        },
+      );
       cursor.y -= 4;
       return;
     }
     case "paragraph":
-      drawLines(cursor, wrapText(block.text, cursor.fonts.body, maxWidth, BODY_SIZE), {
-        x: MARGIN,
-        size: BODY_SIZE,
-        lineHeight: BODY_LINE_HEIGHT,
-        font: cursor.fonts.body,
-      });
+      drawLines(
+        cursor,
+        wrapText(block.text, cursor.fonts.body, maxWidth, BODY_SIZE),
+        {
+          x: MARGIN,
+          size: BODY_SIZE,
+          lineHeight: BODY_LINE_HEIGHT,
+          font: cursor.fonts.body,
+        },
+      );
       cursor.y -= 6;
       return;
     case "list-item": {
       const marker = block.ordered ? `${block.index ?? 1}. ` : "• ";
-      drawLines(cursor, wrapText(`${marker}${block.text}`, cursor.fonts.body, maxWidth - 18, BODY_SIZE), {
-        x: MARGIN + 18,
-        size: BODY_SIZE,
-        lineHeight: BODY_LINE_HEIGHT,
-        font: cursor.fonts.body,
-      });
+      drawLines(
+        cursor,
+        wrapText(
+          `${marker}${block.text}`,
+          cursor.fonts.body,
+          maxWidth - 18,
+          BODY_SIZE,
+        ),
+        {
+          x: MARGIN + 18,
+          size: BODY_SIZE,
+          lineHeight: BODY_LINE_HEIGHT,
+          font: cursor.fonts.body,
+        },
+      );
       return;
     }
     case "quote":
@@ -253,13 +303,17 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
         height: BODY_LINE_HEIGHT,
         color: cursor.rgb(0.45, 0.36, 0.95),
       });
-      drawLines(cursor, wrapText(block.text, cursor.fonts.italic, maxWidth - 18, BODY_SIZE), {
-        x: MARGIN + 14,
-        size: BODY_SIZE,
-        lineHeight: BODY_LINE_HEIGHT,
-        font: cursor.fonts.italic,
-        color: cursor.rgb(0.24, 0.27, 0.38),
-      });
+      drawLines(
+        cursor,
+        wrapText(block.text, cursor.fonts.italic, maxWidth - 18, BODY_SIZE),
+        {
+          x: MARGIN + 14,
+          size: BODY_SIZE,
+          lineHeight: BODY_LINE_HEIGHT,
+          font: cursor.fonts.italic,
+          color: cursor.rgb(0.24, 0.27, 0.38),
+        },
+      );
       cursor.y -= 5;
       return;
     case "code": {
@@ -273,13 +327,17 @@ function drawBlock(cursor: Cursor, block: MarkdownBlock): void {
         });
       }
       for (const line of block.text.split("\n")) {
-        drawLines(cursor, wrapText(line || " ", cursor.fonts.mono, maxWidth - 16, 9), {
-          x: MARGIN + 8,
-          size: 9,
-          lineHeight: 13,
-          font: cursor.fonts.mono,
-          color: cursor.rgb(0.08, 0.1, 0.16),
-        });
+        drawLines(
+          cursor,
+          wrapText(line || " ", cursor.fonts.mono, maxWidth - 16, 9),
+          {
+            x: MARGIN + 8,
+            size: 9,
+            lineHeight: 13,
+            font: cursor.fonts.mono,
+            color: cursor.rgb(0.08, 0.1, 0.16),
+          },
+        );
       }
       cursor.y -= 8;
       return;
@@ -301,11 +359,18 @@ export async function markdownToPdf(
     mono: await doc.embedFont(StandardFonts.Courier),
     italic: await doc.embedFont(StandardFonts.HelveticaOblique),
   };
-  const title = (options.title ?? "Markdown document").trim() || "Markdown document";
+  const title =
+    (options.title ?? "Markdown document").trim() || "Markdown document";
   doc.setTitle(title);
   doc.setCreator(PRODUCER);
   doc.setProducer(PRODUCER);
-  const cursor: Cursor = { doc, page: doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]), y: PAGE_HEIGHT - MARGIN, fonts, rgb };
+  const cursor: Cursor = {
+    doc,
+    page: doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]),
+    y: PAGE_HEIGHT - MARGIN,
+    fonts,
+    rgb,
+  };
   cursor.page.drawText(title, {
     x: MARGIN,
     y: PAGE_HEIGHT - 34,

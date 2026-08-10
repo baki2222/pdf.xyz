@@ -23,12 +23,14 @@ describe("insetBox", () => {
   const box = { x: 0, y: 0, width: 600, height: 800 };
 
   it("insets each edge and shifts the origin by left/bottom", () => {
-    expect(insetBox(box, { top: 10, right: 20, bottom: 30, left: 40 })).toEqual({
-      x: 40,
-      y: 30,
-      width: 540,
-      height: 760,
-    });
+    expect(insetBox(box, { top: 10, right: 20, bottom: 30, left: 40 })).toEqual(
+      {
+        x: 40,
+        y: 30,
+        width: 540,
+        height: 760,
+      },
+    );
   });
 
   it("clamps negative margins to zero", () => {
@@ -60,7 +62,9 @@ describe("insetBox", () => {
 describe("isEmptyMargins", () => {
   it("is true only when every edge is zero or less", () => {
     expect(isEmptyMargins({ top: 0, right: 0, bottom: 0, left: 0 })).toBe(true);
-    expect(isEmptyMargins({ top: 0, right: 1, bottom: 0, left: 0 })).toBe(false);
+    expect(isEmptyMargins({ top: 0, right: 1, bottom: 0, left: 0 })).toBe(
+      false,
+    );
   });
 });
 

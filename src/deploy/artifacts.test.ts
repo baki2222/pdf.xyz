@@ -11,7 +11,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const read = (rel: string): string => readFileSync(path.join(ROOT, rel), "utf8");
+const read = (rel: string): string =>
+  readFileSync(path.join(ROOT, rel), "utf8");
 
 // --------------------------------------------------------------------------- //
 // Minimal Dockerfile stage model: split the file on `FROM … [AS name]` lines.
@@ -114,14 +115,22 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     const worker = stageInstructions(stages, "worker");
     expect(worker).toContain("PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false");
     expect(worker).toContain("COREPACK_HOME=/home/worker/.cache/node/corepack");
-    expect(worker).toMatch(/useradd[\s\S]*--home-dir\s+\/home\/worker[\s\S]*--create-home[\s\S]*worker/);
-    expect(worker).toContain("mkdir -p /home/worker/.cache/node/corepack /pnpm");
-    expect(worker).toContain("chown -R worker:worker /home/worker /pnpm /app");
-    expect(worker).toMatch(/COPY --from=build --chown=worker:worker[\s\S]*\/app\/node_modules/);
-    expect(worker).toMatch(/COPY --from=build --chown=worker:worker[\s\S]*\/app\/src/);
-    expect(worker.indexOf("chown -R worker:worker /home/worker /pnpm /app")).toBeLessThan(
-      worker.indexOf("USER worker"),
+    expect(worker).toMatch(
+      /useradd[\s\S]*--home-dir\s+\/home\/worker[\s\S]*--create-home[\s\S]*worker/,
     );
+    expect(worker).toContain(
+      "mkdir -p /home/worker/.cache/node/corepack /pnpm",
+    );
+    expect(worker).toContain("chown -R worker:worker /home/worker /pnpm /app");
+    expect(worker).toMatch(
+      /COPY --from=build --chown=worker:worker[\s\S]*\/app\/node_modules/,
+    );
+    expect(worker).toMatch(
+      /COPY --from=build --chown=worker:worker[\s\S]*\/app\/src/,
+    );
+    expect(
+      worker.indexOf("chown -R worker:worker /home/worker /pnpm /app"),
+    ).toBeLessThan(worker.indexOf("USER worker"));
   });
 
   it("the worker image does not bundle the web build (.next)", () => {
@@ -147,7 +156,9 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
     expect(web).not.toContain("apt-get install");
     // Neither the deep-compression engines, Chromium, LibreOffice, the OCR stack, NOR the proof-only pdftotext
     // tool (poppler-utils) belong in the web image.
-    expect(web).not.toMatch(/ghostscript|qpdf|mupdf|chromium|libreoffice|soffice|ocrmypdf|tesseract|poppler|pdftotext/);
+    expect(web).not.toMatch(
+      /ghostscript|qpdf|mupdf|chromium|libreoffice|soffice|ocrmypdf|tesseract|poppler|pdftotext/,
+    );
   });
 });
 
@@ -158,7 +169,13 @@ describe(".dockerignore keeps secrets, prompts, and build output out of the cont
     .filter((l) => l && !l.startsWith("#"));
 
   it("excludes dependencies, build output, VCS/CI, and internal prompts", () => {
-    for (const needed of ["node_modules", ".next", ".git", ".github", ".claude-*.md"]) {
+    for (const needed of [
+      "node_modules",
+      ".next",
+      ".git",
+      ".github",
+      ".claude-*.md",
+    ]) {
       expect(patterns).toContain(needed);
     }
   });
@@ -174,7 +191,13 @@ describe(".dockerignore keeps secrets, prompts, and build output out of the cont
   it("excludes test-only assets and local build artifacts", () => {
     // The web/worker images ship no tests or fixtures, and host-only outputs must
     // not bloat (or leak into) the build context.
-    for (const needed of ["**/*.test.ts", "test-results", "e2e", "coverage", "vitest.config.ts"]) {
+    for (const needed of [
+      "**/*.test.ts",
+      "test-results",
+      "e2e",
+      "coverage",
+      "vitest.config.ts",
+    ]) {
       expect(patterns).toContain(needed);
     }
   });
@@ -249,19 +272,25 @@ describe("worker smoke script is present and honest", () => {
     for (const line of invocations) {
       // Drop the quoted label (it also contains `--`) before checking the flags.
       const flags = line.replace(/"[^"]*"/g, "");
-      expect(flags, `smoke invocation must pass a mode flag: ${line}`).toMatch(/--\w/);
+      expect(flags, `smoke invocation must pass a mode flag: ${line}`).toMatch(
+        /--\w/,
+      );
     }
   });
 });
 
 describe("worker IMAGE smoke script proves the engine contract, presence-only", () => {
   const script = read("scripts/worker-image-smoke.sh");
-  const pkg = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  const pkg = JSON.parse(read("package.json")) as {
+    scripts?: Record<string, string>;
+  };
   const container = read(".github/workflows/container.yml");
 
   it("is a shell script wired as `worker:image-smoke` and run by the container workflow", () => {
     expect(script.startsWith("#!")).toBe(true);
-    expect(pkg.scripts?.["worker:image-smoke"]).toBe("sh scripts/worker-image-smoke.sh");
+    expect(pkg.scripts?.["worker:image-smoke"]).toBe(
+      "sh scripts/worker-image-smoke.sh",
+    );
     // The image proof only means something if CI actually runs it inside the image.
     expect(container).toMatch(/docker run[\s\S]*?worker:image-smoke/);
   });
@@ -297,9 +326,10 @@ describe("worker IMAGE smoke script proves the engine contract, presence-only", 
       .filter((l) => !/^\s*#/.test(l) && /worker:daemon/.test(l));
     expect(invocations.length).toBeGreaterThan(0);
     for (const line of invocations) {
-      expect(line, `image smoke daemon call must be the probe: ${line}`).toMatch(
-        /--dry-run-status/,
-      );
+      expect(
+        line,
+        `image smoke daemon call must be the probe: ${line}`,
+      ).toMatch(/--dry-run-status/);
     }
   });
 
@@ -315,14 +345,20 @@ describe("worker IMAGE smoke script proves the engine contract, presence-only", 
     const CAPTURED = /\$\{?(out|onout|health|ocr_off|ocr_on|comp_on|PDFXYZ)/;
     for (const line of lines) {
       if (/^\s*echo\b/.test(line)) {
-        expect(line, `echo must not surface captured output/env: ${line}`).not.toMatch(CAPTURED);
+        expect(
+          line,
+          `echo must not surface captured output/env: ${line}`,
+        ).not.toMatch(CAPTURED);
       }
     }
     // Any printf that references the captured daemon output must consume it via a pipe
     // to grep (pattern-matching), never print it to the visible stream.
     for (const line of lines) {
       if (/\bprintf\b/.test(line) && /\$\{?(out|onout|health)\b/.test(line)) {
-        expect(line, `printf of captured output must pipe to grep: ${line}`).toMatch(/\|\s*grep/);
+        expect(
+          line,
+          `printf of captured output must pipe to grep: ${line}`,
+        ).toMatch(/\|\s*grep/);
       }
     }
   });
@@ -338,12 +374,16 @@ describe("worker ENGINE PREFLIGHT script is present, wired, and opt-in gated", (
   // `worker-engines.test.ts`. This node-free probe is the dependency-light companion of
   // the image smoke — it runs anywhere `command -v` does, with or without Node.
   const script = read("scripts/worker-engines.sh");
-  const pkg = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  const pkg = JSON.parse(read("package.json")) as {
+    scripts?: Record<string, string>;
+  };
   const container = read(".github/workflows/container.yml");
 
   it("is a shell script wired as `worker:engines`", () => {
     expect(script.startsWith("#!")).toBe(true);
-    expect(pkg.scripts?.["worker:engines"]).toBe("sh scripts/worker-engines.sh");
+    expect(pkg.scripts?.["worker:engines"]).toBe(
+      "sh scripts/worker-engines.sh",
+    );
   });
 
   it("probes every deep-compression and OCR engine, presence-only", () => {
@@ -385,13 +425,17 @@ describe("worker OCRmyPDF searchable-PDF PROOF script is present, wired, and ima
   // path/text leak) is exercised Docker-free with stub tools in
   // `worker-ocrmypdf-proof.test.ts`.
   const script = read("scripts/worker-ocrmypdf-proof.sh");
-  const pkg = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  const pkg = JSON.parse(read("package.json")) as {
+    scripts?: Record<string, string>;
+  };
   const container = read(".github/workflows/container.yml");
   const worker = stageInstructions(parseStages(read("Dockerfile")), "worker");
 
   it("is a shell script wired as `worker:ocrmypdf-proof`", () => {
     expect(script.startsWith("#!")).toBe(true);
-    expect(pkg.scripts?.["worker:ocrmypdf-proof"]).toBe("sh scripts/worker-ocrmypdf-proof.sh");
+    expect(pkg.scripts?.["worker:ocrmypdf-proof"]).toBe(
+      "sh scripts/worker-ocrmypdf-proof.sh",
+    );
   });
 
   it("builds an IMAGE-ONLY PDF and OCRs it with OCRmyPDF by argv", () => {
@@ -428,7 +472,11 @@ describe("worker OCRmyPDF searchable-PDF PROOF script is present, wired, and ima
 // --------------------------------------------------------------------------- //
 // Secret hygiene — no committed artifact may carry a real-looking credential.
 // --------------------------------------------------------------------------- //
-const CONFIG_FILES = ["Dockerfile", "docker-compose.worker.yml", ".env.worker.example"];
+const CONFIG_FILES = [
+  "Dockerfile",
+  "docker-compose.worker.yml",
+  ".env.worker.example",
+];
 const DOC_FILES = [
   "docs/DEPLOYMENT.md",
   "docs/WORKER_ARCHITECTURE.md",
@@ -444,7 +492,8 @@ const PLACEHOLDER =
   /(REPLACE|EXAMPLE|CHANGE|CHANGEME|YOUR[-_]|PLACEHOLDER|\bXXX+\b|<[^>]+>|\.\.\.|\.invalid\b)/i;
 
 /** Variable names whose committed value must be a placeholder/reference/empty. */
-const SECRETISH = /(SECRET|TOKEN|PASSWORD|ACCESS_KEY_ID|ACCESS_KEY|PRIVATE_KEY|_KEY)$/i;
+const SECRETISH =
+  /(SECRET|TOKEN|PASSWORD|ACCESS_KEY_ID|ACCESS_KEY|PRIVATE_KEY|_KEY)$/i;
 
 /** Drop `#` comments (whole-line and inline) so doc text can safely name a rule. */
 function stripHashComments(text: string): string {
@@ -460,7 +509,10 @@ function assignments(text: string): { name: string; value: string }[] {
   for (const raw of text.split("\n")) {
     const line = raw.replace(/^\s*#.*$/, ""); // drop full-line comments
     if (!line.trim()) continue;
-    const m = /^\s*(?:-\s*)?(?:ENV\s+|ARG\s+)?([A-Z][A-Z0-9_]+)\s*[:=]\s*(.*?)\s*$/.exec(line);
+    const m =
+      /^\s*(?:-\s*)?(?:ENV\s+|ARG\s+)?([A-Z][A-Z0-9_]+)\s*[:=]\s*(.*?)\s*$/.exec(
+        line,
+      );
     if (!m) continue;
     const value = m[2]!
       .replace(/\s+#.*$/, "") // drop trailing inline comment
@@ -478,8 +530,12 @@ describe("deployment artifacts carry no real-looking secrets", () => {
       expect(text).not.toMatch(AWS_KEY);
       for (const { name, value } of assignments(text)) {
         if (!SECRETISH.test(name)) continue;
-        const safe = value === "" || value.includes("${") || PLACEHOLDER.test(value);
-        expect(safe, `${rel}: ${name} looks like a committed secret ("${value}")`).toBe(true);
+        const safe =
+          value === "" || value.includes("${") || PLACEHOLDER.test(value);
+        expect(
+          safe,
+          `${rel}: ${name} looks like a committed secret ("${value}")`,
+        ).toBe(true);
       }
     });
 

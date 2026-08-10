@@ -40,6 +40,13 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Gate, not decoration: the repo was swept clean in the same PR that
+      # added this step. A sweep without a gate just resets the clock — within
+      # a week the formatter is noise again and cannot be trusted to say
+      # anything.
+      - name: Format check
+        run: pnpm format:check
+
       - name: Unit tests
         run: pnpm test
 

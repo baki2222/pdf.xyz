@@ -30,7 +30,10 @@ describe("catalog descriptions", () => {
   it(`no description exceeds the ~${SERP_CEILING}-char serp ceiling`, () => {
     const over = tools
       .filter((t) => t.description.length > SERP_CEILING)
-      .map((t) => `${t.slug}: ${t.description.length} chars — the tail past ~${SERP_CEILING} is invisible in search results`);
+      .map(
+        (t) =>
+          `${t.slug}: ${t.description.length} chars — the tail past ~${SERP_CEILING} is invisible in search results`,
+      );
     expect(over, over.join("\n")).toEqual([]);
   });
 });

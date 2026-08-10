@@ -10,7 +10,12 @@ function pdf(pad = 40): Uint8Array {
 }
 
 function file(name = "report.pdf", bytes = pdf()): ProcessorInputFile {
-  return { fileId: "f_1234567890", filename: name, contentType: "application/pdf", bytes };
+  return {
+    fileId: "f_1234567890",
+    filename: name,
+    contentType: "application/pdf",
+    bytes,
+  };
 }
 
 /** A fake qpdf runner whose `isEncrypted` answers by byte identity. */
@@ -80,7 +85,10 @@ describe("pdf-security processor — protect", () => {
   it("encrypts and returns a named artifact + content-free meta (no password)", async () => {
     const encrypted = pdf(80);
     const proc = createPdfSecurityProcessor(
-      wired({ isEncrypted: async (b) => b === encrypted, protect: async () => encrypted }),
+      wired({
+        isEncrypted: async (b) => b === encrypted,
+        protect: async () => encrypted,
+      }),
     );
     const result = await proc.process({
       tool: "protect-pdf",
@@ -99,7 +107,9 @@ describe("pdf-security processor — protect", () => {
   });
 
   it("rejects an already-encrypted input honestly (non-retryable)", async () => {
-    const proc = createPdfSecurityProcessor(wired({ isEncrypted: async () => true }));
+    const proc = createPdfSecurityProcessor(
+      wired({ isEncrypted: async () => true }),
+    );
     const result = await proc.process({
       tool: "protect-pdf",
       options: { password: SECRET },
@@ -138,7 +148,11 @@ describe("pdf-security processor — protect", () => {
 
   it("requires exactly one input file", async () => {
     const proc = createPdfSecurityProcessor(wired());
-    const zero = await proc.process({ tool: "protect-pdf", options: { password: SECRET }, inputs: [] });
+    const zero = await proc.process({
+      tool: "protect-pdf",
+      options: { password: SECRET },
+      inputs: [],
+    });
     expect(zero.ok).toBe(false);
     if (!zero.ok) expect(zero.error.code).toBe("unprocessable_entity");
     const two = await proc.process({
@@ -156,7 +170,10 @@ describe("pdf-security processor — unlock", () => {
     const enc = pdf(48);
     const dec = pdf(96);
     const proc = createPdfSecurityProcessor(
-      wired({ isEncrypted: async (b) => b === enc, unlock: async () => ({ ok: true, output: dec }) }),
+      wired({
+        isEncrypted: async (b) => b === enc,
+        unlock: async () => ({ ok: true, output: dec }),
+      }),
     );
     const result = await proc.process({
       tool: "unlock-pdf",
@@ -193,7 +210,9 @@ describe("pdf-security processor — unlock", () => {
   });
 
   it("reports a non-encrypted input honestly", async () => {
-    const proc = createPdfSecurityProcessor(wired({ isEncrypted: async () => false }));
+    const proc = createPdfSecurityProcessor(
+      wired({ isEncrypted: async () => false }),
+    );
     const result = await proc.process({
       tool: "unlock-pdf",
       options: { password: SECRET },
@@ -206,7 +225,11 @@ describe("pdf-security processor — unlock", () => {
 
   it("rejects a missing password with invalid_request", async () => {
     const proc = createPdfSecurityProcessor(wired());
-    const result = await proc.process({ tool: "unlock-pdf", options: {}, inputs: [file()] });
+    const result = await proc.process({
+      tool: "unlock-pdf",
+      options: {},
+      inputs: [file()],
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("invalid_request");
   });

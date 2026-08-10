@@ -71,7 +71,13 @@ export interface TableExtractMeta {
 }
 
 export type TableExtractRun =
-  | { ok: true; output: Uint8Array; filenameExt: "zip"; contentType: "application/zip"; meta: TableExtractMeta }
+  | {
+      ok: true;
+      output: Uint8Array;
+      filenameExt: "zip";
+      contentType: "application/zip";
+      meta: TableExtractMeta;
+    }
   | {
       ok: false;
       kind: "unsupported" | "no_text" | "no_tables" | "too_large" | "failed";
@@ -148,16 +154,24 @@ export function detectTablesOnPage(page: PdfLayoutPage): DetectedTable[] {
   const columnTolerance = Math.max(6, medianHeight);
 
   // Rows: cluster by vertical anchor, then order top-to-bottom.
-  const rowAnchors = clusterAnchors(items.map((item) => item.y), rowTolerance)
+  const rowAnchors = clusterAnchors(
+    items.map((item) => item.y),
+    rowTolerance,
+  )
     .slice()
     .sort((a, b) => b - a);
   // Columns: cluster by left edge, ordered left-to-right.
-  const columnAnchors = clusterAnchors(items.map((item) => item.x), columnTolerance);
+  const columnAnchors = clusterAnchors(
+    items.map((item) => item.x),
+    columnTolerance,
+  );
 
   if (rowAnchors.length < 2 || columnAnchors.length < 2) return [];
 
   // Bucket each run into its (row, column) cell.
-  const grid: PositionedTextItem[][][] = rowAnchors.map(() => columnAnchors.map(() => []));
+  const grid: PositionedTextItem[][][] = rowAnchors.map(() =>
+    columnAnchors.map(() => []),
+  );
   for (const item of items) {
     const r = nearestIndex(rowAnchors, item.y);
     const c = nearestIndex(columnAnchors, item.x);
@@ -178,12 +192,21 @@ export function detectTablesOnPage(page: PdfLayoutPage): DetectedTable[] {
   // Reject accidental grids: require most cells populated and every column and row
   // to carry real content, so prose and sparse layouts are not mistaken for tables.
   const totalCells = rows.length * columnAnchors.length;
-  const filledCells = rows.reduce((sum, cells) => sum + cells.filter((c) => c.length > 0).length, 0);
+  const filledCells = rows.reduce(
+    (sum, cells) => sum + cells.filter((c) => c.length > 0).length,
+    0,
+  );
   if (filledCells / totalCells < 0.5) return [];
 
-  const columnFilled = columnAnchors.map((_, c) => rows.filter((cells) => (cells[c]?.length ?? 0) > 0).length);
+  const columnFilled = columnAnchors.map(
+    (_, c) => rows.filter((cells) => (cells[c]?.length ?? 0) > 0).length,
+  );
   if (columnFilled.filter((count) => count >= 2).length < 2) return [];
-  if (rows.filter((cells) => cells.filter((c) => c.length > 0).length >= 2).length < 2) return [];
+  if (
+    rows.filter((cells) => cells.filter((c) => c.length > 0).length >= 2)
+      .length < 2
+  )
+    return [];
 
   return [{ pageNumber: page.pageNumber, rows }];
 }
@@ -224,7 +247,10 @@ function worksheetXml(rows: string[][]): string {
   const sheetData = rows
     .map((row, ri) => {
       const cells = row
-        .map((value, ci) => `<c r="${columnRef(ci)}${ri + 1}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`)
+        .map(
+          (value, ci) =>
+            `<c r="${columnRef(ci)}${ri + 1}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`,
+        )
         .join("");
       return `<row r="${ri + 1}">${cells}</row>`;
     })
@@ -236,7 +262,10 @@ function worksheetXml(rows: string[][]): string {
 async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
   const zip = new JSZip();
   const sheetOverrides = tables
-    .map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`)
+    .map(
+      (_, i) =>
+        `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
+    )
     .join("");
   zip.file(
     "[Content_Types].xml",
@@ -249,16 +278,24 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
   zip.file(
     "xl/_rels/workbook.xml.rels",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${tables
-      .map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`)
+      .map(
+        (_, i) =>
+          `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`,
+      )
       .join("")}</Relationships>`,
   );
   zip.file(
     "xl/workbook.xml",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${tables
-      .map((table, i) => `<sheet name="${xmlEscape(`Table ${i + 1} (p${table.pageNumber})`)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
+      .map(
+        (table, i) =>
+          `<sheet name="${xmlEscape(`Table ${i + 1} (p${table.pageNumber})`)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`,
+      )
       .join("")}</sheets></workbook>`,
   );
-  tables.forEach((table, i) => zip.file(`xl/worksheets/sheet${i + 1}.xml`, worksheetXml(table.rows)));
+  tables.forEach((table, i) =>
+    zip.file(`xl/worksheets/sheet${i + 1}.xml`, worksheetXml(table.rows)),
+  );
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
 
@@ -266,9 +303,13 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
  * Package detected tables into a real ZIP: one RFC-4180 CSV per table
  * (`table-1.csv`, `table-2.csv`, …) plus a combined `tables.xlsx` workbook.
  */
-export async function buildTablesZip(tables: DetectedTable[]): Promise<Uint8Array> {
+export async function buildTablesZip(
+  tables: DetectedTable[],
+): Promise<Uint8Array> {
   const zip = new JSZip();
-  tables.forEach((table, i) => zip.file(`table-${i + 1}.csv`, toCsv(table.rows)));
+  tables.forEach((table, i) =>
+    zip.file(`table-${i + 1}.csv`, toCsv(table.rows)),
+  );
   zip.file("tables.xlsx", await buildXlsx(tables));
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
@@ -284,29 +325,58 @@ export async function buildTablesZip(tables: DetectedTable[]): Promise<Uint8Arra
  * found, and as `failed` if the extractor throws — never a fabricated ZIP. On
  * success, return a real ZIP of CSVs + a combined XLSX.
  */
-export async function runTableExtract(input: Uint8Array, deps: TableExtractDeps): Promise<TableExtractRun> {
+export async function runTableExtract(
+  input: Uint8Array,
+  deps: TableExtractDeps,
+): Promise<TableExtractRun> {
   const { extractLayout } = deps;
   if (!extractLayout) {
-    return { ok: false, kind: "unsupported", message: "Table extraction requires the PDF layout extractor, which is not available in this environment." };
+    return {
+      ok: false,
+      kind: "unsupported",
+      message:
+        "Table extraction requires the PDF layout extractor, which is not available in this environment.",
+    };
   }
   const maxInput = deps.limits?.maxInputBytes;
   if (maxInput !== undefined && input.byteLength > maxInput) {
-    return { ok: false, kind: "too_large", limitBytes: maxInput, message: "The PDF input exceeds the worker's size limit." };
+    return {
+      ok: false,
+      kind: "too_large",
+      limitBytes: maxInput,
+      message: "The PDF input exceeds the worker's size limit.",
+    };
   }
   try {
     const layout = await extractLayout(input);
-    const hasText = layout.pages.some((page) => page.items.some((item) => item.text.trim().length > 0));
+    const hasText = layout.pages.some((page) =>
+      page.items.some((item) => item.text.trim().length > 0),
+    );
     if (!hasText) {
-      return { ok: false, kind: "no_text", message: "This PDF has no selectable text, so no tables can be extracted. Run OCR PDF first, then try again." };
+      return {
+        ok: false,
+        kind: "no_text",
+        message:
+          "This PDF has no selectable text, so no tables can be extracted. Run OCR PDF first, then try again.",
+      };
     }
     const tables = layout.pages.flatMap((page) => detectTablesOnPage(page));
     if (tables.length === 0) {
-      return { ok: false, kind: "no_tables", message: "No table-like structure was detected in this PDF's selectable text." };
+      return {
+        ok: false,
+        kind: "no_tables",
+        message:
+          "No table-like structure was detected in this PDF's selectable text.",
+      };
     }
     const output = await buildTablesZip(tables);
     const maxOutput = deps.limits?.maxOutputBytes;
     if (maxOutput !== undefined && output.byteLength > maxOutput) {
-      return { ok: false, kind: "failed", message: "The extracted tables archive exceeds the worker size limit." };
+      return {
+        ok: false,
+        kind: "failed",
+        message: "The extracted tables archive exceeds the worker size limit.",
+      };
     }
     return {
       ok: true,
@@ -323,6 +393,10 @@ export async function runTableExtract(input: Uint8Array, deps: TableExtractDeps)
       },
     };
   } catch {
-    return { ok: false, kind: "failed", message: "The PDF could not be processed for table extraction." };
+    return {
+      ok: false,
+      kind: "failed",
+      message: "The PDF could not be processed for table extraction.",
+    };
   }
 }

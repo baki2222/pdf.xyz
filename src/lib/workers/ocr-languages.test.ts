@@ -35,12 +35,17 @@ function explodingRunner() {
 }
 
 describe("probeInstalledOcrLanguages", () => {
-  const dirs = (map: Record<string, string[]>) => (dir: string) => map[dir] ?? [];
+  const dirs = (map: Record<string, string[]>) => (dir: string) =>
+    map[dir] ?? [];
 
   it("reads language codes from traineddata filenames", () => {
     const found = probeInstalledOcrLanguages(
       { TESSDATA_PREFIX: "/t" },
-      { readDir: dirs({ "/t": ["eng.traineddata", "spa.traineddata", "chi_sim.traineddata"] }) },
+      {
+        readDir: dirs({
+          "/t": ["eng.traineddata", "spa.traineddata", "chi_sim.traineddata"],
+        }),
+      },
     );
     expect(found).toEqual(["chi_sim", "eng", "spa"]);
   });
@@ -56,7 +61,11 @@ describe("probeInstalledOcrLanguages", () => {
   it("ignores non-traineddata files", () => {
     const found = probeInstalledOcrLanguages(
       { TESSDATA_PREFIX: "/t" },
-      { readDir: dirs({ "/t": ["eng.traineddata", "configs", "pdf.ttf", "README"] }) },
+      {
+        readDir: dirs({
+          "/t": ["eng.traineddata", "configs", "pdf.ttf", "README"],
+        }),
+      },
     );
     expect(found).toEqual(["eng"]);
   });
@@ -81,7 +90,10 @@ describe("probeInstalledOcrLanguages", () => {
 
 describe("buildOcrCapability — reports what is runnable, not what is offered", () => {
   it("narrows the advertised list to the packs actually installed", () => {
-    const capability = buildOcrCapability("remote-configured", ENGINES, ["eng", "spa"]);
+    const capability = buildOcrCapability("remote-configured", ENGINES, [
+      "eng",
+      "spa",
+    ]);
     expect(capability.available).toBe(true);
     expect(capability.languages).toEqual(["eng", "spa"]);
   });
@@ -89,7 +101,10 @@ describe("buildOcrCapability — reports what is runnable, not what is offered",
   it("never invents a language: an installed pack the product does not offer is not reported", () => {
     // `epo` has a Tesseract pack but is not in OCR_LANGUAGES — the capability is the
     // intersection, so it must not appear in a menu the product cannot honour.
-    const capability = buildOcrCapability("remote-configured", ENGINES, ["eng", "epo"]);
+    const capability = buildOcrCapability("remote-configured", ENGINES, [
+      "eng",
+      "epo",
+    ]);
     expect(capability.languages).toEqual(["eng"]);
   });
 
@@ -102,7 +117,9 @@ describe("buildOcrCapability — reports what is runnable, not what is offered",
   });
 
   it("reports no languages at all when OCR is unavailable", () => {
-    expect(buildOcrCapability("disabled", ENGINES, ["eng"]).languages).toEqual([]);
+    expect(buildOcrCapability("disabled", ENGINES, ["eng"]).languages).toEqual(
+      [],
+    );
   });
 });
 
@@ -110,7 +127,12 @@ describe("buildOcrCapability — OCR observed on the out-of-band worker", () => 
   it("is available when the worker's heartbeat reports it, with no local engine", () => {
     // The production shape: the web tier ships no OCR binary, so a local probe
     // answers "no" — but the worker that runs the jobs reports OCR enabled.
-    const capability = buildOcrCapability("disabled", undefined, undefined, true);
+    const capability = buildOcrCapability(
+      "disabled",
+      undefined,
+      undefined,
+      true,
+    );
     expect(capability.available).toBe(true);
     expect(capability.languages.length).toBeGreaterThan(1);
   });
@@ -118,14 +140,21 @@ describe("buildOcrCapability — OCR observed on the out-of-band worker", () => 
   it("does not name an engine it cannot observe", () => {
     // Guessing "ocrmypdf" here would be a fabrication: the web tier has no way to
     // know which engine the worker runs.
-    expect(buildOcrCapability("disabled", undefined, undefined, true).engine).toBeNull();
+    expect(
+      buildOcrCapability("disabled", undefined, undefined, true).engine,
+    ).toBeNull();
   });
 
   it("admits it is guessing when the worker does not report its packs", () => {
     // The honest fallback, unchanged in substance: with no observed pack list the menu
     // is the full catalogue, and the copy has to say so rather than implying the
     // worker was asked and answered.
-    const { detail } = buildOcrCapability("disabled", undefined, undefined, true);
+    const { detail } = buildOcrCapability(
+      "disabled",
+      undefined,
+      undefined,
+      true,
+    );
     expect(detail).toMatch(/not reporting which language packs/i);
     expect(detail).toMatch(/fails honestly/i);
   });
@@ -134,7 +163,12 @@ describe("buildOcrCapability — OCR observed on the out-of-band worker", () => 
     // This assertion used to read `not observable from here`, which was true when the
     // heartbeat carried only a boolean. It now carries the language list, so a claim
     // of ignorance would itself be the inaccurate statement.
-    const capability = buildOcrCapability("disabled", undefined, ["eng", "ben"], true);
+    const capability = buildOcrCapability(
+      "disabled",
+      undefined,
+      ["eng", "ben"],
+      true,
+    );
     expect(capability.languages).toEqual(["eng", "ben"]);
     expect(capability.detail).toMatch(/actually has installed/i);
     expect(capability.detail).not.toMatch(/not observable from here/i);
@@ -143,7 +177,12 @@ describe("buildOcrCapability — OCR observed on the out-of-band worker", () => 
   it("stays unavailable when no worker reported OCR", () => {
     // The pre-existing, cautious answer must be unchanged when there is no signal.
     for (const signal of [false, undefined]) {
-      const capability = buildOcrCapability("disabled", undefined, undefined, signal);
+      const capability = buildOcrCapability(
+        "disabled",
+        undefined,
+        undefined,
+        signal,
+      );
       expect(capability.available).toBe(false);
       expect(capability.languages).toEqual([]);
     }
@@ -213,7 +252,8 @@ describe("the OCR processor refuses an uninstalled language honestly", () => {
       options: { languages: ["eng"] },
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toMatch(/could not process this file/i);
+    if (!result.ok)
+      expect(result.error.message).toMatch(/could not process this file/i);
   });
 
   it("skips the check entirely when the packs could not be observed", async () => {

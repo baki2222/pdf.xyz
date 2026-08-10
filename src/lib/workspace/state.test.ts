@@ -12,12 +12,19 @@ import type { WorkspaceAction, WorkspaceFile, WorkspaceState } from "./types";
 /** Build `n` staged PDF files with ids f0…f(n-1). */
 function files(n: number): WorkspaceFile[] {
   return Array.from({ length: n }, (_, i) =>
-    createWorkspaceFile({ name: `f${i}.pdf`, size: 100, type: "application/pdf" }, `f${i}`, i),
+    createWorkspaceFile(
+      { name: `f${i}.pdf`, size: 100, type: "application/pdf" },
+      `f${i}`,
+      i,
+    ),
   );
 }
 
 function withFiles(n: number): WorkspaceState {
-  return workspaceReducer(emptyWorkspace(), { type: "add-files", files: files(n) });
+  return workspaceReducer(emptyWorkspace(), {
+    type: "add-files",
+    files: files(n),
+  });
 }
 
 function action(id: string, at = 1): WorkspaceAction {
@@ -28,11 +35,22 @@ describe("workspaceReducer — reset", () => {
   it("wipes files, tool, activity, and batch back to empty", () => {
     let state = withFiles(2);
     state = workspaceReducer(state, { type: "select-tool", slug: "merge-pdf" });
-    state = workspaceReducer(state, { type: "set-batch-tool", slug: "merge-pdf" });
-    state = workspaceReducer(state, { type: "add-to-batch", ids: ["f0", "f1"] });
-    state = workspaceReducer(state, { type: "record-action", action: action("a1") });
+    state = workspaceReducer(state, {
+      type: "set-batch-tool",
+      slug: "merge-pdf",
+    });
+    state = workspaceReducer(state, {
+      type: "add-to-batch",
+      ids: ["f0", "f1"],
+    });
+    state = workspaceReducer(state, {
+      type: "record-action",
+      action: action("a1"),
+    });
 
-    expect(workspaceReducer(state, { type: "reset" })).toEqual(emptyWorkspace());
+    expect(workspaceReducer(state, { type: "reset" })).toEqual(
+      emptyWorkspace(),
+    );
   });
 
   it("is a no-op (same reference) when already empty", () => {
@@ -55,7 +73,9 @@ describe("workspaceReducer — files", () => {
 
   it("ignores an empty or fully-duplicate add (same reference)", () => {
     const state = withFiles(2);
-    expect(workspaceReducer(state, { type: "add-files", files: [] })).toBe(state);
+    expect(workspaceReducer(state, { type: "add-files", files: [] })).toBe(
+      state,
+    );
     expect(
       workspaceReducer(state, { type: "add-files", files: [files(1)[0]!] }),
     ).toBe(state);
@@ -63,7 +83,10 @@ describe("workspaceReducer — files", () => {
 
   it("removes a file and prunes it from the batch queue", () => {
     let state = withFiles(3);
-    state = workspaceReducer(state, { type: "add-to-batch", ids: ["f0", "f1"] });
+    state = workspaceReducer(state, {
+      type: "add-to-batch",
+      ids: ["f0", "f1"],
+    });
     state = workspaceReducer(state, { type: "remove-file", id: "f1" });
     expect(state.files.map((f) => f.id)).toEqual(["f0", "f2"]);
     expect(state.batch.fileIds).toEqual(["f0"]);
@@ -71,13 +94,18 @@ describe("workspaceReducer — files", () => {
 
   it("treats removing an unknown file as a no-op", () => {
     const state = withFiles(2);
-    expect(workspaceReducer(state, { type: "remove-file", id: "nope" })).toBe(state);
+    expect(workspaceReducer(state, { type: "remove-file", id: "nope" })).toBe(
+      state,
+    );
   });
 
   it("clears files and batch items but keeps tool + activity", () => {
     let state = withFiles(2);
     state = workspaceReducer(state, { type: "select-tool", slug: "merge-pdf" });
-    state = workspaceReducer(state, { type: "record-action", action: action("a1") });
+    state = workspaceReducer(state, {
+      type: "record-action",
+      action: action("a1"),
+    });
     state = workspaceReducer(state, { type: "add-to-batch", ids: ["f0"] });
     const cleared = workspaceReducer(state, { type: "clear-files" });
     expect(cleared.files).toEqual([]);
@@ -88,36 +116,74 @@ describe("workspaceReducer — files", () => {
 
   it("attaches a page count to a staged file, ignoring unknown ids", () => {
     let state = withFiles(2);
-    state = workspaceReducer(state, { type: "set-page-count", id: "f0", pageCount: 12 });
+    state = workspaceReducer(state, {
+      type: "set-page-count",
+      id: "f0",
+      pageCount: 12,
+    });
     expect(state.files.find((f) => f.id === "f0")?.pageCount).toBe(12);
     expect(state.files.find((f) => f.id === "f1")?.pageCount).toBeUndefined();
     // An id that isn't staged is a no-op (same reference).
     expect(
-      workspaceReducer(state, { type: "set-page-count", id: "ghost", pageCount: 3 }),
+      workspaceReducer(state, {
+        type: "set-page-count",
+        id: "ghost",
+        pageCount: 3,
+      }),
     ).toBe(state);
   });
 
   it("ignores non-positive counts and no-ops when the count is unchanged", () => {
     let state = withFiles(1);
-    expect(workspaceReducer(state, { type: "set-page-count", id: "f0", pageCount: 0 })).toBe(state);
-    expect(workspaceReducer(state, { type: "set-page-count", id: "f0", pageCount: -4 })).toBe(state);
-    state = workspaceReducer(state, { type: "set-page-count", id: "f0", pageCount: 5 });
+    expect(
+      workspaceReducer(state, {
+        type: "set-page-count",
+        id: "f0",
+        pageCount: 0,
+      }),
+    ).toBe(state);
+    expect(
+      workspaceReducer(state, {
+        type: "set-page-count",
+        id: "f0",
+        pageCount: -4,
+      }),
+    ).toBe(state);
+    state = workspaceReducer(state, {
+      type: "set-page-count",
+      id: "f0",
+      pageCount: 5,
+    });
     // Re-applying the same count preserves referential identity.
-    expect(workspaceReducer(state, { type: "set-page-count", id: "f0", pageCount: 5 })).toBe(state);
+    expect(
+      workspaceReducer(state, {
+        type: "set-page-count",
+        id: "f0",
+        pageCount: 5,
+      }),
+    ).toBe(state);
   });
 });
 
 describe("workspaceReducer — tool + activity", () => {
   it("selects a tool and no-ops on re-select", () => {
-    const state = workspaceReducer(emptyWorkspace(), { type: "select-tool", slug: "split-pdf" });
+    const state = workspaceReducer(emptyWorkspace(), {
+      type: "select-tool",
+      slug: "split-pdf",
+    });
     expect(state.selectedToolSlug).toBe("split-pdf");
-    expect(workspaceReducer(state, { type: "select-tool", slug: "split-pdf" })).toBe(state);
+    expect(
+      workspaceReducer(state, { type: "select-tool", slug: "split-pdf" }),
+    ).toBe(state);
   });
 
   it("prepends activity and caps the log", () => {
     let state = emptyWorkspace();
     for (let i = 0; i < MAX_RECENT_ACTIONS + 5; i++) {
-      state = workspaceReducer(state, { type: "record-action", action: action(`a${i}`, i) });
+      state = workspaceReducer(state, {
+        type: "record-action",
+        action: action(`a${i}`, i),
+      });
     }
     expect(state.recentActions).toHaveLength(MAX_RECENT_ACTIONS);
     // Newest first.
@@ -128,18 +194,32 @@ describe("workspaceReducer — tool + activity", () => {
 describe("workspaceReducer — batch", () => {
   it("sets the batch tool and enqueues only staged, not-yet-queued files", () => {
     let state = withFiles(3);
-    state = workspaceReducer(state, { type: "set-batch-tool", slug: "compress-pdf" });
-    state = workspaceReducer(state, { type: "add-to-batch", ids: ["f0", "f0", "ghost"] });
+    state = workspaceReducer(state, {
+      type: "set-batch-tool",
+      slug: "compress-pdf",
+    });
+    state = workspaceReducer(state, {
+      type: "add-to-batch",
+      ids: ["f0", "f0", "ghost"],
+    });
     expect(state.batch.toolSlug).toBe("compress-pdf");
     expect(state.batch.fileIds).toEqual(["f0"]);
     // Adding the same id again is a no-op (same reference).
-    expect(workspaceReducer(state, { type: "add-to-batch", ids: ["f0"] })).toBe(state);
+    expect(workspaceReducer(state, { type: "add-to-batch", ids: ["f0"] })).toBe(
+      state,
+    );
   });
 
   it("removes one item and clears the queue while keeping the tool", () => {
     let state = withFiles(2);
-    state = workspaceReducer(state, { type: "set-batch-tool", slug: "compress-pdf" });
-    state = workspaceReducer(state, { type: "add-to-batch", ids: ["f0", "f1"] });
+    state = workspaceReducer(state, {
+      type: "set-batch-tool",
+      slug: "compress-pdf",
+    });
+    state = workspaceReducer(state, {
+      type: "add-to-batch",
+      ids: ["f0", "f1"],
+    });
     state = workspaceReducer(state, { type: "remove-from-batch", id: "f0" });
     expect(state.batch.fileIds).toEqual(["f1"]);
     const cleared = workspaceReducer(state, { type: "clear-batch" });
@@ -166,9 +246,21 @@ describe("workspaceReducer — hydrate", () => {
 
 describe("planBatch", () => {
   const live: BatchToolInfo = { live: true, usesWorker: false };
-  const collect: BatchToolInfo = { live: true, usesWorker: false, handoff: "collect" };
-  const batchTool: BatchToolInfo = { live: true, usesWorker: false, handoff: "batch" };
-  const single: BatchToolInfo = { live: true, usesWorker: false, handoff: "single" };
+  const collect: BatchToolInfo = {
+    live: true,
+    usesWorker: false,
+    handoff: "collect",
+  };
+  const batchTool: BatchToolInfo = {
+    live: true,
+    usesWorker: false,
+    handoff: "batch",
+  };
+  const single: BatchToolInfo = {
+    live: true,
+    usesWorker: false,
+    handoff: "single",
+  };
   const worker: BatchToolInfo = { live: false, usesWorker: true };
   const clientNoRunner: BatchToolInfo = { live: false, usesWorker: false };
   const resolve = (slug: string) =>
@@ -210,7 +302,10 @@ describe("planBatch", () => {
   });
 
   it("is 'single' (still launchable) for a live one-file-at-a-time tool", () => {
-    const plan = planBatch({ toolSlug: "rotate-pdf", fileIds: ["f0", "f1"] }, resolve);
+    const plan = planBatch(
+      { toolSlug: "rotate-pdf", fileIds: ["f0", "f1"] },
+      resolve,
+    );
     expect(plan).toMatchObject({ status: "single", ready: true });
   });
 
@@ -228,10 +323,12 @@ describe("planBatch", () => {
 
   it("is 'unavailable' for a client tool with no runner and for unknown slugs", () => {
     expect(
-      planBatch({ toolSlug: "extract-images", fileIds: ["f0"] }, resolve).status,
+      planBatch({ toolSlug: "extract-images", fileIds: ["f0"] }, resolve)
+        .status,
     ).toBe("unavailable");
     expect(
-      planBatch({ toolSlug: "does-not-exist", fileIds: ["f0"] }, resolve).status,
+      planBatch({ toolSlug: "does-not-exist", fileIds: ["f0"] }, resolve)
+        .status,
     ).toBe("unavailable");
   });
 });

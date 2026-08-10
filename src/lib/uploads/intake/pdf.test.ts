@@ -41,7 +41,10 @@ describe("sniffPdf", () => {
 
   it("does not find a header pushed beyond the leading window", () => {
     const buf = enc("XXXXXXXXXX%PDF-1.7 rest %%EOF");
-    const sniff = sniffPdf(buf, { pdfHeaderScanBytes: 8, pdfTrailerScanBytes: 1024 });
+    const sniff = sniffPdf(buf, {
+      pdfHeaderScanBytes: 8,
+      pdfTrailerScanBytes: 1024,
+    });
     expect(sniff.hasHeader).toBe(false); // header lives at offset 10, window is 8
     expect(sniff.hasEof).toBe(true); // trailer still visible in the wide trailing window
   });
@@ -49,9 +52,10 @@ describe("sniffPdf", () => {
   it("does not find a trailer outside the trailing window (bounded scan)", () => {
     // The only %%EOF sits at the start; a narrow trailing window can't reach it.
     const buf = enc("%%EOF" + "Y".repeat(40));
-    expect(sniffPdf(buf, { pdfHeaderScanBytes: 1024, pdfTrailerScanBytes: 8 }).hasEof).toBe(
-      false,
-    );
+    expect(
+      sniffPdf(buf, { pdfHeaderScanBytes: 1024, pdfTrailerScanBytes: 8 })
+        .hasEof,
+    ).toBe(false);
     expect(sniffPdf(buf, WIDE).hasEof).toBe(true);
   });
 

@@ -8,7 +8,10 @@ export const PDF_ARCHIVE_ENGINE = "ghostscript" as const;
 export const PDF_A_STANDARD = "PDF/A-2b" as const;
 
 export interface GhostscriptPdfARunner {
-  convertToPdfA(input: Uint8Array, options: { standard: typeof PDF_A_STANDARD }): Promise<Uint8Array>;
+  convertToPdfA(
+    input: Uint8Array,
+    options: { standard: typeof PDF_A_STANDARD },
+  ): Promise<Uint8Array>;
 }
 
 export interface PdfArchiveDeps {
@@ -49,22 +52,30 @@ export async function runPdfToPdfA(
       ok: false,
       kind: "too_large",
       limitBytes: limit,
-      message: "The input PDF exceeds the worker's size limit for PDF/A conversion.",
+      message:
+        "The input PDF exceeds the worker's size limit for PDF/A conversion.",
     };
   }
   const validate = deps.validate ?? looksLikePdf;
   if (!(await validate(input))) {
-    return { ok: false, kind: "invalid_pdf", message: "The input could not be read as a PDF." };
+    return {
+      ok: false,
+      kind: "invalid_pdf",
+      message: "The input could not be read as a PDF.",
+    };
   }
 
   let output: Uint8Array;
   try {
-    output = await deps.ghostscript.convertToPdfA(input, { standard: PDF_A_STANDARD });
+    output = await deps.ghostscript.convertToPdfA(input, {
+      standard: PDF_A_STANDARD,
+    });
   } catch {
     return {
       ok: false,
       kind: "failed",
-      message: "The PDF/A engine could not process this file. No output was produced.",
+      message:
+        "The PDF/A engine could not process this file. No output was produced.",
     };
   }
   if (!(await validate(output))) {

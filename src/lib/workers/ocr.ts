@@ -38,7 +38,9 @@ export const OCR_ENGINE_BINARIES: Record<OcrEngine, string> = {
 };
 
 /** Probe which OCR engines are installed, using an injected resolver. */
-export function probeOcrEngines(resolve: BinaryResolver): OcrEngineAvailability {
+export function probeOcrEngines(
+  resolve: BinaryResolver,
+): OcrEngineAvailability {
   return {
     ocrmypdf: resolve(OCR_ENGINE_BINARIES.ocrmypdf),
     tesseract: resolve(OCR_ENGINE_BINARIES.tesseract),
@@ -121,7 +123,9 @@ export function buildOcrCapability(
   // image had never installed and only discover it after uploading.
   if (!engine && observedOnWorker) {
     const observed = installedLanguages
-      ? OCR_LANGUAGE_CODES.filter((code) => new Set(installedLanguages).has(code))
+      ? OCR_LANGUAGE_CODES.filter((code) =>
+          new Set(installedLanguages).has(code),
+        )
       : null;
     return {
       available: true,

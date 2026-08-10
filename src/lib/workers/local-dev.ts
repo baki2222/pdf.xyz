@@ -48,9 +48,17 @@ import {
   parseProtectPdfOptions,
   parseUnlockPdfOptions,
 } from "@/lib/jobs/pdf-security";
-import { PROTECT_TOOL, UNLOCK_TOOL, type PdfSecurityDeps } from "./pdf-security/engine";
+import {
+  PROTECT_TOOL,
+  UNLOCK_TOOL,
+  type PdfSecurityDeps,
+} from "./pdf-security/engine";
 import { nativePdfSecurityDeps } from "./pdf-security/native";
-import { REPAIR_TOOL, OPTIMIZE_WEB_TOOL, type PdfStructureDeps } from "./pdf-structure/engine";
+import {
+  REPAIR_TOOL,
+  OPTIMIZE_WEB_TOOL,
+  type PdfStructureDeps,
+} from "./pdf-structure/engine";
 import { nativePdfStructureDeps } from "./pdf-structure/native";
 import { createProcessorRegistry } from "./processor";
 import { processorFail } from "./processor/types";
@@ -129,7 +137,8 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
   // The same artifact-manifest / provenance gate the async executor runs, so the dev
   // path cannot publish an output the executor would reject before storing it.
   // Enabled by default; injectable for tests.
-  const artifactManifest = deps.artifactManifest ?? resolveWorkerArtifactManifest();
+  const artifactManifest =
+    deps.artifactManifest ?? resolveWorkerArtifactManifest();
 
   // Storage and queue share the one store instance, exactly as a production
   // adapter would share one bucket + one queue behind the same contracts.
@@ -155,7 +164,8 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
           contentType: file.contentType,
           declaredBytes: file.bytes,
         });
-        if (!reserved.ok) return adapterError(mapStorageFailure(reserved.error));
+        if (!reserved.ok)
+          return adapterError(mapStorageFailure(reserved.error));
         slots.push({
           fileId: reserved.value.fileId,
           filename: reserved.value.filename,
@@ -184,7 +194,8 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       // Idempotent replay: return the prior job rather than reprocessing.
       if (request.idempotencyKey) {
         const existing = await queue.lookupIdempotent(request.idempotencyKey);
-        if (existing.ok && existing.value) return adapterOk(existing.value, 200);
+        if (existing.ok && existing.value)
+          return adapterOk(existing.value, 200);
       }
 
       // Early request-shape validation so bad options are a 4xx rejection
@@ -208,7 +219,12 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
           apiError(
             "unprocessable_entity",
             "This tool accepts exactly one PDF input.",
-            [{ field: "inputs", message: "Provide exactly one uploaded file id." }],
+            [
+              {
+                field: "inputs",
+                message: "Provide exactly one uploaded file id.",
+              },
+            ],
           ),
         );
       }

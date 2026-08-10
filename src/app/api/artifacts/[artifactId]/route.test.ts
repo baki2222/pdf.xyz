@@ -34,7 +34,10 @@ import {
   seriesFor,
 } from "@/lib/workers/observability/collector";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
-import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
+import {
+  enforceRateLimit,
+  resetRateLimitGuardForTests,
+} from "@/lib/ratelimit/guard";
 import { GET, HEAD } from "./route";
 import * as routeModule from "./route";
 
@@ -64,7 +67,10 @@ function get(id: string = HANDLE, query = ""): Promise<Response> {
   });
 }
 
-function pdfManifest(byteCount: number, over: Partial<ArtifactManifest> = {}): ArtifactManifest {
+function pdfManifest(
+  byteCount: number,
+  over: Partial<ArtifactManifest> = {},
+): ArtifactManifest {
   return {
     outputKind: "pdf",
     contentType: "application/pdf",
@@ -94,7 +100,10 @@ function liveResult(
       byteLength: bytes.byteLength,
       bytes,
       reportedLength: over.reportedLength ?? null,
-      manifest: over.manifest === undefined ? pdfManifest(bytes.byteLength) : over.manifest,
+      manifest:
+        over.manifest === undefined
+          ? pdfManifest(bytes.byteLength)
+          : over.manifest,
       jobCompleted: over.jobCompleted ?? true,
     },
   };
@@ -103,7 +112,10 @@ function liveResult(
 /** Register a fake ready storage backend that resolves `result`. */
 function useBackend(result: ArtifactRetrievalResult, ready = true): void {
   const backend: ArtifactRetrievalBackend = {
-    capability: () => ({ provider: ready ? "remote-configured" : "not-configured", ready }),
+    capability: () => ({
+      provider: ready ? "remote-configured" : "not-configured",
+      ready,
+    }),
     fetch: async () => result,
   };
   setArtifactRetrievalBackendForTests(backend);
@@ -111,9 +123,14 @@ function useBackend(result: ArtifactRetrievalResult, ready = true): void {
 
 /** A HEAD request through the storage-backed route. */
 function head(id: string = HANDLE, query = ""): Promise<Response> {
-  return HEAD(new Request(`http://localhost/api/artifacts/${id}${query}`, { method: "HEAD" }), {
-    params: Promise.resolve({ artifactId: id }),
-  });
+  return HEAD(
+    new Request(`http://localhost/api/artifacts/${id}${query}`, {
+      method: "HEAD",
+    }),
+    {
+      params: Promise.resolve({ artifactId: id }),
+    },
+  );
 }
 
 beforeEach(() => {
@@ -155,7 +172,9 @@ describe("GET /api/artifacts/[artifactId] — storage-backed retrieval", () => {
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
     // Generated from the manifest's kind/processor — never a stored/user name or object key.
-    expect(res.headers.get("content-disposition")).toBe('attachment; filename="compressed.pdf"');
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="compressed.pdf"',
+    );
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
   });
 
@@ -164,7 +183,9 @@ describe("GET /api/artifacts/[artifactId] — storage-backed retrieval", () => {
     useBackend(liveResult(bytes, { manifest: null }));
     const res = await get();
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-disposition")).toBe('attachment; filename="document.pdf"');
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="document.pdf"',
+    );
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
   });
 
@@ -184,7 +205,9 @@ describe("GET /api/artifacts/[artifactId] — storage-backed retrieval", () => {
 
   it("returns 422 for a manifest that fails re-validation (byte-count desync)", async () => {
     const bytes = enc("%PDF desync");
-    useBackend(liveResult(bytes, { manifest: pdfManifest(bytes.byteLength + 100) }));
+    useBackend(
+      liveResult(bytes, { manifest: pdfManifest(bytes.byteLength + 100) }),
+    );
     const res = await get();
     expect(res.status).toBe(422);
     expect((await res.json()).error.code).toBe("unprocessable_entity");
@@ -211,7 +234,9 @@ describe("GET|HEAD /api/artifacts/[artifactId] — delivery hardening", () => {
     const bytes = enc("%PDF-1.7 whole file body");
     useBackend(liveResult(bytes));
     const res = await GET(
-      new Request(`http://localhost/api/artifacts/${HANDLE}`, { headers: { range: "bytes=0-3" } }),
+      new Request(`http://localhost/api/artifacts/${HANDLE}`, {
+        headers: { range: "bytes=0-3" },
+      }),
       { params: Promise.resolve({ artifactId: HANDLE }) },
     );
     expect(res.status).toBe(200);
@@ -227,7 +252,9 @@ describe("GET|HEAD /api/artifacts/[artifactId] — delivery hardening", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/pdf");
     expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
-    expect(res.headers.get("content-disposition")).toBe('attachment; filename="compressed.pdf"');
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="compressed.pdf"',
+    );
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("accept-ranges")).toBe("none");
@@ -258,12 +285,16 @@ describe("GET|HEAD /api/artifacts/[artifactId] — delivery hardening", () => {
 
     useBackend(liveResult(enc("%PDF delivered")));
     await get();
-    const delivered = seriesFor(collector.snapshot(), "worker_artifact_delivery_total", {
-      outcome: "delivered",
-      reason: "ok",
-      kind: "pdf",
-      provider: "remote-configured",
-    });
+    const delivered = seriesFor(
+      collector.snapshot(),
+      "worker_artifact_delivery_total",
+      {
+        outcome: "delivered",
+        reason: "ok",
+        kind: "pdf",
+        provider: "remote-configured",
+      },
+    );
     expect(delivered).toHaveLength(1);
     // Closed, low-cardinality label set.
     expect(Object.keys(delivered[0]!.labels).sort()).toEqual([
@@ -276,12 +307,16 @@ describe("GET|HEAD /api/artifacts/[artifactId] — delivery hardening", () => {
     const bytes = enc("%PDF mismatch");
     useBackend(liveResult(bytes, { reportedLength: bytes.byteLength + 9 }));
     await get();
-    const denied = seriesFor(collector.snapshot(), "worker_artifact_delivery_total", {
-      outcome: "denied",
-      reason: "size_mismatch",
-      kind: "pdf",
-      provider: "remote-configured",
-    });
+    const denied = seriesFor(
+      collector.snapshot(),
+      "worker_artifact_delivery_total",
+      {
+        outcome: "denied",
+        reason: "size_mismatch",
+        kind: "pdf",
+        provider: "remote-configured",
+      },
+    );
     expect(denied).toHaveLength(1);
   });
 
@@ -292,7 +327,9 @@ describe("GET|HEAD /api/artifacts/[artifactId] — delivery hardening", () => {
     setArtifactRetrievalBackendForTests({
       capability: () => ({ provider: "remote-configured", ready: true }),
       fetch: async () => {
-        throw new Error("s3://pdfxyz-secret-bucket/artifacts/art_x boom X-Amz-Signature=deadbeef");
+        throw new Error(
+          "s3://pdfxyz-secret-bucket/artifacts/art_x boom X-Amz-Signature=deadbeef",
+        );
       },
     });
     const res = await get();
@@ -300,14 +337,24 @@ describe("GET|HEAD /api/artifacts/[artifactId] — delivery hardening", () => {
     const body = JSON.stringify(await res.json());
     expect(JSON.parse(body).error.code).toBe("service_unavailable");
     // The thrown error's contents never reach the client.
-    for (const secret of ["pdfxyz-secret-bucket", "X-Amz-Signature", "art_x", "boom", "s3://"]) {
+    for (const secret of [
+      "pdfxyz-secret-bucket",
+      "X-Amz-Signature",
+      "art_x",
+      "boom",
+      "s3://",
+    ]) {
       expect(body).not.toContain(secret);
     }
-    const streamError = seriesFor(collector.snapshot(), "worker_artifact_delivery_total", {
-      outcome: "denied",
-      reason: "stream_error",
-      provider: "remote-configured",
-    });
+    const streamError = seriesFor(
+      collector.snapshot(),
+      "worker_artifact_delivery_total",
+      {
+        outcome: "denied",
+        reason: "stream_error",
+        provider: "remote-configured",
+      },
+    );
     expect(streamError).toHaveLength(1);
   });
 
@@ -343,7 +390,10 @@ describe("GET|HEAD /api/artifacts/[artifactId] — method surface", () => {
     // never serves bytes for an unsupported method. Pins the "unsupported methods are refused"
     // contract so a future handler can't silently start serving one.
     for (const verb of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
-      expect(mod[verb], `${verb} must not be handled by the download route`).toBeUndefined();
+      expect(
+        mod[verb],
+        `${verb} must not be handled by the download route`,
+      ).toBeUndefined();
     }
   });
 });
@@ -369,17 +419,23 @@ describe("GET /api/artifacts/[artifactId] — privacy (headers/body leak nothing
         // A raw content-type whose parameter is stuffed with a secret; the served type is canonical.
         contentType: "application/pdf; note=AWS_SECRET_ACCESS_KEY",
         // A manifest whose (unused-downstream) fields are stuffed with secrets.
-        manifest: pdfManifest(bytes.byteLength, { toolSlug: "pdfxyz-secret-bucket" }),
+        manifest: pdfManifest(bytes.byteLength, {
+          toolSlug: "pdfxyz-secret-bucket",
+        }),
       }),
     );
     const res = await get();
     expect(res.status).toBe(200);
-    const headerBlob = [...res.headers.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");
+    const headerBlob = [...res.headers.entries()]
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\n");
     for (const secret of FORBIDDEN) {
       expect(headerBlob, `header leaked "${secret}"`).not.toContain(secret);
     }
     expect(res.headers.get("content-type")).toBe("application/pdf");
-    expect(res.headers.get("content-disposition")).toBe('attachment; filename="compressed.pdf"');
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="compressed.pdf"',
+    );
   });
 
   it("a denial body carries only a fixed, content-free code + message", async () => {
@@ -400,21 +456,29 @@ describe("GET /api/artifacts/[artifactId] — observability", () => {
   it("emits a bounded served metric for a storage-backed download", async () => {
     useBackend(liveResult(enc("%PDF metric")));
     await get();
-    const served = seriesFor(collector.snapshot(), "worker_artifact_retrieval_total", {
-      outcome: "served",
-      reason: "ok",
-      kind: "pdf",
-    });
+    const served = seriesFor(
+      collector.snapshot(),
+      "worker_artifact_retrieval_total",
+      {
+        outcome: "served",
+        reason: "ok",
+        kind: "pdf",
+      },
+    );
     expect(served).toHaveLength(1);
   });
 
   it("emits a bounded denied metric carrying the transient storage_error reason", async () => {
     useBackend({ kind: "unavailable" });
     await get();
-    const denied = seriesFor(collector.snapshot(), "worker_artifact_retrieval_total", {
-      outcome: "denied",
-      reason: "storage_error",
-    });
+    const denied = seriesFor(
+      collector.snapshot(),
+      "worker_artifact_retrieval_total",
+      {
+        outcome: "denied",
+        reason: "storage_error",
+      },
+    );
     expect(denied).toHaveLength(1);
     // Closed, low-cardinality label set — including the bounded storage provider.
     expect(Object.keys(denied[0]!.labels).sort()).toEqual([
@@ -432,7 +496,11 @@ describe("GET /api/artifacts/[artifactId] — observability", () => {
     setArtifactRetrievalObserver((r) => receipts.push(r));
     useBackend(liveResult(enc("%PDF receipt")));
     await get();
-    expect(receipts[0]).toMatchObject({ category: "retrieval", outcome: "served", reason: "ok" });
+    expect(receipts[0]).toMatchObject({
+      category: "retrieval",
+      outcome: "served",
+      reason: "ok",
+    });
     expect(JSON.stringify(receipts[0])).not.toContain(HANDLE);
   });
 });
@@ -451,7 +519,8 @@ describe("GET /api/artifacts/[artifactId] — abuse guard", () => {
     useBackend(liveResult(enc("%PDF")));
     const policy = policyFor("artifacts.fetch");
     const bare = new Request("http://localhost/api/artifacts/x");
-    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("artifacts.fetch", bare);
+    for (let i = 0; i < policy.limit; i++)
+      await enforceRateLimit("artifacts.fetch", bare);
 
     const denied = await get();
     expect(denied.status).toBe(429);

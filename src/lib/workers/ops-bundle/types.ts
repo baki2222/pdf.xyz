@@ -27,7 +27,12 @@
  * integrity, and not cloud validation.
  */
 
-import type { AlertAction, AlertReason, AlertSeverity, AlertSource } from "../observability/alerts";
+import type {
+  AlertAction,
+  AlertReason,
+  AlertSeverity,
+  AlertSource,
+} from "../observability/alerts";
 import type {
   HealthClass,
   ProofAvailability,
@@ -66,7 +71,13 @@ export const OPS_BUNDLE_POLICY_VERSION = 1;
  *  - `warn`     — a section is degraded (a recommended fix is outstanding, or a drift);
  *  - `critical` — a section is critical (a worker cannot run correctly, or a breach).
  */
-export const OPS_BUNDLE_SEVERITIES = ["ok", "usage", "unknown", "warn", "critical"] as const;
+export const OPS_BUNDLE_SEVERITIES = [
+  "ok",
+  "usage",
+  "unknown",
+  "warn",
+  "critical",
+] as const;
 export type OpsBundleSeverity = (typeof OPS_BUNDLE_SEVERITIES)[number];
 
 /**
@@ -81,7 +92,8 @@ export const OPS_BUNDLE_EXIT = {
   WARN: 3,
   CRITICAL: 4,
 } as const;
-export type OpsBundleExitCode = (typeof OPS_BUNDLE_EXIT)[keyof typeof OPS_BUNDLE_EXIT];
+export type OpsBundleExitCode =
+  (typeof OPS_BUNDLE_EXIT)[keyof typeof OPS_BUNDLE_EXIT];
 
 /**
  * How a section's underlying signal was sourced — a bounded provenance token so a reader knows
@@ -97,7 +109,8 @@ export const OPS_BUNDLE_SECTION_SOURCES = [
   "not-configured",
   "unreadable",
 ] as const;
-export type OpsBundleSectionSource = (typeof OPS_BUNDLE_SECTION_SOURCES)[number];
+export type OpsBundleSectionSource =
+  (typeof OPS_BUNDLE_SECTION_SOURCES)[number];
 
 /** The bounded liveness digest carried by the operations section (never an endpoint/broker). */
 export interface OpsBundleLiveness {
@@ -133,8 +146,14 @@ export interface OpsBundleOperationsSection {
   readonly action: RecommendedAction;
   readonly actionDetail: string;
   readonly liveness: OpsBundleLiveness;
-  readonly subsystems: readonly { readonly id: SnapshotSubsystemId; readonly health: HealthClass }[];
-  readonly proofs: { readonly compressionDeep: ProofAvailability; readonly ocr: ProofAvailability };
+  readonly subsystems: readonly {
+    readonly id: SnapshotSubsystemId;
+    readonly health: HealthClass;
+  }[];
+  readonly proofs: {
+    readonly compressionDeep: ProofAvailability;
+    readonly ocr: ProofAvailability;
+  };
   readonly alerts: readonly OpsBundleAlert[];
   /** One-line, content-free headline authored from the bounded severity. */
   readonly summary: string;
@@ -174,8 +193,13 @@ export interface OpsBundleCleanupEvidenceSection {
 }
 
 /** The bounded lifecycle verification verdict the bundle surfaces (widened with `unknown`). */
-export const OPS_BUNDLE_LIFECYCLE_VERDICTS = ["verified", "drift", "unknown"] as const;
-export type OpsBundleLifecycleVerdict = (typeof OPS_BUNDLE_LIFECYCLE_VERDICTS)[number];
+export const OPS_BUNDLE_LIFECYCLE_VERDICTS = [
+  "verified",
+  "drift",
+  "unknown",
+] as const;
+export type OpsBundleLifecycleVerdict =
+  (typeof OPS_BUNDLE_LIFECYCLE_VERDICTS)[number];
 
 /**
  * The lifecycle verification posture, derived from the operations result's `lifecycle` and
@@ -262,13 +286,17 @@ export interface OpsBundleUsageError {
 export type OpsBundleOutcome = OpsBundleResult | OpsBundleUsageError;
 
 /** Distinguish the two outcomes without a cast. */
-export function isOpsBundleUsageError(outcome: OpsBundleOutcome): outcome is OpsBundleUsageError {
+export function isOpsBundleUsageError(
+  outcome: OpsBundleOutcome,
+): outcome is OpsBundleUsageError {
   return (outcome as OpsBundleUsageError).error === "usage";
 }
 
 /** The process exit code for either outcome: a usage error's `1`, or the bundle's composite. */
 export function opsBundleExitCode(outcome: OpsBundleOutcome): number {
-  return isOpsBundleUsageError(outcome) ? outcome.exitCode : outcome.rollup.exitCode;
+  return isOpsBundleUsageError(outcome)
+    ? outcome.exitCode
+    : outcome.rollup.exitCode;
 }
 
 /**
@@ -293,16 +321,20 @@ export const OPS_BUNDLE_OPERATIONS_SUMMARY: Record<AlertSeverity, string> = {
   ok: "Operations are healthy: the worker is runnable and no recommended fix is outstanding.",
   warn: "Operations are degraded: a recommended fix is outstanding.",
   critical: "Operations are critical: a worker cannot run correctly here.",
-  unknown: "Operations are indeterminate: the stack could not be fully assessed from this input.",
+  unknown:
+    "Operations are indeterminate: the stack could not be fully assessed from this input.",
 };
 
 /** The one-line rollup headline per composite severity. Authored here, keyed by the enum. */
 export const OPS_BUNDLE_SEVERITY_SUMMARY: Record<OpsBundleSeverity, string> = {
   ok: "All composed operations signals are healthy.",
-  usage: "The operations input could not be read, so no evidence bundle could be assembled.",
-  unknown: "At least one composed signal is indeterminate; the stack could not be fully assessed.",
+  usage:
+    "The operations input could not be read, so no evidence bundle could be assembled.",
+  unknown:
+    "At least one composed signal is indeterminate; the stack could not be fully assessed.",
   warn: "At least one composed signal is degraded; a recommended fix is outstanding.",
-  critical: "At least one composed signal is critical; a worker cannot run correctly here.",
+  critical:
+    "At least one composed signal is critical; a worker cannot run correctly here.",
 };
 
 /** The detail prose for a usage error. Authored, never carries the offending input. */

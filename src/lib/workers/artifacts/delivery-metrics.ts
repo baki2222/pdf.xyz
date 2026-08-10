@@ -16,11 +16,11 @@
  */
 
 import { artifactDeliveryMetric } from "../observability/metrics";
-import { NOOP_METRIC_SINK, type WorkerMetricSink } from "../observability/collector";
 import {
-  deliveryOutcomeFor,
-  type ArtifactDeliveryReason,
-} from "./delivery";
+  NOOP_METRIC_SINK,
+  type WorkerMetricSink,
+} from "../observability/collector";
+import { deliveryOutcomeFor, type ArtifactDeliveryReason } from "./delivery";
 import type { RetrievalStorageProvider } from "./access";
 import type { ArtifactOutputKind } from "./types";
 
@@ -47,5 +47,7 @@ export function recordArtifactDelivery(
   kind: ArtifactOutputKind,
   provider: RetrievalStorageProvider,
 ): void {
-  sink(artifactDeliveryMetric(deliveryOutcomeFor(reason), reason, kind, provider));
+  sink(
+    artifactDeliveryMetric(deliveryOutcomeFor(reason), reason, kind, provider),
+  );
 }

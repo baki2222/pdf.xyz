@@ -1,12 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import {
-  Download,
-  FileOutput,
-  MousePointerClick,
-  Trash2,
-} from "lucide-react";
+import { Download, FileOutput, MousePointerClick, Trash2 } from "lucide-react";
 import { deletePages, extractPages } from "@/lib/pdf/engine";
 import { parsePageList } from "@/lib/pdf/ranges";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -63,7 +58,8 @@ const CONFIG: Record<Mode, ModeConfig> = {
     emptyHint: "One PDF · pick the pages to keep",
     outputSuffix: "extracted",
     resultTitle: "Pages extracted",
-    resultSummary: (n) => `${n} page${n === 1 ? "" : "s"} exported to a new PDF`,
+    resultSummary: (n) =>
+      `${n} page${n === 1 ? "" : "s"} exported to a new PDF`,
     disallowSelectAll: false,
   },
   delete: {
@@ -175,7 +171,10 @@ function PageSelectEditor({
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result, outputName(pdf.file.name, config.outputSuffix))
+            downloadBytes(
+              result,
+              outputName(pdf.file.name, config.outputSuffix),
+            )
           }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
@@ -215,7 +214,7 @@ function PageSelectEditor({
             placeholder="e.g. 1-3, 5"
             spellCheck={false}
             aria-label="Select pages by range"
-            className="w-36 rounded-full border border-white/10 bg-ink/60 px-3.5 py-1.5 text-xs text-white outline-none transition focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
+            className="bg-ink/60 w-36 rounded-full border border-white/10 px-3.5 py-1.5 text-xs text-white transition outline-none focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
           />
           <ChipButton onClick={applyRange}>
             <MousePointerClick className="size-3.5" aria-hidden />

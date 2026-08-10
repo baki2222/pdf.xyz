@@ -36,11 +36,7 @@ import type { ProcessorInputFile } from "../processor/types";
  *                 also how an OPTIONAL scanner degrades when it cannot reach a verdict).
  */
 export type MalwareScanVerdict =
-  | "clean"
-  | "infected"
-  | "error"
-  | "invalid"
-  | "skipped";
+  "clean" | "infected" | "error" | "invalid" | "skipped";
 
 /** A content-free scan result. `scanned` is the honesty bit; `detail` names nothing. */
 export interface MalwareScanResult {
@@ -89,8 +85,7 @@ export interface MalwareScanner {
   capability(): MalwareScanCapability;
 }
 
-const CLEAN_DETAIL =
-  "A malware scan inspected the input and found no threat.";
+const CLEAN_DETAIL = "A malware scan inspected the input and found no threat.";
 const INFECTED_DETAIL =
   "A malware scan flagged the input; it was blocked before processing.";
 const ERROR_DETAIL =
@@ -106,7 +101,9 @@ export function scanClean(detail: string = CLEAN_DETAIL): MalwareScanResult {
 }
 
 /** An `infected` result — a scanner found a threat. `detail` must stay content-free. */
-export function scanInfected(detail: string = INFECTED_DETAIL): MalwareScanResult {
+export function scanInfected(
+  detail: string = INFECTED_DETAIL,
+): MalwareScanResult {
   return { verdict: "infected", scanned: true, detail };
 }
 
@@ -120,11 +117,15 @@ export function scanError(detail: string = ERROR_DETAIL): MalwareScanResult {
  * exceeds the scanner's hard limits). Terminal; blocked rather than processed
  * unscanned. `detail` must stay content-free.
  */
-export function scanInvalid(detail: string = INVALID_DETAIL): MalwareScanResult {
+export function scanInvalid(
+  detail: string = INVALID_DETAIL,
+): MalwareScanResult {
   return { verdict: "invalid", scanned: false, detail };
 }
 
 /** A `skipped` result — no scanner ran, so the input was NOT scanned. The honest default. */
-export function scanSkipped(detail: string = SKIPPED_DETAIL): MalwareScanResult {
+export function scanSkipped(
+  detail: string = SKIPPED_DETAIL,
+): MalwareScanResult {
   return { verdict: "skipped", scanned: false, detail };
 }

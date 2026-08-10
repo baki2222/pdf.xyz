@@ -25,7 +25,12 @@ const HEALTHY = {
   vantage: "web",
   mode: "remote-configured",
   drainable: true,
-  daemon: { state: "observed", source: "queue-broker", lastSeen: "under-30s", mode: "loop" },
+  daemon: {
+    state: "observed",
+    source: "queue-broker",
+    lastSeen: "under-30s",
+    mode: "loop",
+  },
   health: "ok",
   recommendedAction: "none",
   subsystems: [
@@ -76,13 +81,17 @@ function provider(over: Partial<OpsCheckProvider> = {}): OpsCheckProvider {
 }
 
 function asResult(outcome: unknown): OpsCheckResult {
-  if (isUsageError(outcome as never)) throw new Error("expected a result, got usage error");
+  if (isUsageError(outcome as never))
+    throw new Error("expected a result, got usage error");
   return outcome as OpsCheckResult;
 }
 
 describe("runOpsCheck — live sources", () => {
   it("evaluates a healthy runtime snapshot to OK", async () => {
-    const run = await runOpsCheck({ source: "runtime", format: "json" }, provider());
+    const run = await runOpsCheck(
+      { source: "runtime", format: "json" },
+      provider(),
+    );
     expect(run.exitCode).toBe(OPS_CHECK_EXIT.OK);
     const result = asResult(run.outcome);
     expect(result.ok).toBe(true);
@@ -96,7 +105,11 @@ describe("runOpsCheck — live sources", () => {
     const run = await runOpsCheck(
       { source: "runtime", format: "json" },
       provider({
-        collectLive: async () => ({ snapshot: snapshotOf(BLOCKED), slo: null, metrics: null }),
+        collectLive: async () => ({
+          snapshot: snapshotOf(BLOCKED),
+          slo: null,
+          metrics: null,
+        }),
       }),
     );
     expect(run.exitCode).toBe(OPS_CHECK_EXIT.CRITICAL);
@@ -109,7 +122,10 @@ describe("runOpsCheck — live sources", () => {
       slo: null,
       metrics: null,
     }));
-    await runOpsCheck({ source: "web", format: "json" }, provider({ collectLive }));
+    await runOpsCheck(
+      { source: "web", format: "json" },
+      provider({ collectLive }),
+    );
     expect(collectLive).toHaveBeenCalledWith("web");
   });
 });
@@ -145,7 +161,8 @@ describe("runOpsCheck — ingest sources", () => {
     );
     expect(run.exitCode).toBe(OPS_CHECK_EXIT.USAGE);
     expect(isUsageError(run.outcome)).toBe(true);
-    if (isUsageError(run.outcome)) expect(run.outcome.issues).toContain("invalid-json");
+    if (isUsageError(run.outcome))
+      expect(run.outcome.issues).toContain("invalid-json");
   });
 
   it("degrades an unreadable file to a usage error", async () => {
@@ -158,7 +175,8 @@ describe("runOpsCheck — ingest sources", () => {
       }),
     );
     expect(run.exitCode).toBe(OPS_CHECK_EXIT.USAGE);
-    if (isUsageError(run.outcome)) expect(run.outcome.issues).toContain("input-unreadable");
+    if (isUsageError(run.outcome))
+      expect(run.outcome.issues).toContain("input-unreadable");
   });
 
   it("degrades a structurally-invalid snapshot to a usage error", async () => {
@@ -173,7 +191,10 @@ describe("runOpsCheck — ingest sources", () => {
 
 describe("runOpsCheck — format dispatch", () => {
   it("renders JSON by default", async () => {
-    const run = await runOpsCheck({ source: "runtime", format: "json" }, provider());
+    const run = await runOpsCheck(
+      { source: "runtime", format: "json" },
+      provider(),
+    );
     expect(() => JSON.parse(run.output)).not.toThrow();
   });
 
@@ -193,7 +214,10 @@ describe("runOpsCheck — format dispatch", () => {
   });
 
   it("renders a short text summary", async () => {
-    const run = await runOpsCheck({ source: "runtime", format: "text" }, provider());
+    const run = await runOpsCheck(
+      { source: "runtime", format: "text" },
+      provider(),
+    );
     expect(run.output).toMatch(/OK|WARNING|CRITICAL|UNKNOWN/);
   });
 

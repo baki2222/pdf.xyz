@@ -6,11 +6,20 @@
  * (a worktree suite adopted the main tree's stale `next start` and failed new
  * specs against last week's build) rather than reproduced in vitest.
  */
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { discriminatingChunk, verifyAdoptedServerBuild } from "./build-identity";
+import {
+  discriminatingChunk,
+  verifyAdoptedServerBuild,
+} from "./build-identity";
 
 let tmp: string | null = null;
 
@@ -21,8 +30,16 @@ function makeBuild(): string {
   writeFileSync(path.join(chunks, "framework-aaaa.js"), "old");
   writeFileSync(path.join(chunks, "app", "page-bbbb.js"), "new");
   // Make mtimes deterministic: the app page chunk is strictly newer.
-  utimesSync(path.join(chunks, "framework-aaaa.js"), new Date(1000), new Date(1000));
-  utimesSync(path.join(chunks, "app", "page-bbbb.js"), new Date(2000), new Date(2000));
+  utimesSync(
+    path.join(chunks, "framework-aaaa.js"),
+    new Date(1000),
+    new Date(1000),
+  );
+  utimesSync(
+    path.join(chunks, "app", "page-bbbb.js"),
+    new Date(2000),
+    new Date(2000),
+  );
   return path.join(tmp, ".next");
 }
 
@@ -34,7 +51,9 @@ afterEach(() => {
 describe("discriminatingChunk", () => {
   it("picks the newest content-hashed chunk, as a served URL path", () => {
     const nextDir = makeBuild();
-    expect(discriminatingChunk(nextDir)).toBe("/_next/static/chunks/app/page-bbbb.js");
+    expect(discriminatingChunk(nextDir)).toBe(
+      "/_next/static/chunks/app/page-bbbb.js",
+    );
   });
 
   it("returns null when there is no local build", () => {

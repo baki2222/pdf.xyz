@@ -12,7 +12,12 @@
  * choke point; an unrecognized enum is dropped, never rendered.
  */
 
-import { AlertOctagon, AlertTriangle, CheckCircle2, MinusCircle } from "lucide-react";
+import {
+  AlertOctagon,
+  AlertTriangle,
+  CheckCircle2,
+  MinusCircle,
+} from "lucide-react";
 import {
   ALERT_REASONS,
   ALERT_SEVERITIES,
@@ -42,8 +47,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** Return `value` when it is a member of `allowed`, else `null` (no invention). */
-function asEnum<T extends string>(value: unknown, allowed: readonly T[]): T | null {
-  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+function asEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | null {
+  return typeof value === "string" &&
+    (allowed as readonly string[]).includes(value)
     ? (value as T)
     : null;
 }
@@ -86,18 +95,25 @@ export function normalizeAlertPosture(raw: unknown): SafeAlertPosture | null {
 
 const SEVERITY_META: Record<
   AlertSeverity,
-  { tone: StatusTone; label: string; summary: string; icon: typeof CheckCircle2 }
+  {
+    tone: StatusTone;
+    label: string;
+    summary: string;
+    icon: typeof CheckCircle2;
+  }
 > = {
   ok: {
     tone: "ok",
     label: "OK",
-    summary: "Everything a monitor can observe here is healthy — no alert would fire.",
+    summary:
+      "Everything a monitor can observe here is healthy — no alert would fire.",
     icon: CheckCircle2,
   },
   warn: {
     tone: "warn",
     label: "Warning",
-    summary: "A recommended fix is outstanding. A monitor would raise a warning (exit 3).",
+    summary:
+      "A recommended fix is outstanding. A monitor would raise a warning (exit 3).",
     icon: AlertTriangle,
   },
   critical: {
@@ -133,11 +149,15 @@ const REASON_COPY: Record<AlertReason, string> = {
     "The rate limiter's store is failing and the guard is failing open (nothing throttles)",
   "lifecycle-undeclared": "No retention/lifecycle backstop is declared",
   "lifecycle-unverified": "The retention backstop is declared but unverified",
-  "lifecycle-drift": "The retention backstop has drifted (objects can outlive the ceiling)",
+  "lifecycle-drift":
+    "The retention backstop has drifted (objects can outlive the ceiling)",
   "cleanup-evidence-stale": "The cleanup evidence report is stale or missing",
-  "cleanup-evidence-drift": "A cleanup evidence report shows drift (an artifact lingers past its window)",
-  "cleanup-evidence-breach": "A cleanup evidence report shows a breach (a should-be-gone object remains)",
-  "cleanup-evidence-invalid": "The cleanup evidence report is unreadable or not a recognized summary",
+  "cleanup-evidence-drift":
+    "A cleanup evidence report shows drift (an artifact lingers past its window)",
+  "cleanup-evidence-breach":
+    "A cleanup evidence report shows a breach (a should-be-gone object remains)",
+  "cleanup-evidence-invalid":
+    "The cleanup evidence report is unreadable or not a recognized summary",
   "loop-errors": "The last worker loop hit queue/transient errors",
   "liveness-observed": "A fresh worker heartbeat is visible",
   "liveness-stale": "The worker heartbeat has gone stale",
@@ -182,7 +202,10 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
 
   return (
     <div
-      className={cn("flex flex-col gap-3 rounded-2xl border p-4", CALLOUT_TONE[meta.tone])}
+      className={cn(
+        "flex flex-col gap-3 rounded-2xl border p-4",
+        CALLOUT_TONE[meta.tone],
+      )}
       role="note"
       aria-label="Worker alert posture"
     >
@@ -197,7 +220,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
             <Icon className="size-4" aria-hidden />
           </span>
           <div className="flex flex-col">
-            <span className="text-[0.7rem] font-semibold uppercase tracking-widest text-slate-400">
+            <span className="text-[0.7rem] font-semibold tracking-widest text-slate-400 uppercase">
               Alert posture
             </span>
             <span className="text-sm font-semibold text-white">
@@ -215,7 +238,9 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
         <StatusBadge tone={meta.tone} label={meta.label} />
       </div>
 
-      <p className="text-sm leading-relaxed text-slate-300/90">{meta.summary}</p>
+      <p className="text-sm leading-relaxed text-slate-300/90">
+        {meta.summary}
+      </p>
 
       {posture.reasons.length > 0 && (
         <ul className="flex flex-wrap gap-1.5">
@@ -231,8 +256,9 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
       )}
 
       <p className="text-[11px] leading-relaxed text-slate-400">
-        This is the verdict a monitor running <code className="text-slate-400">worker:ops-check</code>{" "}
-        would report from this snapshot — local evaluation only, never a hosted pager.
+        This is the verdict a monitor running{" "}
+        <code className="text-slate-400">worker:ops-check</code> would report
+        from this snapshot — local evaluation only, never a hosted pager.
       </p>
     </div>
   );

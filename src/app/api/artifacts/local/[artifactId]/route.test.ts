@@ -31,7 +31,10 @@ import {
   seriesFor,
 } from "@/lib/workers/observability/collector";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
-import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
+import {
+  enforceRateLimit,
+  resetRateLimitGuardForTests,
+} from "@/lib/ratelimit/guard";
 import { GET, HEAD } from "./route";
 import * as routeModule from "./route";
 
@@ -46,7 +49,9 @@ function get(artifactId: string): Promise<Response> {
 
 function head(artifactId: string): Promise<Response> {
   return HEAD(
-    new Request(`http://localhost/api/artifacts/local/${artifactId}`, { method: "HEAD" }),
+    new Request(`http://localhost/api/artifacts/local/${artifactId}`, {
+      method: "HEAD",
+    }),
     { params: Promise.resolve({ artifactId }) },
   );
 }
@@ -308,7 +313,9 @@ describe("GET|HEAD /api/artifacts/local/[artifactId] — delivery hardening", ()
     expect(res.headers.get("content-type")).toBe("application/pdf");
     expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
     // Still the GENERATED name on HEAD — never the stored/user name.
-    expect(res.headers.get("content-disposition")).toBe('attachment; filename="compressed.pdf"');
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="compressed.pdf"',
+    );
     expect(res.headers.get("content-disposition")).not.toContain("Secret");
     expect(res.headers.get("accept-ranges")).toBe("none");
     expect((await res.arrayBuffer()).byteLength).toBe(0);
@@ -320,12 +327,16 @@ describe("GET|HEAD /api/artifacts/local/[artifactId] — delivery hardening", ()
     const { artifactId } = seed(enc("%PDF metric"));
     await get(artifactId);
 
-    const delivered = seriesFor(collector.snapshot(), "worker_artifact_delivery_total", {
-      outcome: "delivered",
-      reason: "ok",
-      kind: "pdf",
-      provider: "local-dev",
-    });
+    const delivered = seriesFor(
+      collector.snapshot(),
+      "worker_artifact_delivery_total",
+      {
+        outcome: "delivered",
+        reason: "ok",
+        kind: "pdf",
+        provider: "local-dev",
+      },
+    );
     expect(delivered).toHaveLength(1);
     expect(delivered[0]!.value).toBe(1);
   });
@@ -377,7 +388,10 @@ describe("GET|HEAD /api/artifacts/local/[artifactId] — method surface", () => 
     // never serves bytes for an unsupported method. Pins the "unsupported methods are refused"
     // contract so a future handler can't silently start serving one.
     for (const verb of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
-      expect(mod[verb], `${verb} must not be handled by the download route`).toBeUndefined();
+      expect(
+        mod[verb],
+        `${verb} must not be handled by the download route`,
+      ).toBeUndefined();
     }
   });
 });
@@ -448,11 +462,15 @@ describe("GET /api/artifacts/local/[artifactId] — retrieval observability", ()
     const { artifactId } = seed(bytes);
     await get(artifactId);
 
-    const served = seriesFor(collector.snapshot(), "worker_artifact_retrieval_total", {
-      outcome: "served",
-      reason: "ok",
-      kind: "pdf",
-    });
+    const served = seriesFor(
+      collector.snapshot(),
+      "worker_artifact_retrieval_total",
+      {
+        outcome: "served",
+        reason: "ok",
+        kind: "pdf",
+      },
+    );
     expect(served).toHaveLength(1);
     expect(served[0]!.value).toBe(1);
   });
@@ -460,10 +478,14 @@ describe("GET /api/artifacts/local/[artifactId] — retrieval observability", ()
   it("emits a bounded denied metric with the distinct reason", async () => {
     await get(newArtifactId()); // unknown → denied/not_found
 
-    const denied = seriesFor(collector.snapshot(), "worker_artifact_retrieval_total", {
-      outcome: "denied",
-      reason: "not_found",
-    });
+    const denied = seriesFor(
+      collector.snapshot(),
+      "worker_artifact_retrieval_total",
+      {
+        outcome: "denied",
+        reason: "not_found",
+      },
+    );
     expect(denied).toHaveLength(1);
     // The label set is closed — only outcome/reason/kind/provider, all bounded enums.
     expect(Object.keys(denied[0]!.labels).sort()).toEqual([
@@ -499,11 +521,22 @@ describe("GET /api/artifacts/local/[artifactId] — retrieval receipts", () => {
       policyId: ARTIFACT_POLICY_ID,
       policyVersion: ARTIFACT_POLICY_VERSION,
     });
-    expect(receipts[1]).toMatchObject({ outcome: "denied", reason: "not_found" });
+    expect(receipts[1]).toMatchObject({
+      outcome: "denied",
+      reason: "not_found",
+    });
     for (const r of receipts) {
       // Closed key set; no handle, filename, key, path, or byte.
       expect(Object.keys(r).sort()).toEqual(
-        ["category", "kind", "outcome", "policyId", "policyVersion", "provider", "reason"].sort(),
+        [
+          "category",
+          "kind",
+          "outcome",
+          "policyId",
+          "policyVersion",
+          "provider",
+          "reason",
+        ].sort(),
       );
       expect(JSON.stringify(r)).not.toContain(artifactId);
     }
@@ -525,7 +558,8 @@ describe("GET /api/artifacts/local/[artifactId] — abuse guard", () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     const policy = policyFor("artifacts.fetch");
     const bare = new Request("http://localhost/api/artifacts/local/x");
-    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("artifacts.fetch", bare);
+    for (let i = 0; i < policy.limit; i++)
+      await enforceRateLimit("artifacts.fetch", bare);
 
     // The guard runs first, so a flood is answered 429 (not the 503 not-configured).
     const denied = await get(newArtifactId());

@@ -19,7 +19,9 @@ test.describe("secure-worker AI tool panel", () => {
 
     // The dedicated panel — not the in-browser runner, and not a fake uploader.
     await expect(
-      page.getByRole("heading", { name: /runs on an encrypted secure worker/i }),
+      page.getByRole("heading", {
+        name: /runs on an encrypted secure worker/i,
+      }),
     ).toBeVisible();
     await expect(page.getByText("Not enabled")).toBeVisible();
     // No worker is configured in this environment, so no scanner is running — the

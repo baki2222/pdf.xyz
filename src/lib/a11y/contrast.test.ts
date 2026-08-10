@@ -29,7 +29,10 @@ describe("relativeLuminance", () => {
 
   it("applies the sRGB transfer curve, not a linear ramp", () => {
     // Mid grey is ~21.6% luminance, not 50%. A linear ramp would say 0.5.
-    expect(relativeLuminance({ r: 128, g: 128, b: 128 })).toBeCloseTo(0.2159, 4);
+    expect(relativeLuminance({ r: 128, g: 128, b: 128 })).toBeCloseTo(
+      0.2159,
+      4,
+    );
   });
 
   it("uses the below-knee linear segment for very dark channels", () => {
@@ -48,14 +51,20 @@ describe("contrastRatio", () => {
   });
 
   it("is 1:1 for a colour against itself", () => {
-    expect(contrastRatio({ r: 99, g: 44, b: 200 }, { r: 99, g: 44, b: 200 })).toBe(
-      1,
-    );
+    expect(
+      contrastRatio({ r: 99, g: 44, b: 200 }, { r: 99, g: 44, b: 200 }),
+    ).toBe(1);
   });
 
   it("straddles the AA threshold exactly where the W3C says it does", () => {
-    expect(contrastRatio({ r: 118, g: 118, b: 118 }, WHITE)).toBeCloseTo(4.54, 2);
-    expect(contrastRatio({ r: 119, g: 119, b: 119 }, WHITE)).toBeCloseTo(4.48, 2);
+    expect(contrastRatio({ r: 118, g: 118, b: 118 }, WHITE)).toBeCloseTo(
+      4.54,
+      2,
+    );
+    expect(contrastRatio({ r: 119, g: 119, b: 119 }, WHITE)).toBeCloseTo(
+      4.48,
+      2,
+    );
   });
 
   it("decreases as the background lightens, under light-on-dark", () => {
@@ -74,8 +83,18 @@ describe("contrastRatio", () => {
 describe("parseColor", () => {
   it("reads the shapes a browser emits", () => {
     expect(parseColor("rgb(1, 2, 3)")).toEqual({ r: 1, g: 2, b: 3, a: 1 });
-    expect(parseColor("rgba(1, 2, 3, 0.5)")).toEqual({ r: 1, g: 2, b: 3, a: 0.5 });
-    expect(parseColor("rgb(1 2 3 / 50%)")).toEqual({ r: 1, g: 2, b: 3, a: 0.5 });
+    expect(parseColor("rgba(1, 2, 3, 0.5)")).toEqual({
+      r: 1,
+      g: 2,
+      b: 3,
+      a: 0.5,
+    });
+    expect(parseColor("rgb(1 2 3 / 50%)")).toEqual({
+      r: 1,
+      g: 2,
+      b: 3,
+      a: 0.5,
+    });
     expect(parseColor("transparent")).toEqual({ r: 0, g: 0, b: 0, a: 0 });
   });
 

@@ -9,7 +9,10 @@
  * production request travels: route → guard → Redis provider → store.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { RedisFetch, RedisHttpResponse } from "@/lib/workers/queue/redis-client";
+import type {
+  RedisFetch,
+  RedisHttpResponse,
+} from "@/lib/workers/queue/redis-client";
 import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { POST } from "@/app/api/uploads/route";
 import { RATE_LIMIT_ENV } from "./config";
@@ -17,7 +20,10 @@ import { policyFor } from "./policy";
 import { createRedisRateLimitProvider } from "./redis";
 import type { RateLimitRedisConfig } from "./redis-config";
 import { enforceRateLimit, resetRateLimitGuardForTests } from "./guard";
-import { clearRateLimitProviderForTests, registerRateLimitProvider } from "./provider";
+import {
+  clearRateLimitProviderForTests,
+  registerRateLimitProvider,
+} from "./provider";
 
 const CONFIG: RateLimitRedisConfig = {
   baseUrl: "https://rl-example-98765.upstash.io",
@@ -51,7 +57,9 @@ function uploadRequest(): Request {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       tool: "ocr-pdf",
-      files: [{ filename: "scan.pdf", contentType: "application/pdf", bytes: 1024 }],
+      files: [
+        { filename: "scan.pdf", contentType: "application/pdf", bytes: 1024 },
+      ],
     }),
   });
 }
@@ -70,12 +78,17 @@ describe("POST /api/uploads — distributed (Redis) rate limiter", () => {
   it("returns a content-free 429 with Retry-After once the budget is spent", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     const { fetchImpl, bodies } = fakeStore();
-    registerRateLimitProvider(createRedisRateLimitProvider(CONFIG, { fetchImpl }));
+    registerRateLimitProvider(
+      createRedisRateLimitProvider(CONFIG, { fetchImpl }),
+    );
 
     // Pre-spend the shared budget cheaply through the same registered provider…
     const policy = policyFor("uploads.create");
-    const bare = new Request("http://localhost/api/uploads", { method: "POST" });
-    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("uploads.create", bare);
+    const bare = new Request("http://localhost/api/uploads", {
+      method: "POST",
+    });
+    for (let i = 0; i < policy.limit; i++)
+      await enforceRateLimit("uploads.create", bare);
 
     // …so this real route call is the one over the limit.
     const denied = await POST(uploadRequest());
@@ -87,18 +100,24 @@ describe("POST /api/uploads — distributed (Redis) rate limiter", () => {
     const body = await denied.json();
     expect(body.error.code).toBe("rate_limited");
     // The 429 (body + headers) leaks no identity, endpoint, or token.
-    const wire = JSON.stringify({ body, headers: [...denied.headers.entries()] });
+    const wire = JSON.stringify({
+      body,
+      headers: [...denied.headers.entries()],
+    });
     for (const leak of ["upstash.io", CONFIG.token, "scan.pdf"]) {
       expect(wire).not.toContain(leak);
     }
     // The store only ever saw opaque, namespaced keys.
-    for (const b of bodies) expect(b).toContain("pdfxyz:ratelimit:uploads.create:");
+    for (const b of bodies)
+      expect(b).toContain("pdfxyz:ratelimit:uploads.create:");
   });
 
   it("lets a request under the budget through to its normal (503 not-configured) path", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     const { fetchImpl } = fakeStore();
-    registerRateLimitProvider(createRedisRateLimitProvider(CONFIG, { fetchImpl }));
+    registerRateLimitProvider(
+      createRedisRateLimitProvider(CONFIG, { fetchImpl }),
+    );
 
     const res = await POST(uploadRequest());
     // With no worker configured the upload honestly 503s — the limiter did not deny it.

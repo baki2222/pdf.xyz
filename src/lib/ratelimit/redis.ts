@@ -79,8 +79,10 @@ export function rateLimitBucketKey(
 
 /** Coerce a Redis reply element to a finite integer, or `null` when it is not one. */
 function toInt(value: RedisValue | undefined): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) return Number(value.trim());
+  if (typeof value === "number" && Number.isFinite(value))
+    return Math.trunc(value);
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim()))
+    return Number(value.trim());
   return null;
 }
 
@@ -109,7 +111,10 @@ export function createRedisRateLimitProvider(
     ): Promise<RateLimiterVerdict> {
       // A non-positive limit means "never allow"; honor it without a round-trip.
       if (policy.limit < 1) {
-        return { allowed: false, retryAfterSeconds: Math.max(1, policy.windowSeconds) };
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(1, policy.windowSeconds),
+        };
       }
 
       const storeKey = rateLimitBucketKey(config.keyPrefix, policy.id, key);
@@ -134,7 +139,10 @@ export function createRedisRateLimitProvider(
       const failMode = config.failMode ?? "open";
       const onBackendError = (): RateLimiterVerdict => {
         if (failMode === "closed") {
-          return { allowed: false, retryAfterSeconds: Math.max(1, policy.windowSeconds) };
+          return {
+            allowed: false,
+            retryAfterSeconds: Math.max(1, policy.windowSeconds),
+          };
         }
         throw new Error("rate-limit store unavailable");
       };
@@ -151,8 +159,13 @@ export function createRedisRateLimitProvider(
       // fall back to the full window if PTTL was unavailable (-1/-2) or malformed.
       const pttl = Array.isArray(reply) ? toInt(reply[1]) : null;
       const retryAfterSeconds =
-        pttl !== null && pttl > 0 ? Math.ceil(pttl / 1000) : policy.windowSeconds;
-      return { allowed: false, retryAfterSeconds: Math.max(1, retryAfterSeconds) };
+        pttl !== null && pttl > 0
+          ? Math.ceil(pttl / 1000)
+          : policy.windowSeconds;
+      return {
+        allowed: false,
+        retryAfterSeconds: Math.max(1, retryAfterSeconds),
+      };
     },
   };
 }

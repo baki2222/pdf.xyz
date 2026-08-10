@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { canRunChatWithPdf, runWorkerChatWithPdf } from "./chat-with-pdf-client";
+import {
+  canRunChatWithPdf,
+  runWorkerChatWithPdf,
+} from "./chat-with-pdf-client";
 import type { WorkerStatus } from "./status";
 
 function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
@@ -11,7 +14,11 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
     compress: { lossless: false, deep: false, engines: [] },
     ocr: { available: false, engine: null, languages: [], detail: "off" },
     scan: { active: false, detail: "not scanned" },
-    security: { available: false, operations: ["protect", "unlock", "repair", "optimize-web"], detail: "qpdf" },
+    security: {
+      available: false,
+      operations: ["protect", "unlock", "repair", "optimize-web"],
+      detail: "qpdf",
+    },
     providers: {
       storage: {
         provider: "s3",
@@ -35,7 +42,11 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       processor: {
         ready: true,
         configured: true,
-        executor: { mode: "not-implemented", ready: false, detail: "out-of-band daemon" },
+        executor: {
+          mode: "not-implemented",
+          ready: false,
+          detail: "out-of-band daemon",
+        },
         detail: "ready",
       },
     },
@@ -55,7 +66,12 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       ready: true,
       detail: "ai declared",
     },
-    pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
+    pipeline: {
+      verdict: "off",
+      observed: false,
+      drainable: false,
+      detail: "no worker observed",
+    },
     ...overrides,
   };
 }
@@ -75,14 +91,14 @@ describe("chat-with-pdf-client", () => {
     expect(
       canRunChatWithPdf(
         status({
-      ai: {
-        declared: false,
-        provider: null,
-        model: null,
-        configuredHere: false,
-        ready: false,
-        detail: "no ai provider is declared",
-      },
+          ai: {
+            declared: false,
+            provider: null,
+            model: null,
+            configuredHere: false,
+            ready: false,
+            detail: "no ai provider is declared",
+          },
         }),
       ),
     ).toBe(false);
@@ -101,14 +117,53 @@ describe("chat-with-pdf-client", () => {
       if (input === "/api/uploads") {
         const body = JSON.parse(new TextDecoder().decode(init?.body));
         expect(body.tool).toBe("chat-with-pdf");
-        return { ok: true, status: 200, json: async () => ({ uploadId: "up", slots: [{ fileId: "file", url: "/put", method: "PUT", headers: {} }] }), arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            uploadId: "up",
+            slots: [
+              { fileId: "file", url: "/put", method: "PUT", headers: {} },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
-      if (input === "/put") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new ArrayBuffer(0) };
+      if (input === "/put")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       if (input === "/api/jobs") {
         jobBody = JSON.parse(new TextDecoder().decode(init?.body));
-        return { ok: true, status: 200, json: async () => ({ jobId: "job", status: "completed", artifacts: [{ artifactId: "art", filename: "in-answer.zip", contentType: "application/zip", bytes: 4, url: "/out" }] }), arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jobId: "job",
+            status: "completed",
+            artifacts: [
+              {
+                artifactId: "art",
+                filename: "in-answer.zip",
+                contentType: "application/zip",
+                bytes: 4,
+                url: "/out",
+              },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
-      if (input === "/out") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer };
+      if (input === "/out")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer,
+        };
       throw new Error(String(input));
     };
 
@@ -140,18 +195,62 @@ describe("chat-with-pdf-client", () => {
   it("omits context from the job body when none is provided", async () => {
     let jobBody: Record<string, unknown> | undefined;
     const fetchImpl = async (input: string, init?: { body?: ArrayBuffer }) => {
-      if (input === "/api/uploads") return { ok: true, status: 200, json: async () => ({ uploadId: "up", slots: [{ fileId: "file", url: "/put", method: "PUT", headers: {} }] }), arrayBuffer: async () => new ArrayBuffer(0) };
-      if (input === "/put") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new ArrayBuffer(0) };
+      if (input === "/api/uploads")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            uploadId: "up",
+            slots: [
+              { fileId: "file", url: "/put", method: "PUT", headers: {} },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      if (input === "/put")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       if (input === "/api/jobs") {
         jobBody = JSON.parse(new TextDecoder().decode(init?.body));
-        return { ok: true, status: 200, json: async () => ({ jobId: "job", status: "completed", artifacts: [{ artifactId: "art", filename: "in-answer.zip", contentType: "application/zip", bytes: 4, url: "/out" }] }), arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jobId: "job",
+            status: "completed",
+            artifacts: [
+              {
+                artifactId: "art",
+                filename: "in-answer.zip",
+                contentType: "application/zip",
+                bytes: 4,
+                url: "/out",
+              },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
-      if (input === "/out") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new Uint8Array([1]).buffer };
+      if (input === "/out")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new Uint8Array([1]).buffer,
+        };
       throw new Error(String(input));
     };
 
     await runWorkerChatWithPdf(
-      { filename: "in.pdf", bytes: new Uint8Array([1]), question: "What is the total?" },
+      {
+        filename: "in.pdf",
+        bytes: new Uint8Array([1]),
+        question: "What is the total?",
+      },
       { fetchImpl, sleep: async () => {} },
     );
 
@@ -160,20 +259,54 @@ describe("chat-with-pdf-client", () => {
 
   it("surfaces the worker's honest error when no AI provider is configured", async () => {
     const fetchImpl = async (input: string) => {
-      if (input === "/api/uploads") return { ok: true, status: 200, json: async () => ({ uploadId: "up", slots: [{ fileId: "file", url: "/put", method: "PUT", headers: {} }] }), arrayBuffer: async () => new ArrayBuffer(0) };
-      if (input === "/put") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new ArrayBuffer(0) };
+      if (input === "/api/uploads")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            uploadId: "up",
+            slots: [
+              { fileId: "file", url: "/put", method: "PUT", headers: {} },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      if (input === "/put")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       if (input === "/api/jobs") {
-        return { ok: true, status: 200, json: async () => ({ jobId: "job", status: "failed", error: { code: "not_implemented", message: "No AI provider is configured on this worker." } }), arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jobId: "job",
+            status: "failed",
+            error: {
+              code: "not_implemented",
+              message: "No AI provider is configured on this worker.",
+            },
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
       throw new Error(String(input));
     };
 
     const result = await runWorkerChatWithPdf(
-      { filename: "in.pdf", bytes: new Uint8Array([1]), question: "What is the total?" },
+      {
+        filename: "in.pdf",
+        bytes: new Uint8Array([1]),
+        question: "What is the total?",
+      },
       { fetchImpl, sleep: async () => {} },
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain("No AI provider is configured");
+    if (!result.ok)
+      expect(result.message).toContain("No AI provider is configured");
   });
 });

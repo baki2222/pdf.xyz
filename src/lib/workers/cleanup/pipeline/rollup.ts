@@ -11,7 +11,11 @@
  * outside the known ladder is treated as `usage` (a broken check), never as a clean 0.
  */
 
-import { PIPELINE_EXIT, type PipelineExitCode, type PipelineSeverity } from "./types";
+import {
+  PIPELINE_EXIT,
+  type PipelineExitCode,
+  type PipelineSeverity,
+} from "./types";
 
 /**
  * Map any stage exit code to a bounded {@link PipelineSeverity}. The known ladder maps
@@ -41,7 +45,11 @@ export function severityForExit(code: number): PipelineSeverity {
  * folds to `USAGE` (1) — a fail-closed, non-zero band, never `OK`.
  */
 export function clampExit(code: number): PipelineExitCode {
-  if (Number.isInteger(code) && code >= PIPELINE_EXIT.OK && code <= PIPELINE_EXIT.BREACH) {
+  if (
+    Number.isInteger(code) &&
+    code >= PIPELINE_EXIT.OK &&
+    code <= PIPELINE_EXIT.BREACH
+  ) {
     return code as PipelineExitCode;
   }
   return PIPELINE_EXIT.USAGE;

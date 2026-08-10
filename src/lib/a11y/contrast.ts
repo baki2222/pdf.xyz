@@ -114,6 +114,9 @@ export function isLargeText(fontSizePx: number, fontWeight: number): boolean {
 }
 
 /** Minimum ratio for WCAG 2.1 AA (1.4.3) at the given type size. */
-export function requiredRatioAA(fontSizePx: number, fontWeight: number): number {
+export function requiredRatioAA(
+  fontSizePx: number,
+  fontWeight: number,
+): number {
   return isLargeText(fontSizePx, fontWeight) ? 3 : 4.5;
 }

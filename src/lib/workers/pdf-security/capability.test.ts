@@ -15,7 +15,9 @@ describe("buildSecurityCapability", () => {
   });
 
   it("treats an unknown qpdf probe as unavailable", () => {
-    expect(buildSecurityCapability("local-dev", undefined).available).toBe(false);
+    expect(buildSecurityCapability("local-dev", undefined).available).toBe(
+      false,
+    );
   });
 
   it("is never available-from-here in remote-configured (web can't see the worker's engine)", () => {

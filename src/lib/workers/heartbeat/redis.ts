@@ -178,7 +178,11 @@ export function createRedisHeartbeatReader(
         raw = null;
       }
       const record = parseHeartbeat(raw);
-      return classifyLiveness(record, { now: now(), freshWindowMs, source: "queue-broker" });
+      return classifyLiveness(record, {
+        now: now(),
+        freshWindowMs,
+        source: "queue-broker",
+      });
     },
   };
 }

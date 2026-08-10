@@ -25,7 +25,9 @@ describe("fakeScanner", () => {
   });
 
   it("returns a fixed programmed verdict", async () => {
-    expect((await fakeScanner(scanInfected()).scan(empty)).verdict).toBe("infected");
+    expect((await fakeScanner(scanInfected()).scan(empty)).verdict).toBe(
+      "infected",
+    );
     expect((await fakeScanner(scanError()).scan(empty)).verdict).toBe("error");
     const invalid = await fakeScanner(scanInvalid()).scan(empty);
     expect(invalid.verdict).toBe("invalid");
@@ -43,7 +45,12 @@ describe("fakeScanner", () => {
     await scanner.scan({
       tool: "t",
       inputs: [
-        { fileId: "f", filename: "x", contentType: "", bytes: new Uint8Array() },
+        {
+          fileId: "f",
+          filename: "x",
+          contentType: "",
+          bytes: new Uint8Array(),
+        },
       ],
     });
     expect(seen).toEqual([1]);

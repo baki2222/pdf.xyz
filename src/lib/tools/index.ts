@@ -9,13 +9,7 @@ import type {
 } from "./types";
 
 export { tools, categories, getCategory };
-export type {
-  Tool,
-  ToolCategory,
-  ToolCategoryId,
-  ProcessingMode,
-  ToolBadge,
-};
+export type { Tool, ToolCategory, ToolCategoryId, ProcessingMode, ToolBadge };
 
 const bySlug = new Map<string, Tool>(tools.map((tool) => [tool.slug, tool]));
 

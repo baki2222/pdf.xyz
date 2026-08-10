@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  hasJobResults,
-  sanitizeJobResults,
-  type JobResults,
-} from "./results";
+import { hasJobResults, sanitizeJobResults, type JobResults } from "./results";
 import {
   OCR_MAX_REPORTED_CHARACTERS,
   OCR_MAX_REPORTED_PAGES,
@@ -82,7 +78,8 @@ describe("sanitizeJobResults — the redaction/persistence boundary", () => {
     const clean = sanitizeJobResults({
       ocr: {
         ...ocrMeta(),
-        engine: "/usr/local/bin/ocrmypdf --pass=SECRETVALUE /tmp/pdfxyz-abc/in.pdf",
+        engine:
+          "/usr/local/bin/ocrmypdf --pass=SECRETVALUE /tmp/pdfxyz-abc/in.pdf",
       } as OcrResultMeta,
     });
     const engine = clean?.ocr?.engine ?? "";

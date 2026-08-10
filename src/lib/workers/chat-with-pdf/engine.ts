@@ -130,8 +130,13 @@ const DEFAULT_MAX_INPUT_CHARS = 500_000;
 
 /** Assemble the grounding text. When pages carry text, prefix each with a `[Page N]`
  * marker so the model can cite pages; otherwise fall back to the joined text (ungrounded). */
-function buildGrounding(extracted: ExtractedPdfText): { text: string; grounded: boolean } {
-  const pagesWithText = extracted.pages.filter((page) => page.text.trim().length > 0);
+function buildGrounding(extracted: ExtractedPdfText): {
+  text: string;
+  grounded: boolean;
+} {
+  const pagesWithText = extracted.pages.filter(
+    (page) => page.text.trim().length > 0,
+  );
   if (pagesWithText.length > 0) {
     const text = pagesWithText
       .map((page) => `[Page ${page.pageNumber}]\n${page.text.trim()}`)
@@ -170,7 +175,8 @@ function citedPagesIn(answer: string, pageCount: number): number[] {
   let match: RegExpExecArray | null;
   while ((match = re.exec(answer)) !== null) {
     const page = Number(match[1]);
-    if (Number.isInteger(page) && page >= 1 && page <= pageCount) cited.add(page);
+    if (Number.isInteger(page) && page >= 1 && page <= pageCount)
+      cited.add(page);
   }
   return [...cited].sort((a, b) => a - b);
 }
@@ -181,11 +187,26 @@ function mapProviderFailure(
 ): Extract<ChatWithPdfRun, { ok: false }> {
   switch (result.kind) {
     case "not_configured":
-      return { ok: false, kind: "ai_unconfigured", retryable: false, message: result.message };
+      return {
+        ok: false,
+        kind: "ai_unconfigured",
+        retryable: false,
+        message: result.message,
+      };
     case "rate_limited":
-      return { ok: false, kind: "rate_limited", retryable: true, message: result.message };
+      return {
+        ok: false,
+        kind: "rate_limited",
+        retryable: true,
+        message: result.message,
+      };
     case "content_filtered":
-      return { ok: false, kind: "content_filtered", retryable: false, message: result.message };
+      return {
+        ok: false,
+        kind: "content_filtered",
+        retryable: false,
+        message: result.message,
+      };
     case "too_long":
       return {
         ok: false,
@@ -198,7 +219,12 @@ function mapProviderFailure(
     case "invalid_response":
     case "provider_error":
     default:
-      return { ok: false, kind: "failed", retryable: result.retryable, message: result.message };
+      return {
+        ok: false,
+        kind: "failed",
+        retryable: result.retryable,
+        message: result.message,
+      };
   }
 }
 
@@ -252,7 +278,12 @@ export async function runChatWithPdf(
   try {
     extracted = await extract(input);
   } catch {
-    return { ok: false, kind: "failed", retryable: false, message: "The PDF could not be read for text extraction." };
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: "The PDF could not be read for text extraction.",
+    };
   }
 
   const { text: groundingSource, grounded } = buildGrounding(extracted);
@@ -268,12 +299,18 @@ export async function runChatWithPdf(
 
   const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
   const truncated = groundingSource.length > maxChars;
-  const grounding = truncated ? groundingSource.slice(0, maxChars) : groundingSource;
+  const grounding = truncated
+    ? groundingSource.slice(0, maxChars)
+    : groundingSource;
 
-  const maxOutputTokens = deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  const maxOutputTokens =
+    deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
   const messages: AiMessage[] = [
-    ...(options.context ?? []).map((turn: ChatTurn) => ({ role: turn.role, content: turn.content })),
+    ...(options.context ?? []).map((turn: ChatTurn) => ({
+      role: turn.role,
+      content: turn.content,
+    })),
     { role: "user" as const, content: options.question },
   ];
 
@@ -295,7 +332,12 @@ export async function runChatWithPdf(
   // means a bug upstream fails honestly rather than dispatching a doomed request.
   const shape = validateCompletionRequest(request);
   if (!shape.ok) {
-    return { ok: false, kind: "failed", retryable: false, message: `The chat request was malformed: ${shape.reason}` };
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: `The chat request was malformed: ${shape.reason}`,
+    };
   }
 
   const completion = await provider.complete(request);
@@ -350,7 +392,12 @@ export async function runChatWithPdf(
   const output = await buildPackage(options.question, answer, manifest);
   const maxOutput = deps.limits?.maxOutputBytes;
   if (maxOutput !== undefined && output.byteLength > maxOutput) {
-    return { ok: false, kind: "failed", retryable: false, message: "The answer package exceeds the worker size limit." };
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: false,
+      message: "The answer package exceeds the worker size limit.",
+    };
   }
 
   return {
@@ -390,7 +437,11 @@ interface ChatManifest {
   model: string;
   question: string;
   contextTurns: number;
-  source: { pageCount: number; characters: number; truncatedToCharacters: number | null };
+  source: {
+    pageCount: number;
+    characters: number;
+    truncatedToCharacters: number | null;
+  };
   answer: { characters: number; citedPages: number[] };
   /**
    * Token accounting, when the provider reported it. Counts only — never text.
@@ -408,16 +459,24 @@ interface ChatManifest {
 }
 
 /** Render answer.md: a provenance header, the question, and the model's answer. */
-function renderMarkdown(question: string, answer: string, manifest: ChatManifest): string {
+function renderMarkdown(
+  question: string,
+  answer: string,
+  manifest: ChatManifest,
+): string {
   const lines: string[] = [];
   lines.push("# Answer");
   lines.push("");
-  lines.push(`> Answered by ${manifest.provider} (${manifest.model}) from the selectable text of the source PDF.`);
+  lines.push(
+    `> Answered by ${manifest.provider} (${manifest.model}) from the selectable text of the source PDF.`,
+  );
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for answering)` : ""}`,
   );
   if (manifest.grounded && manifest.answer.citedPages.length > 0) {
-    lines.push(`> Cited pages: ${manifest.answer.citedPages.map((p) => `p.${p}`).join(", ")}`);
+    lines.push(
+      `> Cited pages: ${manifest.answer.citedPages.map((p) => `p.${p}`).join(", ")}`,
+    );
   }
   lines.push("");
   lines.push("## Question");
@@ -451,12 +510,18 @@ function renderReadme(manifest: ChatManifest): string {
   if (manifest.contextTurns > 0) {
     lines.push(`Conversation context: ${manifest.contextTurns} prior turn(s)`);
   }
-  lines.push(`Grounding: ${manifest.grounded ? "page-level (with [p.N] citations)" : "selectable text (no page-level citations)"}`);
+  lines.push(
+    `Grounding: ${manifest.grounded ? "page-level (with [p.N] citations)" : "selectable text (no page-level citations)"}`,
+  );
   lines.push("");
   lines.push("Contents:");
-  lines.push("  answer.md      The model's answer with a provenance header and the question.");
+  lines.push(
+    "  answer.md      The model's answer with a provenance header and the question.",
+  );
   lines.push("  answer.txt     A plain-text Q/A rendering of the same answer.");
-  lines.push("  manifest.json  A structured record of the request (provider, model, question, scope).");
+  lines.push(
+    "  manifest.json  A structured record of the request (provider, model, question, scope).",
+  );
   lines.push("");
   lines.push("HONEST SCOPE:");
   lines.push("  " + manifest.notice);
@@ -464,7 +529,11 @@ function renderReadme(manifest: ChatManifest): string {
 }
 
 /** Package the answer + manifest + README into a real ZIP. */
-async function buildPackage(question: string, answer: string, manifest: ChatManifest): Promise<Uint8Array> {
+async function buildPackage(
+  question: string,
+  answer: string,
+  manifest: ChatManifest,
+): Promise<Uint8Array> {
   const zip = new JSZip();
   zip.file("answer.md", renderMarkdown(question, answer, manifest));
   zip.file("answer.txt", renderText(question, answer));

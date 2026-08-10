@@ -38,7 +38,9 @@ describe("worker observability metrics", () => {
     expect(rendered).toContain(
       'worker_processor_total{outcome="completed",processor="ocr"} 2',
     );
-    expect(rendered).not.toMatch(/\/tmp|s3:\/\/|https?:\/\/|SECRET|filename|object-key/i);
+    expect(rendered).not.toMatch(
+      /\/tmp|s3:\/\/|https?:\/\/|SECRET|filename|object-key/i,
+    );
   });
 
   it("drops off-schema or content-bearing metric labels at the sanitization boundary", () => {
@@ -89,13 +91,17 @@ describe("worker observability metrics", () => {
     }
 
     const report = evaluateSlos(collector.snapshot());
-    expect(report.slos.find((s) => s.id === "job_success_rate_ocr")?.status).toBe(
-      "ok",
+    expect(
+      report.slos.find((s) => s.id === "job_success_rate_ocr")?.status,
+    ).toBe("ok");
+    expect(
+      report.slos.find((s) => s.id === "processor_latency_p95")?.observed,
+    ).toBe("≤2.5s");
+    expect(report.slos.find((s) => s.id === "queue_depth")?.observed).toBe(
+      "51-200",
     );
-    expect(report.slos.find((s) => s.id === "processor_latency_p95")?.observed).toBe(
-      "≤2.5s",
+    expect(JSON.stringify(report)).not.toMatch(
+      /\/tmp|s3:\/\/|https?:\/\/|SECRET/i,
     );
-    expect(report.slos.find((s) => s.id === "queue_depth")?.observed).toBe("51-200");
-    expect(JSON.stringify(report)).not.toMatch(/\/tmp|s3:\/\/|https?:\/\/|SECRET/i);
   });
 });

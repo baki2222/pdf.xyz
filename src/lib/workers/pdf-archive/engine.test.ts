@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { runPdfToPdfA, type GhostscriptPdfARunner } from "./engine";
 
-const PDF = new TextEncoder().encode("%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+const PDF = new TextEncoder().encode(
+  "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
+);
 const NOT_PDF = new TextEncoder().encode("not a pdf");
 
 function runner(output = PDF): GhostscriptPdfARunner {
@@ -18,7 +20,9 @@ describe("pdf-archive engine", () => {
 
   it("rejects non-PDF input before invoking Ghostscript", async () => {
     const gs = runner();
-    await expect(runPdfToPdfA(NOT_PDF, { ghostscript: gs })).resolves.toMatchObject({
+    await expect(
+      runPdfToPdfA(NOT_PDF, { ghostscript: gs }),
+    ).resolves.toMatchObject({
       ok: false,
       kind: "invalid_pdf",
     });
@@ -27,12 +31,19 @@ describe("pdf-archive engine", () => {
 
   it("enforces max input size", async () => {
     await expect(
-      runPdfToPdfA(PDF, { ghostscript: runner(), limits: { maxInputBytes: 4 } }),
+      runPdfToPdfA(PDF, {
+        ghostscript: runner(),
+        limits: { maxInputBytes: 4 },
+      }),
     ).resolves.toMatchObject({ ok: false, kind: "too_large", limitBytes: 4 });
   });
 
   it("converts valid PDFs and returns bounded metadata", async () => {
-    const gs = runner(new TextEncoder().encode("%PDF-1.7\n1 0 obj<<>>endobj\npdfa\ntrailer<<>>\n%%EOF\n"));
+    const gs = runner(
+      new TextEncoder().encode(
+        "%PDF-1.7\n1 0 obj<<>>endobj\npdfa\ntrailer<<>>\n%%EOF\n",
+      ),
+    );
     const result = await runPdfToPdfA(PDF, { ghostscript: gs });
     expect(result).toMatchObject({
       ok: true,
@@ -42,17 +53,25 @@ describe("pdf-archive engine", () => {
         inputBytes: PDF.byteLength,
       },
     });
-    expect(gs.convertToPdfA).toHaveBeenCalledWith(PDF, { standard: "PDF/A-2b" });
+    expect(gs.convertToPdfA).toHaveBeenCalledWith(PDF, {
+      standard: "PDF/A-2b",
+    });
   });
 
   it("fails honestly when Ghostscript throws or output is not a PDF", async () => {
     await expect(
       runPdfToPdfA(PDF, {
-        ghostscript: { convertToPdfA: vi.fn(async () => { throw new Error("boom"); }) },
+        ghostscript: {
+          convertToPdfA: vi.fn(async () => {
+            throw new Error("boom");
+          }),
+        },
       }),
     ).resolves.toMatchObject({ ok: false, kind: "failed" });
 
-    await expect(runPdfToPdfA(PDF, { ghostscript: runner(NOT_PDF) })).resolves.toMatchObject({
+    await expect(
+      runPdfToPdfA(PDF, { ghostscript: runner(NOT_PDF) }),
+    ).resolves.toMatchObject({
       ok: false,
       kind: "failed",
     });

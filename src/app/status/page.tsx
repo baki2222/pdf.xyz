@@ -2,10 +2,7 @@ import type { Metadata } from "next";
 import { Activity } from "lucide-react";
 import { getToolBySlug } from "@/lib/tools";
 import { supportedToolSlugs } from "@/lib/pdf/registry";
-import {
-  CAPABILITY_DESCRIPTORS,
-  type ToolCapability,
-} from "@/lib/jobs";
+import { CAPABILITY_DESCRIPTORS, type ToolCapability } from "@/lib/jobs";
 import { Container } from "@/components/ui/container";
 import { Pill } from "@/components/ui/badge";
 import { buildMetadata } from "@/lib/seo";
@@ -48,13 +45,14 @@ export default function StatusPage() {
             <Activity className="size-3.5 text-emerald-400" aria-hidden />
             Live status
           </Pill>
-          <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl">
+          <h1 className="text-4xl font-bold tracking-tight text-balance text-white sm:text-5xl">
             System status
           </h1>
-          <p className="max-w-2xl text-pretty text-base leading-relaxed text-slate-400 sm:text-lg">
+          <p className="max-w-2xl text-base leading-relaxed text-pretty text-slate-400 sm:text-lg">
             pdf.xyz is a privacy-first, browser-first platform. This page shows
             exactly what runs where in this environment — checked live, with no
-            over-promising. It never reports on your files, only on capabilities.
+            over-promising. It never reports on your files, only on
+            capabilities.
           </p>
         </div>
 
@@ -69,7 +67,7 @@ export default function StatusPage() {
         <div className="h-px w-full bg-white/10" role="presentation" />
 
         <section className="flex flex-col gap-4">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
+          <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
             What runs where
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -78,7 +76,7 @@ export default function StatusPage() {
               return (
                 <div
                   key={id}
-                  className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-surface-2 p-5"
+                  className="bg-surface-2 flex flex-col gap-2 rounded-2xl border border-white/10 p-5"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-sm font-semibold text-white">
@@ -99,10 +97,12 @@ export default function StatusPage() {
             })}
           </div>
           <p className="text-xs leading-relaxed text-slate-400">
-            Secure-worker, hybrid, and AI tools show an honest, implementation-ready
-            preview until their backend is enabled — pdf.xyz never fakes processing
-            in the browser. See the{" "}
-            <span className="text-slate-400">worker architecture and security docs</span>{" "}
+            Secure-worker, hybrid, and AI tools show an honest,
+            implementation-ready preview until their backend is enabled —
+            pdf.xyz never fakes processing in the browser. See the{" "}
+            <span className="text-slate-400">
+              worker architecture and security docs
+            </span>{" "}
             for how uploads, scanning, isolation, and auto-delete work.
           </p>
         </section>

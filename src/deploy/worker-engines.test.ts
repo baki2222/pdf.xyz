@@ -23,7 +23,9 @@ const SCRIPT = path.join(ROOT, "scripts", "worker-engines.sh");
 
 /** Resolve a coreutil's absolute path using the current PATH, once. */
 function realPath(bin: string): string {
-  return execFileSync("sh", ["-c", `command -v ${bin}`], { encoding: "utf8" }).trim();
+  return execFileSync("sh", ["-c", `command -v ${bin}`], {
+    encoding: "utf8",
+  }).trim();
 }
 
 // A PATH with ONLY the externals the script invokes (tr/awk/sed) — no engine binary
@@ -62,7 +64,11 @@ interface Run {
 }
 
 /** Run the preflight with an isolated PATH and the given extra env. Never inherits host env. */
-function run(pathValue: string, env: Record<string, string> = {}, args: string[] = []): Run {
+function run(
+  pathValue: string,
+  env: Record<string, string> = {},
+  args: string[] = [],
+): Run {
   try {
     const stdout = execFileSync("/bin/sh", [SCRIPT, ...args], {
       encoding: "utf8",
@@ -73,7 +79,10 @@ function run(pathValue: string, env: Record<string, string> = {}, args: string[]
     return { code: 0, stdout };
   } catch (e: unknown) {
     const err = e as { status?: number; stdout?: string; stderr?: string };
-    return { code: err.status ?? 1, stdout: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+    return {
+      code: err.status ?? 1,
+      stdout: `${err.stdout ?? ""}${err.stderr ?? ""}`,
+    };
   }
 }
 
@@ -116,11 +125,15 @@ describe("worker-engines.sh — exit-code contract (opt-in requirements)", () =>
   });
 
   it("require-deep-engine with no native engine ⇒ exit 3; with one present ⇒ exit 0", () => {
-    const absent = run(NO_ENGINES, { PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE: "true" });
+    const absent = run(NO_ENGINES, {
+      PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE: "true",
+    });
     expect(absent.code).toBe(3);
     expect(absent.stdout).toMatch(/UNMET\s+deep compression is REQUIRED/);
 
-    const present = run(WITH_ENGINES, { PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE: "true" });
+    const present = run(WITH_ENGINES, {
+      PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE: "true",
+    });
     expect(present.code).toBe(0);
     expect(present.stdout).toMatch(/deep compression required and satisfied/);
   });
@@ -137,13 +150,17 @@ describe("worker-engines.sh — exit-code contract (opt-in requirements)", () =>
   });
 
   it("a wanted-but-not-required deep engine is a warning, not a failure (exit 0)", () => {
-    const { code, stdout } = run(NO_ENGINES, { PDFXYZ_NATIVE_COMPRESSION: "on" });
+    const { code, stdout } = run(NO_ENGINES, {
+      PDFXYZ_NATIVE_COMPRESSION: "on",
+    });
     expect(code).toBe(0);
     expect(stdout).toMatch(/note: deep compression is enabled but/);
   });
 
   it("`auto` deep compression never demands an engine (exit 0, no warning)", () => {
-    const { code, stdout } = run(NO_ENGINES, { PDFXYZ_NATIVE_COMPRESSION: "auto" });
+    const { code, stdout } = run(NO_ENGINES, {
+      PDFXYZ_NATIVE_COMPRESSION: "auto",
+    });
     expect(code).toBe(0);
     expect(stdout).toContain("deep compression not required");
     expect(stdout).not.toMatch(/note: deep compression is enabled/);
@@ -175,7 +192,9 @@ describe("worker-engines.sh — content-free & honest output", () => {
     ];
     for (const [p, env] of modes) {
       const { stdout } = run(p, env);
-      expect(stdout, `mode ${JSON.stringify(env)} leaked a '/'`).not.toContain("/");
+      expect(stdout, `mode ${JSON.stringify(env)} leaked a '/'`).not.toContain(
+        "/",
+      );
     }
   });
 

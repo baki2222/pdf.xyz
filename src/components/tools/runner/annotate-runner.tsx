@@ -36,7 +36,12 @@ import {
   useAsyncRun,
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
-import { NumberField, PrivacyLine, RangeField, SegmentedControl } from "./stamp-controls";
+import {
+  NumberField,
+  PrivacyLine,
+  RangeField,
+  SegmentedControl,
+} from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
 /** A placed markup plus a stable id for list/preview rendering. */
@@ -94,7 +99,11 @@ const DEFAULT_DRAFT: Draft = {
   arrow: true,
 };
 
-const TYPE_OPTIONS: { value: AnnotationType; label: string; icon: typeof Square }[] = [
+const TYPE_OPTIONS: {
+  value: AnnotationType;
+  label: string;
+  icon: typeof Square;
+}[] = [
   { value: "highlight", label: "Highlight", icon: Highlighter },
   { value: "rect", label: "Box", icon: Square },
   { value: "note", label: "Note", icon: Type },
@@ -196,7 +205,13 @@ export function AnnotateRunner() {
   );
 }
 
-function AnnotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function AnnotateEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const { busy, error, result, run } = useAsyncRun<AnnotateResult>();
   const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
   const [markups, setMarkups] = useState<Markup[]>([]);
@@ -269,7 +284,9 @@ function AnnotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result.bytes, annotatedOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result.bytes, annotatedOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -292,7 +309,10 @@ function AnnotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
         }
       >
         <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-          <TypePicker value={draft.type} onChange={(type) => setField("type", type)} />
+          <TypePicker
+            value={draft.type}
+            onChange={(type) => setField("type", type)}
+          />
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-slate-400">
@@ -300,7 +320,10 @@ function AnnotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
                 ? `Page ${draft.page} is ${Math.round(activePage.width)} × ${Math.round(activePage.height)} pt`
                 : "Reading page sizes…"}
             </span>
-            <ColorSwatches value={draft.color} onChange={(color) => setField("color", color)} />
+            <ColorSwatches
+              value={draft.color}
+              onChange={(color) => setField("color", color)}
+            />
           </div>
 
           <TypeFields
@@ -328,7 +351,11 @@ function AnnotateEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void 
 
         <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
           <MarkupList markups={markups} onRemove={removeMarkup} />
-          <PagePreview page={activePage} pageNumber={draft.page} markups={pageMarkups} />
+          <PagePreview
+            page={activePage}
+            pageNumber={draft.page}
+            markups={pageMarkups}
+          />
         </div>
       </RunnerSection>
 
@@ -381,7 +408,11 @@ function TypePicker({
   onChange: (type: AnnotationType) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Markup type" className="flex flex-wrap gap-2">
+    <div
+      role="radiogroup"
+      aria-label="Markup type"
+      className="flex flex-wrap gap-2"
+    >
       {TYPE_OPTIONS.map((option) => {
         const active = option.value === value;
         const Icon = option.icon;
@@ -416,7 +447,11 @@ function ColorSwatches({
   onChange: (hex: string) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Markup color" className="flex items-center gap-1.5">
+    <div
+      role="radiogroup"
+      aria-label="Markup color"
+      className="flex items-center gap-1.5"
+    >
       {PALETTE.map((swatch) => {
         const active = swatch.hex.toLowerCase() === value.toLowerCase();
         return (
@@ -430,7 +465,9 @@ function ColorSwatches({
             onClick={() => onChange(swatch.hex)}
             className={cn(
               "size-5 rounded-full ring-offset-1 ring-offset-black/40 transition",
-              active ? "ring-2 ring-white" : "ring-1 ring-white/20 hover:ring-white/50",
+              active
+                ? "ring-2 ring-white"
+                : "ring-1 ring-white/20 hover:ring-white/50",
             )}
             style={{ backgroundColor: swatch.hex }}
           />
@@ -469,10 +506,34 @@ function TypeFields({
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {pageField}
-          <NumberField label="X (pt)" value={draft.x} min={0} max={maxW} onChange={(v) => setField("x", v)} />
-          <NumberField label="Y (pt)" value={draft.y} min={0} max={maxH} onChange={(v) => setField("y", v)} />
-          <NumberField label="Width (pt)" value={draft.width} min={1} max={maxW} onChange={(v) => setField("width", v)} />
-          <NumberField label="Height (pt)" value={draft.height} min={1} max={maxH} onChange={(v) => setField("height", v)} />
+          <NumberField
+            label="X (pt)"
+            value={draft.x}
+            min={0}
+            max={maxW}
+            onChange={(v) => setField("x", v)}
+          />
+          <NumberField
+            label="Y (pt)"
+            value={draft.y}
+            min={0}
+            max={maxH}
+            onChange={(v) => setField("y", v)}
+          />
+          <NumberField
+            label="Width (pt)"
+            value={draft.width}
+            min={1}
+            max={maxW}
+            onChange={(v) => setField("width", v)}
+          />
+          <NumberField
+            label="Height (pt)"
+            value={draft.height}
+            min={1}
+            max={maxH}
+            onChange={(v) => setField("height", v)}
+          />
         </div>
         {draft.type === "highlight" ? (
           <RangeField
@@ -504,12 +565,33 @@ function TypeFields({
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {pageField}
-          <NumberField label="X (pt)" value={draft.x} min={0} max={maxW} onChange={(v) => setField("x", v)} />
-          <NumberField label="Y (pt)" value={draft.y} min={0} max={maxH} onChange={(v) => setField("y", v)} />
-          <NumberField label="Wrap (pt)" value={draft.wrapWidth} min={0} max={maxW} onChange={(v) => setField("wrapWidth", v)} />
+          <NumberField
+            label="X (pt)"
+            value={draft.x}
+            min={0}
+            max={maxW}
+            onChange={(v) => setField("x", v)}
+          />
+          <NumberField
+            label="Y (pt)"
+            value={draft.y}
+            min={0}
+            max={maxH}
+            onChange={(v) => setField("y", v)}
+          />
+          <NumberField
+            label="Wrap (pt)"
+            value={draft.wrapWidth}
+            min={0}
+            max={maxW}
+            onChange={(v) => setField("wrapWidth", v)}
+          />
         </div>
         <div className="flex flex-col gap-2">
-          <label htmlFor="annotate-note-text" className="text-xs font-medium text-slate-300">
+          <label
+            htmlFor="annotate-note-text"
+            className="text-xs font-medium text-slate-300"
+          >
             Note text
           </label>
           <textarea
@@ -518,10 +600,11 @@ function TypeFields({
             rows={2}
             placeholder="Type the note to place on the page…"
             onChange={(event) => setField("text", event.target.value)}
-            className="w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+            className="w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 transition outline-none placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
           />
           <span className="text-[11px] text-slate-400">
-            Y is the baseline of the first line; wrapped lines flow downward. Wrap 0 = one line per line break.
+            Y is the baseline of the first line; wrapped lines flow downward.
+            Wrap 0 = one line per line break.
           </span>
         </div>
         <RangeField
@@ -542,10 +625,34 @@ function TypeFields({
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {pageField}
-        <NumberField label="Start X" value={draft.x} min={0} max={maxW} onChange={(v) => setField("x", v)} />
-        <NumberField label="Start Y" value={draft.y} min={0} max={maxH} onChange={(v) => setField("y", v)} />
-        <NumberField label="End X" value={draft.x2} min={0} max={maxW} onChange={(v) => setField("x2", v)} />
-        <NumberField label="End Y" value={draft.y2} min={0} max={maxH} onChange={(v) => setField("y2", v)} />
+        <NumberField
+          label="Start X"
+          value={draft.x}
+          min={0}
+          max={maxW}
+          onChange={(v) => setField("x", v)}
+        />
+        <NumberField
+          label="Start Y"
+          value={draft.y}
+          min={0}
+          max={maxH}
+          onChange={(v) => setField("y", v)}
+        />
+        <NumberField
+          label="End X"
+          value={draft.x2}
+          min={0}
+          max={maxW}
+          onChange={(v) => setField("x2", v)}
+        />
+        <NumberField
+          label="End Y"
+          value={draft.y2}
+          min={0}
+          max={maxH}
+          onChange={(v) => setField("y2", v)}
+        />
       </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <RangeField
@@ -597,7 +704,7 @@ function MarkupList({
             className="size-3 shrink-0 rounded-full ring-1 ring-white/30"
             style={{ backgroundColor: markup.annotation.color }}
           />
-          <span className="grid shrink-0 place-items-center rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-200">
+          <span className="grid shrink-0 place-items-center rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-violet-200 uppercase">
             {TYPE_LABEL[markup.annotation.type]}
           </span>
           <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
@@ -651,7 +758,10 @@ function PagePreview({
                 style={{
                   left: pct(annotation.x, page.width),
                   width: pct(annotation.width, page.width),
-                  top: pct(page.height - (annotation.y + annotation.height), page.height),
+                  top: pct(
+                    page.height - (annotation.y + annotation.height),
+                    page.height,
+                  ),
                   height: pct(annotation.height, page.height),
                   backgroundColor: annotation.color,
                   opacity: annotation.opacity ?? 0.4,
@@ -668,7 +778,10 @@ function PagePreview({
                 style={{
                   left: pct(annotation.x, page.width),
                   width: pct(annotation.width, page.width),
-                  top: pct(page.height - (annotation.y + annotation.height), page.height),
+                  top: pct(
+                    page.height - (annotation.y + annotation.height),
+                    page.height,
+                  ),
                   height: pct(annotation.height, page.height),
                   border: `1.5px solid ${annotation.color}`,
                 }}
@@ -680,7 +793,7 @@ function PagePreview({
               <span
                 key={id}
                 aria-hidden
-                className="absolute max-w-[70%] truncate text-[6px] font-medium leading-none"
+                className="absolute max-w-[70%] truncate text-[6px] leading-none font-medium"
                 style={{
                   left: pct(annotation.x, page.width),
                   top: pct(page.height - annotation.y, page.height),
@@ -693,7 +806,11 @@ function PagePreview({
           }
           // Line
           return (
-            <svg key={id} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full">
+            <svg
+              key={id}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 h-full w-full"
+            >
               <line
                 x1={pct(annotation.x1, page.width)}
                 y1={pct(page.height - annotation.y1, page.height)}
@@ -707,7 +824,9 @@ function PagePreview({
           );
         })}
       </div>
-      <span className="text-[11px] text-slate-400">Page {pageNumber} preview</span>
+      <span className="text-[11px] text-slate-400">
+        Page {pageNumber} preview
+      </span>
     </div>
   );
 }
@@ -718,12 +837,15 @@ function HonestScopeNote() {
     <div className="flex items-start gap-3 rounded-2xl border border-sky-400/25 bg-sky-500/[0.08] px-4 py-3.5 text-sm text-sky-100">
       <Info className="mt-0.5 size-4 shrink-0 text-sky-300" aria-hidden />
       <p className="leading-relaxed">
-        <span className="font-semibold">Markups are flattened into the page.</span> This
-        tool draws highlight boxes, outlines, text notes, and lines/arrows as page
-        content by coordinate. It is <span className="font-semibold">not</span> a
-        collaborative comment layer — there are no sticky notes, reply threads, or
-        editable PDF annotation objects, and highlights are rectangles you position, not
-        selections snapped to the underlying text.
+        <span className="font-semibold">
+          Markups are flattened into the page.
+        </span>{" "}
+        This tool draws highlight boxes, outlines, text notes, and lines/arrows
+        as page content by coordinate. It is{" "}
+        <span className="font-semibold">not</span> a collaborative comment layer
+        — there are no sticky notes, reply threads, or editable PDF annotation
+        objects, and highlights are rectangles you position, not selections
+        snapped to the underlying text.
       </p>
     </div>
   );

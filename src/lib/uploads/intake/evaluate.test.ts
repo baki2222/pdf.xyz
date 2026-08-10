@@ -10,7 +10,11 @@ import {
 } from "./evaluate";
 
 const enc = (s: string) => new TextEncoder().encode(s);
-const pdfFile = { filename: "scan.pdf", contentType: "application/pdf", bytes: 1024 };
+const pdfFile = {
+  filename: "scan.pdf",
+  contentType: "application/pdf",
+  bytes: 1024,
+};
 const policy = (over: Partial<IntakePolicy> = {}): IntakePolicy => ({
   ...DEFAULT_INTAKE_POLICY,
   ...over,
@@ -27,7 +31,9 @@ function rejectedWith(decision: IntakeDecision, code: string) {
 
 describe("evaluateUploadDescriptors — happy path & tolerance", () => {
   it("accepts a well-formed single-file session", () => {
-    expect(evaluateUploadDescriptors({ tool: "ocr-pdf", files: [pdfFile] })).toEqual({
+    expect(
+      evaluateUploadDescriptors({ tool: "ocr-pdf", files: [pdfFile] }),
+    ).toEqual({
       ok: true,
     });
   });
@@ -35,20 +41,28 @@ describe("evaluateUploadDescriptors — happy path & tolerance", () => {
   it("defers non-object bodies and non-array files to the validator", () => {
     expect(evaluateUploadDescriptors(null)).toEqual({ ok: true });
     expect(evaluateUploadDescriptors("nope")).toEqual({ ok: true });
-    expect(evaluateUploadDescriptors({ files: "not-array" })).toEqual({ ok: true });
+    expect(evaluateUploadDescriptors({ files: "not-array" })).toEqual({
+      ok: true,
+    });
   });
 
   it("defers a structurally malformed file entry to the validator", () => {
     // Missing bytes, non-record entries: ambiguous → intake passes, validator owns it.
-    expect(evaluateUploadDescriptors({ files: [{ filename: "a.pdf" }] })).toEqual({
+    expect(
+      evaluateUploadDescriptors({ files: [{ filename: "a.pdf" }] }),
+    ).toEqual({
       ok: true,
     });
-    expect(evaluateUploadDescriptors({ files: [null, 42] })).toEqual({ ok: true });
+    expect(evaluateUploadDescriptors({ files: [null, 42] })).toEqual({
+      ok: true,
+    });
   });
 
   it("ignores an unshaped Content-Type (validator names the precise problem)", () => {
     expect(
-      evaluateUploadDescriptors({ files: [{ filename: "a.pdf", contentType: "bogus" }] }),
+      evaluateUploadDescriptors({
+        files: [{ filename: "a.pdf", contentType: "bogus" }],
+      }),
     ).toEqual({ ok: true });
   });
 });
@@ -66,7 +80,12 @@ describe("evaluateUploadDescriptors — rejections", () => {
 
   it("rejects an over-size file (413) with the offending index", () => {
     const decision = evaluateUploadDescriptors(
-      { files: [{ ...pdfFile, bytes: 50 }, { ...pdfFile, bytes: 10_000 }] },
+      {
+        files: [
+          { ...pdfFile, bytes: 50 },
+          { ...pdfFile, bytes: 10_000 },
+        ],
+      },
       policy({ maxFileBytes: 100 }),
     );
     const rejection = rejectedWith(decision, "file_too_large");
@@ -77,16 +96,29 @@ describe("evaluateUploadDescriptors — rejections", () => {
 
   it("rejects an over-size combined request (413)", () => {
     const decision = evaluateUploadDescriptors(
-      { files: [{ ...pdfFile, bytes: 8 }, { ...pdfFile, bytes: 8 }] },
+      {
+        files: [
+          { ...pdfFile, bytes: 8 },
+          { ...pdfFile, bytes: 8 },
+        ],
+      },
       policy({ maxRequestBytes: 10 }),
     );
     rejectedWith(decision, "request_too_large");
-    expect(intakeErrorResult(rejectedWith(decision, "request_too_large")).status).toBe(413);
+    expect(
+      intakeErrorResult(rejectedWith(decision, "request_too_large")).status,
+    ).toBe(413);
   });
 
   it("rejects an unrecognized file type (415)", () => {
     const decision = evaluateUploadDescriptors({
-      files: [{ filename: "x.exe", contentType: "application/x-msdownload", bytes: 10 }],
+      files: [
+        {
+          filename: "x.exe",
+          contentType: "application/x-msdownload",
+          bytes: 10,
+        },
+      ],
     });
     const rejection = rejectedWith(decision, "unsupported_file_type");
     expect(rejection.telemetry.reason).toBe("unrecognized");
@@ -113,7 +145,15 @@ describe("evaluateUploadDescriptors — rejections", () => {
 
   it("rejects an over-length filename (400)", () => {
     const decision = evaluateUploadDescriptors(
-      { files: [{ filename: `${"a".repeat(50)}.pdf`, contentType: "application/pdf", bytes: 10 }] },
+      {
+        files: [
+          {
+            filename: `${"a".repeat(50)}.pdf`,
+            contentType: "application/pdf",
+            bytes: 10,
+          },
+        ],
+      },
       policy({ maxFilenameLength: 16 }),
     );
     rejectedWith(decision, "invalid_upload_request");
@@ -131,13 +171,18 @@ describe("evaluateUploadDescriptors — rejections", () => {
 
 describe("evaluateJobInputCount", () => {
   it("passes an in-range input list and defers non-arrays", () => {
-    expect(evaluateJobInputCount({ inputs: ["f_1", "f_2"] })).toEqual({ ok: true });
+    expect(evaluateJobInputCount({ inputs: ["f_1", "f_2"] })).toEqual({
+      ok: true,
+    });
     expect(evaluateJobInputCount({ inputs: "nope" })).toEqual({ ok: true });
     expect(evaluateJobInputCount({})).toEqual({ ok: true });
   });
 
   it("rejects too many inputs with the same cap as uploads", () => {
-    const decision = evaluateJobInputCount({ inputs: ["a", "b", "c"] }, policy({ maxFiles: 2 }));
+    const decision = evaluateJobInputCount(
+      { inputs: ["a", "b", "c"] },
+      policy({ maxFiles: 2 }),
+    );
     const rejection = rejectedWith(decision, "too_many_files");
     expect(rejection.field).toBe("inputs");
   });
@@ -148,7 +193,9 @@ describe("evaluateUploadedBytes — opt-in structural sniff", () => {
   const validPdf = enc("%PDF-1.7\nbody\n%%EOF\n");
 
   it("is a no-op by default (both knobs off), even for junk bytes", () => {
-    expect(evaluateUploadedBytes(junk, { contentType: "application/pdf" })).toEqual({
+    expect(
+      evaluateUploadedBytes(junk, { contentType: "application/pdf" }),
+    ).toEqual({
       ok: true,
     });
   });
@@ -180,7 +227,9 @@ describe("evaluateUploadedBytes — opt-in structural sniff", () => {
       { contentType: "application/pdf" },
       policy({ requirePdfEof: true }),
     );
-    expect(rejectedWith(decision, "malformed_pdf").telemetry.pdf).toBe("missing_eof");
+    expect(rejectedWith(decision, "malformed_pdf").telemetry.pdf).toBe(
+      "missing_eof",
+    );
   });
 
   it("flags an empty PDF when a structural knob is on", () => {

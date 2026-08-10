@@ -21,7 +21,10 @@
  */
 
 import { cleanupPipelineMetric } from "../../observability/metrics";
-import { NOOP_METRIC_SINK, type WorkerMetricSink } from "../../observability/collector";
+import {
+  NOOP_METRIC_SINK,
+  type WorkerMetricSink,
+} from "../../observability/collector";
 import type { PipelineArm, PipelineSeverity } from "./types";
 
 let sink: WorkerMetricSink = NOOP_METRIC_SINK;
@@ -41,6 +44,9 @@ export function resetPipelineSink(): void {
  * `severity`. Never receives a handle, filename, key, bucket, URL, endpoint, region, instant,
  * or byte.
  */
-export function recordPipeline(arm: PipelineArm, severity: PipelineSeverity): void {
+export function recordPipeline(
+  arm: PipelineArm,
+  severity: PipelineSeverity,
+): void {
   sink(cleanupPipelineMetric(arm, severity));
 }

@@ -78,7 +78,8 @@ export const ARTIFACT_RETENTION_CLASSES = [
   "extended", // auto-deletes within the long backstop (> 1 day, still non-persistent)
   "unknown", // no usable/finite class, or a policy claiming persistence (→ rejected)
 ] as const;
-export type ArtifactRetentionClass = (typeof ARTIFACT_RETENTION_CLASSES)[number];
+export type ArtifactRetentionClass =
+  (typeof ARTIFACT_RETENTION_CLASSES)[number];
 
 /** The bounded set of verdicts an artifact-manifest validation can reach. */
 export const ARTIFACT_VERDICTS = ["valid", "invalid", "skipped"] as const;

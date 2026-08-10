@@ -11,7 +11,11 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
     compress: { lossless: false, deep: false, engines: [] },
     ocr: { available: false, engine: null, languages: [], detail: "off" },
     scan: { active: false, detail: "not scanned" },
-    security: { available: false, operations: ["protect", "unlock", "repair", "optimize-web"], detail: "qpdf" },
+    security: {
+      available: false,
+      operations: ["protect", "unlock", "repair", "optimize-web"],
+      detail: "qpdf",
+    },
     providers: {
       storage: {
         provider: "s3",
@@ -35,7 +39,11 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       processor: {
         ready: true,
         configured: true,
-        executor: { mode: "not-implemented", ready: false, detail: "out-of-band daemon" },
+        executor: {
+          mode: "not-implemented",
+          ready: false,
+          detail: "out-of-band daemon",
+        },
         detail: "ready",
       },
     },
@@ -55,7 +63,12 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       ready: true,
       detail: "ai declared",
     },
-    pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
+    pipeline: {
+      verdict: "off",
+      observed: false,
+      drainable: false,
+      detail: "no worker observed",
+    },
     ...overrides,
   };
 }
@@ -75,14 +88,14 @@ describe("ai-extract-client", () => {
     expect(
       canRunAiExtract(
         status({
-      ai: {
-        declared: false,
-        provider: null,
-        model: null,
-        configuredHere: false,
-        ready: false,
-        detail: "no ai provider is declared",
-      },
+          ai: {
+            declared: false,
+            provider: null,
+            model: null,
+            configuredHere: false,
+            ready: false,
+            detail: "no ai provider is declared",
+          },
         }),
       ),
     ).toBe(false);
@@ -101,14 +114,53 @@ describe("ai-extract-client", () => {
       if (input === "/api/uploads") {
         const body = JSON.parse(new TextDecoder().decode(init?.body));
         expect(body.tool).toBe("ai-extract");
-        return { ok: true, status: 200, json: async () => ({ uploadId: "up", slots: [{ fileId: "file", url: "/put", method: "PUT", headers: {} }] }), arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            uploadId: "up",
+            slots: [
+              { fileId: "file", url: "/put", method: "PUT", headers: {} },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
-      if (input === "/put") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new ArrayBuffer(0) };
+      if (input === "/put")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       if (input === "/api/jobs") {
         jobBody = JSON.parse(new TextDecoder().decode(init?.body));
-        return { ok: true, status: 200, json: async () => ({ jobId: "job", status: "completed", artifacts: [{ artifactId: "art", filename: "in-extraction.zip", contentType: "application/zip", bytes: 4, url: "/out" }] }), arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jobId: "job",
+            status: "completed",
+            artifacts: [
+              {
+                artifactId: "art",
+                filename: "in-extraction.zip",
+                contentType: "application/zip",
+                bytes: 4,
+                url: "/out",
+              },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
-      if (input === "/out") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer };
+      if (input === "/out")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer,
+        };
       throw new Error(String(input));
     };
 
@@ -125,42 +177,127 @@ describe("ai-extract-client", () => {
     expect(result.ok).toBe(true);
     expect(calls).toEqual(["/api/uploads", "/put", "/api/jobs", "/out"]);
     expect(jobBody?.tool).toBe("ai-extract");
-    expect(jobBody?.options).toEqual({ mode: "schema", schema: [{ name: "total", type: "number" }] });
+    expect(jobBody?.options).toEqual({
+      mode: "schema",
+      schema: [{ name: "total", type: "number" }],
+    });
   });
 
   it("submits a prompt-mode request carrying only the prompt", async () => {
     let jobBody: Record<string, unknown> | undefined;
     const fetchImpl = async (input: string, init?: { body?: ArrayBuffer }) => {
-      if (input === "/api/uploads") return { ok: true, status: 200, json: async () => ({ uploadId: "up", slots: [{ fileId: "file", url: "/put", method: "PUT", headers: {} }] }), arrayBuffer: async () => new ArrayBuffer(0) };
-      if (input === "/put") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new ArrayBuffer(0) };
+      if (input === "/api/uploads")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            uploadId: "up",
+            slots: [
+              { fileId: "file", url: "/put", method: "PUT", headers: {} },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      if (input === "/put")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       if (input === "/api/jobs") {
         jobBody = JSON.parse(new TextDecoder().decode(init?.body));
-        return { ok: true, status: 200, json: async () => ({ jobId: "job", status: "completed", artifacts: [{ artifactId: "art", filename: "in-extraction.zip", contentType: "application/zip", bytes: 4, url: "/out" }] }), arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jobId: "job",
+            status: "completed",
+            artifacts: [
+              {
+                artifactId: "art",
+                filename: "in-extraction.zip",
+                contentType: "application/zip",
+                bytes: 4,
+                url: "/out",
+              },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
-      if (input === "/out") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new Uint8Array([1]).buffer };
+      if (input === "/out")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new Uint8Array([1]).buffer,
+        };
       throw new Error(String(input));
     };
 
     await runWorkerAiExtract(
-      { filename: "in.pdf", bytes: new Uint8Array([1]), mode: "prompt", prompt: "Extract the vendor and date" },
+      {
+        filename: "in.pdf",
+        bytes: new Uint8Array([1]),
+        mode: "prompt",
+        prompt: "Extract the vendor and date",
+      },
       { fetchImpl, sleep: async () => {} },
     );
 
-    expect(jobBody?.options).toEqual({ mode: "prompt", prompt: "Extract the vendor and date" });
+    expect(jobBody?.options).toEqual({
+      mode: "prompt",
+      prompt: "Extract the vendor and date",
+    });
   });
 
   it("surfaces the worker's honest error when no AI provider is configured", async () => {
     const fetchImpl = async (input: string) => {
-      if (input === "/api/uploads") return { ok: true, status: 200, json: async () => ({ uploadId: "up", slots: [{ fileId: "file", url: "/put", method: "PUT", headers: {} }] }), arrayBuffer: async () => new ArrayBuffer(0) };
-      if (input === "/put") return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new ArrayBuffer(0) };
+      if (input === "/api/uploads")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            uploadId: "up",
+            slots: [
+              { fileId: "file", url: "/put", method: "PUT", headers: {} },
+            ],
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      if (input === "/put")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       if (input === "/api/jobs") {
-        return { ok: true, status: 200, json: async () => ({ jobId: "job", status: "failed", error: { code: "not_implemented", message: "No AI provider is configured on this worker." } }), arrayBuffer: async () => new ArrayBuffer(0) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jobId: "job",
+            status: "failed",
+            error: {
+              code: "not_implemented",
+              message: "No AI provider is configured on this worker.",
+            },
+          }),
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
       }
       throw new Error(String(input));
     };
 
     const result = await runWorkerAiExtract(
-      { filename: "in.pdf", bytes: new Uint8Array([1]), mode: "prompt", prompt: "Extract totals" },
+      {
+        filename: "in.pdf",
+        bytes: new Uint8Array([1]),
+        mode: "prompt",
+        prompt: "Extract totals",
+      },
       { fetchImpl, sleep: async () => {} },
     );
 

@@ -79,7 +79,9 @@ export function CompressRunner() {
 
   const addFiles = useCallback((incoming: File[]) => {
     const { accepted, rejected } = partitionPdfFiles(incoming);
-    setRejections(rejected.map((r) => ({ name: r.file.name, reason: r.reason })));
+    setRejections(
+      rejected.map((r) => ({ name: r.file.name, reason: r.reason })),
+    );
     if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted]);
   }, []);
 
@@ -123,7 +125,10 @@ export function CompressRunner() {
         multiple
         hint="One or more PDFs · analyzed privately in your browser"
       />
-      <RejectionsNote rejections={rejections} onDismiss={() => setRejections([])} />
+      <RejectionsNote
+        rejections={rejections}
+        onDismiss={() => setRejections([])}
+      />
     </div>
   );
 }
@@ -311,7 +316,9 @@ function CompressEditor({
           <HeadlineIcon className="size-5" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
-          <h3 className="text-base font-semibold text-white">{headline.title}</h3>
+          <h3 className="text-base font-semibold text-white">
+            {headline.title}
+          </h3>
           <p className="text-sm text-slate-300/90">
             {summary.recommendation === "lossless-helps" &&
               `Repacking this PDF losslessly saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) — no quality lost.`}
@@ -324,13 +331,25 @@ function CompressEditor({
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile icon={FileText} label="Current size" value={formatBytes(analysis.originalBytes)} />
-        <StatTile icon={Boxes} label="Pages" value={String(analysis.pageCount)} />
+        <StatTile
+          icon={FileText}
+          label="Current size"
+          value={formatBytes(analysis.originalBytes)}
+        />
+        <StatTile
+          icon={Boxes}
+          label="Pages"
+          value={String(analysis.pageCount)}
+        />
         <StatTile
           icon={ImageIcon}
           label="Images"
           value={String(analysis.imageCount)}
-          hint={analysis.imageCount > 0 ? `${pct(summary.imageShare)}% of file` : "none found"}
+          hint={
+            analysis.imageCount > 0
+              ? `${pct(summary.imageShare)}% of file`
+              : "none found"
+          }
         />
         <StatTile
           icon={Gauge}
@@ -340,7 +359,11 @@ function CompressEditor({
               ? `−${formatBytes(summary.savedBytes)}`
               : "No change"
           }
-          hint={summary.savedBytes > 0 ? `${pct(summary.savedRatio)}% smaller` : undefined}
+          hint={
+            summary.savedBytes > 0
+              ? `${pct(summary.savedRatio)}% smaller`
+              : undefined
+          }
         />
       </div>
 
@@ -348,7 +371,10 @@ function CompressEditor({
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result.optimized, outputName(pdf.file.name, "optimized"))
+            downloadBytes(
+              result.optimized,
+              outputName(pdf.file.name, "optimized"),
+            )
           }
           className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-7 py-3 text-base font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
         >
@@ -388,13 +414,15 @@ const DEEP_QUALITY = [
  * failure. Gate on configured storage+queue+drainability so staging can actually
  * use the secure worker instead of trapping users on browser-only lossless repack.
  */
-export function canRunDeepCompression(status: WorkerStatus | null | undefined): boolean {
+export function canRunDeepCompression(
+  status: WorkerStatus | null | undefined,
+): boolean {
   if (!status) return false;
   if (status.localDevOnly) return status.compress.deep;
   return Boolean(
     status.providers.storage.ready &&
-      status.providers.queue.ready &&
-      status.daemon.drainable,
+    status.providers.queue.ready &&
+    status.daemon.drainable,
   );
 }
 
@@ -461,9 +489,12 @@ function WorkerDeepPanel({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4">
+    <div className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-4">
       <div className="flex items-start gap-2.5">
-        <ServerCog className="mt-0.5 size-4 shrink-0 text-blue-300" aria-hidden />
+        <ServerCog
+          className="mt-0.5 size-4 shrink-0 text-blue-300"
+          aria-hidden
+        />
         <div className="flex flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-medium text-slate-200">
@@ -585,7 +616,7 @@ function DeepRunControls({
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+        <span className="text-[11px] font-medium tracking-wide text-slate-400 uppercase">
           Quality
         </span>
         {DEEP_QUALITY.map((q) => (
@@ -667,11 +698,13 @@ function StatTile({
 }) {
   return (
     <div className="flex flex-col gap-1 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5">
-      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-slate-400 uppercase">
         <Icon className="size-3.5" aria-hidden />
         {label}
       </span>
-      <span className="text-lg font-semibold tabular-nums text-white">{value}</span>
+      <span className="text-lg font-semibold text-white tabular-nums">
+        {value}
+      </span>
       {hint && <span className="text-xs text-slate-400">{hint}</span>}
     </div>
   );
@@ -694,8 +727,8 @@ function RejectionsNote({
       <div className="flex items-start justify-between gap-3">
         <span className="flex items-center gap-2 font-medium">
           <AlertTriangle className="size-4 shrink-0" aria-hidden />
-          {rejections.length} file{rejections.length === 1 ? "" : "s"} couldn&apos;t
-          be added
+          {rejections.length} file{rejections.length === 1 ? "" : "s"}{" "}
+          couldn&apos;t be added
         </span>
         <button
           type="button"
@@ -708,7 +741,8 @@ function RejectionsNote({
       <ul className="flex flex-col gap-1 pl-6 text-xs text-amber-200/90">
         {rejections.map((r, i) => (
           <li key={`${r.name}-${i}`} className="list-disc">
-            <span className="font-medium text-amber-100">{r.name}</span> — {r.reason}
+            <span className="font-medium text-amber-100">{r.name}</span> —{" "}
+            {r.reason}
           </li>
         ))}
       </ul>

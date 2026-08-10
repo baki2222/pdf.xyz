@@ -60,7 +60,10 @@ export interface NativeFs {
   mkdtemp: (prefix: string) => Promise<string>;
   writeFile: (file: string, data: Uint8Array) => Promise<void>;
   readFile: (file: string) => Promise<Uint8Array>;
-  rm: (dir: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  rm: (
+    dir: string,
+    options: { recursive: boolean; force: boolean },
+  ) => Promise<void>;
 }
 
 /** All the host seams the native layer touches; each defaults to the real Node built-in. */

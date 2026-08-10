@@ -15,7 +15,9 @@ import {
 } from "./native";
 
 /** A full config with sane defaults; override any field per test. */
-function cfg(over: Partial<NativeCompressionConfig> = {}): NativeCompressionConfig {
+function cfg(
+  over: Partial<NativeCompressionConfig> = {},
+): NativeCompressionConfig {
   return {
     enabled: true,
     binaries: { ghostscript: "gs", qpdf: "qpdf", mutool: "mutool" },
@@ -30,7 +32,9 @@ function cfg(over: Partial<NativeCompressionConfig> = {}): NativeCompressionConf
 const DEEP: CompressionOptions = { profile: "deep", targetDpi: 150 };
 
 /** Minimal bytes that satisfy the structural PDF check (header + trailer). */
-const VALID_PDF = new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(64)}\n%%EOF\n`);
+const VALID_PDF = new TextEncoder().encode(
+  `%PDF-1.7\n${"x".repeat(64)}\n%%EOF\n`,
+);
 const NOT_PDF = new TextEncoder().encode("this is plainly not a pdf document");
 
 interface FsCalls {
@@ -64,7 +68,13 @@ function fakeFs(read: () => Uint8Array): { fs: NativeFs; calls: FsCalls } {
 
 describe("nativeArgs — fixed argv, no shell interpolation", () => {
   it("builds ghostscript args with the resolved command, DPI, and separate paths", () => {
-    const { command, args } = nativeArgs("ghostscript", "gs", "/tmp/j/input.pdf", "/tmp/j/output.pdf", 150);
+    const { command, args } = nativeArgs(
+      "ghostscript",
+      "gs",
+      "/tmp/j/input.pdf",
+      "/tmp/j/output.pdf",
+      150,
+    );
     expect(command).toBe("gs");
     expect(args).toContain("-dSAFER");
     expect(args).toContain("-dColorImageResolution=150");
@@ -76,18 +86,36 @@ describe("nativeArgs — fixed argv, no shell interpolation", () => {
   });
 
   it("passes an override command path through verbatim", () => {
-    const { command } = nativeArgs("qpdf", "/opt/tools/qpdf", "/t/in.pdf", "/t/out.pdf", 150);
+    const { command } = nativeArgs(
+      "qpdf",
+      "/opt/tools/qpdf",
+      "/t/in.pdf",
+      "/t/out.pdf",
+      150,
+    );
     expect(command).toBe("/opt/tools/qpdf");
   });
 
   it("keeps a path with spaces as a single argv element", () => {
-    const { args } = nativeArgs("qpdf", "qpdf", "/t/a b/in.pdf", "/t/a b/out.pdf", 150);
+    const { args } = nativeArgs(
+      "qpdf",
+      "qpdf",
+      "/t/a b/in.pdf",
+      "/t/a b/out.pdf",
+      150,
+    );
     // qpdf takes input then output as the final two positional argv elements.
     expect(args.slice(-2)).toEqual(["/t/a b/in.pdf", "/t/a b/out.pdf"]);
   });
 
   it("builds mutool clean args", () => {
-    const { command, args } = nativeArgs("mutool", "mutool", "/t/in.pdf", "/t/out.pdf", 150);
+    const { command, args } = nativeArgs(
+      "mutool",
+      "mutool",
+      "/t/in.pdf",
+      "/t/out.pdf",
+      150,
+    );
     expect(command).toBe("mutool");
     expect(args).toEqual(["clean", "-ggg", "-z", "/t/in.pdf", "/t/out.pdf"]);
   });
@@ -95,14 +123,21 @@ describe("nativeArgs — fixed argv, no shell interpolation", () => {
 
 describe("createNativeCompressor — success path", () => {
   it("writes input, runs the engine by argv, returns validated PDF bytes, and cleans up", async () => {
-    const execCalls: { command: string; args: string[]; options: unknown }[] = [];
+    const execCalls: { command: string; args: string[]; options: unknown }[] =
+      [];
     const exec: NativeExec = async (command, args, options) => {
       execCalls.push({ command, args: [...args], options });
     };
     const { fs, calls } = fakeFs(() => VALID_PDF);
-    const compressor = createNativeCompressor(cfg({ tmpDir: "/base" }), { exec, fs });
+    const compressor = createNativeCompressor(cfg({ tmpDir: "/base" }), {
+      exec,
+      fs,
+    });
 
-    const out = await compressor(new Uint8Array([1, 2, 3]), { engine: "ghostscript", options: DEEP });
+    const out = await compressor(new Uint8Array([1, 2, 3]), {
+      engine: "ghostscript",
+      options: DEEP,
+    });
 
     expect(out).toEqual(VALID_PDF);
     // The whole temp lifecycle happened, and the temp dir was removed.
@@ -114,7 +149,10 @@ describe("createNativeCompressor — success path", () => {
     expect(execCalls).toHaveLength(1);
     expect(execCalls[0]!.command).toBe("gs");
     expect(Array.isArray(execCalls[0]!.args)).toBe(true);
-    expect(execCalls[0]!.options).toMatchObject({ timeout: 120_000, windowsHide: true });
+    expect(execCalls[0]!.options).toMatchObject({
+      timeout: 120_000,
+      windowsHide: true,
+    });
   });
 
   it("honors an overridden binary path as the command", async () => {
@@ -124,7 +162,11 @@ describe("createNativeCompressor — success path", () => {
     };
     const { fs } = fakeFs(() => VALID_PDF);
     const config = cfg({
-      binaries: { ghostscript: "/opt/gs/bin/gs", qpdf: "qpdf", mutool: "mutool" },
+      binaries: {
+        ghostscript: "/opt/gs/bin/gs",
+        qpdf: "qpdf",
+        mutool: "mutool",
+      },
       overridden: { ghostscript: true, qpdf: false, mutool: false },
     });
     await createNativeCompressor(config, { exec, fs })(new Uint8Array([1]), {
@@ -176,13 +218,18 @@ describe("createNativeCompressor — failure paths always clean up", () => {
 
   it("throws when the output exceeds the configured max output bytes", async () => {
     const exec: NativeExec = async () => {};
-    const big = new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(4096)}\n%%EOF\n`);
+    const big = new TextEncoder().encode(
+      `%PDF-1.7\n${"x".repeat(4096)}\n%%EOF\n`,
+    );
     const { fs } = fakeFs(() => big);
     await expect(
-      createNativeCompressor(cfg({ maxOutputBytes: 1024 }), { exec, fs })(new Uint8Array([1]), {
-        engine: "qpdf",
-        options: DEEP,
-      }),
+      createNativeCompressor(cfg({ maxOutputBytes: 1024 }), { exec, fs })(
+        new Uint8Array([1]),
+        {
+          engine: "qpdf",
+          options: DEEP,
+        },
+      ),
     ).rejects.toThrow();
   });
 
@@ -193,10 +240,13 @@ describe("createNativeCompressor — failure paths always clean up", () => {
     };
     const { fs, calls } = fakeFs(() => VALID_PDF);
     await expect(
-      createNativeCompressor(cfg({ maxInputBytes: 2 }), { exec, fs })(new Uint8Array([1, 2, 3, 4]), {
-        engine: "qpdf",
-        options: DEEP,
-      }),
+      createNativeCompressor(cfg({ maxInputBytes: 2 }), { exec, fs })(
+        new Uint8Array([1, 2, 3, 4]),
+        {
+          engine: "qpdf",
+          options: DEEP,
+        },
+      ),
     ).rejects.toThrow(/maximum size/i);
     expect(spawned).toBe(false);
     expect(calls.mkdtemp).toHaveLength(0);
@@ -204,23 +254,35 @@ describe("createNativeCompressor — failure paths always clean up", () => {
 });
 
 describe("probeNativeToolsFromConfig — config-aware detection", () => {
-  const seams = (onPath: (b: string) => boolean, fileExists?: (p: string) => boolean): NativeSeams => ({
+  const seams = (
+    onPath: (b: string) => boolean,
+    fileExists?: (p: string) => boolean,
+  ): NativeSeams => ({
     resolveOnPath: onPath,
     ...(fileExists ? { fileExists } : {}),
   });
 
   it("reports nothing when the engine is disabled, even if binaries are on PATH", () => {
-    const tools = probeNativeToolsFromConfig(cfg({ enabled: false }), seams(() => true));
+    const tools = probeNativeToolsFromConfig(
+      cfg({ enabled: false }),
+      seams(() => true),
+    );
     expect(tools).toEqual({ ghostscript: false, qpdf: false, mutool: false });
   });
 
   it("auto-detects by PATH for non-overridden engines", () => {
-    const tools = probeNativeToolsFromConfig(cfg(), seams((bin) => bin === "qpdf"));
+    const tools = probeNativeToolsFromConfig(
+      cfg(),
+      seams((bin) => bin === "qpdf"),
+    );
     expect(tools).toEqual({ ghostscript: false, qpdf: true, mutool: false });
   });
 
   it("considers only the pinned engine", () => {
-    const tools = probeNativeToolsFromConfig(cfg({ engine: "mutool" }), seams(() => true));
+    const tools = probeNativeToolsFromConfig(
+      cfg({ engine: "mutool" }),
+      seams(() => true),
+    );
     expect(tools).toEqual({ ghostscript: false, qpdf: false, mutool: true });
   });
 
@@ -256,6 +318,10 @@ describe("probeNativeTools / nativeCompressionDeps — from the environment", ()
     );
     expect(deps.limits?.maxInputBytes).toBe(1048576);
     expect(typeof deps.native).toBe("function");
-    expect(deps.tools).toEqual({ ghostscript: false, qpdf: false, mutool: false });
+    expect(deps.tools).toEqual({
+      ghostscript: false,
+      qpdf: false,
+      mutool: false,
+    });
   });
 });

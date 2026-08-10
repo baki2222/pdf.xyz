@@ -15,8 +15,30 @@ const NOW = 1_700_000_000_000;
 const REPORT = evaluateArtifactInventory(
   {
     records: [
-      { declaredLifecycle: "live", expiresAtMs: null, deleted: false, manifest: "valid", provider: "remote-configured", kind: "pdf", processor: "compress", age: "1-24h", size: "64kb-1mb", wellFormed: true },
-      { declaredLifecycle: null, expiresAtMs: 1000, deleted: false, manifest: "valid", provider: "remote-configured", kind: "pdf", processor: "compress", age: "over-30d", size: "1-10mb", wellFormed: true },
+      {
+        declaredLifecycle: "live",
+        expiresAtMs: null,
+        deleted: false,
+        manifest: "valid",
+        provider: "remote-configured",
+        kind: "pdf",
+        processor: "compress",
+        age: "1-24h",
+        size: "64kb-1mb",
+        wellFormed: true,
+      },
+      {
+        declaredLifecycle: null,
+        expiresAtMs: 1000,
+        deleted: false,
+        manifest: "valid",
+        provider: "remote-configured",
+        kind: "pdf",
+        processor: "compress",
+        age: "over-30d",
+        size: "1-10mb",
+        wellFormed: true,
+      },
     ],
   },
   NOW,
@@ -26,7 +48,10 @@ afterEach(() => resetArtifactCleanupObserverForTests());
 
 describe("buildArtifactCleanupReceipt", () => {
   it("projects only bounded verdict/counts and stamps the policy", () => {
-    const receipt = buildArtifactCleanupReceipt(REPORT, new Date(NOW).toISOString());
+    const receipt = buildArtifactCleanupReceipt(
+      REPORT,
+      new Date(NOW).toISOString(),
+    );
     expect(receipt).toMatchObject({
       category: "artifact-cleanup",
       verdict: "drift",

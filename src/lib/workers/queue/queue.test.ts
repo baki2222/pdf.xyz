@@ -128,21 +128,27 @@ describe("local-dev queue provider", () => {
 
 describe("mapQueueFailure", () => {
   it("maps each reason to the right HTTP status and code", () => {
-    expect(mapQueueFailure({ reason: "not_configured", message: "" })).toMatchObject({
+    expect(
+      mapQueueFailure({ reason: "not_configured", message: "" }),
+    ).toMatchObject({
       status: 503,
       body: { error: { code: "worker_not_configured" } },
     });
-    expect(mapQueueFailure({ reason: "not_implemented", message: "" }).status).toBe(
-      501,
+    expect(
+      mapQueueFailure({ reason: "not_implemented", message: "" }).status,
+    ).toBe(501);
+    expect(mapQueueFailure({ reason: "not_found", message: "" }).status).toBe(
+      404,
     );
-    expect(mapQueueFailure({ reason: "not_found", message: "" }).status).toBe(404);
     expect(mapQueueFailure({ reason: "conflict", message: "" })).toMatchObject({
       status: 409,
       body: { error: { code: "conflict" } },
     });
     // A transient broker outage maps to 500 (retryable), never a not-configured
     // stub — mirrors the storage provider's `unavailable` mapping.
-    expect(mapQueueFailure({ reason: "unavailable", message: "" })).toMatchObject({
+    expect(
+      mapQueueFailure({ reason: "unavailable", message: "" }),
+    ).toMatchObject({
       status: 500,
       body: { error: { code: "internal_error" } },
     });

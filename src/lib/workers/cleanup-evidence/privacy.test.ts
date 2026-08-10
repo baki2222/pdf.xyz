@@ -82,7 +82,11 @@ describe("hostile report bodies never leak into the posture or metric", () => {
   it("the resolved posture is content-free", () => {
     const parsed = parseCleanupReport(HOSTILE_SUMMARY);
     if (!parsed.ok) throw new Error("expected a parse");
-    const posture = resolveObservationPosture({ kind: "report", report: parsed.report, mtimeMs: NOW }, config(), NOW);
+    const posture = resolveObservationPosture(
+      { kind: "report", report: parsed.report, mtimeMs: NOW },
+      config(),
+      NOW,
+    );
     assertContentFree("posture", posture);
     // The load-bearing verdict still survived (drift → warning): honesty preserved.
     expect(posture.state).toBe("warning");
@@ -91,7 +95,11 @@ describe("hostile report bodies never leak into the posture or metric", () => {
   it("the derived metric is content-free and sanitizes", () => {
     const parsed = parseCleanupReport(HOSTILE_SUMMARY);
     if (!parsed.ok) throw new Error("expected a parse");
-    const posture = resolveObservationPosture({ kind: "report", report: parsed.report, mtimeMs: NOW }, config(), NOW);
+    const posture = resolveObservationPosture(
+      { kind: "report", report: parsed.report, mtimeMs: NOW },
+      config(),
+      NOW,
+    );
     const metric = deriveCleanupEvidenceMetric(posture);
     assertContentFree("metric", metric);
     expect(sanitizeMetric(metric)).not.toBeNull();
@@ -105,7 +113,11 @@ describe("hostile report bodies never leak into the posture or metric", () => {
       {
         readReportFile: (p) =>
           p === hostilePath
-            ? { kind: "ok", text: JSON.stringify(HOSTILE_SUMMARY), mtimeMs: NOW }
+            ? {
+                kind: "ok",
+                text: JSON.stringify(HOSTILE_SUMMARY),
+                mtimeMs: NOW,
+              }
             : { kind: "missing" },
         now: () => NOW,
       },

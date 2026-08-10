@@ -102,7 +102,10 @@ let lastFailOpenLogMs = 0;
 
 type FailOpenReason = "store-error" | "provider-unreachable";
 
-function noteFailOpen(reason: FailOpenReason, nowMs: number = Date.now()): void {
+function noteFailOpen(
+  reason: FailOpenReason,
+  nowMs: number = Date.now(),
+): void {
   if (nowMs - lastFailOpenLogMs < FAIL_OPEN_LOG_INTERVAL_MS) return;
   lastFailOpenLogMs = nowMs;
   console.warn(

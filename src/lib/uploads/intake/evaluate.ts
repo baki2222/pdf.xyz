@@ -157,7 +157,11 @@ function evaluateFileDescriptor(
       return reject(
         "invalid_upload_request",
         `A filename exceeds the ${policy.maxFilenameLength}-character limit.`,
-        { field: `files[${index}].filename`, limit: policy.maxFilenameLength, index },
+        {
+          field: `files[${index}].filename`,
+          limit: policy.maxFilenameLength,
+          index,
+        },
       );
     }
     if (isHostileFilename(trimmed)) {
@@ -190,7 +194,11 @@ function evaluateFileDescriptor(
   // Per-file size: only judge a real, positive number; the validator owns "must be
   // a positive integer".
   const { bytes } = file;
-  if (typeof bytes === "number" && Number.isFinite(bytes) && bytes > policy.maxFileBytes) {
+  if (
+    typeof bytes === "number" &&
+    Number.isFinite(bytes) &&
+    bytes > policy.maxFileBytes
+  ) {
     return reject(
       "file_too_large",
       `A file exceeds the ${policy.maxFileBytes}-byte per-file upload limit.`,
@@ -288,7 +296,9 @@ export function evaluateUploadedBytes(
 
   const sniff = sniffPdf(bytes, policy);
   if (sniff.empty) {
-    return reject("malformed_pdf", "The uploaded PDF is empty.", { pdf: "empty" });
+    return reject("malformed_pdf", "The uploaded PDF is empty.", {
+      pdf: "empty",
+    });
   }
   if (policy.requirePdfMagic && !sniff.hasHeader) {
     return reject(

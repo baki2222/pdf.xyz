@@ -24,7 +24,10 @@
  */
 
 import { apiError, type ParseResult } from "./responses";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "./filenames";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "./filenames";
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -38,7 +41,13 @@ export type ExtractionMode = (typeof EXTRACTION_MODES)[number];
  * manifest agree on one vocabulary and an unknown type is rejected, never coerced.
  * `array` is a list of primitive values (e.g. line-item descriptions).
  */
-export const EXTRACTION_FIELD_TYPES = ["string", "number", "boolean", "date", "array"] as const;
+export const EXTRACTION_FIELD_TYPES = [
+  "string",
+  "number",
+  "boolean",
+  "date",
+  "array",
+] as const;
 export type ExtractionFieldType = (typeof EXTRACTION_FIELD_TYPES)[number];
 
 /** The default field type when a schema field omits one. */
@@ -104,10 +113,16 @@ function parseField(raw: unknown, index: number): ParseResult<ExtractionField> {
   }
   const name = raw.name.trim();
   if (CONTROL_CHAR_STRICT.test(name)) {
-    return invalid(`\`${at}.name\` cannot contain control characters.`, `${at}.name`);
+    return invalid(
+      `\`${at}.name\` cannot contain control characters.`,
+      `${at}.name`,
+    );
   }
   if (name.length > MAX_FIELD_NAME_CHARS) {
-    return invalid(`\`${at}.name\` is too long (max ${MAX_FIELD_NAME_CHARS} characters).`, `${at}.name`);
+    return invalid(
+      `\`${at}.name\` is too long (max ${MAX_FIELD_NAME_CHARS} characters).`,
+      `${at}.name`,
+    );
   }
 
   let type: ExtractionFieldType = DEFAULT_FIELD_TYPE;
@@ -125,12 +140,18 @@ function parseField(raw: unknown, index: number): ParseResult<ExtractionField> {
 
   if (raw.description !== undefined) {
     if (typeof raw.description !== "string") {
-      return invalid(`\`${at}.description\` must be a string.`, `${at}.description`);
+      return invalid(
+        `\`${at}.description\` must be a string.`,
+        `${at}.description`,
+      );
     }
     const description = raw.description.trim();
     if (description.length > 0) {
       if (CONTROL_CHAR_STRICT.test(description)) {
-        return invalid(`\`${at}.description\` cannot contain control characters.`, `${at}.description`);
+        return invalid(
+          `\`${at}.description\` cannot contain control characters.`,
+          `${at}.description`,
+        );
       }
       if (description.length > MAX_FIELD_DESCRIPTION_CHARS) {
         return invalid(
@@ -152,36 +173,56 @@ function parseField(raw: unknown, index: number): ParseResult<ExtractionField> {
  * mode requires a non-empty list of typed, uniquely-named fields. A request that
  * does not say what to extract is rejected — the engine never guesses a target.
  */
-export function parseExtractOptions(options: Record<string, unknown>): ParseResult<ExtractOptions> {
+export function parseExtractOptions(
+  options: Record<string, unknown>,
+): ParseResult<ExtractOptions> {
   if (!isObject(options)) {
     return invalid("`options` must be an object.", "options");
   }
 
   if (typeof options.mode !== "string" || !MODE_SET.has(options.mode)) {
-    return invalid(`\`mode\` is required and must be one of ${EXTRACTION_MODES.join(", ")}.`, "mode");
+    return invalid(
+      `\`mode\` is required and must be one of ${EXTRACTION_MODES.join(", ")}.`,
+      "mode",
+    );
   }
   const mode = options.mode as ExtractionMode;
 
   if (mode === "prompt") {
-    if (typeof options.prompt !== "string" || options.prompt.trim().length === 0) {
-      return invalid("`prompt` is required in prompt mode — describe what to extract.", "prompt");
+    if (
+      typeof options.prompt !== "string" ||
+      options.prompt.trim().length === 0
+    ) {
+      return invalid(
+        "`prompt` is required in prompt mode — describe what to extract.",
+        "prompt",
+      );
     }
     const prompt = options.prompt.trim();
     if (CONTROL_CHAR_ALLOW_WS.test(prompt)) {
       return invalid("`prompt` cannot contain control characters.", "prompt");
     }
     if (prompt.length > MAX_EXTRACTION_PROMPT_CHARS) {
-      return invalid(`\`prompt\` is too long (max ${MAX_EXTRACTION_PROMPT_CHARS} characters).`, "prompt");
+      return invalid(
+        `\`prompt\` is too long (max ${MAX_EXTRACTION_PROMPT_CHARS} characters).`,
+        "prompt",
+      );
     }
     return { ok: true, value: { mode, prompt } };
   }
 
   // schema mode
   if (!Array.isArray(options.schema) || options.schema.length === 0) {
-    return invalid("`schema` must be a non-empty array of fields in schema mode.", "schema");
+    return invalid(
+      "`schema` must be a non-empty array of fields in schema mode.",
+      "schema",
+    );
   }
   if (options.schema.length > MAX_EXTRACTION_FIELDS) {
-    return invalid(`\`schema\` has too many fields (max ${MAX_EXTRACTION_FIELDS}).`, "schema");
+    return invalid(
+      `\`schema\` has too many fields (max ${MAX_EXTRACTION_FIELDS}).`,
+      "schema",
+    );
   }
 
   const fields: ExtractionField[] = [];
@@ -191,7 +232,10 @@ export function parseExtractOptions(options: Record<string, unknown>): ParseResu
     if (!parsed.ok) return parsed;
     const key = parsed.value.name.toLowerCase();
     if (seen.has(key)) {
-      return invalid(`\`schema[${i}].name\` duplicates an earlier field name.`, `schema[${i}].name`);
+      return invalid(
+        `\`schema[${i}].name\` duplicates an earlier field name.`,
+        `schema[${i}].name`,
+      );
     }
     seen.add(key);
     fields.push(parsed.value);
@@ -214,6 +258,8 @@ export function extractionOutputName(originalName: unknown): string {
   const tail = "-extraction.zip";
   const budget = Math.max(1, MAX_DISPLAY_FILENAME_LENGTH - tail.length);
   const stem =
-    sanitizeDisplayFilename(originalName).replace(/\.[^.]+$/, "").trim() || FALLBACK_STEM;
+    sanitizeDisplayFilename(originalName)
+      .replace(/\.[^.]+$/, "")
+      .trim() || FALLBACK_STEM;
   return `${stem.length > budget ? stem.slice(0, budget).trim() : stem}${tail}`;
 }

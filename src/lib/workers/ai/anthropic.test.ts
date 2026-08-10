@@ -6,7 +6,11 @@ import {
 } from "./anthropic";
 import type { AiCompletionRequest } from "./provider";
 
-const CONFIG = { apiKey: "sk-test-KEY", model: "claude-sonnet-5", timeoutMs: 5000 };
+const CONFIG = {
+  apiKey: "sk-test-KEY",
+  model: "claude-sonnet-5",
+  timeoutMs: 5000,
+};
 const REQUEST: AiCompletionRequest = {
   system: "You summarize.",
   messages: [{ role: "user", content: "Summarize this." }],
@@ -66,14 +70,19 @@ describe("createAnthropicProvider", () => {
 
   it("uses an https base-url override", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      jsonResponse({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" }),
+      jsonResponse({
+        content: [{ type: "text", text: "ok" }],
+        stop_reason: "end_turn",
+      }),
     );
     const provider = createAnthropicProvider(
       { ...CONFIG, baseUrl: "https://proxy.example/anthropic" },
       { fetch: fetchMock },
     );
     await provider.complete(REQUEST);
-    expect(fetchMock.mock.calls[0]![0]).toBe("https://proxy.example/anthropic/v1/messages");
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://proxy.example/anthropic/v1/messages",
+    );
   });
 
   it("maps a 429 to a retryable rate_limited failure", async () => {
@@ -81,12 +90,18 @@ describe("createAnthropicProvider", () => {
       fetch: vi.fn(async () => jsonResponse({ error: "slow down" }, 429)),
     });
     const result = await provider.complete(REQUEST);
-    expect(result).toMatchObject({ ok: false, kind: "rate_limited", retryable: true });
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "rate_limited",
+      retryable: true,
+    });
   });
 
   it("maps a 5xx to a retryable provider_error without leaking the body", async () => {
     const provider = createAnthropicProvider(CONFIG, {
-      fetch: vi.fn(async () => jsonResponse({ error: "secret-internal-detail" }, 503)),
+      fetch: vi.fn(async () =>
+        jsonResponse({ error: "secret-internal-detail" }, 503),
+      ),
     });
     const result = await provider.complete(REQUEST);
     expect(result.ok).toBe(false);
@@ -104,7 +119,11 @@ describe("createAnthropicProvider", () => {
       ),
     });
     const result = await provider.complete(REQUEST);
-    expect(result).toMatchObject({ ok: false, kind: "content_filtered", retryable: false });
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "content_filtered",
+      retryable: false,
+    });
   });
 
   it("fails honestly when the model truncated its answer at max_tokens", async () => {
@@ -113,13 +132,19 @@ describe("createAnthropicProvider", () => {
     const provider = createAnthropicProvider(CONFIG, {
       fetch: vi.fn(async () =>
         jsonResponse({
-          content: [{ type: "text", text: "The document begins by describing the" }],
+          content: [
+            { type: "text", text: "The document begins by describing the" },
+          ],
           stop_reason: "max_tokens",
         }),
       ),
     });
     const result = await provider.complete(REQUEST);
-    expect(result).toMatchObject({ ok: false, kind: "incomplete_output", retryable: false });
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "incomplete_output",
+      retryable: false,
+    });
     // The truncated text must not leak out as if it were the answer.
     if (!result.ok) expect(result.message).not.toContain("The document begins");
   });
@@ -128,11 +153,18 @@ describe("createAnthropicProvider", () => {
     for (const status of [401, 403]) {
       const provider = createAnthropicProvider(CONFIG, {
         fetch: vi.fn(async () =>
-          jsonResponse({ error: { type: "authentication_error", message: "sk-leak" } }, status),
+          jsonResponse(
+            { error: { type: "authentication_error", message: "sk-leak" } },
+            status,
+          ),
         ),
       });
       const result = await provider.complete(REQUEST);
-      expect(result).toMatchObject({ ok: false, kind: "rejected", retryable: false });
+      expect(result).toMatchObject({
+        ok: false,
+        kind: "rejected",
+        retryable: false,
+      });
       if (!result.ok) expect(result.message).not.toContain("sk-leak");
     }
   });
@@ -154,18 +186,29 @@ describe("createAnthropicProvider", () => {
       ),
     });
     const result = await provider.complete(REQUEST);
-    expect(result).toMatchObject({ ok: false, kind: "too_long", retryable: false });
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "too_long",
+      retryable: false,
+    });
   });
 
   it("maps a 413 to too_long and any other 4xx to a non-retryable rejection", async () => {
     const tooLarge = createAnthropicProvider(CONFIG, {
-      fetch: vi.fn(async () => jsonResponse({ error: "request too large" }, 413)),
+      fetch: vi.fn(async () =>
+        jsonResponse({ error: "request too large" }, 413),
+      ),
     });
-    expect(await tooLarge.complete(REQUEST)).toMatchObject({ ok: false, kind: "too_long" });
+    expect(await tooLarge.complete(REQUEST)).toMatchObject({
+      ok: false,
+      kind: "too_long",
+    });
 
     // e.g. an unknown model id — replaying it identically can never succeed.
     const notFound = createAnthropicProvider(CONFIG, {
-      fetch: vi.fn(async () => jsonResponse({ error: { type: "not_found_error" } }, 404)),
+      fetch: vi.fn(async () =>
+        jsonResponse({ error: { type: "not_found_error" } }, 404),
+      ),
     });
     expect(await notFound.complete(REQUEST)).toMatchObject({
       ok: false,
@@ -189,7 +232,10 @@ describe("createAnthropicProvider", () => {
   it("maps a text-less 200 body to invalid_response", async () => {
     const provider = createAnthropicProvider(CONFIG, {
       fetch: vi.fn(async () =>
-        jsonResponse({ content: [{ type: "tool_use" }], stop_reason: "end_turn" }),
+        jsonResponse({
+          content: [{ type: "tool_use" }],
+          stop_reason: "end_turn",
+        }),
       ),
     });
     const result = await provider.complete(REQUEST);

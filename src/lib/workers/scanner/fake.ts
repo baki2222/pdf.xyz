@@ -20,7 +20,9 @@ import {
 /** A fixed result, or a function computing one from the input (to record/branch). */
 export type FakeScanBehavior =
   | MalwareScanResult
-  | ((input: MalwareScanInput) => MalwareScanResult | Promise<MalwareScanResult>);
+  | ((
+      input: MalwareScanInput,
+    ) => MalwareScanResult | Promise<MalwareScanResult>);
 
 /** Options for {@link fakeScanner}. */
 export interface FakeScannerOptions {
@@ -41,7 +43,8 @@ export function fakeScanner(
   const capability: MalwareScanCapability = {
     active: true,
     provider: "fake",
-    detail: "A fake malware scanner for tests/injection only; not a real scanner.",
+    detail:
+      "A fake malware scanner for tests/injection only; not a real scanner.",
     ...options.capability,
   };
   return {

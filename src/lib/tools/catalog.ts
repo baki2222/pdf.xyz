@@ -272,8 +272,7 @@ export const tools: Tool[] = [
     slug: "png-to-pdf",
     name: "PNG to PDF",
     tagline: "Turn PNGs into a crisp PDF.",
-    description:
-      `Convert PNG images — transparent ones included — into a single PDF, up to ${MAX_IMAGE_MB} MB per image, assembled right in your browser. Files stay on your device.`,
+    description: `Convert PNG images — transparent ones included — into a single PDF, up to ${MAX_IMAGE_MB} MB per image, assembled right in your browser. Files stay on your device.`,
     category: "convert-to",
     icon: "png",
     processing: "client",
@@ -339,8 +338,7 @@ export const tools: Tool[] = [
     slug: "text-to-pdf",
     name: "Text to PDF",
     tagline: "Plain text into a formatted PDF.",
-    description:
-      `Turn plain .txt files into a clean, paginated PDF with sensible typography — sources up to ${MAX_SOURCE_MB} MB, typeset right in your browser. The file stays on your device.`,
+    description: `Turn plain .txt files into a clean, paginated PDF with sensible typography — sources up to ${MAX_SOURCE_MB} MB, typeset right in your browser. The file stays on your device.`,
     category: "convert-to",
     icon: "text",
     processing: "client",
@@ -450,7 +448,12 @@ export const tools: Tool[] = [
     badge: "new",
     accept: ["PDF"],
     outputs: ["MD"],
-    keywords: ["pdf to markdown", "pdf to md", "extract markdown", "selectable text"],
+    keywords: [
+      "pdf to markdown",
+      "pdf to md",
+      "extract markdown",
+      "selectable text",
+    ],
     related: ["markdown-to-pdf", "pdf-to-text", "extract-tables"],
   },
   {
@@ -479,7 +482,12 @@ export const tools: Tool[] = [
     badge: "new",
     accept: ["PDF"],
     outputs: ["CSV", "XLSX", "ZIP"],
-    keywords: ["extract tables", "pdf tables", "table to csv", "table to excel"],
+    keywords: [
+      "extract tables",
+      "pdf tables",
+      "table to csv",
+      "table to excel",
+    ],
     related: ["pdf-to-excel", "pdf-to-markdown", "ai-extract"],
   },
 
@@ -497,7 +505,12 @@ export const tools: Tool[] = [
     featured: true,
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["edit pdf", "pdf editor", "add text to pdf", "insert image in pdf"],
+    keywords: [
+      "edit pdf",
+      "pdf editor",
+      "add text to pdf",
+      "insert image in pdf",
+    ],
     related: ["annotate-pdf", "sign-pdf", "watermark-pdf"],
     how: [
       "Open your PDF — its pages are preserved exactly.",
@@ -649,7 +662,13 @@ export const tools: Tool[] = [
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["fill form", "pdf form", "complete form", "acroform", "form filler"],
+    keywords: [
+      "fill form",
+      "pdf form",
+      "complete form",
+      "acroform",
+      "form filler",
+    ],
     related: ["create-forms", "sign-pdf", "flatten-pdf"],
   },
   {
@@ -664,7 +683,13 @@ export const tools: Tool[] = [
     badge: "beta",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["create form", "fillable pdf", "form builder", "add fields", "acroform"],
+    keywords: [
+      "create form",
+      "fillable pdf",
+      "form builder",
+      "add fields",
+      "acroform",
+    ],
     related: ["fill-forms", "sign-pdf", "edit-pdf"],
   },
 
@@ -729,7 +754,12 @@ export const tools: Tool[] = [
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["flatten pdf", "flatten form", "lock form fields", "lock content"],
+    keywords: [
+      "flatten pdf",
+      "flatten form",
+      "lock form fields",
+      "lock content",
+    ],
     related: ["fill-forms", "redact-pdf", "protect-pdf"],
     how: [
       "Open a PDF with fillable form fields.",

@@ -24,13 +24,17 @@ import { createOpenAiProvider } from "./openai";
 import type { AiCompletionRequest } from "./provider";
 
 const REQUEST: AiCompletionRequest = {
-  system: "You are a careful assistant.\n--- DOCUMENT START ---\nlong text\n--- DOCUMENT END ---",
+  system:
+    "You are a careful assistant.\n--- DOCUMENT START ---\nlong text\n--- DOCUMENT END ---",
   messages: [{ role: "user", content: "What does it say?" }],
   maxOutputTokens: 256,
 };
 
 /** Capture the request body an adapter puts on the wire, returning a canned reply. */
-function capturing(reply: unknown): { fetch: typeof fetch; body: () => Record<string, unknown> } {
+function capturing(reply: unknown): {
+  fetch: typeof fetch;
+  body: () => Record<string, unknown>;
+} {
   let seen: Record<string, unknown> = {};
   const fake = (async (_url: string, init?: RequestInit) => {
     seen = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
@@ -76,7 +80,11 @@ describe("Anthropic — caching must be asked for explicitly", () => {
 
     // A block array, not a string: `cache_control` has nowhere to live otherwise.
     expect(cap.body().system).toEqual([
-      { type: "text", text: REQUEST.system, cache_control: { type: "ephemeral" } },
+      {
+        type: "text",
+        text: REQUEST.system,
+        cache_control: { type: "ephemeral" },
+      },
     ]);
   });
 
@@ -101,14 +109,23 @@ describe("Anthropic — caching must be asked for explicitly", () => {
   it("reports cache reads, because input_tokens alone hides them", async () => {
     // A cache hit shows up as a SMALL input_tokens plus a large cache_read count.
     // Reading only the first would make a cached request look like a tiny one.
-    const result = await anthropic(capturing(ANTHROPIC_REPLY).fetch).complete(REQUEST);
+    const result = await anthropic(capturing(ANTHROPIC_REPLY).fetch).complete(
+      REQUEST,
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 5, cachedInputTokens: 4_000 });
+    expect(result.usage).toEqual({
+      inputTokens: 12,
+      outputTokens: 5,
+      cachedInputTokens: 4_000,
+    });
   });
 
   it("omits the figure rather than reporting zero when the provider is silent", async () => {
-    const reply = { ...ANTHROPIC_REPLY, usage: { input_tokens: 12, output_tokens: 5 } };
+    const reply = {
+      ...ANTHROPIC_REPLY,
+      usage: { input_tokens: 12, output_tokens: 5 },
+    };
     const result = await anthropic(capturing(reply).fetch).complete(REQUEST);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -143,9 +160,15 @@ describe("OpenAI — caching is automatic, so the body must not change", () => {
   });
 
   it("reports the cached share of the prompt", async () => {
-    const result = await openai(capturing(OPENAI_REPLY).fetch).complete(REQUEST);
+    const result = await openai(capturing(OPENAI_REPLY).fetch).complete(
+      REQUEST,
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 5, cachedInputTokens: 4_000 });
+    expect(result.usage).toEqual({
+      inputTokens: 12,
+      outputTokens: 5,
+      cachedInputTokens: 4_000,
+    });
   });
 });

@@ -35,7 +35,10 @@ import {
 import type { IngestedOperations } from "./ingest";
 
 /** The bundle exit code per composite severity — the authoritative severity → code map. */
-export const OPS_BUNDLE_EXIT_FOR_SEVERITY: Record<OpsBundleSeverity, OpsBundleExitCode> = {
+export const OPS_BUNDLE_EXIT_FOR_SEVERITY: Record<
+  OpsBundleSeverity,
+  OpsBundleExitCode
+> = {
   ok: OPS_BUNDLE_EXIT.OK,
   usage: OPS_BUNDLE_EXIT.USAGE,
   unknown: OPS_BUNDLE_EXIT.UNKNOWN,

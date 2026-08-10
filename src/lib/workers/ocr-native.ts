@@ -37,19 +37,22 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { PDFDocument } from "pdf-lib";
-import { buildOcrResultMeta, OCR_LOW_CONFIDENCE_WORD_THRESHOLD } from "@/lib/jobs/ocr";
+import {
+  buildOcrResultMeta,
+  OCR_LOW_CONFIDENCE_WORD_THRESHOLD,
+} from "@/lib/jobs/ocr";
 import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import { looksLikePdf } from "./compression/engine";
-import {
-  OCR_ENGINES,
-  type OcrEngine,
-  type OcrEngineAvailability,
-} from "./ocr";
+import { OCR_ENGINES, type OcrEngine, type OcrEngineAvailability } from "./ocr";
 import {
   resolveNativeOcrConfig,
   type NativeOcrConfig,
 } from "./ocr-native-config";
-import type { OcrProcessorDeps, OcrRunner, OcrRunResult } from "./processor/ocr";
+import type {
+  OcrProcessorDeps,
+  OcrRunner,
+  OcrRunResult,
+} from "./processor/ocr";
 import type { ProcessorArtifact, ProcessorInputFile } from "./processor/types";
 
 /** stdout/stderr capture ceiling. Engines are `--quiet` and write to files, so this is generous. */
@@ -88,7 +91,10 @@ export interface NativeOcrFs {
   mkdtemp: (prefix: string) => Promise<string>;
   writeFile: (file: string, data: Uint8Array) => Promise<void>;
   readFile: (file: string) => Promise<Uint8Array>;
-  rm: (dir: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  rm: (
+    dir: string,
+    options: { recursive: boolean; force: boolean },
+  ) => Promise<void>;
 }
 
 /** All the host seams the native OCR layer touches; each defaults to the real Node built-in. */
@@ -272,7 +278,9 @@ export function firstUsableOcrEngine(
   config: NativeOcrConfig,
   seams: NativeOcrSeams = {},
 ): OcrEngine | null {
-  return OCR_ENGINES.find((engine) => engineUsable(engine, config, seams)) ?? null;
+  return (
+    OCR_ENGINES.find((engine) => engineUsable(engine, config, seams)) ?? null
+  );
 }
 
 /**
@@ -384,7 +392,11 @@ async function readConfidence(
   lowConfidenceWordRatio: number | null;
   recognizedWords: number | null;
 }> {
-  const none = { meanConfidence: null, lowConfidenceWordRatio: null, recognizedWords: null };
+  const none = {
+    meanConfidence: null,
+    lowConfidenceWordRatio: null,
+    recognizedWords: null,
+  };
   if (!tsvOut) return none;
   try {
     return parseTesseractConfidence(await fs.readFile(tsvOut)) ?? none;
@@ -423,8 +435,11 @@ export interface TesseractConfidence {
  * `buildOcrResultMeta` would reject every real value as out of range and null the
  * field, putting it right back to permanently invisible.
  */
-export function parseTesseractConfidence(bytes: Uint8Array): TesseractConfidence | null {
-  if (bytes.byteLength === 0 || bytes.byteLength > META_TSV_MAX_PARSE_BYTES) return null;
+export function parseTesseractConfidence(
+  bytes: Uint8Array,
+): TesseractConfidence | null {
+  if (bytes.byteLength === 0 || bytes.byteLength > META_TSV_MAX_PARSE_BYTES)
+    return null;
   let total = 0;
   let words = 0;
   let low = 0;
@@ -494,21 +509,27 @@ export function createNativeOcrRunner(
       );
     }
 
-    const wantPdf = options.outputMode === "searchable-pdf" || options.outputMode === "both";
-    const wantText = options.outputMode === "text" || options.outputMode === "both";
+    const wantPdf =
+      options.outputMode === "searchable-pdf" || options.outputMode === "both";
+    const wantText =
+      options.outputMode === "text" || options.outputMode === "both";
 
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-ocr-"));
     const inputPath = path.join(dir, `input.${inputExtension(input)}`);
     try {
       await fs.writeFile(inputPath, input.bytes);
-      const { command, args, pdfOut, txtOut, tsvOut } = nativeOcrArgs(engine, config.binaries[engine], {
-        inputPath,
-        workDir: dir,
-        languages: options.languages,
-        skipTextPages: options.skipTextPages,
-        wantPdf,
-        wantText,
-      });
+      const { command, args, pdfOut, txtOut, tsvOut } = nativeOcrArgs(
+        engine,
+        config.binaries[engine],
+        {
+          inputPath,
+          workDir: dir,
+          languages: options.languages,
+          skipTextPages: options.skipTextPages,
+          wantPdf,
+          wantText,
+        },
+      );
       await exec(command, args, {
         timeout: config.timeoutMs,
         maxBuffer: EXEC_MAX_BUFFER,
@@ -561,9 +582,13 @@ export function createNativeOcrRunner(
       // safe document-level confidence, so we never invent one. No recognized text,
       // filename, or path enters the metadata.
       const searchablePdf =
-        artifacts.find((artifact) => artifact.contentType === PDF_CONTENT_TYPE) ?? null;
+        artifacts.find(
+          (artifact) => artifact.contentType === PDF_CONTENT_TYPE,
+        ) ?? null;
       const textSidecar =
-        artifacts.find((artifact) => artifact.contentType === TEXT_CONTENT_TYPE) ?? null;
+        artifacts.find(
+          (artifact) => artifact.contentType === TEXT_CONTENT_TYPE,
+        ) ?? null;
       const meta = buildOcrResultMeta({
         engine,
         languages: options.languages,
@@ -571,7 +596,9 @@ export function createNativeOcrRunner(
         producedSearchablePdf: searchablePdf !== null,
         producedTextSidecar: textSidecar !== null,
         pageCount: searchablePdf ? await countPages(searchablePdf.bytes) : null,
-        textCharacters: textSidecar ? countTextCharacters(textSidecar.bytes) : null,
+        textCharacters: textSidecar
+          ? countTextCharacters(textSidecar.bytes)
+          : null,
         // Best-effort and never fatal. An older Tesseract without the TSV renderer, a
         // failed write, or an unreadable file leaves the figures null — a job that
         // produced a good artifact must not fail because it could not be SCORED.
@@ -616,7 +643,9 @@ export function nativeOcrDeps(
  * Debian/Homebrew locations. The versioned Debian path is expanded by listing the
  * parent, so a Tesseract major-version bump needs no change here.
  */
-function tessdataDirectories(env: Record<string, string | undefined>): string[] {
+function tessdataDirectories(
+  env: Record<string, string | undefined>,
+): string[] {
   const dirs: string[] = [];
   const prefix = env.TESSDATA_PREFIX?.trim();
   if (prefix) dirs.push(prefix);
@@ -625,7 +654,8 @@ function tessdataDirectories(env: Record<string, string | undefined>): string[] 
   const versioned = "/usr/share/tesseract-ocr";
   try {
     for (const entry of readdirSync(versioned, { withFileTypes: true })) {
-      if (entry.isDirectory()) dirs.push(path.join(versioned, entry.name, "tessdata"));
+      if (entry.isDirectory())
+        dirs.push(path.join(versioned, entry.name, "tessdata"));
     }
   } catch {
     // Not this layout on this host — the fixed paths below still apply.

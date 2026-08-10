@@ -44,7 +44,11 @@
 import type { WorkerMode } from "../mode";
 import type { DaemonReadiness } from "../daemon/readiness";
 import { resolveDaemonReadiness } from "../daemon/readiness";
-import type { DaemonRunMode, DaemonRunSummary, DaemonStopReason } from "../daemon/daemon";
+import type {
+  DaemonRunMode,
+  DaemonRunSummary,
+  DaemonStopReason,
+} from "../daemon/daemon";
 import type { LifecycleVerdict } from "../lifecycle";
 import {
   DEEP_COMPRESSION_TOOLS,
@@ -240,7 +244,8 @@ export function rateLimitPostureForCode(
   return {
     code,
     enforced: code === "local-memory" || code === "remote-configured",
-    distributed: code === "remote-configured" || code === "remote-error-fail-open",
+    distributed:
+      code === "remote-configured" || code === "remote-error-fail-open",
     detail: RATE_LIMIT_DETAIL[code],
   };
 }
@@ -528,7 +533,9 @@ function loopHealth(summary: DaemonRunSummary): HealthClass {
 }
 
 /** Classify the lifecycle readiness state into an SLO health class. */
-function lifecycleHealth(state: WorkerDeploymentReadiness["lifecycle"]["state"]): HealthClass {
+function lifecycleHealth(
+  state: WorkerDeploymentReadiness["lifecycle"]["state"],
+): HealthClass {
   switch (state) {
     case "validated":
       return "ok";
@@ -547,7 +554,9 @@ function lifecycleHealth(state: WorkerDeploymentReadiness["lifecycle"]["state"])
  * healthy report is `ok`; a stale/missing report or a drift is `warn`; a breach or an
  * invalid/refused report is `blocked` (critical). Exported so the ingest path reuses it verbatim.
  */
-export function cleanupEvidenceHealth(state: CleanupEvidenceState): HealthClass {
+export function cleanupEvidenceHealth(
+  state: CleanupEvidenceState,
+): HealthClass {
   switch (state) {
     case "healthy":
       return "ok";
@@ -611,11 +620,16 @@ function buildSubsystems(
     sub(
       "queue",
       readiness.queueConfigured ? "ok" : "warn",
-      facetOf(deployment, "queue")?.detail ?? "Job queue configuration is unknown.",
+      facetOf(deployment, "queue")?.detail ??
+        "Job queue configuration is unknown.",
     ),
     sub(
       "compression-engine",
-      engineState === "ready" ? "ok" : engineState === "degraded" ? "warn" : "unknown",
+      engineState === "ready"
+        ? "ok"
+        : engineState === "degraded"
+          ? "warn"
+          : "unknown",
       facetOf(deployment, "engine")?.detail ??
         "Compression-engine availability is not observable from here.",
     ),
@@ -624,20 +638,37 @@ function buildSubsystems(
       ocrHealth,
       ocrState === "not-implemented" || ocrState === undefined
         ? "OCR runs out-of-band on the secure worker; whether an engine is installed there is not observable from here."
-        : (facetOf(deployment, "ocr")?.detail ?? "OCR availability is unknown."),
+        : (facetOf(deployment, "ocr")?.detail ??
+            "OCR availability is unknown."),
     ),
     sub(
       "malware-scan",
-      scan.state === "ready" ? "ok" : scan.state === "unavailable" ? "warn" : "ok",
+      scan.state === "ready"
+        ? "ok"
+        : scan.state === "unavailable"
+          ? "warn"
+          : "ok",
       scan.detail,
     ),
     // Same shape as malware-scan one line up: an optional request gate where
     // "not selected" is a fine choice (ok) and "selected but not doing its job"
     // is the caveat (warn). The posture's own code disambiguates why.
     sub("rate-limit", rateLimitHealth(rateLimit.code), rateLimit.detail),
-    sub("lifecycle", lifecycleHealth(deployment.lifecycle.state), deployment.lifecycle.detail),
-    sub("lifecycle-verification", lifecycleVerification.health, lifecycleVerification.detail),
-    sub("cleanup-evidence", cleanupEvidenceHealth(cleanupEvidence.state), cleanupEvidence.detail),
+    sub(
+      "lifecycle",
+      lifecycleHealth(deployment.lifecycle.state),
+      deployment.lifecycle.detail,
+    ),
+    sub(
+      "lifecycle-verification",
+      lifecycleVerification.health,
+      lifecycleVerification.detail,
+    ),
+    sub(
+      "cleanup-evidence",
+      cleanupEvidenceHealth(cleanupEvidence.state),
+      cleanupEvidence.detail,
+    ),
     sub(
       "guardrails",
       guardrailHealth(input.guardrails),
@@ -790,7 +821,10 @@ function deriveVerdict(
   }
 
   // 6. OCR is opted into but its engine is missing on this worker.
-  if (input.ocrEnabled && facetOf(deployment, "ocr")?.state === "not-configured") {
+  if (
+    input.ocrEnabled &&
+    facetOf(deployment, "ocr")?.state === "not-configured"
+  ) {
     return { health: "warn", action: "install-ocr-engine" };
   }
 
@@ -807,7 +841,10 @@ function deriveVerdict(
   if (deployment.lifecycle.state === "unknown") {
     return { health: "warn", action: "declare-lifecycle" };
   }
-  if (deployment.lifecycle.state === "declared" || deployment.lifecycle.state === "invalid") {
+  if (
+    deployment.lifecycle.state === "declared" ||
+    deployment.lifecycle.state === "invalid"
+  ) {
     return { health: "warn", action: "verify-lifecycle" };
   }
 
@@ -823,7 +860,10 @@ function deriveVerdict(
   }
   //  - observation is ON but the heartbeat is stale/absent ⇒ it should be beating but
   //    isn't — a real, actionable warning (not merely the unobservable residual);
-  if (liveness && (liveness.state === "stale" || liveness.state === "unknown")) {
+  if (
+    liveness &&
+    (liveness.state === "stale" || liveness.state === "unknown")
+  ) {
     return { health: "warn", action: "investigate-worker-liveness" };
   }
   //  - observation is off/not configured ⇒ the honest residual: a worker must be
@@ -847,10 +887,18 @@ export const HEALTH_SUMMARY: Record<HealthClass, string> = {
 export function buildWorkerOperationsSnapshot(
   input: OperationsSnapshotInput,
 ): WorkerOperationsSnapshot {
-  const lifecycleVerification = resolveLifecycleVerification(input.lifecycleVerification);
-  const cleanupEvidence = input.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE;
+  const lifecycleVerification = resolveLifecycleVerification(
+    input.lifecycleVerification,
+  );
+  const cleanupEvidence =
+    input.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE;
   const rateLimit = input.rateLimit ?? UNOBSERVED_RATE_LIMIT_POSTURE;
-  const subsystems = buildSubsystems(input, lifecycleVerification, cleanupEvidence, rateLimit);
+  const subsystems = buildSubsystems(
+    input,
+    lifecycleVerification,
+    cleanupEvidence,
+    rateLimit,
+  );
   const { health, action } = deriveVerdict(input, lifecycleVerification);
   const daemon = resolveDaemonLiveness(input.vantage, input.daemonLiveness);
 
@@ -908,7 +956,9 @@ export function engineHealthFromTools(
   tools: ToolAvailability | undefined,
 ): EngineHealthInput | undefined {
   if (!tools) return undefined;
-  const engines: CompressionTool[] = DEEP_COMPRESSION_TOOLS.filter((t) => tools[t]);
+  const engines: CompressionTool[] = DEEP_COMPRESSION_TOOLS.filter(
+    (t) => tools[t],
+  );
   return { lossless: true, deep: engines.length > 0, engines };
 }
 
@@ -1002,7 +1052,9 @@ export function collectRuntimeOperationsSnapshot(
       ? { lifecycleVerification: extras.lifecycleVerification }
       : {}),
     ...(extras.lastLoop ? { lastLoop: extras.lastLoop } : {}),
-    ...(extras.cleanupEvidence ? { cleanupEvidence: extras.cleanupEvidence } : {}),
+    ...(extras.cleanupEvidence
+      ? { cleanupEvidence: extras.cleanupEvidence }
+      : {}),
   });
 }
 

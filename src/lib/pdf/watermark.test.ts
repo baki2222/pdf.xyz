@@ -45,6 +45,8 @@ describe("watermark", () => {
   });
 
   it("names the download from the source", () => {
-    expect(watermarkedOutputName("invoice.pdf")).toBe("invoice-watermarked.pdf");
+    expect(watermarkedOutputName("invoice.pdf")).toBe(
+      "invoice-watermarked.pdf",
+    );
   });
 });

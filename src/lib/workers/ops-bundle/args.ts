@@ -103,7 +103,9 @@ function toFlag(token: string): { name: string; inlineValue?: string } {
  * side-effect-free: it validates flags, rejects conflicting sources/formats/duplicate value
  * flags and unknown options, and never reads the environment.
  */
-export function parseOpsBundleArgs(argv: readonly string[]): ParseOpsBundleArgsResult {
+export function parseOpsBundleArgs(
+  argv: readonly string[],
+): ParseOpsBundleArgsResult {
   let opsCheckPath: string | undefined;
   let explicitStdin = false;
   let pipelinePath: string | undefined;
@@ -120,7 +122,11 @@ export function parseOpsBundleArgs(argv: readonly string[]): ParseOpsBundleArgsR
 
     if (name === "--stdin") {
       if (opsCheckPath !== undefined) {
-        return { ok: false, message: "Conflicting operations input: --stdin and --ops-check cannot be combined." };
+        return {
+          ok: false,
+          message:
+            "Conflicting operations input: --stdin and --ops-check cannot be combined.",
+        };
       }
       explicitStdin = true;
       continue;
@@ -131,7 +137,12 @@ export function parseOpsBundleArgs(argv: readonly string[]): ParseOpsBundleArgsR
       continue;
     }
 
-    if (name === "--ops-check" || name === "--operations-file" || name === "--pipeline" || name === "--output") {
+    if (
+      name === "--ops-check" ||
+      name === "--operations-file" ||
+      name === "--pipeline" ||
+      name === "--output"
+    ) {
       // Value from `--flag=path` or the next argv token (not another flag).
       let value = inlineValue;
       if (value === undefined) {
@@ -146,17 +157,23 @@ export function parseOpsBundleArgs(argv: readonly string[]): ParseOpsBundleArgsR
       }
       if (name === "--ops-check" || name === "--operations-file") {
         if (explicitStdin) {
-          return { ok: false, message: "Conflicting operations input: --stdin and --ops-check cannot be combined." };
+          return {
+            ok: false,
+            message:
+              "Conflicting operations input: --stdin and --ops-check cannot be combined.",
+          };
         }
         if (opsCheckPath !== undefined) {
           return { ok: false, message: "Duplicate --ops-check option." };
         }
         opsCheckPath = value;
       } else if (name === "--pipeline") {
-        if (pipelinePath !== undefined) return { ok: false, message: "Duplicate --pipeline option." };
+        if (pipelinePath !== undefined)
+          return { ok: false, message: "Duplicate --pipeline option." };
         pipelinePath = value;
       } else {
-        if (outputPath !== undefined) return { ok: false, message: "Duplicate --output option." };
+        if (outputPath !== undefined)
+          return { ok: false, message: "Duplicate --output option." };
         outputPath = value;
       }
       continue;
@@ -165,7 +182,10 @@ export function parseOpsBundleArgs(argv: readonly string[]): ParseOpsBundleArgsR
     if (name in FORMAT_FLAGS) {
       const next = FORMAT_FLAGS[name]!;
       if (format !== undefined && format !== next) {
-        return { ok: false, message: `Conflicting formats: --${format} and ${name} cannot be combined.` };
+        return {
+          ok: false,
+          message: `Conflicting formats: --${format} and ${name} cannot be combined.`,
+        };
       }
       format = next;
       continue;

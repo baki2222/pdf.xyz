@@ -27,7 +27,9 @@ export { PROJECTION_SCHEMA } from "./types";
 export const PROJECT_EXIT_INPUT_ERROR = 1;
 
 /** Map the aggregate projection verdict to the documented exit-code ladder. */
-export function exitCodeForProjectionVerdict(verdict: ProjectionVerdict): number {
+export function exitCodeForProjectionVerdict(
+  verdict: ProjectionVerdict,
+): number {
   switch (verdict) {
     case "projected":
       return 0;
@@ -47,7 +49,11 @@ export interface ProjectRun {
 }
 
 /** Render a content-free input-error document (parse failure). Never echoes the input. */
-function renderInputError(issue: string, target: string, generatedAt: string): string {
+function renderInputError(
+  issue: string,
+  target: string,
+  generatedAt: string,
+): string {
   return `${JSON.stringify(
     {
       tool: "worker-cleanup-project",
@@ -113,5 +119,9 @@ export function runProject(
     2,
   )}\n`;
 
-  return { exitCode: exitCodeForProjectionVerdict(result.verdict), output, result };
+  return {
+    exitCode: exitCodeForProjectionVerdict(result.verdict),
+    output,
+    result,
+  };
 }

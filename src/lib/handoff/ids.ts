@@ -42,5 +42,9 @@ export function newHandoffId(): string {
 
 /** Cheap shape check for an id read from an untrusted URL parameter. */
 export function looksLikeHandoffId(value: string): boolean {
-  return value.startsWith(PREFIX) && value.length > PREFIX.length && value.length <= 80;
+  return (
+    value.startsWith(PREFIX) &&
+    value.length > PREFIX.length &&
+    value.length <= 80
+  );
 }

@@ -22,7 +22,11 @@ const validInput: ArtifactValidationInput = {
   processor: "compress",
   retention: DEFAULT_RETENTION,
   artifacts: [
-    { filename: "out.pdf", contentType: "application/pdf", bytes: enc("%PDF-1.7") },
+    {
+      filename: "out.pdf",
+      contentType: "application/pdf",
+      bytes: enc("%PDF-1.7"),
+    },
   ],
 };
 
@@ -48,7 +52,10 @@ describe("createArtifactManifestGate", () => {
   });
 
   it("the capability detail is content-free prose (no variable, value, or path)", () => {
-    for (const gate of [defaultArtifactManifestGate(), disabledArtifactManifestGate()]) {
+    for (const gate of [
+      defaultArtifactManifestGate(),
+      disabledArtifactManifestGate(),
+    ]) {
       const detail = gate.capability().detail;
       expect(detail).not.toMatch(/PDFXYZ_|\/|=|\\/);
       expect(detail.length).toBeGreaterThan(0);
@@ -72,7 +79,9 @@ describe("resolveWorkerArtifactManifest", () => {
   it("builds a gate over the shipped default policy by default", () => {
     // Sanity: the barrel resolver and the explicit default construct the same behavior.
     const a = resolveWorkerArtifactManifest({}).validate(validInput);
-    const b = createArtifactManifestGate(DEFAULT_ARTIFACT_POLICY).validate(validInput);
+    const b = createArtifactManifestGate(DEFAULT_ARTIFACT_POLICY).validate(
+      validInput,
+    );
     expect(a.verdict).toBe(b.verdict);
   });
 });

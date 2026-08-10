@@ -18,6 +18,8 @@ describe("countPdfPages", () => {
   it("returns null for empty, truncated, or non-PDF bytes (never throws)", async () => {
     expect(await countPdfPages(new Uint8Array())).toBeNull();
     expect(await countPdfPages(new Uint8Array([1, 2, 3, 4]))).toBeNull();
-    expect(await countPdfPages(new TextEncoder().encode("%PDF-1.7 not really"))).toBeNull();
+    expect(
+      await countPdfPages(new TextEncoder().encode("%PDF-1.7 not really")),
+    ).toBeNull();
   });
 });

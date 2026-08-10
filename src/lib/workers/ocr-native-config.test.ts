@@ -34,7 +34,9 @@ describe("parseNativeOcrConfig — opt-in enable flag", () => {
   });
 
   it("rejects an unrecognized enable token by NAME, never echoing the value", () => {
-    const parsed = parseNativeOcrConfig({ [NATIVE_OCR_ENV.enable]: "maybe-later" });
+    const parsed = parseNativeOcrConfig({
+      [NATIVE_OCR_ENV.enable]: "maybe-later",
+    });
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
       expect(parsed.issues[0]?.field).toBe(NATIVE_OCR_ENV.enable);
@@ -101,7 +103,9 @@ describe("parseNativeOcrConfig — bounded numeric knobs", () => {
     if (parsed.ok) {
       expect(parsed.config.timeoutMs).toBe(OCR_TIMEOUT_MS_BOUNDS.default);
       expect(parsed.config.maxInputBytes).toBe(OCR_INPUT_BYTES_BOUNDS.default);
-      expect(parsed.config.maxOutputBytes).toBe(OCR_OUTPUT_BYTES_BOUNDS.default);
+      expect(parsed.config.maxOutputBytes).toBe(
+        OCR_OUTPUT_BYTES_BOUNDS.default,
+      );
     }
   });
 
@@ -125,14 +129,16 @@ describe("parseNativeOcrConfig — bounded numeric knobs", () => {
       [NATIVE_OCR_ENV.timeoutMs]: tooBig,
     });
     expect(parsed.ok).toBe(false);
-    if (!parsed.ok) expect(parsed.issues[0]?.field).toBe(NATIVE_OCR_ENV.timeoutMs);
+    if (!parsed.ok)
+      expect(parsed.issues[0]?.field).toBe(NATIVE_OCR_ENV.timeoutMs);
 
     const nan = parseNativeOcrConfig({
       [NATIVE_OCR_ENV.enable]: "on",
       [NATIVE_OCR_ENV.maxOutputBytes]: "lots",
     });
     expect(nan.ok).toBe(false);
-    if (!nan.ok) expect(nan.issues[0]?.field).toBe(NATIVE_OCR_ENV.maxOutputBytes);
+    if (!nan.ok)
+      expect(nan.issues[0]?.field).toBe(NATIVE_OCR_ENV.maxOutputBytes);
   });
 });
 

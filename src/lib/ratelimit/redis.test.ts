@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { RedisFetch, RedisHttpResponse } from "@/lib/workers/queue/redis-client";
+import type {
+  RedisFetch,
+  RedisHttpResponse,
+} from "@/lib/workers/queue/redis-client";
 import { policyFor } from "./policy";
 import { RATE_LIMIT_ENV } from "./config";
 import {
@@ -10,7 +13,10 @@ import {
 } from "./redis";
 import type { RateLimitRedisConfig } from "./redis-config";
 import { enforceRateLimit, resetRateLimitGuardForTests } from "./guard";
-import { clearRateLimitProviderForTests, registerRateLimitProvider } from "./provider";
+import {
+  clearRateLimitProviderForTests,
+  registerRateLimitProvider,
+} from "./provider";
 import { rateLimitErrorResult, rateLimitHeaders } from "./response";
 
 const CONFIG: RateLimitRedisConfig = {
@@ -33,7 +39,9 @@ interface EvalCall {
  * with no network. Records every command body so a test can prove the request shape and
  * that only opaque keys ever cross the wire.
  */
-function fakeRedis(opts: { failWith?: "network" | "http500" | "commanderror" | "garbage" } = {}) {
+function fakeRedis(
+  opts: { failWith?: "network" | "http500" | "commanderror" | "garbage" } = {},
+) {
   const windows = new Map<string, { count: number; expireAt: number }>();
   const now = 5_000_000; // fixed server clock; test windows never expire mid-run
   const calls: EvalCall[] = [];
@@ -42,11 +50,20 @@ function fakeRedis(opts: { failWith?: "network" | "http500" | "commanderror" | "
   const fetchImpl: RedisFetch = async (_url, init) => {
     bodies.push(init.body);
     const args = JSON.parse(init.body) as string[];
-    calls.push({ script: args[1]!, numKeys: args[2]!, key: args[3]!, windowMs: args[4]! });
+    calls.push({
+      script: args[1]!,
+      numKeys: args[2]!,
+      key: args[3]!,
+      windowMs: args[4]!,
+    });
 
     if (opts.failWith === "network") throw new Error("ECONNREFUSED");
     if (opts.failWith === "http500") {
-      return { ok: false, status: 500, json: async () => ({}) } satisfies RedisHttpResponse;
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+      } satisfies RedisHttpResponse;
     }
 
     const key = args[3]!;
@@ -70,7 +87,11 @@ function fakeRedis(opts: { failWith?: "network" | "http500" | "commanderror" | "
         : opts.failWith === "garbage"
           ? { result: "not-an-array" }
           : { result: [count, pttl] };
-    return { ok: true, status: 200, json: async () => body } satisfies RedisHttpResponse;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => body,
+    } satisfies RedisHttpResponse;
   };
 
   return { fetchImpl, calls, bodies };
@@ -121,7 +142,9 @@ describe("createRedisRateLimitProvider — enforcement + request shape", () => {
     expect(call.script).toBe(FIXED_WINDOW_SCRIPT);
     expect(call.numKeys).toBe("1");
     expect(call.key).toBe(rateLimitBucketKey("pdfxyz", "jobs.status", opaque));
-    expect(call.key).toBe("pdfxyz:ratelimit:jobs.status:c_deadbeefdeadbeefdeadbeefdeadbeef");
+    expect(call.key).toBe(
+      "pdfxyz:ratelimit:jobs.status:c_deadbeefdeadbeefdeadbeefdeadbeef",
+    );
     // The window is passed as ARGV, in milliseconds.
     expect(call.windowMs).toBe(String(policy.windowSeconds * 1000));
     // Nothing but the opaque token, policy id, and prefix ever appears in the body.
@@ -132,7 +155,8 @@ describe("createRedisRateLimitProvider — enforcement + request shape", () => {
     const { fetchImpl } = fakeRedis();
     const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl });
     const policy = policyFor("jobs.create");
-    for (let i = 0; i < policy.limit; i++) await provider.check(policy, "c_aaaa", 0);
+    for (let i = 0; i < policy.limit; i++)
+      await provider.check(policy, "c_aaaa", 0);
     expect((await provider.check(policy, "c_aaaa", 0)).allowed).toBe(false);
     // A different bucket has its own, untouched budget.
     expect((await provider.check(policy, "c_bbbb", 0)).allowed).toBe(true);
@@ -152,18 +176,27 @@ describe("createRedisRateLimitProvider — enforcement + request shape", () => {
 });
 
 describe("createRedisRateLimitProvider — fails by THROWING on any backend error", () => {
-  for (const failWith of ["network", "http500", "commanderror", "garbage"] as const) {
+  for (const failWith of [
+    "network",
+    "http500",
+    "commanderror",
+    "garbage",
+  ] as const) {
     it(`throws (never fabricates a verdict) on ${failWith}`, async () => {
       const { fetchImpl } = fakeRedis({ failWith });
       const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl });
-      await expect(provider.check(policyFor("jobs.create"), "shared", 0)).rejects.toThrow();
+      await expect(
+        provider.check(policyFor("jobs.create"), "shared", 0),
+      ).rejects.toThrow();
     });
   }
 
   it("keeps the token out of the thrown error", async () => {
     const { fetchImpl } = fakeRedis({ failWith: "http500" });
     const provider = createRedisRateLimitProvider(CONFIG, { fetchImpl });
-    const err = await provider.check(policyFor("jobs.create"), "shared", 0).catch((e) => e);
+    const err = await provider
+      .check(policyFor("jobs.create"), "shared", 0)
+      .catch((e) => e);
     expect(String(err)).not.toContain(CONFIG.token);
     expect(String(err)).not.toContain("upstash.io");
   });
@@ -193,7 +226,9 @@ describe("guard ↔ Redis provider — enforced remote decisions, content-free 4
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
     const { fetchImpl, bodies } = fakeRedis();
-    registerRateLimitProvider(createRedisRateLimitProvider(CONFIG, { fetchImpl }));
+    registerRateLimitProvider(
+      createRedisRateLimitProvider(CONFIG, { fetchImpl }),
+    );
 
     const policy = policyFor("jobs.create");
     const hostile = {
@@ -218,7 +253,13 @@ describe("guard ↔ Redis provider — enforced remote decisions, content-free 4
       body: rateLimitErrorResult(decision),
       headers: rateLimitHeaders(decision),
     });
-    for (const leak of ["203.0.113.77", "EvilBot", "TOPSECRET", "upstash.io", CONFIG.token]) {
+    for (const leak of [
+      "203.0.113.77",
+      "EvilBot",
+      "TOPSECRET",
+      "upstash.io",
+      CONFIG.token,
+    ]) {
       expect(wire).not.toContain(leak);
     }
     // …and the store never saw the raw address either (only the salted-hash bucket).

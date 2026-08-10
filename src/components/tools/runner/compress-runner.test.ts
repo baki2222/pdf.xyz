@@ -11,7 +11,11 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
     compress: { lossless: false, deep: false, engines: [] },
     ocr: { available: false, engine: null, languages: [], detail: "test" },
     scan: { active: false, detail: "not scanned" },
-    security: { available: false, operations: ["protect", "unlock"], detail: "test" },
+    security: {
+      available: false,
+      operations: ["protect", "unlock"],
+      detail: "test",
+    },
     providers: {
       storage: {
         provider: "disabled",
@@ -55,7 +59,12 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       ready: false,
       detail: "no ai declared",
     },
-    pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
+    pipeline: {
+      verdict: "off",
+      observed: false,
+      drainable: false,
+      detail: "no worker observed",
+    },
     ...overrides,
   };
 }
@@ -64,7 +73,10 @@ describe("canRunDeepCompression", () => {
   it("allows local-dev only when a native deep engine was probed", () => {
     expect(
       canRunDeepCompression(
-        status({ localDevOnly: true, compress: { lossless: true, deep: false, engines: [] } }),
+        status({
+          localDevOnly: true,
+          compress: { lossless: true, deep: false, engines: [] },
+        }),
       ),
     ).toBe(false);
 
@@ -106,7 +118,11 @@ describe("canRunDeepCompression", () => {
               ready: false,
               configured: false,
               detail: "web does not process jobs",
-              executor: { mode: "not-implemented", ready: false, detail: "web" },
+              executor: {
+                mode: "not-implemented",
+                ready: false,
+                detail: "web",
+              },
             },
           },
           daemon: {

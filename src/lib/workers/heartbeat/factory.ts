@@ -21,7 +21,10 @@
  */
 
 import type { FieldError } from "@/lib/jobs";
-import { parseRedisQueueConfig, type RedisQueueConfig } from "../queue/redis-config";
+import {
+  parseRedisQueueConfig,
+  type RedisQueueConfig,
+} from "../queue/redis-config";
 import {
   HEARTBEAT_DEFAULT_INTERVAL_SECONDS,
   HEARTBEAT_MAX_INTERVAL_SECONDS,
@@ -83,7 +86,8 @@ export function resolveHeartbeatIntervalSeconds(env: EnvSource = process.env): {
   issue?: FieldError;
 } {
   const raw = read(env, WORKER_HEARTBEAT_ENV.intervalSeconds);
-  if (raw === undefined) return { intervalSeconds: HEARTBEAT_DEFAULT_INTERVAL_SECONDS };
+  if (raw === undefined)
+    return { intervalSeconds: HEARTBEAT_DEFAULT_INTERVAL_SECONDS };
   if (/^\d{1,7}$/.test(raw)) {
     const n = Number(raw);
     if (
@@ -114,7 +118,9 @@ export interface ResolvedHeartbeat {
 }
 
 /** Resolve whether/how liveness is wired here. Presence + shape only; no network. */
-export function resolveHeartbeat(env: EnvSource = process.env): ResolvedHeartbeat {
+export function resolveHeartbeat(
+  env: EnvSource = process.env,
+): ResolvedHeartbeat {
   const { intervalSeconds } = resolveHeartbeatIntervalSeconds(env);
   const enabledFlag = isHeartbeatEnabled(env);
   const parsed = parseRedisQueueConfig(env);
@@ -129,7 +135,10 @@ export function resolveHeartbeat(env: EnvSource = process.env): ResolvedHeartbea
 }
 
 /** The content-free capability of a disabled heartbeat seam. */
-function disabledCapability(intervalSeconds: number, enabledFlag: boolean): HeartbeatCapability {
+function disabledCapability(
+  intervalSeconds: number,
+  enabledFlag: boolean,
+): HeartbeatCapability {
   return {
     enabled: false,
     source: "none",
@@ -157,7 +166,10 @@ export interface HeartbeatPublisherOptions extends HeartbeatPublishSpec {
  */
 export function createHeartbeatPublisher(
   env: EnvSource = process.env,
-  opts: HeartbeatPublisherOptions = { mode: "starting", capabilities: emptyCapabilities() },
+  opts: HeartbeatPublisherOptions = {
+    mode: "starting",
+    capabilities: emptyCapabilities(),
+  },
 ): HeartbeatPublisher {
   const resolved = resolveHeartbeat(env);
   if (resolved.enabled && resolved.redis) {
@@ -172,7 +184,10 @@ export function createHeartbeatPublisher(
       opts.deps ?? {},
     );
   }
-  const capability = disabledCapability(resolved.intervalSeconds, isHeartbeatEnabled(env));
+  const capability = disabledCapability(
+    resolved.intervalSeconds,
+    isHeartbeatEnabled(env),
+  );
   return {
     capability,
     async beat() {
@@ -193,9 +208,16 @@ export function createHeartbeatReader(
 ): HeartbeatReader {
   const resolved = resolveHeartbeat(env);
   if (resolved.enabled && resolved.redis) {
-    return createRedisHeartbeatReader(resolved.redis, resolved.intervalSeconds, deps);
+    return createRedisHeartbeatReader(
+      resolved.redis,
+      resolved.intervalSeconds,
+      deps,
+    );
   }
-  const capability = disabledCapability(resolved.intervalSeconds, isHeartbeatEnabled(env));
+  const capability = disabledCapability(
+    resolved.intervalSeconds,
+    isHeartbeatEnabled(env),
+  );
   return {
     capability,
     async read() {

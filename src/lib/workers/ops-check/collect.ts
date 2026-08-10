@@ -16,7 +16,10 @@ import {
   createWorkerMetricsCollector,
   type WorkerMetricsSnapshot,
 } from "../observability/collector";
-import { deriveRuntimeMetrics, type RuntimeMetricSource } from "../observability/derive";
+import {
+  deriveRuntimeMetrics,
+  type RuntimeMetricSource,
+} from "../observability/derive";
 import { evaluateSlos, type SloReport } from "../observability/slo";
 import type { WorkerMetricSample } from "../observability/metrics";
 import { deriveCleanupEvidenceMetric } from "../cleanup-evidence/metrics";
@@ -81,7 +84,10 @@ export function collectRuntimeOperations(
     deriveCleanupEvidenceMetric(cleanupEvidence),
   ]);
   return {
-    snapshot: collectOperatorProbeSnapshot(runtime, { daemonLiveness, cleanupEvidence }),
+    snapshot: collectOperatorProbeSnapshot(runtime, {
+      daemonLiveness,
+      cleanupEvidence,
+    }),
     slo: evaluateSlos(metrics),
     metrics,
   };

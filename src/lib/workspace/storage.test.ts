@@ -37,7 +37,13 @@ function fakeStorage(
 }
 
 function action(id: string): WorkspaceAction {
-  return { id, kind: "opened-tool", label: `Opened ${id}`, toolSlug: "merge-pdf", at: 1 };
+  return {
+    id,
+    kind: "opened-tool",
+    label: `Opened ${id}`,
+    toolSlug: "merge-pdf",
+    at: 1,
+  };
 }
 
 function stateWith(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
@@ -51,7 +57,11 @@ describe("toPersisted — never leaks file metadata", () => {
       type: "add-files",
       files: [
         createWorkspaceFile(
-          { name: "SECRET-severance-agreement.pdf", size: 999, type: "application/pdf" },
+          {
+            name: "SECRET-severance-agreement.pdf",
+            size: 999,
+            type: "application/pdf",
+          },
           "secret-id",
           1,
         ),
@@ -69,7 +79,9 @@ describe("toPersisted — never leaks file metadata", () => {
   });
 
   it("bounds the persisted activity log", () => {
-    const many = Array.from({ length: MAX_PERSISTED_ACTIONS + 6 }, (_, i) => action(`a${i}`));
+    const many = Array.from({ length: MAX_PERSISTED_ACTIONS + 6 }, (_, i) =>
+      action(`a${i}`),
+    );
     const persisted = toPersisted(stateWith({ recentActions: many }));
     expect(persisted.recentActions).toHaveLength(MAX_PERSISTED_ACTIONS);
   });
@@ -156,10 +168,14 @@ describe("guarded IO — never throws", () => {
   });
 
   it("savePersisted returns false when the write throws (quota/disabled)", () => {
-    expect(savePersisted(stateWith(), fakeStorage({ throwOn: "set" }))).toBe(false);
+    expect(savePersisted(stateWith(), fakeStorage({ throwOn: "set" }))).toBe(
+      false,
+    );
   });
 
   it("clearPersisted swallows a throwing remove", () => {
-    expect(() => clearPersisted(fakeStorage({ throwOn: "remove" }))).not.toThrow();
+    expect(() =>
+      clearPersisted(fakeStorage({ throwOn: "remove" })),
+    ).not.toThrow();
   });
 });

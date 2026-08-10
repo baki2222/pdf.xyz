@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const WORKFLOW_DIR = path.join(ROOT, ".github", "workflows");
-const read = (rel: string): string => readFileSync(path.join(ROOT, rel), "utf8");
+const read = (rel: string): string =>
+  readFileSync(path.join(ROOT, rel), "utf8");
 
 /** All workflow YAML files, as repo-relative paths. */
 function workflowFiles(): string[] {
@@ -158,7 +159,8 @@ const PLACEHOLDER =
   /(REPLACE|EXAMPLE|CHANGE|CHANGEME|YOUR[-_]|PLACEHOLDER|\bXXX+\b|<[^>]+>|\.\.\.|\.invalid\b)/i;
 
 /** Env names whose committed value must be a reference/placeholder/empty. */
-const SECRETISH = /(SECRET|TOKEN|PASSWORD|ACCESS_KEY_ID|ACCESS_KEY|PRIVATE_KEY|_KEY)$/i;
+const SECRETISH =
+  /(SECRET|TOKEN|PASSWORD|ACCESS_KEY_ID|ACCESS_KEY|PRIVATE_KEY|_KEY)$/i;
 
 /** Extract uppercase `NAME: value` env mappings from a workflow YAML. */
 function envAssignments(yaml: string): { name: string; value: string }[] {
@@ -192,7 +194,10 @@ describe("no GitHub Actions workflow carries a committed secret", () => {
           GH_SECRET_REF.test(value) ||
           value.includes("${") ||
           PLACEHOLDER.test(value);
-        expect(safe, `${rel}: ${name} looks like a committed secret ("${value}")`).toBe(true);
+        expect(
+          safe,
+          `${rel}: ${name} looks like a committed secret ("${value}")`,
+        ).toBe(true);
       }
     });
   }

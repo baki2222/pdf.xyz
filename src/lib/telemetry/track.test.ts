@@ -18,7 +18,9 @@ afterEach(() => {
 
 describe("sanitizeEvent", () => {
   it("drops events whose name isn't on the allowlist", () => {
-    expect(sanitizeEvent({ name: "not_a_real_event" } as unknown as ProductEvent)).toBeNull();
+    expect(
+      sanitizeEvent({ name: "not_a_real_event" } as unknown as ProductEvent),
+    ).toBeNull();
     expect(sanitizeEvent(undefined as unknown as ProductEvent)).toBeNull();
   });
 
@@ -61,7 +63,11 @@ describe("track", () => {
     const seen: RedactedEvent[] = [];
     configureTelemetry((e) => seen.push(e));
 
-    track({ name: "tool_viewed", toolSlug: "merge-pdf", capability: "in-browser" });
+    track({
+      name: "tool_viewed",
+      toolSlug: "merge-pdf",
+      capability: "in-browser",
+    });
 
     expect(seen).toEqual([
       { name: "tool_viewed", toolSlug: "merge-pdf", capability: "in-browser" },
@@ -80,7 +86,11 @@ describe("track", () => {
       throw new Error("sink blew up");
     });
     expect(() =>
-      track({ name: "worker_status_checked", mode: "disabled", enabled: false }),
+      track({
+        name: "worker_status_checked",
+        mode: "disabled",
+        enabled: false,
+      }),
     ).not.toThrow();
   });
 

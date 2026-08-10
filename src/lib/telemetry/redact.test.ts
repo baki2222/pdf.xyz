@@ -68,13 +68,15 @@ describe("redactText — inline data + robustness", () => {
     expect(redactText("src=data:application/pdf;base64,JVBERi0=")).toBe(
       `src=data:${REDACTED}`,
     );
-    expect(
-      redactText("blob:https://pdf.xyz/9f1c-uuid preview"),
-    ).toContain(`blob:${REDACTED}`);
+    expect(redactText("blob:https://pdf.xyz/9f1c-uuid preview")).toContain(
+      `blob:${REDACTED}`,
+    );
   });
 
   it("is idempotent", () => {
-    const once = redactText('open "My File.pdf" from https://x.io/a?handoff=h_zzz');
+    const once = redactText(
+      'open "My File.pdf" from https://x.io/a?handoff=h_zzz',
+    );
     expect(redactText(once)).toBe(once);
   });
 
@@ -160,7 +162,9 @@ describe("redactValue — deep scrub", () => {
   });
 
   it("caps very large arrays", () => {
-    const out = redactValue(Array.from({ length: 200 }, (_, i) => i)) as unknown[];
+    const out = redactValue(
+      Array.from({ length: 200 }, (_, i) => i),
+    ) as unknown[];
     expect(out.length).toBeLessThanOrEqual(65);
     expect(String(out[out.length - 1])).toContain("more");
   });

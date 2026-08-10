@@ -30,7 +30,11 @@ import { apiError, type ParseResult } from "@/lib/jobs";
 export type CompressionProfile = "lossless" | "deep";
 
 /** Native engines the deep path can use, in the order it prefers them. */
-export const DEEP_COMPRESSION_TOOLS = ["ghostscript", "qpdf", "mutool"] as const;
+export const DEEP_COMPRESSION_TOOLS = [
+  "ghostscript",
+  "qpdf",
+  "mutool",
+] as const;
 export type CompressionTool = (typeof DEEP_COMPRESSION_TOOLS)[number];
 
 /** Which native engines are present on the host (presence only, never values). */
@@ -66,7 +70,12 @@ export function parseCompressionOptions(
       error: apiError(
         "invalid_request",
         '`options.profile` must be "lossless" or "deep".',
-        [{ field: "options.profile", message: 'Expected "lossless" or "deep".' }],
+        [
+          {
+            field: "options.profile",
+            message: 'Expected "lossless" or "deep".',
+          },
+        ],
       ),
     };
   }
@@ -258,7 +267,12 @@ export interface CompressionResultMeta {
  */
 export type CompressionRun =
   | { ok: true; output: Uint8Array; meta: CompressionResultMeta }
-  | { ok: false; kind: "unsupported"; requires: readonly CompressionTool[]; message: string }
+  | {
+      ok: false;
+      kind: "unsupported";
+      requires: readonly CompressionTool[];
+      message: string;
+    }
   | { ok: false; kind: "invalid_pdf"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
   | { ok: false; kind: "failed"; message: string };

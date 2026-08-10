@@ -61,13 +61,17 @@ const MAX_OUTPUT_BYTES = 16 * 1024 * 1024; // 16 MiB
  */
 async function runCheck(spec: ReleaseCheckSpec): Promise<ProbeResult> {
   const { command, prefixArgs } = resolvePnpmInvocation();
-  const r = spawnSync(command, [...prefixArgs, "-s", spec.script, ...spec.args], {
-    cwd: process.cwd(),
-    env: process.env,
-    encoding: "utf8",
-    timeout: PER_CHECK_TIMEOUT_MS,
-    maxBuffer: MAX_OUTPUT_BYTES,
-  });
+  const r = spawnSync(
+    command,
+    [...prefixArgs, "-s", spec.script, ...spec.args],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: "utf8",
+      timeout: PER_CHECK_TIMEOUT_MS,
+      maxBuffer: MAX_OUTPUT_BYTES,
+    },
+  );
   const err = r.error as (Error & { code?: string }) | undefined;
   const timedOut = err?.code === "ETIMEDOUT";
   return {
@@ -104,7 +108,9 @@ async function main(): Promise<number> {
       writeFileSync(parsed.args.outputPath, output, "utf8");
     } catch {
       // Never echo the destination path: it may be an operator-local path.
-      process.stderr.write(`Could not write release gate output.\n\n${RELEASE_GATE_USAGE}\n`);
+      process.stderr.write(
+        `Could not write release gate output.\n\n${RELEASE_GATE_USAGE}\n`,
+      );
       return RELEASE_GATE_EXIT.USAGE;
     }
   } else {

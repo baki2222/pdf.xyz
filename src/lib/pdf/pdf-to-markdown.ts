@@ -41,7 +41,12 @@ function isListLine(line: string): boolean {
 }
 
 function normalizeParagraph(lines: string[]): string {
-  return lines.map(normalizeMarkdownLine).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  return lines
+    .map(normalizeMarkdownLine)
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function pageTextToMarkdown(page: Pick<ExtractedTextPage, "text">): string {
@@ -85,8 +90,11 @@ export function extractedTextToMarkdown(
     };
   }
 
-  const includePageHeadings = options.includePageHeadings ?? extracted.pageCount > 1;
-  const sections: string[] = [`# ${normalizeMarkdownLine(titleFromSource(options.sourceName))}`];
+  const includePageHeadings =
+    options.includePageHeadings ?? extracted.pageCount > 1;
+  const sections: string[] = [
+    `# ${normalizeMarkdownLine(titleFromSource(options.sourceName))}`,
+  ];
 
   for (const page of extracted.pages) {
     const pageMarkdown = pageTextToMarkdown(page);

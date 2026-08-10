@@ -47,7 +47,9 @@ describe("getWorkerBackendStatus", () => {
   });
 
   it("only ever surfaces variable names, never values", () => {
-    const status = getWorkerBackendStatus({ [REQUIRED_WORKER_ENV[0]]: "secret" });
+    const status = getWorkerBackendStatus({
+      [REQUIRED_WORKER_ENV[0]]: "secret",
+    });
     for (const name of status.missing) {
       expect(REQUIRED_WORKER_ENV).toContain(name);
     }
@@ -87,8 +89,8 @@ describe("per-provider env decomposition", () => {
   });
 
   it("treats blank provider values as missing", () => {
-    expect(getStorageEnvStatus({ PDFXYZ_STORAGE_BUCKET: "  " }).configured).toBe(
-      false,
-    );
+    expect(
+      getStorageEnvStatus({ PDFXYZ_STORAGE_BUCKET: "  " }).configured,
+    ).toBe(false);
   });
 });

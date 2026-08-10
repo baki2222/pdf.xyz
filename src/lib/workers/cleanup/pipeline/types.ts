@@ -42,7 +42,13 @@ export type PipelineArm = (typeof PIPELINE_ARMS)[number];
  *  - `drift`   — an artifact is present past its retention window + reap grace (exit 3);
  *  - `breach`  — a present-but-tombstoned object, or a structurally unsafe export (exit 4).
  */
-export const PIPELINE_SEVERITIES = ["ok", "usage", "unknown", "drift", "breach"] as const;
+export const PIPELINE_SEVERITIES = [
+  "ok",
+  "usage",
+  "unknown",
+  "drift",
+  "breach",
+] as const;
 export type PipelineSeverity = (typeof PIPELINE_SEVERITIES)[number];
 
 /**
@@ -64,7 +70,8 @@ export const PIPELINE_EXIT = {
   DRIFT: 3,
   BREACH: 4,
 } as const;
-export type PipelineExitCode = (typeof PIPELINE_EXIT)[keyof typeof PIPELINE_EXIT];
+export type PipelineExitCode =
+  (typeof PIPELINE_EXIT)[keyof typeof PIPELINE_EXIT];
 
 /** Stable identity of the pipeline policy — stamped on the receipt for an audit trail. */
 export const PIPELINE_POLICY_ID = "pdfxyz-cleanup-evidence-pipeline";

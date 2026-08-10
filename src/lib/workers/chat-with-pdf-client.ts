@@ -1,5 +1,9 @@
 import type { WorkerStatus } from "./status";
-import { runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import {
+  runSecurityJob,
+  type PdfSecurityWorkerOptions,
+  type PdfSecurityWorkerResult,
+} from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
 import type { ChatTurn } from "@/lib/jobs/chat-with-pdf";
 
@@ -32,8 +36,15 @@ export function runWorkerChatWithPdf(
   options: PdfSecurityWorkerOptions = {},
 ): Promise<ChatWithPdfWorkerResult> {
   const jobOptions: Record<string, unknown> = { question: input.question };
-  if (input.context !== undefined && input.context.length > 0) jobOptions.context = input.context;
-  return runSecurityJob("chat-with-pdf", input.filename, input.bytes, jobOptions, options);
+  if (input.context !== undefined && input.context.length > 0)
+    jobOptions.context = input.context;
+  return runSecurityJob(
+    "chat-with-pdf",
+    input.filename,
+    input.bytes,
+    jobOptions,
+    options,
+  );
 }
 
 /**
@@ -41,6 +52,8 @@ export function runWorkerChatWithPdf(
  * remote pipeline AND a declared AI provider. See `./ai-tool-availability` for why
  * the AI half is checked here rather than left to fail after the upload.
  */
-export function canRunChatWithPdf(status: WorkerStatus | null | undefined): boolean {
+export function canRunChatWithPdf(
+  status: WorkerStatus | null | undefined,
+): boolean {
   return canRunAiTool(status);
 }

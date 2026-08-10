@@ -1,5 +1,9 @@
 import type { WorkerStatus } from "./status";
-import { runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import {
+  runSecurityJob,
+  type PdfSecurityWorkerOptions,
+  type PdfSecurityWorkerResult,
+} from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
 import type { ExtractionField, ExtractionMode } from "@/lib/jobs/ai-extract";
 
@@ -33,9 +37,17 @@ export function runWorkerAiExtract(
   options: PdfSecurityWorkerOptions = {},
 ): Promise<AiExtractWorkerResult> {
   const jobOptions: Record<string, unknown> = { mode: input.mode };
-  if (input.mode === "prompt" && input.prompt !== undefined) jobOptions.prompt = input.prompt;
-  if (input.mode === "schema" && input.schema !== undefined) jobOptions.schema = input.schema;
-  return runSecurityJob("ai-extract", input.filename, input.bytes, jobOptions, options);
+  if (input.mode === "prompt" && input.prompt !== undefined)
+    jobOptions.prompt = input.prompt;
+  if (input.mode === "schema" && input.schema !== undefined)
+    jobOptions.schema = input.schema;
+  return runSecurityJob(
+    "ai-extract",
+    input.filename,
+    input.bytes,
+    jobOptions,
+    options,
+  );
 }
 
 /**
@@ -43,6 +55,8 @@ export function runWorkerAiExtract(
  * remote pipeline AND a declared AI provider. See `./ai-tool-availability` for why
  * the AI half is checked here rather than left to fail after the upload.
  */
-export function canRunAiExtract(status: WorkerStatus | null | undefined): boolean {
+export function canRunAiExtract(
+  status: WorkerStatus | null | undefined,
+): boolean {
   return canRunAiTool(status);
 }

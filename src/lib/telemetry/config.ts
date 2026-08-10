@@ -35,7 +35,11 @@ export interface TelemetryConfig {
   sampleRate: number;
 }
 
-const DISABLED: TelemetryConfig = { enabled: false, endpoint: null, sampleRate: 0 };
+const DISABLED: TelemetryConfig = {
+  enabled: false,
+  endpoint: null,
+  sampleRate: 0,
+};
 
 /** Accept only a same-origin path (`/…`) or an absolute http(s) URL. */
 function normalizeEndpoint(raw: string | undefined): string | null {

@@ -16,7 +16,9 @@ describe("normalizeAlertPosture", () => {
     expect(normalizeAlertPosture({ version: 1 })).toBeNull();
     expect(normalizeAlertPosture(null)).toBeNull();
     expect(normalizeAlertPosture("nope")).toBeNull();
-    expect(normalizeAlertPosture(withAlerts({ severity: "nonsense", alerts: [] }))).toBeNull();
+    expect(
+      normalizeAlertPosture(withAlerts({ severity: "nonsense", alerts: [] })),
+    ).toBeNull();
   });
 
   it("reads bounded severity, counts contributing alerts, and dedupes reasons", () => {
@@ -58,24 +60,34 @@ describe("AlertPostureCallout", () => {
         snapshot={withAlerts({
           severity: "critical",
           summary: SECRET, // hostile top-level prose
-          alerts: [{ severity: "critical", reason: "lifecycle-drift", detail: SECRET }],
+          alerts: [
+            { severity: "critical", reason: "lifecycle-drift", detail: SECRET },
+          ],
         })}
       />,
     );
     // Client-authored copy is present…
-    expect(screen.getByText(/retention backstop has drifted/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/retention backstop has drifted/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/monitor would page/i)).toBeInTheDocument();
     // …and no server-provided string reaches the DOM.
     expect(document.body.textContent).not.toContain(SECRET);
   });
 
   it("shows the OK posture with no reasons and no page", () => {
-    render(<AlertPostureCallout snapshot={withAlerts({ severity: "ok", alerts: [] })} />);
+    render(
+      <AlertPostureCallout
+        snapshot={withAlerts({ severity: "ok", alerts: [] })}
+      />,
+    );
     expect(screen.getByText(/no alert would fire/i)).toBeInTheDocument();
   });
 
   it("renders nothing when the response has no alerts report (graceful degrade)", () => {
-    const { container } = render(<AlertPostureCallout snapshot={{ version: 1 }} />);
+    const { container } = render(
+      <AlertPostureCallout snapshot={{ version: 1 }} />,
+    );
     expect(container).toBeEmptyDOMElement();
   });
 });

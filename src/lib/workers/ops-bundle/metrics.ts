@@ -15,8 +15,15 @@
  */
 
 import { opsBundleMetric } from "../observability/metrics";
-import { NOOP_METRIC_SINK, type WorkerMetricSink } from "../observability/collector";
-import { isOpsBundleUsageError, type OpsBundleOutcome, type OpsBundleSeverity } from "./types";
+import {
+  NOOP_METRIC_SINK,
+  type WorkerMetricSink,
+} from "../observability/collector";
+import {
+  isOpsBundleUsageError,
+  type OpsBundleOutcome,
+  type OpsBundleSeverity,
+} from "./types";
 
 let sink: WorkerMetricSink = NOOP_METRIC_SINK;
 
@@ -39,6 +46,8 @@ export function recordOpsBundle(severity: OpsBundleSeverity): void {
  * The composite severity a whole outcome resolves to for the metric: a usage error is the
  * bounded `usage` severity; a full bundle contributes its rollup severity.
  */
-export function severityForOutcome(outcome: OpsBundleOutcome): OpsBundleSeverity {
+export function severityForOutcome(
+  outcome: OpsBundleOutcome,
+): OpsBundleSeverity {
   return isOpsBundleUsageError(outcome) ? "usage" : outcome.rollup.severity;
 }

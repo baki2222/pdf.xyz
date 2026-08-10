@@ -35,7 +35,14 @@ function harness(job: unknown, output: Uint8Array) {
     });
     if (url === "/api/uploads") {
       return jsonResponse({
-        slots: [{ fileId: "file_1", url: "https://upload.example/slot", method: "PUT", headers: {} }],
+        slots: [
+          {
+            fileId: "file_1",
+            url: "https://upload.example/slot",
+            method: "PUT",
+            headers: {},
+          },
+        ],
       });
     }
     if (url === "https://upload.example/slot") return jsonResponse({});
@@ -83,7 +90,12 @@ describe("runWorkerProtect", () => {
     const output = new Uint8Array([1, 2, 3, 4]);
     const { fetchImpl, calls } = harness(completedJob, output);
     const result = await runWorkerProtect(
-      { filename: "report.pdf", bytes: new Uint8Array([9, 9]), password: SECRET, keyLength: 256 },
+      {
+        filename: "report.pdf",
+        bytes: new Uint8Array([9, 9]),
+        password: SECRET,
+        keyLength: 256,
+      },
       { fetchImpl },
     );
     expect(result.ok).toBe(true);
@@ -106,7 +118,10 @@ describe("runWorkerProtect", () => {
     const failedJob = {
       jobId: "job_2",
       status: "failed",
-      error: { code: "unprocessable_entity", message: "The password is incorrect." },
+      error: {
+        code: "unprocessable_entity",
+        message: "The password is incorrect.",
+      },
     };
     const { fetchImpl } = harness(failedJob, new Uint8Array());
     const result = await runWorkerUnlock(
@@ -126,7 +141,11 @@ describe("canRunPdfSecurity", () => {
   const base = (over: Partial<WorkerStatus>): WorkerStatus =>
     ({
       localDevOnly: false,
-      security: { available: false, operations: ["protect", "unlock"], detail: "" },
+      security: {
+        available: false,
+        operations: ["protect", "unlock"],
+        detail: "",
+      },
       providers: {
         storage: { ready: false },
         queue: { ready: false },
@@ -143,12 +162,26 @@ describe("canRunPdfSecurity", () => {
   it("follows the honest local-dev qpdf probe", () => {
     expect(
       canRunPdfSecurity(
-        base({ localDevOnly: true, security: { available: true, operations: ["protect", "unlock"], detail: "" } }),
+        base({
+          localDevOnly: true,
+          security: {
+            available: true,
+            operations: ["protect", "unlock"],
+            detail: "",
+          },
+        }),
       ),
     ).toBe(true);
     expect(
       canRunPdfSecurity(
-        base({ localDevOnly: true, security: { available: false, operations: ["protect", "unlock"], detail: "" } }),
+        base({
+          localDevOnly: true,
+          security: {
+            available: false,
+            operations: ["protect", "unlock"],
+            detail: "",
+          },
+        }),
       ),
     ).toBe(false);
   });
@@ -157,7 +190,10 @@ describe("canRunPdfSecurity", () => {
     expect(
       canRunPdfSecurity(
         base({
-          providers: { storage: { ready: true }, queue: { ready: true } } as WorkerStatus["providers"],
+          providers: {
+            storage: { ready: true },
+            queue: { ready: true },
+          } as WorkerStatus["providers"],
           daemon: { drainable: true } as WorkerStatus["daemon"],
         }),
       ),
@@ -166,7 +202,10 @@ describe("canRunPdfSecurity", () => {
     expect(
       canRunPdfSecurity(
         base({
-          providers: { storage: { ready: true }, queue: { ready: false } } as WorkerStatus["providers"],
+          providers: {
+            storage: { ready: true },
+            queue: { ready: false },
+          } as WorkerStatus["providers"],
           daemon: { drainable: true } as WorkerStatus["daemon"],
         }),
       ),

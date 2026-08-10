@@ -15,7 +15,10 @@
  */
 
 import { apiError, type ParseResult } from "./responses";
-import { MAX_DISPLAY_FILENAME_LENGTH, sanitizeDisplayFilename } from "./filenames";
+import {
+  MAX_DISPLAY_FILENAME_LENGTH,
+  sanitizeDisplayFilename,
+} from "./filenames";
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -81,7 +84,10 @@ export function parseSummarizeOptions(
   let length: SummaryLength = DEFAULT_SUMMARY_LENGTH;
   if (options.length !== undefined) {
     if (typeof options.length !== "string" || !LENGTH_SET.has(options.length)) {
-      return invalid(`\`length\` must be one of ${SUMMARY_LENGTHS.join(", ")}.`, "length");
+      return invalid(
+        `\`length\` must be one of ${SUMMARY_LENGTHS.join(", ")}.`,
+        "length",
+      );
     }
     length = options.length as SummaryLength;
   }
@@ -89,7 +95,10 @@ export function parseSummarizeOptions(
   let format: SummaryFormat = DEFAULT_SUMMARY_FORMAT;
   if (options.format !== undefined) {
     if (typeof options.format !== "string" || !FORMAT_SET.has(options.format)) {
-      return invalid(`\`format\` must be one of ${SUMMARY_FORMATS.join(", ")}.`, "format");
+      return invalid(
+        `\`format\` must be one of ${SUMMARY_FORMATS.join(", ")}.`,
+        "format",
+      );
     }
     format = options.format as SummaryFormat;
   }
@@ -120,7 +129,9 @@ export function parseSummarizeOptions(
 
 /** A short, human description of a validated summary request, for the UI copy. */
 export function describeSummarizeRequest(options: SummarizeOptions): string {
-  const length = { brief: "Brief", standard: "Standard", detailed: "Detailed" }[options.length];
+  const length = { brief: "Brief", standard: "Standard", detailed: "Detailed" }[
+    options.length
+  ];
   const format = {
     paragraphs: "paragraphs",
     bullets: "bullet points",
@@ -134,6 +145,8 @@ export function summaryOutputName(originalName: unknown): string {
   const tail = "-summary.zip";
   const budget = Math.max(1, MAX_DISPLAY_FILENAME_LENGTH - tail.length);
   const stem =
-    sanitizeDisplayFilename(originalName).replace(/\.[^.]+$/, "").trim() || FALLBACK_STEM;
+    sanitizeDisplayFilename(originalName)
+      .replace(/\.[^.]+$/, "")
+      .trim() || FALLBACK_STEM;
   return `${stem.length > budget ? stem.slice(0, budget).trim() : stem}${tail}`;
 }

@@ -4,11 +4,18 @@ import { HandoffStore } from "./store";
 import type { HandoffFileEntry, HandoffRecord } from "./types";
 
 function entry(name: string): HandoffFileEntry {
-  return { name, size: 4, type: "application/pdf", blob: new Blob([new Uint8Array(4)]) };
+  return {
+    name,
+    size: 4,
+    type: "application/pdf",
+    blob: new Blob([new Uint8Array(4)]),
+  };
 }
 
 /** A store with a controllable clock and deterministic, sequential ids. */
-function makeStore(overrides?: Partial<ConstructorParameters<typeof HandoffStore>[0]>) {
+function makeStore(
+  overrides?: Partial<ConstructorParameters<typeof HandoffStore>[0]>,
+) {
   let clock = 0;
   let seq = 0;
   const store = new HandoffStore({
@@ -32,7 +39,10 @@ function makeStore(overrides?: Partial<ConstructorParameters<typeof HandoffStore
 describe("HandoffStore — create + claim", () => {
   it("creates a record with a generated id and returns it", async () => {
     const { store } = makeStore();
-    const record = await store.create("merge-pdf", [entry("a.pdf"), entry("b.pdf")]);
+    const record = await store.create("merge-pdf", [
+      entry("a.pdf"),
+      entry("b.pdf"),
+    ]);
     expect(record).not.toBeNull();
     expect(record!.id).toBe("h_1");
     expect(record!.toolSlug).toBe("merge-pdf");
@@ -148,10 +158,17 @@ describe("HandoffStore — fail-safe", () => {
     const { store } = makeStore();
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
     const created = await store.create("compress-pdf", [
-      { name: "x.pdf", size: bytes.byteLength, type: "application/pdf", blob: new Blob([bytes]) },
+      {
+        name: "x.pdf",
+        size: bytes.byteLength,
+        type: "application/pdf",
+        blob: new Blob([bytes]),
+      },
     ]);
     const claimed = (await store.claim(created!.id)) as HandoffRecord;
-    const roundTripped = new Uint8Array(await claimed.files[0]!.blob.arrayBuffer());
+    const roundTripped = new Uint8Array(
+      await claimed.files[0]!.blob.arrayBuffer(),
+    );
     expect([...roundTripped]).toEqual([1, 2, 3, 4, 5]);
   });
 });

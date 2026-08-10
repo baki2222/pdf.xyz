@@ -69,7 +69,9 @@ describe("engineForInput — dispatch follows the input, not a fixed order", () 
   it("sends a PDF to OCRmyPDF", () => {
     // Preferred for PDFs on purpose: it adds an invisible text layer to the existing
     // pages, which is the tool's promise. Tesseract would rebuild the document.
-    expect(engineForInput(file("application/pdf"), cfg(), BOTH)).toBe("ocrmypdf");
+    expect(engineForInput(file("application/pdf"), cfg(), BOTH)).toBe(
+      "ocrmypdf",
+    );
   });
 
   it("returns null for an image when only OCRmyPDF is installed", () => {
@@ -79,12 +81,18 @@ describe("engineForInput — dispatch follows the input, not a fixed order", () 
   });
 
   it("returns null for a PDF when only Tesseract is installed", () => {
-    expect(engineForInput(file("application/pdf"), cfg(), ONLY_TESSERACT)).toBeNull();
+    expect(
+      engineForInput(file("application/pdf"), cfg(), ONLY_TESSERACT),
+    ).toBeNull();
   });
 
   it("still serves the input kind each installed engine can handle", () => {
-    expect(engineForInput(file("application/pdf"), cfg(), ONLY_OCRMYPDF)).toBe("ocrmypdf");
-    expect(engineForInput(file("image/png"), cfg(), ONLY_TESSERACT)).toBe("tesseract");
+    expect(engineForInput(file("application/pdf"), cfg(), ONLY_OCRMYPDF)).toBe(
+      "ocrmypdf",
+    );
+    expect(engineForInput(file("image/png"), cfg(), ONLY_TESSERACT)).toBe(
+      "tesseract",
+    );
   });
 
   it("returns null for everything when nothing is installed", () => {
@@ -93,8 +101,12 @@ describe("engineForInput — dispatch follows the input, not a fixed order", () 
   });
 
   it("returns null for everything when the OCR kill switch is off", () => {
-    expect(engineForInput(file("image/png"), cfg({ enabled: false }), BOTH)).toBeNull();
-    expect(engineForInput(file("application/pdf"), cfg({ enabled: false }), BOTH)).toBeNull();
+    expect(
+      engineForInput(file("image/png"), cfg({ enabled: false }), BOTH),
+    ).toBeNull();
+    expect(
+      engineForInput(file("application/pdf"), cfg({ enabled: false }), BOTH),
+    ).toBeNull();
   });
 
   it("honours a pin: an image gets no engine when the config pins OCRmyPDF", () => {
@@ -102,6 +114,8 @@ describe("engineForInput — dispatch follows the input, not a fixed order", () 
     // route around it to the other engine.
     const pinned = cfg({ engine: "ocrmypdf" } as Partial<NativeOcrConfig>);
     expect(engineForInput(file("image/png"), pinned, BOTH)).toBeNull();
-    expect(engineForInput(file("application/pdf"), pinned, BOTH)).toBe("ocrmypdf");
+    expect(engineForInput(file("application/pdf"), pinned, BOTH)).toBe(
+      "ocrmypdf",
+    );
   });
 });

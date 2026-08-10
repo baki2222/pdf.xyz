@@ -17,7 +17,8 @@ function inputHolding(...names: string[]): HTMLInputElement {
   const input = document.createElement("input");
   input.type = "file";
   const files = names.map(
-    (name) => new File([new Uint8Array([1, 2, 3])], name, { type: "application/pdf" }),
+    (name) =>
+      new File([new Uint8Array([1, 2, 3])], name, { type: "application/pdf" }),
   );
   let current: File[] = files;
   Object.defineProperty(input, "files", {

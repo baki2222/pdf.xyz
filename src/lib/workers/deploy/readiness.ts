@@ -25,7 +25,10 @@
 
 import type { DaemonReadiness } from "../daemon/readiness";
 import { buildOcrCapability } from "../ocr";
-import { resolveLifecycleReadiness, type LifecycleReadiness } from "../lifecycle";
+import {
+  resolveLifecycleReadiness,
+  type LifecycleReadiness,
+} from "../lifecycle";
 import {
   resolveMalwareScanReadiness,
   type MalwareScanReadiness,
@@ -43,12 +46,7 @@ export type FacetState =
 
 /** A deployment facet identifier. */
 export type FacetId =
-  | "storage"
-  | "queue"
-  | "engine"
-  | "lifecycle"
-  | "malware-scan"
-  | "ocr";
+  "storage" | "queue" | "engine" | "lifecycle" | "malware-scan" | "ocr";
 
 /** One presence-only facet of the deployment readiness. */
 export interface OperationalFacet {
@@ -266,5 +264,12 @@ export function resolveDeploymentReadiness(
           // what IS on (e.g. OCR ready) even while a backstop is unverified.
           `Degraded: a worker can run, but a recommended backstop is missing or unverified (typically the lifecycle/retention policy). Review the facets before production.${scanNote}${ocrNote}`;
 
-  return { drainable: daemon.drainable, posture, facets, lifecycle, malwareScan, detail };
+  return {
+    drainable: daemon.drainable,
+    posture,
+    facets,
+    lifecycle,
+    malwareScan,
+    detail,
+  };
 }

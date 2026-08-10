@@ -117,7 +117,10 @@ function ocrLanguagesOf(value: unknown): readonly string[] {
 
 /** Normalize an arbitrary capabilities shape to the bounded capability summary. */
 function capabilitiesOf(value: unknown): HeartbeatCapabilities {
-  const src = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const src =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : {};
   return {
     deepCompression: boolOf(src.deepCompression),
     ocr: boolOf(src.ocr),
@@ -188,17 +191,23 @@ export function parseHeartbeat(raw: unknown): WorkerHeartbeat | null {
       return null;
     }
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return null;
   const src = value as Record<string, unknown>;
 
   if (src.v !== WORKER_HEARTBEAT_SCHEMA_VERSION) return null;
   if (src.role !== HEARTBEAT_ROLE) return null;
-  if (typeof src.mode !== "string" || !HEARTBEAT_MODES.includes(src.mode as HeartbeatMode)) {
+  if (
+    typeof src.mode !== "string" ||
+    !HEARTBEAT_MODES.includes(src.mode as HeartbeatMode)
+  ) {
     return null;
   }
   if (typeof src.at !== "number" || !Number.isFinite(src.at)) return null;
 
-  const release = coarseRelease(typeof src.release === "string" ? src.release : undefined);
+  const release = coarseRelease(
+    typeof src.release === "string" ? src.release : undefined,
+  );
   return {
     v: WORKER_HEARTBEAT_SCHEMA_VERSION,
     role: HEARTBEAT_ROLE,
@@ -230,7 +239,9 @@ const LIVENESS_DETAIL: Record<DaemonLivenessState, string> = {
 };
 
 /** Build a `disabled` liveness (the honest, neutral default). */
-export function disabledLiveness(source: HeartbeatSource = "none"): HeartbeatLiveness {
+export function disabledLiveness(
+  source: HeartbeatSource = "none",
+): HeartbeatLiveness {
   return {
     state: "disabled",
     observed: false,
@@ -276,7 +287,8 @@ export function classifyLiveness(
     };
   }
   const ageMs = Math.max(0, opts.now - record.at);
-  const state: DaemonLivenessState = ageMs <= opts.freshWindowMs ? "observed" : "stale";
+  const state: DaemonLivenessState =
+    ageMs <= opts.freshWindowMs ? "observed" : "stale";
   return {
     state,
     observed: state === "observed",

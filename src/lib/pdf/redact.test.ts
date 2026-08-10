@@ -35,17 +35,32 @@ describe("redact naming and presets", () => {
 describe("displayedPageSize", () => {
   it("keeps orientation for 0° and 180°", () => {
     expect(displayedPageSize(612, 792, 0)).toEqual({ width: 612, height: 792 });
-    expect(displayedPageSize(612, 792, 180)).toEqual({ width: 612, height: 792 });
+    expect(displayedPageSize(612, 792, 180)).toEqual({
+      width: 612,
+      height: 792,
+    });
   });
 
   it("swaps width/height for 90° and 270° (incl. negatives)", () => {
-    expect(displayedPageSize(612, 792, 90)).toEqual({ width: 792, height: 612 });
-    expect(displayedPageSize(612, 792, 270)).toEqual({ width: 792, height: 612 });
-    expect(displayedPageSize(612, 792, -90)).toEqual({ width: 792, height: 612 });
+    expect(displayedPageSize(612, 792, 90)).toEqual({
+      width: 792,
+      height: 612,
+    });
+    expect(displayedPageSize(612, 792, 270)).toEqual({
+      width: 792,
+      height: 612,
+    });
+    expect(displayedPageSize(612, 792, -90)).toEqual({
+      width: 792,
+      height: 612,
+    });
   });
 
   it("normalizes odd rotation values", () => {
-    expect(displayedPageSize(612, 792, 450)).toEqual({ width: 792, height: 612 });
+    expect(displayedPageSize(612, 792, 450)).toEqual({
+      width: 792,
+      height: 612,
+    });
     expect(displayedPageSize(612, 792)).toEqual({ width: 612, height: 792 });
   });
 });
@@ -65,37 +80,69 @@ describe("validateRedactions", () => {
   });
 
   it("returns no issues for valid boxes", () => {
-    expect(validateRedactions([box(), box({ page: 2, x: 0, y: 0, width: 400, height: 300 })], pages)).toEqual([]);
+    expect(
+      validateRedactions(
+        [box(), box({ page: 2, x: 0, y: 0, width: 400, height: 300 })],
+        pages,
+      ),
+    ).toEqual([]);
   });
 
   it("accepts a box flush against the page edges", () => {
-    expect(validateRedactions([box({ x: 0, y: 0, width: 612, height: 792 })], pages)).toEqual([]);
+    expect(
+      validateRedactions([box({ x: 0, y: 0, width: 612, height: 792 })], pages),
+    ).toEqual([]);
   });
 
   it("flags out-of-range and non-integer pages", () => {
-    expect(validateRedactions([box({ page: 0 })], pages)[0]?.code).toBe("page-out-of-range");
-    expect(validateRedactions([box({ page: 3 })], pages)[0]?.code).toBe("page-out-of-range");
-    expect(validateRedactions([box({ page: 1.5 })], pages)[0]?.code).toBe("page-out-of-range");
+    expect(validateRedactions([box({ page: 0 })], pages)[0]?.code).toBe(
+      "page-out-of-range",
+    );
+    expect(validateRedactions([box({ page: 3 })], pages)[0]?.code).toBe(
+      "page-out-of-range",
+    );
+    expect(validateRedactions([box({ page: 1.5 })], pages)[0]?.code).toBe(
+      "page-out-of-range",
+    );
   });
 
   it("flags non-finite coordinates", () => {
-    expect(validateRedactions([box({ x: Number.NaN })], pages)[0]?.code).toBe("invalid");
-    expect(validateRedactions([box({ width: Number.POSITIVE_INFINITY })], pages)[0]?.code).toBe("invalid");
+    expect(validateRedactions([box({ x: Number.NaN })], pages)[0]?.code).toBe(
+      "invalid",
+    );
+    expect(
+      validateRedactions([box({ width: Number.POSITIVE_INFINITY })], pages)[0]
+        ?.code,
+    ).toBe("invalid");
   });
 
   it("flags zero or negative sizes", () => {
-    expect(validateRedactions([box({ width: 0 })], pages)[0]?.code).toBe("empty");
-    expect(validateRedactions([box({ height: -10 })], pages)[0]?.code).toBe("empty");
+    expect(validateRedactions([box({ width: 0 })], pages)[0]?.code).toBe(
+      "empty",
+    );
+    expect(validateRedactions([box({ height: -10 })], pages)[0]?.code).toBe(
+      "empty",
+    );
   });
 
   it("flags boxes that extend past the page", () => {
-    expect(validateRedactions([box({ x: -20 })], pages)[0]?.code).toBe("out-of-bounds");
-    expect(validateRedactions([box({ x: 500, width: 200 })], pages)[0]?.code).toBe("out-of-bounds");
-    expect(validateRedactions([box({ page: 2, y: 280, height: 40 })], pages)[0]?.code).toBe("out-of-bounds");
+    expect(validateRedactions([box({ x: -20 })], pages)[0]?.code).toBe(
+      "out-of-bounds",
+    );
+    expect(
+      validateRedactions([box({ x: 500, width: 200 })], pages)[0]?.code,
+    ).toBe("out-of-bounds");
+    expect(
+      validateRedactions([box({ page: 2, y: 280, height: 40 })], pages)[0]
+        ?.code,
+    ).toBe("out-of-bounds");
   });
 
   it("reports the offending index for each issue", () => {
-    const issues = validateRedactions([box(), box({ width: 0 }), box({ page: 9 })], pages);
+    const issues = validateRedactions(
+      [box(), box({ width: 0 }), box({ page: 9 })],
+      pages,
+    );
     expect(issues.map((issue) => issue.index)).toEqual([1, 2]);
   });
 });
@@ -142,11 +189,25 @@ describe("redactionRectToPixels", () => {
 
 describe("pageSizeForRaster", () => {
   it("prefers PDF point dimensions when present", () => {
-    expect(pageSizeForRaster({ pageWidth: 612, pageHeight: 792, width: 1275, height: 1650 })).toEqual([612, 792]);
+    expect(
+      pageSizeForRaster({
+        pageWidth: 612,
+        pageHeight: 792,
+        width: 1275,
+        height: 1650,
+      }),
+    ).toEqual([612, 792]);
   });
 
   it("falls back to pixel dimensions for degenerate pages", () => {
-    expect(pageSizeForRaster({ pageWidth: 0, pageHeight: Number.NaN, width: 320, height: 200 })).toEqual([320, 200]);
+    expect(
+      pageSizeForRaster({
+        pageWidth: 0,
+        pageHeight: Number.NaN,
+        width: 320,
+        height: 200,
+      }),
+    ).toEqual([320, 200]);
   });
 });
 

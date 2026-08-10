@@ -2,7 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { REQUIRED_WORKER_ENV } from "@/lib/jobs";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
-import { enforceRateLimit, resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
+import {
+  enforceRateLimit,
+  resetRateLimitGuardForTests,
+} from "@/lib/ratelimit/guard";
 import { DELETE, GET } from "./route";
 
 function get(id: string): Promise<Response> {
@@ -12,9 +15,12 @@ function get(id: string): Promise<Response> {
 }
 
 function del(id: string): Promise<Response> {
-  return DELETE(new Request(`http://localhost/api/jobs/${id}`, { method: "DELETE" }), {
-    params: Promise.resolve({ id }),
-  });
+  return DELETE(
+    new Request(`http://localhost/api/jobs/${id}`, { method: "DELETE" }),
+    {
+      params: Promise.resolve({ id }),
+    },
+  );
 }
 
 beforeEach(() => {
@@ -69,7 +75,8 @@ describe("/api/jobs/[id] — abuse guard", () => {
   it("throttles status polling with a 429 + Retry-After once the budget is spent", async () => {
     const policy = policyFor("jobs.status");
     const bare = new Request("http://localhost/api/jobs/job_abcdefghij");
-    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("jobs.status", bare);
+    for (let i = 0; i < policy.limit; i++)
+      await enforceRateLimit("jobs.status", bare);
 
     const denied = await get("job_abcdefghij");
     expect(denied.status).toBe(429);
@@ -79,8 +86,11 @@ describe("/api/jobs/[id] — abuse guard", () => {
 
   it("throttles delete-now on its own independent budget", async () => {
     const policy = policyFor("jobs.delete");
-    const bare = new Request("http://localhost/api/jobs/job_abcdefghij", { method: "DELETE" });
-    for (let i = 0; i < policy.limit; i++) await enforceRateLimit("jobs.delete", bare);
+    const bare = new Request("http://localhost/api/jobs/job_abcdefghij", {
+      method: "DELETE",
+    });
+    for (let i = 0; i < policy.limit; i++)
+      await enforceRateLimit("jobs.delete", bare);
 
     const denied = await del("job_abcdefghij");
     expect(denied.status).toBe(429);

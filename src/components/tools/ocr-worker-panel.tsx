@@ -107,7 +107,8 @@ function badgeFor(
   phase: Phase,
   status: WorkerStatus | null,
 ): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading") return { tone: "info", label: "Checking…", pulse: true };
+  if (phase === "loading")
+    return { tone: "info", label: "Checking…", pulse: true };
   if (phase === "error" || !status) {
     return { tone: "muted", label: "Status unknown", pulse: false };
   }
@@ -148,14 +149,20 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
     let active = true;
     fetch("/api/worker/status", { headers: { accept: "application/json" } })
       .then((r) =>
-        r.ok ? (r.json() as Promise<WorkerStatus>) : Promise.reject(new Error("unreachable")),
+        r.ok
+          ? (r.json() as Promise<WorkerStatus>)
+          : Promise.reject(new Error("unreachable")),
       )
       .then((s) => {
         if (!active) return;
         setStatus(s);
         setPhase("ready");
         // Reuse the Phase 10 privacy-safe event: mode + enabled flag only.
-        track({ name: "worker_status_checked", mode: s.mode, enabled: s.enabled });
+        track({
+          name: "worker_status_checked",
+          mode: s.mode,
+          enabled: s.enabled,
+        });
       })
       .catch(() => {
         if (active) setPhase("error");
@@ -200,22 +207,26 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               <ScanText className="size-3" aria-hidden />
               Secure-worker OCR
             </span>
-            <StatusBadge tone={badge.tone} label={badge.label} pulse={badge.pulse} />
+            <StatusBadge
+              tone={badge.tone}
+              label={badge.label}
+              pulse={badge.pulse}
+            />
           </div>
           <h2 className="text-lg font-semibold text-white">
             {tool.name} runs on an encrypted secure worker
           </h2>
           <p className="text-sm leading-relaxed text-slate-400">
-            Optical character recognition needs a native OCR engine, so it runs on
-            an isolated, auto-deleting worker rather than in your browser. Configure
-            the recognition below — we&apos;ll show exactly what happens to your
-            file, and never fake a result.
+            Optical character recognition needs a native OCR engine, so it runs
+            on an isolated, auto-deleting worker rather than in your browser.
+            Configure the recognition below — we&apos;ll show exactly what
+            happens to your file, and never fake a result.
           </p>
         </div>
 
         {/* Recognition settings */}
-        <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+        <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-4 sm:p-5">
+          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
             Recognition settings
           </h3>
 
@@ -235,9 +246,10 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               output, with nothing anywhere to tell them why.
             */}
             <p className="text-xs leading-relaxed text-slate-400">
-              Select every language printed on the page — a page that mixes Bengali with
-              English technical terms needs both. The wrong language does not produce an
-              error, it produces plausible-looking gibberish.
+              Select every language printed on the page — a page that mixes
+              Bengali with English technical terms needs both. The wrong
+              language does not produce an error, it produces plausible-looking
+              gibberish.
             </p>
             <div
               className="flex flex-wrap gap-1.5"
@@ -309,7 +321,10 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               })}
             </div>
             <p className="text-xs leading-relaxed text-slate-400">
-              {OCR_OUTPUT_MODES.find((mode) => mode.id === outputMode)?.description}
+              {
+                OCR_OUTPUT_MODES.find((mode) => mode.id === outputMode)
+                  ?.description
+              }
             </p>
           </div>
 
@@ -343,41 +358,55 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         {available && status ? (
           <OcrRunArea request={request} localDevOnly={status.localDevOnly} />
         ) : (
-          <OcrUnavailable phase={phase} status={status} toolName={tool.name} toolSlug={tool.slug} />
+          <OcrUnavailable
+            phase={phase}
+            status={status}
+            toolName={tool.name}
+            toolSlug={tool.slug}
+          />
         )}
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map((stage, i, all) => (
-              <li key={stage.id} className="flex items-start gap-3">
-                <div className="flex flex-col items-center self-stretch">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
-                    <StageIcon id={stage.id} className="size-4" />
-                  </span>
-                  {i < all.length - 1 && (
-                    <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />
-                  )}
-                </div>
-                <div className="flex flex-col gap-0.5 pb-3">
-                  <span className="text-sm font-medium text-slate-200">
-                    {i + 1}. {stage.title}
-                  </span>
-                  <span className="text-xs leading-relaxed text-slate-400">
-                    {stage.description}
-                  </span>
-                </div>
-              </li>
-            ))}
+            {workerPipelineStages(status?.scan.active ?? false).map(
+              (stage, i, all) => (
+                <li key={stage.id} className="flex items-start gap-3">
+                  <div className="flex flex-col items-center self-stretch">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
+                      <StageIcon id={stage.id} className="size-4" />
+                    </span>
+                    {i < all.length - 1 && (
+                      <span
+                        className="my-1 w-px flex-1 bg-white/10"
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-0.5 pb-3">
+                    <span className="text-sm font-medium text-slate-200">
+                      {i + 1}. {stage.title}
+                    </span>
+                    <span className="text-xs leading-relaxed text-slate-400">
+                      {stage.description}
+                    </span>
+                  </div>
+                </li>
+              ),
+            )}
           </ol>
         </div>
 
         {/* Spec rows */}
-        <div className="divide-y divide-white/5 rounded-2xl border border-white/10 bg-surface-2 px-4 py-1">
-          <SpecRow icon={FileUp} label="Inputs" value={tool.accept.join(", ")} />
+        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
+          <SpecRow
+            icon={FileUp}
+            label="Inputs"
+            value={tool.accept.join(", ")}
+          />
           <SpecRow icon={FileDown} label="Outputs" value={outputs} />
           <SpecRow
             icon={Timer}
@@ -393,9 +422,9 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         <p className="text-xs leading-relaxed text-slate-400">
           No account required. OCR runs on an isolated secure worker: files are
-          encrypted in transit and at rest, recognized in a sandbox with no network
-          egress, and deleted automatically. It&apos;s enabled per deployment — see
-          our worker architecture and security docs.
+          encrypted in transit and at rest, recognized in a sandbox with no
+          network egress, and deleted automatically. It&apos;s enabled per
+          deployment — see our worker architecture and security docs.
         </p>
       </div>
     </div>
@@ -534,7 +563,9 @@ function OcrRunArea({
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
 
       {outcome?.ok === true && (
-        <ResultCard announce={`OCR complete — ${outcome.artifacts.length} file${outcome.artifacts.length === 1 ? "" : "s"} ready.`}>
+        <ResultCard
+          announce={`OCR complete — ${outcome.artifacts.length} file${outcome.artifacts.length === 1 ? "" : "s"} ready.`}
+        >
           <p className="text-sm text-emerald-200">
             OCR complete — {outcome.artifacts.length} file
             {outcome.artifacts.length === 1 ? "" : "s"} ready.
@@ -622,7 +653,7 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
 
   return (
     <div className="mt-1 flex flex-col gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-      <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+      <h4 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
         Recognition summary
       </h4>
       <dl className="divide-y divide-white/5">
@@ -649,10 +680,10 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
       */}
       {languageNames.length > 0 && (
         <p className="pt-1 text-xs leading-relaxed text-slate-400">
-          Recognized as <span className="text-slate-300">{languageNames}</span>. If the
-          text looks wrong, run it again with the language actually printed on the page —
-          OCR returns plausible-looking gibberish for the wrong language rather than an
-          error.
+          Recognized as <span className="text-slate-300">{languageNames}</span>.
+          If the text looks wrong, run it again with the language actually
+          printed on the page — OCR returns plausible-looking gibberish for the
+          wrong language rather than an error.
         </p>
       )}
       {looksLow && (
@@ -662,8 +693,9 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
             script, so "this document appears to be Bengali" would be invention. The
             wrong language is one candidate among several ordinary ones.
           */}
-          Recognition confidence was low. That usually means the scan is blurry, skewed
-          or low-resolution — or that the page is not in the language you selected.
+          Recognition confidence was low. That usually means the scan is blurry,
+          skewed or low-resolution — or that the page is not in the language you
+          selected.
         </p>
       )}
     </div>

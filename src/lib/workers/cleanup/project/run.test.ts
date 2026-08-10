@@ -1,7 +1,14 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
-import { runProject, exitCodeForProjectionVerdict, PROJECT_EXIT_INPUT_ERROR } from "./run";
-import { setProjectionObserver, resetProjectionObserverForTests } from "./receipt";
+import {
+  runProject,
+  exitCodeForProjectionVerdict,
+  PROJECT_EXIT_INPUT_ERROR,
+} from "./run";
+import {
+  setProjectionObserver,
+  resetProjectionObserverForTests,
+} from "./receipt";
 import { setProjectionSink, resetProjectionSink } from "./metrics";
 import { parseCleanupEvidence } from "../ingest";
 import { parseArtifactInventory } from "../../artifacts/cleanup/inventory";
@@ -14,7 +21,12 @@ const AT = new Date(NOW).toISOString();
 const FUTURE = NOW + 3_600_000;
 
 function args(overrides: Partial<ProjectArgs>): ProjectArgs {
-  return { source: "stdin", target: "evidence", provider: "aws-s3", ...overrides };
+  return {
+    source: "stdin",
+    target: "evidence",
+    provider: "aws-s3",
+    ...overrides,
+  };
 }
 
 afterEach(() => {
@@ -32,7 +44,9 @@ describe("exitCodeForProjectionVerdict", () => {
 
 describe("runProject", () => {
   it("emits a document the downstream verifier can parse (evidence → objects)", () => {
-    const text = JSON.stringify({ objects: [{ Error: { Code: "NoSuchKey" }, Key: "a/b" }] });
+    const text = JSON.stringify({
+      objects: [{ Error: { Code: "NoSuchKey" }, Key: "a/b" }],
+    });
     const run = runProject(text, args({ target: "evidence" }), NOW, AT);
     expect(run.exitCode).toBe(0);
     const doc = JSON.parse(run.output);
@@ -41,7 +55,10 @@ describe("runProject", () => {
     // The projected document is directly ingestible by the Phase 42 verifier.
     const reparsed = parseCleanupEvidence(run.output);
     expect(reparsed.ok).toBe(true);
-    if (reparsed.ok) expect(reparsed.objects).toEqual([{ presence: "absent", lifecycle: null, activeDelete: false }]);
+    if (reparsed.ok)
+      expect(reparsed.objects).toEqual([
+        { presence: "absent", lifecycle: null, activeDelete: false },
+      ]);
   });
 
   it("emits a document the downstream sweeper can parse (inventory → records)", () => {
@@ -49,7 +66,12 @@ describe("runProject", () => {
       objects: [
         {
           httpStatusCode: 200,
-          Metadata: { "artifact-lifecycle": encodeArtifactLifecycleMetadata({ expiresAtMs: FUTURE, deleted: false }) },
+          Metadata: {
+            "artifact-lifecycle": encodeArtifactLifecycleMetadata({
+              expiresAtMs: FUTURE,
+              deleted: false,
+            }),
+          },
           ContentType: "application/pdf",
         },
       ],
@@ -61,12 +83,20 @@ describe("runProject", () => {
     const reparsed = parseArtifactInventory(run.output);
     expect(reparsed.ok).toBe(true);
     if (reparsed.ok) {
-      expect(reparsed.inventory.records[0]).toMatchObject({ expiresAtMs: FUTURE, kind: "pdf" });
+      expect(reparsed.inventory.records[0]).toMatchObject({
+        expiresAtMs: FUTURE,
+        kind: "pdf",
+      });
     }
   });
 
   it("returns exit 2 for a metadata-thin export", () => {
-    const run = runProject(JSON.stringify({ objects: [] }), args({ target: "inventory" }), NOW, AT);
+    const run = runProject(
+      JSON.stringify({ objects: [] }),
+      args({ target: "inventory" }),
+      NOW,
+      AT,
+    );
     expect(run.exitCode).toBe(2);
   });
 
@@ -75,7 +105,12 @@ describe("runProject", () => {
       objects: [
         {
           httpStatusCode: 200,
-          Metadata: { "artifact-lifecycle": encodeArtifactLifecycleMetadata({ expiresAtMs: 1000, deleted: true }) },
+          Metadata: {
+            "artifact-lifecycle": encodeArtifactLifecycleMetadata({
+              expiresAtMs: 1000,
+              deleted: true,
+            }),
+          },
         },
       ],
     });
@@ -87,14 +122,22 @@ describe("runProject", () => {
     const run = runProject("{not json", args({ target: "evidence" }), NOW, AT);
     expect(run.exitCode).toBe(PROJECT_EXIT_INPUT_ERROR);
     const doc = JSON.parse(run.output);
-    expect(doc.error).toEqual({ reason: "invalid-export", issue: "malformed-json" });
+    expect(doc.error).toEqual({
+      reason: "invalid-export",
+      issue: "malformed-json",
+    });
     expect(doc.objects).toBeUndefined();
   });
 
   it("pushes the receipt to a registered observer (default-off otherwise)", () => {
     const seen: ProjectionReceipt[] = [];
     setProjectionObserver((r) => seen.push(r));
-    runProject(JSON.stringify({ objects: [{ presence: "absent" }] }), args({ provider: "generic" }), NOW, AT);
+    runProject(
+      JSON.stringify({ objects: [{ presence: "absent" }] }),
+      args({ provider: "generic" }),
+      NOW,
+      AT,
+    );
     expect(seen).toHaveLength(1);
     expect(seen[0]?.at).toBe(AT);
   });
@@ -103,7 +146,12 @@ describe("runProject", () => {
     setProjectionObserver(() => {
       throw new Error("sink is down");
     });
-    const run = runProject(JSON.stringify({ objects: [{ presence: "absent" }] }), args({ provider: "generic" }), NOW, AT);
+    const run = runProject(
+      JSON.stringify({ objects: [{ presence: "absent" }] }),
+      args({ provider: "generic" }),
+      NOW,
+      AT,
+    );
     expect(run.exitCode).toBe(0);
   });
 
@@ -114,18 +162,33 @@ describe("runProject", () => {
       objects: [
         {
           httpStatusCode: 200,
-          Metadata: { "artifact-lifecycle": encodeArtifactLifecycleMetadata({ expiresAtMs: 1000, deleted: true }) },
+          Metadata: {
+            "artifact-lifecycle": encodeArtifactLifecycleMetadata({
+              expiresAtMs: 1000,
+              deleted: true,
+            }),
+          },
         },
       ],
     });
     runProject(text, args({ target: "inventory" }), NOW, AT);
     expect(samples).toEqual([
-      { metric: "worker_cleanup_projection_total", kind: "counter", labels: { target: "inventory", verdict: "unsafe" }, value: 1 },
+      {
+        metric: "worker_cleanup_projection_total",
+        kind: "counter",
+        labels: { target: "inventory", verdict: "unsafe" },
+        value: 1,
+      },
     ]);
   });
 
   it("stamps the receipt with the generatedAt the caller derived", () => {
-    const run = runProject(JSON.stringify({ objects: [{ presence: "absent" }] }), args({ provider: "generic" }), NOW, AT);
+    const run = runProject(
+      JSON.stringify({ objects: [{ presence: "absent" }] }),
+      args({ provider: "generic" }),
+      NOW,
+      AT,
+    );
     expect(run.result.ok).toBe(true);
     if (run.result.ok) expect(run.result.receipt.at).toBe(AT);
   });

@@ -101,13 +101,22 @@ function fakeProcessor(tool: string, run: Processor["process"]): Processor {
     id: `fake-${tool}`,
     tools: [tool],
     supports: (t) => t === tool,
-    capability: () => ({ id: `fake-${tool}`, tools: [tool], ready: true, detail: "" }),
+    capability: () => ({
+      id: `fake-${tool}`,
+      tools: [tool],
+      ready: true,
+      detail: "",
+    }),
     process: run,
   };
 }
 
 const OK_ARTIFACT = [
-  { filename: "out.pdf", contentType: "application/pdf", bytes: new Uint8Array([9]) },
+  {
+    filename: "out.pdf",
+    contentType: "application/pdf",
+    bytes: new Uint8Array([9]),
+  },
 ];
 
 /** Two input ids, so the invariant proves EVERY input is wiped, not just the first. */
@@ -117,7 +126,12 @@ function seededInputs(ids: string[]): Record<string, ProcessorInputFile> {
   return Object.fromEntries(
     ids.map((fileId) => [
       fileId,
-      { fileId, filename: "in.pdf", contentType: "application/pdf", bytes: new Uint8Array([1, 2, 3]) },
+      {
+        fileId,
+        filename: "in.pdf",
+        contentType: "application/pdf",
+        bytes: new Uint8Array([1, 2, 3]),
+      },
     ]),
   );
 }
@@ -144,42 +158,81 @@ interface LeakScenario {
 }
 
 const FAILING: Processor = fakeProcessor("t", async () =>
-  processorFail({ code: "unprocessable_entity", message: "bad", retryable: false }),
+  processorFail({
+    code: "unprocessable_entity",
+    message: "bad",
+    retryable: false,
+  }),
 );
 const OK: Processor = fakeProcessor("t", async () => processorOk(OK_ARTIFACT));
 
 const SCENARIOS: LeakScenario[] = [
-  { name: "no registered processor", seed: true, tool: "no-such-tool", expectOutcome: "failed" },
-  { name: "an expired/missing input", seed: false, tool: "t", processor: OK, expectOutcome: "failed" },
-  { name: "a terminal processing failure", seed: true, tool: "t", processor: FAILING, expectOutcome: "failed" },
+  {
+    name: "no registered processor",
+    seed: true,
+    tool: "no-such-tool",
+    expectOutcome: "failed",
+  },
+  {
+    name: "an expired/missing input",
+    seed: false,
+    tool: "t",
+    processor: OK,
+    expectOutcome: "failed",
+  },
+  {
+    name: "a terminal processing failure",
+    seed: true,
+    tool: "t",
+    processor: FAILING,
+    expectOutcome: "failed",
+  },
   {
     // The REAL OCR processor: with no runner wired it validates the request then fails
     // honestly as not_implemented — the genuine "OCR unavailable" path, not a stand-in.
     name: "an OCR failure (real processor, no engine)",
-    seed: true, tool: "ocr-pdf", useRealRegistry: true,
+    seed: true,
+    tool: "ocr-pdf",
+    useRealRegistry: true,
     options: { languages: ["eng"], outputMode: "searchable-pdf" },
     expectOutcome: "failed",
   },
   {
     name: "a malware-scan block (infected)",
-    seed: true, tool: "t", processor: OK,
-    scanner: fakeScanner(scanInfected()), expectOutcome: "failed",
+    seed: true,
+    tool: "t",
+    processor: OK,
+    scanner: fakeScanner(scanInfected()),
+    expectOutcome: "failed",
   },
   {
     name: "an unscannable input (invalid)",
-    seed: true, tool: "t", processor: OK,
-    scanner: fakeScanner(scanInvalid()), expectOutcome: "failed",
+    seed: true,
+    tool: "t",
+    processor: OK,
+    scanner: fakeScanner(scanInvalid()),
+    expectOutcome: "failed",
   },
   {
     // maxAttempts:1 ⇒ a retryable scan error must terminate IMMEDIATELY with no requeue.
     // The exact-outcome assertion pins that (a `drain()`+`toContain` would pass even
     // under a broken attempt budget that requeued first).
     name: "a scan that never completes (unavailable, attempts exhausted)",
-    seed: true, tool: "t", processor: OK, maxAttempts: 1,
-    scanner: fakeScanner(scanError()), expectOutcome: "failed",
+    seed: true,
+    tool: "t",
+    processor: OK,
+    maxAttempts: 1,
+    scanner: fakeScanner(scanError()),
+    expectOutcome: "failed",
     expectExactOutcomes: ["failed", "idle"],
   },
-  { name: "cancellation mid-run (artifact written then reclaimed)", seed: true, tool: "t", cancelMidRun: true, expectOutcome: "canceled" },
+  {
+    name: "cancellation mid-run (artifact written then reclaimed)",
+    seed: true,
+    tool: "t",
+    cancelMidRun: true,
+    expectOutcome: "canceled",
+  },
 ];
 
 describe("executor active-deletion proof — no leak on any terminal path", () => {
@@ -248,13 +301,23 @@ describe("executor active-deletion proof — a retryable requeue preserves input
     const jobId = "job_requeue001";
     const store = new DevWorkerStore(() => CLOCK);
     const queue = createLocalDevQueue({ store, now: () => CLOCK });
-    const { storage, artifacts, deletedInputs } = recordingStorage(seededInputs(TWO_INPUTS));
+    const { storage, artifacts, deletedInputs } = recordingStorage(
+      seededInputs(TWO_INPUTS),
+    );
     const registry = new ProcessorRegistry().register(
       fakeProcessor("t", async () =>
-        processorFail({ code: "internal_error", message: "transient", retryable: true }),
+        processorFail({
+          code: "internal_error",
+          message: "transient",
+          retryable: true,
+        }),
       ),
     );
-    await queue.submit({ job: queuedJob(jobId, "t"), inputs: TWO_INPUTS, options: {} });
+    await queue.submit({
+      job: queuedJob(jobId, "t"),
+      inputs: TWO_INPUTS,
+      options: {},
+    });
 
     const tick = await createWorkerExecutor({
       queue,
@@ -304,7 +367,9 @@ describe("executor active-deletion proof — completion wipes inputs, retains on
       queue,
       storage,
       registry: createProcessorRegistry({
-        compression: { tools: { ghostscript: false, qpdf: false, mutool: false } },
+        compression: {
+          tools: { ghostscript: false, qpdf: false, mutool: false },
+        },
       }),
       leaseMs: LEASE_MS,
     }).drain();
@@ -322,7 +387,9 @@ describe("executor active-deletion proof — completion wipes inputs, retains on
     expect(job?.artifacts).toHaveLength(1);
     const artifact = job!.artifacts![0]!;
     expect(artifact.expiresAt).toBe(
-      new Date(CLOCK + DEFAULT_RETENTION.outputTtlMinutes * 60_000).toISOString(),
+      new Date(
+        CLOCK + DEFAULT_RETENTION.outputTtlMinutes * 60_000,
+      ).toISOString(),
     );
     expect(new Date(artifact.expiresAt).getTime()).toBeGreaterThan(CLOCK);
   });

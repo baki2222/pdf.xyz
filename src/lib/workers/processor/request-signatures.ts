@@ -13,7 +13,10 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import { parseSignatureRequestOptions, signatureRequestOutputName } from "@/lib/jobs/request-signatures";
+import {
+  parseSignatureRequestOptions,
+  signatureRequestOutputName,
+} from "@/lib/jobs/request-signatures";
 import {
   REQUEST_SIGNATURES_TOOL,
   runSignatureRequest,
@@ -21,7 +24,13 @@ import {
   type SignatureRequestMeta,
   type SignatureRequestRun,
 } from "../request-signatures/engine";
-import { processorFail, processorOk, type Processor, type ProcessorMeta, type ProcessorResult } from "./types";
+import {
+  processorFail,
+  processorOk,
+  type Processor,
+  type ProcessorMeta,
+  type ProcessorResult,
+} from "./types";
 
 type Failure = Extract<SignatureRequestRun, { ok: false }>;
 
@@ -33,13 +42,29 @@ export function requestSignaturesOutputName(originalName: unknown): string {
 function jobError(run: Failure): JobError {
   switch (run.kind) {
     case "unsupported":
-      return { code: "not_implemented", message: `${run.message} See docs/WORKER_ARCHITECTURE.md.`, retryable: false };
+      return {
+        code: "not_implemented",
+        message: `${run.message} See docs/WORKER_ARCHITECTURE.md.`,
+        retryable: false,
+      };
     case "delivery_unconfigured":
-      return { code: "not_implemented", message: `${run.message} See docs/WORKER_ARCHITECTURE.md.`, retryable: false };
+      return {
+        code: "not_implemented",
+        message: `${run.message} See docs/WORKER_ARCHITECTURE.md.`,
+        retryable: false,
+      };
     case "too_large":
-      return { code: "payload_too_large", message: run.message, retryable: false };
+      return {
+        code: "payload_too_large",
+        message: run.message,
+        retryable: false,
+      };
     case "invalid_request":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };
@@ -58,7 +83,9 @@ function meta(m: SignatureRequestMeta): ProcessorMeta {
   };
 }
 
-export function createRequestSignaturesProcessor(deps: SignatureRequestDeps): Processor {
+export function createRequestSignaturesProcessor(
+  deps: SignatureRequestDeps,
+): Processor {
   const ready = deps.inspect != null && deps.place != null;
   return {
     id: "request-signatures",
@@ -78,11 +105,19 @@ export function createRequestSignaturesProcessor(deps: SignatureRequestDeps): Pr
     },
     async process(input): Promise<ProcessorResult> {
       if (input.tool !== REQUEST_SIGNATURES_TOOL) {
-        return processorFail({ code: "not_implemented", message: "This processor only handles request-signatures.", retryable: false });
+        return processorFail({
+          code: "not_implemented",
+          message: "This processor only handles request-signatures.",
+          retryable: false,
+        });
       }
       const file = input.inputs[0];
       if (input.inputs.length !== 1 || !file) {
-        return processorFail({ code: "unprocessable_entity", message: "Request Signatures accepts exactly one PDF input.", retryable: false });
+        return processorFail({
+          code: "unprocessable_entity",
+          message: "Request Signatures accepts exactly one PDF input.",
+          retryable: false,
+        });
       }
       const parsed = parseSignatureRequestOptions(input.options);
       if (!parsed.ok) {
@@ -95,7 +130,13 @@ export function createRequestSignaturesProcessor(deps: SignatureRequestDeps): Pr
       const run = await runSignatureRequest(file.bytes, parsed.value, deps);
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
-        [{ filename: requestSignaturesOutputName(file.filename), contentType: run.contentType, bytes: run.output }],
+        [
+          {
+            filename: requestSignaturesOutputName(file.filename),
+            contentType: run.contentType,
+            bytes: run.output,
+          },
+        ],
         meta(run.meta),
       );
     },

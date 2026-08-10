@@ -12,7 +12,10 @@
 import { parseCreateUploadSessionRequest } from "@/lib/jobs";
 import { getWorkerAdapter } from "@/lib/workers";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
-import { evaluateUploadDescriptors, intakeErrorResult } from "@/lib/uploads/intake";
+import {
+  evaluateUploadDescriptors,
+  intakeErrorResult,
+} from "@/lib/uploads/intake";
 import { readJsonBody, respond, respondRateLimited } from "../_lib/http";
 
 // Never statically cached: a request-scoped, no-store endpoint. Node runtime —
@@ -45,6 +48,8 @@ export async function POST(request: Request): Promise<Response> {
   const adapter = await getWorkerAdapter();
   const outcome = await adapter.createUploadSession(parsed.value);
   return respond(
-    outcome.ok ? { status: outcome.status, body: outcome.value } : outcome.error,
+    outcome.ok
+      ? { status: outcome.status, body: outcome.value }
+      : outcome.error,
   );
 }

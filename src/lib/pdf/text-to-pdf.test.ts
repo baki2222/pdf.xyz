@@ -24,13 +24,18 @@ describe("text-to-pdf", () => {
   it("paginates plain text", async () => {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Courier);
-    const layout = layoutPlainText(Array.from({ length: 90 }, (_, i) => `Line ${i + 1}`).join("\n"), font);
+    const layout = layoutPlainText(
+      Array.from({ length: 90 }, (_, i) => `Line ${i + 1}`).join("\n"),
+      font,
+    );
     expect(layout.pages.length).toBeGreaterThan(1);
     expect(layout.lineCount).toBe(90);
   });
 
   it("creates a readable PDF", async () => {
-    const bytes = await textToPdf("Hello pdf.xyz\nThis is a text file.", { title: "notes.txt" });
+    const bytes = await textToPdf("Hello pdf.xyz\nThis is a text file.", {
+      title: "notes.txt",
+    });
     const doc = await PDFDocument.load(bytes);
     expect(doc.getPageCount()).toBe(1);
     expect(bytes.byteLength).toBeGreaterThan(500);

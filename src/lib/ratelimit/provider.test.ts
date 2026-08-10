@@ -95,7 +95,10 @@ describe("rate-limit provider seam", () => {
     const { provider, seenKeys } = fakeProvider();
     registerRateLimitProvider(provider);
 
-    await enforceRateLimit("jobs.create", req({ "x-forwarded-for": "203.0.113.9" }));
+    await enforceRateLimit(
+      "jobs.create",
+      req({ "x-forwarded-for": "203.0.113.9" }),
+    );
     expect(seenKeys).toHaveLength(1);
     const key = seenKeys[0] ?? "";
     // The backend sees a salted hash prefixed `c_`, never the raw address.
@@ -108,7 +111,10 @@ describe("rate-limit provider seam", () => {
     const { provider, seenKeys } = fakeProvider();
     registerRateLimitProvider(provider);
 
-    await enforceRateLimit("jobs.create", req({ "x-forwarded-for": "203.0.113.9" }));
+    await enforceRateLimit(
+      "jobs.create",
+      req({ "x-forwarded-for": "203.0.113.9" }),
+    );
     expect(seenKeys[0]).toBe("shared");
   });
 

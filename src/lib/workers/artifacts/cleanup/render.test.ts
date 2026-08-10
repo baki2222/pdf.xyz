@@ -1,12 +1,17 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { renderArtifactCleanupText } from "./render";
-import { evaluateArtifactInventory, type ArtifactCleanupReport } from "./evaluate";
+import {
+  evaluateArtifactInventory,
+  type ArtifactCleanupReport,
+} from "./evaluate";
 import type { ArtifactInventoryRecord } from "./inventory";
 
 const NOW = 1_700_000_000_000;
 
-function rec(over: Partial<ArtifactInventoryRecord> = {}): ArtifactInventoryRecord {
+function rec(
+  over: Partial<ArtifactInventoryRecord> = {},
+): ArtifactInventoryRecord {
   return {
     declaredLifecycle: "live",
     expiresAtMs: null,

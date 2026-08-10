@@ -74,7 +74,13 @@ describe("filledFormsOutputName", () => {
 
 describe("isFillableType", () => {
   it("treats every classified type except unsupported as fillable", () => {
-    for (const type of ["text", "checkbox", "radio", "dropdown", "optionlist"] as const) {
+    for (const type of [
+      "text",
+      "checkbox",
+      "radio",
+      "dropdown",
+      "optionlist",
+    ] as const) {
       expect(isFillableType(type)).toBe(true);
     }
     expect(isFillableType("unsupported")).toBe(false);
@@ -94,7 +100,8 @@ describe("inspectFormFields", () => {
 
   it("classifies every field type and surfaces safe metadata", async () => {
     const bytes = await buildFormPdf();
-    const { hasFields, fields, fillableCount, unsupportedCount } = await inspectFormFields(bytes);
+    const { hasFields, fields, fillableCount, unsupportedCount } =
+      await inspectFormFields(bytes);
 
     expect(hasFields).toBe(true);
     // 7 fillable (name, notes, agree, color, city, langs, read-only id) + 1
@@ -149,7 +156,12 @@ describe("inspectFormFields", () => {
 describe("applyFormValues", () => {
   it("writes values of every supported type and persists them on reload", async () => {
     const bytes = await buildFormPdf();
-    const { bytes: filled, appliedCount, flattened, outcomes } = await applyFormValues(bytes, {
+    const {
+      bytes: filled,
+      appliedCount,
+      flattened,
+      outcomes,
+    } = await applyFormValues(bytes, {
       "applicant.name": "Grace Hopper",
       "applicant.agree": false,
       "applicant.color": "Blue",
@@ -166,7 +178,10 @@ describe("applyFormValues", () => {
     expect(byName(after.fields, "applicant.agree").checked).toBe(false);
     expect(byName(after.fields, "applicant.color").selected).toEqual(["Blue"]);
     expect(byName(after.fields, "applicant.city").selected).toEqual(["LA"]);
-    expect(byName(after.fields, "applicant.langs").selected).toEqual(["EN", "DE"]);
+    expect(byName(after.fields, "applicant.langs").selected).toEqual([
+      "EN",
+      "DE",
+    ]);
   });
 
   it("rejects an out-of-range text value without corrupting the field", async () => {
@@ -189,8 +204,18 @@ describe("applyFormValues", () => {
       "applicant.city": "Paris",
     });
     expect(outcomes).toEqual([
-      { name: "applicant.color", type: "radio", status: "invalid", detail: '"Green" is not an option' },
-      { name: "applicant.city", type: "dropdown", status: "invalid", detail: "Not an option: Paris" },
+      {
+        name: "applicant.color",
+        type: "radio",
+        status: "invalid",
+        detail: '"Green" is not an option',
+      },
+      {
+        name: "applicant.city",
+        type: "dropdown",
+        status: "invalid",
+        detail: "Not an option: Paris",
+      },
     ]);
 
     // The rejected values must not have leaked into the saved document.
@@ -207,9 +232,16 @@ describe("applyFormValues", () => {
       "applicant.missing": "nope",
     });
     expect(appliedCount).toBe(0);
-    expect(byName(outcomes, "applicant.id")).toMatchObject({ status: "skipped", detail: "Read-only field" });
-    expect(byName(outcomes, "applicant.submit")).toMatchObject({ status: "skipped" });
-    expect(byName(outcomes, "applicant.missing")).toMatchObject({ status: "missing" });
+    expect(byName(outcomes, "applicant.id")).toMatchObject({
+      status: "skipped",
+      detail: "Read-only field",
+    });
+    expect(byName(outcomes, "applicant.submit")).toMatchObject({
+      status: "skipped",
+    });
+    expect(byName(outcomes, "applicant.missing")).toMatchObject({
+      status: "missing",
+    });
 
     // Read-only value is preserved.
     const after = await inspectFormFields(bytes);
@@ -235,9 +267,12 @@ describe("applyFormValues", () => {
     dd.enableEditing();
     dd.addToPage(page, { x: 10, y: 250, width: 120, height: 20 });
 
-    const { outcomes, bytes: filled } = await applyFormValues(await doc.save(), {
-      combo: "Custom",
-    });
+    const { outcomes, bytes: filled } = await applyFormValues(
+      await doc.save(),
+      {
+        combo: "Custom",
+      },
+    );
     expect(outcomes[0]).toMatchObject({ status: "applied" });
     const after = await inspectFormFields(filled);
     expect(byName(after.fields, "combo").selected).toEqual(["Custom"]);

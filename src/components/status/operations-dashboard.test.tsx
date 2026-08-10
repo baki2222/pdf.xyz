@@ -71,7 +71,9 @@ describe("WorkerOperationsDashboard", () => {
     expect(
       await screen.findByText("Declare a retention backstop"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/can.?t see a running worker/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/can.?t see a running worker/i),
+    ).toBeInTheDocument();
   });
 
   it("shows a recoverable error and retries when the endpoint is unreachable", async () => {
@@ -88,7 +90,9 @@ describe("WorkerOperationsDashboard", () => {
       screen.getByText(/couldn't reach the operations endpoint/i),
     ).toBeInTheDocument();
     // The error copy must not read as "worker down".
-    expect(screen.getByText(/doesn't mean a worker is down/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/doesn't mean a worker is down/i),
+    ).toBeInTheDocument();
 
     retry.click();
 
@@ -134,9 +138,7 @@ describe("WorkerOperationsDashboard — accessibility", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
     render(<WorkerOperationsDashboard />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /retry/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
 
   it("labels the ready state with a heading and a named refresh control", async () => {

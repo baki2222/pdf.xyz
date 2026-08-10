@@ -110,13 +110,16 @@ export function UploadZone({
           {files.map((file) => (
             <li
               key={file.id}
-              className="flex items-center gap-3 rounded-xl border border-white/10 bg-surface-2 px-3.5 py-2.5"
+              className="bg-surface-2 flex items-center gap-3 rounded-xl border border-white/10 px-3.5 py-2.5"
             >
-              <FileText className="size-4 shrink-0 text-violet-300" aria-hidden />
+              <FileText
+                className="size-4 shrink-0 text-violet-300"
+                aria-hidden
+              />
               <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
                 {file.name}
               </span>
-              <span className="shrink-0 text-xs tabular-nums text-slate-400">
+              <span className="shrink-0 text-xs text-slate-400 tabular-nums">
                 {formatBytes(file.size)}
               </span>
               <button

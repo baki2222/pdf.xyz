@@ -21,7 +21,11 @@ import { DEFAULT_RETENTION, type Job } from "@/lib/jobs";
 import { DevWorkerStore } from "../store";
 import { createLocalDevQueue } from "../queue/local-dev";
 import { ProcessorRegistry } from "../processor/registry";
-import { processorOk, type Processor, type ProcessorArtifact } from "../processor/types";
+import {
+  processorOk,
+  type Processor,
+  type ProcessorArtifact,
+} from "../processor/types";
 import {
   defaultArtifactManifestGate,
   disabledArtifactManifestGate,
@@ -67,7 +71,12 @@ function harness(output: ProcessorArtifact[], opts: Opts = {}) {
     id: "compression",
     tools: ["compress-pdf"],
     supports: (t) => t === "compress-pdf",
-    capability: () => ({ id: "compression", tools: ["compress-pdf"], ready: true, detail: "" }),
+    capability: () => ({
+      id: "compression",
+      tools: ["compress-pdf"],
+      ready: true,
+      detail: "",
+    }),
     process: async () => {
       if (opts.cancelMidFlight) await queue.cancel(JOB_ID);
       return processorOk(output);
@@ -113,7 +122,14 @@ function harness(output: ProcessorArtifact[], opts: Opts = {}) {
     await executor.drain();
   };
 
-  return { store, logs, receipts, getClockReads: () => clockReads, fileId: slot.fileId, run };
+  return {
+    store,
+    logs,
+    receipts,
+    getClockReads: () => clockReads,
+    fileId: slot.fileId,
+    run,
+  };
 }
 
 const pdfOut = (bytes = PDF): ProcessorArtifact => ({
@@ -179,7 +195,9 @@ describe("artifact receipts — rejection is a single log + single receipt", () 
         {
           filename: "/etc/passwd Confidential Salaries.pdf",
           contentType: "text/plain", // mismatches the .pdf name ⇒ rejected
-          bytes: enc("123-45-6789 X-Amz-Signature=deadbeef AWS_SECRET_ACCESS_KEY=x"),
+          bytes: enc(
+            "123-45-6789 X-Amz-Signature=deadbeef AWS_SECRET_ACCESS_KEY=x",
+          ),
         },
       ],
       { withReceipts: true },
@@ -205,7 +223,10 @@ describe("artifact receipts — cleaned when a published set is dropped", () => 
     // The processor cancels its own job mid-flight, then returns a valid PDF: the gate
     // passes (a manifest is generated), the artifact is written, then `complete` fails
     // because the job is canceled — so the artifact is deleted and its manifest cleaned.
-    const h = harness([pdfOut()], { withReceipts: true, cancelMidFlight: true });
+    const h = harness([pdfOut()], {
+      withReceipts: true,
+      cancelMidFlight: true,
+    });
     await h.run();
 
     expect(h.store.getJob(JOB_ID)?.status).toBe("canceled");

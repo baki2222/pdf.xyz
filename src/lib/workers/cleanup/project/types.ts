@@ -33,7 +33,8 @@
  *  - `generic` — an already-normalized export using the bounded field names directly.
  */
 export const PROJECTION_SOURCE_PROVIDERS = ["aws-s3", "generic"] as const;
-export type ProjectionSourceProvider = (typeof PROJECTION_SOURCE_PROVIDERS)[number];
+export type ProjectionSourceProvider =
+  (typeof PROJECTION_SOURCE_PROVIDERS)[number];
 
 /**
  * The bounded TARGET format the projector emits:
@@ -103,7 +104,11 @@ export type DroppedFieldCategory = (typeof DROPPED_FIELD_CATEGORIES)[number];
  *  - `unsafe`       — a positive unsafe condition was detected (a present-tombstoned object,
  *    or a structurally invalid record): the export shows something that should not be.
  */
-export const PROJECTION_VERDICTS = ["projected", "insufficient", "unsafe"] as const;
+export const PROJECTION_VERDICTS = [
+  "projected",
+  "insufficient",
+  "unsafe",
+] as const;
 export type ProjectionVerdict = (typeof PROJECTION_VERDICTS)[number];
 
 /** Stable identity of the projection policy — stamped on receipts for an audit trail. */
@@ -118,7 +123,9 @@ export const PROJECTION_SCHEMA = "pdfxyz.cleanup-projection/1" as const;
 export type DroppedFieldCounts = Readonly<Record<DroppedFieldCategory, number>>;
 
 /** A content-free tally of {@link ProjectionWarning}s. */
-export type ProjectionWarningCounts = Readonly<Record<ProjectionWarning, number>>;
+export type ProjectionWarningCounts = Readonly<
+  Record<ProjectionWarning, number>
+>;
 
 /**
  * The content-free **projection receipt** — the durable, auditable summary of one projection
@@ -160,8 +167,18 @@ export interface ProjectionReceipt {
 }
 
 /** A zeroed {@link DroppedFieldCounts} — the starting tally. */
-export function emptyDroppedFieldCounts(): Record<DroppedFieldCategory, number> {
-  return { locator: 0, url: 0, identity: 0, integrity: 0, "metadata-blob": 0, other: 0 };
+export function emptyDroppedFieldCounts(): Record<
+  DroppedFieldCategory,
+  number
+> {
+  return {
+    locator: 0,
+    url: 0,
+    identity: 0,
+    integrity: 0,
+    "metadata-blob": 0,
+    other: 0,
+  };
 }
 
 /** A zeroed {@link ProjectionWarningCounts} — the starting tally. */

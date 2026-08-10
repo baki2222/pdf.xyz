@@ -9,7 +9,11 @@ import {
   type PDFContext,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { encodePng, extractPdfImages, reversePredictor } from "./extract-images";
+import {
+  encodePng,
+  extractPdfImages,
+  reversePredictor,
+} from "./extract-images";
 
 // A real 1×1 JPEG and PNG (the same fixtures the image-to-pdf tool is tested
 // with) — genuine encoded image files, not page renders.
@@ -73,8 +77,12 @@ function decodePng(bytes: Uint8Array): DecodedPng {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
   let off = 8;
-  let header: { width: number; height: number; bitDepth: number; colorType: number } | null =
-    null;
+  let header: {
+    width: number;
+    height: number;
+    bitDepth: number;
+    colorType: number;
+  } | null = null;
   const idat: Uint8Array[] = [];
   let sawIend = false;
   while (off < bytes.length) {
@@ -105,7 +113,9 @@ function decodePng(bytes: Uint8Array): DecodedPng {
   }
   expect(header).not.toBeNull();
   expect(sawIend).toBe(true);
-  const inflated = new Uint8Array(inflateSync(Buffer.concat(idat.map((d) => Buffer.from(d)))));
+  const inflated = new Uint8Array(
+    inflateSync(Buffer.concat(idat.map((d) => Buffer.from(d)))),
+  );
 
   const h = header!;
   const channels = h.colorType === 2 ? 3 : 1;
@@ -114,7 +124,10 @@ function decodePng(bytes: Uint8Array): DecodedPng {
   const stride = rowBytes + 1;
   for (let y = 0; y < h.height; y++) {
     expect(inflated[y * stride]).toBe(0); // filter type None
-    samples.set(inflated.subarray(y * stride + 1, y * stride + 1 + rowBytes), y * rowBytes);
+    samples.set(
+      inflated.subarray(y * stride + 1, y * stride + 1 + rowBytes),
+      y * rowBytes,
+    );
   }
   return { ...h, samples };
 }
@@ -123,7 +136,8 @@ function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
   for (let i = 0; i < bytes.length; i++) {
     crc ^= bytes[i]!;
-    for (let k = 0; k < 8; k++) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    for (let k = 0; k < 8; k++)
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
   }
   return (crc ^ 0xffffffff) >>> 0;
 }
@@ -137,7 +151,8 @@ function pngUpFilter(rows: number[][]): Uint8Array {
     const row = rows[r]!;
     const base = r * (rowBytes + 1);
     out[base] = 2; // Up
-    for (let i = 0; i < rowBytes; i++) out[base + 1 + i] = (row[i]! - prev[i]!) & 0xff;
+    for (let i = 0; i < rowBytes; i++)
+      out[base + 1 + i] = (row[i]! - prev[i]!) & 0xff;
     prev = row;
   }
   return out;
@@ -195,7 +210,12 @@ describe("encodePng", () => {
     ]);
     const png = encodePng(2, 2, "rgb8", samples);
     const decoded = decodePng(png);
-    expect(decoded).toMatchObject({ width: 2, height: 2, bitDepth: 8, colorType: 2 });
+    expect(decoded).toMatchObject({
+      width: 2,
+      height: 2,
+      bitDepth: 8,
+      colorType: 2,
+    });
     expect(Array.from(decoded.samples)).toEqual(Array.from(samples));
   });
 
@@ -209,7 +229,12 @@ describe("encodePng", () => {
   it("encodes 1-bit grayscale bitmaps", () => {
     const samples = Uint8Array.from([0b10100000]); // 8 px, 1 row
     const decoded = decodePng(encodePng(8, 1, "gray1", samples));
-    expect(decoded).toMatchObject({ width: 8, height: 1, bitDepth: 1, colorType: 0 });
+    expect(decoded).toMatchObject({
+      width: 8,
+      height: 1,
+      bitDepth: 1,
+      colorType: 0,
+    });
     expect(decoded.samples[0]).toBe(0b10100000);
   });
 
@@ -266,9 +291,14 @@ describe("reversePredictor", () => {
 
   it("passes data through untouched when there is no predictor", () => {
     const data = Uint8Array.from([1, 2, 3]);
-    expect(reversePredictor(data, { predictor: 1, colors: 1, columns: 3, bitsPerComponent: 8 })).toBe(
-      data,
-    );
+    expect(
+      reversePredictor(data, {
+        predictor: 1,
+        colors: 1,
+        columns: 3,
+        bitsPerComponent: 8,
+      }),
+    ).toBe(data);
   });
 });
 
@@ -294,10 +324,13 @@ describe("extractPdfImages — JPEG", () => {
     // image itself, not a re-render.
     expect(Buffer.from(img.bytes).equals(Buffer.from(JPG_1X1))).toBe(true);
     // Magic + terminator of a real JPEG file.
-    expect([img.bytes[0], img.bytes[1], img.bytes[2]]).toEqual([0xff, 0xd8, 0xff]);
-    expect([img.bytes[img.bytes.length - 2], img.bytes[img.bytes.length - 1]]).toEqual([
-      0xff, 0xd9,
+    expect([img.bytes[0], img.bytes[1], img.bytes[2]]).toEqual([
+      0xff, 0xd8, 0xff,
     ]);
+    expect([
+      img.bytes[img.bytes.length - 2],
+      img.bytes[img.bytes.length - 1],
+    ]).toEqual([0xff, 0xd9]);
     // Reported dimensions match the JPEG's own SOF, not the drawn box (100×100).
     expect({ width: img.width, height: img.height }).toEqual(jpegSize(JPG_1X1));
     expect(img.width).toBe(1);
@@ -325,7 +358,9 @@ describe("extractPdfImages — JPEG", () => {
     const result = await extractPdfImages(bytes);
     expect(result.images).toHaveLength(1);
     expect(result.images[0]!.format).toBe("jpg");
-    expect(Buffer.from(result.images[0]!.bytes).equals(Buffer.from(JPG_1X1))).toBe(true);
+    expect(
+      Buffer.from(result.images[0]!.bytes).equals(Buffer.from(JPG_1X1)),
+    ).toBe(true);
   });
 });
 
@@ -372,7 +407,12 @@ describe("extractPdfImages — Flate pixel images", () => {
           colorSpace: "DeviceRGB",
           bitsPerComponent: 8,
           samples: predicted,
-          decodeParms: { Predictor: 15, Colors: 3, Columns: 2, BitsPerComponent: 8 },
+          decodeParms: {
+            Predictor: 15,
+            Colors: 3,
+            Columns: 2,
+            BitsPerComponent: 8,
+          },
         }),
       ],
     ]);
@@ -575,12 +615,22 @@ describe("extractPdfImages — honest skips", () => {
   });
 
   it("skips CCITT fax and JBIG2", async () => {
-    expect((await skipReasonFor({ ColorSpace: "DeviceGray", BitsPerComponent: 1 }, "CCITTFaxDecode")).reason).toMatch(
-      /CCITT/,
-    );
-    expect((await skipReasonFor({ ColorSpace: "DeviceGray", BitsPerComponent: 1 }, "JBIG2Decode")).reason).toMatch(
-      /JBIG2/,
-    );
+    expect(
+      (
+        await skipReasonFor(
+          { ColorSpace: "DeviceGray", BitsPerComponent: 1 },
+          "CCITTFaxDecode",
+        )
+      ).reason,
+    ).toMatch(/CCITT/);
+    expect(
+      (
+        await skipReasonFor(
+          { ColorSpace: "DeviceGray", BitsPerComponent: 1 },
+          "JBIG2Decode",
+        )
+      ).reason,
+    ).toMatch(/JBIG2/);
   });
 
   it("skips Indexed (palette) images", async () => {
@@ -606,9 +656,11 @@ describe("extractPdfImages — honest skips", () => {
   });
 
   it("skips CMYK images", async () => {
-    const skip = await skipReasonFor(
-      { ColorSpace: "DeviceCMYK", BitsPerComponent: 8, Filter: "FlateDecode" },
-    );
+    const skip = await skipReasonFor({
+      ColorSpace: "DeviceCMYK",
+      BitsPerComponent: 8,
+      Filter: "FlateDecode",
+    });
     expect(skip.reason).toMatch(/CMYK/);
   });
 
@@ -622,7 +674,10 @@ describe("extractPdfImages — honest skips", () => {
   });
 
   it("skips stencil image masks", async () => {
-    const skip = await skipReasonFor({ ImageMask: true, Filter: "FlateDecode" });
+    const skip = await skipReasonFor({
+      ImageMask: true,
+      Filter: "FlateDecode",
+    });
     expect(skip.reason).toMatch(/mask/i);
   });
 

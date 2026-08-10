@@ -166,7 +166,11 @@ function fail(error: ReturnType<typeof apiError>): {
 
 function invalid(message: string, field?: string): ParseResult<never> {
   return fail(
-    apiError("invalid_request", message, field ? [{ field, message }] : undefined),
+    apiError(
+      "invalid_request",
+      message,
+      field ? [{ field, message }] : undefined,
+    ),
   );
 }
 
@@ -185,9 +189,7 @@ function tooLarge(message: string, field: string): ParseResult<never> {
 }
 
 /** Resolve a `tool` field to a worker-capable catalog Tool, or an error. */
-function resolveWorkerTool(
-  value: unknown,
-): ParseResult<Tool> {
+function resolveWorkerTool(value: unknown): ParseResult<Tool> {
   if (typeof value !== "string" || value.trim().length === 0) {
     return invalid("`tool` is required and must be a string.", "tool");
   }
@@ -445,10 +447,7 @@ export function parseCreateJobRequest(
   for (let i = 0; i < inputs.length; i++) {
     const id = inputs[i];
     if (typeof id !== "string" || !isValidFileId(id)) {
-      return invalid(
-        `inputs[${i}] is not a valid file id.`,
-        `inputs[${i}]`,
-      );
+      return invalid(`inputs[${i}] is not a valid file id.`, `inputs[${i}]`);
     }
   }
 

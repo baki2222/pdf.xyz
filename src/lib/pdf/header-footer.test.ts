@@ -18,7 +18,9 @@ describe("header-footer", () => {
   it("detects whether any slot carries text", () => {
     expect(hasHeaderFooterContent({})).toBe(false);
     expect(hasHeaderFooterContent({ header: { center: "   " } })).toBe(false);
-    expect(hasHeaderFooterContent({ footer: { right: "Page {n}" } })).toBe(true);
+    expect(hasHeaderFooterContent({ footer: { right: "Page {n}" } })).toBe(
+      true,
+    );
   });
 
   it("rejects an empty configuration", () => {

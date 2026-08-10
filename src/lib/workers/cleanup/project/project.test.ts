@@ -31,7 +31,11 @@ function project<T extends "evidence" | "inventory">(
   target: T,
   source: "aws-s3" | "generic" = "aws-s3",
 ): Extract<ProjectionResult, { ok: true; target: T }> {
-  const result = projectProviderExport(JSON.stringify(doc), { target, source, now: NOW });
+  const result = projectProviderExport(JSON.stringify(doc), {
+    target,
+    source,
+    now: NOW,
+  });
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error("unreachable");
   return result as Extract<ProjectionResult, { ok: true; target: T }>;
@@ -44,7 +48,10 @@ describe("projectProviderExport — AWS head-object → inventory", () => {
     ContentLength: 2_000_000, // ~1.9 MiB → 1-10mb
     LastModified: new Date(NOW - 2 * 24 * 3_600_000).toISOString(), // 2 days old → 1-7d
     Metadata: {
-      "artifact-lifecycle": encodeArtifactLifecycleMetadata({ expiresAtMs: FUTURE, deleted: false }),
+      "artifact-lifecycle": encodeArtifactLifecycleMetadata({
+        expiresAtMs: FUTURE,
+        deleted: false,
+      }),
       "artifact-manifest": encodeArtifactManifestMetadata(manifest()),
     },
     Key: "artifacts/job-xyz/output.pdf",
@@ -67,7 +74,10 @@ describe("projectProviderExport — AWS head-object → inventory", () => {
   });
 
   it("resolves verdict=projected (exit-worthy 0) and marks the record usable", () => {
-    const { verdict, receipt } = project({ objects: [headObject] }, "inventory");
+    const { verdict, receipt } = project(
+      { objects: [headObject] },
+      "inventory",
+    );
     expect(verdict).toBe("projected");
     expect(receipt.usableMetadata).toBe(1);
     expect(receipt.projectedRecords).toBe(1);
@@ -89,7 +99,10 @@ describe("projectProviderExport — AWS head-object → evidence", () => {
           {
             httpStatusCode: 200,
             Metadata: {
-              "artifact-lifecycle": encodeArtifactLifecycleMetadata({ expiresAtMs: FUTURE, deleted: false }),
+              "artifact-lifecycle": encodeArtifactLifecycleMetadata({
+                expiresAtMs: FUTURE,
+                deleted: false,
+              }),
             },
             Key: "artifacts/a/b.pdf",
           },
@@ -103,7 +116,9 @@ describe("projectProviderExport — AWS head-object → evidence", () => {
 
   it("maps a NoSuchKey error to an absent probe (the positive cleanup signal)", () => {
     const { records, verdict } = project(
-      { objects: [{ Error: { Code: "NoSuchKey" }, Key: "artifacts/gone.pdf" }] },
+      {
+        objects: [{ Error: { Code: "NoSuchKey" }, Key: "artifacts/gone.pdf" }],
+      },
       "evidence",
     );
     expect(records).toEqual([{ presence: "absent" }]);
@@ -120,13 +135,19 @@ describe("projectProviderExport — AWS head-object → evidence", () => {
 
   it("maps a 5xx / SlowDown to an error probe", () => {
     const a = project({ objects: [{ statusCode: 503 }] }, "evidence");
-    const b = project({ objects: [{ Error: { Code: "SlowDown" } }] }, "evidence");
+    const b = project(
+      { objects: [{ Error: { Code: "SlowDown" } }] },
+      "evidence",
+    );
     expect(a.records).toEqual([{ presence: "error" }]);
     expect(b.records).toEqual([{ presence: "error" }]);
   });
 
   it("warns on an unrecognized status but still degrades safely to error", () => {
-    const { records, receipt } = project({ objects: [{ statusCode: 418 }] }, "evidence");
+    const { records, receipt } = project(
+      { objects: [{ statusCode: 418 }] },
+      "evidence",
+    );
     expect(records).toEqual([{ presence: "error" }]);
     expect(receipt.warnings["unrecognized-status"]).toBe(1);
   });
@@ -134,13 +155,23 @@ describe("projectProviderExport — AWS head-object → evidence", () => {
 
 describe("projectProviderExport — envelope shapes & list-objects", () => {
   it("accepts a bare array", () => {
-    const { records } = project([{ presence: "absent" }], "evidence", "generic");
+    const { records } = project(
+      [{ presence: "absent" }],
+      "evidence",
+      "generic",
+    );
     expect(records).toEqual([{ presence: "absent" }]);
   });
 
   it("accepts an S3 { Contents: [...] } listing", () => {
     const listing = {
-      Contents: [{ Key: "artifacts/x", Size: 1000, LastModified: new Date(NOW).toISOString() }],
+      Contents: [
+        {
+          Key: "artifacts/x",
+          Size: 1000,
+          LastModified: new Date(NOW).toISOString(),
+        },
+      ],
     };
     const { receipt, verdict } = project(listing, "inventory");
     // A bare listing has no lifecycle/manifest/kind → not enough usable metadata.
@@ -149,7 +180,11 @@ describe("projectProviderExport — envelope shapes & list-objects", () => {
   });
 
   it("accepts a { records: [...] } envelope", () => {
-    const { records } = project({ records: [{ presence: "present" }] }, "evidence", "generic");
+    const { records } = project(
+      { records: [{ presence: "present" }] },
+      "evidence",
+      "generic",
+    );
     expect(records).toEqual([{ presence: "present" }]);
   });
 });
@@ -162,7 +197,10 @@ describe("projectProviderExport — unsafe & insufficient verdicts", () => {
           {
             httpStatusCode: 200,
             Metadata: {
-              "artifact-lifecycle": encodeArtifactLifecycleMetadata({ expiresAtMs: PAST, deleted: true }),
+              "artifact-lifecycle": encodeArtifactLifecycleMetadata({
+                expiresAtMs: PAST,
+                deleted: true,
+              }),
             },
           },
         ],
@@ -202,7 +240,11 @@ describe("projectProviderExport — unsafe & insufficient verdicts", () => {
   });
 
   it("returns insufficient when every record is metadata-thin", () => {
-    const { verdict } = project({ records: [{ provider: "remote-configured" }] }, "inventory", "generic");
+    const { verdict } = project(
+      { records: [{ provider: "remote-configured" }] },
+      "inventory",
+      "generic",
+    );
     expect(verdict).toBe("insufficient");
   });
 });
@@ -250,7 +292,14 @@ describe("projectProviderExport — generic normalized passthrough", () => {
 
   it("collapses a tampered lifecycle blob to no evidence with a warning", () => {
     const { records, receipt } = project(
-      { objects: [{ httpStatusCode: 200, Metadata: { "artifact-lifecycle": "%7Bnot-json" } }] },
+      {
+        objects: [
+          {
+            httpStatusCode: 200,
+            Metadata: { "artifact-lifecycle": "%7Bnot-json" },
+          },
+        ],
+      },
       "evidence",
     );
     expect(records).toEqual([{ presence: "present" }]); // no expiresAtMs — failed toward "no evidence"
@@ -268,7 +317,11 @@ describe("projectProviderExport — input errors (exit 1)", () => {
   ];
   for (const { text, issue } of cases) {
     it(`rejects ${JSON.stringify(text.slice(0, 12))} as ${issue}`, () => {
-      const result = projectProviderExport(text, { target: "evidence", source: "aws-s3", now: NOW });
+      const result = projectProviderExport(text, {
+        target: "evidence",
+        source: "aws-s3",
+        now: NOW,
+      });
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.issue).toBe(issue);

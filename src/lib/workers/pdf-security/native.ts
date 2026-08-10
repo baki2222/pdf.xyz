@@ -75,7 +75,10 @@ export interface QpdfFs {
   mkdtemp: (prefix: string) => Promise<string>;
   writeFile: (file: string, data: Uint8Array) => Promise<void>;
   readFile: (file: string) => Promise<Uint8Array>;
-  rm: (dir: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  rm: (
+    dir: string,
+    options: { recursive: boolean; force: boolean },
+  ) => Promise<void>;
 }
 
 /** All the host seams the native layer touches; each defaults to the real Node built-in. */
@@ -103,7 +106,9 @@ const defaultExec: QpdfExec = (command, args, options) =>
       command,
       [...args],
       { ...options, encoding: "buffer" },
-      (error: (Error & { code?: number | string; killed?: boolean }) | null) => {
+      (
+        error: (Error & { code?: number | string; killed?: boolean }) | null,
+      ) => {
         if (!error) {
           resolve({ code: 0, timedOut: false });
           return;
@@ -258,7 +263,8 @@ export function createNativeQpdfRunner(
 
       const readOutput = async (): Promise<Uint8Array> => {
         const output = await fs.readFile(outputPath);
-        const bytes = output instanceof Uint8Array ? output : new Uint8Array(output);
+        const bytes =
+          output instanceof Uint8Array ? output : new Uint8Array(output);
         if (
           bytes.byteLength === 0 ||
           bytes.byteLength > config.maxOutputBytes ||

@@ -124,7 +124,8 @@ function commit(
 ): OrganizeHistory {
   const past = [...history.past, history.present];
   return {
-    past: past.length > MAX_HISTORY ? past.slice(past.length - MAX_HISTORY) : past,
+    past:
+      past.length > MAX_HISTORY ? past.slice(past.length - MAX_HISTORY) : past,
     present: next,
     future: [],
   };

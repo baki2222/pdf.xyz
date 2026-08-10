@@ -29,21 +29,34 @@ describe("parseCleanupEvidence — happy paths", () => {
       lifecycle: { expiresAtMs: 1700000000000, deleted: false },
       activeDelete: false,
     });
-    expect(result.objects[2]).toEqual({ presence: "error", lifecycle: null, activeDelete: false });
+    expect(result.objects[2]).toEqual({
+      presence: "error",
+      lifecycle: null,
+      activeDelete: false,
+    });
   });
 
   it("parses the { objects: [...] } envelope and ignores a schema tag", () => {
     const result = parseCleanupEvidence(
-      JSON.stringify({ schema: "pdfxyz.cleanup-evidence/1", objects: [{ presence: "absent" }] }),
+      JSON.stringify({
+        schema: "pdfxyz.cleanup-evidence/1",
+        objects: [{ presence: "absent" }],
+      }),
     );
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.objects).toHaveLength(1);
   });
 
   it("reconstructs a tombstone with no expiry as a placeholder-0 lifecycle record", () => {
-    const result = parseCleanupEvidence(JSON.stringify([{ presence: "present", deleted: true }]));
+    const result = parseCleanupEvidence(
+      JSON.stringify([{ presence: "present", deleted: true }]),
+    );
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.objects[0]!.lifecycle).toEqual({ expiresAtMs: 0, deleted: true });
+    if (result.ok)
+      expect(result.objects[0]!.lifecycle).toEqual({
+        expiresAtMs: 0,
+        deleted: true,
+      });
   });
 
   it("ignores unknown/hostile fields — only the four understood fields survive", () => {
@@ -62,8 +75,14 @@ describe("parseCleanupEvidence — happy paths", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(Object.keys(result.objects[0]!)).toEqual(["presence", "lifecycle", "activeDelete"]);
-    expect(JSON.stringify(result.objects)).not.toMatch(/invoice|prod-user|X-Amz|AccessDenied/);
+    expect(Object.keys(result.objects[0]!)).toEqual([
+      "presence",
+      "lifecycle",
+      "activeDelete",
+    ]);
+    expect(JSON.stringify(result.objects)).not.toMatch(
+      /invoice|prod-user|X-Amz|AccessDenied/,
+    );
   });
 
   it("accepts an empty array (nothing to verify, but structurally valid)", () => {
@@ -85,7 +104,10 @@ describe("parseCleanupEvidence — rejections (content-free issue codes)", () =>
   });
 
   it("rejects JSON that is not an object or array", () => {
-    expect(parseCleanupEvidence("42")).toEqual({ ok: false, issues: ["not-an-object"] });
+    expect(parseCleanupEvidence("42")).toEqual({
+      ok: false,
+      issues: ["not-an-object"],
+    });
   });
 
   it("rejects an object with no objects array", () => {
@@ -96,7 +118,9 @@ describe("parseCleanupEvidence — rejections (content-free issue codes)", () =>
   });
 
   it("fails closed on an invalid presence value", () => {
-    const result = parseCleanupEvidence(JSON.stringify([{ presence: "maybe" }]));
+    const result = parseCleanupEvidence(
+      JSON.stringify([{ presence: "maybe" }]),
+    );
     expect(result).toEqual({ ok: false, issues: ["object-invalid"] });
   });
 
@@ -139,6 +163,9 @@ describe("parseCleanupEvidence — rejections (content-free issue codes)", () =>
     const many = JSON.stringify(
       Array.from({ length: 100_001 }, () => ({ presence: "absent" })),
     );
-    expect(parseCleanupEvidence(many)).toEqual({ ok: false, issues: ["too-large"] });
+    expect(parseCleanupEvidence(many)).toEqual({
+      ok: false,
+      issues: ["too-large"],
+    });
   });
 });

@@ -129,7 +129,10 @@ export interface SafeOperationsView {
   readonly health: HealthClass;
   readonly recommendedAction: RecommendedAction | null;
   readonly subsystems: SafeSubsystem[];
-  readonly proofs: { compressionDeep: ProofAvailability; ocr: ProofAvailability };
+  readonly proofs: {
+    compressionDeep: ProofAvailability;
+    ocr: ProofAvailability;
+  };
   readonly lifecycleVerification: { verdict: Verdict; health: HealthClass };
   readonly cleanupEvidence: SafeCleanupEvidence;
   readonly lastLoop: SafeLoop | null;
@@ -494,14 +497,18 @@ const CLEANUP_EVIDENCE_META: Record<
   },
 };
 
-const CLEANUP_EVIDENCE_PROVIDER_LABEL: Record<CleanupEvidenceProvider, string> = {
-  "local-dev": "Local-dev store",
-  "remote-configured": "Object storage",
-  "not-configured": "No storage",
-  unknown: "Unknown",
-};
+const CLEANUP_EVIDENCE_PROVIDER_LABEL: Record<CleanupEvidenceProvider, string> =
+  {
+    "local-dev": "Local-dev store",
+    "remote-configured": "Object storage",
+    "not-configured": "No storage",
+    unknown: "Unknown",
+  };
 
-const CLEANUP_EVIDENCE_FRESHNESS_LABEL: Record<CleanupEvidenceFreshness, string> = {
+const CLEANUP_EVIDENCE_FRESHNESS_LABEL: Record<
+  CleanupEvidenceFreshness,
+  string
+> = {
   fresh: "Fresh",
   stale: "Stale",
   unknown: "No timestamp",
@@ -515,7 +522,10 @@ const CLEANUP_EVIDENCE_AGE_LABEL: Record<CleanupEvidenceAge, string> = {
   unknown: "Unknown",
 };
 
-const CLEANUP_EVIDENCE_REPORT_KIND_LABEL: Record<CleanupEvidenceReportKind, string> = {
+const CLEANUP_EVIDENCE_REPORT_KIND_LABEL: Record<
+  CleanupEvidenceReportKind,
+  string
+> = {
   "cleanup-check": "Absence verifier",
   "artifact-cleanup": "Dry-run sweeper",
   none: "None",
@@ -549,7 +559,8 @@ function asEnum<T extends string>(
   allowed: Record<T, unknown>,
   fallback: T,
 ): T {
-  return typeof value === "string" && Object.prototype.hasOwnProperty.call(allowed, value)
+  return typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(allowed, value)
     ? (value as T)
     : fallback;
 }
@@ -559,7 +570,8 @@ function asEnumOrNull<T extends string>(
   value: unknown,
   allowed: Record<T, unknown>,
 ): T | null {
-  return typeof value === "string" && Object.prototype.hasOwnProperty.call(allowed, value)
+  return typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(allowed, value)
     ? (value as T)
     : null;
 }
@@ -590,7 +602,10 @@ export function normalizeSnapshot(raw: unknown): SafeOperationsView {
       const id = asEnumOrNull(entry.id, SUBSYSTEM_META);
       if (id === null || seen.has(id)) continue;
       seen.add(id);
-      subsystems.push({ id, health: asEnum(entry.health, HEALTH_META, "unknown") });
+      subsystems.push({
+        id,
+        health: asEnum(entry.health, HEALTH_META, "unknown"),
+      });
     }
   }
 
@@ -631,7 +646,10 @@ export function normalizeSnapshot(raw: unknown): SafeOperationsView {
       mode: asEnumOrNull(daemonSrc.mode, HEARTBEAT_MODE_LABEL),
     },
     health: asEnum(src.health, HEALTH_META, "unknown"),
-    recommendedAction: asEnumOrNull(src.recommendedAction, RECOMMENDED_ACTION_COPY),
+    recommendedAction: asEnumOrNull(
+      src.recommendedAction,
+      RECOMMENDED_ACTION_COPY,
+    ),
     subsystems,
     proofs: {
       compressionDeep: asEnum(proofsSrc.compressionDeep, PROOF_META, "unknown"),
@@ -643,8 +661,16 @@ export function normalizeSnapshot(raw: unknown): SafeOperationsView {
     },
     cleanupEvidence: {
       state: asEnum(cleanupSrc.state, CLEANUP_EVIDENCE_META, "disabled"),
-      provider: asEnum(cleanupSrc.provider, CLEANUP_EVIDENCE_PROVIDER_LABEL, "unknown"),
-      freshness: asEnum(cleanupSrc.freshness, CLEANUP_EVIDENCE_FRESHNESS_LABEL, "unknown"),
+      provider: asEnum(
+        cleanupSrc.provider,
+        CLEANUP_EVIDENCE_PROVIDER_LABEL,
+        "unknown",
+      ),
+      freshness: asEnum(
+        cleanupSrc.freshness,
+        CLEANUP_EVIDENCE_FRESHNESS_LABEL,
+        "unknown",
+      ),
       age: asEnum(cleanupSrc.age, CLEANUP_EVIDENCE_AGE_LABEL, "unknown"),
       reportKind: asEnum(
         cleanupSrc.reportKind,
@@ -689,7 +715,7 @@ export function OperationsHealthCard({ view }: { view: SafeOperationsView }) {
   const meta = HEALTH_META[view.health];
   const Icon = meta.icon;
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
+    <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <span
@@ -701,10 +727,12 @@ export function OperationsHealthCard({ view }: { view: SafeOperationsView }) {
             <Icon className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col">
-            <span className="text-[0.7rem] font-semibold uppercase tracking-widest text-slate-400">
+            <span className="text-[0.7rem] font-semibold tracking-widest text-slate-400 uppercase">
               Worker operations
             </span>
-            <span className="text-lg font-semibold text-white">{meta.label}</span>
+            <span className="text-lg font-semibold text-white">
+              {meta.label}
+            </span>
           </div>
         </div>
         <HealthBadge health={view.health} />
@@ -715,7 +743,10 @@ export function OperationsHealthCard({ view }: { view: SafeOperationsView }) {
       </p>
 
       <div className="flex flex-wrap gap-1.5">
-        <FactPill label="Vantage" value={view.vantage === "worker" ? "worker" : "web"} />
+        <FactPill
+          label="Vantage"
+          value={view.vantage === "worker" ? "worker" : "web"}
+        />
         {view.mode && <FactPill label="Mode" value={MODE_LABEL[view.mode]} />}
         <FactPill label="Drainable" value={view.drainable ? "Yes" : "No"} />
         <FactPill
@@ -797,15 +828,22 @@ export function RecommendedActionCallout({
         CALLOUT_TONE[tone],
       )}
     >
-      <span className={cn("mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border", TILE_TONE[tone])}>
+      <span
+        className={cn(
+          "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border",
+          TILE_TONE[tone],
+        )}
+      >
         <Icon className="size-4" aria-hidden />
       </span>
       <div className="flex flex-col gap-1">
-        <span className="text-[0.7rem] font-semibold uppercase tracking-widest text-slate-400">
+        <span className="text-[0.7rem] font-semibold tracking-widest text-slate-400 uppercase">
           Recommended next action
         </span>
         <p className="text-sm font-semibold text-white">{copy.title}</p>
-        <p className="text-sm leading-relaxed text-slate-300/90">{copy.detail}</p>
+        <p className="text-sm leading-relaxed text-slate-300/90">
+          {copy.detail}
+        </p>
       </div>
     </div>
   );
@@ -868,8 +906,9 @@ export function DaemonObservabilityCaveat({
               ? "the last heartbeat is older than the freshness window"
               : "no recent heartbeat is visible"}
             , so the worker may have stopped or isn&apos;t beating. This does{" "}
-            <span className="font-medium">not</span> by itself confirm the worker is
-            down — check the daemon&apos;s own logs and your process supervisor.
+            <span className="font-medium">not</span> by itself confirm the
+            worker is down — check the daemon&apos;s own logs and your process
+            supervisor.
           </p>
         </div>
       </div>
@@ -887,14 +926,16 @@ export function DaemonObservabilityCaveat({
           This dashboard can&apos;t see a running worker
         </p>
         <p className="leading-relaxed text-blue-100/90">
-          <span className="font-medium">daemonObserved is false</span> because liveness
-          observation is not enabled here (this is the web vantage; the app never
-          becomes the worker daemon).{" "}
-          <span className="font-medium">False here means &ldquo;this app cannot
-          observe a separate worker process&rdquo;</span> — it does{" "}
-          <span className="font-medium">not</span> mean the worker is down. To confirm
-          a worker is actually deployed and draining, check the daemon&apos;s own logs
-          and your process supervisor.
+          <span className="font-medium">daemonObserved is false</span> because
+          liveness observation is not enabled here (this is the web vantage; the
+          app never becomes the worker daemon).{" "}
+          <span className="font-medium">
+            False here means &ldquo;this app cannot observe a separate worker
+            process&rdquo;
+          </span>{" "}
+          — it does <span className="font-medium">not</span> mean the worker is
+          down. To confirm a worker is actually deployed and draining, check the
+          daemon&apos;s own logs and your process supervisor.
         </p>
       </div>
     </div>
@@ -912,10 +953,15 @@ export function DaemonLivenessCard({ daemon }: { daemon: SafeDaemonLiveness }) {
       <div className="flex flex-col gap-3">
         <p className="text-sm leading-relaxed text-slate-400">{meta.detail}</p>
         <div className="flex flex-wrap gap-1.5 pt-1">
-          <FactPill label="Source" value={HEARTBEAT_SOURCE_LABEL[daemon.source]} />
+          <FactPill
+            label="Source"
+            value={HEARTBEAT_SOURCE_LABEL[daemon.source]}
+          />
           <FactPill
             label="Last seen"
-            value={daemon.lastSeen ? HEARTBEAT_AGE_LABEL[daemon.lastSeen] : "No beat"}
+            value={
+              daemon.lastSeen ? HEARTBEAT_AGE_LABEL[daemon.lastSeen] : "No beat"
+            }
           />
           <FactPill
             label="Mode"
@@ -941,7 +987,9 @@ function SubsystemTile({ sub }: { sub: SafeSubsystem }) {
         </span>
         <StatusBadge tone={health.tone} label={health.label} />
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{meta.description}</p>
+      <p className="text-xs leading-relaxed text-slate-400">
+        {meta.description}
+      </p>
     </div>
   );
 }
@@ -955,7 +1003,7 @@ export function SubsystemGrid({ subsystems }: { subsystems: SafeSubsystem[] }) {
   if (ordered.length === 0) return null;
   return (
     <section className="flex flex-col gap-3">
-      <h3 className="text-[0.7rem] font-semibold uppercase tracking-widest text-slate-400">
+      <h3 className="text-[0.7rem] font-semibold tracking-widest text-slate-400 uppercase">
         Subsystem health
       </h3>
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -972,11 +1020,7 @@ export function SubsystemGrid({ subsystems }: { subsystems: SafeSubsystem[] }) {
  * observed bucket configuration) that the retention backstop is enforced as
  * generated. Usually `Not checked` from the web, which is honest, not a failure.
  */
-export function LifecycleVerificationCard({
-  verdict,
-}: {
-  verdict: Verdict;
-}) {
+export function LifecycleVerificationCard({ verdict }: { verdict: Verdict }) {
   const meta = VERDICT_META[verdict];
   return (
     <StatusCard
@@ -997,7 +1041,11 @@ export function LifecycleVerificationCard({
  * not a failure. Distinct from the lifecycle backstop verifier and retrieval-time expiry: this
  * monitors the OUTPUT of the Phase 42/43 cleanup tools.
  */
-export function CleanupEvidenceCard({ cleanup }: { cleanup: SafeCleanupEvidence }) {
+export function CleanupEvidenceCard({
+  cleanup,
+}: {
+  cleanup: SafeCleanupEvidence;
+}) {
   const meta = CLEANUP_EVIDENCE_META[cleanup.state];
   const monitored = cleanup.state !== "disabled";
   return (
@@ -1022,7 +1070,10 @@ export function CleanupEvidenceCard({ cleanup }: { cleanup: SafeCleanupEvidence 
               label="Freshness"
               value={CLEANUP_EVIDENCE_FRESHNESS_LABEL[cleanup.freshness]}
             />
-            <FactPill label="Age" value={CLEANUP_EVIDENCE_AGE_LABEL[cleanup.age]} />
+            <FactPill
+              label="Age"
+              value={CLEANUP_EVIDENCE_AGE_LABEL[cleanup.age]}
+            />
           </div>
         )}
       </div>
@@ -1067,14 +1118,19 @@ export function ProofsCard({
   return (
     <StatusCard title="Engine proofs" icon={Boxes}>
       <div className="flex flex-col gap-2">
-        <ProofRow icon={Minimize2} label="Deep compression" proof={proofs.compressionDeep} />
+        <ProofRow
+          icon={Minimize2}
+          label="Deep compression"
+          proof={proofs.compressionDeep}
+        />
         <ProofRow icon={ScanText} label="OCR" proof={proofs.ocr} />
       </div>
       {vantage === "web" && (
         <p className="text-xs leading-relaxed text-slate-400">
-          A separate worker image&apos;s installed engines can&apos;t be probed from
-          the web, so these stay <span className="text-slate-400">unknown</span> here
-          — a worker-vantage snapshot confirms them.
+          A separate worker image&apos;s installed engines can&apos;t be probed
+          from the web, so these stay{" "}
+          <span className="text-slate-400">unknown</span> here — a
+          worker-vantage snapshot confirms them.
         </p>
       )}
     </StatusCard>
@@ -1085,8 +1141,10 @@ export function ProofsCard({
 function LoopStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex flex-col rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2">
-      <span className="text-sm font-semibold text-white tabular-nums">{value}</span>
-      <span className="text-[0.65rem] uppercase tracking-wide text-slate-400">
+      <span className="text-sm font-semibold text-white tabular-nums">
+        {value}
+      </span>
+      <span className="text-[0.65rem] tracking-wide text-slate-400 uppercase">
         {label}
       </span>
     </div>
@@ -1110,7 +1168,9 @@ export function LoopOutcomeCard({ loop }: { loop: SafeLoop }) {
         {(loop.mode || loop.reason) && (
           <p className="text-sm leading-relaxed text-slate-400">
             {loop.mode && (
-              <span className="text-slate-300">{LOOP_MODE_LABEL[loop.mode]}</span>
+              <span className="text-slate-300">
+                {LOOP_MODE_LABEL[loop.mode]}
+              </span>
             )}
             {loop.mode && loop.reason && " — "}
             {loop.reason && LOOP_REASON_LABEL[loop.reason]}
@@ -1145,8 +1205,8 @@ function SourceFooter({ view }: { view: SafeOperationsView }) {
       <ServerCog className="size-3 text-slate-400" aria-hidden />
       <span>
         Source: live, point-in-time{" "}
-        <span className="text-slate-400">{view.vantage}-vantage</span> worker operations
-        snapshot
+        <span className="text-slate-400">{view.vantage}-vantage</span> worker
+        operations snapshot
       </span>
       {view.schemaVersion > 0 && (
         <span className="text-slate-400">· schema v{view.schemaVersion}</span>
@@ -1178,18 +1238,24 @@ export function OperationsSnapshotView({
   // can refuse a healthy claim exactly when the posture beside it warns.
   const posture = normalizeAlertPosture(snapshot);
   const alertsOutstanding =
-    posture !== null && (posture.severity === "warn" || posture.severity === "critical");
+    posture !== null &&
+    (posture.severity === "warn" || posture.severity === "critical");
   return (
     <div className="flex flex-col gap-5">
       {header}
       <OperationsHealthCard view={view} />
-      <RecommendedActionCallout view={view} alertsOutstanding={alertsOutstanding} />
+      <RecommendedActionCallout
+        view={view}
+        alertsOutstanding={alertsOutstanding}
+      />
       <AlertPostureCallout snapshot={snapshot} />
       <DaemonObservabilityCaveat daemon={view.daemon} />
       <SubsystemGrid subsystems={view.subsystems} />
       <div className="grid gap-4 sm:grid-cols-2">
         <DaemonLivenessCard daemon={view.daemon} />
-        <LifecycleVerificationCard verdict={view.lifecycleVerification.verdict} />
+        <LifecycleVerificationCard
+          verdict={view.lifecycleVerification.verdict}
+        />
         <CleanupEvidenceCard cleanup={view.cleanupEvidence} />
         <ProofsCard proofs={view.proofs} vantage={view.vantage} />
       </div>

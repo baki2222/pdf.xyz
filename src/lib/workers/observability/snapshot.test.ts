@@ -51,7 +51,10 @@ describe("worker operations snapshot", () => {
     expect(snapshot.drainable).toBe(false);
     expect(snapshot.health).toBe("blocked");
     expect(snapshot.recommendedAction).toBe("configure-providers");
-    expect(snapshot.proofs).toEqual({ compressionDeep: "unknown", ocr: "unknown" });
+    expect(snapshot.proofs).toEqual({
+      compressionDeep: "unknown",
+      ocr: "unknown",
+    });
     expect(snapshot.subsystems.map((s) => s.id)).toContain("daemon-loop");
   });
 
@@ -76,7 +79,11 @@ describe("worker operations snapshot", () => {
     });
     const deployment = resolveDeploymentReadiness(
       readiness,
-      { ...DRAINABLE_ENV, [LIFECYCLE_ENV.provider]: "aws-s3", [LIFECYCLE_ENV.validated]: "true" },
+      {
+        ...DRAINABLE_ENV,
+        [LIFECYCLE_ENV.provider]: "aws-s3",
+        [LIFECYCLE_ENV.validated]: "true",
+      },
       {
         engine: { lossless: true, deep: true, engines: ["ghostscript"] },
         ocr: {
@@ -155,7 +162,11 @@ describe("worker operations snapshot — daemon liveness (Phase 30)", () => {
 
   it("marks daemonObserved true and clears the residual on a fresh heartbeat", () => {
     const snap = collectWebOperationsSnapshot(GREEN_ENV, {
-      daemonLiveness: liveness("observed", { observed: true, lastSeen: "under-30s", mode: "loop" }),
+      daemonLiveness: liveness("observed", {
+        observed: true,
+        lastSeen: "under-30s",
+        mode: "loop",
+      }),
     });
     expect(snap.daemonObserved).toBe(true);
     expect(snap.health).toBe("ok");
@@ -225,7 +236,8 @@ describe("worker operations snapshot — daemon liveness (Phase 30)", () => {
     const snap = collectWebOperationsSnapshot(GREEN_ENV, {
       daemonLiveness: liveness("observed", {
         observed: true,
-        detail: "https://redis.example.com:6379 s3://secret-bucket/leak.pdf AKIASECRET",
+        detail:
+          "https://redis.example.com:6379 s3://secret-bucket/leak.pdf AKIASECRET",
       }),
     });
     const json = JSON.stringify(snap.daemon);
@@ -260,7 +272,9 @@ describe("worker operations snapshot — cleanup evidence (Phase 44)", () => {
   it("defaults to a disabled posture + an unknown cleanup-evidence subsystem", () => {
     const snap = collectWebOperationsSnapshot({});
     expect(snap.cleanupEvidence.state).toBe("disabled");
-    expect(snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("unknown");
+    expect(
+      snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health,
+    ).toBe("unknown");
   });
 
   it("derives the subsystem health from the supplied posture state", () => {
@@ -274,16 +288,26 @@ describe("worker operations snapshot — cleanup evidence (Phase 44)", () => {
       ["not-configured", "unknown"],
     ];
     for (const [state, health] of matrix) {
-      const snap = collectWebOperationsSnapshot({}, { cleanupEvidence: posture(state) });
+      const snap = collectWebOperationsSnapshot(
+        {},
+        { cleanupEvidence: posture(state) },
+      );
       expect(snap.cleanupEvidence.state, state).toBe(state);
-      expect(snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health, state).toBe(health);
+      expect(
+        snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health,
+        state,
+      ).toBe(health);
     }
   });
 
   it("carries the posture on the worker vantage too", () => {
     const runtime: RuntimeSnapshotSource = {
       readiness: resolveDaemonReadiness(DRAINABLE_ENV),
-      deployment: resolveDeploymentReadiness(resolveDaemonReadiness(DRAINABLE_ENV), DRAINABLE_ENV, {}),
+      deployment: resolveDeploymentReadiness(
+        resolveDaemonReadiness(DRAINABLE_ENV),
+        DRAINABLE_ENV,
+        {},
+      ),
       ocr: { enabled: false },
       guardrails: { ok: true, strict: false, violations: [] },
     };
@@ -291,13 +315,16 @@ describe("worker operations snapshot — cleanup evidence (Phase 44)", () => {
       cleanupEvidence: posture("warning", { reason: "cleanup_drift" }),
     });
     expect(snap.cleanupEvidence.reason).toBe("cleanup_drift");
-    expect(snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health).toBe("warn");
+    expect(
+      snap.subsystems.find((s) => s.id === "cleanup-evidence")?.health,
+    ).toBe("warn");
   });
 });
 
 describe("worker operations snapshot — abuse-guard rate-limit posture", () => {
-  const rateLimitSub = (snap: { subsystems: { id: string; health: string }[] }) =>
-    snap.subsystems.find((s) => s.id === "rate-limit");
+  const rateLimitSub = (snap: {
+    subsystems: { id: string; health: string }[];
+  }) => snap.subsystems.find((s) => s.id === "rate-limit");
 
   it("the web collector resolves the posture itself: the quiet default reads disabled/ok", () => {
     const snap = collectWebOperationsSnapshot({});
@@ -355,7 +382,10 @@ describe("worker operations snapshot — abuse-guard rate-limit posture", () => 
       ["unknown", "unknown"],
     ];
     for (const [code, health] of matrix) {
-      const snap = collectWebOperationsSnapshot({}, { rateLimit: rateLimitPostureForCode(code) });
+      const snap = collectWebOperationsSnapshot(
+        {},
+        { rateLimit: rateLimitPostureForCode(code) },
+      );
       expect(snap.rateLimit.code, code).toBe(code);
       expect(rateLimitSub(snap)?.health, code).toBe(health);
     }
@@ -364,7 +394,11 @@ describe("worker operations snapshot — abuse-guard rate-limit posture", () => 
   it("the worker vantage carries the honest unknown — never 'disabled' on no evidence", () => {
     const runtime: RuntimeSnapshotSource = {
       readiness: resolveDaemonReadiness(DRAINABLE_ENV),
-      deployment: resolveDeploymentReadiness(resolveDaemonReadiness(DRAINABLE_ENV), DRAINABLE_ENV, {}),
+      deployment: resolveDeploymentReadiness(
+        resolveDaemonReadiness(DRAINABLE_ENV),
+        DRAINABLE_ENV,
+        {},
+      ),
       ocr: { enabled: false },
       guardrails: { ok: true, strict: false, violations: [] },
     };

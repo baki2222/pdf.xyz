@@ -40,8 +40,7 @@ export interface QueueFailure {
 
 /** A provider operation result: a typed value, or a typed, honest failure. */
 export type QueueResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: QueueFailure };
+  { ok: true; value: T } | { ok: false; error: QueueFailure };
 
 /** The honest, client-safe status of the queue provider in this environment. */
 export interface QueueCapability {
@@ -122,5 +121,8 @@ export function queueFail<T = never>(
   message: string,
   details?: FieldError[],
 ): QueueResult<T> {
-  return { ok: false, error: { reason, message, ...(details ? { details } : {}) } };
+  return {
+    ok: false,
+    error: { reason, message, ...(details ? { details } : {}) },
+  };
 }

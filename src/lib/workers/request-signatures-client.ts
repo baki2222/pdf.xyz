@@ -1,5 +1,10 @@
 import type { WorkerStatus } from "./status";
-import { canRunPdfSecurity, runSecurityJob, type PdfSecurityWorkerOptions, type PdfSecurityWorkerResult } from "./pdf-security-client";
+import {
+  canRunPdfSecurity,
+  runSecurityJob,
+  type PdfSecurityWorkerOptions,
+  type PdfSecurityWorkerResult,
+} from "./pdf-security-client";
 import type {
   RequestSignatureField,
   RequestSignatureRouting,
@@ -44,7 +49,13 @@ export function runWorkerRequestSignatures(
   if (input.title !== undefined) jobOptions.title = input.title;
   if (input.message !== undefined) jobOptions.message = input.message;
   if (input.deliver !== undefined) jobOptions.deliver = input.deliver;
-  return runSecurityJob("request-signatures", input.filename, input.bytes, jobOptions, options);
+  return runSecurityJob(
+    "request-signatures",
+    input.filename,
+    input.bytes,
+    jobOptions,
+    options,
+  );
 }
 
 /**
@@ -53,7 +64,9 @@ export function runWorkerRequestSignatures(
  * (whose probes are about native binaries) never advertises it, and
  * staging/production gate on storage + queue + a drainable daemon.
  */
-export function canRunRequestSignatures(status: WorkerStatus | null | undefined): boolean {
+export function canRunRequestSignatures(
+  status: WorkerStatus | null | undefined,
+): boolean {
   if (!status) return false;
   if (status.localDevOnly) return false;
   return canRunPdfSecurity(status);

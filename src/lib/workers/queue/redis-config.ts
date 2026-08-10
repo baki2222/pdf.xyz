@@ -139,8 +139,10 @@ export function parseRedisRestOrigin(
   } catch {
     return { ok: false };
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false };
-  if (url.username || url.password || url.search || url.hash) return { ok: false };
+  if (url.protocol !== "http:" && url.protocol !== "https:")
+    return { ok: false };
+  if (url.username || url.password || url.search || url.hash)
+    return { ok: false };
   if (url.pathname !== "" && url.pathname !== "/") return { ok: false };
   if (!url.host) return { ok: false };
   return { ok: true, baseUrl: `${url.protocol}//${url.host}` };
@@ -197,11 +199,17 @@ export function parseRedisQueueConfig(
   const urlRaw = read(env, REDIS_QUEUE_ENV.restUrl);
   let baseUrl: string | null = null;
   if (!urlRaw) {
-    miss(REDIS_QUEUE_ENV.restUrl, "Set the Redis REST endpoint origin (https URL).");
+    miss(
+      REDIS_QUEUE_ENV.restUrl,
+      "Set the Redis REST endpoint origin (https URL).",
+    );
   } else {
     const parsed = parseRedisRestOrigin(urlRaw);
     if (!parsed.ok) {
-      miss(REDIS_QUEUE_ENV.restUrl, "Must be an http(s) origin with no path or query.");
+      miss(
+        REDIS_QUEUE_ENV.restUrl,
+        "Must be an http(s) origin with no path or query.",
+      );
     } else {
       baseUrl = parsed.baseUrl;
     }
@@ -219,7 +227,10 @@ export function parseRedisQueueConfig(
     DEFAULT_QUEUE_PREFIX,
   );
   if (!prefix.ok) {
-    miss(REDIS_QUEUE_ENV.keyPrefix, "Malformed key prefix (no `..`, use [A-Za-z0-9:_-]).");
+    miss(
+      REDIS_QUEUE_ENV.keyPrefix,
+      "Malformed key prefix (no `..`, use [A-Za-z0-9:_-]).",
+    );
   }
 
   const lease = parseBoundedInt(

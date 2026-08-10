@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Download, FileText, Layers, ShieldCheck, Sparkles, X } from "lucide-react";
+import {
+  Download,
+  FileText,
+  Layers,
+  ShieldCheck,
+  Sparkles,
+  X,
+} from "lucide-react";
 import {
   OVERLAY_FITS,
   overlayOutputName,
@@ -48,7 +55,13 @@ export function OverlayRunner() {
   );
 }
 
-function OverlayEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function OverlayEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const { busy, error, result, run } = useAsyncRun<OverlayResult>();
   const [overlay, setOverlay] = useState<OverlayFile | null>(null);
   const [overlayError, setOverlayError] = useState<string | null>(null);
@@ -104,7 +117,9 @@ function OverlayEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
       >
         <button
           type="button"
-          onClick={() => downloadBytes(result.bytes, overlayOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result.bytes, overlayOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -120,7 +135,11 @@ function OverlayEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
 
       <RunnerSection
         title="Overlay PDF"
-        aside={<span className="text-xs text-slate-400">stamp · letterhead · template</span>}
+        aside={
+          <span className="text-xs text-slate-400">
+            stamp · letterhead · template
+          </span>
+        }
       >
         {overlay ? (
           <div className="flex items-center gap-3 rounded-2xl border border-violet-400/25 bg-violet-500/[0.06] px-3.5 py-3">
@@ -195,8 +214,16 @@ function OverlayEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
               value={effectivePaging}
               onChange={setPaging}
               options={[
-                { value: "repeat", label: "First page on all", title: "Use only the overlay's first page on every base page" },
-                { value: "cycle", label: "Cycle pages", title: "Walk the overlay pages in order, repeating as needed" },
+                {
+                  value: "repeat",
+                  label: "First page on all",
+                  title: "Use only the overlay's first page on every base page",
+                },
+                {
+                  value: "cycle",
+                  label: "Cycle pages",
+                  title: "Walk the overlay pages in order, repeating as needed",
+                },
               ]}
             />
           </div>
@@ -222,7 +249,8 @@ function OverlayEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
       </div>
 
       <PrivacyLine>
-        The overlay is applied on your device — neither PDF ever leaves your browser.
+        The overlay is applied on your device — neither PDF ever leaves your
+        browser.
       </PrivacyLine>
 
       {error && <ErrorNote message={error} />}
@@ -235,7 +263,9 @@ function OverlayEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }
           busyLabel="Overlaying…"
         >
           <Layers className="size-4" aria-hidden />
-          {overlay ? `Overlay onto ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"}` : "Add an overlay PDF"}
+          {overlay
+            ? `Overlay onto ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"}`
+            : "Add an overlay PDF"}
         </RunButton>
       </div>
     </div>

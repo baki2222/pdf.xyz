@@ -48,7 +48,8 @@ const PPTX_MIME =
 
 const isPdf = (b: Buffer) => b.subarray(0, 5).toString() === "%PDF-";
 /** OOXML and ZIP artifacts alike start with the local-file-header magic `PK\x03\x04`. */
-const isZipContainer = (b: Buffer) => b.length > 4 && b[0] === 0x50 && b[1] === 0x4b;
+const isZipContainer = (b: Buffer) =>
+  b.length > 4 && b[0] === 0x50 && b[1] === 0x4b;
 
 // ───────────────────────────────── fixtures ──────────────────────────────────
 
@@ -59,10 +60,16 @@ async function textPdf(): Promise<Buffer> {
   const page = doc.addPage([595, 842]);
   page.drawText("pdf.xyz deployment proof", { x: 60, y: 770, size: 20, font });
   page.drawText("This document carries real, selectable text so that", {
-    x: 60, y: 735, size: 11, font,
+    x: 60,
+    y: 735,
+    size: 11,
+    font,
   });
   page.drawText("text-extracting tools have something honest to extract.", {
-    x: 60, y: 718, size: 11, font,
+    x: 60,
+    y: 718,
+    size: 11,
+    font,
   });
   return Buffer.from(await doc.save());
 }
@@ -90,14 +97,26 @@ async function chatDocPdf(): Promise<Buffer> {
   // collapse trivially repetitive text, and the follow-up question ("which document
   // were you just asked about?") should have a real document to be about.
   const topics = [
-    "retention", "encryption", "signed uploads", "queue draining", "artifact expiry",
-    "malware scanning", "structural preflight", "sandbox isolation", "egress policy",
-    "language packs", "confidence scoring", "prompt caching",
+    "retention",
+    "encryption",
+    "signed uploads",
+    "queue draining",
+    "artifact expiry",
+    "malware scanning",
+    "structural preflight",
+    "sandbox isolation",
+    "egress policy",
+    "language packs",
+    "confidence scoring",
+    "prompt caching",
   ];
   for (let p = 0; p < 6; p++) {
     const page = doc.addPage([595, 842]);
     page.drawText(`pdf.xyz platform notes — section ${p + 1}`, {
-      x: 60, y: 790, size: 14, font: bold,
+      x: 60,
+      y: 790,
+      size: 14,
+      font: bold,
     });
     for (let line = 0; line < 34; line++) {
       const topic = topics[(p * 34 + line) % topics.length];
@@ -132,7 +151,10 @@ async function tablePdf(): Promise<Buffer> {
   rows.forEach((row, r) => {
     row.forEach((cell, c) => {
       page.drawText(cell, {
-        x: cols[c]!, y: 740 - r * 24, size: 11, font: r === 0 ? bold : font,
+        x: cols[c]!,
+        y: 740 - r * 24,
+        size: 11,
+        font: r === 0 ? bold : font,
       });
     });
   });
@@ -150,7 +172,13 @@ async function imagePdf(): Promise<Buffer> {
   for (let i = 0; i < raw.length; i++) raw[i] = (i * 7919) % 251;
   const img = await doc.embedPng(encodePng(raw, size, size));
   page.drawImage(img, { x: 60, y: 400, width: 400, height: 400 });
-  page.drawRectangle({ x: 60, y: 300, width: 400, height: 40, color: rgb(0.2, 0.3, 0.9) });
+  page.drawRectangle({
+    x: 60,
+    y: 300,
+    width: 400,
+    height: 40,
+    color: rgb(0.2, 0.3, 0.9),
+  });
   return Buffer.from(await doc.save());
 }
 
@@ -227,7 +255,13 @@ function rasterPng(): Buffer {
  */
 function minimalJpeg(): Buffer {
   const seg = (marker: number, body: number[]) =>
-    Buffer.from([0xff, marker, ((body.length + 2) >> 8) & 0xff, (body.length + 2) & 0xff, ...body]);
+    Buffer.from([
+      0xff,
+      marker,
+      ((body.length + 2) >> 8) & 0xff,
+      (body.length + 2) & 0xff,
+      ...body,
+    ]);
 
   // Quantization table 0 — a flat table; any value in 1..255 is valid.
   const dqt = seg(0xdb, [0x00, ...new Array<number>(64).fill(0x10)]);
@@ -243,17 +277,20 @@ function minimalJpeg(): Buffer {
   // table is declared so the file is a conforming baseline JPEG).
   const acBits = [0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 0x7d];
   const acVals = [
-    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61,
-    0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52,
-    0xd1, 0xf0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25,
-    0x26, 0x27, 0x28, 0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45,
-    0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64,
-    0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83,
-    0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
-    0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6,
-    0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3,
-    0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8,
-    0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa,
+    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06,
+    0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08,
+    0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0, 0x24, 0x33, 0x62, 0x72,
+    0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28,
+    0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45,
+    0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+    0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75,
+    0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+    0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3,
+    0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6,
+    0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9,
+    0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2,
+    0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4,
+    0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa,
   ];
   const dht1 = seg(0xc4, [0x10, ...acBits, ...acVals]);
 
@@ -264,7 +301,12 @@ function minimalJpeg(): Buffer {
 
   return Buffer.concat([
     Buffer.from([0xff, 0xd8]), // SOI
-    dqt, sof, dht0, dht1, sos, scan,
+    dqt,
+    sof,
+    dht0,
+    dht1,
+    sos,
+    scan,
     Buffer.from([0xff, 0xd9]), // EOI
   ]);
 }
@@ -290,7 +332,8 @@ function csvFile(): Buffer {
 
 const CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types";
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
-const ODOC_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const ODOC_NS =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 const rootRels = (target: string, type: string) =>
   `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -304,7 +347,10 @@ async function docxFile(): Promise<Buffer> {
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
   );
-  zip.file("_rels/.rels", rootRels("word/document.xml", `${ODOC_NS}/officeDocument`));
+  zip.file(
+    "_rels/.rels",
+    rootRels("word/document.xml", `${ODOC_NS}/officeDocument`),
+  );
   zip.file(
     "word/document.xml",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -323,13 +369,19 @@ async function xlsxFile(): Promise<Buffer> {
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
   );
-  zip.file("_rels/.rels", rootRels("xl/workbook.xml", `${ODOC_NS}/officeDocument`));
+  zip.file(
+    "_rels/.rels",
+    rootRels("xl/workbook.xml", `${ODOC_NS}/officeDocument`),
+  );
   zip.file(
     "xl/workbook.xml",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${ODOC_NS}"><sheets><sheet name="Proof" sheetId="1" r:id="rId1"/></sheets></workbook>`,
   );
-  zip.file("xl/_rels/workbook.xml.rels", rootRels("worksheets/sheet1.xml", `${ODOC_NS}/worksheet`));
+  zip.file(
+    "xl/_rels/workbook.xml.rels",
+    rootRels("worksheets/sheet1.xml", `${ODOC_NS}/worksheet`),
+  );
   const cell = (ref: string, text: string) =>
     `<c r="${ref}" t="inlineStr"><is><t>${text}</t></is></c>`;
   zip.file(
@@ -354,7 +406,10 @@ async function pptxFile(): Promise<Buffer> {
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>`,
   );
-  zip.file("_rels/.rels", rootRels("ppt/presentation.xml", `${ODOC_NS}/officeDocument`));
+  zip.file(
+    "_rels/.rels",
+    rootRels("ppt/presentation.xml", `${ODOC_NS}/officeDocument`),
+  );
   zip.file(
     "ppt/presentation.xml",
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -413,7 +468,8 @@ async function pptxFile(): Promise<Buffer> {
 <Relationship Id="rId2" Type="${ODOC_NS}/theme" Target="../theme/theme1.xml"/></Relationships>`,
   );
 
-  const clr = (tag: string, hex: string) => `<a:${tag}><a:srgbClr val="${hex}"/></a:${tag}>`;
+  const clr = (tag: string, hex: string) =>
+    `<a:${tag}><a:srgbClr val="${hex}"/></a:${tag}>`;
   const fnt = (tag: string) =>
     `<a:${tag}><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:${tag}>`;
   const styleList = (tag: string, inner: string) =>
@@ -456,7 +512,9 @@ async function readChatAnswer(
   if (!manifestFile || !answerFile) {
     throw new Error("the answer ZIP is missing manifest.json or answer.txt");
   }
-  const manifest = JSON.parse(await manifestFile.async("string")) as ChatProofManifest;
+  const manifest = JSON.parse(
+    await manifestFile.async("string"),
+  ) as ChatProofManifest;
   return { manifest, answer: (await answerFile.async("string")).trim() };
 }
 
@@ -472,8 +530,10 @@ const PROOF_TURN_CHARS = 1500;
 function usageNote(m: ChatProofManifest): string {
   if (!m.usage) return "usage not reported";
   const cached = m.usage.cachedInput;
-  return `input=${m.usage.input ?? "?"} output=${m.usage.output ?? "?"} ` +
-    `cachedInput=${cached ?? 0}${cached ? "" : " (no cache read)"}`;
+  return (
+    `input=${m.usage.input ?? "?"} output=${m.usage.output ?? "?"} ` +
+    `cachedInput=${cached ?? 0}${cached ? "" : " (no cache read)"}`
+  );
 }
 
 // ────────────────────────────────── specs ────────────────────────────────────
@@ -519,70 +579,221 @@ interface ProofSpec {
 }
 
 const SPECS: ProofSpec[] = [
-  { tool: "compress-pdf", make: imagePdf, name: "photo.pdf", type: PDF_MIME,
-    options: { profile: "deep" }, expect: isPdf, want: "PDF" },
-  { tool: "repair-pdf", make: textPdf, name: "broken.pdf", type: PDF_MIME,
-    expect: isPdf, want: "PDF" },
-  { tool: "optimize-web", make: textPdf, name: "web.pdf", type: PDF_MIME,
-    expect: isPdf, want: "linearized PDF" },
-  { tool: "ocr-pdf", make: imagePdf, name: "scan.pdf", type: PDF_MIME,
-    expect: isPdf, want: "searchable PDF" },
+  {
+    tool: "compress-pdf",
+    make: imagePdf,
+    name: "photo.pdf",
+    type: PDF_MIME,
+    options: { profile: "deep" },
+    expect: isPdf,
+    want: "PDF",
+  },
+  {
+    tool: "repair-pdf",
+    make: textPdf,
+    name: "broken.pdf",
+    type: PDF_MIME,
+    expect: isPdf,
+    want: "PDF",
+  },
+  {
+    tool: "optimize-web",
+    make: textPdf,
+    name: "web.pdf",
+    type: PDF_MIME,
+    expect: isPdf,
+    want: "linearized PDF",
+  },
+  {
+    tool: "ocr-pdf",
+    make: imagePdf,
+    name: "scan.pdf",
+    type: PDF_MIME,
+    expect: isPdf,
+    want: "searchable PDF",
+  },
   // `ocr-pdf` accepts PDF, JPG and PNG, and the two engines behind it read
   // different things — OCRmyPDF takes a PDF, Tesseract takes a raster. Proving
   // only the PDF path left the other two formats untested, and both were broken:
   // every image upload dispatched to OCRmyPDF and failed inside the engine.
-  { tool: "ocr-pdf", label: "ocr-pdf (png)", make: rasterPng, name: "scan.png",
-    type: "image/png", expect: isPdf, want: "searchable PDF" },
-  { tool: "ocr-pdf", label: "ocr-pdf (jpg)", make: rasterJpg, name: "scan.jpg",
-    type: "image/jpeg", expect: isPdf, want: "searchable PDF" },
-  { tool: "protect-pdf", make: textPdf, name: "secret.pdf", type: PDF_MIME,
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (png)",
+    make: rasterPng,
+    name: "scan.png",
+    type: "image/png",
+    expect: isPdf,
+    want: "searchable PDF",
+  },
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (jpg)",
+    make: rasterJpg,
+    name: "scan.jpg",
+    type: "image/jpeg",
+    expect: isPdf,
+    want: "searchable PDF",
+  },
+  {
+    tool: "protect-pdf",
+    make: textPdf,
+    name: "secret.pdf",
+    type: PDF_MIME,
     options: { password: PROOF_PASSWORD, keyLength: 256 },
-    expect: isPdf, want: "encrypted PDF", keepArtifactAs: "encrypted" },
+    expect: isPdf,
+    want: "encrypted PDF",
+    keepArtifactAs: "encrypted",
+  },
   // Chained deliberately: unlocking the artifact protect-pdf just produced proves
   // both directions against the same document.
-  { tool: "unlock-pdf", from: "encrypted", name: "secret-protected.pdf", type: PDF_MIME,
-    options: { password: PROOF_PASSWORD }, expect: isPdf, want: "decrypted PDF" },
-  { tool: "pdf-to-pdfa", make: textPdf, name: "archive.pdf", type: PDF_MIME,
-    expect: isPdf, want: "PDF/A" },
-  { tool: "html-to-pdf", make: htmlFile, name: "page.html", type: "text/html",
-    expect: isPdf, want: "PDF" },
-  { tool: "webpage-to-pdf", url: "https://example.com/", expect: isPdf, want: "PDF" },
-  { tool: "word-to-pdf", make: docxFile, name: "letter.docx", type: DOCX_MIME,
-    expect: isPdf, want: "PDF" },
-  { tool: "excel-to-pdf", make: xlsxFile, name: "sheet.xlsx", type: XLSX_MIME,
-    expect: isPdf, want: "PDF" },
-  { tool: "excel-to-pdf", label: "excel-to-pdf (csv)", make: csvFile, name: "rows.csv",
-    type: "text/csv", expect: isPdf, want: "PDF" },
-  { tool: "powerpoint-to-pdf", make: pptxFile, name: "deck.pptx", type: PPTX_MIME,
-    expect: isPdf, want: "PDF" },
-  { tool: "pdf-to-word", make: textPdf, name: "doc.pdf", type: PDF_MIME,
-    expect: isZipContainer, want: "DOCX" },
-  { tool: "pdf-to-excel", make: tablePdf, name: "table.pdf", type: PDF_MIME,
-    expect: isZipContainer, want: "XLSX" },
-  { tool: "pdf-to-powerpoint", make: textPdf, name: "doc.pdf", type: PDF_MIME,
-    expect: isZipContainer, want: "PPTX" },
-  { tool: "extract-tables", make: tablePdf, name: "table.pdf", type: PDF_MIME,
-    expect: isZipContainer, want: "ZIP of CSV+XLSX" },
-  { tool: "request-signatures", make: textPdf, name: "agreement.pdf", type: PDF_MIME,
+  {
+    tool: "unlock-pdf",
+    from: "encrypted",
+    name: "secret-protected.pdf",
+    type: PDF_MIME,
+    options: { password: PROOF_PASSWORD },
+    expect: isPdf,
+    want: "decrypted PDF",
+  },
+  {
+    tool: "pdf-to-pdfa",
+    make: textPdf,
+    name: "archive.pdf",
+    type: PDF_MIME,
+    expect: isPdf,
+    want: "PDF/A",
+  },
+  {
+    tool: "html-to-pdf",
+    make: htmlFile,
+    name: "page.html",
+    type: "text/html",
+    expect: isPdf,
+    want: "PDF",
+  },
+  {
+    tool: "webpage-to-pdf",
+    url: "https://example.com/",
+    expect: isPdf,
+    want: "PDF",
+  },
+  {
+    tool: "word-to-pdf",
+    make: docxFile,
+    name: "letter.docx",
+    type: DOCX_MIME,
+    expect: isPdf,
+    want: "PDF",
+  },
+  {
+    tool: "excel-to-pdf",
+    make: xlsxFile,
+    name: "sheet.xlsx",
+    type: XLSX_MIME,
+    expect: isPdf,
+    want: "PDF",
+  },
+  {
+    tool: "excel-to-pdf",
+    label: "excel-to-pdf (csv)",
+    make: csvFile,
+    name: "rows.csv",
+    type: "text/csv",
+    expect: isPdf,
+    want: "PDF",
+  },
+  {
+    tool: "powerpoint-to-pdf",
+    make: pptxFile,
+    name: "deck.pptx",
+    type: PPTX_MIME,
+    expect: isPdf,
+    want: "PDF",
+  },
+  {
+    tool: "pdf-to-word",
+    make: textPdf,
+    name: "doc.pdf",
+    type: PDF_MIME,
+    expect: isZipContainer,
+    want: "DOCX",
+  },
+  {
+    tool: "pdf-to-excel",
+    make: tablePdf,
+    name: "table.pdf",
+    type: PDF_MIME,
+    expect: isZipContainer,
+    want: "XLSX",
+  },
+  {
+    tool: "pdf-to-powerpoint",
+    make: textPdf,
+    name: "doc.pdf",
+    type: PDF_MIME,
+    expect: isZipContainer,
+    want: "PPTX",
+  },
+  {
+    tool: "extract-tables",
+    make: tablePdf,
+    name: "table.pdf",
+    type: PDF_MIME,
+    expect: isZipContainer,
+    want: "ZIP of CSV+XLSX",
+  },
+  {
+    tool: "request-signatures",
+    make: textPdf,
+    name: "agreement.pdf",
+    type: PDF_MIME,
     options: {
       signers: [{ name: "Proof Signer", email: "proof@pdf.xyz" }],
-      fields: [{ signer: 0, page: 1, type: "signature", x: 0.1, y: 0.1,
-                 width: 0.3, height: 0.06, required: true }],
+      fields: [
+        {
+          signer: 0,
+          page: 1,
+          type: "signature",
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.06,
+          required: true,
+        },
+      ],
       routing: "sequential",
     },
-    expect: isZipContainer, want: "signature-request ZIP" },
+    expect: isZipContainer,
+    want: "signature-request ZIP",
+  },
 
   // The AI tools. They run only when an operator has configured a provider; with
   // none they fail honestly as not-configured, which is correct behaviour rather
   // than a proof — so a run against an AI-less deployment reports them as failures
   // and that is the honest answer, not a bug in this harness.
-  { tool: "summarize-pdf", make: textPdf, name: "report.pdf", type: PDF_MIME,
+  {
+    tool: "summarize-pdf",
+    make: textPdf,
+    name: "report.pdf",
+    type: PDF_MIME,
     options: { length: "brief", format: "paragraphs" },
-    expect: isZipContainer, want: "summary ZIP" },
-  { tool: "translate-pdf", make: textPdf, name: "letter.pdf", type: PDF_MIME,
+    expect: isZipContainer,
+    want: "summary ZIP",
+  },
+  {
+    tool: "translate-pdf",
+    make: textPdf,
+    name: "letter.pdf",
+    type: PDF_MIME,
     options: { targetLanguage: "es", sourceLanguage: "auto" },
-    expect: isZipContainer, want: "translation ZIP" },
-  { tool: "ai-extract", make: tablePdf, name: "table.pdf", type: PDF_MIME,
+    expect: isZipContainer,
+    want: "translation ZIP",
+  },
+  {
+    tool: "ai-extract",
+    make: tablePdf,
+    name: "table.pdf",
+    type: PDF_MIME,
     options: {
       mode: "schema",
       schema: [
@@ -590,10 +801,17 @@ const SPECS: ProofSpec[] = [
         { name: "q1", type: "number", description: "The Q1 figure" },
       ],
     },
-    expect: isZipContainer, want: "extraction ZIP" },
-  { tool: "chat-with-pdf", make: chatDocPdf, name: "doc.pdf", type: PDF_MIME,
+    expect: isZipContainer,
+    want: "extraction ZIP",
+  },
+  {
+    tool: "chat-with-pdf",
+    make: chatDocPdf,
+    name: "doc.pdf",
+    type: PDF_MIME,
     options: { question: "In one sentence, what is this document for?" },
-    expect: isZipContainer, want: "answer ZIP",
+    expect: isZipContainer,
+    want: "answer ZIP",
     // Pins the OPENING turn as context-free. Without this the follow-up below could
     // pass while every request silently carried the same context, and neither spec
     // would notice.
@@ -601,10 +819,17 @@ const SPECS: ProofSpec[] = [
       const { manifest } = await readChatAnswer(bytes);
       const turns = manifest.contextTurns ?? -1;
       return turns === 0
-        ? { ok: true, detail: `contextTurns=0 (opening turn), ${usageNote(manifest)}` }
-        : { ok: false, detail: `opening turn reported contextTurns=${turns}, wanted 0` };
+        ? {
+            ok: true,
+            detail: `contextTurns=0 (opening turn), ${usageNote(manifest)}`,
+          }
+        : {
+            ok: false,
+            detail: `opening turn reported contextTurns=${turns}, wanted 0`,
+          };
     },
-    keepArtifactAs: "chat-answer-1" },
+    keepArtifactAs: "chat-answer-1",
+  },
   // The conversation itself. `chat-with-pdf` accepted prior turns on the wire long
   // before anything produced any, so the tool shipped unable to hold a conversation
   // while every readiness surface said it was fine. The spec above cannot catch that:
@@ -618,15 +843,20 @@ const SPECS: ProofSpec[] = [
   // `cachedInput` is the number that decides whether that pays. Nothing else in this
   // repo ever issues a request carrying prior turns, so without this spec the bet
   // stays unfalsifiable no matter how long the deployment runs.
-  { tool: "chat-with-pdf", label: "chat-with-pdf (follow-up)",
+  {
+    tool: "chat-with-pdf",
+    label: "chat-with-pdf (follow-up)",
     // The SAME document as the opening turn: the cached span is the document inside
     // the system prompt, so a different fixture here would guarantee a miss.
-    make: chatDocPdf, name: "doc.pdf", type: PDF_MIME,
+    make: chatDocPdf,
+    name: "doc.pdf",
+    type: PDF_MIME,
     optionsFrom: {
       artifact: "chat-answer-1",
       build: async (bytes) => {
         const { manifest, answer } = await readChatAnswer(bytes);
-        const asked = manifest.question ?? "In one sentence, what is this document for?";
+        const asked =
+          manifest.question ?? "In one sentence, what is this document for?";
         return {
           question: "Which document were you just asked about?",
           context: [
@@ -636,14 +866,22 @@ const SPECS: ProofSpec[] = [
         };
       },
     },
-    expect: isZipContainer, want: "answer ZIP",
+    expect: isZipContainer,
+    want: "answer ZIP",
     verify: async (bytes) => {
       const { manifest } = await readChatAnswer(bytes);
       const turns = manifest.contextTurns ?? -1;
       return turns === 2
-        ? { ok: true, detail: `contextTurns=2 (conversation held), ${usageNote(manifest)}` }
-        : { ok: false, detail: `follow-up reported contextTurns=${turns}, wanted 2 — prior turns did not reach the worker` };
-    } },
+        ? {
+            ok: true,
+            detail: `contextTurns=2 (conversation held), ${usageNote(manifest)}`,
+          }
+        : {
+            ok: false,
+            detail: `follow-up reported contextTurns=${turns}, wanted 2 — prior turns did not reach the worker`,
+          };
+    },
+  },
 ];
 
 /** Worker-backed tools with no spec above — a new tool must arrive with a proof. */
@@ -682,7 +920,12 @@ interface ApiResponse {
   artifacts?: { artifactId: string; filename: string }[];
 }
 
-const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled", "expired"]);
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "canceled",
+  "expired",
+]);
 
 const carried = new Map<string, Buffer>();
 
@@ -703,22 +946,41 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   let inputNames: string[] | undefined;
 
   if (!spec.url) {
-    const bytes = spec.from ? carried.get(spec.from) : Buffer.from(await spec.make!());
+    const bytes = spec.from
+      ? carried.get(spec.from)
+      : Buffer.from(await spec.make!());
     if (!bytes) {
-      return { label, ok: false, stage: "input", detail: `no carried "${spec.from}"` };
+      return {
+        label,
+        ok: false,
+        stage: "input",
+        detail: `no carried "${spec.from}"`,
+      };
     }
     const up = await postJson("/api/uploads", {
       tool: spec.tool,
-      files: [{ filename: spec.name, contentType: spec.type, bytes: bytes.length }],
+      files: [
+        { filename: spec.name, contentType: spec.type, bytes: bytes.length },
+      ],
     });
     if (!up.res.ok) {
-      return { label, ok: false, seconds: seconds(), stage: "uploads",
-               detail: `HTTP ${up.res.status} ${JSON.stringify(up.body).slice(0, 200)}` };
+      return {
+        label,
+        ok: false,
+        seconds: seconds(),
+        stage: "uploads",
+        detail: `HTTP ${up.res.status} ${JSON.stringify(up.body).slice(0, 200)}`,
+      };
     }
     const slot = up.body.slots?.[0];
     if (!slot) {
-      return { label, ok: false, seconds: seconds(), stage: "uploads",
-               detail: "the upload session returned no slot" };
+      return {
+        label,
+        ok: false,
+        seconds: seconds(),
+        stage: "uploads",
+        detail: "the upload session returned no slot",
+      };
     }
     const put = await fetch(slot.url, {
       method: slot.method,
@@ -727,8 +989,13 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       body: new Uint8Array(bytes),
     });
     if (!put.ok) {
-      return { label, ok: false, seconds: seconds(), stage: "storage PUT",
-               detail: `HTTP ${put.status}` };
+      return {
+        label,
+        ok: false,
+        seconds: seconds(),
+        stage: "storage PUT",
+        detail: `HTTP ${put.status}`,
+      };
     }
     inputs = [slot.fileId];
     inputNames = [spec.name!];
@@ -743,27 +1010,47 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   else if (spec.optionsFrom) {
     const prior = carried.get(spec.optionsFrom.artifact);
     if (!prior) {
-      return { label, ok: false, seconds: seconds(), stage: "options",
-               detail: `no carried "${spec.optionsFrom.artifact}"` };
+      return {
+        label,
+        ok: false,
+        seconds: seconds(),
+        stage: "options",
+        detail: `no carried "${spec.optionsFrom.artifact}"`,
+      };
     }
     try {
       request.options = await spec.optionsFrom.build(prior);
     } catch (error) {
-      return { label, ok: false, seconds: seconds(), stage: "options",
-               detail: (error as Error).message };
+      return {
+        label,
+        ok: false,
+        seconds: seconds(),
+        stage: "options",
+        detail: (error as Error).message,
+      };
     }
   } else if (spec.options) request.options = spec.options;
 
   const created = await postJson("/api/jobs", request);
   if (!created.res.ok) {
-    return { label, ok: false, seconds: seconds(), stage: "create job",
-             detail: `HTTP ${created.res.status} ${JSON.stringify(created.body).slice(0, 240)}` };
+    return {
+      label,
+      ok: false,
+      seconds: seconds(),
+      stage: "create job",
+      detail: `HTTP ${created.res.status} ${JSON.stringify(created.body).slice(0, 240)}`,
+    };
   }
 
   const jobId = created.body.jobId ?? created.body.id;
   if (!jobId) {
-    return { label, ok: false, seconds: seconds(), stage: "create job",
-             detail: "the job was accepted but carried no id" };
+    return {
+      label,
+      ok: false,
+      seconds: seconds(),
+      stage: "create job",
+      detail: "the job was accepted but carried no id",
+    };
   }
   const deadline = Date.now() + JOB_TIMEOUT_MS;
   let job = created.body;
@@ -774,24 +1061,42 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     if (job.status && TERMINAL_STATUSES.has(job.status)) break;
   }
   if (job.status !== "completed") {
-    return { label, ok: false, seconds: seconds(), stage: `job ${job.status ?? "timeout"}`,
-             detail: job.error ? `${job.error.code}: ${job.error.message}`.slice(0, 240) : "" };
+    return {
+      label,
+      ok: false,
+      seconds: seconds(),
+      stage: `job ${job.status ?? "timeout"}`,
+      detail: job.error
+        ? `${job.error.code}: ${job.error.message}`.slice(0, 240)
+        : "",
+    };
   }
 
   const artifact = job.artifacts?.[0];
-  if (!artifact) return { label, ok: false, seconds: seconds(), stage: "no artifact" };
+  if (!artifact)
+    return { label, ok: false, seconds: seconds(), stage: "no artifact" };
 
   const download = await fetch(`${BASE}/api/artifacts/${artifact.artifactId}`, {
     redirect: "follow",
   });
   const buf = Buffer.from(await download.arrayBuffer());
   if (!download.ok) {
-    return { label, ok: false, seconds: seconds(), stage: "artifact download",
-             detail: `HTTP ${download.status}` };
+    return {
+      label,
+      ok: false,
+      seconds: seconds(),
+      stage: "artifact download",
+      detail: `HTTP ${download.status}`,
+    };
   }
   if (!spec.expect(buf)) {
-    return { label, ok: false, seconds: seconds(), stage: "artifact shape",
-             detail: `wanted ${spec.want}, got ${buf.length}B starting ${JSON.stringify(buf.subarray(0, 8).toString("latin1"))}` };
+    return {
+      label,
+      ok: false,
+      seconds: seconds(),
+      stage: "artifact shape",
+      detail: `wanted ${spec.want}, got ${buf.length}B starting ${JSON.stringify(buf.subarray(0, 8).toString("latin1"))}`,
+    };
   }
   // Contents, once the envelope is right. Kept separate from `expect` so a failure
   // here reads as "the tool ran but did not do the thing", not "wrong file type".
@@ -804,20 +1109,32 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       outcome = { ok: false, detail: (error as Error).message };
     }
     if (!outcome.ok) {
-      return { label, ok: false, seconds: seconds(), stage: "artifact contents",
-               detail: outcome.detail };
+      return {
+        label,
+        ok: false,
+        seconds: seconds(),
+        stage: "artifact contents",
+        detail: outcome.detail,
+      };
     }
     verified = ` — ${outcome.detail}`;
   }
   if (spec.keepArtifactAs) carried.set(spec.keepArtifactAs, buf);
-  return { label, ok: true, seconds: seconds(),
-           detail: `${artifact.filename} — ${buf.length}B ${spec.want}${verified}` };
+  return {
+    label,
+    ok: true,
+    seconds: seconds(),
+    detail: `${artifact.filename} — ${buf.length}B ${spec.want}${verified}`,
+  };
 }
 
 async function main(): Promise<number> {
   const missing = unspecifiedWorkerTools();
   const selected = SPECS.filter(
-    (s) => ONLY.length === 0 || ONLY.includes(s.tool) || ONLY.includes(s.label ?? ""),
+    (s) =>
+      ONLY.length === 0 ||
+      ONLY.includes(s.tool) ||
+      ONLY.includes(s.label ?? ""),
   );
   if (selected.length === 0) {
     console.log(`No spec matches ${ONLY.join(", ")}.`);
@@ -831,8 +1148,12 @@ async function main(): Promise<number> {
     try {
       result = await runSpec(spec);
     } catch (error) {
-      result = { label: spec.label ?? spec.tool, ok: false, stage: "threw",
-                 detail: (error as Error).message };
+      result = {
+        label: spec.label ?? spec.tool,
+        ok: false,
+        stage: "threw",
+        detail: (error as Error).message,
+      };
     }
     results.push(result);
     console.log(
@@ -843,7 +1164,9 @@ async function main(): Promise<number> {
   }
 
   const passed = results.filter((r) => r.ok).length;
-  console.log(`\n${passed}/${results.length} proven end to end against ${BASE}`);
+  console.log(
+    `\n${passed}/${results.length} proven end to end against ${BASE}`,
+  );
 
   // Only meaningful on a full run — a filtered run says nothing about coverage.
   if (ONLY.length === 0 && missing.length > 0) {
@@ -852,7 +1175,9 @@ async function main(): Promise<number> {
         `\nAdd one to SPECS in this file — an unproven tool is one nobody has checked works.`,
     );
   }
-  return passed === results.length && !(ONLY.length === 0 && missing.length > 0) ? 0 : 1;
+  return passed === results.length && !(ONLY.length === 0 && missing.length > 0)
+    ? 0
+    : 1;
 }
 
 main()

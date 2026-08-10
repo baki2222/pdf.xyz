@@ -36,7 +36,9 @@ function manifest(over: Partial<ArtifactManifest> = {}): ArtifactManifest {
 }
 
 /** A live, downloadable descriptor with a valid manifest (the happy path). */
-function descriptor(over: Partial<RetrievableArtifact> = {}): RetrievableArtifact {
+function descriptor(
+  over: Partial<RetrievableArtifact> = {},
+): RetrievableArtifact {
   return {
     lifecycle: "live",
     jobCompleted: true,
@@ -247,12 +249,24 @@ describe("decideArtifactAccess — served headers", () => {
   });
 
   it("names each kind/processor from a closed vocabulary", () => {
-    expect(downloadFilenameFor("pdf", "application/pdf", "compress")).toBe("compressed.pdf");
-    expect(downloadFilenameFor("pdf", "application/pdf", "ocr")).toBe("searchable.pdf");
-    expect(downloadFilenameFor("pdf", "application/pdf", "other")).toBe("document.pdf");
-    expect(downloadFilenameFor("archive", "application/zip", "other")).toBe("documents.zip");
-    expect(downloadFilenameFor("image", "image/png", "other")).toBe("image.png");
-    expect(downloadFilenameFor("image", "image/jpeg", "other")).toBe("image.jpg");
+    expect(downloadFilenameFor("pdf", "application/pdf", "compress")).toBe(
+      "compressed.pdf",
+    );
+    expect(downloadFilenameFor("pdf", "application/pdf", "ocr")).toBe(
+      "searchable.pdf",
+    );
+    expect(downloadFilenameFor("pdf", "application/pdf", "other")).toBe(
+      "document.pdf",
+    );
+    expect(downloadFilenameFor("archive", "application/zip", "other")).toBe(
+      "documents.zip",
+    );
+    expect(downloadFilenameFor("image", "image/png", "other")).toBe(
+      "image.png",
+    );
+    expect(downloadFilenameFor("image", "image/jpeg", "other")).toBe(
+      "image.jpg",
+    );
   });
 
   it("gives an Office export its real extension, not the .bin fallback", () => {
@@ -261,10 +275,14 @@ describe("decideArtifactAccess — served headers", () => {
     const office = (type: string) =>
       downloadFilenameFor("office-document", type, "other");
     expect(
-      office("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+      office(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
     ).toBe("document.docx");
     expect(
-      office("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+      office(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ),
     ).toBe("document.xlsx");
     expect(
       office(
@@ -276,24 +294,38 @@ describe("decideArtifactAccess — served headers", () => {
 
 describe("httpErrorForAccessReason", () => {
   it("maps every denial reason to a content-free code", () => {
-    expect(httpErrorForAccessReason("malformed_handle").code).toBe("invalid_request");
-    expect(httpErrorForAccessReason("storage_unavailable").code).toBe("worker_not_configured");
-    expect(httpErrorForAccessReason("policy_unavailable").code).toBe("worker_not_configured");
+    expect(httpErrorForAccessReason("malformed_handle").code).toBe(
+      "invalid_request",
+    );
+    expect(httpErrorForAccessReason("storage_unavailable").code).toBe(
+      "worker_not_configured",
+    );
+    expect(httpErrorForAccessReason("policy_unavailable").code).toBe(
+      "worker_not_configured",
+    );
     expect(httpErrorForAccessReason("not_found").code).toBe("not_found");
     expect(httpErrorForAccessReason("deleted").code).toBe("gone");
     expect(httpErrorForAccessReason("expired").code).toBe("gone");
     expect(httpErrorForAccessReason("job_mismatch").code).toBe("forbidden");
     expect(httpErrorForAccessReason("not_ready").code).toBe("conflict");
     expect(httpErrorForAccessReason("missing_manifest").code).toBe("not_found");
-    expect(httpErrorForAccessReason("invalid_manifest").code).toBe("unprocessable_entity");
-    expect(httpErrorForAccessReason("unsupported_kind").code).toBe("unsupported_media_type");
-    expect(httpErrorForAccessReason("empty_artifact").code).toBe("unprocessable_entity");
+    expect(httpErrorForAccessReason("invalid_manifest").code).toBe(
+      "unprocessable_entity",
+    );
+    expect(httpErrorForAccessReason("unsupported_kind").code).toBe(
+      "unsupported_media_type",
+    );
+    expect(httpErrorForAccessReason("empty_artifact").code).toBe(
+      "unprocessable_entity",
+    );
   });
 
   it("maps every denial reason to a content-free message, never a store internal", () => {
     for (const reason of ARTIFACT_ACCESS_REASONS) {
       if (reason === "ok") continue;
-      const { message } = httpErrorForAccessReason(reason as ArtifactAccessDenyReason);
+      const { message } = httpErrorForAccessReason(
+        reason as ArtifactAccessDenyReason,
+      );
       expect(message.length).toBeGreaterThan(0);
       expect(message).not.toMatch(/art_|\.pdf|s3|bucket|key|token|\//i);
     }
@@ -322,7 +354,9 @@ describe("access decisions are content-free", () => {
     // A raw stored content-type stuffed with a signature parameter: the served header
     // uses the manifest's canonical bare type, never the raw value.
     const d = decideArtifactAccess(
-      descriptor({ contentType: "application/pdf; sig=X-Amz-Signature=deadbeef" }),
+      descriptor({
+        contentType: "application/pdf; sig=X-Amz-Signature=deadbeef",
+      }),
     );
     // Raw value desyncs from the manifest's bare type ⇒ denied invalid_manifest, and no
     // part of the decision echoes the hostile parameter.

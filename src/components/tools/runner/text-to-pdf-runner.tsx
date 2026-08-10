@@ -15,7 +15,11 @@ import {
   RunnerSection,
   useAsyncRun,
 } from "./runner-kit";
-import { HandoffLoadedBadge, HandoffLoading, HandoffProblem } from "./handoff-notice";
+import {
+  HandoffLoadedBadge,
+  HandoffLoading,
+  HandoffProblem,
+} from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
@@ -27,17 +31,24 @@ interface TextSource {
 
 export function TextToPdfRunner() {
   const handoff = useToolHandoff("text-to-pdf");
-  const [source, setSource] = useState<TextSource>({ name: "text.txt", text: "" });
+  const [source, setSource] = useState<TextSource>({
+    name: "text.txt",
+    text: "",
+  });
   const [loadError, setLoadError] = useState<string | null>(null);
   const seededRef = useRef(false);
 
   const readTextFile = useCallback(async (file: File) => {
     if (!isLikelyTextFile(file)) {
-      setLoadError(`"${file.name}" isn't a plain text file — choose a .txt file.`);
+      setLoadError(
+        `"${file.name}" isn't a plain text file — choose a .txt file.`,
+      );
       return;
     }
     if (file.size > MAX_SOURCE_BYTES) {
-      setLoadError(`"${file.name}" is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`);
+      setLoadError(
+        `"${file.name}" is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`,
+      );
       return;
     }
     const text = await file.text();
@@ -60,7 +71,9 @@ export function TextToPdfRunner() {
   return (
     <div className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName="Text to PDF" />
-      {handoff.status === "ready" && <HandoffLoadedBadge count={1} skipped={handoff.skipped} />}
+      {handoff.status === "ready" && (
+        <HandoffLoadedBadge count={1} skipped={handoff.skipped} />
+      )}
       <TextToPdfEditor
         source={source}
         onSource={setSource}
@@ -90,7 +103,9 @@ function TextToPdfEditor({
   const filename = textPdfOutputName(source.name);
 
   const onRun = () =>
-    run(() => textToPdf(source.text, { title: source.name.replace(/\.[^/.]+$/, "") }));
+    run(() =>
+      textToPdf(source.text, { title: source.name.replace(/\.[^/.]+$/, "") }),
+    );
 
   if (result) {
     return (
@@ -123,18 +138,36 @@ function TextToPdfEditor({
 
       <RunnerSection
         title="Text content"
-        aside={<span className="text-xs text-slate-400">{characterCount.toLocaleString()} chars · {formatBytes(byteCount)}</span>}
+        aside={
+          <span className="text-xs text-slate-400">
+            {characterCount.toLocaleString()} chars · {formatBytes(byteCount)}
+          </span>
+        }
       >
         <textarea
           value={source.text}
-          onChange={(event) => onSource({ name: source.name, text: event.target.value })}
+          onChange={(event) =>
+            onSource({ name: source.name, text: event.target.value })
+          }
           placeholder="Paste or type plain text here…"
-          className="min-h-72 w-full resize-y rounded-2xl border border-white/10 bg-black/20 px-4 py-3 font-mono text-sm leading-6 text-slate-100 outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+          className="min-h-72 w-full resize-y rounded-2xl border border-white/10 bg-black/20 px-4 py-3 font-mono text-sm leading-6 text-slate-100 transition outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
         />
         <div className="grid gap-3 sm:grid-cols-3">
-          <InfoTile icon={ShieldCheck} title="Private" body="The text never leaves your browser." />
-          <InfoTile icon={Type} title="Formatted" body="Paginated Letter-size PDF with readable monospace typography." />
-          <InfoTile icon={Keyboard} title="Flexible" body="Upload a .txt file or paste text directly." />
+          <InfoTile
+            icon={ShieldCheck}
+            title="Private"
+            body="The text never leaves your browser."
+          />
+          <InfoTile
+            icon={Type}
+            title="Formatted"
+            body="Paginated Letter-size PDF with readable monospace typography."
+          />
+          <InfoTile
+            icon={Keyboard}
+            title="Flexible"
+            body="Upload a .txt file or paste text directly."
+          />
         </div>
       </RunnerSection>
 

@@ -30,7 +30,9 @@ type EnvSource = Record<string, string | undefined>;
  * `clean`); its `capability` reflects the resolved no-scan state (`not-configured` /
  * `disabled` / `unavailable`) but is always `active: false`. `env` is injectable.
  */
-export function notConfiguredScanner(env: EnvSource = process.env): MalwareScanner {
+export function notConfiguredScanner(
+  env: EnvSource = process.env,
+): MalwareScanner {
   const readiness = resolveScannerReadiness(env);
   const capability: MalwareScanCapability = {
     active: false,

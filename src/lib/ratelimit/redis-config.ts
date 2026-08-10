@@ -72,7 +72,9 @@ export function resolveRateLimitFailMode(
   env: EnvSource = process.env,
 ): RateLimitFailMode {
   const value = read(env, RATE_LIMIT_REDIS_ENV.failMode)?.toLowerCase();
-  return value !== undefined && FAIL_CLOSED_VALUES.has(value) ? "closed" : "open";
+  return value !== undefined && FAIL_CLOSED_VALUES.has(value)
+    ? "closed"
+    : "open";
 }
 
 /**
@@ -131,21 +133,32 @@ export function parseRateLimitRedisConfig(
   const provided = urlRaw !== undefined || tokenRaw !== undefined;
 
   const issues: FieldError[] = [];
-  const miss = (name: string, message: string) => issues.push({ field: name, message });
+  const miss = (name: string, message: string) =>
+    issues.push({ field: name, message });
 
   let baseUrl: string | null = null;
   if (!urlRaw) {
-    miss(RATE_LIMIT_REDIS_ENV.restUrl, "Set the rate-limit store REST endpoint origin (https URL).");
+    miss(
+      RATE_LIMIT_REDIS_ENV.restUrl,
+      "Set the rate-limit store REST endpoint origin (https URL).",
+    );
   } else {
     const parsed = parseRedisRestOrigin(urlRaw);
     if (!parsed.ok) {
-      miss(RATE_LIMIT_REDIS_ENV.restUrl, "Must be an http(s) origin with no path or query.");
+      miss(
+        RATE_LIMIT_REDIS_ENV.restUrl,
+        "Must be an http(s) origin with no path or query.",
+      );
     } else {
       baseUrl = parsed.baseUrl;
     }
   }
 
-  if (!tokenRaw) miss(RATE_LIMIT_REDIS_ENV.restToken, "Set the rate-limit store REST token.");
+  if (!tokenRaw)
+    miss(
+      RATE_LIMIT_REDIS_ENV.restToken,
+      "Set the rate-limit store REST token.",
+    );
   else if (!isValidRedisRestToken(tokenRaw)) {
     miss(RATE_LIMIT_REDIS_ENV.restToken, "Malformed REST token.");
   }

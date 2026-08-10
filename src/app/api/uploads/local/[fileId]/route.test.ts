@@ -17,9 +17,12 @@ function put(
     new Uint8Array(buf).set(body);
     init.body = buf;
   }
-  return PUT(new Request(`http://localhost/api/uploads/local/${fileId}`, init), {
-    params: Promise.resolve({ fileId }),
-  });
+  return PUT(
+    new Request(`http://localhost/api/uploads/local/${fileId}`, init),
+    {
+      params: Promise.resolve({ fileId }),
+    },
+  );
 }
 
 function enableLocalDev() {

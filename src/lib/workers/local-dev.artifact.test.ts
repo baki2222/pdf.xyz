@@ -40,7 +40,11 @@ async function runCompression(adapter: WorkerAdapter, store: DevWorkerStore) {
   const session = await adapter.createUploadSession({
     tool: "compress-pdf",
     files: [
-      { filename: "report.pdf", contentType: "application/pdf", bytes: pdf.byteLength },
+      {
+        filename: "report.pdf",
+        contentType: "application/pdf",
+        bytes: pdf.byteLength,
+      },
     ],
   });
   if (!session.ok) throw new Error("session should succeed");
@@ -58,7 +62,10 @@ async function runCompression(adapter: WorkerAdapter, store: DevWorkerStore) {
 describe("local-dev adapter — artifact-manifest gate", () => {
   it("the default gate blesses a real compression PDF (happy path unchanged)", async () => {
     const store = new DevWorkerStore();
-    const adapter = createLocalDevAdapter({ store, compressionDeps: noEngines });
+    const adapter = createLocalDevAdapter({
+      store,
+      compressionDeps: noEngines,
+    });
     const job = await runCompression(adapter, store);
 
     expect(job.status).toBe("completed");

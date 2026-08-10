@@ -15,7 +15,9 @@ describe("resolveMalwareScanReadiness", () => {
   });
 
   it("is disabled and inactive when explicitly turned off", () => {
-    const r = resolveMalwareScanReadiness({ [MALWARE_SCANNER_ENV]: "disabled" });
+    const r = resolveMalwareScanReadiness({
+      [MALWARE_SCANNER_ENV]: "disabled",
+    });
     expect(r.active).toBe(false);
     expect(r.state).toBe("disabled");
   });
@@ -29,7 +31,9 @@ describe("resolveMalwareScanReadiness", () => {
   });
 
   it("is unavailable and inactive when selected but misconfigured", () => {
-    const r = resolveMalwareScanReadiness({ [MALWARE_SCANNER_ENV]: "clamav://" });
+    const r = resolveMalwareScanReadiness({
+      [MALWARE_SCANNER_ENV]: "clamav://",
+    });
     expect(r.active).toBe(false);
     expect(r.state).toBe("unavailable");
   });

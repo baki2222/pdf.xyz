@@ -12,7 +12,13 @@ import {
 } from "./engine";
 
 /** A positioned text item with sane defaults for width/height. */
-function item(text: string, x: number, y: number, width = text.length * 5, height = 10): PositionedTextItem {
+function item(
+  text: string,
+  x: number,
+  y: number,
+  width = text.length * 5,
+  height = 10,
+): PositionedTextItem {
   return { text, x, y, width, height };
 }
 
@@ -90,7 +96,11 @@ describe("detectTablesOnPage", () => {
       pageNumber: 1,
       width: 400,
       height: 300,
-      items: [item("first", 50, 100), item("second", 50, 85), item("third", 50, 70)],
+      items: [
+        item("first", 50, 100),
+        item("second", 50, 85),
+        item("third", 50, 70),
+      ],
     };
     expect(detectTablesOnPage(list)).toEqual([]);
   });
@@ -98,25 +108,43 @@ describe("detectTablesOnPage", () => {
 
 describe("toCsv", () => {
   it("emits RFC-4180 rows with CRLF endings", () => {
-    expect(toCsv([["a", "b"], ["c", "d"]])).toBe("a,b\r\nc,d");
+    expect(
+      toCsv([
+        ["a", "b"],
+        ["c", "d"],
+      ]),
+    ).toBe("a,b\r\nc,d");
   });
 
   it("quotes cells with commas, quotes, or newlines and doubles inner quotes", () => {
-    expect(toCsv([["b,c", 'd"e'], ["f\ng", "h"]])).toBe('"b,c","d""e"\r\n"f\ng",h');
+    expect(
+      toCsv([
+        ["b,c", 'd"e'],
+        ["f\ng", "h"],
+      ]),
+    ).toBe('"b,c","d""e"\r\n"f\ng",h');
   });
 });
 
 describe("buildTablesZip", () => {
   it("packages one CSV per table plus a combined XLSX", async () => {
     const zipBytes = await buildTablesZip([
-      { pageNumber: 1, rows: [["Name", "Age"], ["Alice", "30"]] },
+      {
+        pageNumber: 1,
+        rows: [
+          ["Name", "Age"],
+          ["Alice", "30"],
+        ],
+      },
       { pageNumber: 2, rows: [["City"], ["Paris"]] },
     ]);
     const zip = await JSZip.loadAsync(zipBytes);
     expect(zip.file("table-1.csv")).not.toBeNull();
     expect(zip.file("table-2.csv")).not.toBeNull();
     expect(zip.file("tables.xlsx")).not.toBeNull();
-    expect(await zip.file("table-1.csv")!.async("string")).toBe("Name,Age\r\nAlice,30");
+    expect(await zip.file("table-1.csv")!.async("string")).toBe(
+      "Name,Age\r\nAlice,30",
+    );
   });
 });
 
@@ -130,7 +158,9 @@ describe("runTableExtract", () => {
   });
 
   it("fails as no_text when the PDF has no selectable text", async () => {
-    const extractLayout = vi.fn(async () => layout([{ pageNumber: 1, width: 400, height: 300, items: [] }]));
+    const extractLayout = vi.fn(async () =>
+      layout([{ pageNumber: 1, width: 400, height: 300, items: [] }]),
+    );
     const run = await runTableExtract(PDF, { extractLayout });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("no_text");
@@ -145,7 +175,10 @@ describe("runTableExtract", () => {
 
   it("rejects input over the size limit before extracting", async () => {
     const extractLayout = vi.fn(async () => layout([tablePage()]));
-    const run = await runTableExtract(new Uint8Array(50), { extractLayout, limits: { maxInputBytes: 10 } });
+    const run = await runTableExtract(new Uint8Array(50), {
+      extractLayout,
+      limits: { maxInputBytes: 10 },
+    });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("too_large");
     expect(extractLayout).not.toHaveBeenCalled();
@@ -158,9 +191,16 @@ describe("runTableExtract", () => {
     if (run.ok) {
       expect(run.filenameExt).toBe("zip");
       expect(run.contentType).toBe("application/zip");
-      expect(run.meta).toMatchObject({ engine: EXTRACT_TABLES_ENGINE, tool: "extract-tables", tableCount: 1, pageCount: 1 });
+      expect(run.meta).toMatchObject({
+        engine: EXTRACT_TABLES_ENGINE,
+        tool: "extract-tables",
+        tableCount: 1,
+        pageCount: 1,
+      });
       const zip = await JSZip.loadAsync(run.output);
-      expect(await zip.file("table-1.csv")!.async("string")).toBe("Name,Age\r\nAlice,30\r\nBob,25");
+      expect(await zip.file("table-1.csv")!.async("string")).toBe(
+        "Name,Age\r\nAlice,30\r\nBob,25",
+      );
     }
   });
 

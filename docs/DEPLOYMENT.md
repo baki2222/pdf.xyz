@@ -76,19 +76,19 @@ Set these only in server-side environments. Do **not** use `NEXT_PUBLIC_`.
 `PDFXYZ_STORAGE_PROVIDER=s3` is the explicit selector; without it the app falls
 back to the safe disabled/remote-unimplemented storage provider.
 
-| Variable | Required | Notes |
-| --- | --- | --- |
-| `PDFXYZ_STORAGE_PROVIDER` | Yes | Set to `s3` to enable this provider. |
-| `PDFXYZ_S3_ENDPOINT` | Yes | S3-compatible origin only, e.g. AWS/R2/MinIO endpoint; no path/query/credentials. |
-| `PDFXYZ_S3_REGION` | Yes | Region string; R2 commonly uses `auto`. |
-| `PDFXYZ_S3_BUCKET` | Yes | Private bucket name. Public listing must be disabled. |
-| `PDFXYZ_S3_ACCESS_KEY_ID` | Yes | Server-side key id; appears inside presigned URLs by S3 design but is never reported in status. |
-| `PDFXYZ_S3_SECRET_ACCESS_KEY` | Yes | Server-side signing secret; never logged, serialized, or returned. |
-| `PDFXYZ_S3_SESSION_TOKEN` | Optional | Temporary credential token if used. |
-| `PDFXYZ_S3_FORCE_PATH_STYLE` | Optional | `true` for MinIO/some local-compatible deployments. |
-| `PDFXYZ_S3_KEY_PREFIX` | Optional | Sanitized tenant/prefix segment; no traversal or spaces. |
-| `PDFXYZ_S3_UPLOAD_TTL_SECONDS` | Optional | Default 900; must be 1–604800. |
-| `PDFXYZ_S3_DOWNLOAD_TTL_SECONDS` | Optional | Default 900; must be 1–604800. |
+| Variable                         | Required | Notes                                                                                           |
+| -------------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `PDFXYZ_STORAGE_PROVIDER`        | Yes      | Set to `s3` to enable this provider.                                                            |
+| `PDFXYZ_S3_ENDPOINT`             | Yes      | S3-compatible origin only, e.g. AWS/R2/MinIO endpoint; no path/query/credentials.               |
+| `PDFXYZ_S3_REGION`               | Yes      | Region string; R2 commonly uses `auto`.                                                         |
+| `PDFXYZ_S3_BUCKET`               | Yes      | Private bucket name. Public listing must be disabled.                                           |
+| `PDFXYZ_S3_ACCESS_KEY_ID`        | Yes      | Server-side key id; appears inside presigned URLs by S3 design but is never reported in status. |
+| `PDFXYZ_S3_SECRET_ACCESS_KEY`    | Yes      | Server-side signing secret; never logged, serialized, or returned.                              |
+| `PDFXYZ_S3_SESSION_TOKEN`        | Optional | Temporary credential token if used.                                                             |
+| `PDFXYZ_S3_FORCE_PATH_STYLE`     | Optional | `true` for MinIO/some local-compatible deployments.                                             |
+| `PDFXYZ_S3_KEY_PREFIX`           | Optional | Sanitized tenant/prefix segment; no traversal or spaces.                                        |
+| `PDFXYZ_S3_UPLOAD_TTL_SECONDS`   | Optional | Default 900; must be 1–604800.                                                                  |
+| `PDFXYZ_S3_DOWNLOAD_TTL_SECONDS` | Optional | Default 900; must be 1–604800.                                                                  |
 
 Storage readiness is presence-only in `/api/worker/status`: it can say S3 storage
 is ready, but never names bucket, endpoint, region, prefix, variable names, or
@@ -105,15 +105,15 @@ supports Redis script execution (`EVAL`) for the Phase 21 atomic transition laye
 If the broker/gateway cannot execute those scripts, worker-owned transitions fail as
 typed `unavailable` instead of silently falling back to unsafe read→write behavior.
 
-| Variable | Required | Notes |
-| --- | --- | --- |
-| `PDFXYZ_QUEUE_PROVIDER` | Yes | Set to `redis` (or `upstash-redis`) to enable this provider. |
-| `PDFXYZ_REDIS_REST_URL` | Yes | REST endpoint origin only, e.g. `https://<db>.upstash.io`; no path/query/credentials. |
-| `PDFXYZ_REDIS_REST_TOKEN` | Yes | Server-side REST bearer token; sent only as an `Authorization` header, never logged, serialized, or returned. |
-| `PDFXYZ_QUEUE_KEY_PREFIX` | Optional | Sanitized key namespace (default `pdfxyz`); no traversal or spaces. |
-| `PDFXYZ_QUEUE_LEASE_SECONDS` | Optional | Lease-duration ceiling; default 300, must be 5–3600. |
-| `PDFXYZ_QUEUE_MAX_ATTEMPTS` | Optional | Dead-letter cap on delivery attempts; default 5, must be 1–20. |
-| `PDFXYZ_QUEUE_JOB_TTL_SECONDS` | Optional | Retention TTL applied to every broker key; default 86400, must be 300–604800. |
+| Variable                       | Required | Notes                                                                                                         |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------- |
+| `PDFXYZ_QUEUE_PROVIDER`        | Yes      | Set to `redis` (or `upstash-redis`) to enable this provider.                                                  |
+| `PDFXYZ_REDIS_REST_URL`        | Yes      | REST endpoint origin only, e.g. `https://<db>.upstash.io`; no path/query/credentials.                         |
+| `PDFXYZ_REDIS_REST_TOKEN`      | Yes      | Server-side REST bearer token; sent only as an `Authorization` header, never logged, serialized, or returned. |
+| `PDFXYZ_QUEUE_KEY_PREFIX`      | Optional | Sanitized key namespace (default `pdfxyz`); no traversal or spaces.                                           |
+| `PDFXYZ_QUEUE_LEASE_SECONDS`   | Optional | Lease-duration ceiling; default 300, must be 5–3600.                                                          |
+| `PDFXYZ_QUEUE_MAX_ATTEMPTS`    | Optional | Dead-letter cap on delivery attempts; default 5, must be 1–20.                                                |
+| `PDFXYZ_QUEUE_JOB_TTL_SECONDS` | Optional | Retention TTL applied to every broker key; default 86400, must be 300–604800.                                 |
 
 Queue readiness is presence-only in `/api/worker/status`: it can say the queue is
 ready and configured, but never names the endpoint, token, prefix, variable names,
@@ -130,14 +130,14 @@ select a provider**. With nothing set every request is allowed and the guard
 reports `enforced: false` — identical to pre-Phase-33 behavior. Set these only in
 server-side environments; do **not** use `NEXT_PUBLIC_`.
 
-| Variable | Effect |
-| --- | --- |
-| `PDFXYZ_RATE_LIMIT_PROVIDER` | Selects the backend. Unset/`disabled` ⇒ no enforcement. `local-memory` ⇒ the per-process in-memory limiter (**not distributed** — see caveat; on a serverless platform each instance counts alone, so budgets are effectively N× and rarely trip — the ops posture honestly reports it as enforcing *per process*, never as a distributed guarantee). A remote name (`redis`/`upstash`/`remote`/…) ⇒ the shipped **distributed** provider (Phase 34) when a valid store is configured below — the guard **builds its own provider from the environment in whichever bundle serves the request** (measured 2026-08-09: on Vercel the boot hook's registration is a dead write, because `instrumentation.ts` and each route are separate bundles; the boot registration still works on single-process deployments) and reports `provider: "remote"`, `enforced: true`. With a remote name selected but **no** valid store, it resolves to `remote-unimplemented` and **skips honestly** (never fakes distributed enforcement). |
-| `PDFXYZ_RATE_LIMIT_REDIS_REST_URL` | Bare `https` origin of the distributed limiter store (Redis/Upstash-REST). **Web-tier** credential — deliberately distinct from the worker-only `PDFXYZ_REDIS_REST_URL`, so the public web pod never carries a worker secret. May point at the same managed instance as the queue. |
-| `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` | Bearer token for that store. Read only to build the auth header; never logged, returned, or surfaced. Server-only; never `NEXT_PUBLIC_`. |
-| `PDFXYZ_RATE_LIMIT_KEY_PREFIX` | Optional key namespace (default `pdfxyz`); limiter keys live under `{prefix}:ratelimit:…`, never colliding with queue keys. |
-| `PDFXYZ_RATE_LIMIT_FAIL_MODE` | How the guard degrades when the store errors: `open` (default) ⇒ allow, unenforced (a store outage never takes the API down); `closed` ⇒ deliberate `429` (shed load rather than serve unthrottled). |
-| `PDFXYZ_RATE_LIMIT_TRUST_PROXY` | Truthy ⇒ attribute requests to a client via the `x-forwarded-for`/`x-real-ip` header (salted-hashed, never retained). Off by default because that header is spoofable unless a trusted edge overwrites it; off ⇒ one shared bucket (a coarse global throttle). Enable **only** behind a proxy/CDN you trust to set it. |
+| Variable                             | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PDFXYZ_RATE_LIMIT_PROVIDER`         | Selects the backend. Unset/`disabled` ⇒ no enforcement. `local-memory` ⇒ the per-process in-memory limiter (**not distributed** — see caveat; on a serverless platform each instance counts alone, so budgets are effectively N× and rarely trip — the ops posture honestly reports it as enforcing _per process_, never as a distributed guarantee). A remote name (`redis`/`upstash`/`remote`/…) ⇒ the shipped **distributed** provider (Phase 34) when a valid store is configured below — the guard **builds its own provider from the environment in whichever bundle serves the request** (measured 2026-08-09: on Vercel the boot hook's registration is a dead write, because `instrumentation.ts` and each route are separate bundles; the boot registration still works on single-process deployments) and reports `provider: "remote"`, `enforced: true`. With a remote name selected but **no** valid store, it resolves to `remote-unimplemented` and **skips honestly** (never fakes distributed enforcement). |
+| `PDFXYZ_RATE_LIMIT_REDIS_REST_URL`   | Bare `https` origin of the distributed limiter store (Redis/Upstash-REST). **Web-tier** credential — deliberately distinct from the worker-only `PDFXYZ_REDIS_REST_URL`, so the public web pod never carries a worker secret. May point at the same managed instance as the queue.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` | Bearer token for that store. Read only to build the auth header; never logged, returned, or surfaced. Server-only; never `NEXT_PUBLIC_`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `PDFXYZ_RATE_LIMIT_KEY_PREFIX`       | Optional key namespace (default `pdfxyz`); limiter keys live under `{prefix}:ratelimit:…`, never colliding with queue keys.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `PDFXYZ_RATE_LIMIT_FAIL_MODE`        | How the guard degrades when the store errors: `open` (default) ⇒ allow, unenforced (a store outage never takes the API down); `closed` ⇒ deliberate `429` (shed load rather than serve unthrottled).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `PDFXYZ_RATE_LIMIT_TRUST_PROXY`      | Truthy ⇒ attribute requests to a client via the `x-forwarded-for`/`x-real-ip` header (salted-hashed, never retained). Off by default because that header is spoofable unless a trusted edge overwrites it; off ⇒ one shared bucket (a coarse global throttle). Enable **only** behind a proxy/CDN you trust to set it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 Notes specific to this feature:
 
@@ -146,8 +146,8 @@ Notes specific to this feature:
   web-tier secret + the `PDFXYZ_RATE_LIMIT_*` vars above), NOT the worker. They are
   separate variable names from the queue's worker-only `PDFXYZ_REDIS_REST_*` precisely
   so the public web pod never inherits a worker secret (a load-bearing invariant — see
-  `deployment-blueprint.test.ts`). You may set the same *values* under these web-safe
-  *names* to reuse one managed instance. The committed k8s/compose examples ship with
+  `deployment-blueprint.test.ts`). You may set the same _values_ under these web-safe
+  _names_ to reuse one managed instance. The committed k8s/compose examples ship with
   rate limiting **off**; the k8s README shows the exact web-tier secret + env snippet to
   turn it on.
 - **⚠️ `local-memory` is not production distributed enforcement.** Its counters
@@ -168,10 +168,10 @@ Client error + Web-Vitals telemetry is **inert unless you point it at an ingest
 endpoint**. With nothing set, no beacon is sent, the Web-Vitals listener is not
 even mounted, and the CSP is unchanged. These are the only knobs:
 
-| Variable | Effect |
-| --- | --- |
-| `NEXT_PUBLIC_TELEMETRY_ENDPOINT` | Where redacted reports are POSTed. Unset ⇒ telemetry disabled. Accepts a same-origin path (`/api/telemetry`) or an absolute `http(s)` URL; anything else is ignored and telemetry stays off. |
-| `NEXT_PUBLIC_TELEMETRY_SAMPLE_RATE` | Optional `0`–`1` sampling rate (default `1`). `0` disables sending. |
+| Variable                            | Effect                                                                                                                                                                                       |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_TELEMETRY_ENDPOINT`    | Where redacted reports are POSTed. Unset ⇒ telemetry disabled. Accepts a same-origin path (`/api/telemetry`) or an absolute `http(s)` URL; anything else is ignored and telemetry stays off. |
+| `NEXT_PUBLIC_TELEMETRY_SAMPLE_RATE` | Optional `0`–`1` sampling rate (default `1`). `0` disables sending.                                                                                                                          |
 
 Notes specific to this feature:
 
@@ -335,7 +335,7 @@ the required REST variables are valid. Before using it for production traffic:
 - **This is the queue only.** With no worker daemon deployed, a created job stays
   `queued` forever (until its TTL) and nothing is processed. Do **not** tell users
   jobs complete until the Phase 13 executor is deployed as a separate worker (next
-  section) draining this queue. Enable storage *and* queue together, then the
+  section) draining this queue. Enable storage _and_ queue together, then the
   worker, before advertising end-to-end processing.
 
 ## Phase 13 worker executor checklist
@@ -343,7 +343,7 @@ the required REST variables are valid. Before using it for production traffic:
 Phase 13 adds the **execution foundation** — a processor registry and an executor
 loop (`src/lib/workers/processor/` + `src/lib/workers/executor/`) — but ships **no
 long-running worker in the app runtime**. Importing the executor starts nothing;
-it must be *driven*. Before enabling remote processing:
+it must be _driven_. Before enabling remote processing:
 
 - **Run the executor out-of-band.** Deploy a **separate, sandboxed worker
   process** (not a Vercel serverless function on the request path) that constructs
@@ -363,7 +363,7 @@ it must be *driven*. Before enabling remote processing:
 - **Scan for real.** The executor's `scanning` phase runs the Phase 22 malware-scan
   gate: point `PDFXYZ_MALWARE_SCANNER` at an **optional ClamAV/clamd** endpoint and an
   infected or unscannable input is blocked before processing; unconfigured, it is an
-  honest no-op (nothing scanned, and nothing is ever *reported* as scanned). Deploy
+  honest no-op (nothing scanned, and nothing is ever _reported_ as scanned). Deploy
   clamd (e.g. as a sidecar) to scan for real, and arm `PDFXYZ_WORKER_REQUIRE_SCAN`
   where scanning is mandatory.
 - **OCR for real.** OCR is a real, optional backend (Phase 23), off by default. The
@@ -391,7 +391,7 @@ it must be *driven*. Before enabling remote processing:
   signed URL, or path; it is written only on a genuinely completed job and dropped when
   the outputs are deleted. Nothing new to configure — it rides the existing job record;
   the recognized text itself remains download-only in the artifact. If you proxy or log
-  job-status responses, note `results.ocr` is safe to retain (it is a *description* of
+  job-status responses, note `results.ocr` is safe to retain (it is a _description_ of
   the output, never the output).
 - **Keep it presence-only.** `/api/worker/status` exposes
   `providers.processor.executor` (mode/ready/detail) — confirm no broker name,
@@ -405,7 +405,7 @@ called for — `scripts/worker-daemon.ts`, run with `pnpm worker:daemon`. It is 
 one process that actually drains the queue; the Next.js app never becomes it.
 
 - **Run it as a separate process.** In sandboxed worker infrastructure (a container,
-  VM, or worker dyno — *not* a Vercel serverless function on the request path), give
+  VM, or worker dyno — _not_ a Vercel serverless function on the request path), give
   the process the same server-only S3/R2 **and** Redis/Upstash variables the web app
   uses, then run one of:
 
@@ -418,8 +418,9 @@ one process that actually drains the queue; the Next.js app never becomes it.
 
   Tuning: `--max-ticks=<n>` caps total ticks, `--idle-sleep-ms=<ms>` sets the poll
   interval when idle (default 1000), `--lease-ms=<ms>` sets the per-claim lease.
+
 - **Smoke-test before advertising processing.** `pnpm worker:daemon --dry-run-status`
-  exits `0` only when the queue *and* storage are both configured (drainable) and
+  exits `0` only when the queue _and_ storage are both configured (drainable) and
   `2` otherwise — wire it into a health check. It claims no job and processes nothing.
 - **It refuses to fake work.** With no drainable queue + storage the daemon exits `2`
   (not configured); a processor with no runner (OCR, or `deep` compression with no
@@ -449,7 +450,7 @@ one process that actually drains the queue; the Next.js app never becomes it.
   is absent, the deterministic content-type fallback (`document-compressed.pdf`) is
   still used.
 - **Logs are content-free.** The daemon prints structured JSON with a run mode, tick
-  counters, an opaque job id/attempt, an error *code*, and the presence-only
+  counters, an opaque job id/attempt, an error _code_, and the presence-only
   `compression_health` booleans/engine names only — never a filename, byte count,
   object key, URL, option value, or secret. Ship stdout to your log sink as-is.
 - **Shut it down cleanly.** SIGINT/SIGTERM lets the in-flight tick finish and the
@@ -467,16 +468,16 @@ Phase 19 makes the split between the **web app** and the **worker daemon**
 concrete infrastructure. The web app deploys to Vercel as before; the worker is a
 separate, sandboxed process you build and run yourself. The artifacts:
 
-| File | Purpose |
-| --- | --- |
-| [`Dockerfile`](../Dockerfile) | Multi-stage build with two independent targets, `web` and `worker`. |
-| [`.dockerignore`](../.dockerignore) | Keeps `node_modules`, `.next`, `.env*`, and the `.claude-*.md` prompts out of every image layer. |
-| [`docker-compose.worker.yml`](../docker-compose.worker.yml) | Example web + worker composition; placeholder env **names** only, no values. |
-| [`.env.worker.example`](../.env.worker.example) | The worker's server-only variables with obvious placeholders; copy to a git-ignored `.env`. |
-| `scripts/worker-smoke.sh` (`pnpm worker:smoke`) | No-config honesty smoke; asserts the daemon refuses to fake work and rejects bad flags. |
-| `scripts/worker-image-smoke.sh` (`pnpm worker:image-smoke`) | Image-level native-engine + OCR presence/readiness smoke; runs inside the built worker image. |
-| `scripts/worker-engines.sh` (`pnpm worker:engines`) | Node-free `command -v` engine preflight (`0` ok / `1` usage / `3` a required engine missing); honors the opt-in require-flags. Runs in or out of the image. |
-| `scripts/worker-ocr-proof.sh` (`pnpm worker:ocr-proof`) | Deterministic OCR **recognition** proof on a synthetic fixture (Phase 25): gs renders a sentinel raster, Tesseract OCRs it, the sidecar must contain the sentinel. `0` pass / `2` engine missing / `3` proof failed. Presence-only, content-free, self-cleaning; runs inside the built worker image. |
+| File                                                              | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`Dockerfile`](../Dockerfile)                                     | Multi-stage build with two independent targets, `web` and `worker`.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| [`.dockerignore`](../.dockerignore)                               | Keeps `node_modules`, `.next`, `.env*`, and the `.claude-*.md` prompts out of every image layer.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| [`docker-compose.worker.yml`](../docker-compose.worker.yml)       | Example web + worker composition; placeholder env **names** only, no values.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| [`.env.worker.example`](../.env.worker.example)                   | The worker's server-only variables with obvious placeholders; copy to a git-ignored `.env`.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `scripts/worker-smoke.sh` (`pnpm worker:smoke`)                   | No-config honesty smoke; asserts the daemon refuses to fake work and rejects bad flags.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `scripts/worker-image-smoke.sh` (`pnpm worker:image-smoke`)       | Image-level native-engine + OCR presence/readiness smoke; runs inside the built worker image.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `scripts/worker-engines.sh` (`pnpm worker:engines`)               | Node-free `command -v` engine preflight (`0` ok / `1` usage / `3` a required engine missing); honors the opt-in require-flags. Runs in or out of the image.                                                                                                                                                                                                                                                                                                                                                        |
+| `scripts/worker-ocr-proof.sh` (`pnpm worker:ocr-proof`)           | Deterministic OCR **recognition** proof on a synthetic fixture (Phase 25): gs renders a sentinel raster, Tesseract OCRs it, the sidecar must contain the sentinel. `0` pass / `2` engine missing / `3` proof failed. Presence-only, content-free, self-cleaning; runs inside the built worker image.                                                                                                                                                                                                               |
 | `scripts/worker-ocrmypdf-proof.sh` (`pnpm worker:ocrmypdf-proof`) | Deterministic OCRmyPDF **searchable-PDF** proof on a synthetic fixture (Phase 27): gs's `pdfimage` device builds an **image-only** PDF, `pdftotext` confirms the source has no selectable text, OCRmyPDF adds a text layer, and the same `pdftotext` confirms the **output** yields the sentinel (image-only → searchable) with the sidecar corroborating. `0` pass / `2` tool missing (gs/ocrmypdf/pdftotext) / `3` proof failed. Presence-only, content-free, self-cleaning; runs inside the built worker image. |
 
 ### Build the two images separately
@@ -546,15 +547,15 @@ content-free, and offline — no command here makes a live cloud call.
 
 ### Required env groups (server-only; never `NEXT_PUBLIC_`)
 
-| Group | Variables | Purpose |
-| --- | --- | --- |
-| Storage | `PDFXYZ_STORAGE_PROVIDER=s3`, `PDFXYZ_S3_ENDPOINT`, `PDFXYZ_S3_REGION`, `PDFXYZ_S3_BUCKET`, `PDFXYZ_S3_ACCESS_KEY_ID`, `PDFXYZ_S3_SECRET_ACCESS_KEY` (+ optional `…_FORCE_PATH_STYLE`, `…_KEY_PREFIX`, TTLs) | Signed I/O + delete. |
-| Queue | `PDFXYZ_QUEUE_PROVIDER=redis`, `PDFXYZ_REDIS_REST_URL`, `PDFXYZ_REDIS_REST_TOKEN` (+ optional lease/attempts/TTL) | Claim/complete jobs. |
-| Compression | `PDFXYZ_NATIVE_COMPRESSION` (auto by default), optional engine pin + absolute binary overrides | Deep image compression. |
-| OCR *(optional)* | `PDFXYZ_OCR` (`on`/`off`, **off by default**), optional `PDFXYZ_OCR_ENGINE` (`ocrmypdf`/`tesseract`), absolute binary overrides, `PDFXYZ_OCR_TIMEOUT_MS` / `_MAX_INPUT_BYTES` / `_MAX_OUTPUT_BYTES` / `_TMPDIR` | Optional OCR backend (Phase 23). Requires an engine installed on the worker. See [`OCR_BACKEND.md`](../docs/OCR_BACKEND.md). |
-| Retention *(optional)* | `PDFXYZ_RETENTION_INPUT_TTL_MINUTES`, `PDFXYZ_RETENTION_ARTIFACT_TTL_MINUTES`, `PDFXYZ_RETENTION_MULTIPART_ABORT_HOURS`, `PDFXYZ_RETENTION_NONCURRENT_VERSION_DAYS` | Tighten the lifecycle backstop (≤ 7-day ceiling). |
-| Lifecycle *(optional)* | `PDFXYZ_LIFECYCLE_PROVIDER` (`aws-s3`\|`cloudflare-r2`\|`minio`\|`generic`), `PDFXYZ_LIFECYCLE_VALIDATED=true`, `PDFXYZ_LIFECYCLE_VERSIONED` | Declare that the generated policy is applied and verified. Back the assertion with evidence via `--lifecycle-verify` (§3). |
-| Guardrails *(optional)* | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`, `PDFXYZ_WORKER_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC`, `PDFXYZ_WORKER_REQUIRE_SCAN`, `PDFXYZ_WORKER_REQUIRE_OCR` | Fail fast on a dangerous production state. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (also implied by strict) rejects a deployment whose queue cannot guarantee atomic, race-safe transitions (`queue_atomic_unsupported`); `PDFXYZ_WORKER_REQUIRE_SCAN` / `PDFXYZ_WORKER_REQUIRE_OCR` (opt-in, **not** implied by strict) require an active scanner / a ready OCR engine. |
+| Group                   | Variables                                                                                                                                                                                                                   | Purpose                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Storage                 | `PDFXYZ_STORAGE_PROVIDER=s3`, `PDFXYZ_S3_ENDPOINT`, `PDFXYZ_S3_REGION`, `PDFXYZ_S3_BUCKET`, `PDFXYZ_S3_ACCESS_KEY_ID`, `PDFXYZ_S3_SECRET_ACCESS_KEY` (+ optional `…_FORCE_PATH_STYLE`, `…_KEY_PREFIX`, TTLs)                | Signed I/O + delete.                                                                                                                                                                                                                                                                                                                                           |
+| Queue                   | `PDFXYZ_QUEUE_PROVIDER=redis`, `PDFXYZ_REDIS_REST_URL`, `PDFXYZ_REDIS_REST_TOKEN` (+ optional lease/attempts/TTL)                                                                                                           | Claim/complete jobs.                                                                                                                                                                                                                                                                                                                                           |
+| Compression             | `PDFXYZ_NATIVE_COMPRESSION` (auto by default), optional engine pin + absolute binary overrides                                                                                                                              | Deep image compression.                                                                                                                                                                                                                                                                                                                                        |
+| OCR _(optional)_        | `PDFXYZ_OCR` (`on`/`off`, **off by default**), optional `PDFXYZ_OCR_ENGINE` (`ocrmypdf`/`tesseract`), absolute binary overrides, `PDFXYZ_OCR_TIMEOUT_MS` / `_MAX_INPUT_BYTES` / `_MAX_OUTPUT_BYTES` / `_TMPDIR`             | Optional OCR backend (Phase 23). Requires an engine installed on the worker. See [`OCR_BACKEND.md`](../docs/OCR_BACKEND.md).                                                                                                                                                                                                                                   |
+| Retention _(optional)_  | `PDFXYZ_RETENTION_INPUT_TTL_MINUTES`, `PDFXYZ_RETENTION_ARTIFACT_TTL_MINUTES`, `PDFXYZ_RETENTION_MULTIPART_ABORT_HOURS`, `PDFXYZ_RETENTION_NONCURRENT_VERSION_DAYS`                                                         | Tighten the lifecycle backstop (≤ 7-day ceiling).                                                                                                                                                                                                                                                                                                              |
+| Lifecycle _(optional)_  | `PDFXYZ_LIFECYCLE_PROVIDER` (`aws-s3`\|`cloudflare-r2`\|`minio`\|`generic`), `PDFXYZ_LIFECYCLE_VALIDATED=true`, `PDFXYZ_LIFECYCLE_VERSIONED`                                                                                | Declare that the generated policy is applied and verified. Back the assertion with evidence via `--lifecycle-verify` (§3).                                                                                                                                                                                                                                     |
+| Guardrails _(optional)_ | `PDFXYZ_WORKER_STRICT`, `PDFXYZ_WORKER_REQUIRE_DRAINABLE`, `PDFXYZ_WORKER_REQUIRE_DEEP_ENGINE`, `PDFXYZ_WORKER_REQUIRE_LIFECYCLE`, `PDFXYZ_QUEUE_REQUIRE_ATOMIC`, `PDFXYZ_WORKER_REQUIRE_SCAN`, `PDFXYZ_WORKER_REQUIRE_OCR` | Fail fast on a dangerous production state. `PDFXYZ_QUEUE_REQUIRE_ATOMIC` (also implied by strict) rejects a deployment whose queue cannot guarantee atomic, race-safe transitions (`queue_atomic_unsupported`); `PDFXYZ_WORKER_REQUIRE_SCAN` / `PDFXYZ_WORKER_REQUIRE_OCR` (opt-in, **not** implied by strict) require an active scanner / a ready OCR engine. |
 
 Copy [`.env.worker.example`](../.env.worker.example) to a git-ignored `.env`. Values
 are read only to sign/authenticate inside the worker; they are never logged,
@@ -578,7 +579,7 @@ pnpm worker:daemon --check                        # exit 0 clean · 4 on any err
 PDFXYZ_WORKER_STRICT=true pnpm worker:daemon --check   # enforce production requirements
 ```
 
-A *selected-but-invalid* provider (e.g. `PDFXYZ_STORAGE_PROVIDER=s3` with a typo'd
+A _selected-but-invalid_ provider (e.g. `PDFXYZ_STORAGE_PROVIDER=s3` with a typo'd
 variable) is an **error**, not a silent fallback. Run modes (`--once`/`--drain`/
 `--loop`) run the same check and refuse to start (exit `4`) on an error.
 
@@ -626,7 +627,7 @@ Two honesty caveats, both fail-safe (they never turn a real gap into `verified`)
 - **Only pure-prefix (or whole-bucket) rules count** toward a backstop. A rule scoped
   by tag, object size, or a multi-condition `Filter.And` deletes only a subset of a
   prefix, so it is reported as `missing`/drift (never credited), and a version rule
-  that *retains* recent versions (`NewerNoncurrentVersions`) does not satisfy the
+  that _retains_ recent versions (`NewerNoncurrentVersions`) does not satisfy the
   noncurrent backstop. If your bucket relies on such a rule, confirm coverage manually.
 
 ### 4. Start the worker (one-shot / drain / loop)
@@ -652,8 +653,8 @@ exit cleanly.
   generated backstop (`--lifecycle-verify`, offline — no cloud call); active
   delete-now proven on every terminal executor path; deployment readiness/posture;
   production guardrails; content-free readiness + logs.
-- **Intentionally NOT implemented (never faked):** *applying* a lifecycle policy to a
-  live bucket, and *reading* the live bucket to verify it — the operator runs the
+- **Intentionally NOT implemented (never faked):** _applying_ a lifecycle policy to a
+  live bucket, and _reading_ the live bucket to verify it — the operator runs the
   provider CLI for both (apply, then export the config for `--lifecycle-verify`); the
   app never calls the cloud;
   **OCR** and the other non-compress processors; and, when no clamd endpoint is
@@ -732,15 +733,15 @@ gauges: `pdfxyz_ops_check_severity` + per-subsystem, all bounded-enum labels), `
 
 **Exit codes** (distinct from the daemon's — here `2` = unknown/no-data, `4` = critical):
 
-| Code | Meaning |
-| ---- | ------- |
-| `0` | OK — healthy |
-| `1` | usage — bad flag / unreadable / malformed input |
-| `2` | UNKNOWN — health could not be determined (no data) |
-| `3` | WARNING — a recommended fix is outstanding |
-| `4` | CRITICAL — a worker cannot run correctly, or an SLO breached |
+| Code | Meaning                                                      |
+| ---- | ------------------------------------------------------------ |
+| `0`  | OK — healthy                                                 |
+| `1`  | usage — bad flag / unreadable / malformed input              |
+| `2`  | UNKNOWN — health could not be determined (no data)           |
+| `3`  | WARNING — a recommended fix is outstanding                   |
+| `4`  | CRITICAL — a worker cannot run correctly, or an SLO breached |
 
-**Wire it** — schedule it and alert on a non-zero, non-`1` exit (`1` means the *check*
+**Wire it** — schedule it and alert on a non-zero, non-`1` exit (`1` means the _check_
 was misconfigured, not the worker):
 
 ```bash

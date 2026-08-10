@@ -6,18 +6,31 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { looksLikePdf } from "../compression/engine";
 import type { ChromiumPdfRunner, HtmlRenderDeps } from "./engine";
-import { resolveNativeHtmlRenderConfig, type NativeHtmlRenderConfig } from "./native-config";
+import {
+  resolveNativeHtmlRenderConfig,
+  type NativeHtmlRenderConfig,
+} from "./native-config";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
-export interface ChromiumExecResult { code: number; timedOut: boolean }
-export type ChromiumExec = (command: string, args: readonly string[], options: { timeout: number; maxBuffer: number; windowsHide: boolean }) => Promise<ChromiumExecResult>;
+export interface ChromiumExecResult {
+  code: number;
+  timedOut: boolean;
+}
+export type ChromiumExec = (
+  command: string,
+  args: readonly string[],
+  options: { timeout: number; maxBuffer: number; windowsHide: boolean },
+) => Promise<ChromiumExecResult>;
 
 export interface ChromiumFs {
   mkdtemp: (prefix: string) => Promise<string>;
   writeFile: (file: string, data: Uint8Array) => Promise<void>;
   readFile: (file: string) => Promise<Uint8Array>;
-  rm: (dir: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  rm: (
+    dir: string,
+    options: { recursive: boolean; force: boolean },
+  ) => Promise<void>;
 }
 
 export interface ChromiumSeams {
@@ -29,13 +42,23 @@ export interface ChromiumSeams {
 
 const defaultExec: ChromiumExec = (command, args, options) =>
   new Promise((resolve) => {
-    execFile(command, [...args], { ...options, encoding: "buffer" }, (error: (Error & { code?: number | string; killed?: boolean }) | null) => {
-      if (!error) {
-        resolve({ code: 0, timedOut: false });
-        return;
-      }
-      resolve({ code: typeof error.code === "number" ? error.code : -1, timedOut: !!error.killed });
-    });
+    execFile(
+      command,
+      [...args],
+      { ...options, encoding: "buffer" },
+      (
+        error: (Error & { code?: number | string; killed?: boolean }) | null,
+      ) => {
+        if (!error) {
+          resolve({ code: 0, timedOut: false });
+          return;
+        }
+        resolve({
+          code: typeof error.code === "number" ? error.code : -1,
+          timedOut: !!error.killed,
+        });
+      },
+    );
   });
 
 const defaultFs: ChromiumFs = {
@@ -46,16 +69,24 @@ const defaultFs: ChromiumFs = {
 };
 
 function isRegularFile(filePath: string): boolean {
-  try { return existsSync(filePath) && statSync(filePath).isFile(); } catch { return false; }
+  try {
+    return existsSync(filePath) && statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
 }
 
 export function resolveOnPath(binary: string): boolean {
   const pathVar = process.env.PATH ?? "";
   if (!pathVar) return false;
-  const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";") : [""];
+  const exts =
+    process.platform === "win32"
+      ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";")
+      : [""];
   for (const dir of pathVar.split(path.delimiter)) {
     if (!dir) continue;
-    for (const ext of exts) if (isRegularFile(path.join(dir, binary + ext))) return true;
+    for (const ext of exts)
+      if (isRegularFile(path.join(dir, binary + ext))) return true;
   }
   return false;
 }
@@ -73,23 +104,36 @@ export function chromiumPdfArgs(source: string, outputPath: string): string[] {
   ];
 }
 
-export function probeChromiumFromConfig(config: NativeHtmlRenderConfig, seams: ChromiumSeams = {}): string | null {
+export function probeChromiumFromConfig(
+  config: NativeHtmlRenderConfig,
+  seams: ChromiumSeams = {},
+): string | null {
   if (!config.enabled) return null;
   const onPath = seams.resolveOnPath ?? resolveOnPath;
   const fileExists = seams.fileExists ?? isRegularFile;
   for (const candidate of config.candidates) {
-    if (config.overridden ? fileExists(candidate) : onPath(candidate)) return candidate;
+    if (config.overridden ? fileExists(candidate) : onPath(candidate))
+      return candidate;
   }
   return null;
 }
 
-export function createNativeChromiumPdfRunner(config: NativeHtmlRenderConfig, seams: ChromiumSeams = {}): ChromiumPdfRunner {
+export function createNativeChromiumPdfRunner(
+  config: NativeHtmlRenderConfig,
+  seams: ChromiumSeams = {},
+): ChromiumPdfRunner {
   const exec = seams.exec ?? defaultExec;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
-  const binary = probeChromiumFromConfig(config, seams) ?? config.candidates[0] ?? "chromium";
+  const binary =
+    probeChromiumFromConfig(config, seams) ??
+    config.candidates[0] ??
+    "chromium";
 
-  async function render(source: string, write?: { path: string; bytes: Uint8Array }): Promise<Uint8Array> {
+  async function render(
+    source: string,
+    write?: { path: string; bytes: Uint8Array },
+  ): Promise<Uint8Array> {
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-html-"));
     const outputPath = path.join(dir, "output.pdf");
     try {
@@ -99,11 +143,25 @@ export function createNativeChromiumPdfRunner(config: NativeHtmlRenderConfig, se
         await fs.writeFile(inputPath, write.bytes);
         renderSource = pathToFileURL(inputPath).toString();
       }
-      const result = await exec(binary, chromiumPdfArgs(renderSource, outputPath), { timeout: config.timeoutMs, maxBuffer: EXEC_MAX_BUFFER, windowsHide: true });
-      if (result.timedOut || result.code !== 0) throw new Error("Chromium HTML rendering failed.");
+      const result = await exec(
+        binary,
+        chromiumPdfArgs(renderSource, outputPath),
+        {
+          timeout: config.timeoutMs,
+          maxBuffer: EXEC_MAX_BUFFER,
+          windowsHide: true,
+        },
+      );
+      if (result.timedOut || result.code !== 0)
+        throw new Error("Chromium HTML rendering failed.");
       const output = await fs.readFile(outputPath);
-      const bytes = output instanceof Uint8Array ? output : new Uint8Array(output);
-      if (bytes.byteLength === 0 || bytes.byteLength > config.maxOutputBytes || !looksLikePdf(bytes)) {
+      const bytes =
+        output instanceof Uint8Array ? output : new Uint8Array(output);
+      if (
+        bytes.byteLength === 0 ||
+        bytes.byteLength > config.maxOutputBytes ||
+        !looksLikePdf(bytes)
+      ) {
         throw new Error("Chromium produced no usable PDF output.");
       }
       return bytes;
@@ -114,7 +172,8 @@ export function createNativeChromiumPdfRunner(config: NativeHtmlRenderConfig, se
 
   return {
     renderHtml(input) {
-      if (input.byteLength > config.maxInputBytes) throw new Error("Input exceeds size limit.");
+      if (input.byteLength > config.maxInputBytes)
+        throw new Error("Input exceeds size limit.");
       return render("", { path: "input.html", bytes: input });
     },
     renderUrl(url) {
@@ -123,11 +182,19 @@ export function createNativeChromiumPdfRunner(config: NativeHtmlRenderConfig, se
   };
 }
 
-export function nativeHtmlRenderDeps(env: Record<string, string | undefined> = process.env, seams: ChromiumSeams = {}): HtmlRenderDeps {
+export function nativeHtmlRenderDeps(
+  env: Record<string, string | undefined> = process.env,
+  seams: ChromiumSeams = {},
+): HtmlRenderDeps {
   const config = resolveNativeHtmlRenderConfig(env);
   const available = probeChromiumFromConfig(config, seams);
   return {
-    ...(available ? { chromium: createNativeChromiumPdfRunner(config, seams) } : {}),
-    limits: { maxInputBytes: config.maxInputBytes, maxOutputBytes: config.maxOutputBytes },
+    ...(available
+      ? { chromium: createNativeChromiumPdfRunner(config, seams) }
+      : {}),
+    limits: {
+      maxInputBytes: config.maxInputBytes,
+      maxOutputBytes: config.maxOutputBytes,
+    },
   };
 }

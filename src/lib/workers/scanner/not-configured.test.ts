@@ -43,7 +43,9 @@ describe("notConfiguredScanner", () => {
   });
 
   it("reports `unavailable` for a selected-but-misconfigured scanner, still skipping", async () => {
-    const scanner = notConfiguredScanner({ [MALWARE_SCANNER_ENV]: "clamav://" });
+    const scanner = notConfiguredScanner({
+      [MALWARE_SCANNER_ENV]: "clamav://",
+    });
     const result = await scanner.scan(input);
     expect(result.verdict).toBe("skipped");
     expect(result.scanned).toBe(false);

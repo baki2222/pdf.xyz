@@ -11,7 +11,12 @@
  * message that deletion is operator-owned and out-of-band — the same posture as the sweeper.
  */
 
-import { PROJECTION_SOURCE_PROVIDERS, PROJECTION_TARGETS, type ProjectionSourceProvider, type ProjectionTarget } from "./types";
+import {
+  PROJECTION_SOURCE_PROVIDERS,
+  PROJECTION_TARGETS,
+  type ProjectionSourceProvider,
+  type ProjectionTarget,
+} from "./types";
 
 /** The parsed, validated run configuration the CLI acts on. */
 export interface ProjectArgs {
@@ -107,7 +112,9 @@ function parseNow(raw: string): number | null {
  * files, or a clock, and every rejection is a fixed, content-free message that never echoes a
  * value the user passed (a file path could carry a filename).
  */
-export function parseProjectArgs(argv: readonly string[]): ParseProjectArgsResult {
+export function parseProjectArgs(
+  argv: readonly string[],
+): ParseProjectArgsResult {
   let source: "stdin" | "file" | undefined;
   let filePath: string | undefined;
   let target: ProjectionTarget | undefined;
@@ -133,13 +140,19 @@ export function parseProjectArgs(argv: readonly string[]): ParseProjectArgsResul
         return { ok: true, kind: "help" };
       case "--stdin":
         if (source === "file") {
-          return { ok: false, message: "Choose only one input: --stdin or --file." };
+          return {
+            ok: false,
+            message: "Choose only one input: --stdin or --file.",
+          };
         }
         source = "stdin";
         break;
       case "--file": {
         if (source === "stdin") {
-          return { ok: false, message: "Choose only one input: --stdin or --file." };
+          return {
+            ok: false,
+            message: "Choose only one input: --stdin or --file.",
+          };
         }
         const value = takeValue();
         if (value === null || value === "") {
@@ -151,18 +164,34 @@ export function parseProjectArgs(argv: readonly string[]): ParseProjectArgsResul
       }
       case "--target": {
         const value = takeValue();
-        const parsed = value === null ? undefined : (PROJECTION_TARGETS as readonly string[]).includes(value) ? (value as ProjectionTarget) : undefined;
+        const parsed =
+          value === null
+            ? undefined
+            : (PROJECTION_TARGETS as readonly string[]).includes(value)
+              ? (value as ProjectionTarget)
+              : undefined;
         if (parsed === undefined) {
-          return { ok: false, message: "--target must be one of: evidence, inventory." };
+          return {
+            ok: false,
+            message: "--target must be one of: evidence, inventory.",
+          };
         }
         target = parsed;
         break;
       }
       case "--source": {
         const value = takeValue();
-        const parsed = value === null ? undefined : (PROJECTION_SOURCE_PROVIDERS as readonly string[]).includes(value) ? (value as ProjectionSourceProvider) : undefined;
+        const parsed =
+          value === null
+            ? undefined
+            : (PROJECTION_SOURCE_PROVIDERS as readonly string[]).includes(value)
+              ? (value as ProjectionSourceProvider)
+              : undefined;
         if (parsed === undefined) {
-          return { ok: false, message: "--source must be one of: aws-s3, generic." };
+          return {
+            ok: false,
+            message: "--source must be one of: aws-s3, generic.",
+          };
         }
         provider = parsed;
         break;
@@ -170,11 +199,18 @@ export function parseProjectArgs(argv: readonly string[]): ParseProjectArgsResul
       case "--now": {
         const value = takeValue();
         if (value === null || value === "") {
-          return { ok: false, message: "--now requires an epoch-ms integer or an ISO-8601 date." };
+          return {
+            ok: false,
+            message: "--now requires an epoch-ms integer or an ISO-8601 date.",
+          };
         }
         const parsed = parseNow(value);
         if (parsed === null) {
-          return { ok: false, message: "--now must be an epoch-ms integer or a valid ISO-8601 date." };
+          return {
+            ok: false,
+            message:
+              "--now must be an epoch-ms integer or a valid ISO-8601 date.",
+          };
         }
         nowMs = parsed;
         break;
@@ -204,10 +240,17 @@ export function parseProjectArgs(argv: readonly string[]): ParseProjectArgsResul
   }
 
   if (target === undefined) {
-    return { ok: false, message: "A --target is required: pass --target=evidence or --target=inventory." };
+    return {
+      ok: false,
+      message:
+        "A --target is required: pass --target=evidence or --target=inventory.",
+    };
   }
   if (source === undefined) {
-    return { ok: false, message: "An input is required: pass --stdin or --file=<path>." };
+    return {
+      ok: false,
+      message: "An input is required: pass --stdin or --file=<path>.",
+    };
   }
 
   return {

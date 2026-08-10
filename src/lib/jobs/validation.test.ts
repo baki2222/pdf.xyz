@@ -51,7 +51,8 @@ describe("worker job validation", () => {
       files: [{ ...pdfFile, contentType: "text/html" }],
     });
     expect(badMime.ok).toBe(false);
-    if (!badMime.ok) expect(badMime.error.body.error.code).toBe("unprocessable_entity");
+    if (!badMime.ok)
+      expect(badMime.error.body.error.code).toBe("unprocessable_entity");
   });
 
   it("accepts a worker job with opaque file ids", () => {

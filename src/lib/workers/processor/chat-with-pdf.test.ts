@@ -22,13 +22,28 @@ function extractorFor(text: string, withPages = true): PdfTextExtractor {
 }
 
 function provider(result: AiCompletionResult): AiProvider {
-  return { id: "anthropic", model: "claude-sonnet-5", async complete() { return result; } };
+  return {
+    id: "anthropic",
+    model: "claude-sonnet-5",
+    async complete() {
+      return result;
+    },
+  };
 }
 
-const input = (options: Record<string, unknown> = { question: "What is the total?" }): ProcessorInput => ({
+const input = (
+  options: Record<string, unknown> = { question: "What is the total?" },
+): ProcessorInput => ({
   tool: "chat-with-pdf",
   options,
-  inputs: [{ fileId: "f1", filename: "invoice.pdf", contentType: "application/pdf", bytes: new Uint8Array([1]) }],
+  inputs: [
+    {
+      fileId: "f1",
+      filename: "invoice.pdf",
+      contentType: "application/pdf",
+      bytes: new Uint8Array([1]),
+    },
+  ],
 });
 
 describe("createChatWithPdfProcessor", () => {
@@ -40,7 +55,9 @@ describe("createChatWithPdfProcessor", () => {
   });
 
   it("reports not-ready + not_implemented when no AI provider is configured", async () => {
-    const p = createChatWithPdfProcessor({ extract: extractorFor("real text") });
+    const p = createChatWithPdfProcessor({
+      extract: extractorFor("real text"),
+    });
     expect(p.capability().ready).toBe(false);
     expect(p.capability().detail).toContain("AI provider");
 
@@ -55,7 +72,11 @@ describe("createChatWithPdfProcessor", () => {
   it("reports ready and produces a real answer ZIP with an injected provider", async () => {
     const p = createChatWithPdfProcessor({
       extract: extractorFor("A genuine invoice INV-9 total 500."),
-      provider: provider({ ok: true, text: "The total is 500 [p.1].", model: "claude-sonnet-5" }),
+      provider: provider({
+        ok: true,
+        text: "The total is 500 [p.1].",
+        model: "claude-sonnet-5",
+      }),
     });
     expect(p.capability().ready).toBe(true);
 
@@ -66,8 +87,13 @@ describe("createChatWithPdfProcessor", () => {
       expect(result.artifacts[0]!.filename).toBe("invoice-answer.zip");
       expect(result.artifacts[0]!.contentType).toBe("application/zip");
       const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
-      expect(await zip.file("answer.txt")!.async("string")).toContain("The total is 500");
-      expect(result.meta).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5" });
+      expect(await zip.file("answer.txt")!.async("string")).toContain(
+        "The total is 500",
+      );
+      expect(result.meta).toMatchObject({
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+      });
     }
   });
 
@@ -97,7 +123,12 @@ describe("createChatWithPdfProcessor", () => {
   it("maps a provider rate limit to a retryable service_unavailable", async () => {
     const p = createChatWithPdfProcessor({
       extract: extractorFor("text"),
-      provider: provider({ ok: false, kind: "rate_limited", message: "slow", retryable: true }),
+      provider: provider({
+        ok: false,
+        kind: "rate_limited",
+        message: "slow",
+        retryable: true,
+      }),
     });
     const result = await p.process(input());
     expect(result.ok).toBe(false);

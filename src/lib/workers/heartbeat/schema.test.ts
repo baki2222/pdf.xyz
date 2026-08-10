@@ -11,7 +11,10 @@ import {
   serializeHeartbeat,
   ttlSecondsFor,
 } from "./schema";
-import { WORKER_HEARTBEAT_SCHEMA_VERSION, type HeartbeatCapabilities } from "./types";
+import {
+  WORKER_HEARTBEAT_SCHEMA_VERSION,
+  type HeartbeatCapabilities,
+} from "./types";
 
 const CAPS: HeartbeatCapabilities = {
   deepCompression: true,
@@ -39,7 +42,12 @@ describe("coarseRelease", () => {
 
 describe("buildHeartbeat / serialize / parse", () => {
   it("assembles only the bounded schema fields", () => {
-    const hb = buildHeartbeat({ mode: "loop", capabilities: CAPS, release: "3.4.5", at: 1000 });
+    const hb = buildHeartbeat({
+      mode: "loop",
+      capabilities: CAPS,
+      release: "3.4.5",
+      at: 1000,
+    });
     expect(hb).toEqual({
       v: WORKER_HEARTBEAT_SCHEMA_VERSION,
       role: "secure-worker",
@@ -85,14 +93,25 @@ describe("buildHeartbeat / serialize / parse", () => {
     expect(parseHeartbeat(null)).toBeNull();
     expect(parseHeartbeat(42)).toBeNull();
     expect(parseHeartbeat([1, 2, 3])).toBeNull();
-    expect(parseHeartbeat({ v: 999, role: "secure-worker", mode: "loop", at: 1 })).toBeNull();
-    expect(parseHeartbeat({ v: 1, role: "attacker", mode: "loop", at: 1 })).toBeNull();
-    expect(parseHeartbeat({ v: 1, role: "secure-worker", mode: "rm-rf", at: 1 })).toBeNull();
+    expect(
+      parseHeartbeat({ v: 999, role: "secure-worker", mode: "loop", at: 1 }),
+    ).toBeNull();
+    expect(
+      parseHeartbeat({ v: 1, role: "attacker", mode: "loop", at: 1 }),
+    ).toBeNull();
+    expect(
+      parseHeartbeat({ v: 1, role: "secure-worker", mode: "rm-rf", at: 1 }),
+    ).toBeNull();
     expect(
       parseHeartbeat({ v: 1, role: "secure-worker", mode: "loop", at: "soon" }),
     ).toBeNull();
     expect(
-      parseHeartbeat({ v: 1, role: "secure-worker", mode: "loop", at: Infinity }),
+      parseHeartbeat({
+        v: 1,
+        role: "secure-worker",
+        mode: "loop",
+        at: Infinity,
+      }),
     ).toBeNull();
   });
 
@@ -103,7 +122,12 @@ describe("buildHeartbeat / serialize / parse", () => {
       release: "1.2.3",
       mode: "loop",
       at: 1234,
-      capabilities: { deepCompression: true, ocr: false, malwareScan: false, atomicQueue: true },
+      capabilities: {
+        deepCompression: true,
+        ocr: false,
+        malwareScan: false,
+        atomicQueue: true,
+      },
       // Everything below is injected and must not survive.
       host: "worker-07.internal.example.com",
       pid: 4242,
@@ -122,7 +146,13 @@ describe("buildHeartbeat / serialize / parse", () => {
       role: "secure-worker",
       release: "1.2",
       mode: "loop",
-      capabilities: { deepCompression: true, ocr: false, ocrLanguages: [], malwareScan: false, atomicQueue: true },
+      capabilities: {
+        deepCompression: true,
+        ocr: false,
+        ocrLanguages: [],
+        malwareScan: false,
+        atomicQueue: true,
+      },
       at: 1234,
     });
     const json = JSON.stringify(parsed);
@@ -171,7 +201,11 @@ describe("classifyLiveness", () => {
   const freshWindowMs = freshWindowMsFor(10); // 30s
 
   it("classifies a missing record as unknown (never fabricated observed)", () => {
-    const live = classifyLiveness(null, { now: 1_000_000, freshWindowMs, source: "queue-broker" });
+    const live = classifyLiveness(null, {
+      now: 1_000_000,
+      freshWindowMs,
+      source: "queue-broker",
+    });
     expect(live).toMatchObject({
       state: "unknown",
       observed: false,
@@ -185,7 +219,11 @@ describe("classifyLiveness", () => {
   it("classifies a recent record as observed with a coarse bucket + passthrough fields", () => {
     const at = 1_000_000;
     const record = buildHeartbeat({ mode: "loop", capabilities: CAPS, at });
-    const live = classifyLiveness(record, { now: at + 5_000, freshWindowMs, source: "queue-broker" });
+    const live = classifyLiveness(record, {
+      now: at + 5_000,
+      freshWindowMs,
+      source: "queue-broker",
+    });
     expect(live.state).toBe("observed");
     expect(live.observed).toBe(true);
     expect(live.lastSeen).toBe("under-30s");
@@ -197,7 +235,11 @@ describe("classifyLiveness", () => {
     const at = 2_000_000;
     const record = buildHeartbeat({ mode: "drain", capabilities: CAPS, at });
     expect(
-      classifyLiveness(record, { now: at + freshWindowMs, freshWindowMs, source: "queue-broker" }).state,
+      classifyLiveness(record, {
+        now: at + freshWindowMs,
+        freshWindowMs,
+        source: "queue-broker",
+      }).state,
     ).toBe("observed");
     const stale = classifyLiveness(record, {
       now: at + freshWindowMs + 1,
@@ -213,7 +255,11 @@ describe("classifyLiveness", () => {
     const at = 5_000_000;
     const record = buildHeartbeat({ mode: "loop", capabilities: CAPS, at });
     // now < at (skew): age clamps to 0 → observed, never a negative/garbage bucket.
-    const live = classifyLiveness(record, { now: at - 10_000, freshWindowMs, source: "queue-broker" });
+    const live = classifyLiveness(record, {
+      now: at - 10_000,
+      freshWindowMs,
+      source: "queue-broker",
+    });
     expect(live.state).toBe("observed");
     expect(live.lastSeen).toBe("under-30s");
   });

@@ -146,7 +146,12 @@ describe("ClaimableQueue (local-dev)", () => {
         textCharacters: 640,
       }),
     };
-    const done = await queue.complete("job_ocrmeta000", [artifact], undefined, results);
+    const done = await queue.complete(
+      "job_ocrmeta000",
+      [artifact],
+      undefined,
+      results,
+    );
     expect(done.ok).toBe(true);
     if (done.ok) {
       expect(done.value.results?.ocr).toMatchObject({

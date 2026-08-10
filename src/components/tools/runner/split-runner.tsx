@@ -10,7 +10,12 @@ import {
   rangesPerPage,
 } from "@/lib/pdf/ranges";
 import type { NamedBytes, SplitPart } from "@/lib/pdf/types";
-import { downloadBlob, downloadBytes, totalBytes, zipFiles } from "@/lib/pdf/browser";
+import {
+  downloadBlob,
+  downloadBytes,
+  totalBytes,
+  zipFiles,
+} from "@/lib/pdf/browser";
 import { baseName, outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -46,7 +51,13 @@ export function SplitRunner() {
   );
 }
 
-function SplitEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function SplitEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const [mode, setMode] = useState<SplitMode>("ranges");
   const [rangeInput, setRangeInput] = useState(() => {
     const half = Math.max(1, Math.ceil(pdf.pageCount / 2));
@@ -167,7 +178,7 @@ function SplitEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) 
             onChange={(e) => setRangeInput(e.target.value)}
             placeholder="e.g. 1-3, 4-6, 7-"
             spellCheck={false}
-            className="rounded-xl border border-white/10 bg-ink/60 px-3.5 py-2.5 text-sm text-white outline-none transition focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
+            className="bg-ink/60 rounded-xl border border-white/10 px-3.5 py-2.5 text-sm text-white transition outline-none focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
           />
           <span className="text-xs text-slate-400">
             Use commas to separate files. Ranges are inclusive, e.g.{" "}
@@ -187,7 +198,7 @@ function SplitEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) 
             onChange={(e) =>
               setSize(Math.max(1, Math.floor(Number(e.target.value) || 1)))
             }
-            className="w-32 rounded-xl border border-white/10 bg-ink/60 px-3.5 py-2.5 text-sm text-white outline-none transition focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
+            className="bg-ink/60 w-32 rounded-xl border border-white/10 px-3.5 py-2.5 text-sm text-white transition outline-none focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
           />
         </label>
       )}
@@ -211,7 +222,7 @@ function SplitEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) 
                   key={part.name}
                   className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-sm"
                 >
-                  <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white/5 text-xs font-semibold tabular-nums text-slate-400">
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white/5 text-xs font-semibold text-slate-400 tabular-nums">
                     {i + 1}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-slate-300">

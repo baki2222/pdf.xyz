@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCleanupCheck, type CleanupCheckProvider } from "./run";
 import type { CleanupCheckArgs } from "./args";
 import type { RetrievalStorageProvider } from "../artifacts/access";
-import { resetCleanupVerificationSink, setCleanupVerificationSink } from "./metrics";
+import {
+  resetCleanupVerificationSink,
+  setCleanupVerificationSink,
+} from "./metrics";
 import {
   resetCleanupVerificationObserverForTests,
   setCleanupVerificationObserver,
@@ -46,13 +49,19 @@ afterEach(() => {
 
 describe("runCleanupCheck — none source", () => {
   it("reports not-configured (exit 2) when storage is not wired", async () => {
-    const run = await runCleanupCheck(args({ source: "none" }), fakeProvider({ provider: "not-configured" }));
+    const run = await runCleanupCheck(
+      args({ source: "none" }),
+      fakeProvider({ provider: "not-configured" }),
+    );
     expect(run.exitCode).toBe(2);
     expect(run.outcome).toMatchObject({ verdict: "not-configured", ok: false });
   });
 
   it("reports unknown (exit 2) when configured but no evidence was supplied", async () => {
-    const run = await runCleanupCheck(args({ source: "none" }), fakeProvider({ provider: "remote-configured" }));
+    const run = await runCleanupCheck(
+      args({ source: "none" }),
+      fakeProvider({ provider: "remote-configured" }),
+    );
     expect(run.exitCode).toBe(2);
     expect(run.outcome).toMatchObject({ verdict: "unknown", total: 0 });
   });
@@ -69,12 +78,20 @@ describe("runCleanupCheck — ingested evidence", () => {
       fakeProvider({ input: doc }),
     );
     expect(run.exitCode).toBe(0);
-    expect(run.outcome).toMatchObject({ verdict: "verified", ok: true, reaped: 2 });
+    expect(run.outcome).toMatchObject({
+      verdict: "verified",
+      ok: true,
+      reaped: 2,
+    });
   });
 
   it("reports drift (exit 3) for an object present past its reap grace", async () => {
     const doc = JSON.stringify([
-      { presence: "present", expiresAtMs: NOW - 1000 * 60 * 60 * 100, deleted: false },
+      {
+        presence: "present",
+        expiresAtMs: NOW - 1000 * 60 * 60 * 100,
+        deleted: false,
+      },
     ]);
     const run = await runCleanupCheck(
       args({ source: "file", filePath: "x.json" }),
@@ -90,7 +107,10 @@ describe("runCleanupCheck — ingested evidence", () => {
       fakeProvider({ input: new Error("ENOENT") }),
     );
     expect(run.exitCode).toBe(1);
-    expect(run.outcome).toMatchObject({ error: "usage", issues: ["input-unreadable"] });
+    expect(run.outcome).toMatchObject({
+      error: "usage",
+      issues: ["input-unreadable"],
+    });
   });
 
   it("turns malformed evidence into a usage error (exit 1)", async () => {
@@ -99,7 +119,10 @@ describe("runCleanupCheck — ingested evidence", () => {
       fakeProvider({ input: "{ broken" }),
     );
     expect(run.exitCode).toBe(1);
-    expect(run.outcome).toMatchObject({ error: "usage", issues: ["malformed-json"] });
+    expect(run.outcome).toMatchObject({
+      error: "usage",
+      issues: ["malformed-json"],
+    });
   });
 });
 
@@ -131,7 +154,10 @@ describe("runCleanupCheck — observability", () => {
   it("does NOT emit a verdict metric for a usage error", async () => {
     const metric = vi.fn();
     setCleanupVerificationSink(metric);
-    await runCleanupCheck(args({ source: "stdin" }), fakeProvider({ input: "{ broken" }));
+    await runCleanupCheck(
+      args({ source: "stdin" }),
+      fakeProvider({ input: "{ broken" }),
+    );
     expect(metric).not.toHaveBeenCalled();
   });
 

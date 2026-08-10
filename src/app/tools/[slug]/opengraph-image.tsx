@@ -98,101 +98,99 @@ export default async function ToolOpengraphImage({
   ];
 
   return new ImageResponse(
-    (
-      <div
-        style={{
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          width: "100%",
-          height: "100%",
-          padding: "72px 80px",
-          backgroundImage: OG_BACKGROUND_IMAGE,
-          color: "#ffffff",
-          fontFamily: "Inter",
-        }}
-      >
-        <OgWordmark />
+    <div
+      style={{
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        width: "100%",
+        height: "100%",
+        padding: "72px 80px",
+        backgroundImage: OG_BACKGROUND_IMAGE,
+        color: "#ffffff",
+        fontFamily: "Inter",
+      }}
+    >
+      <OgWordmark />
 
-        {/* Tool identity */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          {category ? (
-            <div
-              style={{
-                display: "flex",
-                fontSize: 22,
-                fontWeight: 700,
-                letterSpacing: 4,
-                textTransform: "uppercase",
-                color: "#a5b4fc",
-              }}
-            >
-              {category.name}
-            </div>
-          ) : null}
+      {/* Tool identity */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        {category ? (
           <div
             style={{
               display: "flex",
-              fontSize: nameFontSize,
+              fontSize: 22,
               fontWeight: 700,
-              lineHeight: 1.02,
-              letterSpacing: -2,
+              letterSpacing: 4,
+              textTransform: "uppercase",
+              color: "#a5b4fc",
             }}
           >
-            {name}
+            {category.name}
           </div>
-          <div
-            style={{
-              display: "flex",
-              fontSize: 32,
-              color: "#94a3b8",
-              maxWidth: 940,
-            }}
-          >
-            {tagline}
-          </div>
+        ) : null}
+        <div
+          style={{
+            display: "flex",
+            fontSize: nameFontSize,
+            fontWeight: 700,
+            lineHeight: 1.02,
+            letterSpacing: -2,
+          }}
+        >
+          {name}
         </div>
-
-        {/* The honest bit: where this tool actually runs. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          {processing && tone ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "12px 24px",
-                borderRadius: 9999,
-                border: `1px solid ${tone.border}`,
-                background: tone.background,
-                fontSize: 24,
-                fontWeight: 700,
-                color: tone.text,
-              }}
-            >
-              {processing.label}
-            </div>
-          ) : null}
-          {formatChips.map((chip) => (
-            <div
-              key={chip}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "12px 22px",
-                borderRadius: 9999,
-                border: "1px solid rgba(255,255,255,0.14)",
-                background: "rgba(255,255,255,0.05)",
-                fontSize: 24,
-                color: "#e2e8f0",
-              }}
-            >
-              {chip}
-            </div>
-          ))}
+        <div
+          style={{
+            display: "flex",
+            fontSize: 32,
+            color: "#94a3b8",
+            maxWidth: 940,
+          }}
+        >
+          {tagline}
         </div>
       </div>
-    ),
+
+      {/* The honest bit: where this tool actually runs. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        {processing && tone ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "12px 24px",
+              borderRadius: 9999,
+              border: `1px solid ${tone.border}`,
+              background: tone.background,
+              fontSize: 24,
+              fontWeight: 700,
+              color: tone.text,
+            }}
+          >
+            {processing.label}
+          </div>
+        ) : null}
+        {formatChips.map((chip) => (
+          <div
+            key={chip}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "12px 22px",
+              borderRadius: 9999,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(255,255,255,0.05)",
+              fontSize: 24,
+              color: "#e2e8f0",
+            }}
+          >
+            {chip}
+          </div>
+        ))}
+      </div>
+    </div>,
     { ...size, fonts },
   );
 }

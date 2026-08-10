@@ -26,7 +26,10 @@ import {
   type RateLimitRedisConfig,
 } from "./redis-config";
 import { enforceRateLimit, resetRateLimitGuardForTests } from "./guard";
-import { clearRateLimitProviderForTests, registerRateLimitProvider } from "./provider";
+import {
+  clearRateLimitProviderForTests,
+  registerRateLimitProvider,
+} from "./provider";
 
 const BASE: RateLimitRedisConfig = {
   baseUrl: "https://rl-example-98765.upstash.io",
@@ -47,13 +50,19 @@ const creds = (): Record<string, string> => ({
 describe("resolveRateLimitFailMode — parsing", () => {
   it("defaults to open when unset or unrecognized", () => {
     expect(resolveRateLimitFailMode({})).toBe("open");
-    expect(resolveRateLimitFailMode({ [RATE_LIMIT_REDIS_ENV.failMode]: "banana" })).toBe("open");
-    expect(resolveRateLimitFailMode({ [RATE_LIMIT_REDIS_ENV.failMode]: "open" })).toBe("open");
+    expect(
+      resolveRateLimitFailMode({ [RATE_LIMIT_REDIS_ENV.failMode]: "banana" }),
+    ).toBe("open");
+    expect(
+      resolveRateLimitFailMode({ [RATE_LIMIT_REDIS_ENV.failMode]: "open" }),
+    ).toBe("open");
   });
 
   it("selects closed for the recognized fail-closed values", () => {
     for (const value of ["closed", "close", "deny", "DENIED"]) {
-      expect(resolveRateLimitFailMode({ [RATE_LIMIT_REDIS_ENV.failMode]: value })).toBe("closed");
+      expect(
+        resolveRateLimitFailMode({ [RATE_LIMIT_REDIS_ENV.failMode]: value }),
+      ).toBe("closed");
     }
   });
 
@@ -72,7 +81,9 @@ describe("provider degrade behavior on a store error", () => {
   const policy = policyFor("jobs.create");
 
   it("fail-open (default): THROWS so the guard can fail open", async () => {
-    const provider = createRedisRateLimitProvider(BASE, { fetchImpl: downFetch });
+    const provider = createRedisRateLimitProvider(BASE, {
+      fetchImpl: downFetch,
+    });
     await expect(provider.check(policy, "shared", 0)).rejects.toThrow();
   });
 
@@ -113,7 +124,9 @@ afterEach(clear);
 describe("guard degrade behavior with a down store", () => {
   it("fails OPEN (unenforced allow) in the default mode", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
-    registerRateLimitProvider(createRedisRateLimitProvider(BASE, { fetchImpl: downFetch }));
+    registerRateLimitProvider(
+      createRedisRateLimitProvider(BASE, { fetchImpl: downFetch }),
+    );
 
     const decision = await enforceRateLimit("jobs.create", req());
     expect(decision.allowed).toBe(true);
@@ -129,7 +142,10 @@ describe("guard degrade behavior with a down store", () => {
   it("fails CLOSED (enforced 429) when configured fail-closed", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     registerRateLimitProvider(
-      createRedisRateLimitProvider({ ...BASE, failMode: "closed" }, { fetchImpl: downFetch }),
+      createRedisRateLimitProvider(
+        { ...BASE, failMode: "closed" },
+        { fetchImpl: downFetch },
+      ),
     );
 
     const decision = await enforceRateLimit("jobs.create", req());

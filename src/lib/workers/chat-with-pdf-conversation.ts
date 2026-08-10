@@ -87,7 +87,11 @@ function turnBytes(turn: ChatTurn): number {
  * invalid UTF-8, and re-appends the marker the character clamp uses so a byte-shortened
  * turn reads to the model exactly like a character-shortened one.
  */
-function clampTurnBytes(role: ChatTurn["role"], text: string, limit: number): string {
+function clampTurnBytes(
+  role: ChatTurn["role"],
+  text: string,
+  limit: number,
+): string {
   if (turnBytes({ role, content: text }) <= limit) return text;
   const chars = [...text];
   let low = 0;
@@ -121,8 +125,11 @@ const CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
 /** Bring one turn's text inside the contract: scrubbed, trimmed, and length-bounded. */
 function clampTurn(text: string): { content: string; shortened: boolean } {
   const clean = text.replace(CONTROL_CHARS, "").trim();
-  if (clean.length <= MAX_TURN_CHARS) return { content: clean, shortened: false };
-  const head = clean.slice(0, MAX_TURN_CHARS - SHORTENED_MARKER.length).trimEnd();
+  if (clean.length <= MAX_TURN_CHARS)
+    return { content: clean, shortened: false };
+  const head = clean
+    .slice(0, MAX_TURN_CHARS - SHORTENED_MARKER.length)
+    .trimEnd();
   return { content: `${head}${SHORTENED_MARKER}`, shortened: true };
 }
 
@@ -133,7 +140,9 @@ function clampTurn(text: string): { content: string; shortened: boolean } {
  * requires non-empty content on both halves of a pair, and a half-pair would break the
  * strict user/assistant alternation for every turn after it.
  */
-export function buildChatContext(exchanges: readonly ChatExchange[]): ChatContext {
+export function buildChatContext(
+  exchanges: readonly ChatExchange[],
+): ChatContext {
   const usable = exchanges.filter(
     (exchange) =>
       clampTurn(exchange.question).content.length > 0 &&
@@ -181,7 +190,11 @@ export function buildChatContext(exchanges: readonly ChatExchange[]): ChatContex
   const turns = pairs.reverse().flat();
   // Everything the transcript held that this context does not carry, however it was
   // excluded — the user only needs to know how much of their conversation the model saw.
-  return { turns, droppedExchanges: usable.length - pairs.length, shortenedTurns };
+  return {
+    turns,
+    droppedExchanges: usable.length - pairs.length,
+    shortenedTurns,
+  };
 }
 
 /**

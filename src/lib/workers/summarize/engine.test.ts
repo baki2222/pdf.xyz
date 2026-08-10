@@ -2,8 +2,16 @@ import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import type { SummarizeOptions } from "@/lib/jobs/summarize-pdf";
-import type { AiCompletionRequest, AiCompletionResult, AiProvider } from "../ai/provider";
-import { runSummarize, SUMMARIZE_ENGINE, type PdfTextExtractor } from "./engine";
+import type {
+  AiCompletionRequest,
+  AiCompletionResult,
+  AiProvider,
+} from "../ai/provider";
+import {
+  runSummarize,
+  SUMMARIZE_ENGINE,
+  type PdfTextExtractor,
+} from "./engine";
 
 const OPTIONS: SummarizeOptions = { length: "standard", format: "paragraphs" };
 const INPUT = new Uint8Array([1, 2, 3, 4]);
@@ -45,7 +53,9 @@ const SUCCESS = (text: string): AiCompletionResult => ({
 
 describe("runSummarize — honest failures", () => {
   it("fails `unsupported` when no text extractor is wired", async () => {
-    const run = await runSummarize(INPUT, OPTIONS, { provider: providerReturning(SUCCESS("x")) });
+    const run = await runSummarize(INPUT, OPTIONS, {
+      provider: providerReturning(SUCCESS("x")),
+    });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("unsupported");
   });
@@ -92,16 +102,27 @@ describe("runSummarize — honest failures", () => {
   it("maps a provider rate_limit to a retryable `rate_limited`", async () => {
     const run = await runSummarize(INPUT, OPTIONS, {
       extract: extractorFor("real text"),
-      provider: providerReturning({ ok: false, kind: "rate_limited", message: "slow", retryable: true }),
+      provider: providerReturning({
+        ok: false,
+        kind: "rate_limited",
+        message: "slow",
+        retryable: true,
+      }),
     });
     expect(run.ok).toBe(false);
-    if (!run.ok) expect(run).toMatchObject({ kind: "rate_limited", retryable: true });
+    if (!run.ok)
+      expect(run).toMatchObject({ kind: "rate_limited", retryable: true });
   });
 
   it("maps a provider refusal to `content_filtered`", async () => {
     const run = await runSummarize(INPUT, OPTIONS, {
       extract: extractorFor("real text"),
-      provider: providerReturning({ ok: false, kind: "content_filtered", message: "no", retryable: false }),
+      provider: providerReturning({
+        ok: false,
+        kind: "content_filtered",
+        message: "no",
+        retryable: false,
+      }),
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("content_filtered");
@@ -110,7 +131,12 @@ describe("runSummarize — honest failures", () => {
   it("maps a provider too_long to `too_large`", async () => {
     const run = await runSummarize(INPUT, OPTIONS, {
       extract: extractorFor("real text"),
-      provider: providerReturning({ ok: false, kind: "too_long", message: "big", retryable: false }),
+      provider: providerReturning({
+        ok: false,
+        kind: "too_long",
+        message: "big",
+        retryable: false,
+      }),
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("too_large");
@@ -119,29 +145,52 @@ describe("runSummarize — honest failures", () => {
 
 describe("runSummarize — provider-injected deterministic success", () => {
   it("packages the model's REAL summary and never fabricates one", async () => {
-    const provider = providerReturning(SUCCESS("This is the real model summary."));
-    const run = await runSummarize(INPUT, { length: "brief", format: "bullets", focus: "risks" }, {
-      extract: extractorFor("A genuine document about quarterly results and risks.", 5),
-      provider,
-      now: () => "2026-07-15T00:00:00.000Z",
-    });
+    const provider = providerReturning(
+      SUCCESS("This is the real model summary."),
+    );
+    const run = await runSummarize(
+      INPUT,
+      { length: "brief", format: "bullets", focus: "risks" },
+      {
+        extract: extractorFor(
+          "A genuine document about quarterly results and risks.",
+          5,
+        ),
+        provider,
+        now: () => "2026-07-15T00:00:00.000Z",
+      },
+    );
 
     expect(run.ok).toBe(true);
     if (!run.ok) return;
 
     // The summary that ships is EXACTLY the provider's text — nothing invented.
     const zip = await JSZip.loadAsync(run.output);
-    expect(await zip.file("summary.txt")!.async("string")).toBe("This is the real model summary.");
-    expect(await zip.file("summary.md")!.async("string")).toContain("This is the real model summary.");
-    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    expect(await zip.file("summary.txt")!.async("string")).toBe(
+      "This is the real model summary.",
+    );
+    expect(await zip.file("summary.md")!.async("string")).toContain(
+      "This is the real model summary.",
+    );
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
     expect(manifest.provider).toBe("anthropic");
     expect(manifest.model).toBe("claude-sonnet-5");
-    expect(manifest.options).toEqual({ length: "brief", format: "bullets", focus: "risks" });
+    expect(manifest.options).toEqual({
+      length: "brief",
+      format: "bullets",
+      focus: "risks",
+    });
 
     // The system prompt constrains the model to the provided text (anti-hallucination).
     expect(provider.calls).toHaveLength(1);
-    expect(provider.calls[0]!.system).toContain("ONLY the content of the document");
-    expect(provider.calls[0]!.messages[0]!.content).toContain("quarterly results and risks");
+    expect(provider.calls[0]!.system).toContain(
+      "ONLY the content of the document",
+    );
+    expect(provider.calls[0]!.messages[0]!.content).toContain(
+      "quarterly results and risks",
+    );
 
     // Content-free meta carries counts, provider/model — never the document text.
     expect(run.meta).toMatchObject({
@@ -167,19 +216,27 @@ describe("runSummarize — provider-injected deterministic success", () => {
     if (!run.ok) return;
     expect(run.meta.truncated).toBe(true);
     // The prompt only carried the first 20 characters.
-    expect(provider.calls[0]!.messages[0]!.content).toContain(longText.slice(0, 20));
+    expect(provider.calls[0]!.messages[0]!.content).toContain(
+      longText.slice(0, 20),
+    );
     const zip = await JSZip.loadAsync(run.output);
-    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
     expect(manifest.source.truncatedToCharacters).toBe(20);
   });
 
   it("clamps the generation budget to the configured max output tokens", async () => {
     const provider = providerReturning(SUCCESS("s"));
-    await runSummarize(INPUT, { length: "detailed", format: "paragraphs" }, {
-      extract: extractorFor("real text"),
-      provider,
-      limits: { maxOutputTokens: 512 },
-    });
+    await runSummarize(
+      INPUT,
+      { length: "detailed", format: "paragraphs" },
+      {
+        extract: extractorFor("real text"),
+        provider,
+        limits: { maxOutputTokens: 512 },
+      },
+    );
     expect(provider.calls[0]!.maxOutputTokens).toBe(512);
   });
 });

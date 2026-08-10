@@ -12,7 +12,10 @@
  * and the sweeper it composes.
  */
 
-import { PROJECTION_SOURCE_PROVIDERS, type ProjectionSourceProvider } from "../project/types";
+import {
+  PROJECTION_SOURCE_PROVIDERS,
+  type ProjectionSourceProvider,
+} from "../project/types";
 import { DEFAULT_GRACE_HOURS } from "../args";
 
 /** The bounded output format for the composite result. */
@@ -113,7 +116,8 @@ function parseGraceHours(raw: string): number | null {
   const trimmed = raw.trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
   const value = Number(trimmed);
-  if (!Number.isFinite(value) || value < 0 || value > MAX_GRACE_HOURS) return null;
+  if (!Number.isFinite(value) || value < 0 || value > MAX_GRACE_HOURS)
+    return null;
   return value;
 }
 
@@ -122,7 +126,9 @@ function parseGraceHours(raw: string): number | null {
  * files, or a clock, and every rejection is a fixed, content-free message that never echoes a
  * value the user passed (a file path could carry a filename).
  */
-export function parsePipelineArgs(argv: readonly string[]): ParsePipelineArgsResult {
+export function parsePipelineArgs(
+  argv: readonly string[],
+): ParsePipelineArgsResult {
   let source: "stdin" | "file" | undefined;
   let filePath: string | undefined;
   let provider: ProjectionSourceProvider | undefined;
@@ -149,13 +155,19 @@ export function parsePipelineArgs(argv: readonly string[]): ParsePipelineArgsRes
         return { ok: true, kind: "help" };
       case "--stdin":
         if (source === "file") {
-          return { ok: false, message: "Choose only one input: --stdin or --file." };
+          return {
+            ok: false,
+            message: "Choose only one input: --stdin or --file.",
+          };
         }
         source = "stdin";
         break;
       case "--file": {
         if (source === "stdin") {
-          return { ok: false, message: "Choose only one input: --stdin or --file." };
+          return {
+            ok: false,
+            message: "Choose only one input: --stdin or --file.",
+          };
         }
         const value = takeValue();
         if (value === null || value === "") {
@@ -174,7 +186,10 @@ export function parsePipelineArgs(argv: readonly string[]): ParsePipelineArgsRes
               ? (value as ProjectionSourceProvider)
               : undefined;
         if (parsed === undefined) {
-          return { ok: false, message: "--source must be one of: aws-s3, generic." };
+          return {
+            ok: false,
+            message: "--source must be one of: aws-s3, generic.",
+          };
         }
         provider = parsed;
         break;
@@ -182,11 +197,17 @@ export function parsePipelineArgs(argv: readonly string[]): ParsePipelineArgsRes
       case "--grace-hours": {
         const value = takeValue();
         if (value === null || value === "") {
-          return { ok: false, message: "--grace-hours requires a numeric value." };
+          return {
+            ok: false,
+            message: "--grace-hours requires a numeric value.",
+          };
         }
         const parsed = parseGraceHours(value);
         if (parsed === null) {
-          return { ok: false, message: `--grace-hours must be a number in 0..${MAX_GRACE_HOURS}.` };
+          return {
+            ok: false,
+            message: `--grace-hours must be a number in 0..${MAX_GRACE_HOURS}.`,
+          };
         }
         graceHours = parsed;
         break;
@@ -194,24 +215,37 @@ export function parsePipelineArgs(argv: readonly string[]): ParsePipelineArgsRes
       case "--now": {
         const value = takeValue();
         if (value === null || value === "") {
-          return { ok: false, message: "--now requires an epoch-ms integer or an ISO-8601 date." };
+          return {
+            ok: false,
+            message: "--now requires an epoch-ms integer or an ISO-8601 date.",
+          };
         }
         const parsed = parseNow(value);
         if (parsed === null) {
-          return { ok: false, message: "--now must be an epoch-ms integer or a valid ISO-8601 date." };
+          return {
+            ok: false,
+            message:
+              "--now must be an epoch-ms integer or a valid ISO-8601 date.",
+          };
         }
         nowMs = parsed;
         break;
       }
       case "--json":
         if (format === "text") {
-          return { ok: false, message: "Choose only one format: --json or --text." };
+          return {
+            ok: false,
+            message: "Choose only one format: --json or --text.",
+          };
         }
         format = "json";
         break;
       case "--text":
         if (format === "json") {
-          return { ok: false, message: "Choose only one format: --json or --text." };
+          return {
+            ok: false,
+            message: "Choose only one format: --json or --text.",
+          };
         }
         format = "text";
         break;
@@ -235,7 +269,10 @@ export function parsePipelineArgs(argv: readonly string[]): ParsePipelineArgsRes
   }
 
   if (source === undefined) {
-    return { ok: false, message: "An input is required: pass --stdin or --file=<path>." };
+    return {
+      ok: false,
+      message: "An input is required: pass --stdin or --file=<path>.",
+    };
   }
 
   return {

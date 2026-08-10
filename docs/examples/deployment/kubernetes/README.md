@@ -6,14 +6,14 @@ repo, and these manifests were not applied in this environment.
 
 ## Files
 
-| File | Purpose |
-| ---- | ------- |
-| `namespace.yaml` | Dedicated namespace. |
-| `configmap.yaml` | Non-secret runtime defaults and placeholder public origin. |
-| `secret.example.yaml` | Placeholder-only Secret shape; replace values out-of-band or use your secret manager. |
-| `web-deployment.yaml` | Public web Deployment + Service. No worker provider secrets. |
-| `worker-deployment.yaml` | Private secure-worker Deployment. Runs `pnpm worker:daemon`. |
-| `ops-check-cronjob.yaml` | CronJob that runs `pnpm worker:ops-check --runtime --json` every 5 minutes. |
+| File                     | Purpose                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| `namespace.yaml`         | Dedicated namespace.                                                                  |
+| `configmap.yaml`         | Non-secret runtime defaults and placeholder public origin.                            |
+| `secret.example.yaml`    | Placeholder-only Secret shape; replace values out-of-band or use your secret manager. |
+| `web-deployment.yaml`    | Public web Deployment + Service. No worker provider secrets.                          |
+| `worker-deployment.yaml` | Private secure-worker Deployment. Runs `pnpm worker:daemon`.                          |
+| `ops-check-cronjob.yaml` | CronJob that runs `pnpm worker:ops-check --runtime --json` every 5 minutes.           |
 
 ## Apply sequence
 
@@ -48,22 +48,24 @@ kubectl -n pdfxyz create secret generic pdfxyz-ratelimit \
 ```yaml
 # 2) In web-deployment.yaml, add to the web container (inline env — the URL/token come
 #    from the web-tier secret above; the store key namespace + degrade policy are plain):
-        env:
-          - name: PDFXYZ_RATE_LIMIT_PROVIDER
-            value: redis
-          - name: PDFXYZ_RATE_LIMIT_KEY_PREFIX
-            value: pdfxyz
-          - name: PDFXYZ_RATE_LIMIT_FAIL_MODE
-            value: open            # open (default) = allow on store error; closed = 429
-          - name: PDFXYZ_RATE_LIMIT_REDIS_REST_URL
-            valueFrom:
-              secretKeyRef: { name: pdfxyz-ratelimit, key: PDFXYZ_RATE_LIMIT_REDIS_REST_URL }
-          - name: PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN
-            valueFrom:
-              secretKeyRef: { name: pdfxyz-ratelimit, key: PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN }
-          # Only behind a proxy/CDN you trust to set x-forwarded-for:
-          # - name: PDFXYZ_RATE_LIMIT_TRUST_PROXY
-          #   value: "true"
+env:
+  - name: PDFXYZ_RATE_LIMIT_PROVIDER
+    value: redis
+  - name: PDFXYZ_RATE_LIMIT_KEY_PREFIX
+    value: pdfxyz
+  - name: PDFXYZ_RATE_LIMIT_FAIL_MODE
+    value: open # open (default) = allow on store error; closed = 429
+  - name: PDFXYZ_RATE_LIMIT_REDIS_REST_URL
+    valueFrom:
+      secretKeyRef:
+        { name: pdfxyz-ratelimit, key: PDFXYZ_RATE_LIMIT_REDIS_REST_URL }
+  - name: PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN
+    valueFrom:
+      secretKeyRef:
+        { name: pdfxyz-ratelimit, key: PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN }
+  # Only behind a proxy/CDN you trust to set x-forwarded-for:
+  # - name: PDFXYZ_RATE_LIMIT_TRUST_PROXY
+  #   value: "true"
 ```
 
 At boot the web pod logs one content-free line (`[pdf.xyz] rate-limit provider:

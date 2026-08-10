@@ -25,7 +25,10 @@ function parseEnabled(value: string | undefined): boolean {
   return true;
 }
 
-function cleanBinary(value: string | undefined): { binary: string; overridden: boolean } {
+function cleanBinary(value: string | undefined): {
+  binary: string;
+  overridden: boolean;
+} {
   const trimmed = value?.trim();
   if (!trimmed) return { binary: "gs", overridden: false };
   return { binary: trimmed, overridden: trimmed.startsWith("/") };
@@ -34,15 +37,25 @@ function cleanBinary(value: string | undefined): { binary: string; overridden: b
 export function resolveNativePdfArchiveConfig(
   env: Record<string, string | undefined> = process.env,
 ): NativePdfArchiveConfig {
-  const { binary, overridden } = cleanBinary(env.PDFXYZ_PDF_ARCHIVE_GS_BIN ?? env.PDFXYZ_GHOSTSCRIPT_BIN);
+  const { binary, overridden } = cleanBinary(
+    env.PDFXYZ_PDF_ARCHIVE_GS_BIN ?? env.PDFXYZ_GHOSTSCRIPT_BIN,
+  );
   const tmpDir = env.PDFXYZ_PDF_ARCHIVE_TMPDIR?.trim() || undefined;
   return {
-    enabled: parseEnabled(env.PDFXYZ_PDF_ARCHIVE ?? env.PDFXYZ_NATIVE_PDF_ARCHIVE),
+    enabled: parseEnabled(
+      env.PDFXYZ_PDF_ARCHIVE ?? env.PDFXYZ_NATIVE_PDF_ARCHIVE,
+    ),
     binary,
     overridden,
     timeoutMs: parsePositiveInt(env.PDFXYZ_PDF_ARCHIVE_TIMEOUT_MS, 120_000),
-    maxInputBytes: parsePositiveInt(env.PDFXYZ_PDF_ARCHIVE_MAX_INPUT_BYTES, 200 * 1024 * 1024),
-    maxOutputBytes: parsePositiveInt(env.PDFXYZ_PDF_ARCHIVE_MAX_OUTPUT_BYTES, 300 * 1024 * 1024),
+    maxInputBytes: parsePositiveInt(
+      env.PDFXYZ_PDF_ARCHIVE_MAX_INPUT_BYTES,
+      200 * 1024 * 1024,
+    ),
+    maxOutputBytes: parsePositiveInt(
+      env.PDFXYZ_PDF_ARCHIVE_MAX_OUTPUT_BYTES,
+      300 * 1024 * 1024,
+    ),
     ...(tmpDir ? { tmpDir } : {}),
   };
 }

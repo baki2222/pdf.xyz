@@ -16,8 +16,12 @@ describe("parseRetentionSettings — defaults", () => {
     if (!parsed.ok) return;
     expect(parsed.config).toEqual(DEFAULT_RETENTION_SETTINGS);
     // The object TTLs mirror the single source of truth in @/lib/jobs.
-    expect(parsed.config.inputTtlMinutes).toBe(DEFAULT_RETENTION.inputTtlMinutes);
-    expect(parsed.config.artifactTtlMinutes).toBe(DEFAULT_RETENTION.outputTtlMinutes);
+    expect(parsed.config.inputTtlMinutes).toBe(
+      DEFAULT_RETENTION.inputTtlMinutes,
+    );
+    expect(parsed.config.artifactTtlMinutes).toBe(
+      DEFAULT_RETENTION.outputTtlMinutes,
+    );
   });
 });
 
@@ -41,8 +45,12 @@ describe("parseRetentionSettings — valid overrides", () => {
 
   it("accepts the exact min and max bounds", () => {
     const parsed = parseRetentionSettings({
-      [RETENTION_ENV.inputTtlMinutes]: String(RETENTION_BOUNDS.inputTtlMinutes.min),
-      [RETENTION_ENV.artifactTtlMinutes]: String(RETENTION_BOUNDS.artifactTtlMinutes.max),
+      [RETENTION_ENV.inputTtlMinutes]: String(
+        RETENTION_BOUNDS.inputTtlMinutes.min,
+      ),
+      [RETENTION_ENV.artifactTtlMinutes]: String(
+        RETENTION_BOUNDS.artifactTtlMinutes.max,
+      ),
     });
     expect(parsed.ok).toBe(true);
   });
@@ -51,7 +59,9 @@ describe("parseRetentionSettings — valid overrides", () => {
 describe("parseRetentionSettings — invalid overrides fail closed", () => {
   it("rejects an over-ceiling input TTL (privacy risk) and names the variable only", () => {
     const parsed = parseRetentionSettings({
-      [RETENTION_ENV.inputTtlMinutes]: String(RETENTION_BOUNDS.inputTtlMinutes.max + 1),
+      [RETENTION_ENV.inputTtlMinutes]: String(
+        RETENTION_BOUNDS.inputTtlMinutes.max + 1,
+      ),
     });
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
@@ -82,7 +92,10 @@ describe("parseRetentionSettings — invalid overrides fail closed", () => {
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
     expect(parsed.issues.map((i) => i.field).sort()).toEqual(
-      [RETENTION_ENV.inputTtlMinutes, RETENTION_ENV.noncurrentVersionDays].sort(),
+      [
+        RETENTION_ENV.inputTtlMinutes,
+        RETENTION_ENV.noncurrentVersionDays,
+      ].sort(),
     );
   });
 });

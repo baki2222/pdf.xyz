@@ -38,7 +38,10 @@ describe("parseCompressionOptions", () => {
   });
 
   it("accepts an explicit lossless profile and DPI", () => {
-    const result = parseCompressionOptions({ profile: "lossless", targetDpi: 300 });
+    const result = parseCompressionOptions({
+      profile: "lossless",
+      targetDpi: 300,
+    });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.profile).toBe("lossless");
@@ -49,7 +52,8 @@ describe("parseCompressionOptions", () => {
   it("rejects an unknown profile", () => {
     const result = parseCompressionOptions({ profile: "extreme" });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.body.error.code).toBe("invalid_request");
+    if (!result.ok)
+      expect(result.error.body.error.code).toBe("invalid_request");
   });
 
   it("rejects an out-of-range or non-integer DPI", () => {
@@ -69,7 +73,10 @@ describe("probeCompressionTools", () => {
 
 describe("planCompression", () => {
   it("always supports lossless via the JS repacker", () => {
-    const plan = planCompression({ profile: "lossless", targetDpi: 150 }, noTools);
+    const plan = planCompression(
+      { profile: "lossless", targetDpi: 150 },
+      noTools,
+    );
     expect(plan).toEqual({ supported: true, engine: "lossless-js" });
   });
 
@@ -162,7 +169,9 @@ describe("runCompression", () => {
     if (run.ok) {
       expect(run.meta.engine).toBe("ghostscript");
       expect(run.output).toBe(fakeOutput);
-      expect(run.meta.savedBytes).toBe(input.byteLength - fakeOutput.byteLength);
+      expect(run.meta.savedBytes).toBe(
+        input.byteLength - fakeOutput.byteLength,
+      );
     }
   });
 
@@ -268,10 +277,14 @@ describe("looksLikePdf", () => {
   it("rejects empty, too-short, headerless, or trailerless bytes", () => {
     expect(looksLikePdf(new Uint8Array(0))).toBe(false);
     expect(looksLikePdf(new Uint8Array([1, 2, 3]))).toBe(false);
-    expect(looksLikePdf(new TextEncoder().encode("plainly not a pdf, no markers here at all"))).toBe(
-      false,
-    );
+    expect(
+      looksLikePdf(
+        new TextEncoder().encode("plainly not a pdf, no markers here at all"),
+      ),
+    ).toBe(false);
     // Header but no trailer.
-    expect(looksLikePdf(new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(64)}`))).toBe(false);
+    expect(
+      looksLikePdf(new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(64)}`)),
+    ).toBe(false);
   });
 });

@@ -21,7 +21,9 @@ export const metadata: Metadata = buildMetadata({
 /** Client-safe summary for every catalog tool, built once on the server. */
 const toolSummaries = buildToolSummaries();
 const popularSlugs = new Set(getPopularTools(6).map((tool) => tool.slug));
-const popularSummaries = toolSummaries.filter((tool) => popularSlugs.has(tool.slug));
+const popularSummaries = toolSummaries.filter((tool) =>
+  popularSlugs.has(tool.slug),
+);
 
 export default async function WorkspacePage({
   searchParams,
@@ -41,10 +43,10 @@ export default async function WorkspacePage({
             <ShieldCheck className="size-3.5 text-emerald-400" aria-hidden />
             Local session only
           </Pill>
-          <h1 className="text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl">
+          <h1 className="text-4xl font-bold tracking-tight text-balance text-white sm:text-5xl">
             Your workspace
           </h1>
-          <p className="max-w-2xl text-pretty text-base leading-relaxed text-slate-400 sm:text-lg">
+          <p className="max-w-2xl text-base leading-relaxed text-pretty text-slate-400 sm:text-lg">
             Stage your documents here, get tool suggestions based on what you
             dropped, and line up a batch. Everything sits in this browser tab —
             nothing is uploaded, and your files clear the moment you close it.

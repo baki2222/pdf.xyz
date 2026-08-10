@@ -33,7 +33,12 @@ export const RATE_LIMIT_ENV = {
 } as const;
 
 /** Values that select the per-process in-memory dev limiter. */
-const LOCAL_MEMORY_VALUES = new Set(["local-memory", "memory", "in-memory", "local"]);
+const LOCAL_MEMORY_VALUES = new Set([
+  "local-memory",
+  "memory",
+  "in-memory",
+  "local",
+]);
 /** Values that explicitly turn the guard off (same as unset). */
 const DISABLED_VALUES = new Set(["", "disabled", "off", "none", "false", "0"]);
 /**
@@ -106,9 +111,7 @@ export function resolveRateLimitConfig(
   // Only a non-empty, unrecognized value is worth a diagnostic — it likely means
   // an operator meant to enable the guard but mistyped the provider name.
   const unrecognized =
-    value !== "" &&
-    providerId === "disabled" &&
-    !DISABLED_VALUES.has(value);
+    value !== "" && providerId === "disabled" && !DISABLED_VALUES.has(value);
 
   return {
     providerId,

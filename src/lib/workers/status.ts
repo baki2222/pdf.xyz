@@ -27,7 +27,10 @@ import {
 } from "./pdf-security/capability";
 import { buildScanCapability, type ScanCapability } from "./scan/capability";
 import { getProviderReadiness, type WorkerProviders } from "./providers";
-import { resolveDaemonReadiness, type DaemonReadiness } from "./daemon/readiness";
+import {
+  resolveDaemonReadiness,
+  type DaemonReadiness,
+} from "./daemon/readiness";
 import { resolveAiReadiness, type AiReadiness } from "./ai/readiness";
 
 /** What the worker can do for the Compress tool in this environment, right now. */
@@ -205,7 +208,12 @@ export function buildWorkerStatus(
    */
   workerOcrLanguages?: readonly string[],
 ): WorkerStatus {
-  const ocr = buildOcrCapability(mode, ocrEngines, workerOcrLanguages, workerOcr);
+  const ocr = buildOcrCapability(
+    mode,
+    ocrEngines,
+    workerOcrLanguages,
+    workerOcr,
+  );
   const scan = buildScanCapability(workerScan);
   // Protect/unlock run on qpdf. The route can pass a dedicated qpdf-security probe;
   // absent that, fall back to the qpdf presence the compression probe already found,
@@ -216,7 +224,10 @@ export function buildWorkerStatus(
   // Mode-independent, like `daemon`: the AI tools always run on the out-of-band
   // worker, so what matters is whether this deployment declares a provider at all.
   const ai = resolveAiReadiness(env);
-  const pipeline = buildPipelineSummary(workerObserved === true, daemon.drainable);
+  const pipeline = buildPipelineSummary(
+    workerObserved === true,
+    daemon.drainable,
+  );
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);

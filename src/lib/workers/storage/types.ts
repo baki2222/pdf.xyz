@@ -48,8 +48,7 @@ export interface StorageFailure {
 
 /** A provider operation result: a typed value, or a typed, honest failure. */
 export type StorageResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: StorageFailure };
+  { ok: true; value: T } | { ok: false; error: StorageFailure };
 
 // ─────────────────────────────── Upload target ───────────────────────────────
 
@@ -198,5 +197,8 @@ export function storageFail<T = never>(
   message: string,
   details?: FieldError[],
 ): StorageResult<T> {
-  return { ok: false, error: { reason, message, ...(details ? { details } : {}) } };
+  return {
+    ok: false,
+    error: { reason, message, ...(details ? { details } : {}) },
+  };
 }

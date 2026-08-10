@@ -66,12 +66,20 @@ export function pdfSecurityJobError(run: PdfSecurityFailure): JobError {
         retryable: false,
       };
     case "too_large":
-      return { code: "payload_too_large", message: run.message, retryable: false };
+      return {
+        code: "payload_too_large",
+        message: run.message,
+        retryable: false,
+      };
     case "invalid_pdf":
     case "already_encrypted":
     case "not_encrypted":
     case "wrong_password":
-      return { code: "unprocessable_entity", message: run.message, retryable: false };
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };

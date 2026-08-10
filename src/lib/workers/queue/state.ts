@@ -41,7 +41,10 @@ export const QUEUE_TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
 export const ALL_STATUSES = Object.keys(QUEUE_TRANSITIONS) as JobStatus[];
 
 /** The actively-leased statuses a worker may heartbeat/advance from. */
-export const RUNNING_STATUSES: readonly JobStatus[] = ["scanning", "processing"];
+export const RUNNING_STATUSES: readonly JobStatus[] = [
+  "scanning",
+  "processing",
+];
 
 /** True when a job may legally move from `from` to `to`. */
 export function canTransition(from: JobStatus, to: JobStatus): boolean {

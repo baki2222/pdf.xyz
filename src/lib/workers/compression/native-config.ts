@@ -25,7 +25,11 @@
  */
 
 import type { FieldError } from "@/lib/jobs";
-import { DEEP_COMPRESSION_TOOLS, TOOL_BINARIES, type CompressionTool } from "./engine";
+import {
+  DEEP_COMPRESSION_TOOLS,
+  TOOL_BINARIES,
+  type CompressionTool,
+} from "./engine";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -50,7 +54,11 @@ const ENGINE_BIN_ENV: Record<CompressionTool, string> = {
 };
 
 /** Hard bounds so a misconfigured deployment can never ask for unbounded work. */
-export const TIMEOUT_MS_BOUNDS = { min: 1_000, max: 600_000, default: 120_000 } as const;
+export const TIMEOUT_MS_BOUNDS = {
+  min: 1_000,
+  max: 600_000,
+  default: 120_000,
+} as const;
 export const INPUT_BYTES_BOUNDS = {
   min: 1_024,
   max: 2 * 1024 * 1024 * 1024, // 2 GiB absolute ceiling
@@ -166,11 +174,15 @@ export function parseNativeCompressionConfig(
   env: EnvSource = process.env,
 ): ParseNativeCompressionResult {
   const issues: FieldError[] = [];
-  const miss = (name: string, message: string) => issues.push({ field: name, message });
+  const miss = (name: string, message: string) =>
+    issues.push({ field: name, message });
 
   const enable = parseEnable(read(env, NATIVE_COMPRESSION_ENV.enable));
   if (!enable.ok) {
-    miss(NATIVE_COMPRESSION_ENV.enable, "Must be one of on/off/auto (or true/false).");
+    miss(
+      NATIVE_COMPRESSION_ENV.enable,
+      "Must be one of on/off/auto (or true/false).",
+    );
   }
 
   let engine: CompressionTool | undefined;
@@ -197,14 +209,20 @@ export function parseNativeCompressionConfig(
     const raw = read(env, ENGINE_BIN_ENV[tool]);
     if (raw === undefined) continue;
     if (!isSafeConfiguredPath(raw)) {
-      miss(ENGINE_BIN_ENV[tool], "Must be a safe absolute path (no `..`, no shell characters).");
+      miss(
+        ENGINE_BIN_ENV[tool],
+        "Must be a safe absolute path (no `..`, no shell characters).",
+      );
       continue;
     }
     binaries[tool] = raw;
     overridden[tool] = true;
   }
 
-  const timeout = parseBounded(read(env, NATIVE_COMPRESSION_ENV.timeoutMs), TIMEOUT_MS_BOUNDS);
+  const timeout = parseBounded(
+    read(env, NATIVE_COMPRESSION_ENV.timeoutMs),
+    TIMEOUT_MS_BOUNDS,
+  );
   if (!timeout.ok) {
     miss(
       NATIVE_COMPRESSION_ENV.timeoutMs,
@@ -212,7 +230,10 @@ export function parseNativeCompressionConfig(
     );
   }
 
-  const maxInput = parseBounded(read(env, NATIVE_COMPRESSION_ENV.maxInputBytes), INPUT_BYTES_BOUNDS);
+  const maxInput = parseBounded(
+    read(env, NATIVE_COMPRESSION_ENV.maxInputBytes),
+    INPUT_BYTES_BOUNDS,
+  );
   if (!maxInput.ok) {
     miss(
       NATIVE_COMPRESSION_ENV.maxInputBytes,
@@ -235,7 +256,10 @@ export function parseNativeCompressionConfig(
   const tmpDirRaw = read(env, NATIVE_COMPRESSION_ENV.tmpDir);
   if (tmpDirRaw !== undefined) {
     if (!isSafeConfiguredPath(tmpDirRaw)) {
-      miss(NATIVE_COMPRESSION_ENV.tmpDir, "Must be a safe absolute path (no `..`, no shell characters).");
+      miss(
+        NATIVE_COMPRESSION_ENV.tmpDir,
+        "Must be a safe absolute path (no `..`, no shell characters).",
+      );
     } else {
       tmpDir = tmpDirRaw;
     }

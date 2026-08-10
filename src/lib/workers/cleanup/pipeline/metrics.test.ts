@@ -5,7 +5,10 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { recordPipeline, setPipelineSink, resetPipelineSink } from "./metrics";
-import { sanitizeMetric, type WorkerMetricSample } from "../../observability/metrics";
+import {
+  sanitizeMetric,
+  type WorkerMetricSample,
+} from "../../observability/metrics";
 
 afterEach(() => resetPipelineSink());
 

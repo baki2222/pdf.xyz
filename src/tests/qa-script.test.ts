@@ -15,7 +15,10 @@ import { describe, expect, it } from "vitest";
 import { QA_STEPS } from "../../scripts/qa";
 
 const pkg = JSON.parse(
-  readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"),
+  readFileSync(
+    fileURLToPath(new URL("../../package.json", import.meta.url)),
+    "utf8",
+  ),
 ) as { scripts: Record<string, string> };
 
 const qaSource = readFileSync(

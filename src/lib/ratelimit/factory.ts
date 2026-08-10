@@ -19,10 +19,7 @@
 import type { FieldError } from "@/lib/jobs";
 import { resolveRateLimitProviderId } from "./config";
 import type { RateLimitProvider } from "./provider";
-import {
-  createRedisRateLimitProvider,
-  type RateLimitRedisDeps,
-} from "./redis";
+import { createRedisRateLimitProvider, type RateLimitRedisDeps } from "./redis";
 import {
   parseRateLimitRedisConfig,
   type RateLimitRedisConfig,

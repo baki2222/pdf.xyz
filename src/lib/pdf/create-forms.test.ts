@@ -95,17 +95,46 @@ describe("validateFormFields", () => {
 
   it("flags a missing name", () => {
     const errors = validateFormFields(
-      [{ type: "text", name: "  ", page: 1, x: 10, y: 10, width: 100, height: 20 }],
+      [
+        {
+          type: "text",
+          name: "  ",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 20,
+        },
+      ],
       PAGE,
     );
-    expect(errors).toContainEqual({ index: 0, message: "Give this field a name." });
+    expect(errors).toContainEqual({
+      index: 0,
+      message: "Give this field a name.",
+    });
   });
 
   it("flags duplicate names on every occurrence", () => {
     const errors = validateFormFields(
       [
-        { type: "text", name: "dupe", page: 1, x: 10, y: 10, width: 100, height: 20 },
-        { type: "checkbox", name: "dupe", page: 1, x: 10, y: 40, width: 15, height: 15 },
+        {
+          type: "text",
+          name: "dupe",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 20,
+        },
+        {
+          type: "checkbox",
+          name: "dupe",
+          page: 1,
+          x: 10,
+          y: 40,
+          width: 15,
+          height: 15,
+        },
       ],
       PAGE,
     );
@@ -115,36 +144,86 @@ describe("validateFormFields", () => {
 
   it("rejects a name already used by the PDF's existing fields", () => {
     const errors = validateFormFields(
-      [{ type: "text", name: "existing", page: 1, x: 10, y: 10, width: 100, height: 20 }],
+      [
+        {
+          type: "text",
+          name: "existing",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 20,
+        },
+      ],
       PAGE,
       ["existing"],
     );
-    expect(errors.some((e) => /already exists in this PDF/.test(e.message))).toBe(true);
+    expect(
+      errors.some((e) => /already exists in this PDF/.test(e.message)),
+    ).toBe(true);
   });
 
   it("rejects an out-of-range page", () => {
     const errors = validateFormFields(
-      [{ type: "text", name: "a", page: 2, x: 10, y: 10, width: 100, height: 20 }],
+      [
+        {
+          type: "text",
+          name: "a",
+          page: 2,
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 20,
+        },
+      ],
       PAGE,
     );
-    expect(errors.some((e) => /Page 2 is out of range/.test(e.message))).toBe(true);
+    expect(errors.some((e) => /Page 2 is out of range/.test(e.message))).toBe(
+      true,
+    );
   });
 
   it("rejects non-positive width and height", () => {
     const errors = validateFormFields(
-      [{ type: "text", name: "a", page: 1, x: 10, y: 10, width: 0, height: -5 }],
+      [
+        {
+          type: "text",
+          name: "a",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 0,
+          height: -5,
+        },
+      ],
       PAGE,
     );
-    expect(errors.some((e) => /Width must be greater than 0/.test(e.message))).toBe(true);
-    expect(errors.some((e) => /Height must be greater than 0/.test(e.message))).toBe(true);
+    expect(
+      errors.some((e) => /Width must be greater than 0/.test(e.message)),
+    ).toBe(true);
+    expect(
+      errors.some((e) => /Height must be greater than 0/.test(e.message)),
+    ).toBe(true);
   });
 
   it("rejects a field that extends past the page", () => {
     const errors = validateFormFields(
-      [{ type: "text", name: "a", page: 1, x: 500, y: 10, width: 200, height: 20 }],
+      [
+        {
+          type: "text",
+          name: "a",
+          page: 1,
+          x: 500,
+          y: 10,
+          width: 200,
+          height: 20,
+        },
+      ],
       PAGE,
     );
-    expect(errors.some((e) => /extends past page 1/.test(e.message))).toBe(true);
+    expect(errors.some((e) => /extends past page 1/.test(e.message))).toBe(
+      true,
+    );
   });
 
   it("checks each stacked radio button against the page bounds", () => {
@@ -186,10 +265,23 @@ describe("validateFormFields", () => {
 
   it("enforces per-type option requirements", () => {
     const noOptions = validateFormFields(
-      [{ type: "dropdown", name: "d", page: 1, x: 10, y: 10, width: 100, height: 20, options: [] }],
+      [
+        {
+          type: "dropdown",
+          name: "d",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 20,
+          options: [],
+        },
+      ],
       PAGE,
     );
-    expect(noOptions.some((e) => /at least one option/.test(e.message))).toBe(true);
+    expect(noOptions.some((e) => /at least one option/.test(e.message))).toBe(
+      true,
+    );
 
     const oneRadio = validateFormFields(
       [
@@ -206,7 +298,9 @@ describe("validateFormFields", () => {
       ],
       PAGE,
     );
-    expect(oneRadio.some((e) => /at least two options/.test(e.message))).toBe(true);
+    expect(oneRadio.some((e) => /at least two options/.test(e.message))).toBe(
+      true,
+    );
   });
 
   it("rejects blank and duplicate options", () => {
@@ -246,7 +340,9 @@ describe("validateFormFields", () => {
       ],
       PAGE,
     );
-    expect(bad.some((e) => /isn't one of the options/.test(e.message))).toBe(true);
+    expect(bad.some((e) => /isn't one of the options/.test(e.message))).toBe(
+      true,
+    );
 
     const editableOk = validateFormFields(
       [
@@ -270,10 +366,23 @@ describe("validateFormFields", () => {
 
   it("validates text max length and default length", () => {
     const badMax = validateFormFields(
-      [{ type: "text", name: "t", page: 1, x: 10, y: 10, width: 100, height: 20, maxLength: 0 }],
+      [
+        {
+          type: "text",
+          name: "t",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 20,
+          maxLength: 0,
+        },
+      ],
       PAGE,
     );
-    expect(badMax.some((e) => /Max length must be a positive/.test(e.message))).toBe(true);
+    expect(
+      badMax.some((e) => /Max length must be a positive/.test(e.message)),
+    ).toBe(true);
 
     const tooLong = validateFormFields(
       [
@@ -291,13 +400,25 @@ describe("validateFormFields", () => {
       ],
       PAGE,
     );
-    expect(tooLong.some((e) => /longer than the 3-character limit/.test(e.message))).toBe(true);
+    expect(
+      tooLong.some((e) => /longer than the 3-character limit/.test(e.message)),
+    ).toBe(true);
   });
 
   it("returns no errors for a valid field", () => {
     expect(
       validateFormFields(
-        [{ type: "text", name: "ok", page: 1, x: 20, y: 700, width: 200, height: 24 }],
+        [
+          {
+            type: "text",
+            name: "ok",
+            page: 1,
+            x: 20,
+            y: 700,
+            width: 200,
+            height: 24,
+          },
+        ],
         PAGE,
       ),
     ).toEqual([]);
@@ -318,7 +439,16 @@ describe("createFormFields", () => {
         defaultValue: "Ada",
         maxLength: 40,
       },
-      { type: "checkbox", name: "agree", page: 1, x: 20, y: 710, width: 15, height: 15, checked: true },
+      {
+        type: "checkbox",
+        name: "agree",
+        page: 1,
+        x: 20,
+        y: 710,
+        width: 15,
+        height: 15,
+        checked: true,
+      },
       {
         type: "dropdown",
         name: "city",
@@ -357,9 +487,17 @@ describe("createFormFields", () => {
 
     const result = await createFormFields(await blankPdf(), specs);
     expect(result.fieldCount).toBe(5);
-    expect(result.names).toEqual(["full_name", "agree", "city", "langs", "color"]);
+    expect(result.names).toEqual([
+      "full_name",
+      "agree",
+      "city",
+      "langs",
+      "color",
+    ]);
 
-    const { hasFields, fields, fillableCount } = await inspectFormFields(result.bytes);
+    const { hasFields, fields, fillableCount } = await inspectFormFields(
+      result.bytes,
+    );
     expect(hasFields).toBe(true);
     expect(fillableCount).toBe(5);
 
@@ -368,7 +506,10 @@ describe("createFormFields", () => {
       text: "Ada",
       maxLength: 40,
     });
-    expect(byName(fields, "agree")).toMatchObject({ type: "checkbox", checked: true });
+    expect(byName(fields, "agree")).toMatchObject({
+      type: "checkbox",
+      checked: true,
+    });
     expect(byName(fields, "city")).toMatchObject({
       type: "dropdown",
       options: ["NYC", "LA", "SF"],
@@ -389,9 +530,20 @@ describe("createFormFields", () => {
 
   it("creates a multiline text field", async () => {
     const result = await createFormFields(await blankPdf(), [
-      { type: "text", name: "notes", page: 1, x: 20, y: 600, width: 200, height: 60, multiline: true },
+      {
+        type: "text",
+        name: "notes",
+        page: 1,
+        x: 20,
+        y: 600,
+        width: 200,
+        height: 60,
+        multiline: true,
+      },
     ]);
-    expect(byName((await inspectFormFields(result.bytes)).fields, "notes")).toMatchObject({
+    expect(
+      byName((await inspectFormFields(result.bytes)).fields, "notes"),
+    ).toMatchObject({
       type: "text",
       multiline: true,
     });
@@ -412,7 +564,9 @@ describe("createFormFields", () => {
         defaultValue: "Custom",
       },
     ]);
-    expect(byName((await inspectFormFields(result.bytes)).fields, "combo")).toMatchObject({
+    expect(
+      byName((await inspectFormFields(result.bytes)).fields, "combo"),
+    ).toMatchObject({
       type: "dropdown",
       editable: true,
       selected: ["Custom"],
@@ -421,17 +575,39 @@ describe("createFormFields", () => {
 
   it("adds fields without disturbing the PDF's existing form fields", async () => {
     const result = await createFormFields(await pdfWithExistingField(), [
-      { type: "checkbox", name: "newbox", page: 1, x: 20, y: 600, width: 15, height: 15 },
+      {
+        type: "checkbox",
+        name: "newbox",
+        page: 1,
+        x: 20,
+        y: 600,
+        width: 15,
+        height: 15,
+      },
     ]);
     const { fields } = await inspectFormFields(result.bytes);
-    expect([...fields.map((f) => f.name)].sort()).toEqual(["existing", "newbox"]);
-    expect(byName(fields, "existing")).toMatchObject({ type: "text", text: "keep me" });
+    expect([...fields.map((f) => f.name)].sort()).toEqual([
+      "existing",
+      "newbox",
+    ]);
+    expect(byName(fields, "existing")).toMatchObject({
+      type: "text",
+      text: "keep me",
+    });
   });
 
   it("throws a typed error for an invalid spec instead of writing a broken form", async () => {
     await expect(
       createFormFields(await blankPdf(), [
-        { type: "text", name: "", page: 1, x: 10, y: 10, width: 100, height: 20 },
+        {
+          type: "text",
+          name: "",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 20,
+        },
       ]),
     ).rejects.toBeInstanceOf(PdfEngineError);
   });
@@ -439,7 +615,15 @@ describe("createFormFields", () => {
   it("refuses to create a field that collides with an existing name", async () => {
     await expect(
       createFormFields(await pdfWithExistingField(), [
-        { type: "text", name: "existing", page: 1, x: 10, y: 10, width: 100, height: 20 },
+        {
+          type: "text",
+          name: "existing",
+          page: 1,
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 20,
+        },
       ]),
     ).rejects.toThrow(/already exists/);
   });

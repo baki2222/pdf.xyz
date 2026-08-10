@@ -9,7 +9,12 @@ import {
 import type { HandoffFileEntry } from "./types";
 
 function entry(name: string, size: number): HandoffFileEntry {
-  return { name, size, type: "application/pdf", blob: new Blob([new Uint8Array(size)]) };
+  return {
+    name,
+    size,
+    type: "application/pdf",
+    blob: new Blob([new Uint8Array(size)]),
+  };
 }
 
 describe("makeHandoffRecord", () => {
@@ -28,14 +33,24 @@ describe("makeHandoffRecord", () => {
 
   it("honors a custom positive TTL and falls back on invalid ones", () => {
     expect(
-      makeHandoffRecord({ id: "h", toolSlug: "t", files: [], now: 0, ttlMs: 500 })
-        .expiresAt,
+      makeHandoffRecord({
+        id: "h",
+        toolSlug: "t",
+        files: [],
+        now: 0,
+        ttlMs: 500,
+      }).expiresAt,
     ).toBe(500);
     // Zero/negative/NaN TTLs fall back to the default rather than expiring instantly.
     for (const bad of [0, -100, Number.NaN]) {
       expect(
-        makeHandoffRecord({ id: "h", toolSlug: "t", files: [], now: 0, ttlMs: bad })
-          .expiresAt,
+        makeHandoffRecord({
+          id: "h",
+          toolSlug: "t",
+          files: [],
+          now: 0,
+          ttlMs: bad,
+        }).expiresAt,
       ).toBe(DEFAULT_HANDOFF_TTL_MS);
     }
   });

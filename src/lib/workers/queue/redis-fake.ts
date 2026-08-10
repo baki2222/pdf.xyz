@@ -133,7 +133,8 @@ export function createFakeRedis(): FakeRedis {
     const jobRaw = strings.get(jobKey);
     if (jobRaw === undefined) return "missing";
     const job = JSON.parse(jobRaw) as { status: string };
-    const statusIn = (csv: string): boolean => csv.split(",").includes(job.status);
+    const statusIn = (csv: string): boolean =>
+      csv.split(",").includes(job.status);
     const ownershipStale = (attemptArg: string): boolean => {
       if (attemptArg === "") return false;
       const leaseRaw = strings.get(leaseKey);
@@ -153,21 +154,24 @@ export function createFakeRedis(): FakeRedis {
       }
       case "redeliver": {
         // ARGV: [jobJson, ttl, jobId]
-        if (job.status !== "scanning" && job.status !== "processing") return "invalid";
+        if (job.status !== "scanning" && job.status !== "processing")
+          return "invalid";
         strings.set(jobKey, argv[0]!);
         lpush(readyKey, argv[2]!);
         return "applied";
       }
       case "heartbeat": {
         // ARGV: [leaseExpiresAt, expectedAttempt, ttl, jobId]
-        if (job.status !== "scanning" && job.status !== "processing") return "invalid";
+        if (job.status !== "scanning" && job.status !== "processing")
+          return "invalid";
         const leaseRaw = strings.get(leaseKey);
         if (leaseRaw === undefined) return "stale";
         const lease = JSON.parse(leaseRaw) as {
           attempts: number;
           leaseExpiresAt: number;
         };
-        if (argv[1] !== "" && String(lease.attempts) !== argv[1]) return "stale";
+        if (argv[1] !== "" && String(lease.attempts) !== argv[1])
+          return "stale";
         lease.leaseExpiresAt = Number(argv[0]);
         strings.set(leaseKey, JSON.stringify(lease));
         zadd(activeKey, Number(argv[0]), argv[3]!);
@@ -226,7 +230,11 @@ export function createFakeRedis(): FakeRedis {
       case "ZREM":
         return zrem(rest[0]!, ...rest.slice(1));
       case "ZRANGEBYSCORE":
-        return zrangebyscore(rest[0]!, parseScore(rest[1]!), parseScore(rest[2]!));
+        return zrangebyscore(
+          rest[0]!,
+          parseScore(rest[1]!),
+          parseScore(rest[2]!),
+        );
       case "EVAL": {
         // ["EVAL", script, numkeys, key1.., arg1..] — run the matching twin atomically.
         const script = rest[0]!;
@@ -254,7 +262,9 @@ export function createFakeRedis(): FakeRedis {
       if (fake.failing) return { ok: false, error: "unreachable" };
       return { ok: true, value: exec(strArgs) };
     },
-    async transaction(commands: RedisArg[][]): Promise<RedisResult<RedisValue[]>> {
+    async transaction(
+      commands: RedisArg[][],
+    ): Promise<RedisResult<RedisValue[]>> {
       const strCommands = commands.map((cmd) => cmd.map(String));
       for (const cmd of strCommands) calls.push(cmd);
       if (fake.failing) return { ok: false, error: "unreachable" };

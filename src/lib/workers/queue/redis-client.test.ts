@@ -16,7 +16,12 @@ interface Recorded {
 
 /** A recording fake transport that replays canned JSON bodies. */
 function fakeFetch(
-  replies: Array<{ ok?: boolean; status?: number; body: unknown; throws?: boolean }>,
+  replies: Array<{
+    ok?: boolean;
+    status?: number;
+    body: unknown;
+    throws?: boolean;
+  }>,
 ) {
   const calls: Recorded[] = [];
   let i = 0;
@@ -54,13 +59,25 @@ describe("createRedisClient — command", () => {
     expect(calls[0]!.init.headers.authorization).toBe(`Bearer ${TOKEN}`);
     expect(calls[0]!.url).not.toContain(TOKEN);
     // Args are sent as a JSON array of strings (numbers stringified).
-    expect(JSON.parse(calls[0]!.init.body)).toEqual(["SET", "k", "v", "EX", "60"]);
+    expect(JSON.parse(calls[0]!.init.body)).toEqual([
+      "SET",
+      "k",
+      "v",
+      "EX",
+      "60",
+    ]);
   });
 
   it("maps a null result and a numeric result faithfully", async () => {
-    const nul = await client(fakeFetch([{ body: { result: null } }]).fn).command(["GET", "k"]);
+    const nul = await client(
+      fakeFetch([{ body: { result: null } }]).fn,
+    ).command(["GET", "k"]);
     expect(nul.ok && nul.value).toBeNull();
-    const num = await client(fakeFetch([{ body: { result: 1 } }]).fn).command(["ZREM", "z", "m"]);
+    const num = await client(fakeFetch([{ body: { result: 1 } }]).fn).command([
+      "ZREM",
+      "z",
+      "m",
+    ]);
     expect(num.ok && num.value).toBe(1);
   });
 

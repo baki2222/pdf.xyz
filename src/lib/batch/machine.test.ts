@@ -23,7 +23,11 @@ describe("initBatch", () => {
   it("queues every item and starts idle", () => {
     const state = initBatch(seeds);
     expect(state.phase).toBe("idle");
-    expect(state.items.map((i) => i.status)).toEqual(["queued", "queued", "queued"]);
+    expect(state.items.map((i) => i.status)).toEqual([
+      "queued",
+      "queued",
+      "queued",
+    ]);
   });
 });
 
@@ -75,17 +79,21 @@ describe("batchReducer — guards", () => {
     const running = batchReducer(idle, { type: "start" });
     const started = batchReducer(running, { type: "item-start", id: "a" });
     // Re-starting the same item does nothing (already running).
-    expect(batchReducer(started, { type: "item-start", id: "a" })).toBe(started);
+    expect(batchReducer(started, { type: "item-start", id: "a" })).toBe(
+      started,
+    );
     // Unknown id is a no-op.
-    expect(batchReducer(running, { type: "item-start", id: "zzz" })).toBe(running);
+    expect(batchReducer(running, { type: "item-start", id: "zzz" })).toBe(
+      running,
+    );
   });
 
   it("ignores success/error for items that are not running", () => {
     const running = batchReducer(initBatch<number>(seeds), { type: "start" });
     // 'a' is still queued, not running.
-    expect(batchReducer(running, { type: "item-success", id: "a", result: 1 })).toBe(
-      running,
-    );
+    expect(
+      batchReducer(running, { type: "item-success", id: "a", result: 1 }),
+    ).toBe(running);
   });
 });
 
@@ -100,7 +108,11 @@ describe("batchReducer — cancel", () => {
     state = batchReducer(state, { type: "cancel" });
     expect(state.phase).toBe("canceled");
     // b keeps running; c (queued) is canceled.
-    expect(state.items.map((i) => i.status)).toEqual(["done", "running", "canceled"]);
+    expect(state.items.map((i) => i.status)).toEqual([
+      "done",
+      "running",
+      "canceled",
+    ]);
 
     // b's in-flight result still lands, but the phase stays canceled.
     state = batchReducer(state, { type: "item-success", id: "b", result: 2 });
@@ -126,7 +138,10 @@ describe("batchReducer — reset", () => {
       { type: "item-success", id: "a", result: 1 },
     ]);
     expect(done.phase).toBe("done");
-    const reset = batchReducer(done, { type: "reset", items: [{ id: "x", name: "x.pdf" }] });
+    const reset = batchReducer(done, {
+      type: "reset",
+      items: [{ id: "x", name: "x.pdf" }],
+    });
     expect(reset.phase).toBe("idle");
     expect(reset.items).toEqual([{ id: "x", name: "x.pdf", status: "queued" }]);
   });

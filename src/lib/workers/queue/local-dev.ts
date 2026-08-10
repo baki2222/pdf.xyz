@@ -261,7 +261,12 @@ export function createLocalDevQueue(
       return queueOk(next);
     },
 
-    async fail(jobId, error: JobError, disposition: FailDisposition, expectedAttempt) {
+    async fail(
+      jobId,
+      error: JobError,
+      disposition: FailDisposition,
+      expectedAttempt,
+    ) {
       const job = store.getJob(jobId);
       if (!job) return NOT_FOUND();
       if (staleLease(jobId, expectedAttempt)) {

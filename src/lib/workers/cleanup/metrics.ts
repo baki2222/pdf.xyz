@@ -16,7 +16,10 @@
  */
 
 import { cleanupVerificationMetric } from "../observability/metrics";
-import { NOOP_METRIC_SINK, type WorkerMetricSink } from "../observability/collector";
+import {
+  NOOP_METRIC_SINK,
+  type WorkerMetricSink,
+} from "../observability/collector";
 import type { RetrievalStorageProvider } from "../artifacts/access";
 import type { CleanupVerdict } from "./types";
 

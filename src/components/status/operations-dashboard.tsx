@@ -24,26 +24,29 @@ export function WorkerOperationsDashboard() {
   const { phase, snapshot, retry } = useWorkerOperations();
 
   return (
-    <section className="flex flex-col gap-4" aria-labelledby="worker-operations-heading">
+    <section
+      className="flex flex-col gap-4"
+      aria-labelledby="worker-operations-heading"
+    >
       <div className="flex flex-col gap-1">
         <h2
           id="worker-operations-heading"
-          className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-slate-400"
+          className="inline-flex items-center gap-2 text-sm font-semibold tracking-widest text-slate-400 uppercase"
         >
           <Gauge className="size-4 text-slate-400" aria-hidden />
           Worker operations
         </h2>
         <p className="max-w-2xl text-sm leading-relaxed text-slate-400">
-          The operator&apos;s view of the secure-worker stack — is it healthy, and
-          what is the one next action? Read live from the content-free operations
-          snapshot. It reports on capabilities and configuration only, never on your
-          files.
+          The operator&apos;s view of the secure-worker stack — is it healthy,
+          and what is the one next action? Read live from the content-free
+          operations snapshot. It reports on capabilities and configuration
+          only, never on your files.
         </p>
       </div>
 
       {phase === "loading" && (
         <div
-          className="flex items-center gap-2 rounded-2xl border border-white/10 bg-surface-2 p-5 text-sm text-slate-400"
+          className="bg-surface-2 flex items-center gap-2 rounded-2xl border border-white/10 p-5 text-sm text-slate-400"
           role="status"
         >
           <Loader2 className="size-4 animate-spin" aria-hidden />

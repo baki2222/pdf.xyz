@@ -17,11 +17,19 @@ export interface ImagePdfInput {
   bytes: Uint8Array;
 }
 
-export function isLikelyJpeg(file: Pick<ImagePdfInput, "name" | "type">): boolean {
-  return file.type === "image/jpeg" || file.type === "image/jpg" || /\.(jpe?g)$/i.test(file.name);
+export function isLikelyJpeg(
+  file: Pick<ImagePdfInput, "name" | "type">,
+): boolean {
+  return (
+    file.type === "image/jpeg" ||
+    file.type === "image/jpg" ||
+    /\.(jpe?g)$/i.test(file.name)
+  );
 }
 
-export function isLikelyPng(file: Pick<ImagePdfInput, "name" | "type">): boolean {
+export function isLikelyPng(
+  file: Pick<ImagePdfInput, "name" | "type">,
+): boolean {
   return file.type === "image/png" || /\.png$/i.test(file.name);
 }
 
@@ -32,24 +40,36 @@ export function isImageAllowedForKind(
   return kind === "jpg" ? isLikelyJpeg(file) : isLikelyPng(file);
 }
 
-export function validateImagePdfInputs(kind: ImagePdfKind, files: ImagePdfInput[]): void {
+export function validateImagePdfInputs(
+  kind: ImagePdfKind,
+  files: ImagePdfInput[],
+): void {
   if (files.length === 0) {
-    throw new PdfEngineError(`Add at least one ${kind === "jpg" ? "JPG" : "PNG"} image.`);
+    throw new PdfEngineError(
+      `Add at least one ${kind === "jpg" ? "JPG" : "PNG"} image.`,
+    );
   }
   for (const file of files) {
     if (!isImageAllowedForKind(kind, file)) {
-      throw new PdfEngineError(`"${file.name}" is not a ${kind === "jpg" ? "JPG" : "PNG"} image.`);
+      throw new PdfEngineError(
+        `"${file.name}" is not a ${kind === "jpg" ? "JPG" : "PNG"} image.`,
+      );
     }
     if (file.bytes.byteLength === 0) {
       throw new PdfEngineError(`"${file.name}" is empty.`);
     }
     if (file.bytes.byteLength > MAX_IMAGE_BYTES) {
-      throw new PdfEngineError(`"${file.name}" is too large for in-browser conversion (max ${MAX_IMAGE_MB} MB per image).`);
+      throw new PdfEngineError(
+        `"${file.name}" is too large for in-browser conversion (max ${MAX_IMAGE_MB} MB per image).`,
+      );
     }
   }
 }
 
-export function imagePdfOutputName(kind: ImagePdfKind, firstName?: string): string {
+export function imagePdfOutputName(
+  kind: ImagePdfKind,
+  firstName?: string,
+): string {
   return firstName ? outputName(firstName, "pdf", "pdf") : `${kind}-images.pdf`;
 }
 
@@ -82,9 +102,14 @@ export async function imagesToPdf(
   for (const file of files) {
     let image;
     try {
-      image = kind === "jpg" ? await doc.embedJpg(file.bytes) : await doc.embedPng(file.bytes);
+      image =
+        kind === "jpg"
+          ? await doc.embedJpg(file.bytes)
+          : await doc.embedPng(file.bytes);
     } catch {
-      throw new PdfEngineError(`"${file.name}" could not be decoded as a ${kind === "jpg" ? "JPG" : "PNG"} image.`);
+      throw new PdfEngineError(
+        `"${file.name}" could not be decoded as a ${kind === "jpg" ? "JPG" : "PNG"} image.`,
+      );
     }
     const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     page.drawRectangle({

@@ -134,7 +134,10 @@ function resolveFilterScope(r: Record<string, unknown>): {
   const filter = asRecord(r.Filter);
   if (!("Filter" in r)) {
     // No `Filter` at all: a bare legacy top-level `Prefix`, else whole-bucket. Pure.
-    return { prefix: typeof r.Prefix === "string" ? r.Prefix : "", scoped: false };
+    return {
+      prefix: typeof r.Prefix === "string" ? r.Prefix : "",
+      scoped: false,
+    };
   }
   if (!filter) {
     // `Filter` present but not an object (malformed) → unknown scope, fail safe.
@@ -235,7 +238,8 @@ export function parseObservedLifecycle(text: string): ParseObservedResult {
       issues: [
         {
           code: "too-large",
-          message: "The observed document exceeds the size a lifecycle configuration can be.",
+          message:
+            "The observed document exceeds the size a lifecycle configuration can be.",
         },
       ],
     };
@@ -248,7 +252,10 @@ export function parseObservedLifecycle(text: string): ParseObservedResult {
     return {
       ok: false,
       issues: [
-        { code: "malformed-json", message: "The observed document is not valid JSON." },
+        {
+          code: "malformed-json",
+          message: "The observed document is not valid JSON.",
+        },
       ],
     };
   }
@@ -260,7 +267,8 @@ export function parseObservedLifecycle(text: string): ParseObservedResult {
       issues: [
         {
           code: "not-an-object",
-          message: "The observed document is not a lifecycle configuration object.",
+          message:
+            "The observed document is not a lifecycle configuration object.",
         },
       ],
     };
@@ -276,7 +284,8 @@ export function parseObservedLifecycle(text: string): ParseObservedResult {
       issues: [
         {
           code: "no-rules",
-          message: "The observed document contains no lifecycle rules to compare.",
+          message:
+            "The observed document contains no lifecycle rules to compare.",
         },
       ],
     };
@@ -287,7 +296,8 @@ export function parseObservedLifecycle(text: string): ParseObservedResult {
       issues: [
         {
           code: "too-large",
-          message: "The observed document has more lifecycle rules than a bucket can hold.",
+          message:
+            "The observed document has more lifecycle rules than a bucket can hold.",
         },
       ],
     };
@@ -312,11 +322,7 @@ export function parseObservedLifecycle(text: string): ParseObservedResult {
  *  - `missing`   — no observed rule enforces this backstop at all.
  */
 export type LifecycleCheckStatus =
-  | "satisfied"
-  | "stricter"
-  | "weaker"
-  | "disabled"
-  | "missing";
+  "satisfied" | "stricter" | "weaker" | "disabled" | "missing";
 
 /** One expected rule's verification result. References the app's own rule id only. */
 export interface LifecycleRuleCheck {
@@ -444,7 +450,9 @@ function checkRule(
   // so the effective deletion is the SHORTEST day count among them.
   const expectedDays = expectedDaysForRule(expected);
   const effectiveDays = Math.min(
-    ...enabled.map((o) => observedDaysForRole(o, expected.role) ?? expectedDays),
+    ...enabled.map(
+      (o) => observedDaysForRole(o, expected.role) ?? expectedDays,
+    ),
   );
 
   if (effectiveDays === expectedDays) {
@@ -475,7 +483,11 @@ function planFor(check: LifecycleRuleCheck): LifecyclePlanItem {
   const base = { ruleId: check.ruleId };
   switch (check.status) {
     case "satisfied":
-      return { ...base, action: "none", message: "In force; no change needed." };
+      return {
+        ...base,
+        action: "none",
+        message: "In force; no change needed.",
+      };
     case "stricter":
       return {
         ...base,
@@ -487,19 +499,22 @@ function planFor(check: LifecycleRuleCheck): LifecyclePlanItem {
       return {
         ...base,
         action: "create",
-        message: "Apply the generated rule so this backstop exists on the bucket.",
+        message:
+          "Apply the generated rule so this backstop exists on the bucket.",
       };
     case "weaker":
       return {
         ...base,
         action: "update",
-        message: "Tighten the bucket rule to the generated day count so nothing outlives the ceiling.",
+        message:
+          "Tighten the bucket rule to the generated day count so nothing outlives the ceiling.",
       };
     case "disabled":
       return {
         ...base,
         action: "update",
-        message: "Enable the rule (and match the generated day count) so the backstop is in force.",
+        message:
+          "Enable the rule (and match the generated day count) so the backstop is in force.",
       };
   }
 }

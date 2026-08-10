@@ -47,7 +47,9 @@ describe("structured steps are mode-true", () => {
   });
 
   it("worker tools' default steps do say upload (the scoping is by capability, not a blanket ban)", () => {
-    const worker = tools.find((t) => capabilityForMode(t.processing) === "secure-worker" && !t.how);
+    const worker = tools.find(
+      (t) => capabilityForMode(t.processing) === "secure-worker" && !t.how,
+    );
     expect(worker).toBeTruthy();
     if (worker) {
       expect(howToSteps(worker).join(" ")).toMatch(CLAIMS_UPLOAD);

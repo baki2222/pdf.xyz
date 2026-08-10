@@ -42,9 +42,7 @@ describe("fileFamily", () => {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ),
     ).toBe("word");
-    expect(
-      fileFamily("sheet", "application/vnd.ms-excel"),
-    ).toBe("excel");
+    expect(fileFamily("sheet", "application/vnd.ms-excel")).toBe("excel");
   });
 
   it("returns 'other' for anything unrecognized", () => {

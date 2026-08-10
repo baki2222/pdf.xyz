@@ -39,7 +39,10 @@ export function verdictForExit(code: number): ReleaseGateVerdict {
 }
 
 /** The authoritative verdict → exit code map (the inverse of {@link verdictForExit} for the 4 verdicts). */
-export const RELEASE_GATE_EXIT_FOR_VERDICT: Record<ReleaseGateVerdict, ReleaseGateExitCode> = {
+export const RELEASE_GATE_EXIT_FOR_VERDICT: Record<
+  ReleaseGateVerdict,
+  ReleaseGateExitCode
+> = {
   pass: RELEASE_GATE_EXIT.PASS,
   unknown: RELEASE_GATE_EXIT.UNKNOWN,
   warn: RELEASE_GATE_EXIT.WARN,
@@ -59,7 +62,9 @@ const STATUS_RANK: Record<ReleaseCheckStatus, number> = {
 };
 
 /** Fold the per-check outcomes into the composite rollup. */
-export function computeRollup(checks: readonly ReleaseCheckOutcome[]): ReleaseGateRollup {
+export function computeRollup(
+  checks: readonly ReleaseCheckOutcome[],
+): ReleaseGateRollup {
   const included = checks.filter((c) => c.status !== "skip");
   const skippedChecks = checks.length - included.length;
   const passedChecks = included.filter((c) => c.status === "pass").length;
@@ -79,7 +84,14 @@ export function computeRollup(checks: readonly ReleaseCheckOutcome[]): ReleaseGa
   const compositeExit =
     included.length === 0
       ? RELEASE_GATE_EXIT.UNKNOWN
-      : included.reduce((max, c) => Math.max(max, STATUS_EXIT[c.status as Exclude<ReleaseCheckStatus, "skip">]), RELEASE_GATE_EXIT.PASS as number);
+      : included.reduce(
+          (max, c) =>
+            Math.max(
+              max,
+              STATUS_EXIT[c.status as Exclude<ReleaseCheckStatus, "skip">],
+            ),
+          RELEASE_GATE_EXIT.PASS as number,
+        );
 
   const verdict = verdictForExit(compositeExit);
 

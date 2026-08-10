@@ -1,7 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { ProcessorInputFile } from "./types";
-import type { PdfStructureDeps, QpdfStructureRunner } from "../pdf-structure/engine";
+import type {
+  PdfStructureDeps,
+  QpdfStructureRunner,
+} from "../pdf-structure/engine";
 import { createPdfStructureProcessor } from "./pdf-structure";
 
 /** Minimal, structurally-valid PDF bytes (passes `looksLikePdf`). */
@@ -10,10 +13,17 @@ function pdf(pad = 40): Uint8Array {
 }
 
 function file(name = "report.pdf", bytes = pdf()): ProcessorInputFile {
-  return { fileId: "f_1234567890", filename: name, contentType: "application/pdf", bytes };
+  return {
+    fileId: "f_1234567890",
+    filename: name,
+    contentType: "application/pdf",
+    bytes,
+  };
 }
 
-function fakeRunner(over: Partial<QpdfStructureRunner> = {}): QpdfStructureRunner {
+function fakeRunner(
+  over: Partial<QpdfStructureRunner> = {},
+): QpdfStructureRunner {
   return {
     repair: async () => pdf(64),
     linearize: async () => pdf(80),
@@ -45,7 +55,9 @@ describe("pdf-structure processor — routing & capability", () => {
 describe("pdf-structure processor — repair", () => {
   it("repairs a PDF and returns a named artifact + content-free meta", async () => {
     const repaired = pdf(96);
-    const proc = createPdfStructureProcessor(wired({ repair: async () => repaired }));
+    const proc = createPdfStructureProcessor(
+      wired({ repair: async () => repaired }),
+    );
 
     const result = await proc.process({
       tool: "repair-pdf",
@@ -84,7 +96,9 @@ describe("pdf-structure processor — repair", () => {
 describe("pdf-structure processor — optimize-web", () => {
   it("linearizes a PDF and returns a named artifact + content-free meta", async () => {
     const optimized = pdf(120);
-    const proc = createPdfStructureProcessor(wired({ linearize: async () => optimized }));
+    const proc = createPdfStructureProcessor(
+      wired({ linearize: async () => optimized }),
+    );
 
     const result = await proc.process({
       tool: "optimize-web",
@@ -107,7 +121,11 @@ describe("pdf-structure processor — optimize-web", () => {
 
   it("requires exactly one PDF input", async () => {
     const proc = createPdfStructureProcessor(wired());
-    const zero = await proc.process({ tool: "optimize-web", options: {}, inputs: [] });
+    const zero = await proc.process({
+      tool: "optimize-web",
+      options: {},
+      inputs: [],
+    });
     expect(zero.ok).toBe(false);
     if (!zero.ok) expect(zero.error.code).toBe("unprocessable_entity");
 

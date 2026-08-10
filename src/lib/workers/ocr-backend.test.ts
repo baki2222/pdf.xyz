@@ -31,18 +31,30 @@ import { fakeScanner, scanInfected } from "./scanner";
 const LEASE_MS = 1_000;
 
 /** A real, structurally-valid searchable PDF the fake runner "produces". */
-const OCR_PDF = new TextEncoder().encode(`%PDF-1.7\n${"ocr".repeat(32)}\n%%EOF\n`);
+const OCR_PDF = new TextEncoder().encode(
+  `%PDF-1.7\n${"ocr".repeat(32)}\n%%EOF\n`,
+);
 /** A recognized-text sidecar carrying a sentinel that must never leak into logs/status. */
 const OCR_TEXT_SENTINEL = "SENSITIVE-OCR-TEXT-9f3c";
-const OCR_TEXT = new TextEncoder().encode(`${OCR_TEXT_SENTINEL} recognized on page 1.`);
+const OCR_TEXT = new TextEncoder().encode(
+  `${OCR_TEXT_SENTINEL} recognized on page 1.`,
+);
 
 /** A deterministic fake OCR runner returning a searchable PDF + text sidecar + safe meta. */
 const fakeOcrRunner: OcrRunner = async ({ options, inputs }) => {
   const base = inputs[0]?.filename.replace(/\.[^.]+$/, "") ?? "document";
   return {
     artifacts: [
-      { filename: `${base}-ocr.pdf`, contentType: "application/pdf", bytes: OCR_PDF },
-      { filename: `${base}.txt`, contentType: "text/plain; charset=utf-8", bytes: OCR_TEXT },
+      {
+        filename: `${base}-ocr.pdf`,
+        contentType: "application/pdf",
+        bytes: OCR_PDF,
+      },
+      {
+        filename: `${base}.txt`,
+        contentType: "text/plain; charset=utf-8",
+        bytes: OCR_TEXT,
+      },
     ],
     // Metadata carries only bounded, structural facts — never the recognized text.
     meta: buildOcrResultMeta({
@@ -95,16 +107,33 @@ describe("OCR backend — executor integration", () => {
     return slot.fileId;
   }
 
-  async function submit(jobId: string, options: Record<string, unknown>, fileId: string) {
-    await queue.submit({ job: queuedJob(jobId, clock), inputs: [fileId], options });
+  async function submit(
+    jobId: string,
+    options: Record<string, unknown>,
+    fileId: string,
+  ) {
+    await queue.submit({
+      job: queuedJob(jobId, clock),
+      inputs: [fileId],
+      options,
+    });
   }
 
   it("fails an OCR job honestly as not_implemented when no runner is wired (default)", async () => {
     const fileId = seedScan();
-    await submit("job_ocr_default0", { languages: ["eng"], outputMode: "searchable-pdf" }, fileId);
+    await submit(
+      "job_ocr_default0",
+      { languages: ["eng"], outputMode: "searchable-pdf" },
+      fileId,
+    );
 
     const registry = createProcessorRegistry({}); // no OCR deps → not ready
-    const [tick] = await createWorkerExecutor({ queue, storage, registry, leaseMs: LEASE_MS }).drain();
+    const [tick] = await createWorkerExecutor({
+      queue,
+      storage,
+      registry,
+      leaseMs: LEASE_MS,
+    }).drain();
 
     expect(tick?.outcome).toBe("failed");
     const job = store.getJob("job_ocr_default0");
@@ -122,12 +151,24 @@ describe("OCR backend — executor integration", () => {
 
   it("completes an OCR job and persists real artifact bytes when a runner is injected", async () => {
     const fileId = seedScan();
-    await submit("job_ocr_done000", { languages: ["eng", "spa"], outputMode: "both" }, fileId);
+    await submit(
+      "job_ocr_done000",
+      { languages: ["eng", "spa"], outputMode: "both" },
+      fileId,
+    );
 
     const registry = createProcessorRegistry({
-      ocr: { engines: { ocrmypdf: true, tesseract: false }, runner: fakeOcrRunner },
+      ocr: {
+        engines: { ocrmypdf: true, tesseract: false },
+        runner: fakeOcrRunner,
+      },
     });
-    const [tick] = await createWorkerExecutor({ queue, storage, registry, leaseMs: LEASE_MS }).drain();
+    const [tick] = await createWorkerExecutor({
+      queue,
+      storage,
+      registry,
+      leaseMs: LEASE_MS,
+    }).drain();
 
     expect(tick?.outcome).toBe("completed");
     const job = store.getJob("job_ocr_done000");
@@ -135,7 +176,10 @@ describe("OCR backend — executor integration", () => {
     expect(job?.progress).toBe(100);
 
     const artifacts = job?.artifacts ?? [];
-    expect(artifacts.map((a) => a.filename)).toEqual(["scan-ocr.pdf", "scan.txt"]);
+    expect(artifacts.map((a) => a.filename)).toEqual([
+      "scan-ocr.pdf",
+      "scan.txt",
+    ]);
 
     // The stored bytes are the REAL runner output — not fabricated by the executor.
     const pdf = store.getArtifact(artifacts[0]!.artifactId);
@@ -190,7 +234,12 @@ describe("OCR backend — executor integration", () => {
     const registry = createProcessorRegistry({
       ocr: { engines: { ocrmypdf: true, tesseract: false }, runner },
     });
-    const [tick] = await createWorkerExecutor({ queue, storage, registry, leaseMs: LEASE_MS }).drain();
+    const [tick] = await createWorkerExecutor({
+      queue,
+      storage,
+      registry,
+      leaseMs: LEASE_MS,
+    }).drain();
 
     expect(tick?.outcome).toBe("failed");
     expect(ran).toBe(false); // validation failed before any recognition
@@ -203,13 +252,23 @@ describe("OCR backend — executor integration", () => {
 
   it("blocks an infected input BEFORE OCR runs (Phase 22 gate preserved)", async () => {
     const fileId = seedScan();
-    await submit("job_ocr_virus00", { languages: ["eng"], outputMode: "searchable-pdf" }, fileId);
+    await submit(
+      "job_ocr_virus00",
+      { languages: ["eng"], outputMode: "searchable-pdf" },
+      fileId,
+    );
 
     let ran = false;
     const runner: OcrRunner = async () => {
       ran = true;
       return {
-        artifacts: [{ filename: "x-ocr.pdf", contentType: "application/pdf", bytes: OCR_PDF }],
+        artifacts: [
+          {
+            filename: "x-ocr.pdf",
+            contentType: "application/pdf",
+            bytes: OCR_PDF,
+          },
+        ],
         meta: buildOcrResultMeta({
           engine: "ocrmypdf",
           languages: ["eng"],
@@ -247,26 +306,41 @@ describe("OCR backend — executor integration", () => {
   it("never leaks recognized text or a noisy runner error into the job record or logs", async () => {
     // 1) A successful run: the recognized text lives only in the artifact bytes.
     const okFile = seedScan();
-    await submit("job_ocr_leak000", { languages: ["eng"], outputMode: "both" }, okFile);
+    await submit(
+      "job_ocr_leak000",
+      { languages: ["eng"], outputMode: "both" },
+      okFile,
+    );
     const okEvents: ExecutorLogEvent[] = [];
     await createWorkerExecutor({
       queue,
       storage,
       registry: createProcessorRegistry({
-        ocr: { engines: { ocrmypdf: true, tesseract: false }, runner: fakeOcrRunner },
+        ocr: {
+          engines: { ocrmypdf: true, tesseract: false },
+          runner: fakeOcrRunner,
+        },
       }),
       leaseMs: LEASE_MS,
       log: (e) => okEvents.push(e),
     }).drain();
     const okJob = store.getJob("job_ocr_leak000");
-    expect(JSON.stringify({ okJob, okEvents })).not.toContain(OCR_TEXT_SENTINEL);
+    expect(JSON.stringify({ okJob, okEvents })).not.toContain(
+      OCR_TEXT_SENTINEL,
+    );
 
     // 2) A runner that throws a noisy, path-bearing message: the client error stays
     //    content-free (no path, no engine text) and the job fails honestly.
     const badFile = seedScan();
-    await submit("job_ocr_leak001", { languages: ["eng"], outputMode: "searchable-pdf" }, badFile);
+    await submit(
+      "job_ocr_leak001",
+      { languages: ["eng"], outputMode: "searchable-pdf" },
+      badFile,
+    );
     const noisy: OcrRunner = async () => {
-      throw new Error(`ocrmypdf crashed on /tmp/pdfxyz-ocr-abc/input.pdf: ${OCR_TEXT_SENTINEL}`);
+      throw new Error(
+        `ocrmypdf crashed on /tmp/pdfxyz-ocr-abc/input.pdf: ${OCR_TEXT_SENTINEL}`,
+      );
     };
     const badEvents: ExecutorLogEvent[] = [];
     await createWorkerExecutor({

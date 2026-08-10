@@ -68,8 +68,7 @@ export interface QpdfUnlockInput {
  * failure, WITHOUT surfacing the password or any raw engine text.
  */
 export type QpdfUnlockOutcome =
-  | { ok: true; output: Uint8Array }
-  | { ok: false; wrongPassword: boolean };
+  { ok: true; output: Uint8Array } | { ok: false; wrongPassword: boolean };
 
 /**
  * The injected native qpdf runner. A production worker supplies one that shells
@@ -176,7 +175,12 @@ async function preflight(
   if (limit !== undefined && input.byteLength > limit) {
     return {
       ok: false,
-      run: { ok: false, kind: "too_large", limitBytes: limit, message: TOO_LARGE_MESSAGE },
+      run: {
+        ok: false,
+        kind: "too_large",
+        limitBytes: limit,
+        message: TOO_LARGE_MESSAGE,
+      },
     };
   }
 
@@ -221,7 +225,11 @@ export async function runProtect(
     return failed();
   }
   if (alreadyEncrypted) {
-    return { ok: false, kind: "already_encrypted", message: ALREADY_ENCRYPTED_MESSAGE };
+    return {
+      ok: false,
+      kind: "already_encrypted",
+      message: ALREADY_ENCRYPTED_MESSAGE,
+    };
   }
 
   let output: Uint8Array;

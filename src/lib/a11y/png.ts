@@ -51,7 +51,10 @@ function paeth(a: number, b: number, c: number): number {
 }
 
 export function decodePng(buffer: Uint8Array): DecodedPng {
-  if (buffer.length < 8 || SIGNATURE.some((byte, i) => byteAt(buffer, i) !== byte)) {
+  if (
+    buffer.length < 8 ||
+    SIGNATURE.some((byte, i) => byteAt(buffer, i) !== byte)
+  ) {
     throw new Error("not a PNG (bad signature)");
   }
 

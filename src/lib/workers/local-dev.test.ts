@@ -39,7 +39,9 @@ describe("local-dev worker — compression job flow", () => {
   ): Promise<string> {
     const session = await adapter.createUploadSession({
       tool: "compress-pdf",
-      files: [{ filename, contentType: "application/pdf", bytes: bytes.byteLength }],
+      files: [
+        { filename, contentType: "application/pdf", bytes: bytes.byteLength },
+      ],
     });
     if (!session.ok) throw new Error("upload session should succeed");
     const slot = session.value.slots[0];
@@ -146,7 +148,10 @@ describe("local-dev worker — compression job flow", () => {
   it("defaults to the deep profile, so it fails honestly with no engine", async () => {
     const adapter = makeAdapter();
     const fileId = await seedUpload(adapter, await makePdf());
-    const created = await adapter.createJob({ tool: "compress-pdf", inputs: [fileId] });
+    const created = await adapter.createJob({
+      tool: "compress-pdf",
+      inputs: [fileId],
+    });
     expect(created.ok).toBe(true);
     if (created.ok) expect(created.value.status).toBe("failed");
   });
@@ -155,7 +160,9 @@ describe("local-dev worker — compression job flow", () => {
     const adapter = makeAdapter();
     const session = await adapter.createUploadSession({
       tool: "compress-pdf",
-      files: [{ filename: "a.pdf", contentType: "application/pdf", bytes: 100 }],
+      files: [
+        { filename: "a.pdf", contentType: "application/pdf", bytes: 100 },
+      ],
     });
     if (!session.ok) throw new Error("no session");
     const slot = session.value.slots[0];
@@ -191,7 +198,8 @@ describe("local-dev worker — compression job flow", () => {
       options: { profile: "lossless" },
     });
     expect(created.ok).toBe(false);
-    if (!created.ok) expect(created.error.body.error.code).toBe("unprocessable_entity");
+    if (!created.ok)
+      expect(created.error.body.error.code).toBe("unprocessable_entity");
   });
 
   it("honors idempotency: the same key returns the same job without reprocessing", async () => {
@@ -223,9 +231,13 @@ describe("local-dev worker — compression job flow", () => {
       files: [{ filename: "s.pdf", contentType: "application/pdf", bytes: 10 }],
     });
     expect(upload.ok).toBe(false);
-    if (!upload.ok) expect(upload.error.body.error.code).toBe("not_implemented");
+    if (!upload.ok)
+      expect(upload.error.body.error.code).toBe("not_implemented");
 
-    const job = await adapter.createJob({ tool: "ocr-pdf", inputs: ["f_1234567890"] });
+    const job = await adapter.createJob({
+      tool: "ocr-pdf",
+      inputs: ["f_1234567890"],
+    });
     expect(job.ok).toBe(false);
     if (!job.ok) expect(job.error.body.error.code).toBe("not_implemented");
   });
@@ -239,14 +251,17 @@ describe("local-dev worker — compression job flow", () => {
       options: { profile: "ultra" },
     });
     expect(created.ok).toBe(false);
-    if (!created.ok) expect(created.error.body.error.code).toBe("invalid_request");
+    if (!created.ok)
+      expect(created.error.body.error.code).toBe("invalid_request");
   });
 
   it("records a failed job for bytes that are not a valid PDF (soundness gate blocks it)", async () => {
     const adapter = makeAdapter();
     const session = await adapter.createUploadSession({
       tool: "compress-pdf",
-      files: [{ filename: "junk.pdf", contentType: "application/pdf", bytes: 4 }],
+      files: [
+        { filename: "junk.pdf", contentType: "application/pdf", bytes: 4 },
+      ],
     });
     if (!session.ok) throw new Error("no session");
     const slot = session.value.slots[0];
@@ -279,7 +294,9 @@ describe("local-dev worker — compression job flow", () => {
     });
     const session = await adapter.createUploadSession({
       tool: "compress-pdf",
-      files: [{ filename: "junk.pdf", contentType: "application/pdf", bytes: 4 }],
+      files: [
+        { filename: "junk.pdf", contentType: "application/pdf", bytes: 4 },
+      ],
     });
     if (!session.ok) throw new Error("no session");
     const slot = session.value.slots[0];
@@ -391,7 +408,9 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
   ): Promise<string> {
     const session = await adapter.createUploadSession({
       tool,
-      files: [{ filename, contentType: "application/pdf", bytes: bytes.byteLength }],
+      files: [
+        { filename, contentType: "application/pdf", bytes: bytes.byteLength },
+      ],
     });
     if (!session.ok) throw new Error("upload session should succeed");
     const slot = session.value.slots[0];
@@ -402,7 +421,12 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
 
   it("protects a PDF end to end, names the artifact, and wipes the input", async () => {
     const adapter = adapterWith(fakeQpdf());
-    const fileId = await seed(adapter, "protect-pdf", taggedPdf("PLAIN"), "statement.pdf");
+    const fileId = await seed(
+      adapter,
+      "protect-pdf",
+      taggedPdf("PLAIN"),
+      "statement.pdf",
+    );
 
     const created = await adapter.createJob({
       tool: "protect-pdf",
@@ -423,7 +447,12 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
 
   it("unlocks a PDF end to end", async () => {
     const adapter = adapterWith(fakeQpdf());
-    const fileId = await seed(adapter, "unlock-pdf", taggedPdf("ENC"), "locked.pdf");
+    const fileId = await seed(
+      adapter,
+      "unlock-pdf",
+      taggedPdf("ENC"),
+      "locked.pdf",
+    );
     const created = await adapter.createJob({
       tool: "unlock-pdf",
       inputs: [fileId],
@@ -446,14 +475,20 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
       options: {},
     });
     expect(created.ok).toBe(false);
-    if (!created.ok) expect(created.error.body.error.code).toBe("invalid_request");
+    if (!created.ok)
+      expect(created.error.body.error.code).toBe("invalid_request");
   });
 
   it("maps a wrong unlock password to a failed job, password-free", async () => {
     const adapter = adapterWith(
       fakeQpdf({ unlock: async () => ({ ok: false, wrongPassword: true }) }),
     );
-    const fileId = await seed(adapter, "unlock-pdf", taggedPdf("ENC"), "locked.pdf");
+    const fileId = await seed(
+      adapter,
+      "unlock-pdf",
+      taggedPdf("ENC"),
+      "locked.pdf",
+    );
     const created = await adapter.createJob({
       tool: "unlock-pdf",
       inputs: [fileId],
@@ -481,7 +516,9 @@ describe("local-dev worker — qpdf structure job flow", () => {
     );
   }
 
-  const fakeStructure = (over: Partial<QpdfStructureRunner> = {}): QpdfStructureRunner => ({
+  const fakeStructure = (
+    over: Partial<QpdfStructureRunner> = {},
+  ): QpdfStructureRunner => ({
     repair: async () => taggedPdf("REPAIRED"),
     linearize: async () => taggedPdf("LINEARIZED"),
     ...over,
@@ -504,7 +541,9 @@ describe("local-dev worker — qpdf structure job flow", () => {
   ): Promise<string> {
     const session = await adapter.createUploadSession({
       tool,
-      files: [{ filename, contentType: "application/pdf", bytes: bytes.byteLength }],
+      files: [
+        { filename, contentType: "application/pdf", bytes: bytes.byteLength },
+      ],
     });
     if (!session.ok) throw new Error("upload session should succeed");
     const slot = session.value.slots[0];
@@ -515,7 +554,12 @@ describe("local-dev worker — qpdf structure job flow", () => {
 
   it("repairs a PDF end to end", async () => {
     const adapter = adapterWith(fakeStructure());
-    const fileId = await seed(adapter, "repair-pdf", taggedPdf("DAMAGED"), "damaged.pdf");
+    const fileId = await seed(
+      adapter,
+      "repair-pdf",
+      taggedPdf("DAMAGED"),
+      "damaged.pdf",
+    );
 
     const created = await adapter.createJob({
       tool: "repair-pdf",
@@ -533,7 +577,12 @@ describe("local-dev worker — qpdf structure job flow", () => {
 
   it("optimizes a PDF for web end to end", async () => {
     const adapter = adapterWith(fakeStructure());
-    const fileId = await seed(adapter, "optimize-web", taggedPdf("PLAIN"), "catalog.pdf");
+    const fileId = await seed(
+      adapter,
+      "optimize-web",
+      taggedPdf("PLAIN"),
+      "catalog.pdf",
+    );
 
     const created = await adapter.createJob({
       tool: "optimize-web",
@@ -545,7 +594,9 @@ describe("local-dev worker — qpdf structure job flow", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     expect(created.value.status).toBe("completed");
-    expect(created.value.artifacts?.[0]?.filename).toBe("catalog-web-optimized.pdf");
+    expect(created.value.artifacts?.[0]?.filename).toBe(
+      "catalog-web-optimized.pdf",
+    );
     expect(store.getSlot(fileId)).toBeUndefined();
   });
 });

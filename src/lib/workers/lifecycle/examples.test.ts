@@ -56,7 +56,8 @@ describe("lifecycle verification examples — pinned verdicts", () => {
       result.checks.find((c) => c.role === "artifact-expiration")?.status,
     ).toBe("missing");
     expect(
-      result.plan.find((p) => p.ruleId === "pdfxyz-artifact-expiration")?.action,
+      result.plan.find((p) => p.ruleId === "pdfxyz-artifact-expiration")
+        ?.action,
     ).toBe("create");
   });
 });

@@ -98,7 +98,10 @@ export function pageImageName(
 }
 
 /** Download name for the ZIP bundling every rendered page. */
-export function zipOutputName(sourceName: string, format: RasterFormat): string {
+export function zipOutputName(
+  sourceName: string,
+  format: RasterFormat,
+): string {
   const base = sanitizeSegment(baseName(sourceName ?? ""));
   return `${base}-${format}.zip`;
 }

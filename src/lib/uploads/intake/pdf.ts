@@ -76,7 +76,10 @@ export interface PdfSniffWindows {
  * Pure and total: any input yields a verdict, never a throw. Reads at most
  * `pdfHeaderScanBytes + pdfTrailerScanBytes` bytes regardless of file size.
  */
-export function sniffPdf(bytes: Uint8Array, windows: PdfSniffWindows): PdfSniff {
+export function sniffPdf(
+  bytes: Uint8Array,
+  windows: PdfSniffWindows,
+): PdfSniff {
   if (bytes.length === 0) {
     return { empty: true, hasHeader: false, hasEof: false };
   }

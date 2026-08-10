@@ -14,7 +14,9 @@ import { CLEANUP_SEVERITY_BY_CATEGORY, type CleanupCategory } from "./taxonomy";
 const NOW = 1_700_000_000_000;
 
 /** Build a normalized record; defaults are a healthy, live, complete `ok` object. */
-function rec(over: Partial<ArtifactInventoryRecord> = {}): ArtifactInventoryRecord {
+function rec(
+  over: Partial<ArtifactInventoryRecord> = {},
+): ArtifactInventoryRecord {
   return {
     declaredLifecycle: "live",
     expiresAtMs: null,
@@ -32,51 +34,83 @@ function rec(over: Partial<ArtifactInventoryRecord> = {}): ArtifactInventoryReco
 
 describe("resolveRecordLifecycle", () => {
   it("re-derives expired from a past deadline via the Phase 41 evaluator", () => {
-    expect(resolveRecordLifecycle(rec({ declaredLifecycle: null, expiresAtMs: 1000 }), NOW)).toBe(
-      "expired",
-    );
+    expect(
+      resolveRecordLifecycle(
+        rec({ declaredLifecycle: null, expiresAtMs: 1000 }),
+        NOW,
+      ),
+    ).toBe("expired");
   });
 
   it("re-derives live from a future deadline", () => {
     expect(
-      resolveRecordLifecycle(rec({ declaredLifecycle: null, expiresAtMs: NOW + 1_000_000 }), NOW),
+      resolveRecordLifecycle(
+        rec({ declaredLifecycle: null, expiresAtMs: NOW + 1_000_000 }),
+        NOW,
+      ),
     ).toBe("live");
   });
 
   it("re-derives deleted from a tombstone regardless of the clock", () => {
-    expect(resolveRecordLifecycle(rec({ declaredLifecycle: null, deleted: true, expiresAtMs: null }), 0)).toBe(
-      "deleted",
-    );
+    expect(
+      resolveRecordLifecycle(
+        rec({ declaredLifecycle: null, deleted: true, expiresAtMs: null }),
+        0,
+      ),
+    ).toBe("deleted");
   });
 
   it("raw evidence overrides a stale pre-resolved lifecycle", () => {
     // Declares live, but the raw deadline is in the past — the fresh re-derivation wins.
-    expect(resolveRecordLifecycle(rec({ declaredLifecycle: "live", expiresAtMs: 1000 }), NOW)).toBe(
-      "expired",
-    );
+    expect(
+      resolveRecordLifecycle(
+        rec({ declaredLifecycle: "live", expiresAtMs: 1000 }),
+        NOW,
+      ),
+    ).toBe("expired");
   });
 
   it("honors a pre-resolved lifecycle when no raw evidence is present", () => {
-    expect(resolveRecordLifecycle(rec({ declaredLifecycle: "expired", expiresAtMs: null }), NOW)).toBe(
-      "expired",
-    );
+    expect(
+      resolveRecordLifecycle(
+        rec({ declaredLifecycle: "expired", expiresAtMs: null }),
+        NOW,
+      ),
+    ).toBe("expired");
   });
 
   it("is unknown with neither raw evidence nor a pre-resolved state", () => {
-    expect(resolveRecordLifecycle(rec({ declaredLifecycle: null, expiresAtMs: null }), NOW)).toBe(
-      "unknown",
-    );
+    expect(
+      resolveRecordLifecycle(
+        rec({ declaredLifecycle: null, expiresAtMs: null }),
+        NOW,
+      ),
+    ).toBe("unknown");
   });
 });
 
 describe("classifyArtifactRecord", () => {
-  const cases: Array<[string, Partial<ArtifactInventoryRecord>, CleanupCategory]> = [
+  const cases: Array<
+    [string, Partial<ArtifactInventoryRecord>, CleanupCategory]
+  > = [
     ["healthy live object", {}, "ok"],
     ["structurally invalid record", { wellFormed: false }, "invalid-record"],
     ["tombstoned present object", { deleted: true }, "deleted-but-present"],
-    ["expired present object", { declaredLifecycle: null, expiresAtMs: 1000 }, "expired-but-present"],
-    ["not-configured backend", { provider: "not-configured", declaredLifecycle: "live" }, "storage-unavailable"],
-    ["no lifecycle evidence", { declaredLifecycle: null, expiresAtMs: null }, "missing-lifecycle"],
+    [
+      "expired present object",
+      { declaredLifecycle: null, expiresAtMs: 1000 },
+      "expired-but-present",
+    ],
+    [
+      "not-configured backend",
+      { provider: "not-configured", declaredLifecycle: "live" },
+      "storage-unavailable",
+    ],
+    [
+      "no lifecycle evidence",
+      { declaredLifecycle: null, expiresAtMs: null },
+      "missing-lifecycle",
+    ],
     ["missing manifest", { manifest: "absent" }, "missing-manifest"],
     ["invalid manifest", { manifest: "invalid" }, "missing-manifest"],
     ["unrecorded manifest", { manifest: "unknown" }, "missing-manifest"],
@@ -90,24 +124,42 @@ describe("classifyArtifactRecord", () => {
 
   it("precedence: a tombstone outranks an expired deadline", () => {
     expect(
-      classifyArtifactRecord(rec({ deleted: true, expiresAtMs: 1000, declaredLifecycle: null }), NOW),
+      classifyArtifactRecord(
+        rec({ deleted: true, expiresAtMs: 1000, declaredLifecycle: null }),
+        NOW,
+      ),
     ).toBe("deleted-but-present");
   });
 
   it("precedence: expiry outranks a not-configured backend", () => {
     expect(
-      classifyArtifactRecord(rec({ expiresAtMs: 1000, provider: "not-configured", declaredLifecycle: null }), NOW),
+      classifyArtifactRecord(
+        rec({
+          expiresAtMs: 1000,
+          provider: "not-configured",
+          declaredLifecycle: null,
+        }),
+        NOW,
+      ),
     ).toBe("expired-but-present");
   });
 
   it("precedence: missing lifecycle outranks a missing manifest", () => {
     expect(
-      classifyArtifactRecord(rec({ declaredLifecycle: null, expiresAtMs: null, manifest: "absent" }), NOW),
+      classifyArtifactRecord(
+        rec({ declaredLifecycle: null, expiresAtMs: null, manifest: "absent" }),
+        NOW,
+      ),
     ).toBe("missing-lifecycle");
   });
 
   it("a live object needs a valid manifest AND a recognized kind to be ok", () => {
-    expect(classifyArtifactRecord(rec({ kind: "text-sidecar", manifest: "valid" }), NOW)).toBe("ok");
+    expect(
+      classifyArtifactRecord(
+        rec({ kind: "text-sidecar", manifest: "valid" }),
+        NOW,
+      ),
+    ).toBe("ok");
   });
 });
 
@@ -121,7 +173,10 @@ describe("evaluateArtifactInventory", () => {
   });
 
   it("all-healthy inventory is ok / exit 0", () => {
-    const report = evaluateArtifactInventory({ records: [rec(), rec({ kind: "image" })] }, NOW);
+    const report = evaluateArtifactInventory(
+      { records: [rec(), rec({ kind: "image" })] },
+      NOW,
+    );
     expect(report.verdict).toBe("ok");
     expect(report.categories.ok).toBe(2);
     expect(report.cleanupRecommended).toBe(0);
@@ -141,7 +196,12 @@ describe("evaluateArtifactInventory", () => {
     );
     expect(report.verdict).toBe("breach");
     expect(exitCodeForCleanupVerdict(report.verdict)).toBe(4);
-    expect(report.severities).toMatchObject({ ok: 1, unknown: 1, drift: 1, breach: 1 });
+    expect(report.severities).toMatchObject({
+      ok: 1,
+      unknown: 1,
+      drift: 1,
+      breach: 1,
+    });
   });
 
   it("counts cleanup-recommended (delete-action) objects: expired + tombstoned", () => {
@@ -182,8 +242,14 @@ describe("evaluateArtifactInventory", () => {
       { records: [rec({ declaredLifecycle: null, expiresAtMs: 1000 }), rec()] },
       NOW,
     );
-    const expired = report.plan.find((p) => p.category === "expired-but-present");
-    expect(expired).toMatchObject({ action: "delete", severity: "drift", count: 1 });
+    const expired = report.plan.find(
+      (p) => p.category === "expired-but-present",
+    );
+    expect(expired).toMatchObject({
+      action: "delete",
+      severity: "drift",
+      count: 1,
+    });
     const ok = report.plan.find((p) => p.category === "ok");
     expect(ok).toMatchObject({ action: "retain", count: 1 });
     // No empty category leaks into the plan.
@@ -194,7 +260,16 @@ describe("evaluateArtifactInventory", () => {
 
   it("tallies the descriptive breakdown by provider/kind/processor/age/size", () => {
     const report = evaluateArtifactInventory(
-      { records: [rec({ kind: "pdf", provider: "local-dev", age: "1-24h", size: "64kb-1mb" })] },
+      {
+        records: [
+          rec({
+            kind: "pdf",
+            provider: "local-dev",
+            age: "1-24h",
+            size: "64kb-1mb",
+          }),
+        ],
+      },
       NOW,
     );
     expect(report.breakdown.providers["local-dev"]).toBe(1);
@@ -206,7 +281,9 @@ describe("evaluateArtifactInventory", () => {
 
   it("every category maps to a severity monotonic with its exit code", () => {
     const rank = { ok: 0, unknown: 2, drift: 3, breach: 4 } as const;
-    for (const [category, severity] of Object.entries(CLEANUP_SEVERITY_BY_CATEGORY)) {
+    for (const [category, severity] of Object.entries(
+      CLEANUP_SEVERITY_BY_CATEGORY,
+    )) {
       // Each category's severity has a defined exit code.
       expect(typeof rank[severity]).toBe("number");
       expect(category.length).toBeGreaterThan(0);

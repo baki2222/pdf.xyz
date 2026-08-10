@@ -15,17 +15,17 @@ This is the part only a person can do. It is short on purpose.
 
 Pick one. Both are free and neither needs the other.
 
-| | |
-| --- | --- |
+|             |                                                       |
+| ----------- | ----------------------------------------------------- |
 | **Windows** | NVDA (<https://www.nvaccess.org/download/>) + Firefox |
-| **macOS** | VoiceOver (`Cmd+F5`) + Safari |
+| **macOS**   | VoiceOver (`Cmd+F5`) + Safari                         |
 
 Keys you need:
 
 - **NVDA**: `Insert` is the NVDA key. `Insert+Down` reads from here. `Ctrl` stops speech.
 - **VoiceOver**: `Ctrl+Option` is VO. `VO+A` reads from here. `Ctrl` stops speech.
 
-Turn the screen off, or look away. The whole point is what you *hear*.
+Turn the screen off, or look away. The whole point is what you _hear_.
 
 ---
 
@@ -36,8 +36,8 @@ Turn the screen off, or look away. The whole point is what you *hear*.
 1. `Tab` to the file input. Add two PDFs.
 2. `Tab` to **Merge 2 PDFs**. Press `Enter`. **Do not touch the mouse.**
 
-**Must hear:** the outcome — something like *"PDFs merged, 2 files combined into
-one PDF, 12 pages"* — spoken without any further keypress.
+**Must hear:** the outcome — something like _"PDFs merged, 2 files combined into
+one PDF, 12 pages"_ — spoken without any further keypress.
 
 **Then press `Tab` once.** Must land on **Download merged PDF**. Press `Enter`;
 the file must download.
@@ -68,7 +68,7 @@ again with identical settings.
 **Must hear:** the outcome **both** times.
 
 **Fails if:** the second run is silent. Assistive tech reacts to a live region
-*changing*; writing the identical string twice is not a change, which is why the
+_changing_; writing the identical string twice is not a change, which is why the
 region is cleared before each message. This is the check that proves that works.
 
 ---
