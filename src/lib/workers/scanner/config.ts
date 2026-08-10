@@ -20,7 +20,7 @@
  * wired by the Node runtime in `./node`).
  */
 
-import type { FieldError } from "@/lib/jobs";
+import { JOB_LIMITS, type FieldError } from "@/lib/jobs";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -45,7 +45,20 @@ export const CLAMAV_DEFAULT_PORT = 3310;
 export const CLAMAV_TIMEOUT_MS_DEFAULT = 30_000;
 const CLAMAV_TIMEOUT_MS_MIN = 1_000;
 const CLAMAV_TIMEOUT_MS_MAX = 600_000; // 10 min — a generous ceiling.
-export const CLAMAV_MAX_BYTES_DEFAULT = 26_214_400; // 25 MiB — clamd's classic StreamMaxLength.
+/**
+ * The scan ceiling DEFAULTS to the accepted-upload ceiling, so "accepted" and
+ * "scannable" are the same number from one constant (owner ruling,
+ * 2026-08-10). The old default was 26_214_400 — clamd's classic
+ * StreamMaxLength — and the 75 MB band between it and the upload cap was
+ * processed unscanned in optional mode, under copy that said every file is
+ * scanned. Production clamd now runs StreamMaxLength 100M (raised and
+ * verified live via clamconf, 2026-08-10); the RUNBOOK pins the operator
+ * contract that clamd's StreamMaxLength must be ≥ this ceiling.
+ * `PDFXYZ_CLAMAV_MAX_BYTES` still overrides — and if an override splits the
+ * ceilings again, the fold in `clamav.ts` refuses what it cannot scan rather
+ * than bypassing it.
+ */
+export const CLAMAV_MAX_BYTES_DEFAULT = JOB_LIMITS.maxFileBytes;
 const CLAMAV_MAX_BYTES_MIN = 1;
 const CLAMAV_MAX_BYTES_MAX = 1_073_741_824; // 1 GiB — a sane upper bound for a stream.
 

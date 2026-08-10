@@ -7,6 +7,7 @@
  * name into the readiness; and the shipped no-op never claims a scan happened.
  */
 import { describe, expect, it } from "vitest";
+import { JOB_LIMITS } from "@/lib/jobs";
 import {
   CLAMAV_ENV,
   CLAMAV_MAX_BYTES_DEFAULT,
@@ -44,6 +45,10 @@ describe("parseClamavConfig", () => {
       expect(r.config.endpoint).toEqual({ host: "clamd.host", port: 3311 });
       expect(r.config.timeoutMs).toBe(CLAMAV_TIMEOUT_MS_DEFAULT);
       expect(r.config.maxBytes).toBe(CLAMAV_MAX_BYTES_DEFAULT);
+      // The scanned ceiling and the accepted ceiling are the same number from
+      // one constant (owner ruling, 2026-08-10): a band between them is where
+      // files were processed unscanned under copy that said otherwise.
+      expect(CLAMAV_MAX_BYTES_DEFAULT).toBe(JOB_LIMITS.maxFileBytes);
     }
   });
 
