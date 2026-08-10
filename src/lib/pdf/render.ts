@@ -1,4 +1,5 @@
 import { renderDimensions, type Thumbnail } from "./render-utils";
+import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 import {
   DEFAULT_JPEG_QUALITY,
   RASTER_MIME,
@@ -83,7 +84,7 @@ export async function createThumbnailRenderer(
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
-  const loadingTask = pdfjs.getDocument({ data, verbosity: 0 });
+  const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await loadingTask.promise;
   let destroyed = false;
 
@@ -346,7 +347,7 @@ export async function rasterizePdf(
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
-  const loadingTask = pdfjs.getDocument({ data, verbosity: 0 });
+  const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await loadingTask.promise;
 
   const mime = RASTER_MIME[format];

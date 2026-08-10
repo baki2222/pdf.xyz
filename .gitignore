@@ -53,3 +53,7 @@ next-env.d.ts
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# pdfjs decoders, copied out of node_modules by scripts/copy-pdfjs-wasm.ts
+# before dev/build. Generated, version-stamped, never committed.
+/public/pdfjs-wasm/

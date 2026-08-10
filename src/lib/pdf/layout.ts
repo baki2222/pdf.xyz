@@ -1,4 +1,5 @@
 import type { PdfLayout, PdfLayoutPage, PositionedTextItem } from "@/lib/workers/table-extract/engine";
+import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 
 /**
  * Positioned selectable-text extraction for table detection.
@@ -58,7 +59,7 @@ export function textItemsToPositioned(items: PdfTextItemLike[]): PositionedTextI
 export async function extractPdfLayout(bytes: Uint8Array): Promise<PdfLayout> {
   const pdfjs = await loadPdfjs();
   const data = bytes.slice();
-  const loadingTask = pdfjs.getDocument({ data, verbosity: 0 });
+  const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await loadingTask.promise;
 
   try {

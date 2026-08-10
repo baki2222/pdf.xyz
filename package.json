@@ -2,10 +2,10 @@
   "name": "pdf-xyz",
   "version": "0.1.0",
   "private": true,
-  "description": "pdf.xyz — a modern, fast, privacy-first PDF platform.",
+  "description": "pdf.xyz \u2014 a modern, fast, privacy-first PDF platform.",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build --webpack",
+    "dev": "tsx scripts/copy-pdfjs-wasm.ts && next dev",
+    "build": "tsx scripts/copy-pdfjs-wasm.ts && next build --webpack",
     "start": "next start",
     "worker:daemon": "tsx scripts/worker-daemon.ts",
     "worker:daemon:status": "tsx scripts/worker-daemon.ts --dry-run-status",
@@ -38,7 +38,8 @@
     "test:e2e:install": "playwright install --with-deps chromium",
     "qa": "tsx scripts/qa.ts",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "pdfjs:wasm": "tsx scripts/copy-pdfjs-wasm.ts"
   },
   "packageManager": "pnpm@11.9.0",
   "engines": {

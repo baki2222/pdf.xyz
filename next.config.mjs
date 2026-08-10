@@ -143,7 +143,24 @@ const nextConfig = {
     optimizePackageImports: ["lucide-react"],
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders() }];
+    return [
+      { source: "/:path*", headers: securityHeaders() },
+      {
+        // pdfjs's image decoders, copied into public/ under a version-stamped
+        // path by scripts/copy-pdfjs-wasm.ts. The version is IN the URL, so the
+        // bytes at a given URL never change and this can be immutable — a pdfjs
+        // bump lands on a new path rather than poisoning a cached one. Without
+        // this rule Next serves public/ as `max-age=0, must-revalidate`, and a
+        // decoder would be revalidated on every document that needs it.
+        source: "/pdfjs-wasm/:version/:file*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+    ];
   },
 };
 

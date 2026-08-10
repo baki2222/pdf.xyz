@@ -1,4 +1,5 @@
 import { outputName } from "./files";
+import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 
 /** One extracted page of selectable PDF text. Page numbers are 1-based. */
 export interface ExtractedTextPage {
@@ -81,7 +82,7 @@ export function textOutputName(sourceName: string): string {
 export async function extractPdfText(bytes: Uint8Array): Promise<ExtractedPdfText> {
   const pdfjs = await loadPdfjs();
   const data = bytes.slice();
-  const loadingTask = pdfjs.getDocument({ data, verbosity: 0 });
+  const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await loadingTask.promise;
 
   try {
