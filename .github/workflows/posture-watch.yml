@@ -1,0 +1,38 @@
+# Watch the deployed operations posture and email the owner when it degrades.
+#
+# GitHub emails the repository owner when a SCHEDULED workflow fails, which is
+# the whole delivery mechanism — no new service, no secret, no mail server, and
+# it arrives in a channel a human already reads.
+#
+# All of the logic lives in scripts/check-operations-posture.mjs, including why
+# the trigger reads the payload's already-computed verdicts rather than
+# re-deriving one here. Keeping it out of YAML is deliberate: a `jq` condition
+# in a shell step is a verdict rule in a second place, and it drifts.
+name: posture-watch
+
+on:
+  schedule:
+    # Hourly. The states this catches persist until someone acts, so a tighter
+    # schedule buys nothing and burns Actions minutes. See the script's
+    # freshness note: /status renders per request, this runs hourly, and a green
+    # dashboard beside a red email an hour apart is expected.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  posture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No install step: the check is dependency-free and uses node's built-in
+      # fetch, so nothing here can fail for a reason unrelated to the posture.
+      - name: Check operations posture
+        run: node scripts/check-operations-posture.mjs
