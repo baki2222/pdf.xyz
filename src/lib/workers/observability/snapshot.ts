@@ -176,6 +176,14 @@ type AssertExtends<A, B> = [A] extends [B] ? true : false;
 // AND a UI copy map in src/components/status all learned it. Nobody would have
 // found that last one by reading. A boolean bolted onto an existing posture
 // gets none of that, which is why a new CODE is the safe shape.
+//
+// And read the observer's own output ONCE, on the deployment, in the change
+// that adds it. `remote-configured-shared` made a hidden state visible and
+// shipped three contradictions in the same breath — `enforced: false` beside a
+// detail reading "configured and enforcing", and an `ok` headline above the
+// warn it had just created. None of them was visible in the diff; all three
+// were obvious in one `curl` of the payload. A change that adds an observer is
+// exactly when the observer is least likely to have been observed.
 const _statusCodesAreSnapshotCodes: AssertExtends<
   RateLimitStatusCode,
   SnapshotRateLimitCode
