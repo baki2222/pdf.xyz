@@ -30,7 +30,12 @@ import {
 } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
-const FORMAT_PRESETS: { value: string; label: string }[] = [
+/**
+ * The offered presets. Exported so the tool page's stated facts can be pinned
+ * to them: the facts entry claimed "Three numbering formats" while this list
+ * held four and a free-form field sat beside it, and nothing connected the two.
+ */
+export const FORMAT_PRESETS: { value: string; label: string }[] = [
   { value: "Page {n} of {total}", label: "Page 1 of N" },
   { value: "{n} / {total}", label: "1 / N" },
   { value: "{n}", label: "1" },

@@ -67,7 +67,16 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     { label: "Colors", value: "Gray, red, or blue watermark text, placed diagonally across each page." },
   ],
   "page-numbers": [
-    { label: "Formats", value: "Three numbering formats: “Page 1 of N”, “1 / N”, or “– 1 –”." },
+    {
+      label: "Formats",
+      // Every preset the runner offers, named — plus the free-form field
+      // beside them. The old entry said "Three numbering formats" and was
+      // wrong twice: it undercounted (there are four) and omitted the custom
+      // template entirely. `page-numbers-formats.test.ts` pins this line to
+      // PAGE_NUMBER_PRESETS so a new preset cannot leave it stale.
+      value:
+        "Presets “Page 1 of N”, “1 / N”, “1”, or “– 1 –” — or write your own template using {n} and {total}.",
+    },
   ],
   "sign-pdf": [
     { label: "Signature modes", value: "Five ways to make a signature: draw it, type it, pick an image, use a script font, or print-and-scan style." },

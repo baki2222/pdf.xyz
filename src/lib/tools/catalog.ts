@@ -1,5 +1,5 @@
 import type { Tool } from "./types";
-import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./tool-facts";
+import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -315,7 +315,11 @@ export const tools: Tool[] = [
     name: "Markdown to PDF",
     tagline: "Beautiful PDFs from Markdown.",
     description:
-      `Convert Markdown into a styled PDF with code blocks and tables — sources up to ${MAX_SOURCE_MB} MB, rendered and typeset right in your browser. The file stays on your device.`,
+      // Block kinds the renderer actually implements (MarkdownBlock in
+      // src/lib/pdf/markdown-to-pdf.ts): heading, paragraph, list-item, quote,
+      // code. There is no table kind — a GFM table falls through to a
+      // paragraph — so this must not promise one.
+      `Convert Markdown into a styled PDF — headings, lists, quotes, and code fences, typeset right in your browser from sources up to ${MAX_SOURCE_MB} MB. The file stays on your device.`,
     category: "convert-to",
     icon: "markdown",
     // Client, not hybrid: the only implementation is the in-browser runner
@@ -525,7 +529,9 @@ export const tools: Tool[] = [
     name: "Add Page Numbers",
     tagline: "Insert page numbers your way.",
     description:
-      "Add page numbers right in your browser — three formats, custom position, starting value, and typography. The file stays on your device.",
+      // Count-free deliberately: the runner ships four presets AND a free-form
+      // template field, so any number here is both wrong and drift-prone.
+      "Add page numbers right in your browser — preset or custom number formats, with position, starting value, and typography. The file stays on your device.",
     category: "edit",
     icon: "pageNumbers",
     processing: "client",

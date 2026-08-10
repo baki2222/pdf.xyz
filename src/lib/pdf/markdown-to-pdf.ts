@@ -9,7 +9,8 @@ const PAGE_HEIGHT = 792;
 const MARGIN = 54;
 const BODY_SIZE = 11;
 const BODY_LINE_HEIGHT = 16;
-const MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
+// The cap the tool page advertises, so the gate and the promise are one value.
+import { MAX_SOURCE_BYTES as MAX_MARKDOWN_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
 
 export type MarkdownBlock =
   | { kind: "heading"; depth: 1 | 2 | 3 | 4 | 5 | 6; text: string }
@@ -44,7 +45,7 @@ export function validateMarkdownInput(markdown: string): void {
   }
   const bytes = new TextEncoder().encode(markdown).byteLength;
   if (bytes > MAX_MARKDOWN_BYTES) {
-    throw new PdfEngineError("This Markdown file is too large for in-browser conversion (max 2 MB).");
+    throw new PdfEngineError(`This Markdown file is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`);
   }
 }
 

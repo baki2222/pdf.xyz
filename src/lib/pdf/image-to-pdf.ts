@@ -6,7 +6,8 @@ const PRODUCER = "pdf.xyz";
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
 const MARGIN = 36;
-const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+// The cap the tool page advertises, so the gate and the promise are one value.
+import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from "@/lib/tools/limits";
 
 export type ImagePdfKind = "jpg" | "png";
 
@@ -43,7 +44,7 @@ export function validateImagePdfInputs(kind: ImagePdfKind, files: ImagePdfInput[
       throw new PdfEngineError(`"${file.name}" is empty.`);
     }
     if (file.bytes.byteLength > MAX_IMAGE_BYTES) {
-      throw new PdfEngineError(`"${file.name}" is too large for in-browser conversion (max 25 MB per image).`);
+      throw new PdfEngineError(`"${file.name}" is too large for in-browser conversion (max ${MAX_IMAGE_MB} MB per image).`);
     }
   }
 }
