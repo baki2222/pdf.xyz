@@ -31,6 +31,7 @@ import {
   RunButton,
   RunnerSection,
   Spinner,
+  UndecodedImagesNotice,
   useAsyncRun,
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
@@ -62,7 +63,13 @@ export function RedactRunner() {
   );
 }
 
-function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function RedactEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const { busy, error, result, run } = useAsyncRun<RedactResult>();
   const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
   const [boxes, setBoxes] = useState<Box[]>([]);
@@ -70,7 +77,10 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
   const [fill, setFill] = useState<RedactionFill>("black");
   const [presetId, setPresetId] = useState("print");
   const [formError, setFormError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const idRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -140,7 +150,8 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
         signal: controller.signal,
         onProgress: (done, total) => setProgress({ done, total }),
       });
-      if (controller.signal.aborted) throw new Error("Redaction was cancelled.");
+      if (controller.signal.aborted)
+        throw new Error("Redaction was cancelled.");
       return redacted;
     });
   };
@@ -152,9 +163,14 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
         summary={`${result.redactionCount} area${result.redactionCount === 1 ? "" : "s"} redacted across ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
       >
+        {result.undecodedImages > 0 && (
+          <UndecodedImagesNotice count={result.undecodedImages} redaction />
+        )}
         <button
           type="button"
-          onClick={() => downloadBytes(result.bytes, redactedOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result.bytes, redactedOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -240,7 +256,13 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
 
         <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
           <BoxList boxes={boxes} onRemove={removeBox} />
-          <PagePreview page={activePage} pageNumber={draft.page} boxes={pageBoxes} draft={draft} fill={fill} />
+          <PagePreview
+            page={activePage}
+            pageNumber={draft.page}
+            boxes={pageBoxes}
+            draft={draft}
+            fill={fill}
+          />
         </div>
       </RunnerSection>
 
@@ -290,7 +312,9 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
         />
       </div>
 
-      {busy && progress && <RenderProgress done={progress.done} total={progress.total} />}
+      {busy && progress && (
+        <RenderProgress done={progress.done} total={progress.total} />
+      )}
       {error && <ErrorNote message={error} />}
 
       <PrivacyLine>
@@ -312,11 +336,18 @@ function RedactEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void })
   );
 }
 
-function BoxList({ boxes, onRemove }: { boxes: Box[]; onRemove: (id: number) => void }) {
+function BoxList({
+  boxes,
+  onRemove,
+}: {
+  boxes: Box[];
+  onRemove: (id: number) => void;
+}) {
   if (boxes.length === 0) {
     return (
       <p className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-4 py-6 text-center text-xs text-slate-400">
-        No redaction areas yet. Add one above — its box appears on the page preview.
+        No redaction areas yet. Add one above — its box appears on the page
+        preview.
       </p>
     );
   }
@@ -331,7 +362,8 @@ function BoxList({ boxes, onRemove }: { boxes: Box[]; onRemove: (id: number) => 
             {index + 1}
           </span>
           <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
-            Page {box.page} · x {box.x}, y {box.y} · {box.width} × {box.height} pt
+            Page {box.page} · x {box.x}, y {box.y} · {box.width} × {box.height}{" "}
+            pt
           </span>
           <button
             type="button"
@@ -410,7 +442,9 @@ function PagePreview({
           />
         )}
       </div>
-      <span className="text-[11px] text-slate-400">Page {pageNumber} preview</span>
+      <span className="text-[11px] text-slate-400">
+        Page {pageNumber} preview
+      </span>
     </div>
   );
 }
@@ -419,12 +453,16 @@ function PagePreview({
 function RasterWarning() {
   return (
     <div className="flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3.5 text-sm text-amber-100">
-      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden />
+      <TriangleAlert
+        className="mt-0.5 size-4 shrink-0 text-amber-300"
+        aria-hidden
+      />
       <p className="leading-relaxed">
-        <span className="font-semibold">Output is rasterized.</span> Every redacted
-        page is flattened into an image, so selectable text, form fields, and
-        vectors are converted to pixels. That flattening is exactly what makes the
-        redaction permanent — nothing stays hidden underneath the boxes.
+        <span className="font-semibold">Output is rasterized.</span> Every
+        redacted page is flattened into an image, so selectable text, form
+        fields, and vectors are converted to pixels. That flattening is exactly
+        what makes the redaction permanent — nothing stays hidden underneath the
+        boxes.
       </p>
     </div>
   );
@@ -437,7 +475,10 @@ function RenderProgress({ done, total }: { done: number; total: number }) {
       <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
         <Spinner className="size-3" /> Redacting pages… {done}/{total}
       </span>
-      <span className="h-1 w-full overflow-hidden rounded-full bg-white/5" aria-hidden>
+      <span
+        className="h-1 w-full overflow-hidden rounded-full bg-white/5"
+        aria-hidden
+      >
         <span
           className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-300"
           style={{ width: `${pct}%` }}

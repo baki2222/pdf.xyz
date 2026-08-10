@@ -185,6 +185,34 @@ describe("every document we open asks for the decoders", () => {
   });
 });
 
+describe("the convention the undecoded-image counter rests on", () => {
+  it("still resolves a failed image decode to null, and only then", () => {
+    // `countUndecodedImages` reads pdfjs's own verdict: a failed decode is
+    // reported by resolving the image object to null. That is real but
+    // UNDOCUMENTED, so a pdfjs upgrade could change it — and the counter's
+    // failure mode is a SILENT ZERO, which is worse than the absence it
+    // replaced, because every tool would then confidently report a clean run
+    // on a document it had blanked. This assertion is the only thing that
+    // makes such an upgrade fail loudly, so it ships with the counter rather
+    // than after it.
+    const worker = readFileSync(
+      path.join(PDFJS_DIR, "build", "pdf.worker.mjs"),
+      "utf8",
+    );
+    const nullSends = [
+      ...worker.matchAll(/_sendImgData\(\s*[A-Za-z_$][\w$]*\s*,\s*null/g),
+    ];
+    expect(
+      nullSends.length,
+      "pdfjs no longer resolves a failed image decode to null in exactly the two " +
+        "known places (found " +
+        nullSends.length +
+        "). countUndecodedImages may now silently report zero on documents it " +
+        "should be warning about — re-read buildPaintImageXObject before trusting it.",
+    ).toBe(2);
+  });
+});
+
 describe("character maps, without which CJK documents render blank", () => {
   it("asks for the packed maps, because packed is what ships", () => {
     // The package ships `.bcmap`. With cMapPacked false pdfjs requests the

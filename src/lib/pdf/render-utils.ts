@@ -104,3 +104,46 @@ export function renderDimensions(
     height: Math.max(1, Math.round(h * scale)),
   };
 }
+
+/* ------------------------------------------------------------------ *
+ *  Undecoded images — the engine's own verdict, not a pixel guess.
+ * ------------------------------------------------------------------ */
+
+/**
+ * How many images on `pageIndex` pdfjs tried to paint and could not decode.
+ *
+ * pdfjs already reports this and we simply never read it. When
+ * `buildPaintImageXObject` fails it warns and resolves the image object to
+ * `null`; those are the only sites that resolve an image to null, so null
+ * means "decode failed", exactly and only. `wasm-assets.test.ts` asserts that
+ * convention still holds in the shipped worker, because the dangerous failure
+ * here is a SILENT ZERO — a counter that has quietly stopped counting is a
+ * more confident lie than the absence it replaced.
+ *
+ * Deliberately NOT a pixel heuristic: a legitimately blank page — a real empty
+ * sheet, a cover page — has no failed image object and therefore reports zero,
+ * which no uniformity check could promise.
+ *
+ * Ids look like `img_p{page}_{n}`, or `g_d{doc}_img_p{page}_{n}` when the image
+ * came from the cross-page cache, so both pools are read and attributed by the
+ * page number embedded in the id.
+ */
+export function countUndecodedImages(
+  entries: Iterable<[string, unknown]> | null | undefined,
+  pageIndex: number,
+): number {
+  if (!entries) return 0;
+  const seen = new Set<string>();
+  let failed = 0;
+  for (const entry of entries) {
+    if (!Array.isArray(entry) || entry.length < 1) continue;
+    const [id, data] = entry as [string, unknown];
+    if (typeof id !== "string" || seen.has(id)) continue;
+    const match = /(?:^|_)img_p(\d+)_/.exec(id);
+    if (!match) continue; // patterns, masks and fonts are other kinds of object
+    if (Number(match[1]) !== pageIndex) continue;
+    seen.add(id);
+    if (data === null) failed += 1;
+  }
+  return failed;
+}

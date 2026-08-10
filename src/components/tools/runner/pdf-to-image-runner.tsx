@@ -29,6 +29,7 @@ import {
   RunButton,
   RunnerSection,
   Spinner,
+  UndecodedImagesNotice,
   useAsyncRun,
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
@@ -74,9 +75,10 @@ function PdfToImageEditor({
   const label = format.toUpperCase();
   const { busy, error, result, run, reset } = useAsyncRun<RasterResult>();
   const [resolutionId, setResolutionId] = useState(DEFAULT_RESOLUTION_ID);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(
-    null,
-  );
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Abort any in-flight render if this editor unmounts (e.g. "Start over").
@@ -185,12 +187,20 @@ function PdfToImageEditor({
       </div>
 
       {busy && progress && (
-        <RenderProgress done={progress.done} total={progress.total} label={label} />
+        <RenderProgress
+          done={progress.done}
+          total={progress.total}
+          label={label}
+        />
       )}
       {error && <ErrorNote message={error} />}
 
       <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel={`Rendering ${label}…`}>
+        <RunButton
+          onClick={onRun}
+          busy={busy}
+          busyLabel={`Rendering ${label}…`}
+        >
           <ImageDown className="size-4" aria-hidden />
           Render {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}
         </RunButton>
@@ -280,6 +290,9 @@ function ImageResult({
       onReset={onStartOver}
     >
       <div className="flex w-full flex-col gap-5">
+        <UndecodedImagesNotice
+          count={result.pages.reduce((sum, p) => sum + p.undecodedImages, 0)}
+        />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <button
             type="button"

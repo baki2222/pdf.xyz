@@ -1,4 +1,8 @@
-import { renderDimensions, type Thumbnail } from "./render-utils";
+import {
+  countUndecodedImages,
+  renderDimensions,
+  type Thumbnail,
+} from "./render-utils";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 import {
   DEFAULT_JPEG_QUALITY,
@@ -67,7 +71,10 @@ export interface ThumbnailRenderer {
    * throws — so callers keep their placeholder tile. The owner must revoke the
    * returned URL when finished with it.
    */
-  renderPage(index: number, options?: RenderPageOptions): Promise<Thumbnail | null>;
+  renderPage(
+    index: number,
+    options?: RenderPageOptions,
+  ): Promise<Thumbnail | null>;
   /** Release the pdfjs document and worker resources. Idempotent. */
   destroy(): Promise<void>;
 }
@@ -232,7 +239,10 @@ export async function renderThumbnails(
 /** Render just the first page of a PDF — a cover thumbnail. Never throws. */
 export async function renderFirstPage(
   bytes: Uint8Array,
-  options: Omit<RenderThumbnailsOptions, "onThumbnail" | "maxPages" | "pages"> = {},
+  options: Omit<
+    RenderThumbnailsOptions,
+    "onThumbnail" | "maxPages" | "pages"
+  > = {},
 ): Promise<Thumbnail | null> {
   let cover: Thumbnail | null = null;
   try {
@@ -274,6 +284,12 @@ export interface RasterPage {
   pageWidth: number;
   /** Source page height, in PDF points. */
   pageHeight: number;
+  /**
+   * Images on this page that pdfjs could not decode, and which are therefore
+   * MISSING from `bytes` — the engine's own verdict, counted so a tool can say
+   * so instead of handing back a confidently blank picture. Normally 0.
+   */
+  undecodedImages: number;
 }
 
 /**
@@ -353,7 +369,9 @@ export async function rasterizePdf(
   const mime = RASTER_MIME[format];
   const scale = rasterScaleForDpi(dpi);
   const encodeQuality =
-    format === "jpg" ? clampJpegQuality(quality ?? DEFAULT_JPEG_QUALITY) : undefined;
+    format === "jpg"
+      ? clampJpegQuality(quality ?? DEFAULT_JPEG_QUALITY)
+      : undefined;
   const pages: RasterPage[] = [];
 
   try {
@@ -389,6 +407,14 @@ export async function rasterizePdf(
         task = page.render({ canvas, viewport, background });
         await task.promise;
 
+        // Read pdfjs's decode verdicts BEFORE `page.cleanup()` in the finally
+        // block clears the object pools. Safe here by construction: pdfjs
+        // blocks the operator list on each image dependency, so every image
+        // this page paints has resolved by the time the render promise does.
+        const undecodedImages =
+          countUndecodedImages(page.objs as never, i) +
+          countUndecodedImages(page.commonObjs as never, i);
+
         if (signal?.aborted) {
           canvas.width = 0;
           canvas.height = 0;
@@ -405,7 +431,11 @@ export async function rasterizePdf(
           pageWidth: base.width,
           pageHeight: base.height,
         });
-        const imageBytes = await canvasToImageBytes(canvas, mime, encodeQuality);
+        const imageBytes = await canvasToImageBytes(
+          canvas,
+          mime,
+          encodeQuality,
+        );
         // Release the backing bitmap now that the image is encoded.
         canvas.width = 0;
         canvas.height = 0;
@@ -424,6 +454,7 @@ export async function rasterizePdf(
           height,
           pageWidth: base.width,
           pageHeight: base.height,
+          undecodedImages,
         };
         pages.push(rendered);
         onPage?.(rendered);
@@ -452,7 +483,9 @@ export async function rasterizePdf(
 /** Convert RGBA image data to luminance grayscale in-place. */
 export function grayscaleImageData(data: Uint8ClampedArray): void {
   for (let i = 0; i + 2 < data.length; i += 4) {
-    const gray = Math.round(data[i]! * 0.299 + data[i + 1]! * 0.587 + data[i + 2]! * 0.114);
+    const gray = Math.round(
+      data[i]! * 0.299 + data[i + 1]! * 0.587 + data[i + 2]! * 0.114,
+    );
     data[i] = gray;
     data[i + 1] = gray;
     data[i + 2] = gray;
