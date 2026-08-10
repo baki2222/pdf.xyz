@@ -75,7 +75,14 @@ const PRODUCTION_SHAPE: WorkerStatus = buildWorkerStatus(
   ["eng", "ben"],
 );
 
-/** Pipeline configured (drainable) but no worker heartbeat observed. */
+/**
+ * Pipeline configured (drainable) but no worker heartbeat observed.
+ *
+ * Both halves are a PREMISE the contradiction tests below depend on — if this
+ * fixture stopped being drainable, or started reporting an observed worker, the
+ * tests would still pass while measuring a different scenario. Asserted rather
+ * than described.
+ */
 const CONFIGURED_NOT_OBSERVED: WorkerStatus = buildWorkerStatus(
   "disabled",
   undefined,
@@ -189,6 +196,17 @@ function expectNoContradiction(view: CardView, label: string) {
     `${label}: the lead claims nothing is configured ("${view.lead.slice(0, 80)}…") while rows say [${present.join(", ")}]`,
   ).toBe(false);
 }
+
+describe("the fixture's own premise", () => {
+  it("CONFIGURED_NOT_OBSERVED really is drainable with no observed worker", () => {
+    // Both halves are relied on by the contradiction tests below. If either
+    // flipped, those would still pass while measuring a different scenario.
+    expect(CONFIGURED_NOT_OBSERVED.pipeline.drainable).toBe(true);
+    // "no heartbeat observed" shows up as the mode staying disabled: nothing
+    // in this status claims a live worker.
+    expect(CONFIGURED_NOT_OBSERVED.mode).toBe("disabled");
+  });
+});
 
 describe("the secure-worker card renders one verdict", () => {
   it("health: the all-dead card still reads as down", async () => {
