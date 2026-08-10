@@ -35,8 +35,14 @@ const PER_PERSON_CLAIMS = [
 ];
 
 const COPY: { where: string; text: string }[] = [
-  { where: "tool-facts AI_ALLOWANCE_FACT (4 tool pages + FAQPage JSON-LD)", text: AI_ALLOWANCE_FACT },
-  { where: "ai-tool-availability AI_DAILY_ALLOWANCE_NOTE (the AI panels)", text: AI_DAILY_ALLOWANCE_NOTE },
+  {
+    where: "tool-facts AI_ALLOWANCE_FACT (4 tool pages + FAQPage JSON-LD)",
+    text: AI_ALLOWANCE_FACT,
+  },
+  {
+    where: "ai-tool-availability AI_DAILY_ALLOWANCE_NOTE (the AI panels)",
+    text: AI_DAILY_ALLOWANCE_NOTE,
+  },
   { where: "the 429 body", text: AI_ALLOWANCE_USED_MESSAGE },
 ];
 
