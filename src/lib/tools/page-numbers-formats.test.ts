@@ -24,8 +24,11 @@ describe("the page-numbers formats fact matches the runner", () => {
     // Compare QUOTED tokens as a set, not by substring: the "1" preset's label
     // is a substring of every other label, so a containment check could never
     // fail for it — an assertion that cannot fail is not a guard.
-    const norm = (s: string) => s.replace(/[–—-]/g, "-").replace(/\s+/g, " ").trim();
-    const quoted = [...formatsFact().matchAll(/[“"]([^“”"]+)[”"]/g)].map((m) => norm(m[1]!));
+    const norm = (s: string) =>
+      s.replace(/[–—-]/g, "-").replace(/\s+/g, " ").trim();
+    const quoted = [...formatsFact().matchAll(/[“"]([^“”"]+)[”"]/g)].map((m) =>
+      norm(m[1]!),
+    );
     expect(
       quoted.slice().sort(),
       "the stated preset formats and the runner's FORMAT_PRESETS have diverged",
