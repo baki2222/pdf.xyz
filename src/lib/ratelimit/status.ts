@@ -20,7 +20,7 @@
  * registry, and pure types — safe to import anywhere.
  */
 
-import { RATE_LIMIT_ENV } from "./config";
+import { RATE_LIMIT_ENV, isTrustForwardedFor } from "./config";
 import { resolveRateLimitBackend } from "./factory";
 import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import type { RateLimitDecision } from "./types";
@@ -33,6 +33,7 @@ export type RateLimitStatusCode =
   | "local-memory"
   | "remote-missing-config"
   | "remote-configured"
+  | "remote-configured-shared"
   | "remote-error-fail-open";
 
 /** A content-free status snapshot. `envVars` names variables only — never values. */
@@ -90,6 +91,10 @@ export function resolveRateLimitStatus(
   // one on demand. See the field's docblock for why consulting the registry here
   // became wrong rather than merely unnecessary.
   const registered = opts.providerRegistered ?? backend.kind === "redis";
+  // Whether the limiter can tell two callers apart at all. Without it the
+  // budgets are global, which is a different operational state from enforcing
+  // them per client — see `remote-configured-shared`.
+  const perClient = isTrustForwardedFor(env);
 
   switch (backend.kind) {
     case "disabled":
@@ -117,14 +122,30 @@ export function resolveRateLimitStatus(
       // actually registered in this process; otherwise nothing enforces despite valid
       // credentials, which we report as missing-config, never as active enforcement.
       return registered
-        ? {
-            code: "remote-configured",
-            enforced: true,
-            distributed: true,
-            envVars: REMOTE_ENV_VARS,
-            detail:
-              "A distributed rate-limit store is configured and a provider is registered: fixed-window budgets are enforced atomically across every instance.",
-          }
+        ? perClient
+          ? {
+              code: "remote-configured",
+              enforced: true,
+              distributed: true,
+              envVars: REMOTE_ENV_VARS,
+              detail:
+                "A distributed rate-limit store is configured and a provider is registered: fixed-window budgets are enforced atomically across every instance.",
+            }
+          : {
+              // Enforcing, distributed, and counting the whole world in ONE
+              // bucket — because identity cannot separate callers unless the
+              // forwarding header is trusted. Reported as its own code rather
+              // than folded into `remote-configured`, which claimed
+              // `enforced: true, distributed: true` while refusing nobody: a
+              // field that reads identically in a working state and a broken
+              // one is not a status, it is a decoration.
+              code: "remote-configured-shared",
+              enforced: true,
+              distributed: true,
+              envVars: [...REMOTE_ENV_VARS, RATE_LIMIT_ENV.trustForwardedFor],
+              detail:
+                "A distributed rate-limit store is configured and enforcing, but every caller is counted in ONE shared bucket: client identity is not trusted, so the published per-policy budgets apply to all traffic combined rather than per visitor.",
+            }
         : {
             code: "remote-missing-config",
             enforced: false,

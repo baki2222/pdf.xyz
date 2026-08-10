@@ -5,9 +5,16 @@ import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import { resolveRateLimitStatus, statusForDecision } from "./status";
 import type { RateLimitDecision } from "./types";
 
+/**
+ * A store AND trusted client identity — both are required to enforce per
+ * client. Without the trust flag the same store enforces into one global
+ * bucket, which is now its own code (`remote-configured-shared`); this helper
+ * describes the working deployment.
+ */
 const creds = (): Record<string, string> => ({
   [RATE_LIMIT_REDIS_ENV.restUrl]: "https://rl-example-98765.upstash.io",
   [RATE_LIMIT_REDIS_ENV.restToken]: "RL_tokenEXAMPLEvalue00000000000000000000",
+  [RATE_LIMIT_ENV.trustForwardedFor]: "true",
 });
 
 describe("resolveRateLimitStatus — the four static states", () => {

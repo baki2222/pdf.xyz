@@ -321,11 +321,17 @@ describe("GET /api/worker/operations — the rate-limit posture reaches the aler
     [LIFECYCLE_ENV.validated]: "true",
   };
 
-  /** Exactly what a correctly-configured production deployment has set. */
+  /**
+   * A deployment enforcing PER CLIENT — a store AND trusted identity. The trust
+   * flag was missing here (and in two other fixtures that carried this same
+   * comment word for word) while all three called themselves "correctly
+   * configured": the same incomplete definition production had.
+   */
   const LIMITER_ENV: Record<string, string> = {
     [RATE_LIMIT_ENV.provider]: "redis",
     [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
     [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
+    [RATE_LIMIT_ENV.trustForwardedFor]: "true",
   };
 
   type AlertEntry = {

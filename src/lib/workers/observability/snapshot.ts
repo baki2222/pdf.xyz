@@ -157,6 +157,7 @@ export const SNAPSHOT_RATE_LIMIT_CODES = [
   "local-memory",
   "remote-missing-config",
   "remote-configured",
+  "remote-configured-shared",
   "remote-error-fail-open",
   "unknown",
 ] as const;
@@ -202,6 +203,8 @@ export const RATE_LIMIT_DETAIL: Record<SnapshotRateLimitCode, string> = {
     "A remote rate-limit provider is selected but its store configuration is missing or incomplete, so nothing is being enforced despite the operator opting in. Fix the store configuration.",
   "remote-configured":
     "A distributed rate-limit store is configured and enforcing: fixed-window budgets are shared atomically across every instance.",
+  "remote-configured-shared":
+    "A distributed rate-limit store is configured and enforcing, but every caller is counted in ONE shared bucket: client identity is not trusted, so the published per-policy budgets apply to all traffic combined rather than per visitor.",
   "remote-error-fail-open":
     "The distributed limiter is configured, but the most recent request was not enforced — the store is unreachable or erroring and the guard is failing OPEN (allowing traffic). Investigate the store.",
   unknown:
@@ -225,6 +228,10 @@ export function rateLimitHealth(code: SnapshotRateLimitCode): HealthClass {
       return "ok";
     case "remote-missing-config":
     case "remote-error-fail-open":
+    // Enforcing, but on one global counter. `warn` because the operator opted
+    // into per-visitor budgets and is not getting them — the same "configured
+    // but not doing what you think" shape as the two above.
+    case "remote-configured-shared":
       return "warn";
     case "unknown":
       return "unknown";
