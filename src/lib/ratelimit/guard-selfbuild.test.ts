@@ -29,6 +29,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RATE_LIMIT_ENV } from "./config";
+import { resolveRateLimitStatus } from "./status";
 import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import {
   enforceRateLimit,
@@ -77,7 +78,14 @@ function clear(): void {
 beforeEach(clear);
 afterEach(clear);
 
-/** Exactly what a correctly-configured production deployment has set. */
+/**
+ * A deployment with a remote STORE wired — which is all these tests need, and
+ * less than "correctly configured", which is what this comment used to claim.
+ * Per-client limits also require trusted identity and a shared key salt; a
+ * fixture that says "correctly configured" while omitting them is a premise the
+ * assertions below depend on and nothing verifies. `assertEnforcing()` turns
+ * the sentence into a check.
+ */
 function configuredEnv(): void {
   process.env[RATE_LIMIT_ENV.provider] = "redis";
   process.env[RATE_LIMIT_REDIS_ENV.restUrl] =
@@ -85,11 +93,26 @@ function configuredEnv(): void {
   process.env[RATE_LIMIT_REDIS_ENV.restToken] = "A".repeat(48);
 }
 
+/** The premise: this env really does make the guard enforce. */
+function assertEnforcing(): void {
+  const status = resolveRateLimitStatus(process.env);
+  expect(
+    status.enforced,
+    `configuredEnv() no longer produces an enforcing limiter (code=${status.code}) — ` +
+      "every assertion below is measuring something else",
+  ).toBe(true);
+}
+
 function req(): Request {
   return new Request("http://localhost/api/uploads", { method: "POST" });
 }
 
 describe("the guard enforces from the environment, not from a registration", () => {
+  it("precondition: configuredEnv() really produces an enforcing limiter", () => {
+    configuredEnv();
+    assertEnforcing();
+  });
+
   it("throttles with a complete store config and NOTHING registered", async () => {
     // The production situation exactly: env correct, registry empty in this module.
     const store = stubStore();

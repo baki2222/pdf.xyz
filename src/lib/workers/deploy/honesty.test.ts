@@ -19,7 +19,10 @@ import { MALWARE_SCANNER_ENV } from "./scanner";
 
 const MODES: WorkerMode[] = ["disabled", "remote-configured", "local-dev"];
 
-// A drainable, engine-equipped environment — the strongest a deployment gets.
+// A drainable, engine-equipped environment — "the strongest a deployment gets"
+// was a CLAIM this fixture made and nothing checked. The assertion below turns
+// it into a check, so a new readiness input that this env does not satisfy
+// fails here instead of silently weakening every case.
 const DRAINABLE_ENV = {
   PDFXYZ_STORAGE_PROVIDER: "s3",
   PDFXYZ_S3_ENDPOINT: "https://s3.example.com",
@@ -33,6 +36,21 @@ const DRAINABLE_ENV = {
 } as const;
 
 const DEEP = { lossless: true as const, deep: true, engines: ["ghostscript"] };
+
+describe("the fixture's own premise", () => {
+  it("DRAINABLE_ENV really is drainable", () => {
+    // The comment above it claims "the strongest a deployment gets". If a new
+    // readiness input stops being satisfied by this env, every case below
+    // silently weakens; this fails instead.
+    const status = buildWorkerStatus(
+      "remote-configured",
+      undefined,
+      undefined,
+      DRAINABLE_ENV,
+    );
+    expect(status.pipeline.drainable).toBe(true);
+  });
+});
 
 describe("client status — never over-claims", () => {
   it("never reports OCR as available in any mode", () => {
