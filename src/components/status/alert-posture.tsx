@@ -147,6 +147,8 @@ const REASON_COPY: Record<AlertReason, string> = {
     "A rate-limit provider is selected but its store config is incomplete (nothing throttles)",
   "rate-limit-fail-open":
     "The rate limiter's store is failing and the guard is failing open (nothing throttles)",
+  "rate-limit-shared-bucket":
+    "The rate limiter is enforcing, but counts every caller in one shared bucket (budgets are global, not per visitor)",
   "lifecycle-undeclared": "No retention/lifecycle backstop is declared",
   "lifecycle-unverified": "The retention backstop is declared but unverified",
   "lifecycle-drift":

@@ -86,6 +86,7 @@ export const ALERT_REASONS = [
   "scanner-unavailable",
   "rate-limit-misconfigured",
   "rate-limit-fail-open",
+  "rate-limit-shared-bucket",
   "lifecycle-undeclared",
   "lifecycle-unverified",
   "lifecycle-drift",
@@ -134,6 +135,7 @@ export const ALERT_ACTIONS = [
   "refresh-cleanup-evidence", // cleanup evidence report is stale/missing/unreadable/malformed
   "fix-rate-limit-config", // a remote limiter is selected but its store config is incomplete
   "investigate-rate-limit-store", // a configured limiter's store is erroring; guard failing open
+  "enable-per-client-identity", // the limiter enforces, but on ONE bucket for all callers
   "monitor", // informational; nothing to fix, keep observing
 ] as const;
 export type AlertAction = (typeof ALERT_ACTIONS)[number];
@@ -166,6 +168,8 @@ const EXTRA_ACTION_DETAIL: Record<
     "A remote rate-limit provider is selected but its store configuration is missing or incomplete, so nothing is throttling despite the operator opting in. Fix the store configuration (see the rate-limiting runbook) or deliberately disable the provider.",
   "investigate-rate-limit-store":
     "The distributed rate limiter is configured, but the store is unreachable or erroring and the guard is failing OPEN — traffic is passing unthrottled right now. Investigate the store's health and quota; the app itself needs no fix.",
+  "enable-per-client-identity":
+    "The distributed rate limiter is configured and enforcing, but it counts every caller in ONE shared bucket, so the published per-policy budgets apply to all traffic combined rather than per visitor. Honest per-client accounting needs trusted client identity AND a key salt that is stable across instances — see the rate-limiting runbook; the store itself is healthy.",
   monitor:
     "No fix is required right now; this is informational. Keep the monitor in place so a change is caught.",
 };
@@ -358,10 +362,17 @@ function subsystemReasonAction(
     case "malware-scan":
       return { reason: "scanner-unavailable", action: "fix-scanner" };
     case "rate-limit":
-      // Only reachable on a warn health, i.e. one of the two configured-but-NOT-
-      // enforcing codes. The posture disambiguates which, so the alert and the
-      // posture can never disagree: a failing store is investigated, a missing
-      // config is fixed.
+      // Only reachable on a warn health. The posture disambiguates which, so the
+      // alert and the posture can never disagree: a failing store is
+      // investigated, a missing config is fixed, and a limiter that enforces on
+      // ONE global counter needs client identity rather than store work — a
+      // different fix, so a different action.
+      if (snapshot.rateLimit.code === "remote-configured-shared") {
+        return {
+          reason: "rate-limit-shared-bucket",
+          action: "enable-per-client-identity",
+        };
+      }
       return snapshot.rateLimit.code === "remote-error-fail-open"
         ? {
             reason: "rate-limit-fail-open",

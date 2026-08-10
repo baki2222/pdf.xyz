@@ -339,6 +339,9 @@ describe("worker operations snapshot — abuse-guard rate-limit posture", () => 
       PDFXYZ_RATE_LIMIT_PROVIDER: "redis",
       PDFXYZ_RATE_LIMIT_REDIS_REST_URL: "https://example-store.upstash.io",
       PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN: "A".repeat(48),
+      // Per-client enforcement needs trusted identity too; without it the same
+      // store reads `remote-configured-shared` (one bucket for everyone).
+      PDFXYZ_RATE_LIMIT_TRUST_PROXY: "true",
     });
     expect(snap.rateLimit.code).toBe("remote-configured");
     expect(snap.rateLimit.enforced).toBe(true);

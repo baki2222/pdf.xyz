@@ -24,8 +24,23 @@ import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import { resolveRateLimitStatus, statusForDecision } from "./status";
 import type { RateLimitDecision } from "./types";
 
-/** Exactly what a correctly-configured production deployment has set. */
+/**
+ * A deployment enforcing PER CLIENT — which needs the trust flag, not just a
+ * store. Until 2026-08-10 this fixture omitted it and called itself "exactly
+ * what a correctly-configured production deployment has set": the same blind
+ * spot as production, where a store was configured, the posture said
+ * `remote-configured / enforced / distributed`, and every caller shared one
+ * bucket.
+ */
 const CONFIGURED: Record<string, string> = {
+  [RATE_LIMIT_ENV.provider]: "redis",
+  [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
+  [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
+  [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+};
+
+/** The same store, without trusted identity: enforcing into ONE bucket. */
+const CONFIGURED_SHARED: Record<string, string> = {
   [RATE_LIMIT_ENV.provider]: "redis",
   [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
   [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
@@ -110,5 +125,29 @@ describe("the documented alert condition can actually occur", () => {
       "utf8",
     );
     expect(observability).toContain("remote-error-fail-open");
+  });
+});
+
+describe("enforcing on one global bucket is its own reportable state", () => {
+  it("reads as remote-configured-shared, not remote-configured", () => {
+    // The defect this code exists for: a store IS configured and IS enforcing,
+    // so the old vocabulary called it `remote-configured` and reported
+    // `enforced: true, distributed: true` — the identical payload it emits when
+    // the limiter genuinely works. A field that reads the same in a working
+    // state and a broken one is not a status.
+    const status = resolveRateLimitStatus(CONFIGURED_SHARED);
+    expect(status.code).toBe("remote-configured-shared");
+    expect(status.enforced, "it really does throttle").toBe(true);
+    expect(status.distributed, "and really is shared across instances").toBe(
+      true,
+    );
+    expect(status.detail).toMatch(/one shared bucket/i);
+  });
+
+  it("is distinguishable from a deployment that enforces per client", () => {
+    expect(resolveRateLimitStatus(CONFIGURED).code).toBe("remote-configured");
+    expect(resolveRateLimitStatus(CONFIGURED_SHARED).code).not.toBe(
+      resolveRateLimitStatus(CONFIGURED).code,
+    );
   });
 });
