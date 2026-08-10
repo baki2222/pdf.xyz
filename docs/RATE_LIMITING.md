@@ -24,15 +24,22 @@ part of this repository or its tooling reads, stores, or transmits them.
 | `interest.note`     | 30    | per hour   |
 | `ai.run`            | 3     | per day    |
 
-Per client, identified from the request. A refused request gets `429` with a
-`Retry-After`, not a silent drop.
+**Read that table as a GLOBAL budget today, not a per-visitor one.** The
+limiter buckets by the token `deriveClientToken` returns, and that function
+returns the single shared token `"shared"` for every request unless
+`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is on (`src/lib/ratelimit/identity.ts:61`). So
+with the recommended configuration, `ai.run` is 3 runs per day for **everyone
+combined**, and `uploads.create` is 60 per hour in total — not 60 each.
+
+A refused request gets `429` with a `Retry-After`, not a silent drop.
 
 ---
 
 ## Step 1 — create an Upstash Redis database
 
 <https://console.upstash.com> → **Create Database**. The free tier is ample:
-these are short fixed windows holding one counter per client per policy.
+these are short fixed windows holding one counter per bucket per policy — and
+see the note above about how few buckets there currently are.
 
 Pick a **region close to the Vercel deployment** — every guarded request costs
 one round trip to this store, so distance here is latency on every API call.
@@ -67,9 +74,15 @@ Only the first is written out here because only the first is not a secret.
 - `PDFXYZ_RATE_LIMIT_KEY_PREFIX` — defaults to `pdfxyz`. Set it only if the same
   Upstash database is shared with something else.
 - `PDFXYZ_RATE_LIMIT_FAIL_MODE` — defaults to `open`. **Leave it.** See below.
-- `PDFXYZ_RATE_LIMIT_TRUST_PROXY` — Vercel already gives the route handler a
-  trustworthy client address; setting this makes the guard trust a
-  client-supplied forwarding header, which is a way to be trivially evaded.
+- `PDFXYZ_RATE_LIMIT_TRUST_PROXY` — leave it off, but **not for the reason this
+  document gave until 2026-08-10**. The old text said Vercel already supplies a
+  trustworthy client address, which is true — and then the code never reads it.
+  `deriveClientToken` has exactly two paths: trust a client-supplied forwarding
+  header (forgeable), or bucket every request in the world together (the
+  default). The guidance to leave the flag off was right about the flag and
+  wrong about the consequence, and it is why every limit in the table above is
+  currently global. The fix is not this flag; it is for identity to read the
+  platform-set address. Until then, treat the numbers as a global budget.
 
 ---
 
@@ -127,9 +140,14 @@ removing.
 
 ## What this does not cover
 
-- These are per-client limits over fixed windows. They stop casual abuse and
-  runaway scripts. They are not a defence against a distributed attack, which
-  belongs at the edge/WAF layer.
+- These are fixed-window limits. They stop casual abuse and runaway scripts.
+  They are not a defence against a distributed attack, which belongs at the
+  edge/WAF layer.
+- **They are not per-visitor today.** See the note under the policy table:
+  every request shares one bucket unless the forwarding header is trusted, and
+  trusting that header is itself evadable. Neither setting gives honest
+  per-client accounting; that needs identity to key on the address the platform
+  sets, which the code does not yet read.
 
 <!-- gap-while-absent: /sliding[- ]?window/i in src/lib/ratelimit -->
 <!-- The marker above pins "fixed windows": if a sliding-window implementation

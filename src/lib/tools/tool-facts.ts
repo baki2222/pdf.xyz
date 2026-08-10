@@ -175,25 +175,25 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "summarize-pdf": [
     {
       label: "Free allowance",
-      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`,
+      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`,
     },
   ],
   "translate-pdf": [
     {
       label: "Free allowance",
-      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`,
+      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`,
     },
   ],
   "ai-extract": [
     {
       label: "Free allowance",
-      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`,
+      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`,
     },
   ],
   "chat-with-pdf": [
     {
       label: "Free allowance",
-      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`,
+      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`,
     },
   ],
 };
@@ -299,7 +299,7 @@ export function howToSteps(tool: Tool): readonly string[] {
 }
 
 /** Referenced by facts/FAQ builders below; exported for the page template. */
-export const AI_ALLOWANCE_FACT = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`;
+export const AI_ALLOWANCE_FACT = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`;
 
 export const OCR_ADVERTISED_LANGUAGES = OCR_LANGUAGES;
 export const OCR_MAX_PICK = MAX_OCR_LANGUAGES;

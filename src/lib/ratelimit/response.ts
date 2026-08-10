@@ -33,7 +33,7 @@ export const RATE_LIMITED_MESSAGE =
  * them anything vaguer is the "service unavailable" lie the owner ruled out.
  * Derived from the policy constant so the numbers census owns the figure.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `You've used your ${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs for today. The allowance resets daily — retry after the interval in the Retry-After header.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The ${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs for today are used up. This allowance is currently shared across everyone using pdf.xyz, so it may not reflect your own usage — it resets daily; retry after the interval in the Retry-After header.`;
 
 /** Build the typed 429 error result for a denied decision. */
 export function rateLimitErrorResult(
