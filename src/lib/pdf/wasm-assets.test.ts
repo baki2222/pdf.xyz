@@ -30,6 +30,10 @@ const require = createRequire(import.meta.url);
 const PDFJS_PKG = require.resolve("pdfjs-dist/package.json");
 const PDFJS_DIR = path.dirname(PDFJS_PKG);
 
+/** Repo-relative, forward-slashed — so a failure message reads the same on any OS. */
+const rel = (file: string) =>
+  path.relative(process.cwd(), file).replace(/\\/g, "/");
+
 describe("the pinned pdfjs decoders match the installed package", () => {
   it("pins the version actually installed", () => {
     const installed = (
@@ -102,25 +106,58 @@ describe("the pinned pdfjs decoders match the installed package", () => {
 });
 
 describe("every document we open asks for the decoders", () => {
-  const engineFiles = () =>
-    readdirSync(path.join(process.cwd(), "src", "lib", "pdf"))
-      .filter((f) => f.endsWith(".ts") && !f.includes(".test."))
-      .map((f) => path.join(process.cwd(), "src", "lib", "pdf", f));
+  /**
+   * The whole source tree, recursively — NOT `src/lib/pdf`.
+   *
+   * The first version of this guard read one flat directory, because that is
+   * where all four call sites happen to live today. It would have been blind
+   * to a `getDocument` in a `.tsx` runner, under `src/lib/workers`, or in
+   * `scripts/` — a private, narrow walk written inside the fix for the defect
+   * that narrow private walks keep causing. The surface has to be as wide as
+   * the place the mistake can be made, not as wide as the mistakes made so far.
+   */
+  const sourceFiles = (): string[] => {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
+          out.push(full);
+      }
+    };
+    for (const root of ["src", "scripts"]) {
+      const dir = path.join(process.cwd(), root);
+      if (statSync(dir).isDirectory()) walk(dir);
+    }
+    return out;
+  };
 
-  it("scans a meaningful number of engine modules", () => {
-    expect(engineFiles().length).toBeGreaterThanOrEqual(10);
+  it("scans the whole source tree, not one directory", () => {
+    const files = sourceFiles().map((f) =>
+      path.relative(process.cwd(), f).replace(/\\/g, "/"),
+    );
+    expect(files.length).toBeGreaterThanOrEqual(200);
+    // Reach-proof: a call site could legitimately appear in any of these
+    // shapes, so the walk must demonstrably reach all of them.
+    expect(files).toContain("src/lib/pdf/render.ts");
+    expect(
+      files.some((f) => f.startsWith("src/components/") && f.endsWith(".tsx")),
+    ).toBe(true);
+    expect(files.some((f) => f.startsWith("src/lib/workers/"))).toBe(true);
+    expect(files.some((f) => f.startsWith("scripts/"))).toBe(true);
   });
 
   it("has no getDocument call that builds its own options", () => {
     const offenders: string[] = [];
     let callSites = 0;
-    for (const file of engineFiles()) {
+    for (const file of sourceFiles()) {
       const source = readFileSync(file, "utf8");
       for (const match of source.matchAll(/getDocument\(([^)]*)\)/g)) {
         callSites += 1;
         if (!match[1]!.includes("PDFJS_DOCUMENT_DEFAULTS")) {
           offenders.push(
-            `${path.basename(file)}: getDocument(${match[1]!.trim()}) does not spread ` +
+            `${rel(file)}: getDocument(${match[1]!.trim()}) does not spread ` +
               "PDFJS_DOCUMENT_DEFAULTS — without wasmUrl this document's JPEG2000 and " +
               "JBIG2 images decode to nothing, silently",
           );
