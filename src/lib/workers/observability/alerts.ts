@@ -135,7 +135,8 @@ export const ALERT_ACTIONS = [
   "refresh-cleanup-evidence", // cleanup evidence report is stale/missing/unreadable/malformed
   "fix-rate-limit-config", // a remote limiter is selected but its store config is incomplete
   "investigate-rate-limit-store", // a configured limiter's store is erroring; guard failing open
-  "enable-per-client-identity", // the limiter enforces, but on ONE bucket for all callers
+  "enable-per-client-identity", // now also a RecommendedAction; listed here so
+  // the RecommendedAction-is-an-AlertAction assert still holds
   "monitor", // informational; nothing to fix, keep observing
 ] as const;
 export type AlertAction = (typeof ALERT_ACTIONS)[number];
@@ -168,8 +169,6 @@ const EXTRA_ACTION_DETAIL: Record<
     "A remote rate-limit provider is selected but its store configuration is missing or incomplete, so nothing is throttling despite the operator opting in. Fix the store configuration (see the rate-limiting runbook) or deliberately disable the provider.",
   "investigate-rate-limit-store":
     "The distributed rate limiter is configured, but the store is unreachable or erroring and the guard is failing OPEN — traffic is passing unthrottled right now. Investigate the store's health and quota; the app itself needs no fix.",
-  "enable-per-client-identity":
-    "The distributed rate limiter is configured and enforcing, but it counts every caller in ONE shared bucket, so the published per-policy budgets apply to all traffic combined rather than per visitor. Honest per-client accounting needs trusted client identity AND a key salt that is stable across instances — see the rate-limiting runbook; the store itself is healthy.",
   monitor:
     "No fix is required right now; this is informational. Keep the monitor in place so a change is caught.",
 };

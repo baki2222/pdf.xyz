@@ -370,6 +370,11 @@ const RECOMMENDED_ACTION_COPY: Record<
     detail:
       "A malware scanner is selected but its configuration is missing or malformed, so inputs wouldn't be scanned. Fix the scanner configuration.",
   },
+  "enable-per-client-identity": {
+    title: "Enable per-client rate limiting",
+    detail:
+      "The limiter is enforcing, but counts every caller in one shared bucket, so the published budgets apply to all traffic combined rather than per visitor. It needs both trusted client identity and a key salt identical on every instance.",
+  },
   "declare-lifecycle": {
     title: "Declare a retention backstop",
     detail:

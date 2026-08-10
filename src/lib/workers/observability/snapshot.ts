@@ -176,6 +176,14 @@ type AssertExtends<A, B> = [A] extends [B] ? true : false;
 // AND a UI copy map in src/components/status all learned it. Nobody would have
 // found that last one by reading. A boolean bolted onto an existing posture
 // gets none of that, which is why a new CODE is the safe shape.
+//
+// And read the observer's own output ONCE, on the deployment, in the change
+// that adds it. `remote-configured-shared` made a hidden state visible and
+// shipped three contradictions in the same breath — `enforced: false` beside a
+// detail reading "configured and enforcing", and an `ok` headline above the
+// warn it had just created. None of them was visible in the diff; all three
+// were obvious in one `curl` of the payload. A change that adds an observer is
+// exactly when the observer is least likely to have been observed.
 const _statusCodesAreSnapshotCodes: AssertExtends<
   RateLimitStatusCode,
   SnapshotRateLimitCode
@@ -257,9 +265,20 @@ export function rateLimitPostureForCode(
 ): SnapshotRateLimitPosture {
   return {
     code,
-    enforced: code === "local-memory" || code === "remote-configured",
+    // `enforced` and `distributed` describe THE MECHANISM, not whether it is
+    // per client: `remote-configured-shared` really does throttle, and really
+    // does share one counter across instances — it just counts everyone into a
+    // single bucket. The code carries the per-client distinction; conflating it
+    // into these booleans is what made the payload contradict its own detail
+    // string, which said "configured and enforcing" beside `enforced: false`.
+    enforced:
+      code === "local-memory" ||
+      code === "remote-configured" ||
+      code === "remote-configured-shared",
     distributed:
-      code === "remote-configured" || code === "remote-error-fail-open",
+      code === "remote-configured" ||
+      code === "remote-configured-shared" ||
+      code === "remote-error-fail-open",
     detail: RATE_LIMIT_DETAIL[code],
   };
 }
@@ -294,6 +313,7 @@ export type RecommendedAction =
   | "install-deep-engine" // deep compression is wanted but no native engine is installed
   | "install-ocr-engine" // OCR is opted into but no engine is installed on the worker
   | "fix-scanner" // a malware scanner is selected but misconfigured
+  | "enable-per-client-identity" // the limiter enforces, but on ONE bucket for all callers
   | "declare-lifecycle" // no retention/lifecycle backstop is declared
   | "verify-lifecycle" // a backstop is declared but not asserted validated
   | "reconcile-lifecycle-drift" // an observed config shows the backstop does not hold
@@ -478,6 +498,8 @@ export const RECOMMENDED_ACTION_DETAIL: Record<RecommendedAction, string> = {
     "OCR is opted into but no engine is installed on this worker, so OCR jobs would fail as not-implemented. Install the OCR engine or turn OCR off.",
   "fix-scanner":
     "A malware scanner is selected but its endpoint configuration is missing or malformed, so inputs would not be scanned. Fix the scanner configuration.",
+  "enable-per-client-identity":
+    "The rate limiter is configured and enforcing, but it counts every caller in one shared bucket, so the published per-policy budgets apply to all traffic combined rather than per visitor. Per-client accounting needs BOTH trusted client identity and a key salt that is identical on every instance — see the rate-limiting runbook.",
   "declare-lifecycle":
     "No retention/lifecycle backstop is declared, so bucket auto-deletion is unknown here. Generate a policy, apply it out-of-band, and declare it.",
   "verify-lifecycle":
@@ -913,7 +935,27 @@ export function buildWorkerOperationsSnapshot(
     cleanupEvidence,
     rateLimit,
   );
-  const { health, action } = deriveVerdict(input, lifecycleVerification);
+  let { health, action } = deriveVerdict(input, lifecycleVerification);
+  // Fold the abuse guard into the HEADLINE, not just into a row.
+  //
+  // `deriveVerdict` answers "can a worker run correctly here", which the
+  // limiter's posture does not affect — so a limiter counting the whole world
+  // into one bucket produced `health: ok` and "no action is required" directly
+  // above a `warn` subsystem saying exactly that. A warn that leaves the
+  // headline healthy is not an alert, it is a footnote, and it is the /status
+  // headline-denies-the-row defect in a second payload.
+  //
+  // Only ESCALATES: a real blocker keeps its own action, and nothing here can
+  // make a degraded system look healthier.
+  if (rateLimitHealth(rateLimit.code) === "warn" && health === "ok") {
+    health = "warn";
+    // Only the shared-bucket state gets a new headline action; the other
+    // rate-limit warns already carry their own alert reason and action, and
+    // inventing a second vocabulary for them here would let the two disagree.
+    if (rateLimit.code === "remote-configured-shared") {
+      action = "enable-per-client-identity";
+    }
+  }
   const daemon = resolveDaemonLiveness(input.vantage, input.daemonLiveness);
 
   const engineState = facetOf(input.deployment, "engine")?.state;
