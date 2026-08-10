@@ -90,6 +90,25 @@ export function webApplicationSchema(): Json {
   };
 }
 
+/**
+ * A tool's steps as HowTo structured data. The steps come from
+ * `howToSteps` — the tool's own catalogue steps or the mode-true default —
+ * and the structured-steps guard pins that an in-browser tool's steps never
+ * claim an upload, because this block ships to crawlers as fact.
+ */
+export function howToSchema(name: string, steps: readonly string[]): Json {
+  return {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name: `How to use ${name}`,
+    step: steps.map((text, index) => ({
+      "@type": "HowToStep",
+      position: index + 1,
+      text,
+    })),
+  };
+}
+
 export function faqPageSchema(items: FaqItem[]): Json {
   return {
     "@context": "https://schema.org",

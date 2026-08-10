@@ -19,14 +19,25 @@ import path from "node:path";
 
 const ROOT = process.cwd();
 
-/** Every user-facing source file whose text a visitor can read. */
+/**
+ * Every user-facing source file whose text a visitor can read.
+ *
+ * `src/lib/tools` is WALKED, not listed, since 2026-08-10: the explicit list
+ * drifted twice — marketing-honesty missed `site.ts`, and then the walk
+ * itself missed `tool-facts.ts`, the file holding the facts, FAQ answers,
+ * and steps for all fifty tool pages, in the very change built so that
+ * class could not recur. A list is the thing that drifts; the walk also
+ * picks up `categories.ts` and `processing.ts`, whose descriptions are
+ * user-facing copy the list never carried. `faq.ts` and `site.ts` stay
+ * listed because they live outside any walked root — each with this reason.
+ */
 export function copyFiles(): string[] {
   const roots = [
     path.join(ROOT, "src", "components", "sections"),
     path.join(ROOT, "src", "app"),
+    path.join(ROOT, "src", "lib", "tools"),
   ];
   const out: string[] = [
-    path.join(ROOT, "src", "lib", "tools", "catalog.ts"),
     path.join(ROOT, "src", "lib", "faq.ts"),
     path.join(ROOT, "src", "lib", "site.ts"),
   ];

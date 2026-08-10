@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/tool-facts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, FileText, Keyboard, ShieldCheck, Type } from "lucide-react";
 import { textPdfOutputName, textToPdf } from "@/lib/pdf/text-to-pdf";
@@ -18,8 +19,6 @@ import { HandoffLoadedBadge, HandoffLoading, HandoffProblem } from "./handoff-no
 import { useToolHandoff } from "./use-tool-handoff";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
-const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
-const MAX_SOURCE_MB = MAX_SOURCE_BYTES / (1024 * 1024);
 
 interface TextSource {
   name: string;
