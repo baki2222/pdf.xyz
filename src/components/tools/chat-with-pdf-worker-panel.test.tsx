@@ -59,6 +59,7 @@ const READY: WorkerStatus = {
   },
   daemon: { ...resolveDaemonReadiness({}), drainable: true },
   ai: resolveAiReadiness({ PDFXYZ_AI_PROVIDER: "openai", PDFXYZ_AI_MODEL: "gpt-5.6-luna" }),
+  pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
 };
 
 function stubStatus() {

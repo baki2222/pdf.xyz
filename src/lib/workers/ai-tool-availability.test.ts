@@ -72,6 +72,7 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       detail: "daemon can drain",
     },
     ai: AI_READY,
+    pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
     ...overrides,
   };
 }

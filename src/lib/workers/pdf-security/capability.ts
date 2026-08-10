@@ -45,7 +45,12 @@ function unavailableDetail(mode: WorkerMode): string {
       return "Protect, Unlock, Repair, and Optimize for Web run on the out-of-band secure worker (qpdf). This web process can't confirm the worker's engine from here; a job will run there or fail honestly.";
     case "disabled":
     default:
-      return "qpdf-backed PDF tools need a secure worker with qpdf, which isn't enabled in this environment — nothing is uploaded.";
+      // Read alone, so it names its vantage: this field reports what THIS web
+      // process can observe, and it cannot observe a remote worker's engines.
+      // Its old wording ("isn't enabled in this environment") read as a
+      // deployment-wide verdict and misled an operator while the out-of-band
+      // worker was running these very tools.
+      return "qpdf-backed PDF tools (Protect, Unlock, Repair, Optimize for Web) need the out-of-band secure worker; this web process cannot observe that worker's engines from here. When a worker is deployed, jobs run there or fail honestly — nothing is uploaded until you start one.";
   }
 }
 

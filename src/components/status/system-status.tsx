@@ -30,7 +30,13 @@ export interface LocalToolRef {
 
 type Phase = "loading" | "ready" | "error";
 
-/** Presence-only badge describing the secure worker's current availability. */
+/**
+ * The card's single verdict, derived from the observed pipeline summary and
+ * only from it — never from the web process's in-process facet (`mode`/
+ * `enabled`), which is what let a "Not enabled" headline sit above rows
+ * reporting a live worker. Local-dev is the one deliberate exception: a
+ * dev-only in-process mode, labeled as exactly that.
+ */
 function workerBadge(status: WorkerStatus): {
   tone: StatusTone;
   label: string;
@@ -39,10 +45,14 @@ function workerBadge(status: WorkerStatus): {
   if (status.mode === "local-dev") {
     return { tone: "warn", label: "Local-dev worker", pulse: true };
   }
-  if (status.mode === "remote-configured") {
-    return { tone: "info", label: "Configured", pulse: false };
+  switch (status.pipeline.verdict) {
+    case "live":
+      return { tone: "ok", label: "Live", pulse: true };
+    case "configured":
+      return { tone: "info", label: "Configured", pulse: false };
+    default:
+      return { tone: "muted", label: "Not enabled", pulse: false };
   }
-  return { tone: "muted", label: "Not enabled", pulse: false };
 }
 
 /**
@@ -186,8 +196,12 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
 
           {phase === "ready" && status && (
             <div className="flex flex-col gap-3">
+              {/* The lead and the badge share one source — the observed
+                  pipeline summary — so this paragraph can never again deny
+                  what a row below asserts. Local-dev keeps its in-process
+                  detail: that string is about THIS machine, and it is true. */}
               <p className="text-sm leading-relaxed text-slate-400">
-                {status.detail}
+                {status.mode === "local-dev" ? status.detail : status.pipeline.detail}
               </p>
               {/* Per-capability honesty: OCR is called out explicitly so the page
                   never implies a searchable-PDF pipeline that isn't wired up. */}

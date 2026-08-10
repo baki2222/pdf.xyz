@@ -92,6 +92,12 @@ export interface WorkerStatus {
    * switch only — the API key lives on the worker and is never read here.
    */
   ai: AiReadiness;
+  /**
+   * The out-of-band pipeline's single observed verdict — see
+   * {@link PipelineSummary}. The /status headline derives from this and only
+   * this, so it can never contradict the facet rows again.
+   */
+  pipeline: PipelineSummary;
 }
 
 const NO_COMPRESS: CompressCapability = {
@@ -99,6 +105,66 @@ const NO_COMPRESS: CompressCapability = {
   deep: false,
   engines: [],
 };
+
+/**
+ * The out-of-band pipeline, summarized from OBSERVED state only — the
+ * worker's liveness heartbeat and whether the queue + storage could drain
+ * one — never from a configuration flag. Config flags are what produced the
+ * /status contradiction this field exists to end: `mode`/`enabled` describe
+ * the WEB PROCESS's in-process facet, are named as if global, and were
+ * rendered as a headline over rows carrying observed heartbeat state. The
+ * status page derives its single verdict from THIS field, so the headline
+ * and the rows can never be computed independently again.
+ *
+ * Local-dev's in-process worker is deliberately outside this summary: it is
+ * not the out-of-band pipeline, and its card keeps the explicit dev badge.
+ */
+export interface PipelineSummary {
+  /**
+   * `live` — a worker heartbeat is observed right now; `configured` — the
+   * queue and storage could drain a worker but none is observed; `off` —
+   * neither.
+   */
+  verdict: "live" | "configured" | "off";
+  /** A worker liveness heartbeat is currently observed. */
+  observed: boolean;
+  /** Queue + storage are both configured, so a deployed worker could drain them. */
+  drainable: boolean;
+  /** One-line, client-safe summary that names its own vantage. */
+  detail: string;
+}
+
+/** Derive the pipeline summary from the two observed facts, nothing else. */
+export function buildPipelineSummary(
+  observed: boolean,
+  drainable: boolean,
+): PipelineSummary {
+  if (observed) {
+    return {
+      verdict: "live",
+      observed,
+      drainable,
+      detail:
+        "A secure worker is live — its liveness heartbeat is observed, along with the capabilities it reports.",
+    };
+  }
+  if (drainable) {
+    return {
+      verdict: "configured",
+      observed,
+      drainable,
+      detail:
+        "The job queue and object storage are configured, so a deployed worker could drain them — but no worker heartbeat is observed right now.",
+    };
+  }
+  return {
+    verdict: "off",
+    observed,
+    drainable,
+    detail:
+      "This deployment's pipeline cannot drain a worker — the job queue and object storage are not both configured — and no worker is observed.",
+  };
+}
 
 /**
  * Derive the client-facing status from the resolved mode and (for local-dev)
@@ -150,6 +216,7 @@ export function buildWorkerStatus(
   // Mode-independent, like `daemon`: the AI tools always run on the out-of-band
   // worker, so what matters is whether this deployment declares a provider at all.
   const ai = resolveAiReadiness(env);
+  const pipeline = buildPipelineSummary(workerObserved === true, daemon.drainable);
 
   if (mode === "local-dev") {
     const engines = DEEP_COMPRESSION_TOOLS.filter((tool) => tools?.[tool]);
@@ -168,6 +235,7 @@ export function buildWorkerStatus(
       providers,
       daemon,
       ai,
+      pipeline,
     };
   }
 
@@ -176,8 +244,9 @@ export function buildWorkerStatus(
       mode,
       enabled: false,
       localDevOnly: false,
+      // Read alone, out of the context of its field, so it names its vantage.
       detail:
-        "A worker backend is configured, but this build ships no processing pipeline yet.",
+        "A worker backend is configured, but this web process ships no in-process pipeline; processing runs on the out-of-band secure worker when one is observed.",
       compress: { ...NO_COMPRESS },
       ocr,
       scan,
@@ -185,6 +254,7 @@ export function buildWorkerStatus(
       providers,
       daemon,
       ai,
+      pipeline,
     };
   }
 
@@ -192,8 +262,12 @@ export function buildWorkerStatus(
     mode: "disabled",
     enabled: false,
     localDevOnly: false,
+    // This string once read "No secure worker is configured in this
+    // environment" and was rendered as the /status headline while OCR jobs ran
+    // on the out-of-band worker — a `detail` is read alone, so it has to name
+    // its own vantage (this web process), never the deployment's.
     detail:
-      "No secure worker is configured in this environment. Deep image compression runs on an encrypted, auto-deleting worker when enabled.",
+      "This web process runs no in-process worker. File processing, including deep image compression, runs on the out-of-band secure worker when one is observed.",
     compress: { ...NO_COMPRESS },
     ocr,
     scan,
@@ -201,5 +275,6 @@ export function buildWorkerStatus(
     providers,
     daemon,
     ai,
+    pipeline,
   };
 }

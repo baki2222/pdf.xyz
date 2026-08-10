@@ -135,7 +135,7 @@ automatic deletion within minutes, and **no document contents in logs**.
 
 ## Server API contract (secure workers)
 
-The boundary to future server-side processing is defined as typed contracts in
+The boundary to server-side processing is defined as typed contracts in
 [`src/lib/jobs`](../src/lib/jobs) and exposed as three App Router endpoints:
 
 | Endpoint | Purpose |
@@ -348,7 +348,7 @@ today and tighten it deliberately rather than leave CSP off.
 ## Secrets & supply chain
 
 - Secrets are never committed. `.env*` files are git-ignored and never read into
-  client code. Runtime secrets (future workers/AI) live only in the host's
+  client code. Runtime secrets (workers/AI) live only in the host's
   environment settings.
 - Dependencies are installed with a **frozen lockfile** in CI and on Vercel for
   reproducible builds; the dependency surface is kept intentionally small.
