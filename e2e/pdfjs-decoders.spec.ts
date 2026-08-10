@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { PDFJS_WASM_ASSETS, PDFJS_WASM_URL } from "../src/lib/pdf/wasm-assets";
+import {
+  PDFJS_CMAP_URL,
+  PDFJS_WASM_ASSETS,
+  PDFJS_WASM_URL,
+} from "../src/lib/pdf/wasm-assets";
 
 /**
  * The decoders are actually SERVED by the deployed app.
@@ -39,5 +43,24 @@ test.describe("pdfjs image decoders", () => {
   }) => {
     const res = await request.get(`${PDFJS_WASM_URL}${PDFJS_WASM_ASSETS[0]}`);
     expect(res.headers()["cache-control"]).toContain("immutable");
+  });
+
+  test("the character maps a CJK document needs are served", async ({
+    request,
+  }) => {
+    // Without these a non-embedded CJK page renders COMPLETELY blank — measured,
+    // 0 ink pixels against 8,630 once cMapUrl resolves. `UniGB-UCS2-H` is the
+    // Simplified Chinese entry point and `Adobe-GB1-UCS2` the map it chains to,
+    // so the pair proves both hops of a real lookup.
+    for (const map of ["UniGB-UCS2-H.bcmap", "Adobe-GB1-UCS2.bcmap"]) {
+      const url = `${PDFJS_CMAP_URL}${map}`;
+      const res = await request.get(url);
+      expect(
+        res.status(),
+        `${url} is not served — a non-embedded Chinese, Japanese or Korean ` +
+          "document would render as a blank page, silently",
+      ).toBe(200);
+      expect((await res.body()).byteLength).toBeGreaterThan(1024);
+    }
   });
 });

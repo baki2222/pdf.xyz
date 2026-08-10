@@ -20,7 +20,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  PDFJS_CMAP_URL,
   PDFJS_DOCUMENT_DEFAULTS,
+  PDFJS_UNSET_ASSET_OPTIONS,
   PDFJS_WASM_ASSETS,
   PDFJS_WASM_URL,
   PDFJS_WASM_VERSION,
@@ -174,8 +176,45 @@ describe("every document we open asks for the decoders", () => {
   it("points at a directory URL pdfjs can append filenames to", () => {
     // pdfjs builds `${wasmUrl}${filename}` — a missing trailing slash silently
     // produces "/pdfjs-wasm/6.1.200openjpeg.wasm".
-    expect(PDFJS_WASM_URL.endsWith("/")).toBe(true);
-    expect(PDFJS_WASM_URL).toContain(PDFJS_WASM_VERSION);
+    for (const url of [PDFJS_WASM_URL, PDFJS_CMAP_URL]) {
+      expect(url.endsWith("/")).toBe(true);
+      expect(url).toContain(PDFJS_WASM_VERSION);
+    }
     expect(PDFJS_DOCUMENT_DEFAULTS.wasmUrl).toBe(PDFJS_WASM_URL);
+    expect(PDFJS_DOCUMENT_DEFAULTS.cMapUrl).toBe(PDFJS_CMAP_URL);
+  });
+});
+
+describe("character maps, without which CJK documents render blank", () => {
+  it("asks for the packed maps, because packed is what ships", () => {
+    // The package ships `.bcmap`. With cMapPacked false pdfjs requests the
+    // unpacked spelling and every request 404s — the same blank page, one
+    // option over.
+    expect(
+      PDFJS_DOCUMENT_DEFAULTS.cMapPacked,
+      "cMapUrl without cMapPacked makes pdfjs request unpacked maps the package " +
+        "does not ship, and a non-embedded CJK page renders blank again",
+    ).toBe(true);
+    const packed = readdirSync(path.join(PDFJS_DIR, "cmaps")).filter((n) =>
+      n.endsWith(".bcmap"),
+    );
+    expect(packed.length).toBeGreaterThanOrEqual(100);
+  });
+
+  it("records the sibling options measured NOT to matter", () => {
+    // The point of the list is that it is SHORT: each entry was probed, not
+    // assumed. If someone later measures one of these as live, it moves out of
+    // this list and into the defaults — and this test is where they will look.
+    expect(PDFJS_UNSET_ASSET_OPTIONS).toEqual([
+      "standardFontDataUrl",
+      "iccUrl",
+    ]);
+    for (const option of PDFJS_UNSET_ASSET_OPTIONS) {
+      expect(
+        Object.keys(PDFJS_DOCUMENT_DEFAULTS),
+        `${option} is now set, but it is still listed as deliberately unset — ` +
+          "the measurement that justified leaving it out needs updating too",
+      ).not.toContain(option);
+    }
   });
 });

@@ -18,12 +18,26 @@
  * resolves the package through `require.resolve`, which follows the link.
  */
 import { createRequire } from "node:module";
-import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import path from "node:path";
 import {
   PDFJS_WASM_ASSETS,
   PDFJS_WASM_VERSION,
 } from "../src/lib/pdf/wasm-assets";
+
+/**
+ * Minimum `.bcmap` files expected in pdfjs's cmaps directory. A count-assert
+ * rather than a list: the point is to notice the directory arriving EMPTY or
+ * nearly so (a packaging change, a bad copy), which would blank every CJK
+ * document exactly as before while every source-reading guard stayed green.
+ */
+const MIN_CMAPS = 100;
 
 const require = createRequire(import.meta.url);
 
@@ -86,4 +100,56 @@ if (copied !== PDFJS_WASM_ASSETS.length) {
 console.log(
   `copy-pdfjs-wasm: ${copied} assets (${(bytes / 1024).toFixed(0)} KB) -> ` +
     `public/pdfjs-wasm/${PDFJS_WASM_VERSION}/`,
+);
+
+/* ---------------------------------------------------------------- *
+ *  Character maps: without these, a non-embedded CJK document renders
+ *  COMPLETELY blank — measured, not assumed.
+ * ---------------------------------------------------------------- */
+
+const cmapSource = path.join(path.dirname(pkgJsonPath), "cmaps");
+const cmapDest = path.join(
+  process.cwd(),
+  "public",
+  "pdfjs-cmaps",
+  PDFJS_WASM_VERSION,
+);
+mkdirSync(cmapDest, { recursive: true });
+
+let cmapNames: string[];
+try {
+  cmapNames = readdirSync(cmapSource).filter((n) => n.endsWith(".bcmap"));
+} catch {
+  fail(
+    `${cmapSource} is missing. pdfjs-dist ${installed.version} does not ship ` +
+      "character maps under that path — every non-embedded CJK document would " +
+      "render blank.",
+  );
+}
+
+if (cmapNames.length < MIN_CMAPS) {
+  fail(
+    `only ${cmapNames.length} .bcmap files in ${cmapSource} (expected at least ` +
+      `${MIN_CMAPS}) — copying this would silently blank most CJK documents`,
+  );
+}
+
+let cmapBytes = 0;
+for (const name of cmapNames) {
+  const from = path.join(cmapSource, name);
+  const to = path.join(cmapDest, name);
+  copyFileSync(from, to);
+  const written = statSync(to).size;
+  if (written !== statSync(from).size) fail(`${name} copied short`);
+  cmapBytes += written;
+}
+
+const landed = readdirSync(cmapDest).filter((n) => n.endsWith(".bcmap")).length;
+if (landed !== cmapNames.length) {
+  fail(`copied ${cmapNames.length} cmaps but ${landed} landed on disk`);
+}
+
+console.log(
+  `copy-pdfjs-wasm: ${landed} cmaps (${(cmapBytes / 1024).toFixed(0)} KB) -> ` +
+    `public/pdfjs-cmaps/${PDFJS_WASM_VERSION}/`,
 );
