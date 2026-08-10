@@ -27,8 +27,12 @@ describe("retryAfterBucket", () => {
 });
 
 describe("RATE_LIMIT_ACTIONS", () => {
-  it("has the eight guarded actions, unique and stable", () => {
-    expect(RATE_LIMIT_ACTIONS).toHaveLength(8);
-    expect(new Set(RATE_LIMIT_ACTIONS).size).toBe(8);
+  it("lists every guarded action exactly once (no count in the name — counts drift)", () => {
+    // The old name said "the eight guarded actions" and went stale the day a
+    // ninth landed — the same class as the doc that said "seven policies"
+    // over a table of eight. Uniqueness and the exact membership are the
+    // invariants; the count is whatever the list says.
+    expect(new Set(RATE_LIMIT_ACTIONS).size).toBe(RATE_LIMIT_ACTIONS.length);
+    expect(RATE_LIMIT_ACTIONS).toContain("ai.run");
   });
 });

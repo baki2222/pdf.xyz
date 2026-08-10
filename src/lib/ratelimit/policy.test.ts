@@ -32,6 +32,11 @@ describe("rate-limit policies", () => {
       RATE_LIMITS.statusRequestsPerMinutePerClient,
     );
     expect(policyFor("jobs.status").windowSeconds).toBe(60);
+    // The free daily AI allowance: runs per client per DAY, derived from the
+    // published constant so the copy, the census, and the guard share one
+    // number (owner ruling, 2026-08-10).
+    expect(policyFor("ai.run").limit).toBe(RATE_LIMITS.aiRunsPerDayPerClient);
+    expect(policyFor("ai.run").windowSeconds).toBe(86_400);
   });
 
   it("enumerates every policy in the stable action order", () => {

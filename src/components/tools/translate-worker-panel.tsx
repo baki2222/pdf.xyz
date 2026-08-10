@@ -14,7 +14,10 @@ import {
   type TranslateSourceLanguage,
 } from "@/lib/jobs/translate-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
-import { aiToolUnavailableDetail } from "@/lib/workers/ai-tool-availability";
+import {
+  AI_DAILY_ALLOWANCE_NOTE,
+  aiToolUnavailableDetail,
+} from "@/lib/workers/ai-tool-availability";
 import {
   canRunTranslate,
   runWorkerTranslate,
@@ -98,6 +101,9 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
+          {available && (
+            <p className="text-xs leading-relaxed text-slate-400">{AI_DAILY_ALLOWANCE_NOTE}</p>
+          )}
         {available ? (
           <TranslateBuilder />
         ) : (

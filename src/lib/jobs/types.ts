@@ -95,6 +95,15 @@ export const RATE_LIMITS = {
   uploadsPerHourPerClient: 60,
   jobsPerHourPerClient: 60,
   statusRequestsPerMinutePerClient: 120,
+  /**
+   * The free daily AI allowance, counted in the unit a user can actually act
+   * on — runs, not dollars. Deliberately conservative (owner ruling,
+   * 2026-08-10): raising a limit is an announcement, lowering one is a broken
+   * promise. Every user-facing mention derives from this constant; the
+   * numbers census owns the figure. The global daily spend ceiling is a
+   * separate, internal circuit breaker and is never published.
+   */
+  aiRunsPerDayPerClient: 3,
 } as const;
 
 // ─────────────────────────────── Upload session ──────────────────────────────

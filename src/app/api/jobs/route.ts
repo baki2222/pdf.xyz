@@ -9,7 +9,8 @@
  * real and fails honestly when it cannot. See docs/WORKER_ARCHITECTURE.md.
  */
 
-import { parseCreateJobRequest } from "@/lib/jobs";
+import { capabilityForMode, parseCreateJobRequest } from "@/lib/jobs";
+import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
 import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
@@ -39,6 +40,17 @@ export async function POST(request: Request): Promise<Response> {
 
   const parsed = parseCreateJobRequest(body.value);
   if (!parsed.ok) return respond(parsed.error);
+
+  // The free daily AI allowance, on top of jobs.create: an AI-capability tool
+  // costs real provider spend per run, so it carries its own per-client daily
+  // policy. Checked AFTER parsing because the verdict depends on which tool
+  // the job names — and the refusal names the allowance, not a generic
+  // throttle (see AI_ALLOWANCE_USED_MESSAGE).
+  const tool = getToolBySlug(parsed.value.tool);
+  if (tool && capabilityForMode(tool.processing) === "ai") {
+    const aiLimit = await enforceRateLimit("ai.run", request);
+    if (!aiLimit.allowed) return respondRateLimited(aiLimit);
+  }
 
   const adapter = await getWorkerAdapter();
   const outcome = await adapter.createJob(parsed.value);

@@ -28,6 +28,19 @@ describe("rateLimitErrorResult", () => {
     expect(result.body.error.docs).toBeTruthy();
   });
 
+  it("names the true reason when the AI allowance is used, derived from the constant", () => {
+    // A refused AI run is not a degraded service and not a generic flood
+    // throttle — the user spent the allowance. Saying anything vaguer is the
+    // "service unavailable" lie the owner ruled out.
+    const result = rateLimitErrorResult({ ...deny(42), action: "ai.run", policyId: "ai.run" });
+    expect(result.body.error.message).toContain(
+      `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs`,
+    );
+    expect(result.body.error.message).toMatch(/resets daily/i);
+    // Every other action keeps the generic content-free message.
+    expect(rateLimitErrorResult(deny(42)).body.error.message).toBe(RATE_LIMITED_MESSAGE);
+  });
+
   it("keeps the message content-free (no identity, no caller)", () => {
     expect(RATE_LIMITED_MESSAGE).not.toMatch(/ip|token|cookie|filename|user-agent/i);
   });
