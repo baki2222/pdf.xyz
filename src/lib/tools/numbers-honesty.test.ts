@@ -110,6 +110,7 @@ function copyFiles(): string[] {
   const out: string[] = [
     path.join(ROOT, "src", "lib", "tools", "catalog.ts"),
     path.join(ROOT, "src", "lib", "faq.ts"),
+    path.join(ROOT, "src", "lib", "tools", "tool-facts.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

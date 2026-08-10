@@ -47,7 +47,7 @@ export const tools: Tool[] = [
     keywords: ["split pdf", "separate pdf", "extract range", "divide pdf"],
     related: ["merge-pdf", "extract-pages", "organize-pages"],
     how: [
-      "Upload the PDF you want to split.",
+      "Pick the PDF you want to split — it stays on your device.",
       "Choose page ranges or a split-every-N-pages rule.",
       "Download the resulting files as a ZIP.",
     ],
@@ -601,7 +601,7 @@ export const tools: Tool[] = [
     name: "Sign PDF",
     tagline: "Draw, type, or upload a signature.",
     description:
-      "Sign a PDF by drawing, typing, or uploading a signature, and place it precisely.",
+      "Sign a PDF by drawing, typing, or picking a signature image, and place it precisely.",
     category: "sign",
     icon: "sign",
     processing: "client",
@@ -613,7 +613,7 @@ export const tools: Tool[] = [
     related: ["request-signatures", "fill-forms", "annotate-pdf"],
     how: [
       "Open the PDF you need to sign.",
-      "Create a signature by drawing, typing, or uploading.",
+      "Create a signature by drawing, typing, or picking an image.",
       "Place it, then export your signed PDF.",
     ],
   },

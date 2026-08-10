@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from "@/lib/tools/tool-facts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Download, FileImage, GripVertical, X } from "lucide-react";
 import { imagesToPdf, imagePdfOutputName, isImageAllowedForKind, type ImagePdfKind } from "@/lib/pdf/image-to-pdf";
@@ -11,8 +12,6 @@ import { HandoffLoadedBadge, HandoffLoading, HandoffProblem } from "./handoff-no
 import { useToolHandoff } from "./use-tool-handoff";
 
 /** One owner for the per-image cap: the size check and the copy both derive. */
-const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
-const MAX_IMAGE_MB = MAX_IMAGE_BYTES / (1024 * 1024);
 
 interface ImageItem {
   id: string;

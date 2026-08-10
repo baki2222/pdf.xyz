@@ -243,6 +243,11 @@ describe("the policy pages do not promise what the product does not do", () => {
     const sectionsDir = path.join(ROOT, "src", "components", "sections");
     const targets = [
       path.join(ROOT, "src", "lib", "faq.ts"),
+      // The per-tool facts/FAQ source: added to this walk BEFORE its first
+      // answer was written (TASK-20), because its FAQ entries feed FAQPage
+      // JSON-LD — the same channel that carried the fabricated pricing and
+      // the retention lie to crawlers.
+      path.join(ROOT, "src", "lib", "tools", "tool-facts.ts"),
       ...readdirSync(sectionsDir)
         .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."))
         .map((f) => path.join(sectionsDir, f)),
