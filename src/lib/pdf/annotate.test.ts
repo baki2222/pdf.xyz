@@ -11,6 +11,7 @@ import {
   isWinAnsiEncodable,
   parseHexColor,
   sanitizeNoteText,
+  unsupportedNoteCharacters,
   validateAnnotations,
   wrapText,
   type Annotation,
@@ -75,13 +76,30 @@ describe("isWinAnsiEncodable / sanitizeNoteText", () => {
     expect(isWinAnsiEncodable("日".codePointAt(0)!)).toBe(false);
   });
 
-  it("keeps encodable text, replaces the rest with ?, and expands tabs", () => {
+  it("keeps encodable text and expands tabs", () => {
     expect(sanitizeNoteText("Hello — “world”")).toBe("Hello — “world”");
-    expect(sanitizeNoteText("emoji 😀 test")).toBe("emoji ? test");
-    expect(sanitizeNoteText("日本語")).toBe("???");
     expect(sanitizeNoteText("a\tb")).toBe("a    b");
     // Newlines survive so wrapping can break on them.
     expect(sanitizeNoteText("a\nb")).toBe("a\nb");
+  });
+
+  it("REFUSES text it cannot draw, instead of substituting ?", () => {
+    // This assertion previously ran the other way — it required "日本語" to
+    // become "???" and the export to succeed. It was pinning the defect: a
+    // user annotating a contract in Chinese was told "Markups applied" and
+    // downloaded a PDF of question marks. Silent corruption is worse than
+    // refusal, so the expectation is inverted rather than deleted.
+    expect(() => sanitizeNoteText("日本語")).toThrow(/can't be drawn/i);
+    expect(() => sanitizeNoteText("emoji 😀 test")).toThrow(/can't be drawn/i);
+    // The message names what it could not draw, so the user can fix the input.
+    expect(() => sanitizeNoteText("Привет")).toThrow(/П/);
+  });
+
+  it("reports unsupported characters before any work is committed", () => {
+    expect(unsupportedNoteCharacters("Hello — “world”")).toEqual([]);
+    expect(unsupportedNoteCharacters("a\tb\nc")).toEqual([]);
+    // Distinct characters only, so a long CJK note does not produce a wall.
+    expect(unsupportedNoteCharacters("語語語")).toEqual(["語"]);
   });
 });
 
@@ -339,7 +357,28 @@ describe("annotatePdf", () => {
     });
   });
 
-  it("draws a note with non-WinAnsi characters without throwing", async () => {
+  it("refuses a note it cannot draw rather than exporting question marks", async () => {
+    // Inverted 2026-08-10. This asserted the export SUCCEEDED for
+    // "Emoji 😀 and 日本語 note" — which it did, by writing "Emoji ? and ??? note"
+    // into the user's contract and reporting "Markups applied". The test was
+    // agreeing with the bug.
+    const base = await blankPdf([[300, 300]]);
+    await expect(
+      annotatePdf(base, [
+        {
+          type: "note",
+          page: 1,
+          x: 20,
+          y: 150,
+          text: "Emoji 😀 and 日本語 note",
+          color: "#000000",
+          maxWidth: 260,
+        },
+      ]),
+    ).rejects.toThrow(PdfEngineError);
+  });
+
+  it("still draws a note whose characters the standard fonts cover", async () => {
     const base = await blankPdf([[300, 300]]);
     const result = await annotatePdf(base, [
       {
@@ -347,7 +386,7 @@ describe("annotatePdf", () => {
         page: 1,
         x: 20,
         y: 150,
-        text: "Emoji 😀 and 日本語 note",
+        text: "Café — “note”",
         color: "#000000",
         maxWidth: 260,
       },

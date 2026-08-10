@@ -204,24 +204,55 @@ export function isWinAnsiEncodable(codePoint: number): boolean {
 }
 
 /**
- * Make note text safe to draw with the standard Helvetica: tabs become spaces,
- * newlines are preserved (so callers can wrap on them), and any character the
- * WinAnsi encoding can't represent (emoji, CJK, …) is replaced with `?` rather
- * than throwing mid-export.
+ * The distinct characters in `text` that the standard fonts cannot draw.
+ *
+ * Empty for ordinary Western text. Exported so a runner can check BEFORE the
+ * user commits work, rather than after they have placed twenty markups.
+ */
+export function unsupportedNoteCharacters(text: string): string[] {
+  const seen = new Set<string>();
+  for (const ch of text) {
+    if (ch === "\t" || ch === "\n" || ch === "\r") continue;
+    const cp = ch.codePointAt(0);
+    if (cp === undefined || !isWinAnsiEncodable(cp)) seen.add(ch);
+  }
+  return [...seen];
+}
+
+/**
+ * Normalize note text for drawing with the standard Helvetica: tabs become
+ * spaces and newlines are preserved so callers can wrap on them.
+ *
+ * **It no longer substitutes.** Until 2026-08-10 every character the WinAnsi
+ * encoding cannot represent — all CJK, Cyrillic, Greek, Arabic, Hebrew, Hindi,
+ * every emoji, and ordinary typographic marks like → and ✓ — was silently
+ * replaced with `?` and the export reported success. A user annotating a
+ * contract in Chinese was told "Markups applied" and downloaded a PDF of
+ * question marks: their words destroyed, with nothing anywhere saying so.
+ *
+ * Silent corruption is worse than refusal. A rejection costs the user the
+ * export; a substitution costs them the document and tells them it worked.
+ * The alphabet limit is real and belongs to pdf-lib's standard fonts (embedding
+ * a Unicode font is the actual fix and a separate, larger piece) — so until
+ * then this says so out loud, naming the characters it cannot draw.
  */
 export function sanitizeNoteText(text: string): string {
+  const unsupported = unsupportedNoteCharacters(text);
+  if (unsupported.length > 0) {
+    const shown = unsupported.slice(0, 8).join(" ");
+    const more =
+      unsupported.length > 8 ? ` (and ${unsupported.length - 8} more)` : "";
+    throw new PdfEngineError(
+      `These characters can't be drawn with the built-in fonts yet: ${shown}${more}. ` +
+        "The built-in fonts cover Western European alphabets only, so Chinese, " +
+        "Japanese, Korean, Cyrillic, Greek, Arabic, Hebrew and emoji are not " +
+        "supported here — rather than replace them with “?” and hand you a " +
+        "damaged file, this stops so nothing is lost.",
+    );
+  }
   let out = "";
   for (const ch of text) {
-    if (ch === "\t") {
-      out += "    ";
-      continue;
-    }
-    if (ch === "\n" || ch === "\r") {
-      out += ch;
-      continue;
-    }
-    const cp = ch.codePointAt(0);
-    out += cp !== undefined && isWinAnsiEncodable(cp) ? ch : "?";
+    out += ch === "\t" ? "    " : ch;
   }
   return out;
 }
