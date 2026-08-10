@@ -33,6 +33,7 @@ const DISABLED_STATUS: WorkerStatus = {
   providers: getProviderReadiness("disabled"),
   daemon: resolveDaemonReadiness({}),
   ai: resolveAiReadiness({}),
+  pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
 };
 
 const LOCAL_TOOLS: LocalToolRef[] = [
@@ -116,7 +117,12 @@ describe("SystemStatus", () => {
 
     render(<SystemStatus localTools={LOCAL_TOOLS} />);
 
-    expect(await screen.findByText(DISABLED_STATUS.detail)).toBeInTheDocument();
+    // The lead renders the pipeline summary now, not the web process's
+    // in-process facet — that facet's string headlined /status over a live
+    // worker on 2026-08-10.
+    expect(
+      await screen.findByText(DISABLED_STATUS.pipeline.detail),
+    ).toBeInTheDocument();
     await waitFor(() => expect(seen).toHaveLength(1));
     expect(seen[0]).toEqual({
       name: "worker_status_checked",
@@ -139,7 +145,12 @@ describe("SystemStatus", () => {
 
     retry.click();
 
-    expect(await screen.findByText(DISABLED_STATUS.detail)).toBeInTheDocument();
+    // The lead renders the pipeline summary now, not the web process's
+    // in-process facet — that facet's string headlined /status over a live
+    // worker on 2026-08-10.
+    expect(
+      await screen.findByText(DISABLED_STATUS.pipeline.detail),
+    ).toBeInTheDocument();
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });

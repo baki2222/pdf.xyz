@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ToolAvailability } from "./compression/engine";
 import { S3_ENV } from "./storage/s3-config";
 import { AI_ENV } from "./ai/config";
-import { buildWorkerStatus } from "./status";
+import { buildPipelineSummary, buildWorkerStatus } from "./status";
 
 const noTools: ToolAvailability = {
   ghostscript: false,
@@ -35,7 +35,16 @@ describe("buildWorkerStatus", () => {
       deep: false,
       engines: [],
     });
-    expect(status.detail).toMatch(/no secure worker/i);
+    // The detail names its own vantage (this web process), never the
+    // deployment's: its predecessor read "No secure worker is configured in
+    // this environment" and became the /status headline over a live worker.
+    expect(status.detail).toMatch(/this web process runs no in-process worker/i);
+    // With nothing observed and nothing drainable, the pipeline verdict is off.
+    expect(status.pipeline).toMatchObject({
+      verdict: "off",
+      observed: false,
+      drainable: false,
+    });
   });
 
   it("reports OCR as unavailable with an honest reason in every mode", () => {
@@ -53,7 +62,23 @@ describe("buildWorkerStatus", () => {
     expect(status.enabled).toBe(false);
     expect(status.localDevOnly).toBe(false);
     expect(status.compress.deep).toBe(false);
-    expect(status.detail).toMatch(/no processing pipeline/i);
+    expect(status.detail).toMatch(/no in-process pipeline/i);
+  });
+
+  it("summarizes the pipeline from the two observed facts alone", () => {
+    // Observed beats everything: a heartbeat is the one fact that proves a
+    // worker exists, so it alone decides `live`.
+    expect(buildPipelineSummary(true, false).verdict).toBe("live");
+    expect(buildPipelineSummary(true, true).verdict).toBe("live");
+    // Drainable without a heartbeat is `configured` — could run, none seen.
+    expect(buildPipelineSummary(false, true).verdict).toBe("configured");
+    expect(buildPipelineSummary(false, false).verdict).toBe("off");
+    // The off detail states the precise gap, never a deployment-wide negative
+    // ("no secure worker is configured") — that wording is what misled an
+    // operator while the worker ran jobs.
+    expect(buildPipelineSummary(false, false).detail).not.toMatch(
+      /no secure worker is configured/i,
+    );
   });
 
   it("reports local-dev as enabled with lossless, but deep off with no engine", () => {

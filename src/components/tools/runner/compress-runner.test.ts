@@ -55,6 +55,7 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       ready: false,
       detail: "no ai declared",
     },
+    pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
     ...overrides,
   };
 }

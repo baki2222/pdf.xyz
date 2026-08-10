@@ -38,6 +38,7 @@ const DISABLED: WorkerStatus = {
   providers: getProviderReadiness("disabled"),
   daemon: resolveDaemonReadiness({}),
   ai: resolveAiReadiness({}),
+  pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
 };
 
 const AVAILABLE: WorkerStatus = {
@@ -61,6 +62,7 @@ const AVAILABLE: WorkerStatus = {
   providers: getProviderReadiness("remote-configured"),
   daemon: resolveDaemonReadiness({}),
   ai: resolveAiReadiness({}),
+  pipeline: { verdict: "off", observed: false, drainable: false, detail: "no worker observed" },
 };
 
 function stubFetch(status: WorkerStatus) {
