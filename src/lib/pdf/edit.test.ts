@@ -361,7 +361,27 @@ describe("editPdf", () => {
     expect(out.getPageCount()).toBe(1);
   });
 
-  it("draws text with non-WinAnsi characters without throwing", async () => {
+  it("refuses text it cannot draw rather than exporting question marks", async () => {
+    // Inverted 2026-08-10. This asserted the edit SUCCEEDED for
+    // "Emoji 😀 and 日本語" — which it did, by writing "Emoji ? and ???" into the
+    // user's document and reporting success. The test was agreeing with the bug.
+    const base = await blankPdf([[300, 300]]);
+    await expect(
+      editPdf(base, [
+        {
+          type: "text",
+          page: 1,
+          x: 20,
+          y: 150,
+          text: "Emoji 😀 and 日本語",
+          color: "#000000",
+          maxWidth: 260,
+        },
+      ]),
+    ).rejects.toThrow(/can't be drawn/i);
+  });
+
+  it("still draws text the standard fonts cover", async () => {
     const base = await blankPdf([[300, 300]]);
     const result = await editPdf(base, [
       {
@@ -369,7 +389,7 @@ describe("editPdf", () => {
         page: 1,
         x: 20,
         y: 150,
-        text: "Emoji 😀 and 日本語",
+        text: "Café — “edit”",
         color: "#000000",
         maxWidth: 260,
       },

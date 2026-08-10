@@ -39,7 +39,7 @@ import { canRunPdfSecurity } from "./pdf-security-client";
  * the API actually enforces. "Per device" is the honest name for a
  * per-client limit identified from the request.
  */
-export const AI_DAILY_ALLOWANCE_NOTE = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day per device — the allowance resets daily.`;
+export const AI_DAILY_ALLOWANCE_NOTE = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`;
 
 export function canRunAiTool(status: WorkerStatus | null | undefined): boolean {
   if (!status) return false;

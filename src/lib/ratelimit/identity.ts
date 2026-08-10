@@ -37,14 +37,31 @@ function salt(): string {
 }
 
 /** The forwarded client address, if the proxy set one. Leftmost hop = client. */
+/**
+ * The client address, in the order the headers can be trusted.
+ *
+ * `x-vercel-forwarded-for` first: Vercel documents it as identical to
+ * `x-forwarded-for` EXCEPT that plain `x-forwarded-for` "could be overwritten
+ * if you're using a proxy on top of Vercel". Preferring the vendor-scoped
+ * spelling costs nothing and survives a proxy layered above the platform.
+ *
+ * None of these is trusted unless the operator says so — see the docblock on
+ * {@link deriveClientToken}. The ORDER is about which is most likely to be the
+ * real client when trust has already been granted; it is not itself the trust
+ * decision.
+ */
 function forwardedAddress(headers: Headers): string | undefined {
-  const forwardedFor = headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    const first = forwardedFor.split(",")[0]?.trim();
+  for (const header of [
+    "x-vercel-forwarded-for",
+    "x-forwarded-for",
+    "x-real-ip",
+  ]) {
+    const raw = headers.get(header);
+    if (!raw) continue;
+    // A forwarding chain lists the origin client first.
+    const first = raw.split(",")[0]?.trim();
     if (first) return first;
   }
-  const realIp = headers.get("x-real-ip")?.trim();
-  if (realIp) return realIp;
   return undefined;
 }
 
