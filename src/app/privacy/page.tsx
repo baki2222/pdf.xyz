@@ -117,30 +117,27 @@ export default function PrivacyPage() {
           Some work cannot be done in a browser — optical character recognition,
           office-format conversion, and anything using an AI model. For these,
           your file is uploaded over an encrypted connection to storage we
-          control, processed, and then removed on this timetable:
+          control, scanned for malware, processed, and then removed on this
+          timetable:
         </p>
-        <p>
-          {/*
-            This page is statically generated and cannot observe whether the
-            malware scanner is configured, so it no longer asserts that every
-            file is scanned. That claim was TRUE as served — the scanner is
-            active today — but it was true by configuration rather than by
-            construction, on the one surface that opted out of a rule the rest
-            of the repo enforces: `capabilities.ts` takes `malwareScanActive` as
-            a parameter precisely because a static string once claimed this, and
-            `capabilities.test.ts` fails the build if pipeline copy asserts it.
-            Deriving it here means making this page dynamic — a real data
-            dependency, scoped separately rather than dragged in behind a copy
-            fix. Until then it points at the surface that reads the live report.
-          */}
-          Uploaded files may also be scanned for malware before any processor
-          touches them. Whether that scanner is running is an operational
-          setting rather than a promise this page can make on its own — the{" "}
-          <Link href="/status" className="text-sky-300 underline">
-            live status page
-          </Link>{" "}
-          reports what is actually active right now.
-        </p>
+        {/*
+          This says "scanned for malware" plainly, and may do so, because the claim
+          no longer depends on configuration. PDFXYZ_WORKER_REQUIRE_SCAN arms a
+          guardrail that REFUSES TO RUN when no scanner is configured, so a
+          deployment serving this page necessarily has one. That is why the
+          static page can assert it: not because a scanner happens to be wired,
+          but because a scanner-less deployment does not exist.
+
+          It briefly said "may be scanned … see /status" instead. That was true
+          and weaker than reality, and the right fix was not better wording — it
+          was making the bad state unreachable. If the guardrail is ever
+          disarmed, this sentence goes back to being configuration-dependent and
+          must change with it.
+
+          Where the guard lives: `worker:release-gate` runs `ops-check`, which
+          exits 4 when scanning is required but not active, so a promotion
+          cannot carry this claim past a dead scanner. See legal-pages.test.ts.
+        */}
         <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
             <strong className="font-semibold text-white">
@@ -380,12 +377,12 @@ export default function PrivacyPage() {
       <LegalSection id="security" heading="9. Security">
         <p>
           Traffic to and from this site is encrypted in transit. Uploaded files
-          are stored on infrastructure we control, and may be scanned for
-          malware before any processor touches them — see section 2 and the live
-          status page for what is actually running. The site sets a strict
-          Content Security Policy and related protections against common web
-          attacks. We remove uploads and results on the timetable in section 2
-          rather than keeping them.
+          are stored on infrastructure we control and are scanned for malware
+          before any processor touches them — a deployment with no scanner
+          refuses to start, so this is not a setting that can quietly lapse. The
+          site sets a strict Content Security Policy and related protections
+          against common web attacks. We remove uploads and results on the
+          timetable in section 2 rather than keeping them.
         </p>
         <p>
           No service can promise perfect security, and we do not. What we can

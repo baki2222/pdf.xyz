@@ -48,6 +48,24 @@ function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
 }
 
+/**
+ * WHERE THE MALWARE-SCANNING CLAIM IS GUARDED — deliberately not here.
+ *
+ * The privacy page states plainly that uploaded files are scanned. That is a
+ * claim about a RUNNING SERVICE, and nothing in this file can observe whether
+ * clamd answers. A test asserting the sentence exists beside a constant would
+ * restate the claim, not check it — the decoration problem.
+ *
+ * It is true by construction instead: `PDFXYZ_WORKER_REQUIRE_SCAN` arms a
+ * guardrail that refuses to start a deployment with no scanner configured, and
+ * `worker:release-gate` runs `ops-check`, which exits 4 when scanning is
+ * required but not active — so a promotion cannot carry the claim past a dead
+ * scanner.
+ *
+ * If you came here to add a guard for that sentence: the honest one is
+ * operational, not a unit test. Check the guardrail is still armed and the gate
+ * still runs before promotion.
+ */
 describe("the policy pages exist and are reachable", () => {
   it.each([
     ["privacy", PRIVACY],
