@@ -2,7 +2,10 @@
 import { describe, expect, it } from "vitest";
 import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
 
-const trusted = { trustForwardedFor: true } as const;
+const trusted = {
+  trustForwardedFor: true,
+  keySalt: "test-shared-salt",
+} as const;
 const untrusted = { trustForwardedFor: false } as const;
 
 function headers(init: Record<string, string> = {}): Headers {

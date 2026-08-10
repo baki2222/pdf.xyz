@@ -169,6 +169,13 @@ type AssertExtends<A, B> = [A] extends [B] ? true : false;
 // Compile-time proof that every status code the ratelimit layer can produce fits this
 // vocabulary, so `rateLimitPostureForCode(status.code)` can never receive a code it
 // does not know. If status.ts adds a code, this fails to type-check until it is listed.
+//
+// This is the pattern to follow when adding a posture state, and it is worth the
+// extra file: adding `remote-configured-shared` broke the build until the code
+// list, the detail map, the health map, the posture builder, the alert evaluator
+// AND a UI copy map in src/components/status all learned it. Nobody would have
+// found that last one by reading. A boolean bolted onto an existing posture
+// gets none of that, which is why a new CODE is the safe shape.
 const _statusCodesAreSnapshotCodes: AssertExtends<
   RateLimitStatusCode,
   SnapshotRateLimitCode
