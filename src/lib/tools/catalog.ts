@@ -71,7 +71,7 @@ export const tools: Tool[] = [
     name: "Extract Pages",
     tagline: "Pull specific pages into a new PDF.",
     description:
-      "Select the pages you need and export them as a brand-new PDF document.",
+      "Pick pages by clicking thumbnails or typing a range like 1-3, 5, then export them as a brand-new PDF — right in your browser. The file stays on your device.",
     category: "organize",
     icon: "extractPages",
     processing: "client",
@@ -85,7 +85,7 @@ export const tools: Tool[] = [
     name: "Delete Pages",
     tagline: "Remove unwanted pages in seconds.",
     description:
-      "Delete one or more pages from a PDF and download the trimmed document.",
+      "Delete pages by clicking thumbnails or typing a range like 1-3, 5, then download the trimmed PDF — right in your browser. The file stays on your device.",
     category: "organize",
     icon: "removePages",
     processing: "client",
@@ -99,7 +99,7 @@ export const tools: Tool[] = [
     name: "Rotate PDF",
     tagline: "Rotate pages to the correct orientation.",
     description:
-      "Rotate individual pages or the whole document 90°, 180°, or 270° and save.",
+      "Rotate individual pages or the whole document 90°, 180°, or 270°, left or right — all in your browser, and the file stays on your device.",
     category: "organize",
     icon: "rotate",
     processing: "client",
@@ -286,7 +286,7 @@ export const tools: Tool[] = [
     name: "HTML to PDF",
     tagline: "Render HTML files as PDF.",
     description:
-      "Convert HTML files or snippets into PDF using a real rendering engine.",
+      "Convert HTML files or snippets into PDF with a real Chromium rendering engine on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "html",
     processing: "server",
@@ -300,7 +300,7 @@ export const tools: Tool[] = [
     name: "Webpage to PDF",
     tagline: "Capture any URL as a clean PDF.",
     description:
-      "Enter a URL and capture the fully rendered page as a print-quality PDF.",
+      "Enter a URL and capture the fully rendered page as a print-quality PDF — Chromium renders it on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "web",
     processing: "server",
@@ -552,7 +552,7 @@ export const tools: Tool[] = [
     name: "Crop PDF",
     tagline: "Trim margins and crop pages.",
     description:
-      "Crop page margins visually and apply the crop across selected pages.",
+      "Crop PDF pages right in your browser — uniform margins or per-side control, applied to every page or only the ones you select. The file stays on your device.",
     category: "edit",
     icon: "crop",
     processing: "client",
