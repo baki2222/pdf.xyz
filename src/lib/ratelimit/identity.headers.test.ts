@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
 
-const TRUSTED = { trustForwardedFor: true };
+const TRUSTED = { trustForwardedFor: true, keySalt: "test-shared-salt" };
 const DEFAULT = { trustForwardedFor: false };
 
 describe("the client address, when the operator has granted trust", () => {

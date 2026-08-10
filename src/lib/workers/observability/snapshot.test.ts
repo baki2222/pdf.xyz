@@ -342,6 +342,7 @@ describe("worker operations snapshot — abuse-guard rate-limit posture", () => 
       // Per-client enforcement needs trusted identity too; without it the same
       // store reads `remote-configured-shared` (one bucket for everyone).
       PDFXYZ_RATE_LIMIT_TRUST_PROXY: "true",
+      PDFXYZ_RATE_LIMIT_KEY_SALT: "test-shared-salt",
     });
     expect(snap.rateLimit.code).toBe("remote-configured");
     expect(snap.rateLimit.enforced).toBe(true);

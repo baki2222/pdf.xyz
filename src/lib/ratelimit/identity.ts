@@ -20,20 +20,39 @@
  * address ever living anywhere but the transient local variable it is hashed from.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { RateLimitConfig } from "./config";
 
 /** The single bucket every request shares when no client can be attributed. */
 export const SHARED_BUCKET_TOKEN = "shared";
 
-// A per-process random salt so the in-memory bucket keys are not a plain hash of
-// an address (which would be trivially reversible by brute force). Generated once,
-// lazily, from the crypto CSPRNG. It never leaves this process, and because the
-// limiter is per-process anyway, cross-process instability is irrelevant.
-let saltCache: string | null = null;
-function salt(): string {
-  if (saltCache === null) saltCache = randomBytes(16).toString("hex");
-  return saltCache;
+/**
+ * The salt that keeps bucket keys from being a plain, brute-forceable hash of a
+ * client address.
+ *
+ * It MUST come from configuration, because it must be identical on every
+ * instance. Until 2026-08-10 it was `randomBytes(16)` generated lazily per
+ * process, under a comment that read:
+ *
+ *   "because the limiter is per-process anyway, cross-process instability is
+ *    irrelevant"
+ *
+ * That was TRUE when written and was invalidated by adding the Upstash
+ * provider — after which every serverless instance salted differently, so the
+ * same caller hashed to a different bucket on each one, and every cold start
+ * rotated it again. Measured on production: four distinct `c_` buckets from two
+ * machines. The posture claimed `distributed: true` throughout, which the key
+ * derivation could not support.
+ *
+ * THE REUSABLE PREDICATE, because this defect was created by adding a
+ * distributed backend rather than by anyone writing bad code: is a per-process
+ * random an INPUT TO A DERIVATION that must agree across processes, or does it
+ * MINT a value that is then persisted? The first breaks the moment a second
+ * process exists; the second never cares. `workers/ids.ts` and `handoff/ids.ts`
+ * are the second kind and are fine. This was the only one of the first kind.
+ */
+function salt(config: Pick<RateLimitConfig, "keySalt">): string | undefined {
+  return config.keySalt;
 }
 
 /** The forwarded client address, if the proxy set one. Leftmost hop = client. */
@@ -73,13 +92,20 @@ function forwardedAddress(headers: Headers): string | undefined {
  */
 export function deriveClientToken(
   headers: Headers,
-  config: Pick<RateLimitConfig, "trustForwardedFor">,
+  config: Pick<RateLimitConfig, "trustForwardedFor" | "keySalt">,
 ): string {
   if (!config.trustForwardedFor) return SHARED_BUCKET_TOKEN;
+  const configuredSalt = salt(config);
+  // No shared salt ⇒ REFUSE to key per client. Generating one here would make
+  // every instance bucket the same caller differently, which is not a weaker
+  // limit but effectively none — the exact defect measured on production. The
+  // shared bucket is stricter and, unlike per-instance keys, it is a state the
+  // posture names (`remote-configured-shared`) and alerts on.
+  if (!configuredSalt) return SHARED_BUCKET_TOKEN;
   const address = forwardedAddress(headers);
   if (!address) return SHARED_BUCKET_TOKEN;
   const digest = createHash("sha256")
-    .update(salt())
+    .update(configuredSalt)
     .update("\0")
     .update(address.toLowerCase())
     .digest("hex")

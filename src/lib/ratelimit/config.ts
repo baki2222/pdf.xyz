@@ -30,6 +30,12 @@ export const RATE_LIMIT_ENV = {
   provider: "PDFXYZ_RATE_LIMIT_PROVIDER",
   /** Truthy ⇒ attribute requests to a client via the proxy forwarding header. */
   trustForwardedFor: "PDFXYZ_RATE_LIMIT_TRUST_PROXY",
+  /**
+   * Secret that salts the bucket keys. Must be the SAME on every instance, or
+   * the same client hashes to a different bucket on each one — which is not a
+   * weaker limit but effectively no limit. See `identity.ts`.
+   */
+  keySalt: "PDFXYZ_RATE_LIMIT_KEY_SALT",
 } as const;
 
 /** Values that select the per-process in-memory dev limiter. */
@@ -55,6 +61,20 @@ const REMOTE_VALUES = new Set([
   "waf",
   "provider",
 ]);
+/**
+ * The configured key salt, trimmed, or `undefined` when unset or blank.
+ *
+ * Deliberately NOT defaulted to a generated value: "unset ⇒ random per
+ * instance" is exactly the defect this variable exists to end, and it would
+ * arrive silently. The caller falls back to the shared bucket instead, which is
+ * stricter but visible — see `remote-configured-shared`.
+ */
+export function readKeySalt(env: EnvSource): string | undefined {
+  const raw = env[RATE_LIMIT_ENV.keySalt];
+  const value = typeof raw === "string" ? raw.trim() : "";
+  return value === "" ? undefined : value;
+}
+
 /** Truthy values for {@link RATE_LIMIT_ENV.trustForwardedFor}. */
 const TRUTHY = new Set(["1", "true", "yes", "on", "enabled"]);
 
@@ -71,6 +91,12 @@ export interface RateLimitConfig {
   readonly providerId: RateLimitProviderId;
   /** True ⇒ derive a per-client bucket from the proxy forwarding header. */
   readonly trustForwardedFor: boolean;
+  /**
+   * The configured key salt, or `undefined`. Per-client bucketing requires it:
+   * without a shared secret every instance would salt differently and the same
+   * caller would land in a different bucket on each one.
+   */
+  readonly keySalt?: string;
   /** Name-only diagnostic for an unrecognized provider value; server-side use. */
   readonly issue?: FieldError;
 }
@@ -107,6 +133,7 @@ export function resolveRateLimitConfig(
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   const providerId = resolveRateLimitProviderId(env);
   const trustForwardedFor = isTrustForwardedFor(env);
+  const keySalt = readKeySalt(env);
 
   // Only a non-empty, unrecognized value is worth a diagnostic — it likely means
   // an operator meant to enable the guard but mistyped the provider name.
@@ -116,6 +143,7 @@ export function resolveRateLimitConfig(
   return {
     providerId,
     trustForwardedFor,
+    ...(keySalt ? { keySalt } : {}),
     ...(unrecognized
       ? {
           issue: {

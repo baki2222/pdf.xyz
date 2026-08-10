@@ -15,6 +15,7 @@ function clear(): void {
   resetRateLimitGuardForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
   delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+  delete process.env[RATE_LIMIT_ENV.keySalt];
 }
 
 beforeEach(clear);
@@ -69,6 +70,7 @@ describe("enforceRateLimit — providers", () => {
   it("separates clients only when the forwarding header is trusted", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     const policy = policyFor("jobs.create");
     const clientA = { "x-forwarded-for": "203.0.113.1" };
     const clientB = { "x-forwarded-for": "203.0.113.2" };
@@ -88,6 +90,7 @@ describe("enforceRateLimit — honesty & safety", () => {
   it("fails OPEN (never closed) if identity derivation throws", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     // A request whose headers access throws — the guard must not break the route.
     const broken = {
       headers: {
@@ -104,6 +107,7 @@ describe("enforceRateLimit — honesty & safety", () => {
   it("never puts request identity into the decision, even with hostile headers", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     const hostile = {
       "x-forwarded-for": "203.0.113.250",
       "user-agent": "EvilBot/6.6",
