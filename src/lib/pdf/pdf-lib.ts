@@ -30,7 +30,14 @@ let loaded: Promise<PdfLibModule> | null = null;
 
 /** Load (once) and return the pdf-lib module. */
 export function loadPdfLib(): Promise<typeof import("pdf-lib")> {
-  loaded ??= import("pdf-lib");
+  loaded ??= import("pdf-lib").catch((error) => {
+    // Success is memoized; a rejection must not be. The failure is transient
+    // (an offline blip at fetch time) but a cached rejection is permanent —
+    // the typed-source tools reach this loader with no file pick and no warm,
+    // so one failed attempt would brick every later run until a full reload.
+    loaded = null;
+    throw error;
+  });
   return loaded;
 }
 
@@ -38,7 +45,6 @@ export function loadPdfLib(): Promise<typeof import("pdf-lib")> {
 export function warmPdfLib(): void {
   void loadPdfLib().catch(() => {
     // Swallowed: the operation's own await is the surface that reports errors,
-    // and a warm-up failure (offline blip) may well succeed on the retry.
-    loaded = null;
+    // and the loader itself already forgets a failed attempt.
   });
 }
