@@ -1,4 +1,5 @@
 import type { Tool } from "./types";
+import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./tool-facts";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -113,7 +114,7 @@ export const tools: Tool[] = [
     name: "Extract Images",
     tagline: "Save the images embedded in a PDF.",
     description:
-      "Pull embedded JPEG and RGB/grayscale images out of a PDF at their original resolution — the real image files, not page screenshots. Formats we can't recover yet (JPEG 2000, CMYK, palette) are reported as skipped.",
+      "Pull embedded JPEG and RGB/grayscale images out of a PDF at their original resolution — real image files, not page screenshots. Unsupported formats are skipped.",
     category: "organize",
     icon: "extractImages",
     processing: "client",
@@ -184,7 +185,7 @@ export const tools: Tool[] = [
     name: "Optimize for Web",
     tagline: "Fast-loading, linearized PDFs.",
     description:
-      "Linearize and streamline a PDF for fast web viewing and progressive loading.",
+      "Linearize a PDF for fast web viewing with qpdf on a secure worker — the first page can render while the rest still downloads, and the input is deleted after the job.",
     category: "optimize",
     icon: "speed",
     processing: "server",
@@ -229,7 +230,7 @@ export const tools: Tool[] = [
     name: "Excel to PDF",
     tagline: "Spreadsheets into clean PDF tables.",
     description:
-      "Convert Excel workbooks to PDF with faithful table layout and print areas.",
+      "Convert Excel workbooks to PDF with faithful table layout and print areas — rendered by LibreOffice on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "excel",
     processing: "server",
@@ -243,7 +244,7 @@ export const tools: Tool[] = [
     name: "PowerPoint to PDF",
     tagline: "Slides into shareable PDF decks.",
     description:
-      "Convert PowerPoint presentations to PDF, one slide per page, ready to share.",
+      "Convert PowerPoint presentations to PDF, one slide per page — rendered by LibreOffice on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "powerpoint",
     processing: "server",
@@ -272,7 +273,7 @@ export const tools: Tool[] = [
     name: "PNG to PDF",
     tagline: "Turn PNGs into a crisp PDF.",
     description:
-      "Convert PNG images — including transparent ones — into a single PDF document.",
+      `Convert PNG images — transparent ones included — into a single PDF, up to ${MAX_IMAGE_MB} MB per image, assembled right in your browser. Files stay on your device.`,
     category: "convert-to",
     icon: "png",
     processing: "client",
@@ -314,7 +315,7 @@ export const tools: Tool[] = [
     name: "Markdown to PDF",
     tagline: "Beautiful PDFs from Markdown.",
     description:
-      "Convert Markdown into a styled, typographic PDF with code blocks and tables.",
+      `Convert Markdown into a styled PDF with code blocks and tables — sources up to ${MAX_SOURCE_MB} MB, rendered and typeset right in your browser. The file stays on your device.`,
     category: "convert-to",
     icon: "markdown",
     // Client, not hybrid: the only implementation is the in-browser runner
@@ -335,7 +336,7 @@ export const tools: Tool[] = [
     name: "Text to PDF",
     tagline: "Plain text into a formatted PDF.",
     description:
-      "Turn plain .txt files into a clean, paginated PDF with sensible typography.",
+      `Turn plain .txt files into a clean, paginated PDF with sensible typography — sources up to ${MAX_SOURCE_MB} MB, typeset right in your browser. The file stays on your device.`,
     category: "convert-to",
     icon: "text",
     processing: "client",
@@ -381,7 +382,7 @@ export const tools: Tool[] = [
     name: "PDF to PowerPoint",
     tagline: "Turn PDFs into editable slides.",
     description:
-      "Convert each PDF page into an editable PowerPoint slide for quick reuse.",
+      "Convert each PDF page into an editable PowerPoint slide, rebuilt from the page’s selectable text — on a secure worker that deletes the input when the job finishes.",
     category: "convert-from",
     icon: "powerpoint",
     processing: "server",
@@ -424,7 +425,7 @@ export const tools: Tool[] = [
     name: "PDF to PDF/A",
     tagline: "Archive-ready, ISO-compliant PDFs.",
     description:
-      "Convert PDFs to the PDF/A standard for long-term archiving and compliance.",
+      "Convert PDFs to PDF/A-2b for long-term archiving and compliance — processed by Ghostscript on a secure worker that deletes the input when the job finishes.",
     category: "convert-from",
     icon: "pdfa",
     processing: "server",
@@ -438,7 +439,7 @@ export const tools: Tool[] = [
     name: "PDF to Markdown",
     tagline: "Clean Markdown from PDF content.",
     description:
-      "Convert a PDF's selectable text into clean Markdown locally, preserving paragraphs and obvious list lines. Scanned pages need OCR first; table extraction remains an AI tool.",
+      "Convert a PDF's selectable text into clean Markdown locally, keeping paragraphs and obvious list lines. Scanned pages need OCR first.",
     category: "convert-from",
     icon: "markdown",
     processing: "client",
@@ -484,7 +485,7 @@ export const tools: Tool[] = [
     name: "Edit PDF",
     tagline: "Add text, images, and shapes.",
     description:
-      "Add new text, PNG/JPG images, boxes, and lines to a PDF's pages, then export a flattened copy. Content is placed by page and coordinates in your browser — it doesn't rewrite the existing text in the file.",
+      "Add new text, images, boxes, and lines to a PDF, then export a flattened copy — placed by coordinates in your browser. It doesn't rewrite the file's existing text.",
     category: "edit",
     icon: "edit",
     processing: "client",
@@ -524,7 +525,7 @@ export const tools: Tool[] = [
     name: "Add Page Numbers",
     tagline: "Insert page numbers your way.",
     description:
-      "Add page numbers with custom position, format, starting value, and typography.",
+      "Add page numbers right in your browser — three formats, custom position, starting value, and typography. The file stays on your device.",
     category: "edit",
     icon: "pageNumbers",
     processing: "client",
@@ -682,7 +683,7 @@ export const tools: Tool[] = [
     name: "Unlock PDF",
     tagline: "Remove a password you know.",
     description:
-      "Remove the password from a PDF you can already open: enter its password and download an unprotected copy. It can't recover or bypass an unknown password — you provide the one that works.",
+      "Remove the password from a PDF you can already open — enter the password that works and download an unprotected copy. It can't recover or bypass an unknown password.",
     category: "security",
     icon: "unlock",
     processing: "server",

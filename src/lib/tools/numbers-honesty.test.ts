@@ -36,6 +36,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_RETENTION, JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
 import { MAX_OCR_LANGUAGES, OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { toolCount } from "@/lib/tools";
+import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 
 const ROOT = process.cwd();
 
@@ -92,6 +93,16 @@ const OWNED: { value: number; units: readonly string[]; source: string }[] = [
     units: ["runs", "run"],
     source: "RATE_LIMITS.aiRunsPerDayPerClient",
   },
+  {
+    value: MAX_IMAGE_BYTES / MB,
+    units: ["mb"],
+    source: "MAX_IMAGE_BYTES (tools/limits, image → PDF per-image cap)",
+  },
+  {
+    value: MAX_SOURCE_BYTES / MB,
+    units: ["mb"],
+    source: "MAX_SOURCE_BYTES (tools/limits, text/markdown source cap)",
+  },
 ];
 
 const UNIT_PATTERN =
@@ -106,11 +117,17 @@ function copyFiles(): string[] {
     path.join(ROOT, "src", "components", "sections"),
     path.join(ROOT, "src", "components", "tools"),
     path.join(ROOT, "src", "app"),
+    // WALKED, not listed, since 2026-08-10: this census kept its own list of
+    // three files here (catalog, tool-facts, faq) while the shared copy walk
+    // had already been converted for exactly this reason — a list is the thing
+    // that drifts. `limits.ts` landed in this directory owning two of the caps
+    // the copy states, outside the list, and nothing would have said so. The
+    // reach-proof below pins the members that must stay in view.
+    path.join(ROOT, "src", "lib", "tools"),
   ];
   const out: string[] = [
-    path.join(ROOT, "src", "lib", "tools", "catalog.ts"),
+    // Outside every walked root — the reason a list entry is allowed at all.
     path.join(ROOT, "src", "lib", "faq.ts"),
-    path.join(ROOT, "src", "lib", "tools", "tool-facts.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -222,6 +239,29 @@ function censusFindings(): Finding[] {
 describe("user-facing copy does not hand-write figures the code owns", () => {
   it("reads the copy files, so a move cannot quietly empty this census", () => {
     expect(copyFiles().length).toBeGreaterThanOrEqual(30);
+  });
+
+  it("reaches the sources that state or own the figures", () => {
+    // A count alone cannot notice ONE file leaving the surface — the drift
+    // that has now happened twice. Name the load-bearing members, so a source
+    // of user-facing figures landing outside this walk collapses here instead
+    // of being silently unread. (Same idiom as the shared copy walk's
+    // reach-proof; these two surfaces are deliberately different, so each
+    // proves its own.)
+    const files = copyFiles().map((f) =>
+      path.relative(ROOT, f).replace(/\\/g, "/"),
+    );
+    for (const expected of [
+      "src/lib/tools/catalog.ts",
+      "src/lib/tools/tool-facts.ts",
+      "src/lib/tools/limits.ts",
+      "src/lib/faq.ts",
+    ]) {
+      expect(
+        files,
+        `the census no longer reads ${expected} — figures stated or owned there are unchecked`,
+      ).toContain(expected);
+    }
   });
 
   it("every unit-bearing literal is derived, allowed, or in the reported baseline", () => {
