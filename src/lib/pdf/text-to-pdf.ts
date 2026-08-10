@@ -9,7 +9,8 @@ const PAGE_HEIGHT = 792;
 const MARGIN = 54;
 const FONT_SIZE = 11;
 const LINE_HEIGHT = 16;
-const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+// The cap the tool page advertises, so the gate and the promise are one value.
+import { MAX_SOURCE_BYTES as MAX_TEXT_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
 
 export interface TextToPdfOptions {
   title?: string;
@@ -31,7 +32,7 @@ export function validatePlainTextInput(text: string): void {
   }
   const bytes = new TextEncoder().encode(text).byteLength;
   if (bytes > MAX_TEXT_BYTES) {
-    throw new PdfEngineError("This text file is too large for in-browser conversion (max 2 MB).");
+    throw new PdfEngineError(`This text file is too large for in-browser conversion (max ${MAX_SOURCE_MB} MB).`);
   }
 }
 

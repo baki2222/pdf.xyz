@@ -26,15 +26,17 @@ import type { Tool } from "./types";
 
 /* ------------------------------------------------------------------ *
  *  Owned constants the runners import back, so fact and behavior agree.
+ *  They live in ./limits (a leaf) so the catalogue can also derive from
+ *  them without a cycle; re-exported here for the runners and tests.
  * ------------------------------------------------------------------ */
+import {
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_MB,
+  MAX_SOURCE_BYTES,
+  MAX_SOURCE_MB,
+} from "./limits";
 
-/** Per-image ceiling for image → PDF assembly. */
-export const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
-export const MAX_IMAGE_MB = MAX_IMAGE_BYTES / (1024 * 1024);
-
-/** Source-text ceiling for text/markdown → PDF. */
-export const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
-export const MAX_SOURCE_MB = MAX_SOURCE_BYTES / (1024 * 1024);
+export { MAX_IMAGE_BYTES, MAX_IMAGE_MB, MAX_SOURCE_BYTES, MAX_SOURCE_MB };
 
 const MAX_FILE_MB = JOB_LIMITS.maxFileBytes / (1024 * 1024);
 
@@ -65,7 +67,16 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     { label: "Colors", value: "Gray, red, or blue watermark text, placed diagonally across each page." },
   ],
   "page-numbers": [
-    { label: "Formats", value: "Three numbering formats: “Page 1 of N”, “1 / N”, or “– 1 –”." },
+    {
+      label: "Formats",
+      // Every preset the runner offers, named — plus the free-form field
+      // beside them. The old entry said "Three numbering formats" and was
+      // wrong twice: it undercounted (there are four) and omitted the custom
+      // template entirely. `page-numbers-formats.test.ts` pins this line to
+      // PAGE_NUMBER_PRESETS so a new preset cannot leave it stale.
+      value:
+        "Presets “Page 1 of N”, “1 / N”, “1”, or “– 1 –” — or write your own template using {n} and {total}.",
+    },
   ],
   "sign-pdf": [
     { label: "Signature modes", value: "Five ways to make a signature: draw it, type it, pick an image, use a script font, or print-and-scan style." },
@@ -135,8 +146,11 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
     });
     entries.push({
       question: `Does ${tool.name} work offline?`,
+      // Wording bounded by what ships today: the engine chunk is fetched on
+      // first use (file pick / first run), so "page loaded" alone does NOT
+      // make the work connection-proof — the earlier claim said it did.
       answer:
-        "Once the page has loaded, the processing itself happens on your device, so an interrupted connection does not interrupt the work.",
+        "Not fully — the page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the processing itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
     });
   } else {
     entries.push({
