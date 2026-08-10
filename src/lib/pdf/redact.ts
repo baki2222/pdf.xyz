@@ -85,6 +85,13 @@ export interface RedactResult {
   /** Number of redaction boxes baked into the output. */
   redactionCount: number;
   totalImageBytes: number;
+  /**
+   * Images the renderer could not decode, which are therefore ABSENT from the
+   * output — not hidden under a box, gone. Reported so the tool can say so:
+   * a redacted scan that silently lost its content is the worst outcome this
+   * tool has, and pdfjs already knows it happened.
+   */
+  undecodedImages: number;
 }
 
 /** A single problem with a proposed redaction rectangle. */
@@ -102,8 +109,13 @@ export function redactedOutputName(sourceName: string): string {
   return outputName(sourceName || "document", "redacted");
 }
 
-export function redactPresetById(id: string): (typeof REDACT_DPI_PRESETS)[number] {
-  return REDACT_DPI_PRESETS.find((preset) => preset.id === id) ?? REDACT_DPI_PRESETS[1]!;
+export function redactPresetById(
+  id: string,
+): (typeof REDACT_DPI_PRESETS)[number] {
+  return (
+    REDACT_DPI_PRESETS.find((preset) => preset.id === id) ??
+    REDACT_DPI_PRESETS[1]!
+  );
 }
 
 /** Hex fill for a redaction color, used both on the canvas and for pdf-lib. */
@@ -146,7 +158,11 @@ export function validateRedactions(
   rects.forEach((rect, index) => {
     const label = `Redaction ${index + 1}`;
 
-    if (!Number.isInteger(rect.page) || rect.page < 1 || rect.page > pageCount) {
+    if (
+      !Number.isInteger(rect.page) ||
+      rect.page < 1 ||
+      rect.page > pageCount
+    ) {
       issues.push({
         index,
         code: "page-out-of-range",
@@ -225,7 +241,12 @@ export function redactionRectToPixels(
   const y0 = clampInt(Math.floor(topPx), 0, page.height);
   const y1 = clampInt(Math.ceil(bottomPx), 0, page.height);
 
-  return { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) };
+  return {
+    x: x0,
+    y: y0,
+    width: Math.max(0, x1 - x0),
+    height: Math.max(0, y1 - y0),
+  };
 }
 
 /** Resolve a rebuilt page's size in points, falling back to pixel dimensions. */
@@ -233,9 +254,13 @@ export function pageSizeForRaster(
   page: Pick<RasterPage, "pageWidth" | "pageHeight" | "width" | "height">,
 ): [number, number] {
   const width =
-    Number.isFinite(page.pageWidth) && page.pageWidth > 0 ? page.pageWidth : page.width;
+    Number.isFinite(page.pageWidth) && page.pageWidth > 0
+      ? page.pageWidth
+      : page.width;
   const height =
-    Number.isFinite(page.pageHeight) && page.pageHeight > 0 ? page.pageHeight : page.height;
+    Number.isFinite(page.pageHeight) && page.pageHeight > 0
+      ? page.pageHeight
+      : page.height;
   return [Math.max(1, width), Math.max(1, height)];
 }
 
@@ -243,7 +268,9 @@ export function pageSizeForRaster(
  * Read each page's displayed size (rotation-aware, in points). Used by the UI to
  * bound and validate boxes before running the redaction.
  */
-export async function getRedactPageSizes(bytes: Uint8Array): Promise<PageSize[]> {
+export async function getRedactPageSizes(
+  bytes: Uint8Array,
+): Promise<PageSize[]> {
   const doc = await loadPdf(bytes);
   return doc.getPages().map((page) => {
     const { width, height } = page.getCropBox();
@@ -295,7 +322,9 @@ export async function redactPdf(
 ): Promise<RedactResult> {
   const rects = options.rects ?? [];
   if (rects.length === 0) {
-    throw new PdfEngineError("Add at least one redaction area before redacting.");
+    throw new PdfEngineError(
+      "Add at least one redaction area before redacting.",
+    );
   }
 
   const pageSizes = await getRedactPageSizes(bytes);
@@ -339,15 +368,30 @@ export async function redactPdf(
   for (const page of pages) {
     const [pageWidth, pageHeight] = pageSizeForRaster(page);
     const outPage = doc.addPage([pageWidth, pageHeight]);
-    outPage.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(1, 1, 1) });
+    outPage.drawRectangle({
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: pageHeight,
+      color: rgb(1, 1, 1),
+    });
     const image = await doc.embedJpg(page.bytes);
-    outPage.drawImage(image, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+    outPage.drawImage(image, {
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: pageHeight,
+    });
   }
 
   return {
     bytes: await doc.save(),
     pageCount: pages.length,
     redactionCount: rects.length,
-    totalImageBytes: pages.reduce((sum, page) => sum + page.bytes.byteLength, 0),
+    totalImageBytes: pages.reduce(
+      (sum, page) => sum + page.bytes.byteLength,
+      0,
+    ),
+    undecodedImages: pages.reduce((sum, page) => sum + page.undecodedImages, 0),
   };
 }

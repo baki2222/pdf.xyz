@@ -16,6 +16,7 @@ import {
   ImageOff,
   Loader2,
   RefreshCw,
+  TriangleAlert,
   UploadCloud,
   type LucideIcon,
 } from "lucide-react";
@@ -84,10 +85,7 @@ export { reorder } from "./list-utils";
 
 export function Spinner({ className }: { className?: string }) {
   return (
-    <Loader2
-      className={cn("size-4 animate-spin", className)}
-      aria-hidden
-    />
+    <Loader2 className={cn("size-4 animate-spin", className)} aria-hidden />
   );
 }
 
@@ -483,7 +481,8 @@ export function ResultPanel({
       {...outcome}
       role="group"
       aria-labelledby={summary ? `${id}-t ${id}-s` : `${id}-t`}
-      className="flex flex-col gap-5 rounded-3xl border border-emerald-400/25 bg-emerald-500/[0.07] p-6 animate-float-up outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50">
+      className="animate-float-up flex flex-col gap-5 rounded-3xl border border-emerald-400/25 bg-emerald-500/[0.07] p-6 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
+    >
       <div className="flex items-start gap-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-emerald-500/15 text-emerald-300">
           <CheckCircle2 className="size-5" aria-hidden />
@@ -499,7 +498,9 @@ export function ResultPanel({
           )}
         </div>
       </div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">{children}</div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        {children}
+      </div>
       <button
         type="button"
         onClick={onReset}
@@ -616,7 +617,10 @@ export function PreviewStatus({
 }) {
   if (status === "error") {
     return (
-      <p className="inline-flex items-center gap-1.5 text-xs text-slate-400" role="status">
+      <p
+        className="inline-flex items-center gap-1.5 text-xs text-slate-400"
+        role="status"
+      >
         <ImageOff className="size-3.5" aria-hidden />
         Live previews couldn&apos;t be rendered — showing page placeholders. All
         tools still work.
@@ -694,7 +698,7 @@ export function RunnerSection({
       {(title || aside) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           {title && (
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+            <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
               {title}
             </h3>
           )}
@@ -702,6 +706,59 @@ export function RunnerSection({
         </div>
       )}
       {children}
+    </div>
+  );
+}
+
+/**
+ * "Some images could not be decoded" — pdfjs's own verdict, surfaced.
+ *
+ * Renders nothing when the count is 0, so callers can mount it unconditionally.
+ * This is never a guess about pixels: a genuinely blank page produces no failed
+ * image object and therefore no notice.
+ *
+ * The `redaction` wording exists because the stakes differ. On a converter a
+ * failed decode costs the user a picture; on redact-pdf it can cost them the
+ * belief that a document is safe to publish, so that variant says plainly that
+ * the content is ABSENT rather than covered.
+ */
+export function UndecodedImagesNotice({
+  count,
+  redaction = false,
+}: {
+  count: number;
+  redaction?: boolean;
+}) {
+  if (count <= 0) return null;
+  const plural = count === 1 ? "" : "s";
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/15 px-4 py-3.5 text-sm text-amber-100"
+    >
+      <TriangleAlert
+        className="mt-0.5 size-4 shrink-0 text-amber-300"
+        aria-hidden
+      />
+      <p className="leading-relaxed">
+        <span className="font-semibold">
+          {count} image{plural} could not be decoded.
+        </span>{" "}
+        {redaction ? (
+          <>
+            {count === 1 ? "It is" : "They are"} blank in this output — the
+            content is missing from the file, not hidden underneath a redaction
+            box. Open the downloaded PDF and check those pages before you share
+            it.
+          </>
+        ) : (
+          <>
+            {count === 1 ? "It is" : "They are"} blank in the images above.
+            Everything else on {count === 1 ? "that page" : "those pages"}{" "}
+            converted normally.
+          </>
+        )}
+      </p>
     </div>
   );
 }

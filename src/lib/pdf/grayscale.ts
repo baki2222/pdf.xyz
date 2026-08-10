@@ -22,19 +22,38 @@ export interface GrayscaleResult {
   bytes: Uint8Array;
   pageCount: number;
   totalImageBytes: number;
+  /**
+   * Images the renderer could not decode, and which are therefore missing from
+   * the output. This tool rasterizes through the same path as redact and the
+   * image converters, so it can lose content the same way and says so.
+   */
+  undecodedImages: number;
 }
 
 export function grayscaleOutputName(sourceName: string): string {
   return outputName(sourceName || "document", "grayscale");
 }
 
-export function grayscalePresetById(id: string): (typeof GRAYSCALE_DPI_PRESETS)[number] {
-  return GRAYSCALE_DPI_PRESETS.find((preset) => preset.id === id) ?? GRAYSCALE_DPI_PRESETS[1]!;
+export function grayscalePresetById(
+  id: string,
+): (typeof GRAYSCALE_DPI_PRESETS)[number] {
+  return (
+    GRAYSCALE_DPI_PRESETS.find((preset) => preset.id === id) ??
+    GRAYSCALE_DPI_PRESETS[1]!
+  );
 }
 
-export function pageSizeForRaster(page: Pick<RasterPage, "pageWidth" | "pageHeight" | "width" | "height">): [number, number] {
-  const width = Number.isFinite(page.pageWidth) && page.pageWidth > 0 ? page.pageWidth : page.width;
-  const height = Number.isFinite(page.pageHeight) && page.pageHeight > 0 ? page.pageHeight : page.height;
+export function pageSizeForRaster(
+  page: Pick<RasterPage, "pageWidth" | "pageHeight" | "width" | "height">,
+): [number, number] {
+  const width =
+    Number.isFinite(page.pageWidth) && page.pageWidth > 0
+      ? page.pageWidth
+      : page.width;
+  const height =
+    Number.isFinite(page.pageHeight) && page.pageHeight > 0
+      ? page.pageHeight
+      : page.height;
   return [Math.max(1, width), Math.max(1, height)];
 }
 
@@ -46,7 +65,10 @@ export function pageSizeForRaster(page: Pick<RasterPage, "pageWidth" | "pageHeig
  * vectors, forms, and annotations into page images; selectable text is not
  * preserved. Use it for print/ink workflows, not archival/editable output.
  */
-export async function grayscalePdf(bytes: Uint8Array, options: GrayscaleOptions = {}): Promise<GrayscaleResult> {
+export async function grayscalePdf(
+  bytes: Uint8Array,
+  options: GrayscaleOptions = {},
+): Promise<GrayscaleResult> {
   const pages = await rasterizePdf(bytes, {
     format: "jpg",
     dpi: options.dpi ?? 150,
@@ -55,7 +77,8 @@ export async function grayscalePdf(bytes: Uint8Array, options: GrayscaleOptions 
     signal: options.signal,
     onProgress: options.onProgress,
   });
-  if (pages.length === 0) throw new Error("No pages could be rendered from this PDF.");
+  if (pages.length === 0)
+    throw new Error("No pages could be rendered from this PDF.");
 
   const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
@@ -66,14 +89,29 @@ export async function grayscalePdf(bytes: Uint8Array, options: GrayscaleOptions 
   for (const page of pages) {
     const [pageWidth, pageHeight] = pageSizeForRaster(page);
     const outPage = doc.addPage([pageWidth, pageHeight]);
-    outPage.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(1, 1, 1) });
+    outPage.drawRectangle({
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: pageHeight,
+      color: rgb(1, 1, 1),
+    });
     const image = await doc.embedJpg(page.bytes);
-    outPage.drawImage(image, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+    outPage.drawImage(image, {
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: pageHeight,
+    });
   }
 
   return {
     bytes: await doc.save(),
     pageCount: pages.length,
-    totalImageBytes: pages.reduce((sum, page) => sum + page.bytes.byteLength, 0),
+    totalImageBytes: pages.reduce(
+      (sum, page) => sum + page.bytes.byteLength,
+      0,
+    ),
+    undecodedImages: pages.reduce((sum, page) => sum + page.undecodedImages, 0),
   };
 }
