@@ -189,6 +189,16 @@ describe("the policy pages do not promise what the product does not do", () => {
         "compliance is not a self-certifiable badge; describe the practices instead",
     },
     {
+      // The owner is deferring the Art. 27 appointment (2026-08-10), which
+      // makes this the claim we are one careless sentence away from: only the
+      // possessive/claiming form is banned, because an honest DENIAL ("we
+      // have not appointed an EU representative") must never trip it — the
+      // invitation-vs-denial lesson from the account guard, applied here.
+      pattern: /\bour (?:EU|EEA|UK|Article 27) representative\b/i,
+      instead:
+        "no Art. 27 representative is appointed; data-subject requests go to LEGAL_CONTACT and are answered there — do not claim a representative until one exists",
+    },
+    {
       // The first draft of this page said the result was "deleted" after the
       // output window. It is not: `retrieval-storage.ts` denies the read with a
       // 410 once the signed lifecycle metadata says the window passed, and the
