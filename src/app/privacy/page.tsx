@@ -117,8 +117,29 @@ export default function PrivacyPage() {
           Some work cannot be done in a browser — optical character recognition,
           office-format conversion, and anything using an AI model. For these,
           your file is uploaded over an encrypted connection to storage we
-          control, scanned for malware, processed, and then removed on this
-          timetable:
+          control, processed, and then removed on this timetable:
+        </p>
+        <p>
+          {/*
+            This page is statically generated and cannot observe whether the
+            malware scanner is configured, so it no longer asserts that every
+            file is scanned. That claim was TRUE as served — the scanner is
+            active today — but it was true by configuration rather than by
+            construction, on the one surface that opted out of a rule the rest
+            of the repo enforces: `capabilities.ts` takes `malwareScanActive` as
+            a parameter precisely because a static string once claimed this, and
+            `capabilities.test.ts` fails the build if pipeline copy asserts it.
+            Deriving it here means making this page dynamic — a real data
+            dependency, scoped separately rather than dragged in behind a copy
+            fix. Until then it points at the surface that reads the live report.
+          */}
+          Uploaded files may also be scanned for malware before any processor
+          touches them. Whether that scanner is running is an operational
+          setting rather than a promise this page can make on its own — the{" "}
+          <Link href="/status" className="text-sky-300 underline">
+            live status page
+          </Link>{" "}
+          reports what is actually active right now.
         </p>
         <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
@@ -359,11 +380,12 @@ export default function PrivacyPage() {
       <LegalSection id="security" heading="9. Security">
         <p>
           Traffic to and from this site is encrypted in transit. Uploaded files
-          are stored on infrastructure we control and are scanned for malware
-          before any processor touches them. The site sets a strict Content
-          Security Policy and related protections against common web attacks. We
-          remove uploads and results on the timetable in section 2 rather than
-          keeping them.
+          are stored on infrastructure we control, and may be scanned for
+          malware before any processor touches them — see section 2 and the live
+          status page for what is actually running. The site sets a strict
+          Content Security Policy and related protections against common web
+          attacks. We remove uploads and results on the timetable in section 2
+          rather than keeping them.
         </p>
         <p>
           No service can promise perfect security, and we do not. What we can

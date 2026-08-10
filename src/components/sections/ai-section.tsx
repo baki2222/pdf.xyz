@@ -8,7 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 const highlights = [
   "Answers grounded in your document, with page-level citations",
   "Summaries, translations, and structured data extraction",
-  "Runs on secure infrastructure — never used to train models",
+  "Runs on secure infrastructure under provider agreements that prohibit training on your content",
 ];
 
 export function AiSection() {
@@ -34,8 +34,10 @@ export function AiSection() {
               <p className="text-base leading-relaxed text-pretty text-slate-300">
                 Chat with a contract, summarize a 200-page report, translate a
                 brochure&apos;s text into another language, or pull clean
-                structured data from invoices. Your content stays private and is
-                never used to train models.
+                structured data from invoices. Your content stays private: we
+                use providers under agreements that prohibit training on data
+                sent through their API, and we cannot control what a provider
+                does beyond those terms.
               </p>
               <ul className="flex flex-col gap-3">
                 {highlights.map((item) => (
