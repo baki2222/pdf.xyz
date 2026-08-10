@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Droplets, FileImage, ShieldCheck, TriangleAlert } from "lucide-react";
+import {
+  Download,
+  Droplets,
+  FileImage,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react";
 import {
   GRAYSCALE_DPI_PRESETS,
   grayscaleOutputName,
@@ -18,6 +24,7 @@ import {
   RunButton,
   RunnerSection,
   Spinner,
+  UndecodedImagesNotice,
   useAsyncRun,
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
@@ -36,10 +43,19 @@ export function GrayscaleRunner() {
   );
 }
 
-function GrayscaleEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
+function GrayscaleEditor({
+  pdf,
+  onReset,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+}) {
   const { busy, error, result, run } = useAsyncRun<GrayscaleResult>();
   const [presetId, setPresetId] = useState("print");
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -58,7 +74,8 @@ function GrayscaleEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void
         signal: controller.signal,
         onProgress: (done, total) => setProgress({ done, total }),
       });
-      if (controller.signal.aborted) throw new Error("Conversion was cancelled.");
+      if (controller.signal.aborted)
+        throw new Error("Conversion was cancelled.");
       return converted;
     });
   };
@@ -70,9 +87,12 @@ function GrayscaleEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void
         summary={`${result.pageCount} page${result.pageCount === 1 ? "" : "s"} rasterized · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
       >
+        <UndecodedImagesNotice count={result.undecodedImages} />
         <button
           type="button"
-          onClick={() => downloadBytes(result.bytes, grayscaleOutputName(pdf.file.name))}
+          onClick={() =>
+            downloadBytes(result.bytes, grayscaleOutputName(pdf.file.name))
+          }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           <Download className="size-4" aria-hidden />
@@ -116,11 +136,14 @@ function GrayscaleEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void
         />
       </div>
 
-      {busy && progress && <RenderProgress done={progress.done} total={progress.total} />}
+      {busy && progress && (
+        <RenderProgress done={progress.done} total={progress.total} />
+      )}
       {error && <ErrorNote message={error} />}
 
       <PrivacyLine>
-        Grayscale conversion happens on your device — your PDF never leaves the browser.
+        Grayscale conversion happens on your device — your PDF never leaves the
+        browser.
       </PrivacyLine>
 
       <div className="flex justify-end">
@@ -140,14 +163,28 @@ function RenderProgress({ done, total }: { done: number; total: number }) {
       <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
         <Spinner className="size-3" /> Converting pages… {done}/{total}
       </span>
-      <span className="h-1 w-full overflow-hidden rounded-full bg-white/5" aria-hidden>
-        <span className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-300" style={{ width: `${pct}%` }} />
+      <span
+        className="h-1 w-full overflow-hidden rounded-full bg-white/5"
+        aria-hidden
+      >
+        <span
+          className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-300"
+          style={{ width: `${pct}%` }}
+        />
       </span>
     </div>
   );
 }
 
-function InfoTile({ icon: Icon, title, body }: { icon: typeof ShieldCheck; title: string; body: string }) {
+function InfoTile({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: typeof ShieldCheck;
+  title: string;
+  body: string;
+}) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
       <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
