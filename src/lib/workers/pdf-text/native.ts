@@ -22,7 +22,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { collapseLayoutPadding, type ExtractedPdfText } from "@/lib/pdf/text";
 import type {
   PdfLayout,
   PdfLayoutExtractor,
@@ -167,13 +167,30 @@ async function runPdfText(
   }
 }
 
+/**
+ * What to do with `-layout`'s inter-column padding.
+ *
+ * REQUIRED, with no default, because the two consumers need opposite things and
+ * the wrong one is silent either way. `keep` for anything that reads structure
+ * out of the spacing — PDF→Office export splits spreadsheet rows on 2+ spaces,
+ * so collapsing would merge its columns. `collapse` for anything that feeds a
+ * language model, where the gap width is noise that inflates the character count
+ * the AI ceilings are compared against and is paid for again in output tokens.
+ */
+export type LayoutPadding = "keep" | "collapse";
+
 export function createNativePdfTextExtractor(
   binary: string,
   config: NativePdfTextConfig,
+  padding: LayoutPadding,
   seams: PdfTextSeams = {},
 ): PdfTextExtractor {
-  return async (bytes: Uint8Array): Promise<ExtractedPdfText> =>
-    parseLayoutText(await runPdfText(binary, config, seams, "layout", bytes));
+  return async (bytes: Uint8Array): Promise<ExtractedPdfText> => {
+    const stdout = await runPdfText(binary, config, seams, "layout", bytes);
+    return parseLayoutText(
+      padding === "collapse" ? collapseLayoutPadding(stdout) : stdout,
+    );
+  };
 }
 
 export function createNativePdfLayoutExtractor(
@@ -203,7 +220,7 @@ export function resolveNativePdfTextExtractor(
   const config = resolveNativePdfTextConfig(env);
   const binary = probePdfTextFromConfig(config, seams);
   return binary
-    ? createNativePdfTextExtractor(binary, config, seams)
+    ? createNativePdfTextExtractor(binary, config, "collapse", seams)
     : undefined;
 }
 
@@ -220,7 +237,7 @@ export function nativePdfOfficeExportDeps(
   const binary = probePdfTextFromConfig(config, seams);
   return {
     ...(binary
-      ? { extract: createNativePdfTextExtractor(binary, config, seams) }
+      ? { extract: createNativePdfTextExtractor(binary, config, "keep", seams) }
       : {}),
     limits: {
       maxInputBytes: config.maxInputBytes,

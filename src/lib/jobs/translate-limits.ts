@@ -188,35 +188,44 @@ export const TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS = 8_000;
  *
  * Measured locally (Xpdf `pdftotext` 4.00 — NOT the worker's poppler build, so
  * treat the magnitudes as indicative and the SHAPE as the finding), six
- * pdf-lib fixtures, 120 lines each, worker length ÷ drawn length:
+ * pdf-lib fixtures, 120 lines each, worker length ÷ drawn length, before and
+ * after {@link collapseLayoutPadding} was put on the AI path:
  *
  * ```
- *   single-column prose   -layout 1.0001   raw 1.0001
- *   deep left indent      -layout 1.0005   raw 1.0005
- *   two columns           -layout 1.1206   raw 1.0203
- *   sparse wide grid      -layout 1.4142   raw 1.1102
- *   four-column table     -layout 1.4385   raw 1.0801
- *   eight-column grid     -layout 1.8626   raw 1.2082
+ *   single-column prose   -layout 1.0001   collapsed 1.0001
+ *   deep left indent      -layout 1.0005   collapsed 1.0005
+ *   two columns           -layout 1.1206   collapsed 1.0198
+ *   sparse wide grid      -layout 1.4142   collapsed 1.1076
+ *   four-column table     -layout 1.4385   collapsed 1.0781
+ *   eight-column grid     -layout 1.8626   collapsed 1.2031
  * ```
  *
- * **So there is no factor to apply.** The ratio has no finite worst case: its
- * supremum is line-width ÷ characters-per-line, which a wide sparse table drives
- * arbitrarily high. Dropping `-layout` shrinks it (1.86 → 1.21 at the observed
- * worst) but does not close it. A "measured safety margin" here would be the
- * same mistake as the 3.5 × 1.3 that this file exists to record — a guess
- * multiplied into a ceiling — only worse, because this one has no bound to guess
- * at.
+ * **THE CEILING DOES NOT MOVE, and that is derived rather than assumed.** The
+ * calibration document is prose, and collapsing is provably a no-op on prose —
+ * single-column text has no runs of two or more spaces, which the first row
+ * shows to four decimal places. So `largestSuccessChars` is still 10,258, the
+ * rate is still 1.28225, and this constant is unchanged. What changed is that
+ * the number now MEANS the same thing across document shapes: a four-column
+ * document used to reach this ceiling with barely two-thirds of its real text.
  *
- * WHAT IT COSTS TODAY: a document the panel measures just under this number can
- * measure just over it at the worker, so it is uploaded, scanned, charged one of
- * three daily AI runs, and then refused — the exact cost the pre-upload check
- * was built to remove, surviving in a narrow band at the boundary. Everything
- * outside that band is correct.
+ * **AND THE RESIDUAL IS NOT PADDING AT ALL** — the arithmetic closes exactly.
+ * Every collapsed surplus is one space per inter-column gap: 7 gaps × 120 lines
+ * = 840 for the eight-column grid (4,140 + 840 = 4,980 against 4,981 measured),
+ * 3 × 120 = 360 for the four-column (4,620 + 360 = 4,980 vs 4,981), 1 × 120 =
+ * 120 for both two-column cases. All four land within one character.
  *
- * The band is narrow because the ratio is ~1.00 for the ordinary prose this
- * ceiling was calibrated on. It is NOT narrow for tables: at 1.44 a four-column
- * document reaches this ceiling with barely two-thirds of its real text, and
- * pays output budget to have alignment spaces translated.
+ * So after collapsing, **the worker's count is the correct one and the browser's
+ * is short**: pdfjs concatenates adjacent text items with nothing between them,
+ * so it reads `North1200` as eleven characters where any reader sees twelve.
+ * The remaining divergence is pdfjs under-counting separators, not `pdftotext`
+ * inflating. (Real documents that encode real space glyphs narrow this further;
+ * these fixtures are the worst case for pdfjs.)
+ *
+ * WHAT IT STILL COSTS: the panel measures low, so a document it passes can be
+ * refused at the worker after being uploaded, scanned and charged one of three
+ * daily AI runs. The worst observed gap is now **1.20 rather than 1.86**, and
+ * ~1.00 for the ordinary prose this ceiling was calibrated on. A margin is still
+ * not the answer — the residual is a property of how many columns a page has.
  */
 export const TRANSLATE_MAX_INPUT_CHARS = translateMaxInputChars(
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,

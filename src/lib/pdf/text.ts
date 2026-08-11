@@ -62,6 +62,36 @@ export function normalizeExtractedText(text: string): string {
     .trim();
 }
 
+/**
+ * Collapse `pdftotext -layout`'s inter-column padding to a single space, keeping
+ * every line break.
+ *
+ * `-layout` reconstructs a page's horizontal arrangement by padding between
+ * columns, which carries TWO things: that cells are separated (load-bearing) and
+ * how wide the gap is (not). This keeps the first and discards the second.
+ *
+ * MEASURED 2026-08-11, a four-column table, same PDF three ways:
+ *
+ * ```
+ *   -layout   97 chars   Region  Q1    Q2    Q3 / North   1200  1350  1410
+ *   default   79 chars   Region North South East / Q1 1200 980 1440   ← TRANSPOSED
+ *   -raw      76 chars   Region Q1 Q2 Q3 / North 1200 1350 1410
+ * ```
+ *
+ * The middle row is why the AI engines still pass `-layout` and collapse
+ * afterwards rather than simply dropping the flag: `pdftotext`'s default mode
+ * re-derives reading order and grouped that table by COLUMN, transposing it.
+ * Handing a model a transposed table is a silent semantic corruption, and a far
+ * worse defect than an inflated character count. Collapsing `-layout` reaches the
+ * same 76 characters as `-raw` with the rows intact.
+ *
+ * On ordinary prose this is a no-op — single-column text has no runs of two or
+ * more spaces, which is why the extractor divergence was 1.0001 there.
+ */
+export function collapseLayoutPadding(text: string): string {
+  return text.replace(/[ \t]{2,}/g, " ");
+}
+
 /** The separator `joinPageTexts` puts between pages. Exported so a caller can
  * compute offsets into the joined string without guessing it. */
 export const PAGE_JOIN = "\n\n";
