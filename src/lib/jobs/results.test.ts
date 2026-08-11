@@ -266,6 +266,7 @@ describe("sanitizeJobResults — the AI usage block", () => {
   const usage = {
     inputTokens: 8_100,
     outputTokens: 7_400,
+    calls: 1,
     model: "gpt-5.6-luna",
   };
 

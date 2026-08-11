@@ -71,6 +71,28 @@ export interface AiUsageMeta {
    * never "zero cached".
    */
   cachedInputTokens?: number;
+  /**
+   * Input tokens billed at the cache-WRITE rate. Priced at neither the fresh nor
+   * the read rate (~1.25× vs ~0.1×), so it is its own field rather than folded
+   * into either.
+   *
+   * Unread until 2026-08-11, and that was the whole document going missing:
+   * Anthropic's `inputTokens` is the UNCACHED REMAINDER, and turn one of a
+   * `cacheSystem` request writes the document into the cache. Measured through
+   * the real adapter, a 50-page document persisted as 20 input tokens.
+   */
+  cacheWriteInputTokens?: number;
+  /**
+   * Provider calls this block sums. Always 1 today — every engine makes exactly
+   * one call — and recorded anyway.
+   *
+   * Chunked translation makes it N, and that is the release where these numbers
+   * start pricing the free tier. Without the count, a summed block is
+   * indistinguishable from a single call, so a per-page figure measured before
+   * chunking and one measured after would silently be different quantities. The
+   * unit changes; this is what says so.
+   */
+  calls: number;
   /** Public model id the counts belong to. Never a secret. */
   model: string;
 }
@@ -158,16 +180,26 @@ function boundUsage(raw: AiUsageMeta | undefined): AiUsageMeta | null {
       : "";
   if (model.length === 0) return null;
 
-  const cached = raw.cachedInputTokens;
+  const reported = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value);
+
   return {
     inputTokens: count(raw.inputTokens),
     outputTokens: count(raw.outputTokens),
-    // Preserved only when the provider actually reported it: `undefined` means
+    // Preserved only when the provider actually reported them: `undefined` means
     // "not reported" and 0 means "reported none", and collapsing them would
-    // silently price a cache miss as a cache hit.
-    ...(typeof cached === "number" && Number.isFinite(cached)
-      ? { cachedInputTokens: count(cached) }
+    // silently price a cache miss as a cache hit — or, for the write side, price
+    // a whole cached document as nothing.
+    ...(reported(raw.cachedInputTokens)
+      ? { cachedInputTokens: count(raw.cachedInputTokens) }
       : {}),
+    ...(reported(raw.cacheWriteInputTokens)
+      ? { cacheWriteInputTokens: count(raw.cacheWriteInputTokens) }
+      : {}),
+    // At least one: a usage block that survived to here describes a call that
+    // happened, and "0 calls" beside real token counts is not a fact any caller
+    // can act on.
+    calls: Math.max(1, count(raw.calls)),
     model,
   };
 }

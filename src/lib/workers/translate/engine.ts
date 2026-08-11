@@ -431,6 +431,14 @@ export async function runTranslate(
               ...(completion.usage.cachedInputTokens !== undefined
                 ? { cachedInputTokens: completion.usage.cachedInputTokens }
                 : {}),
+              ...(completion.usage.cacheWriteInputTokens !== undefined
+                ? {
+                    cacheWriteInputTokens:
+                      completion.usage.cacheWriteInputTokens,
+                  }
+                : {}),
+              // One provider call per job today. Chunked translation makes this N.
+              calls: 1,
               model: completion.model,
             },
           }

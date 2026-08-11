@@ -8,9 +8,16 @@
  * exactly how a corrected path rule stayed inert for a commit once already
  * (fed in 9, survived the worker 9, survived persistence 0).
  *
- * So this drives the REAL processors with a provider that reports usage, and
- * asserts the counts arrive on the far side of `sanitizeJobResults` — the value
- * a job record actually carries.
+ * So this drives the REAL processors and the REAL Anthropic adapter — only
+ * `fetch` is faked — and asserts the counts arrive on the far side of
+ * `sanitizeJobResults`, the value a job record actually carries.
+ *
+ * THE STARTING POINT IS THE POINT. The first version of this file built its own
+ * `AiProvider` returning a ready-made `AiUsage`, so the corpus began downstream
+ * of the wire mapping — and the wire mapping was where a whole document was
+ * being lost, because the adapter never read `cache_creation_input_tokens`.
+ * A chain test that starts after the seam it is meant to cover is a unit test
+ * wearing a chain test's docblock, which is what this one was.
  *
  * All four AI tools are covered rather than the one the measurement is for.
  * A field populated by one of four callers is the defect this codebase keeps
@@ -19,7 +26,8 @@
 import { describe, expect, it } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { sanitizeJobResults } from "@/lib/jobs/results";
-import type { AiProvider, AiUsage } from "../ai/provider";
+import { createAnthropicProvider } from "../ai/anthropic";
+import type { AiProvider } from "../ai/provider";
 import type { ProcessorInput } from "./types";
 import { createTranslateProcessor } from "./translate";
 import { createSummarizeProcessor } from "./summarize";
@@ -39,25 +47,53 @@ const extract = async (): Promise<ExtractedPdfText> => ({
   hasText: true,
 });
 
-const USAGE: AiUsage = {
-  inputTokens: 8_100,
-  outputTokens: 7_400,
-  cachedInputTokens: 2_048,
+/**
+ * The wire shape, not a pre-formed `AiUsage`.
+ *
+ * THE CORPUS STARTS HERE ON PURPOSE. The first version of this file built a
+ * hand-written `AiProvider` that returned an `AiUsage` object — so its chain
+ * began DOWNSTREAM of the wire mapping, which is exactly where the loss was: the
+ * adapter never read `cache_creation_input_tokens`, and a test whose corpus
+ * starts after that mapping can never see it. The file called itself "the
+ * assertion that must not be a unit test" and then made the same mistake one
+ * layer up.
+ *
+ * `input_tokens` is Anthropic's UNCACHED REMAINDER. These numbers describe a
+ * cache write of a whole document: 20 fresh, 40,000 written, 0 read.
+ */
+const WIRE_USAGE = {
+  input_tokens: 20,
+  output_tokens: 300,
+  cache_creation_input_tokens: 40_000,
+  cache_read_input_tokens: 0,
 };
 
-function provider(text: string, usage: AiUsage | undefined): AiProvider {
-  return {
-    id: "anthropic",
-    model: "claude-sonnet-5",
-    async complete() {
-      return {
-        ok: true as const,
-        text,
-        model: "claude-sonnet-5",
+/** What the whole chain must persist for {@link WIRE_USAGE}. */
+const EXPECTED = {
+  inputTokens: 20,
+  outputTokens: 300,
+  cachedInputTokens: 0,
+  cacheWriteInputTokens: 40_000,
+  calls: 1,
+  model: "claude-sonnet-5",
+};
+
+/** The REAL Anthropic adapter, with only `fetch` faked. */
+function provider(text: string, usage: unknown): AiProvider {
+  const fake = (async () =>
+    new Response(
+      JSON.stringify({
+        content: [{ type: "text", text }],
+        stop_reason: "end_turn",
         ...(usage ? { usage } : {}),
-      };
-    },
-  };
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as unknown as typeof fetch;
+
+  return createAnthropicProvider(
+    { model: "claude-sonnet-5", apiKey: "test-key", timeoutMs: 1_000 },
+    { fetch: fake },
+  );
 }
 
 const file = {
@@ -102,10 +138,7 @@ const TOOLS = [
   },
 ] as const;
 
-const runFor = async (
-  tool: (typeof TOOLS)[number],
-  usage: AiUsage | undefined,
-) => {
+const runFor = async (tool: (typeof TOOLS)[number], usage: unknown) => {
   const processor = tool.make(provider(tool.reply, usage));
   return processor.process({ ...tool.input, inputs: [file] } as ProcessorInput);
 };
@@ -114,7 +147,7 @@ describe("provider token usage reaches the job record", () => {
   it.each(TOOLS.map((t) => [t.name, t] as const))(
     "%s carries usage through the processor and the persistence boundary",
     async (name, tool) => {
-      const result = await runFor(tool, USAGE);
+      const result = await runFor(tool, WIRE_USAGE);
       expect(result.ok, `${name} did not complete`).toBe(true);
       if (!result.ok) return;
 
@@ -124,12 +157,7 @@ describe("provider token usage reaches the job record", () => {
         `${name} produced usage at the provider but the job record has none — ` +
           "check that the processor threads run.meta.usage into the ai block; " +
           "the seam and the engine can both be correct while this is not",
-      ).toEqual({
-        inputTokens: USAGE.inputTokens,
-        outputTokens: USAGE.outputTokens,
-        cachedInputTokens: USAGE.cachedInputTokens,
-        model: "claude-sonnet-5",
-      });
+      ).toEqual(EXPECTED);
     },
   );
 
