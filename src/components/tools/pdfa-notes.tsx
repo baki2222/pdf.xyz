@@ -17,6 +17,21 @@ import type { Job } from "@/lib/jobs/types";
  * the user asked for exactly this, and the removal is inherent. So this reads as
  * a receipt, not an alarm.
  *
+ * AND IT IS THE COMMON CASE, WHICH THE FIRST WORDING DID NOT ACCOUNT FOR.
+ * Measured on production 2026-08-11: essentially every PDF that has been through
+ * a producer carries `/Producer` or `/Creator` text, and Ghostscript discards
+ * DOCINFO for all of them — an empty string is still a text string, so even
+ * clearing every field does not silence it. A block headed "The converter
+ * changed or removed some content" and closing with "compare the result against
+ * your original" therefore fired on nearly every conversion, at a volume the
+ * situation does not earn. **A notice that appears every time is one users learn
+ * to skip, and that is how the unusual one gets missed later.**
+ *
+ * So the heading states the category rather than raising an alarm, and the
+ * closing line says the routine case is routine. The LIST is untouched: it is
+ * the informative part, and an unusually long or unfamiliar one still stands out
+ * precisely because the surrounding text is calm.
+ *
  * The lines are Ghostscript's own prose, unparsed. They change between versions,
  * and a classifier that quietly stopped matching after an upgrade would render
  * an empty list — "nothing was removed" — while meaning "I no longer understand".
@@ -33,11 +48,9 @@ export function PdfANotes({ job }: { job: Job | undefined }) {
       <p className="flex items-start gap-2">
         <Scissors className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
-          <strong className="font-semibold">
-            The converter changed or removed some content.
-          </strong>{" "}
-          PDF/A cannot store everything a PDF can, so parts that do not fit are
-          dropped during conversion. This is what Ghostscript reported:
+          <strong className="font-semibold">What PDF/A could not keep:</strong>{" "}
+          The format cannot store everything a PDF can, so the converter drops
+          what does not fit. This is what it reported:
         </span>
       </p>
       {pdfa.notes.length > 0 ? (
@@ -54,7 +67,8 @@ export function PdfANotes({ job }: { job: Job | undefined }) {
         </p>
       )}
       <p className="ml-6 text-xs text-sky-100/70">
-        Compare the result against your original before archiving it.
+        Document metadata is the usual casualty and this is routine. Read the
+        list if any of it matters to your archive.
       </p>
     </div>
   );
