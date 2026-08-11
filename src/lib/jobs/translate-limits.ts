@@ -51,6 +51,22 @@
  * ever rises, the ceiling rises with it and this single point stops covering the
  * new value. Re-probe before trusting a larger number.
  */
+/**
+ * WHICH QUANTITY THESE NUMBERS ARE, because the code compares a different one.
+ *
+ * Both checks test the EXTRACTED character count — `extracted.text.trim().length`
+ * in the engine, `extracted.characterCount` in the panel. The bracket figures
+ * below were reported as document sizes, and extraction adds whitespace and line
+ * breaks: measured on production, a 13,528-character fixture extracted to 13,678
+ * (+1.1%).
+ *
+ * So if `largestSuccessChars` is also a document size, the document that
+ * succeeded actually presented ~1% MORE text than the ceiling now allows, and
+ * the ceiling is conservative by about that margin. If it was already an
+ * extracted count, the ceiling is exact. **The unknown is bounded and points the
+ * safe way in both cases**, which is why no constant moves — but a future reader
+ * should not assume this figure is the quantity the check sees.
+ */
 export const TRANSLATE_CALIBRATION = {
   /** ISO date of the production run. */
   measuredOn: "2026-08-11",
