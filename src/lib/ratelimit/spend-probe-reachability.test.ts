@@ -10,35 +10,66 @@
  * imported the function directly** and so supplied by hand the one thing
  * production was missing: a caller.
  *
- * That is this codebase's most expensive recurring shape, in its purest form:
- *
- *   - `peek` that accumulated nothing, because the worker had no limiter.
- *   - `usageFrom(body)`, correct and tested, sitting below the branch that
- *     needed it.
- *   - a probe deployed with no call site.
- *
  * "The probe is ready" and "the probe answers" differ by a call site, and a diff
- * shows neither. So this guard does not check that the functions exist, and does
- * not check that some file mentions them. It walks the import graph **from the
- * process entry points a deployment actually runs** — HTTP route handlers and
- * the worker scripts — and asserts the probe is reachable from both tiers.
+ * shows neither.
  *
- * WHY REACHABILITY AND NOT A GREP. A grep is satisfied by one library module
- * importing another; that is exactly the state this guard exists to reject,
- * since a lib-to-lib reference proves nothing about whether a running process
- * ever calls it. Two boundaries can each pass their own tests while the path
- * through them drops everything — so the assertion is about the PATH.
+ * ── FOUR FALSE PASSES, and what each one taught ──────────────────────────────
  *
- * WHAT IT CANNOT CATCH, stated because a guard that overclaims is worse than
- * none: reachability is not execution. A call site sitting behind a condition
- * that is never true would satisfy this and still write nothing. That gap is
- * closed on the other side — by reading the probe key off the deployed store —
- * and this guard's job is only to make the ABSENCE of a call site impossible to
- * ship again.
+ * This guard has been wrong four times. Every fix that enumerated a FORM was
+ * beaten by another form; only the fixes that named a PROPERTY have held.
+ *
+ *  1. `\bsymbol\s*\(` matched `export async function writeSpendProbe(`, so the
+ *     guard passed over a tree with zero call sites.
+ *  2. Excluding the literal token `function` fixed that one spelling — and an
+ *     `interface { readSpendProbe(...) }`, a class method and an object-literal
+ *     shorthand each walked straight past it. **Step 2 created the shape of
+ *     step 3: the exit condition named the MECHANISM where the property is
+ *     "a declaration is not a call."** Now asked of the parser: a
+ *     `CallExpression` is a call and nothing else is, so the forms are
+ *     unrepresentable rather than enumerated.
+ *  3. The import walk keyed on the `type` KEYWORD, so rewriting
+ *     `import type { A }` as a plain `import { A }` — legal, `tsc`-clean —
+ *     put the module back in the graph. Now `isTypeOnly` on the node.
+ *  4. **And a module graph is not a call graph.** With that same rewrite, the
+ *     guard still passed: `spend-status.ts` really was loaded at runtime, and
+ *     it really does contain `readSpendProbe(...)` — inside `readAiSpendStatus`,
+ *     which nobody called. *Loading a module is not running a function.*
+ *
+ * So reachability here is **call-graph** reachability. Roots are what a
+ * deployment actually starts — a route handler the framework invokes, a script's
+ * top-level statements — and an edge exists only where a reached function calls
+ * something. A function that is defined, exported, imported, and never invoked
+ * contributes nothing, which is exactly the state production was in.
+ *
+ * ── WHAT IT CANNOT CATCH ─────────────────────────────────────────────────────
+ *
+ * Stated because a guard that overclaims is worse than none.
+ *
+ *  - **Reachability is not execution.** A call behind a condition that is never
+ *    true satisfies this. That gap is closed on the other side, by reading the
+ *    probe key off the deployed store.
+ *  - It descends into function expressions *inside* a reached function, because
+ *    that is how callbacks work and the worker's own probe wiring is an arrow in
+ *    an object literal. A closure that is built and never invoked therefore
+ *    counts — an over-approximation, and the one place this can still be too
+ *    generous.
+ *  - It resolves bare identifiers only. `port.readSpendProbe()` is a different
+ *    binding without a type checker, and treating it as this function is the
+ *    precise false pass above. A real call site that became a method call would
+ *    turn this RED — a false failure, which is the safe direction.
  */
 import { describe, expect, it } from "vitest";
+import type * as TS from "typescript";
+import { createRequire } from "node:module";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, resolve, dirname } from "node:path";
+import { join, resolve, dirname } from "node:path";
+
+/**
+ * Loaded through `createRequire` rather than `import ts from "typescript"`: the
+ * bundler otherwise transforms TypeScript's own multi-megabyte bundle and hunts
+ * for its absent sourcemap. This is the compiler used as a library.
+ */
+const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 
 const ROOT = resolve(__dirname, "..", "..", "..");
 const SRC = join(ROOT, "src");
@@ -59,6 +90,10 @@ function walk(dir: string): string[] {
   return out;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Entry points — discovered, never listed
+ * ------------------------------------------------------------------ */
+
 /**
  * The processes a deployment actually starts.
  *
@@ -72,16 +107,6 @@ function walk(dir: string): string[] {
  * discovery above a regex naming files is the precise artifact this codebase
  * exists to delete, and it sat in the file whose whole subject is instruments
  * that lie.
- *
- * The worker tier's entry point is now derived from the chain a deployment
- * actually uses — **container command → package script → file**:
- *
- *     Dockerfile   CMD ["pnpm", "worker:daemon"]
- *     package.json "worker:daemon": "tsx scripts/worker-daemon.ts"
- *
- * Three artifacts pinned to each other. Repoint the script, rename the file, or
- * change what the container runs, and this follows; none of those is something a
- * regex over filenames can see.
  */
 function entryPoints(): { web: string[]; worker: string[] } {
   const web = walk(join(SRC, "app")).filter((f) => /[\\/]route\.ts$/.test(f));
@@ -89,12 +114,15 @@ function entryPoints(): { web: string[]; worker: string[] } {
 }
 
 /**
- * Resolve what the worker container runs, through the package manifest, to files.
+ * What the worker container runs, derived through the chain a deployment
+ * actually uses — **container command → package script → file**:
  *
- * FATAL on a broken link rather than skipping it. A `pnpm <name>` in the
- * Dockerfile that no script defines means the image cannot start, and an
- * instrument that quietly dropped it would shrink its own corpus toward the
- * empty set — which passes every `⊆` assertion it is asked.
+ *     Dockerfile   CMD ["pnpm", "worker:daemon"]
+ *     package.json "worker:daemon": "tsx scripts/worker-daemon.ts"
+ *
+ * Three artifacts pinned to each other. FATAL on a broken link rather than
+ * skipping it: an instrument that quietly drops one shrinks its own corpus
+ * toward the empty set, which passes every `⊆` assertion it is asked.
  */
 function workerEntryPoints(): string[] {
   const dockerfile = readFileSync(join(ROOT, "Dockerfile"), "utf8");
@@ -112,13 +140,17 @@ function workerEntryPoints(): string[] {
         `the Dockerfile runs \`pnpm ${name}\` but package.json defines no such script`,
       );
     }
-    // Only the scripts that are a TypeScript entry point in this repo; `pnpm
-    // start` is Next's server and has no file of ours to walk.
+    // Only scripts that are a TypeScript entry point here; `pnpm start` is
+    // Next's server and has no file of ours to walk.
     const file = /(?:^|\s)(scripts\/[\w.-]+\.ts)(?:\s|$)/.exec(command);
     if (file) files.add(join(ROOT, file[1]!));
   }
   return [...files];
 }
+
+/* ------------------------------------------------------------------ *
+ *  Module facts
+ * ------------------------------------------------------------------ */
 
 /** Resolve one import specifier to a file on disk, or null if it is external. */
 function resolveImport(fromFile: string, spec: string): string | null {
@@ -141,160 +173,368 @@ function resolveImport(fromFile: string, spec: string): string | null {
   return null;
 }
 
-const IMPORT_RE = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+interface Binding {
+  readonly file: string;
+  readonly name: string;
+}
+
+interface ModuleInfo {
+  readonly file: string;
+  /** Local name → where it really comes from. VALUE imports only. */
+  readonly imports: Map<string, Binding>;
+  /** Module-level function-ish declarations this file owns, by name. */
+  readonly decls: Map<string, TS.Node>;
+  /** `export { a } from "./x"` — a name this module forwards. */
+  readonly namedReExports: Map<string, Binding>;
+  /** `export * from "./x"` — files this module forwards everything from. */
+  readonly starExports: string[];
+  /** Identifiers called by the module body itself, outside any function. */
+  readonly topLevelCalls: string[];
+  /** Names this file exports as functions (roots when this file is an entry). */
+  readonly exportedDecls: string[];
+}
 
 /**
- * Erase TYPE-ONLY imports before the graph is walked.
+ * Is this import erased at compile time?
  *
- * A type import does not exist at runtime — TypeScript strips it — so a module
- * reached only that way is never loaded and its code never runs. Counting one as
- * reachability is not a rounding error; it is the difference between "a process
- * calls this" and "a process mentions this type", which is the whole distinction
- * this guard sells.
- *
- * IT WAS A LIVE FALSE PASS, not a hypothetical. `snapshot.ts` imports
- * `AiSpendStatusCode` and `AiSpendProbeState` from `spend-status.ts` with
- * `import type`, purely to feed its compile-time subset assertion. That dragged
- * `spend-status.ts` — and therefore its `readSpendProbe(...)` call — into the web
- * graph, and the "WEB tier reaches readSpendProbe" arm below passed with the
- * route's real import deleted. The guard that exists to prove a call site was
- * itself satisfied by a type annotation.
- *
- * Caught by removing the route's import and re-running, which is the only check
- * that can tell a guard from a decoration: make the thing it watches for true
- * and confirm it goes red. Pinned as a case below so the arm cannot regress.
+ * `isTypeOnly` on the node rather than the `type` keyword in the text — the
+ * distinction that false pass 3 turned on. A side-effect import (`import "./x"`)
+ * has no clause at all and is very much a runtime load.
  */
-function withoutTypeOnlyImports(source: string): string {
+function isErasedImport(node: TS.ImportDeclaration): boolean {
+  const clause = node.importClause;
+  if (clause === undefined) return false;
+  if (clause.isTypeOnly) return true;
+  // `import { type A, type B } from "x"`: every binding erased ⇒ so is the
+  // statement. One value binding and the module is really loaded.
   return (
-    source
-      // `import type { A } from "x"` / `export type { A } from "x"`
-      .replace(/^\s*(?:import|export)\s+type\s[^;]*?;/gm, " ")
-      // `import { type A, type B } from "x"` — every specifier erased, so the
-      // whole statement is. One non-type specifier and it stays a real import.
-      .replace(
-        /^\s*import\s*\{([^}]*)\}\s*from\s*["'][^"']+["']\s*;?/gm,
-        (whole, specifiers: string) => {
-          const parts = specifiers
-            .split(",")
-            .map((p) => p.trim())
-            .filter((p) => p.length > 0);
-          const allTypes =
-            parts.length > 0 && parts.every((p) => /^type\s/.test(p));
-          return allTypes ? " " : whole;
-        },
-      )
+    clause.name === undefined &&
+    clause.namedBindings !== undefined &&
+    ts.isNamedImports(clause.namedBindings) &&
+    clause.namedBindings.elements.length > 0 &&
+    clause.namedBindings.elements.every((e) => e.isTypeOnly)
   );
 }
 
+/** Identifiers invoked anywhere inside `node`, including nested closures. */
+function calledIdentifiers(node: TS.Node): string[] {
+  const out: string[] = [];
+  const visit = (n: TS.Node): void => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+      out.push(n.expression.text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(node, visit);
+  return out;
+}
+
+/** Is this statement a module-level function-ish declaration? Returns its name. */
+function declaredName(
+  stmt: TS.Statement,
+): { name: string; node: TS.Node } | null {
+  if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+    return { name: stmt.name.text, node: stmt };
+  }
+  if (ts.isVariableStatement(stmt)) {
+    for (const d of stmt.declarationList.declarations) {
+      if (
+        ts.isIdentifier(d.name) &&
+        d.initializer !== undefined &&
+        (ts.isArrowFunction(d.initializer) ||
+          ts.isFunctionExpression(d.initializer))
+      ) {
+        return { name: d.name.text, node: d.initializer };
+      }
+    }
+  }
+  return null;
+}
+
+const MODULES = new Map<string, ModuleInfo>();
+
+/** Parse and summarize one module, memoized. Fatal if it cannot be read. */
+function moduleOf(file: string): ModuleInfo {
+  const cached = MODULES.get(file);
+  if (cached) return cached;
+
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    throw new Error(`unreadable module in the import graph: ${file}`);
+  }
+  const sf = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    /\.tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+
+  const imports = new Map<string, Binding>();
+  const decls = new Map<string, TS.Node>();
+  const namedReExports = new Map<string, Binding>();
+  const starExports: string[] = [];
+  const topLevelCalls: string[] = [];
+  const exportedDecls: string[] = [];
+
+  for (const stmt of sf.statements) {
+    if (ts.isImportDeclaration(stmt)) {
+      if (isErasedImport(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) {
+        continue;
+      }
+      const target = resolveImport(file, stmt.moduleSpecifier.text);
+      if (target === null) continue;
+      const clause = stmt.importClause;
+      if (clause?.name) {
+        imports.set(clause.name.text, { file: target, name: "default" });
+      }
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const el of bindings.elements) {
+          if (el.isTypeOnly) continue;
+          imports.set(el.name.text, {
+            file: target,
+            name: (el.propertyName ?? el.name).text,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (ts.isExportDeclaration(stmt)) {
+      if (stmt.isTypeOnly) continue;
+      const spec = stmt.moduleSpecifier;
+      if (spec === undefined || !ts.isStringLiteral(spec)) continue;
+      const target = resolveImport(file, spec.text);
+      if (target === null) continue;
+      if (stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
+        for (const el of stmt.exportClause.elements) {
+          if (el.isTypeOnly) continue;
+          namedReExports.set(el.name.text, {
+            file: target,
+            name: (el.propertyName ?? el.name).text,
+          });
+        }
+      } else if (stmt.exportClause === undefined) {
+        starExports.push(target);
+      }
+      continue;
+    }
+
+    const decl = declaredName(stmt);
+    if (decl !== null) {
+      decls.set(decl.name, decl.node);
+      const mods = ts.canHaveModifiers(stmt)
+        ? ts.getModifiers(stmt)
+        : undefined;
+      if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+        exportedDecls.push(decl.name);
+      }
+      continue;
+    }
+
+    // Anything else at module scope runs on import — its calls are top-level.
+    if (!ts.isInterfaceDeclaration(stmt) && !ts.isTypeAliasDeclaration(stmt)) {
+      topLevelCalls.push(...calledIdentifiers(stmt));
+      // A `const x = <not a function>` still runs; catch calls in its initializer.
+    }
+  }
+
+  const info: ModuleInfo = {
+    file,
+    imports,
+    decls,
+    namedReExports,
+    starExports,
+    topLevelCalls,
+    exportedDecls,
+  };
+  MODULES.set(file, info);
+  return info;
+}
+
+/** Follow barrels until the module that actually declares `name`. */
+function resolveExport(
+  file: string,
+  name: string,
+  seen = new Set<string>(),
+): Binding | null {
+  const key = `${file}#${name}`;
+  if (seen.has(key)) return null;
+  seen.add(key);
+
+  const m = moduleOf(file);
+  if (m.decls.has(name)) return { file, name };
+  const re = m.namedReExports.get(name);
+  if (re) return resolveExport(re.file, re.name, seen);
+  for (const star of m.starExports) {
+    const found = resolveExport(star, name, seen);
+    if (found) return found;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Call-graph reachability
+ * ------------------------------------------------------------------ */
+
 /**
- * Every module reachable from `roots` by following our own imports, plus the
- * concatenated source of all of them.
+ * Every identifier invoked on a path from these entry points.
  *
- * `import()` is followed as well as `import` — the operations route reaches its
- * native probe through a dynamic import, and a walker that only understood
- * static imports would silently under-report reachability, which for a guard
- * that asserts REACHED is the direction that produces a false failure and, for
- * the arms asserting NOT reached, a false pass.
+ * Roots are what a deployment starts: the entry module's top-level statements,
+ * and its exported functions (a Next route handler is invoked by the framework,
+ * never by our code, so it would otherwise look unreachable).
  */
-function reachableFrom(roots: string[]): {
-  files: Set<string>;
-  source: string;
-} {
-  const seen = new Set<string>();
-  const queue = [...roots];
-  let source = "";
+function reachableCalls(roots: string[]): Set<string> {
+  const called = new Set<string>();
+  const visited = new Set<string>();
+  const queue: Binding[] = [];
+
+  for (const root of roots) {
+    const m = moduleOf(root);
+    // The module body runs on start: its calls are reached by definition.
+    for (const name of m.topLevelCalls) {
+      called.add(name);
+      queue.push({ file: root, name });
+    }
+    // A route handler is invoked by the framework and never by our code, so it
+    // would otherwise look unreachable from inside the tree.
+    for (const name of m.exportedDecls) queue.push({ file: root, name });
+  }
+
   while (queue.length > 0) {
-    const file = queue.pop()!;
-    if (seen.has(file)) continue;
-    seen.add(file);
-    let text: string;
-    try {
-      text = readFileSync(file, "utf8");
-    } catch {
-      // A root that cannot be read must never silently shrink the graph.
-      throw new Error(`unreadable module in the import graph: ${file}`);
-    }
-    source += `\n/* ${relative(ROOT, file)} */\n${text}`;
-    for (const m of withoutTypeOnlyImports(text).matchAll(IMPORT_RE)) {
-      const target = resolveImport(file, m[1]!);
-      if (target !== null) queue.push(target);
+    const item = queue.pop()!;
+    const m = moduleOf(item.file);
+
+    // Where does this name actually live — imported, or declared right here?
+    const via = m.imports.get(item.name);
+    const target = via
+      ? resolveExport(via.file, via.name)
+      : m.decls.has(item.name)
+        ? { file: item.file, name: item.name }
+        : null;
+    if (target === null) continue; // a global, a builtin, or a type
+
+    // Mark the RESOLVED declaration, once. Marking the referring name instead
+    // made every local call collide with its own key and skip itself, which
+    // shrank the worker graph to two entries — visible only because the health
+    // check demanded a plausible size.
+    const key = `${target.file}#${target.name}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+
+    const node = moduleOf(target.file).decls.get(target.name);
+    if (node === undefined) continue;
+
+    for (const c of calledIdentifiers(node)) {
+      called.add(c);
+      queue.push({ file: target.file, name: c });
     }
   }
-  return { files: seen, source };
+
+  return called;
 }
 
-/** Strip comments, so a symbol NAMED in a docblock never counts as a call. */
-function withoutComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+/* ------------------------------------------------------------------ *
+ *  The mutant corpus
+ * ------------------------------------------------------------------ */
+
+/** Does a standalone snippet, treated as a module body, call `symbol`? */
+function snippetCalls(text: string, symbol: string): boolean {
+  const sf = ts.createSourceFile(
+    "mutant.ts",
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  let found = false;
+  const visit = (n: TS.Node): void => {
+    if (found) return;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+      if (n.expression.text === symbol) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
 }
 
 /**
- * Does the source CALL `symbol`, as opposed to DECLARING it?
+ * Every construct that has ever fooled this predicate, and every construct that
+ * must still register as a real call.
  *
- * The first version of this predicate was `\bsymbol\s*\(`, and it reported this
- * whole guard as passing against a tree with zero call sites — because
- * `export async function writeSpendProbe(` matches that pattern exactly. A
- * definition is not a call, and the one instrument built to tell them apart
- * could not.
- *
- * It was caught only because a number disagreed with one somebody had a reason
- * to expect: this guard was supposed to FAIL on unmodified main, and passed. So
- * the declaring keyword is excluded, and the exclusion gets its own control
- * below — a predicate that cannot distinguish its two cases reports the
- * strongest possible pass, which is the worst direction for a guard to fail in.
+ * A ban list needs a corpus in both directions: each declaration form here once
+ * read as a call (or would have, under the previous regex), and each call form
+ * must not be lost to an over-eager fix. The interface, class-method and
+ * shorthand cases came from an adversarial review of a guard already fixed twice.
  */
-function calls(source: string, symbol: string): boolean {
-  const re = new RegExp(`(\\w+)?\\s*\\b${symbol}\\s*\\(`, "g");
-  for (const m of source.matchAll(re)) {
-    if (m[1] === "function") continue;
-    return true;
-  }
-  return false;
-}
+const NOT_A_CALL: ReadonlyArray<readonly [string, string]> = [
+  ["function declaration", "export async function fooBar(env) {}"],
+  ["bare function declaration", "function fooBar() {}"],
+  [
+    "interface member - cannot run at all",
+    "export interface Port { fooBar(env: E, n: number): Promise<unknown>; }",
+  ],
+  ["class method", "class Adapter { async fooBar(env) { return 1; } }"],
+  ["abstract method", "abstract class A { abstract fooBar(env): void; }"],
+  ["object-literal shorthand", "const port = { fooBar };"],
+  ["object-literal method", "const port = { fooBar(env) { return 1; } };"],
+  ["type member", "type Port = { fooBar(env: E): void };"],
+  ["import binding", 'import { fooBar } from "./x";'],
+  ["re-export", 'export { fooBar } from "./x";'],
+  ["a mention in a docblock", "/** call fooBar(env) somewhere */ const x = 1;"],
+  ["a mention in a line comment", "// fooBar(env)\nconst x = 1;"],
+  ["a string that looks like one", 'const s = "fooBar(env)";'],
+  ["a typeof reference", "type T = typeof fooBar;"],
+];
+
+const IS_A_CALL: ReadonlyArray<readonly [string, string]> = [
+  ["awaited call", "await fooBar(process.env);"],
+  ["assigned call", "const r = fooBar();"],
+  ["call in an arrow body", "const f = () => fooBar(env);"],
+  [
+    "call inside a nested closure",
+    "if (x) { setTimeout(() => { fooBar(1); }); }",
+  ],
+  ["call as an argument", "void register(fooBar(env));"],
+  ["call behind optional chaining", "fooBar?.(env);"],
+];
 
 describe("the spend probe is reachable from the processes that run", () => {
   const { web, worker } = entryPoints();
+  const webCalls = reachableCalls(web);
+  const workerCalls = reachableCalls(worker);
 
-  it("CONTROL: the predicate tells a declaration apart from a call", () => {
-    // The control that would have caught this guard's own first version, which
-    // read a tree with zero call sites as fully wired. Pinned as a unit here
-    // because the failure was invisible at the level the guard reports at: it
-    // said "reachable", and "reachable" was the answer everyone wanted.
-    expect(calls("export async function fooBar(env) {}", "fooBar")).toBe(false);
-    expect(calls("function fooBar() {}", "fooBar")).toBe(false);
-    expect(calls("await fooBar(process.env);", "fooBar")).toBe(true);
-    expect(calls("const r = fooBar();", "fooBar")).toBe(true);
-    // An import binding is not a call either — naming a symbol is not using it.
-    expect(calls("import { fooBar } from './x';", "fooBar")).toBe(false);
-  });
+  describe("CONTROL: a declaration is not a call", () => {
+    // The property, asked of the parser. Each of these once passed - or, for
+    // the interface/class/shorthand three, was never distinguished - under a
+    // regex whose exit condition named the token `function`. Naming the
+    // MECHANISM instead of the PROPERTY is what let three synonyms walk past
+    // two separate fixes.
+    it.each(NOT_A_CALL)("%s does not count as a call", (_label, text) => {
+      expect(snippetCalls(text, "fooBar")).toBe(false);
+    });
 
-  it("CONTROL: a type-only import is not reachability", () => {
-    // The second false pass this guard produced, pinned. `snapshot.ts` pulls two
-    // TYPES from `spend-status.ts` for a compile-time assertion; that import is
-    // erased at runtime, and following it made the web tier look like it reached
-    // `readSpendProbe` even with the route's real import deleted.
-    const typeOnly = `import type { A } from "./x";\nexport type { B } from "./y";`;
-    expect(withoutTypeOnlyImports(typeOnly).match(IMPORT_RE)).toBeNull();
-    // Inline type specifiers, all of them ⇒ the whole statement is erased.
-    expect(
-      withoutTypeOnlyImports(`import { type A, type B } from "./x";`).match(
-        IMPORT_RE,
-      ),
-    ).toBeNull();
-    // One real binding and the statement survives — under-reporting reachability
-    // would turn the arms below into false FAILURES, which is its own defect.
-    const mixed = `import { type A, realThing } from "./x";`;
-    expect(withoutTypeOnlyImports(mixed)).toContain("./x");
-    expect(withoutTypeOnlyImports(`import { a } from "./keep";`)).toContain(
-      "./keep",
-    );
+    it.each(IS_A_CALL)("%s does count as a call", (_label, text) => {
+      expect(snippetCalls(text, "fooBar")).toBe(true);
+    });
+
+    it("HEALTH CHECK: the corpus is not empty in either direction", () => {
+      // `[] subset X` is vacuously true. A corpus that silently emptied would
+      // report the strongest possible pass on both halves at once.
+      expect(NOT_A_CALL.length).toBeGreaterThan(8);
+      expect(IS_A_CALL.length).toBeGreaterThan(3);
+    });
   });
 
   it("HEALTH CHECK: the walk actually found both tiers' entry points", () => {
-    // `[] ⊆ X` is vacuously true, so a blind walk would report the strongest
-    // possible pass. Every assertion below is worthless without this one.
+    // `[] subset X` is vacuously true, so a blind walk would report the
+    // strongest possible pass. Every assertion below is worthless without this.
     expect(
       web.length,
       "no Next route handlers were discovered",
@@ -302,75 +542,71 @@ describe("the spend probe is reachable from the processes that run", () => {
     expect(
       worker.length,
       "no worker entry-point script was discovered from the Dockerfile's " +
-        "command through package.json — the chain is broken, and every arm " +
+        "command through package.json - the chain is broken, and every arm " +
         "below would then be asserting something about the empty set",
     ).toBeGreaterThan(0);
-    // Every discovered entry point must exist on disk. A resolved-but-absent
-    // file would silently contribute nothing to the graph.
     for (const f of worker) expect(statSync(f).isFile()).toBe(true);
+    // The call graph must be substantial, or "not reached" means "not walked".
+    expect(
+      webCalls.size,
+      "the web call graph is implausibly small",
+    ).toBeGreaterThan(50);
+    expect(
+      workerCalls.size,
+      "the worker call graph is implausibly small",
+    ).toBeGreaterThan(20);
   });
 
   it("CONTROL: the worker entry point is derived, not named", () => {
-    // The defect this replaced hand-named two of the sixteen `worker:*`
-    // scripts under a docblock claiming discovery. The property that makes the
+    // The defect this replaced hand-named two of the sixteen `worker:*` scripts
+    // under a docblock claiming discovery. The property that makes the
     // replacement real is that the answer comes from the Dockerfile and
-    // package.json — so it must NOT include scripts the container never runs.
-    const { worker } = entryPoints();
-    const all = walk(SCRIPTS);
-    expect(all.length, "the scripts directory did not walk").toBeGreaterThan(
-      worker.length,
-    );
+    // package.json - so it must NOT include scripts the container never runs.
+    expect(
+      walk(SCRIPTS).length,
+      "the scripts directory did not walk",
+    ).toBeGreaterThan(worker.length);
     // `worker:ops-check` is a `worker:*` script and a legitimate entry point for
-    // an operator, but it is not what the container starts — so the derived set
+    // an operator, but it is not what the container starts - so the derived set
     // must exclude it, which a filename regex over `worker-*` could not.
     expect(worker.some((f) => /worker-ops-check/.test(f))).toBe(false);
   });
 
-  it("POSITIVE CONTROL: the graph walk reaches a symbol known to be wired", () => {
-    // If the walker were broken — a bad alias, an unfollowed import — every
-    // "not reachable" assertion below would pass for the wrong reason. This
-    // pins a call the web tier demonstrably makes today.
-    const { files, source } = reachableFrom(web);
-    expect(files.size, "the import graph is implausibly small").toBeGreaterThan(
-      100,
-    );
-    expect(calls(withoutComments(source), "enforceRateLimit")).toBe(true);
+  it("POSITIVE CONTROL: the graph reaches a call known to be wired", () => {
+    // If the walk were broken - a bad alias, an unfollowed barrel - every
+    // assertion below would pass or fail for the wrong reason.
+    expect(webCalls.has("enforceRateLimit")).toBe(true);
+    expect(workerCalls.has("createWorkerDaemon")).toBe(true);
   });
 
   it("NEGATIVE CONTROL: it does not report a symbol nobody calls", () => {
-    const { source } = reachableFrom(web);
-    expect(
-      calls(withoutComments(source), "definitelyNotARealFunctionName"),
-    ).toBe(false);
+    expect(webCalls.has("definitelyNotARealFunctionName")).toBe(false);
   });
 
   it("the WORKER tier reaches writeSpendProbe", () => {
     // The write half. Without it `no-probe-visible` is permanent and means
-    // nothing — a posture that can only ever report one thing is not an
+    // nothing - a posture that can only ever report one thing is not an
     // instrument.
-    const { source } = reachableFrom(worker);
     expect(
-      calls(withoutComments(source), "writeSpendProbe"),
+      workerCalls.has("writeSpendProbe"),
       "no worker entry point reaches writeSpendProbe, so the probe key is " +
         "never written and the web tier can never prove the two tiers share " +
-        "one bucket — the module is deployed and inert",
+        "one bucket - the module is deployed and inert",
     ).toBe(true);
   });
 
   it("the WEB tier reaches readSpendProbe", () => {
-    // The read half — blocker 2's remaining question, "is the counter I read
-    // the counter they write?". Reached transitively via the posture resolver
-    // is fine; reached by nothing is not.
-    const { source } = reachableFrom(web);
+    // The read half - blocker 2's remaining question, "is the counter I read
+    // the counter they write?". Reached transitively through the posture
+    // resolver is fine; reached by nothing is not.
     expect(
-      calls(withoutComments(source), "readSpendProbe"),
+      webCalls.has("readSpendProbe"),
       "no web entry point reaches readSpendProbe, so nothing on the tier that " +
         "must refuse jobs can say whether it reads the counter the worker writes",
     ).toBe(true);
   });
 
   it("the WEB tier reaches the ceiling peek, so the posture is observed not assumed", () => {
-    const { source } = reachableFrom(web);
-    expect(calls(withoutComments(source), "peekAiSpendCeiling")).toBe(true);
+    expect(webCalls.has("peekAiSpendCeiling")).toBe(true);
   });
 });
