@@ -170,18 +170,54 @@ export const AI_SPEND_EXTERNAL_BOUND = {
 } as const;
 
 /**
- * Blended price per million tokens, **UNMEASURED**.
+ * Blended price per million tokens — **the WORST REACHABLE blend, not an average.**
  *
- * `null` on purpose and not a placeholder to be filled with a plausible figure.
- * An invented price multiplied by an invented run count is the `3.5 × 1.3` this
- * codebase already removed, with a dollar sign on it.
+ * MEASURED 2026-08-11 from OpenAI's published rate card for `gpt-5.6-luna`
+ * (developers.openai.com/api/docs/pricing), $ per 1M tokens:
  *
- * To measure it: OpenAI's Usage page reports tokens and cost for the same
- * period, and the ratio is the number. Or — now that every job records
- * `results.ai.usage` — run a known job and compare our token count against the
- * account's spend delta.
+ * ```
+ *   short ctx :  in 0.20   cachedIn 0.02   cacheWrite 0.25   out 1.20
+ *   long  ctx :  in 0.40   cachedIn 0.04   cacheWrite 0.50   out 1.80
+ * ```
+ *
+ * A ceiling is compared against a bound, so this is the highest blend a real
+ * call can reach rather than the one a typical call costs. Realistic translate
+ * blends at $0.96 and a 125k-token chat at $0.42; using either would make the
+ * comparison an average pretending to be a limit.
+ *
+ * WHY $1.20 AND NOT $1.80, because this is the question a future reader will get
+ * wrong. $1.80 is the long-context OUTPUT rate, and a blend can only reach it
+ * with 100% output at long-context pricing — which is self-contradictory. Long
+ * context is entered by a large INPUT, input is priced at a quarter to a third of
+ * output, and a call with zero input tokens does not exist. So the long-context
+ * rate always arrives attached to the thing that drags the blend down.
+ *
+ * The counter-intuitive consequence, worth stating because instinct says the
+ * opposite: **big-context runs are the CHEAP ones.** The expensive workload is
+ * the small call with a high output ratio.
+ *
+ * ⚠️ LIST PRICING, read by a human, not machine-readable. Re-check the same way
+ * as {@link AI_SPEND_EXTERNAL_BOUND} — and note that changing `PDFXYZ_AI_MODEL`
+ * changes this number with nothing here noticing.
  */
-export const AI_BLENDED_PRICE_USD_PER_MTOK: number | null = null;
+export const AI_BLENDED_PRICE_USD_PER_MTOK: number | null = 1.2;
+
+/** Provenance for the price above, since no test can verify it. */
+export const AI_PRICE_SOURCE = {
+  model: "gpt-5.6-luna",
+  source: "developers.openai.com/api/docs/pricing (published list pricing)",
+  readOn: "2026-08-11",
+  /** The rate used, and the one deliberately not used. */
+  usedRateUsdPerMTok: 1.2,
+  excludedRateUsdPerMTok: 1.8,
+  excludedBecause:
+    "long-context output pricing is only reachable via a large input, and input is cheaper than output, so a 100%-output long-context blend cannot occur",
+} as const;
+
+/** What the ceiling would cost per month at the worst reachable blend. */
+export const AI_CEILING_MONTHLY_COST_USD =
+  ((AI_SPEND_DAILY_TOKEN_CEILING * 30) / 1_000_000) *
+  (AI_BLENDED_PRICE_USD_PER_MTOK ?? 0);
 
 /**
  * The price at which the two ceilings coincide — **derived, not guessed**.

@@ -21,6 +21,8 @@ import {
   AI_SPEND_CEILING,
   AI_SPEND_DAILY_TOKEN_CEILING,
   AI_SPEND_EXTERNAL_BOUND,
+  AI_CEILING_MONTHLY_COST_USD,
+  AI_PRICE_SOURCE,
   aiCeilingBindsFirst,
 } from "./ai-spend-ceiling";
 
@@ -36,16 +38,45 @@ describe("the token ceiling and the dollar cap are comparable", () => {
     expect(AI_CEILING_BREAKEVEN_USD_PER_MTOK).toBeCloseTo(1.6667, 3);
   });
 
-  it("answers UNKNOWN while the price is unmeasured, never yes", () => {
-    // The assertion that matters. A cost control defaulting to "yes, I bind
-    // first" would be making without evidence exactly the claim this exercise
-    // exists to stop. Unknown is the honest answer and it stays unknown until
-    // someone measures.
-    expect(AI_BLENDED_PRICE_USD_PER_MTOK).toBeNull();
+  it("answers YES from a measured price, not from an assumption", () => {
+    // It answered "unknown" until the rate card was read on 2026-08-11. The
+    // verdict is evidence now; the machinery that refuses to guess is unchanged
+    // and is what makes the answer worth anything.
+    expect(AI_BLENDED_PRICE_USD_PER_MTOK).toBe(1.2);
+    expect(aiCeilingBindsFirst()).toBe("yes");
+  });
+
+  it("SELF-CHECKS that our ceiling costs less than the provider's cap", () => {
+    // THE SECOND, INDEPENDENT BOUND, made executable. A constant has no
+    // relationships for a structural defence to constrain, so the only thing
+    // that can see a wrong number is a comparison against something outside it.
+    //
+    // This goes red — rather than the ceiling quietly becoming decoration — if
+    // anyone raises `fullRunsPerDay`, if OpenAI's cap drops, or if the price
+    // moves. Those are the three ways this feature silently stops bounding
+    // anything, and none of them is visible in a diff.
     expect(
-      aiCeilingBindsFirst(),
-      "the ceiling claims to bind first while the blended price is unmeasured",
-    ).toBe("unknown");
+      AI_CEILING_MONTHLY_COST_USD,
+      `our ceiling would cost $${AI_CEILING_MONTHLY_COST_USD}/month at ` +
+        `$${AI_BLENDED_PRICE_USD_PER_MTOK}/Mtok, against OpenAI's ` +
+        `$${AI_SPEND_EXTERNAL_BOUND.monthlyCapUsd} cap. The provider's bound ` +
+        "would trip first, so the honest 503 would never render and the " +
+        "balance would simply run out as generic provider errors.",
+    ).toBeLessThan(AI_SPEND_EXTERNAL_BOUND.monthlyCapUsd);
+    // $72 against $100 today — stated so the margin is visible, not just the pass.
+    expect(AI_CEILING_MONTHLY_COST_USD).toBeCloseTo(72, 6);
+  });
+
+  it("records why the long-context rate is excluded", () => {
+    // The question a future reader gets wrong: $1.80 exists on the rate card and
+    // is not used. A blend can only reach it with 100% output at long-context
+    // pricing, and long context is entered by a large INPUT priced well below
+    // output — so the rate always arrives attached to what drags the blend down.
+    expect(AI_PRICE_SOURCE.usedRateUsdPerMTok).toBe(1.2);
+    expect(AI_PRICE_SOURCE.excludedRateUsdPerMTok).toBe(1.8);
+    expect(AI_PRICE_SOURCE.excludedBecause.length).toBeGreaterThan(40);
+    expect(AI_PRICE_SOURCE.readOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(AI_PRICE_SOURCE.model).toBe("gpt-5.6-luna");
   });
 
   it("resolves in both directions once a price exists", () => {
