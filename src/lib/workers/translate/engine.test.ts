@@ -12,6 +12,10 @@ import {
   TRANSLATE_ENGINE,
   type PdfTextExtractor,
 } from "./engine";
+import {
+  TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
+  TRANSLATE_MAX_INPUT_CHARS,
+} from "@/lib/jobs/translate-limits";
 
 const OPTIONS: TranslateOptions = {
   targetLanguage: "fr",
@@ -387,5 +391,83 @@ describe("a short window is disclosed — to the model and to the job record", (
     expect(run.meta.truncated).toBe(false);
     expect(run.meta.truncationNotice).toBeNull();
     expect(provider.calls[0]?.system ?? "").not.toMatch(/ONLY PART/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The output ceiling (TASK-52)
+// ---------------------------------------------------------------------------
+
+describe("translate refuses more text than the model may write back", () => {
+  /** Text just over the ceiling, spread across pages so the extractor is realistic. */
+  async function oversizedExtractor(): Promise<PdfTextExtractor> {
+    const perPage = "a".repeat(2000);
+    const pages = Array.from({ length: 20 }, (_, i) => ({
+      pageNumber: i + 1,
+      text: perPage,
+      characterCount: perPage.length,
+    }));
+    const joined = pages.map((p) => p.text).join("\n\n");
+    const extracted: ExtractedPdfText = {
+      pageCount: pages.length,
+      pages,
+      text: joined,
+      characterCount: joined.length,
+      hasText: true,
+    };
+    return vi.fn(async () => extracted);
+  }
+
+  it("refuses BEFORE calling the provider, so nothing is billed", async () => {
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: await oversizedExtractor(),
+      provider,
+    });
+
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("too_much_text");
+    // The load-bearing assertion: the provider was never called. On production
+    // this document was accepted, extracted, sent, billed, and refused after 49
+    // seconds — with the user's daily AI run already spent.
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("names both numbers, because 'too long' is not actionable", async () => {
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: await oversizedExtractor(),
+      provider,
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.characters).toBe(20 * 2000 + 19 * 2);
+    expect(run.ceilingCharacters).toBe(TRANSLATE_MAX_INPUT_CHARS);
+    expect(run.message).toContain("40,038");
+    expect(run.message).toMatch(/Split it into smaller files/);
+  });
+
+  it("still translates a document within the ceiling", async () => {
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: extractorFor("Bonjour, voici un petit document."),
+      provider,
+    });
+    expect(run.ok).toBe(true);
+    expect(provider.calls).toHaveLength(1);
+  });
+
+  it("scales the ceiling with the output budget it is given", async () => {
+    // A deployment that raises the budget really can translate more; the refusal
+    // must follow the budget rather than a frozen number.
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: await oversizedExtractor(),
+      provider,
+      limits: { maxOutputTokens: TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS * 4 },
+    });
+    expect(run.ok).toBe(true);
+    expect(provider.calls).toHaveLength(1);
   });
 });

@@ -19,6 +19,11 @@ import {
   type TranslateSourceLanguage,
 } from "@/lib/jobs/translate-pdf";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
+import {
+  TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
+  translateMaxInputChars,
+  translateTooLongMessage,
+} from "@/lib/jobs/translate-limits";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 
 /**
@@ -113,6 +118,12 @@ export type TranslateFailureKind =
   | "ai_unconfigured"
   | "no_text"
   | "too_large"
+  /**
+   * The document has more TEXT than the model may write back. Distinct from
+   * `too_large`, which is about bytes: conflating them would tell a user to
+   * shrink a file that is already small, when what they need is fewer pages.
+   */
+  | "too_much_text"
   | "rate_limited"
   | "content_filtered"
   | "failed";
@@ -129,6 +140,10 @@ export type TranslateRun =
       ok: false;
       kind: TranslateFailureKind;
       limitBytes?: number;
+      /** Source characters found, on `too_much_text` only. */
+      characters?: number;
+      /** What this run could have handled, on `too_much_text` only. */
+      ceilingCharacters?: number;
       retryable?: boolean;
       message: string;
     };
@@ -138,7 +153,7 @@ export type TranslateRun =
  * the input, so unlike summarization there is no per-length plan — the budget is a
  * fixed default the operator's `maxOutputTokens` limit can only lower, never raise.
  */
-const DEFAULT_MAX_OUTPUT_TOKENS = 8000;
+const DEFAULT_MAX_OUTPUT_TOKENS = TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS;
 const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
 
 /** The honesty-critical system prompt: translate ONLY the provided text; invent nothing. */
@@ -307,6 +322,28 @@ export async function runTranslate(
 
   const maxOutputTokens =
     deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+
+  // REFUSE BEFORE PAYING. Translate's binding constraint is the OUTPUT budget,
+  // not the input cap it shares with the other AI tools — its output is as long
+  // as its input. Measured on production: a 135,280-character document was
+  // accepted, scanned, extracted, sent to the provider, billed, and rejected
+  // after 49 seconds with "reached its output limit". The ceiling is knowable
+  // before any of that, so it is checked before any of that.
+  //
+  // This is the BACKSTOP. By the time the worker runs, the daily AI allowance
+  // has already been spent at job creation, so the panel makes the same check
+  // before it uploads. This one saves the provider call and the 49 seconds, and
+  // it is what a caller reaching the API directly gets.
+  const ceilingCharacters = translateMaxInputChars(maxOutputTokens);
+  if (sourceText.length > ceilingCharacters) {
+    return {
+      ok: false,
+      kind: "too_much_text",
+      characters: sourceText.length,
+      ceilingCharacters,
+      message: translateTooLongMessage(sourceText.length, ceilingCharacters),
+    };
+  }
 
   const completion = await provider.complete({
     system: buildSystemPrompt(options, window),
