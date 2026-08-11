@@ -48,7 +48,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { copyFiles, withoutComments } from "./copy-surface";
+import {
+  copyFiles,
+  flattenForPhraseSearch,
+  withoutComments,
+} from "./copy-surface";
 
 const ROOT = process.cwd();
 
@@ -146,7 +150,13 @@ describe("marketing copy does not invite a sign-in the product does not have", (
   it.each(FORBIDDEN)("no page carries $label", ({ label, pattern }) => {
     const offenders: string[] = [];
     for (const file of copyFiles()) {
-      const source = withoutComments(readFileSync(file, "utf8"));
+      // Flattened: a phrase search has a hole at every wrap point, and the
+      // patterns below are multi-word. Proven 2026-08-11 — the banned
+      // phrases sat in a walked file split across a line and this guard
+      // passed. See `flattenForPhraseSearch`.
+      const source = flattenForPhraseSearch(
+        withoutComments(readFileSync(file, "utf8")),
+      );
       const match = pattern.exec(source);
       if (match) offenders.push(`${path.relative(ROOT, file)}: "${match[0]}"`);
     }
