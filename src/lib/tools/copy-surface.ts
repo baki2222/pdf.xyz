@@ -135,11 +135,35 @@ export function withoutComments(source: string): string {
  *    formatting — walked straight past it. Reproduced: the split literal in a
  *    walked file left the stale-claim assertion green.
  *
- * So: collapse string-concatenation joins, then all whitespace runs. What is left
- * is what a READER sees, which is the thing the guard is actually about.
+ * THREE EVASIONS, and they are genuinely different — the third was found by a
+ * control that caught the author reproducing the wrong one:
+ *
+ *  1. **A real line break in the source.** A wrapped comment, or a template
+ *     literal spanning lines. Closed by collapsing whitespace runs.
+ *  2. **A concatenation join** — `"a " + "b"`, which prettier writes for you at
+ *     80 columns. Closed by removing the join.
+ *  3. **An ESCAPED break inside a string literal** — `"does\n  not resend"`. On
+ *     disk that is a backslash and an `n`, not whitespace, so rule 1 cannot see
+ *     it. Closed by treating `\n`/`\r`/`\t` escapes as spaces. This is the one
+ *     the author's own reproduction actually used while believing it was case 1,
+ *     which is why the control asserts the un-flattened miss as well as the
+ *     flattened catch: without pinning the "before", a fix can appear to work on
+ *     a mechanism it never touched.
+ *
+ * What is left is what a READER sees, which is the thing the guard is about.
+ *
+ * NOT CLOSED: a phrase broken by interpolation — `` `does not ${verb} the
+ * document` `` — still passes every guard, because after flattening the source
+ * still reads `does not ${verb} the document`. Closing it means evaluating
+ * template expressions, which is a different instrument from a text scan, and
+ * nothing in this codebase builds a user-facing claim out of runtime parts
+ * today. Recorded as a known bound rather than left to be discovered.
  */
 export function flattenForPhraseSearch(source: string): string {
-  return source.replace(/(["'`])\s*\+\s*\1/g, "").replace(/\s+/g, " ");
+  return source
+    .replace(/(["'`])\s*\+\s*\1/g, "")
+    .replace(/\\[nrt]/g, " ")
+    .replace(/\s+/g, " ");
 }
 
 /**

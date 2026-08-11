@@ -33,7 +33,11 @@ import type {
   AiProvider,
 } from "@/lib/workers/ai/provider";
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
-import { copyFiles, withoutComments } from "./copy-surface";
+import {
+  copyFiles,
+  flattenForPhraseSearch,
+  withoutComments,
+} from "./copy-surface";
 
 const ROOT = process.cwd();
 
@@ -133,7 +137,7 @@ describe("the document really is re-sent on every turn", () => {
  * one. Same repository, opposite polarity; a shared helper applied without
  * thinking would have emptied this guard on day one.
  */
-const FORBIDDEN = [
+export const FORBIDDEN = [
   /does\s?n'?t resend/i,
   /does not resend/i,
   /without resending/i,
@@ -169,7 +173,13 @@ describe("no page claims a follow-up avoids sending the document", () => {
   it("finds no such claim on any user-facing page", () => {
     const offenders: string[] = [];
     for (const file of copyFiles()) {
-      const source = withoutComments(readFileSync(file, "utf8"));
+      // Flattened: a phrase search has a hole at every wrap point, and the
+      // patterns below are multi-word. Proven 2026-08-11 — the banned
+      // phrases sat in a walked file split across a line and this guard
+      // passed. See `flattenForPhraseSearch`.
+      const source = flattenForPhraseSearch(
+        withoutComments(readFileSync(file, "utf8")),
+      );
       for (const claim of transmissionClaimsIn(source)) {
         offenders.push(`${path.relative(ROOT, file)}: "${claim}"`);
       }
