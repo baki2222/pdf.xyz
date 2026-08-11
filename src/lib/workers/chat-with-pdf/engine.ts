@@ -16,6 +16,7 @@ import {
   type AiProvider,
 } from "../ai/provider";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
+import type { AiUsageMeta } from "@/lib/jobs/ai-results";
 
 /**
  * Chat with PDF engine for the `chat-with-pdf` AI tool.
@@ -117,6 +118,11 @@ export interface ChatWithPdfMeta {
    * to the browser so the panel can state the bound without re-deriving it.
    */
   window: TruncationWindow;
+  /**
+   * Provider-reported token usage, absent when the provider did not report it.
+   * Carried to the job record so an AI run's cost is measurable after the fact.
+   */
+  usage?: AiUsageMeta;
 }
 
 export type ChatWithPdfFailureKind =
@@ -487,6 +493,20 @@ export async function runChatWithPdf(
       tool: CHAT_TOOL,
       provider: provider.id,
       model: completion.model,
+      // Token counts travel to the job record so the per-page cost of an AI run
+      // is measurable after the fact. Absent when the provider did not report.
+      ...(completion.usage
+        ? {
+            usage: {
+              inputTokens: completion.usage.inputTokens,
+              outputTokens: completion.usage.outputTokens,
+              ...(completion.usage.cachedInputTokens !== undefined
+                ? { cachedInputTokens: completion.usage.cachedInputTokens }
+                : {}),
+              model: completion.model,
+            },
+          }
+        : {}),
       pageCount: extracted.pageCount,
       questionCharacters: options.question.length,
       contextTurns: options.context?.length ?? 0,

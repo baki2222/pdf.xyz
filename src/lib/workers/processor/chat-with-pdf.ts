@@ -168,7 +168,12 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
         meta(run.meta),
         // The window travels to the browser on the job record, so the panel
         // can state the bound whether or not the model chose to mention it.
-        { ai: { truncation: run.meta.window } },
+        {
+          ai: {
+            truncation: run.meta.window,
+            ...(run.meta.usage ? { usage: run.meta.usage } : {}),
+          },
+        },
       );
     },
   };

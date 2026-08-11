@@ -37,12 +37,58 @@ export interface AiWindowMeta {
 }
 
 /**
+ * What the call cost, as the provider reported it.
+ *
+ * Recorded because the free allowance is moving from RUNS to PAGES, and that
+ * number cannot be set without knowing what a page actually costs. Until now the
+ * counts existed for the length of one function call and were thrown away:
+ * `AiCompletionSuccess.usage` is populated by both providers and read by exactly
+ * one caller, `chat-with-pdf`, which writes it into its download manifest. So the
+ * measurement was available at every call and survived nowhere queryable.
+ *
+ * Token counts are SIZE metadata, not content — they say how much text there
+ * was, which the file size and page count already imply. No document text, no
+ * prompt, no answer.
+ *
+ * `model` is not decoration: a token count without the model it belongs to is
+ * unpriceable, and providers charge different rates per model and per token
+ * class. A block that loses its model is dropped rather than persisted, so a
+ * future per-page costing never averages in a row it cannot attribute.
+ *
+ * NAMING, because there are now two vocabularies for one quantity: the
+ * `pdfxyz.chat/v1` manifest calls these `input` / `output` / `cachedInput`. That
+ * schema has shipped, so it is not renamed here; these are the same numbers.
+ */
+export interface AiUsageMeta {
+  inputTokens: number;
+  outputTokens: number;
+  /**
+   * Provider-reported cached input tokens, when reported at all.
+   *
+   * Kept separate rather than folded into `inputTokens` because it is priced
+   * differently — materially so with both providers — and a costing that treats
+   * a cached token as a fresh one overstates. Absent means "not reported",
+   * never "zero cached".
+   */
+  cachedInputTokens?: number;
+  /** Public model id the counts belong to. Never a secret. */
+  model: string;
+}
+
+/**
  * The `ai` block of a completed job's results. Present on every completed
  * summarize / ai-extract / chat-with-pdf job — including untruncated ones, so a
  * missing block means "this worker did not report", not "nothing was cut".
  */
 export interface AiResultMeta {
   truncation: AiWindowMeta;
+  /**
+   * Omitted when the provider did not report usage — which both providers do by
+   * omission rather than by zeroes. An absent block means "not reported"; a
+   * present one with zeroes would mean "reported as free", and those must not
+   * collapse into each other.
+   */
+  usage?: AiUsageMeta;
 }
 
 /** Clamp to a bounded non-negative integer; anything unusable becomes 0. */
@@ -76,6 +122,8 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
       ? Math.min(Math.floor(rawLast), totalPages || Math.floor(rawLast))
       : null;
 
+  const used = boundUsage(raw.usage);
+
   return {
     truncation: {
       truncated,
@@ -87,6 +135,40 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
       lastCompletePage: truncated ? last : totalPages || null,
       cutMidPage: truncated && w.cutMidPage === true,
     },
+    ...(used ? { usage: used } : {}),
+  };
+}
+
+/** Model ids are short; this bounds an untrusted string at the seam. */
+const MAX_MODEL_ID = 100;
+
+/**
+ * Re-bound an untrusted usage block, or drop it.
+ *
+ * Dropped rather than repaired when the model is missing or unusable, because a
+ * token count nobody can attribute to a model is not a cheap measurement — it is
+ * a row that will be averaged into a per-page price and quietly move it. Absent
+ * is recoverable; wrong is not.
+ */
+function boundUsage(raw: AiUsageMeta | undefined): AiUsageMeta | null {
+  if (!raw || typeof raw !== "object") return null;
+  const model =
+    typeof raw.model === "string"
+      ? raw.model.trim().slice(0, MAX_MODEL_ID)
+      : "";
+  if (model.length === 0) return null;
+
+  const cached = raw.cachedInputTokens;
+  return {
+    inputTokens: count(raw.inputTokens),
+    outputTokens: count(raw.outputTokens),
+    // Preserved only when the provider actually reported it: `undefined` means
+    // "not reported" and 0 means "reported none", and collapsing them would
+    // silently price a cache miss as a cache hit.
+    ...(typeof cached === "number" && Number.isFinite(cached)
+      ? { cachedInputTokens: count(cached) }
+      : {}),
+    model,
   };
 }
 

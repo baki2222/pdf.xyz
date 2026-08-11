@@ -164,7 +164,12 @@ export function createTranslateProcessor(deps: TranslateDeps): Processor {
         meta(run.meta),
         // The window travels to the browser on the job record, so the panel
         // can state the bound whether or not the model mentioned it.
-        { ai: { truncation: run.meta.window } },
+        {
+          ai: {
+            truncation: run.meta.window,
+            ...(run.meta.usage ? { usage: run.meta.usage } : {}),
+          },
+        },
       );
     },
   };

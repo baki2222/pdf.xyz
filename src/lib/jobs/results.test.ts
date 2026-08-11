@@ -254,6 +254,90 @@ describe("sanitizeJobResults — the AI window block", () => {
   });
 });
 
+describe("sanitizeJobResults — the AI usage block", () => {
+  const window = {
+    truncated: false,
+    charactersSent: 10_000,
+    charactersTotal: 10_000,
+    totalPages: 3,
+    lastCompletePage: 3,
+    cutMidPage: false,
+  };
+  const usage = {
+    inputTokens: 8_100,
+    outputTokens: 7_400,
+    model: "gpt-5.6-luna",
+  };
+
+  it("carries token counts and their model to the job record", () => {
+    // The whole point: until this block existed the counts were produced at
+    // every call and thrown away, so the per-page cost of an AI run could not
+    // be measured after the fact.
+    const clean = sanitizeJobResults({ ai: { truncation: window, usage } });
+    expect(clean?.ai?.usage).toEqual(usage);
+  });
+
+  it("omits the block when the provider did not report usage", () => {
+    // Absent must stay absent rather than becoming zeroes: "not reported" and
+    // "reported as free" are different facts, and a costing that averages a
+    // fabricated zero moves the price toward nothing.
+    const clean = sanitizeJobResults({ ai: { truncation: window } });
+    expect(clean?.ai).toBeDefined();
+    expect(clean?.ai?.usage).toBeUndefined();
+  });
+
+  it("drops usage that cannot be attributed to a model", () => {
+    // A token count nobody can price is not a cheap measurement, it is a row
+    // that will be averaged into a per-page figure and quietly move it.
+    for (const model of ["", "   ", undefined, 42]) {
+      const clean = sanitizeJobResults({
+        ai: { truncation: window, usage: { ...usage, model } },
+      } as unknown as JobResults);
+      expect(
+        clean?.ai?.usage,
+        `usage with model=${JSON.stringify(model)} must not persist`,
+      ).toBeUndefined();
+      // The rest of the block still survives — losing the price does not lose
+      // the disclosure.
+      expect(clean?.ai?.truncation.totalPages).toBe(3);
+    }
+  });
+
+  it("keeps 'no cached tokens reported' distinct from 'zero cached tokens'", () => {
+    // Both providers report cached input separately and price it well below a
+    // fresh token. Collapsing absent into 0 prices a cache hit as a miss.
+    const notReported = sanitizeJobResults({
+      ai: { truncation: window, usage },
+    });
+    expect(notReported?.ai?.usage?.cachedInputTokens).toBeUndefined();
+    expect("cachedInputTokens" in (notReported?.ai?.usage ?? {})).toBe(false);
+
+    const reportedZero = sanitizeJobResults({
+      ai: { truncation: window, usage: { ...usage, cachedInputTokens: 0 } },
+    });
+    expect(reportedZero?.ai?.usage?.cachedInputTokens).toBe(0);
+  });
+
+  it("clamps junk counts and bounds the model id", () => {
+    const clean = sanitizeJobResults({
+      ai: {
+        truncation: window,
+        usage: {
+          inputTokens: Number.NaN,
+          outputTokens: -12,
+          cachedInputTokens: Number.POSITIVE_INFINITY,
+          model: "m".repeat(500),
+        },
+      },
+    } as unknown as JobResults);
+    expect(clean?.ai?.usage?.inputTokens).toBe(0);
+    expect(clean?.ai?.usage?.outputTokens).toBe(0);
+    // Infinity is not a number the seam will persist, so it is not "reported".
+    expect(clean?.ai?.usage?.cachedInputTokens).toBeUndefined();
+    expect(clean?.ai?.usage?.model.length).toBe(100);
+  });
+});
+
 describe("sanitizeJobResults — the repair block", () => {
   it("carries a recovered repair through to the job record", () => {
     const clean = sanitizeJobResults({
