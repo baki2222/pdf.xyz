@@ -171,13 +171,15 @@ function buildSystemPrompt(
     parts.push(options.prompt);
   }
   // The window disclosure goes last so it overrides anything above it.
-  const notice = modelTruncationNotice(window);
-  if (notice) {
-    parts.push(
-      notice,
-      "If a requested field does not appear in the text you were given, report it as not found IN THE PAGES EXAMINED — never as absent from the document.",
-    );
-  }
+  // An extractor's wrong claim is a null that reads as "this document has no
+  // such field" when the field merely sits past the cut.
+  const notice = modelTruncationNotice(
+    window,
+    (upTo) =>
+      "If a requested field does not appear in the text you were given, report it as not found IN THE PAGES EXAMINED —\n" +
+      `you saw only ${upTo}, so it is never evidence the document lacks the field.`,
+  );
+  if (notice) parts.push(notice);
   return parts.join("\n");
 }
 

@@ -343,9 +343,12 @@ describe("a short window is disclosed — to the model and to the job record", (
     expect(run.ok).toBe(true);
 
     const system = provider.calls[0]?.system ?? "";
-    expect(system).toMatch(/do NOT say the document does not contain it/);
     expect(system).toMatch(/not found IN THE PAGES EXAMINED/);
+    expect(system).toMatch(/never evidence the document lacks the field/);
     expect(system).toMatch(/pages 1-2 of 6/);
+    // Not chat's revocation: an extractor's wrong claim is a null that reads as
+    // "no such field in this document", not a sentence about an answer.
+    expect(system).not.toMatch(/do NOT say the document does not contain it/);
   });
 
   it("reports the window on meta so the panel can state it without the model", async () => {

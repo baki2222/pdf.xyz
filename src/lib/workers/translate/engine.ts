@@ -1,5 +1,16 @@
 import JSZip from "jszip";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import {
+  PAGE_JOIN,
+  pageTextChunks,
+  type ExtractedPdfText,
+} from "@/lib/pdf/text";
+import {
+  describeWindow,
+  modelTruncationNotice,
+  pageStartsFor,
+  userTruncationNotice,
+  type TruncationWindow,
+} from "../ai/truncation";
 import {
   LANGUAGE_NAMES,
   TRANSLATE_SOURCE_AUTO,
@@ -83,6 +94,17 @@ export interface TranslateMeta {
   translationCharacters: number;
   /** True when the source exceeded `maxInputChars` and only a prefix was translated. */
   truncated: boolean;
+  /**
+   * The one-line disclosure to show beside the result when `truncated` — e.g.
+   * "Only pages 1-131 of 400 could be read, cut mid-page - ...". `null` when the
+   * whole document was read. The UI renders THIS, not the model's words.
+   */
+  truncationNotice: string | null;
+  /**
+   * What the model actually saw, structurally — the block the job record
+   * carries to the browser so the panel can state the bound.
+   */
+  window: TruncationWindow;
 }
 
 export type TranslateFailureKind =
@@ -119,7 +141,10 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 const DEFAULT_MAX_INPUT_CHARS = 500_000;
 
 /** The honesty-critical system prompt: translate ONLY the provided text; invent nothing. */
-function buildSystemPrompt(options: TranslateOptions): string {
+function buildSystemPrompt(
+  options: TranslateOptions,
+  window: TruncationWindow,
+): string {
   const target = LANGUAGE_NAMES[options.targetLanguage];
   const parts = [
     "You are a precise, faithful document translator for pdf.xyz.",
@@ -136,6 +161,17 @@ function buildSystemPrompt(options: TranslateOptions): string {
   if (options.instructions) {
     parts.push(`Follow this additional instruction: ${options.instructions}.`);
   }
+  // A translator's wrong claim is not a denial and not a mislabelled summary: it
+  // is a fifth of a document handed back with nothing marking where it stops —
+  // because the instruction a few lines above says "Output ONLY the translation,
+  // with no preamble or commentary." That is the instruction this revokes.
+  const notice = modelTruncationNotice(
+    window,
+    (upTo) =>
+      `You were given only ${upTo}. Translate all of it, then end with one final line saying the translation covers only the pages you were given (${upTo}).\n` +
+      "That closing line is REQUIRED and overrides the instruction to output no commentary. Never present the result as a translation of the whole document.",
+  );
+  if (notice) parts.push(notice);
   return parts.join(" ");
 }
 
@@ -257,14 +293,22 @@ export async function runTranslate(
   }
 
   const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
-  const truncated = sourceText.length > maxChars;
+  // One description of the window, shared by the prompt, the meta and the
+  // package, so the model and the user cannot be told different things.
+  const window = describeWindow(
+    sourceText,
+    pageStartsFor(pageTextChunks(extracted.pages), PAGE_JOIN),
+    extracted.pageCount,
+    maxChars,
+  );
+  const truncated = window.truncated;
   const promptText = truncated ? sourceText.slice(0, maxChars) : sourceText;
 
   const maxOutputTokens =
     deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
   const completion = await provider.complete({
-    system: buildSystemPrompt(options),
+    system: buildSystemPrompt(options, window),
     messages: [
       {
         role: "user",
@@ -305,6 +349,7 @@ export async function runTranslate(
       pageCount: extracted.pageCount,
       characters: sourceText.length,
       truncatedToCharacters: truncated ? maxChars : null,
+      truncationNotice: userTruncationNotice(window) || null,
     },
     translation: { characters: translation.length },
     notice:
@@ -340,6 +385,8 @@ export async function runTranslate(
       sourceCharacters: sourceText.length,
       translationCharacters: translation.length,
       truncated,
+      truncationNotice: userTruncationNotice(window) || null,
+      window,
     },
   };
 }
@@ -365,6 +412,8 @@ interface TranslationManifest {
     pageCount: number;
     characters: number;
     truncatedToCharacters: number | null;
+    /** The page-named disclosure, or null when the whole document was read. */
+    truncationNotice: string | null;
   };
   translation: { characters: number };
   notice: string;
@@ -384,6 +433,12 @@ function renderMarkdown(
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for translation)` : ""}`,
   );
+  // The header directly above says this came from the source PDF. Without
+  // this line it says so over a translation of the first fifth of it.
+  if (manifest.source.truncationNotice) {
+    lines.push(`>`);
+    lines.push(`> **${manifest.source.truncationNotice}**`);
+  }
   lines.push("");
   lines.push(translation);
   lines.push("");

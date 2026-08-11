@@ -31,6 +31,11 @@ const SEP = "\n\n";
 const ASSEMBLED = CHUNKS.map((c) => c.text).join(SEP); // 34
 const STARTS = pageStartsFor(CHUNKS, SEP); // offsets 0, 12, 24
 
+/** Chat's revocation, used here as a representative caller. */
+const DENY_REVOCATION = (upTo: string) =>
+  "If the answer is not in the text you were given, do NOT say the document does not contain it —\n" +
+  `say that you can only see ${upTo} and the answer may appear later in the document.`;
+
 describe("pageStartsFor", () => {
   it("gives each page's start in the assembled string", () => {
     expect(STARTS).toEqual([
@@ -48,7 +53,7 @@ describe("describeWindow", () => {
     const w = describeWindow(ASSEMBLED, STARTS, 3, 100);
     expect(w.truncated).toBe(false);
     expect(w.cutMidPage).toBe(false);
-    expect(modelTruncationNotice(w)).toBe("");
+    expect(modelTruncationNotice(w, DENY_REVOCATION)).toBe("");
     expect(userTruncationNotice(w)).toBe("");
   });
 
@@ -89,15 +94,32 @@ describe("describeWindow", () => {
 });
 
 describe("the model notice revokes the instruction that caused the defect", () => {
-  it("tells the model not to deny, and names the bound", () => {
+  it("states the bound and carries the caller's revocation", () => {
     const notice = modelTruncationNotice(
       describeWindow(ASSEMBLED, STARTS, 3, 30),
+      DENY_REVOCATION,
     );
     // The whole point: a model told only "answer from the document" still
     // denies, because as far as it can see the document lacks the answer.
     expect(notice).toMatch(/do NOT say the document does not contain it/);
     expect(notice).toMatch(/pages 1-2 of 3/);
     expect(notice).toMatch(/mid-page/);
+  });
+
+  it("passes the bound INTO the revocation, so each tool can name the pages", () => {
+    // The revocation is required and tool-specific: chat must be told not to
+    // deny, a translator not to pass off a fifth of a document as the whole.
+    // A shared default would put a sentence about "the answer" into a
+    // translation prompt, which is noise in the one place precision matters.
+    const notice = modelTruncationNotice(
+      describeWindow(ASSEMBLED, STARTS, 3, 30),
+      (upTo) => `TOOL-SPECIFIC: you saw ${upTo} and nothing else.`,
+    );
+    expect(notice).toMatch(
+      /TOOL-SPECIFIC: you saw pages 1-2 of 3 and nothing else\./,
+    );
+    // ...and nothing from another tool's revocation leaks in.
+    expect(notice).not.toMatch(/the answer/);
   });
 });
 
