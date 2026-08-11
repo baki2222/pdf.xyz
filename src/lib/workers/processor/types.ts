@@ -15,6 +15,7 @@
  */
 
 import type { JobError, JobResults } from "@/lib/jobs";
+import type { AiUsageMeta, AiWindowMeta } from "@/lib/jobs/ai-results";
 
 /**
  * One input file handed to a processor: the opaque id, the naming metadata the
@@ -165,4 +166,34 @@ export function processorFail(
   results?: JobResults,
 ): ProcessorResult {
   return { ok: false, error, ...(results ? { results } : {}) };
+}
+
+/**
+ * The `results` block a FAILED AI run still owes the job record.
+ *
+ * ONE DEFINITION, four call sites. The four AI processors need the identical
+ * mapping and four copies could drift into three — the same reason each engine's
+ * `mapProviderFailure` builds its payload once and spreads it.
+ *
+ * Returns `undefined` when there was no provider call: `window` is computed
+ * before the call, so its absence means nothing was spent and there is nothing
+ * to report. Reporting a block then would invent a call that never ran, and the
+ * ceiling would count a spend that did not happen — over-counting silently,
+ * which is the failure mode of *fabricating* rather than of losing.
+ *
+ * Structurally typed rather than taking a union of the four run types: the
+ * mapping depends only on these two fields, and naming four types here would
+ * make this file know about every AI engine.
+ */
+export function aiResultsFromFailure(run: {
+  usage?: AiUsageMeta;
+  window?: AiWindowMeta;
+}): JobResults | undefined {
+  if (!run.window) return undefined;
+  return {
+    ai: {
+      truncation: run.window,
+      ...(run.usage ? { usage: run.usage } : {}),
+    },
+  };
 }

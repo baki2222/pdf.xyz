@@ -26,6 +26,7 @@ import {
 } from "../chat-with-pdf/engine";
 import {
   processorFail,
+  aiResultsFromFailure,
   processorOk,
   type Processor,
   type ProcessorMeta,
@@ -156,7 +157,10 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
         });
       }
       const run = await runChatWithPdf(file.bytes, parsed.value, deps);
-      if (!run.ok) return processorFail(jobError(run));
+      // A run that failed AFTER a provider call still owes the job record what
+      // it spent — see `aiResultsFromFailure`. Absent when no call happened.
+      if (!run.ok)
+        return processorFail(jobError(run), aiResultsFromFailure(run));
       return processorOk(
         [
           {
