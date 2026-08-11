@@ -7,7 +7,7 @@ const PDF = new TextEncoder().encode(
 const NOT_PDF = new TextEncoder().encode("not a pdf");
 
 function runner(output = PDF): GhostscriptPdfARunner {
-  return { convertToPdfA: vi.fn(async () => output) };
+  return { convertToPdfA: vi.fn(async () => ({ bytes: output, notes: [] })) };
 }
 
 describe("pdf-archive engine", () => {
@@ -75,5 +75,38 @@ describe("pdf-archive engine", () => {
       ok: false,
       kind: "failed",
     });
+  });
+});
+
+describe("what the conversion removed is reported, not discarded", () => {
+  it("carries Ghostscript's notes onto the result meta", async () => {
+    // The real production output, verbatim: gs 10.00.0, production argv, a
+    // one-page PDF with transparency. Exit 0, valid file, metadata gone.
+    const gsRunner = {
+      convertToPdfA: vi.fn(async () => ({
+        bytes: PDF,
+        notes: [
+          "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO",
+        ],
+      })),
+    };
+    const run = await runPdfToPdfA(PDF, { ghostscript: gsRunner });
+
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    // A conversion that discarded something is NOT a failure: PDF/A cannot hold
+    // what was removed, the user asked for PDF/A, and the file is correct.
+    expect(run.meta.hadNotes).toBe(true);
+    expect(run.meta.notes).toEqual([
+      "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO",
+    ]);
+  });
+
+  it("reports a silent conversion as silent rather than as unknown", async () => {
+    const run = await runPdfToPdfA(PDF, { ghostscript: runner() });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.hadNotes).toBe(false);
+    expect(run.meta.notes).toEqual([]);
   });
 });

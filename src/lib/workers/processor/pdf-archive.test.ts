@@ -41,7 +41,9 @@ describe("pdf-archive processor", () => {
 
   it("converts one PDF and names output safely", async () => {
     const processor = createPdfArchiveProcessor({
-      ghostscript: { convertToPdfA: vi.fn(async () => PDF) },
+      ghostscript: {
+        convertToPdfA: vi.fn(async () => ({ bytes: PDF, notes: [] })),
+      },
     });
     const result = await processor.process(input());
     expect(result.ok).toBe(true);

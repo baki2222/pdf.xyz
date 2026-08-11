@@ -9,15 +9,11 @@
  * could not succeed.
  *
  * A user who hands a repair tool a broken document is entitled to know it WAS
- * broken, and roughly how. This is the seam that tells them. Bounded lines only;
- * the worker sanitizes temp paths out before they get here, and this boundary
- * re-checks rather than trusting that.
+ * broken, and roughly how. This is the seam that tells them. The bounding and
+ * path rules live in `./tool-notes`, shared with the PDF/A block, which needs
+ * exactly the same treatment for exactly the same reason.
  */
-
-/** Max warning lines persisted onto a job record. */
-export const MAX_REPAIR_WARNINGS = 10;
-/** Max characters kept per warning line. */
-export const MAX_REPAIR_WARNING_CHARS = 200;
+import { boundToolNotes } from "./tool-notes";
 
 export interface RepairResultMeta {
   /**
@@ -55,30 +51,8 @@ export function isRepairResultMeta(value: unknown): value is RepairResultMeta {
  * of what it means.
  */
 export function buildRepairResultMeta(raw: RepairResultMeta): RepairResultMeta {
-  const lines = Array.isArray(raw.warnings) ? raw.warnings : [];
-  const kept: string[] = [];
-  let withheld = 0;
-
-  for (const line of lines) {
-    if (typeof line !== "string") {
-      withheld += 1;
-      continue;
-    }
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    if (/[/\\]/.test(trimmed) || kept.length >= MAX_REPAIR_WARNINGS) {
-      withheld += 1;
-      continue;
-    }
-    kept.push(trimmed.slice(0, MAX_REPAIR_WARNING_CHARS));
-  }
-
-  if (withheld > 0) {
-    kept.push(`${withheld} further message(s) not shown.`);
-  }
-
   return {
     recoveredWithWarnings: raw.recoveredWithWarnings === true,
-    warnings: kept,
+    warnings: boundToolNotes(raw.warnings),
   };
 }

@@ -425,9 +425,9 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-pdfa",
     name: "PDF to PDF/A",
-    tagline: "Archive-ready, ISO-compliant PDFs.",
+    tagline: "Archive-oriented PDF/A-2b, made with Ghostscript.",
     description:
-      "Convert PDFs to PDF/A-2b for long-term archiving and compliance — processed by Ghostscript on a secure worker that deletes the input when the job finishes.",
+      "Convert PDFs to PDF/A-2b for long-term archiving — processed by Ghostscript on a secure worker that deletes the input when the job finishes.",
     category: "convert-from",
     icon: "pdfa",
     processing: "server",

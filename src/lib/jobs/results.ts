@@ -22,6 +22,11 @@
  */
 
 import {
+  buildPdfAResultMeta,
+  isPdfAResultMeta,
+  type PdfAResultMeta,
+} from "./pdfa-results";
+import {
   buildCompressionResultBlock,
   isCompressionResultBlock,
   type CompressionResultBlock,
@@ -73,6 +78,12 @@ export interface JobResults {
    * Present on a completed compress job. See {@link CompressionResultBlock}.
    */
   compression?: CompressionResultBlock;
+  /**
+   * What a PDF/A conversion removed. Present on a completed `pdf-to-pdfa`
+   * job — including a silent one, so a missing block means "this worker did
+   * not report", not "nothing was removed". See {@link PdfAResultMeta}.
+   */
+  pdfa?: PdfAResultMeta;
 }
 
 /** True when a {@link JobResults} carries at least one populated block. */
@@ -130,6 +141,11 @@ export function sanitizeJobResults(
   const compression = results.compression;
   if (isCompressionResultBlock(compression)) {
     clean.compression = buildCompressionResultBlock(compression);
+  }
+
+  const pdfa = results.pdfa;
+  if (isPdfAResultMeta(pdfa)) {
+    clean.pdfa = buildPdfAResultMeta(pdfa);
   }
 
   return hasJobResults(clean) ? clean : undefined;

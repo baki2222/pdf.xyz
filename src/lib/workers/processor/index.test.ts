@@ -17,7 +17,7 @@ function fakeStructureRunner(): QpdfStructureRunner {
   };
 }
 function fakePdfARunner(): GhostscriptPdfARunner {
-  return { convertToPdfA: async () => PDF };
+  return { convertToPdfA: async () => ({ bytes: PDF, notes: [] }) };
 }
 function fakeChromiumRunner(): ChromiumPdfRunner {
   return { renderHtml: async () => PDF, renderUrl: async () => PDF };

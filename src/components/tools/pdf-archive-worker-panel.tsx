@@ -29,6 +29,7 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { PdfANotes } from "./pdfa-notes";
 
 type Phase = "loading" | "error" | "ready";
 
@@ -124,7 +125,10 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
             PDF/A conversion uses Ghostscript on the isolated worker to create
             an archive-oriented PDF/A-2b file. It produces a real PDF output or
             fails honestly — no browser placeholder and no fabricated compliance
-            claim.
+            claim. We do not validate the result against the PDF/A
+            specification, so this is a best-effort conversion rather than a
+            certification. PDF/A cannot represent everything a PDF can, and
+            anything Ghostscript has to remove is listed with your download.
           </p>
         </div>
 
@@ -280,6 +284,9 @@ function ArchiveRunArea({ localDevOnly }: { localDevOnly: boolean }) {
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF/A file is ready.">
+          {/* Above the download: a user who clicks and leaves is exactly the
+              user who needs to know something was dropped from their file. */}
+          <PdfANotes job={outcome.job} />
           <p className="text-sm text-emerald-200">Your PDF/A file is ready.</p>
           <button
             type="button"

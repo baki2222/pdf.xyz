@@ -9,12 +9,27 @@ import {
   resolveNativePdfArchiveConfig,
   type NativePdfArchiveConfig,
 } from "./native-config";
+import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
 export interface GhostscriptExecResult {
   code: number;
   timedOut: boolean;
+  /**
+   * Everything Ghostscript said while converting.
+   *
+   * Captured because a PDF/A conversion DELETES what PDF/A cannot represent and
+   * announces each deletion here while exiting 0 — measured on the production
+   * worker, gs 10.00.0, production argv: two `discarding DOCINFO` lines and a
+   * font substitution, exit code 0, `looksLikePdf` satisfied, job completed.
+   * This prose was the only record that anything was removed, and it was read
+   * by nobody.
+   *
+   * Both streams, not just stderr: gs routes routine messages to STDOUT and only
+   * errors to stderr, so a stderr-only capture would miss most of what it says.
+   */
+  diagnostics?: string;
 }
 
 export type GhostscriptExec = (
@@ -48,18 +63,28 @@ const defaultExec: GhostscriptExec = (command, args, options) =>
       { ...options, encoding: "buffer" },
       (
         error: (Error & { code?: number | string; killed?: boolean }) | null,
+        stdout: Buffer,
+        stderr: Buffer,
       ) => {
+        const diagnostics = `${decode(stdout)}\n${decode(stderr)}`;
         if (!error) {
-          resolve({ code: 0, timedOut: false });
+          resolve({ code: 0, timedOut: false, diagnostics });
           return;
         }
         resolve({
           code: typeof error.code === "number" ? error.code : -1,
           timedOut: !!error.killed,
+          diagnostics,
         });
       },
     );
   });
+
+/** Decode a captured stream without ever throwing on odd bytes. */
+function decode(buf: Buffer | string | undefined): string {
+  if (buf === undefined) return "";
+  return typeof buf === "string" ? buf : buf.toString("utf8");
+}
 
 const defaultFs: GhostscriptFs = {
   mkdtemp: (prefix) => mkdtemp(prefix),
@@ -102,6 +127,32 @@ export function ghostscriptPdfAArgs(
     "-dNOPAUSE",
     "-dNOOUTERSAVE",
     "-dSAFER",
+    // SILENCE THE BOILERPLATE AT THE SOURCE, not with a filter afterwards.
+    //
+    // Without it Ghostscript prints its version banner, copyright, AGPL notice,
+    // "Processing pages 1 through N.", and one "Page N" line per page — on
+    // STDOUT, which this runner captures so it can report what the conversion
+    // removed. Measured on the production worker with this exact argv:
+    //
+    //     flag       stdout    stderr   DOCINFO deletion notices
+    //     (none)     7 lines   2 lines  present
+    //     -dQUIET    0 lines   2 lines  PRESENT
+    //     -q         0 lines   2 lines  PRESENT
+    //
+    // Two things went wrong without it, both measured, and the second is worse:
+    // a CLEAN conversion reported `hadNotes: true` and offered the user a
+    // software licence as evidence their document had been altered; and from
+    // five pages up the banner plus the per-page lines filled every slot, so the
+    // one line that matters — the deletion notice — was pushed into "N further
+    // message(s) not shown."
+    //
+    // A filter list would have been the alternative and it is the worse one: if
+    // it silently stopped matching, noise would come back VISIBLY. A notice
+    // classifier that stops matching goes silently quiet. Removing the noise at
+    // the source has neither failure mode.
+    //
+    // Same flag, same reason, already at `compression/native.ts:146`.
+    "-dQUIET",
     "-sProcessColorModel=DeviceRGB",
     "-sDEVICE=pdfwrite",
     "-dPDFACompatibilityPolicy=1",
@@ -147,7 +198,14 @@ export function createNativeGhostscriptPdfARunner(
         ) {
           throw new Error("Ghostscript produced no usable PDF output.");
         }
-        return bytes;
+        return {
+          bytes,
+          notes: sanitizeNativeDiagnostics(decode(result.diagnostics), [
+            inputPath,
+            outputPath,
+            dir,
+          ]),
+        };
       } finally {
         await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
       }

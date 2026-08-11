@@ -361,3 +361,38 @@ describe("sanitizeJobResults — the compression page check", () => {
     expect(clean).toBeUndefined();
   });
 });
+
+describe("sanitizeJobResults — the PDF/A block", () => {
+  it("carries what the conversion removed through to the job record", () => {
+    const clean = sanitizeJobResults({
+      pdfa: {
+        hadNotes: true,
+        notes: [
+          "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO",
+        ],
+      },
+    });
+    expect(clean?.pdfa?.hadNotes).toBe(true);
+    // Not classified, not summarised — Ghostscript's own prose. It changes
+    // between versions, and a parser that stopped matching would render an
+    // empty list, which reads as "nothing was removed".
+    expect(clean?.pdfa?.notes).toEqual([
+      "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO",
+    ]);
+  });
+
+  it("still reports a conversion whose every note was dropped", () => {
+    const clean = sanitizeJobResults({
+      pdfa: { hadNotes: true, notes: ["/tmp/x/input.pdf: discarding"] },
+    });
+    expect(clean?.pdfa?.hadNotes).toBe(true);
+    expect(clean?.pdfa?.notes).toEqual(["1 further message(s) not shown."]);
+  });
+
+  it("drops a block that did not come from the real contract", () => {
+    const clean = sanitizeJobResults({
+      pdfa: { notes: ["x"] },
+    } as unknown as JobResults);
+    expect(clean).toBeUndefined();
+  });
+});
