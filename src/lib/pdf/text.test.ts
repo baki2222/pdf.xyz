@@ -24,10 +24,10 @@ describe("PDF text extraction helpers", () => {
   });
 
   it("joins only non-empty page text with a blank line", () => {
-    const pages: Pick<ExtractedTextPage, "text">[] = [
-      { text: "Page one" },
-      { text: "   " },
-      { text: "Page three" },
+    const pages: Pick<ExtractedTextPage, "text" | "pageNumber">[] = [
+      { pageNumber: 1, text: "Page one" },
+      { pageNumber: 2, text: "   " },
+      { pageNumber: 3, text: "Page three" },
     ];
     expect(joinPageTexts(pages)).toBe("Page one\n\nPage three");
   });

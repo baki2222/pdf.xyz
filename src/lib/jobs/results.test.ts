@@ -192,3 +192,64 @@ describe("sanitizeJobResults — the redaction/persistence boundary", () => {
     expect(serialized).toContain("both");
   });
 });
+
+describe("sanitizeJobResults — the AI window block", () => {
+  const window = {
+    truncated: true,
+    charactersSent: 500_000,
+    charactersTotal: 1_600_000,
+    totalPages: 400,
+    lastCompletePage: 131,
+    cutMidPage: true,
+  };
+
+  it("carries a valid AI window through to the job record", () => {
+    // On its own this is the whole point of the block: without it the counts
+    // never reach the browser and the panel has nothing to state.
+    const clean = sanitizeJobResults({ ai: { truncation: window } });
+    expect(clean?.ai?.truncation).toEqual(window);
+  });
+
+  it("drops a block that did not come from the real contract", () => {
+    const clean = sanitizeJobResults({
+      ai: { truncation: { totalPages: 400 } },
+    } as unknown as JobResults);
+    expect(clean).toBeUndefined();
+  });
+
+  it("refuses to persist a window that contradicts itself", () => {
+    // "Nothing was cut" beside "cut mid-page" renders as a confident sentence
+    // about nothing. The block is normalized to ONE claim, not six fields.
+    const clean = sanitizeJobResults({
+      ai: {
+        truncation: { ...window, truncated: false },
+      },
+    });
+    expect(clean?.ai?.truncation.cutMidPage).toBe(false);
+    expect(clean?.ai?.truncation.charactersSent).toBe(1_600_000);
+    expect(clean?.ai?.truncation.lastCompletePage).toBe(400);
+  });
+
+  it("never names a page beyond the document's own length", () => {
+    const clean = sanitizeJobResults({
+      ai: { truncation: { ...window, lastCompletePage: 999 } },
+    });
+    expect(clean?.ai?.truncation.lastCompletePage).toBe(400);
+  });
+
+  it("clamps junk counts instead of persisting them", () => {
+    const clean = sanitizeJobResults({
+      ai: {
+        truncation: {
+          ...window,
+          charactersTotal: Number.NaN,
+          totalPages: -7,
+          lastCompletePage: 0,
+        },
+      },
+    });
+    expect(clean?.ai?.truncation.charactersTotal).toBe(0);
+    expect(clean?.ai?.truncation.totalPages).toBe(0);
+    expect(clean?.ai?.truncation.lastCompletePage).toBeNull();
+  });
+});

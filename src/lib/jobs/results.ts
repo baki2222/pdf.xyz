@@ -22,6 +22,11 @@
  */
 
 import {
+  buildAiResultMeta,
+  isAiWindowMeta,
+  type AiResultMeta,
+} from "./ai-results";
+import {
   buildOcrResultMeta,
   isOcrOutputMode,
   normalizeOcrEngineFamily,
@@ -40,6 +45,13 @@ export interface JobResults {
    * artifact kinds, page/character counts). Present only on a completed OCR job.
    */
   ocr?: OcrResultMeta;
+  /**
+   * What an AI tool's model actually saw of the document — the truncation
+   * window. Present on a completed summarize / ai-extract / chat-with-pdf job.
+   * Counts only; the sentence the user reads is composed from them on the
+   * client. See {@link AiResultMeta}.
+   */
+  ai?: AiResultMeta;
 }
 
 /** True when a {@link JobResults} carries at least one populated block. */
@@ -76,6 +88,15 @@ export function sanitizeJobResults(
   if (ocr && typeof ocr === "object" && isOcrOutputMode(ocr.outputMode)) {
     const built = buildOcrResultMeta(ocr);
     clean.ocr = { ...built, engine: normalizeOcrEngineFamily(built.engine) };
+  }
+
+  // Same rule for the AI window: a `truncated` boolean is the discriminant that
+  // says this plausibly came from the real contract; the builder re-clamps the
+  // counts and enforces the internal consistency that lets a UI render the block
+  // as one sentence rather than six independent fields.
+  const ai = results.ai;
+  if (ai && typeof ai === "object" && isAiWindowMeta(ai.truncation)) {
+    clean.ai = buildAiResultMeta(ai);
   }
 
   return hasJobResults(clean) ? clean : undefined;

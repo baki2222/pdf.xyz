@@ -22,6 +22,7 @@ import {
   type SummarizeWorkerResult,
 } from "@/lib/workers/summarize-client";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
@@ -356,6 +357,10 @@ function SummaryBuilder() {
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your AI summary package is ready.">
+          <TruncationNotice
+            job={outcome.job}
+            consequence="This summarises those pages, not the whole document."
+          />
           <p className="text-sm text-emerald-200">
             Your AI summary package is ready — the summary in Markdown and plain
             text, plus a manifest recording the model and honest scope.

@@ -302,3 +302,101 @@ describe("runChatWithPdf — provider-injected deterministic success", () => {
     expect(provider.calls[0]!.maxOutputTokens).toBe(512);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Truncation disclosure (TASK-43)
+// ---------------------------------------------------------------------------
+
+/**
+ * Six pages of 200 characters each, joined by a blank line: offsets 0, 202, 404,
+ * 606, 808, 1010, total 1,210. A 500-character cap therefore lands 96 characters
+ * INTO page 3 — so page 2 is the last complete page and the cut is mid-page.
+ */
+const LONG_PAGES = Array.from({ length: 6 }, (_, i) =>
+  String.fromCharCode(97 + i).repeat(200),
+);
+
+describe("a short window is disclosed — to the model and to the job record", () => {
+  /**
+   * Chat grounds each page as "[Page N]\n<text>", so a page's chunk is longer
+   * than its text. The expected numbers are DERIVED from that assembly here
+   * rather than copied, because a hand-written constant that happens to match a
+   * wrong implementation is exactly the failure mode this feature exists to fix.
+   */
+  const chunk = (n: number) => `[Page ${n}]\n${LONG_PAGES[n - 1]}`;
+  const GROUNDING = LONG_PAGES.map((_, i) => chunk(i + 1)).join("\n\n");
+  // Offsets: page 1 at 0, page 2 at chunk(1).length + 2, page 3 after that.
+  const P2 = chunk(1).length + 2;
+  const P3 = P2 + chunk(2).length + 2;
+  const CAP = P3 + 10; // ten characters into page 3
+
+  it("tells the model it is seeing only part, and names the last COMPLETE page", async () => {
+    const provider = providerReturning(SUCCESS("An answer."));
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages(LONG_PAGES),
+      provider,
+      limits: { maxInputChars: CAP },
+    });
+    expect(run.ok).toBe(true);
+
+    const system = provider.calls[0]?.system ?? "";
+    expect(system).toMatch(/do NOT say the document does not contain it/);
+    expect(system).toMatch(/pages 1-2 of 6/);
+    expect(system).toMatch(/mid-page/);
+  });
+
+  it("reports the window on meta so the panel can state it without the model", async () => {
+    const provider = providerReturning(SUCCESS("An answer."));
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages(LONG_PAGES),
+      provider,
+      limits: { maxInputChars: CAP },
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.window).toEqual({
+      truncated: true,
+      charactersSent: CAP,
+      charactersTotal: GROUNDING.length,
+      totalPages: 6,
+      lastCompletePage: 2,
+      cutMidPage: true,
+    });
+    expect(run.meta.truncationNotice).toMatch(/pages 1–2 of 6/);
+  });
+
+  it("counts the DOCUMENT's pages, not just the ones carrying text", async () => {
+    // Two blank pages among eight. "of 6" would be a number the user can go and
+    // check against the file and find wrong.
+    const withBlanks = [
+      ...LONG_PAGES.slice(0, 3),
+      "",
+      ...LONG_PAGES.slice(3),
+      "",
+    ];
+    const provider = providerReturning(SUCCESS("An answer."));
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages(withBlanks),
+      provider,
+      limits: { maxInputChars: CAP },
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.window.totalPages).toBe(8);
+    expect(run.meta.truncationNotice).toMatch(/pages 1–2 of 8/);
+  });
+
+  it("says nothing at all when the whole document fits", async () => {
+    const provider = providerReturning(SUCCESS("An answer."));
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages(LONG_PAGES),
+      provider,
+      limits: { maxInputChars: 100_000 },
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.truncated).toBe(false);
+    expect(run.meta.truncationNotice).toBeNull();
+    expect(provider.calls[0]?.system ?? "").not.toMatch(/ONLY PART/);
+  });
+});

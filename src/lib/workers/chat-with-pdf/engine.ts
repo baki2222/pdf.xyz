@@ -1,5 +1,13 @@
 import JSZip from "jszip";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import {
+  describeWindow,
+  modelTruncationNotice,
+  pageStartsFor,
+  userTruncationNotice,
+  type PageStart,
+  type TruncationWindow,
+} from "../ai/truncation";
 import type { ChatOptions, ChatTurn } from "@/lib/jobs/chat-with-pdf";
 import {
   validateCompletionRequest,
@@ -93,6 +101,21 @@ export interface ChatWithPdfMeta {
   sourceCharacters: number;
   /** True when the source exceeded `maxInputChars` and only a prefix was sent. */
   truncated: boolean;
+  /**
+   * The user-facing sentence naming how far the window reached ("Only pages
+   * 1–131 of 400 could be read…"), or `null` when nothing was cut.
+   *
+   * Carried on `meta` so a UI can render it from the RESULT, without depending
+   * on the model having followed the prompt instruction. If the disclosure
+   * relied only on what the model chose to say, it would be a promise we
+   * cannot keep.
+   */
+  truncationNotice: string | null;
+  /**
+   * What the model actually saw, structurally — the block the job record carries
+   * to the browser so the panel can state the bound without re-deriving it.
+   */
+  window: TruncationWindow;
 }
 
 export type ChatWithPdfFailureKind =
@@ -133,21 +156,47 @@ const DEFAULT_MAX_INPUT_CHARS = 500_000;
 function buildGrounding(extracted: ExtractedPdfText): {
   text: string;
   grounded: boolean;
+  /** Where each page's chunk starts in `text`, for the truncation disclosure. */
+  pageStarts: PageStart[];
+  /**
+   * The DOCUMENT's page count — not the number of pages that carried text.
+   * "pages 1-2 of 380" for a 400-page PDF is a number the user can go and check
+   * and find wrong; the twenty blank pages are still pages of the file.
+   */
+  pageCount: number;
 } {
   const pagesWithText = extracted.pages.filter(
     (page) => page.text.trim().length > 0,
   );
   if (pagesWithText.length > 0) {
-    const text = pagesWithText
-      .map((page) => `[Page ${page.pageNumber}]\n${page.text.trim()}`)
-      .join("\n\n");
-    return { text, grounded: true };
+    const chunks = pagesWithText.map((page) => ({
+      pageNumber: page.pageNumber,
+      text: `[Page ${page.pageNumber}]\n${page.text.trim()}`,
+    }));
+    return {
+      text: chunks.map((chunk) => chunk.text).join("\n\n"),
+      grounded: true,
+      // Derived from the chunks actually joined, carrying each page's REAL
+      // number — a page computed from a different assembly, or from an index,
+      // would be confidently wrong in a sentence the user can go and check.
+      pageStarts: pageStartsFor(chunks, "\n\n"),
+      pageCount: extracted.pageCount,
+    };
   }
-  return { text: extracted.text.trim(), grounded: false };
+  return {
+    text: extracted.text.trim(),
+    grounded: false,
+    pageStarts: [],
+    pageCount: extracted.pageCount,
+  };
 }
 
 /** The honesty-critical system prompt: answer ONLY from the document; cite pages when grounded. */
-function buildSystemPrompt(grounding: string, grounded: boolean): string {
+function buildSystemPrompt(
+  grounding: string,
+  grounded: boolean,
+  window: TruncationWindow,
+): string {
   const parts = [
     "You are a careful document question-answering assistant for pdf.xyz.",
     "Answer the user's question using ONLY the information in the document text provided below.",
@@ -165,6 +214,12 @@ function buildSystemPrompt(grounding: string, grounded: boolean): string {
   }
   parts.push("Be concise and reference the document where possible.");
   parts.push("", "--- DOCUMENT START ---", grounding, "--- DOCUMENT END ---");
+  // Appended AFTER the document so it is the last thing the model reads, and so
+  // it can override the "say the document does not state this" instruction
+  // above — the instruction that turned a length limit into a confident denial
+  // about the user's own file.
+  const notice = modelTruncationNotice(window);
+  if (notice) parts.push(notice);
   return parts.join("\n");
 }
 
@@ -286,7 +341,12 @@ export async function runChatWithPdf(
     };
   }
 
-  const { text: groundingSource, grounded } = buildGrounding(extracted);
+  const {
+    text: groundingSource,
+    grounded,
+    pageStarts,
+    pageCount: documentPageCount,
+  } = buildGrounding(extracted);
   if (!extracted.hasText || groundingSource.length === 0) {
     return {
       ok: false,
@@ -298,7 +358,15 @@ export async function runChatWithPdf(
   }
 
   const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
-  const truncated = groundingSource.length > maxChars;
+  // One description of the window, shared by the prompt, the meta and the ZIP,
+  // so the model and the user cannot be told different things about it.
+  const window = describeWindow(
+    groundingSource,
+    pageStarts,
+    documentPageCount,
+    maxChars,
+  );
+  const truncated = window.truncated;
   const grounding = truncated
     ? groundingSource.slice(0, maxChars)
     : groundingSource;
@@ -315,7 +383,7 @@ export async function runChatWithPdf(
   ];
 
   const request = {
-    system: buildSystemPrompt(grounding, grounded),
+    system: buildSystemPrompt(grounding, grounded, window),
     messages,
     // The document is re-sent verbatim on every follow-up, so it is worth caching:
     // turn one pays a write premium and each later turn reads the span back at a
@@ -370,6 +438,7 @@ export async function runChatWithPdf(
       pageCount: extracted.pageCount,
       characters: groundingSource.length,
       truncatedToCharacters: truncated ? maxChars : null,
+      truncationNotice: userTruncationNotice(window) || null,
     },
     answer: { characters: answer.length, citedPages },
     ...(completion.usage
@@ -420,6 +489,8 @@ export async function runChatWithPdf(
       outputBytes: output.byteLength,
       sourceCharacters: groundingSource.length,
       truncated,
+      truncationNotice: userTruncationNotice(window) || null,
+      window,
     },
   };
 }
@@ -441,6 +512,8 @@ interface ChatManifest {
     pageCount: number;
     characters: number;
     truncatedToCharacters: number | null;
+    /** The page-named disclosure, or null when the whole document was read. */
+    truncationNotice: string | null;
   };
   answer: { characters: number; citedPages: number[] };
   /**

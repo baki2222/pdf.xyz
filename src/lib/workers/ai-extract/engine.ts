@@ -1,5 +1,16 @@
 import JSZip from "jszip";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import {
+  PAGE_JOIN,
+  pageTextChunks,
+  type ExtractedPdfText,
+} from "@/lib/pdf/text";
+import {
+  describeWindow,
+  modelTruncationNotice,
+  pageStartsFor,
+  userTruncationNotice,
+  type TruncationWindow,
+} from "../ai/truncation";
 import type { ExtractOptions, ExtractionField } from "@/lib/jobs/ai-extract";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
 
@@ -80,6 +91,18 @@ export interface AiExtractMeta {
   sourceCharacters: number;
   /** True when the source exceeded `maxInputChars` and only a prefix was sent. */
   truncated: boolean;
+  /**
+   * The one-line disclosure to show beside the result when `truncated` — e.g.
+   * "Only pages 1-131 of 400 could be read, cut mid-page - ...". `null` when the
+   * whole document was read. The UI renders THIS, not the model's words: a
+   * model asked to disclose its own bound may quietly decline to.
+   */
+  truncationNotice: string | null;
+  /**
+   * What the model actually saw, structurally — the block the job record carries
+   * to the browser so the panel can state the bound without re-deriving it.
+   */
+  window: TruncationWindow;
 }
 
 export type AiExtractFailureKind =
@@ -122,7 +145,10 @@ function describeField(field: ExtractionField): string {
 }
 
 /** The honesty-critical system prompt: extract ONLY from the provided text; invent nothing. */
-function buildSystemPrompt(options: ExtractOptions): string {
+function buildSystemPrompt(
+  options: ExtractOptions,
+  window: TruncationWindow,
+): string {
   const parts = [
     "You are a precise structured-data extraction engine for pdf.xyz.",
     "Extract information ONLY from the document text provided by the user.",
@@ -143,6 +169,14 @@ function buildSystemPrompt(options: ExtractOptions): string {
       "Extract the data described by the following instruction as a flat JSON object with clear, descriptive keys:",
     );
     parts.push(options.prompt);
+  }
+  // The window disclosure goes last so it overrides anything above it.
+  const notice = modelTruncationNotice(window);
+  if (notice) {
+    parts.push(
+      notice,
+      "If a requested field does not appear in the text you were given, report it as not found IN THE PAGES EXAMINED — never as absent from the document.",
+    );
   }
   return parts.join("\n");
 }
@@ -287,14 +321,22 @@ export async function runAiExtract(
   }
 
   const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
-  const truncated = sourceText.length > maxChars;
+  // One description of the window, shared by the prompt, the meta and the
+  // package, so the model and the user cannot be told different things.
+  const window = describeWindow(
+    sourceText,
+    pageStartsFor(pageTextChunks(extracted.pages), PAGE_JOIN),
+    extracted.pageCount,
+    maxChars,
+  );
+  const truncated = window.truncated;
   const promptText = truncated ? sourceText.slice(0, maxChars) : sourceText;
 
   const maxOutputTokens =
     deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
   const completion = await provider.complete({
-    system: buildSystemPrompt(options),
+    system: buildSystemPrompt(options, window),
     messages: [
       {
         role: "user",
@@ -339,6 +381,7 @@ export async function runAiExtract(
       pageCount: extracted.pageCount,
       characters: sourceText.length,
       truncatedToCharacters: truncated ? maxChars : null,
+      truncationNotice: userTruncationNotice(window) || null,
     },
     extraction: { keys: extractedKeys },
     notice:
@@ -374,6 +417,8 @@ export async function runAiExtract(
       outputBytes: output.byteLength,
       sourceCharacters: sourceText.length,
       truncated,
+      truncationNotice: userTruncationNotice(window) || null,
+      window,
     },
   };
 }
@@ -398,6 +443,8 @@ interface ExtractionManifest {
     pageCount: number;
     characters: number;
     truncatedToCharacters: number | null;
+    /** The page-named disclosure, or null when the whole document was read. */
+    truncationNotice: string | null;
   };
   extraction: { keys: number };
   notice: string;
@@ -425,6 +472,15 @@ function renderMarkdown(
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for extraction)` : ""}`,
   );
+  // A null value in this table means "not found in the pages examined" when the
+  // window was short. Saying so beside the table is the difference between a
+  // gap and a false negative.
+  if (manifest.source.truncationNotice) {
+    lines.push(`>`);
+    lines.push(
+      `> **${manifest.source.truncationNotice}** Fields shown as \`null\` were not found in the pages examined — they may still appear later in the document.`,
+    );
+  }
   lines.push("");
   if (Array.isArray(data)) {
     data.forEach((item, i) => {

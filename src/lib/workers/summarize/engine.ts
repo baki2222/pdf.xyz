@@ -1,5 +1,16 @@
 import JSZip from "jszip";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import {
+  PAGE_JOIN,
+  pageTextChunks,
+  type ExtractedPdfText,
+} from "@/lib/pdf/text";
+import {
+  describeWindow,
+  modelTruncationNotice,
+  pageStartsFor,
+  userTruncationNotice,
+  type TruncationWindow,
+} from "../ai/truncation";
 import type {
   SummarizeOptions,
   SummaryFormat,
@@ -73,6 +84,18 @@ export interface SummarizeMeta {
   summaryCharacters: number;
   /** True when the source exceeded `maxInputChars` and only a prefix was summarized. */
   truncated: boolean;
+  /**
+   * The one-line disclosure to show beside the result when `truncated` — e.g.
+   * "Only pages 1-131 of 400 could be read, cut mid-page - ...". `null` when the
+   * whole document was read. The UI renders THIS, not the model's words: a
+   * model asked to disclose its own bound may quietly decline to.
+   */
+  truncationNotice: string | null;
+  /**
+   * What the model actually saw, structurally — the block the job record carries
+   * to the browser so the panel can state the bound without re-deriving it.
+   */
+  window: TruncationWindow;
 }
 
 export type SummarizeFailureKind =
@@ -130,7 +153,10 @@ const FORMAT_GUIDANCE: Record<SummaryFormat, string> = {
 const DEFAULT_MAX_INPUT_CHARS = 500_000;
 
 /** The honesty-critical system prompt: summarize ONLY the provided text; invent nothing. */
-function buildSystemPrompt(options: SummarizeOptions): string {
+function buildSystemPrompt(
+  options: SummarizeOptions,
+  window: TruncationWindow,
+): string {
   const parts = [
     "You are a precise document summarizer for pdf.xyz.",
     "Summarize ONLY the content of the document text provided by the user.",
@@ -142,6 +168,14 @@ function buildSystemPrompt(options: SummarizeOptions): string {
   ];
   if (options.focus) {
     parts.push(`Pay special attention to: ${options.focus}.`);
+  }
+  // The window disclosure goes last so it overrides anything above it.
+  const notice = modelTruncationNotice(window);
+  if (notice) {
+    parts.push(
+      notice,
+      'State plainly in the summary that it covers only the pages you were given (e.g. "This summarises pages 1-N of M"). Never describe it as a summary of the whole document.',
+    );
   }
   return parts.join(" ");
 }
@@ -263,7 +297,15 @@ export async function runSummarize(
   }
 
   const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
-  const truncated = sourceText.length > maxChars;
+  // One description of the window, shared by the prompt, the meta and the
+  // package, so the model and the user cannot be told different things.
+  const window = describeWindow(
+    sourceText,
+    pageStartsFor(pageTextChunks(extracted.pages), PAGE_JOIN),
+    extracted.pageCount,
+    maxChars,
+  );
+  const truncated = window.truncated;
   const promptText = truncated ? sourceText.slice(0, maxChars) : sourceText;
 
   const plan = LENGTH_PLAN[options.length];
@@ -273,7 +315,7 @@ export async function runSummarize(
   );
 
   const completion = await provider.complete({
-    system: buildSystemPrompt(options),
+    system: buildSystemPrompt(options, window),
     messages: [
       {
         role: "user",
@@ -313,6 +355,7 @@ export async function runSummarize(
       pageCount: extracted.pageCount,
       characters: sourceText.length,
       truncatedToCharacters: truncated ? maxChars : null,
+      truncationNotice: userTruncationNotice(window) || null,
     },
     summary: { characters: summary.length },
     notice:
@@ -348,6 +391,8 @@ export async function runSummarize(
       sourceCharacters: sourceText.length,
       summaryCharacters: summary.length,
       truncated,
+      truncationNotice: userTruncationNotice(window) || null,
+      window,
     },
   };
 }
@@ -368,6 +413,8 @@ interface SummaryManifest {
     pageCount: number;
     characters: number;
     truncatedToCharacters: number | null;
+    /** The page-named disclosure, or null when the whole document was read. */
+    truncationNotice: string | null;
   };
   summary: { characters: number };
   notice: string;
@@ -384,6 +431,12 @@ function renderMarkdown(summary: string, manifest: SummaryManifest): string {
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for summarization)` : ""}`,
   );
+  // A character count is not something a reader can act on; the page sentence
+  // is. It goes in the file itself, because the file outlives the panel.
+  if (manifest.source.truncationNotice) {
+    lines.push(`>`);
+    lines.push(`> **${manifest.source.truncationNotice}**`);
+  }
   lines.push("");
   lines.push(summary);
   lines.push("");

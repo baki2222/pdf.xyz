@@ -240,3 +240,88 @@ describe("runSummarize — provider-injected deterministic success", () => {
     expect(provider.calls[0]!.maxOutputTokens).toBe(512);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Truncation disclosure (TASK-43)
+// ---------------------------------------------------------------------------
+
+/**
+ * Six pages of 200 characters each, joined by a blank line: offsets 0, 202, 404,
+ * 606, 808, 1010, total 1,210. A 500-character cap therefore lands 96 characters
+ * INTO page 3 — so page 2 is the last complete page and the cut is mid-page.
+ */
+const LONG_PAGES = Array.from({ length: 6 }, (_, i) =>
+  String.fromCharCode(97 + i).repeat(200),
+);
+
+function longExtractor(): PdfTextExtractor {
+  const pages = LONG_PAGES.map((text, i) => ({
+    pageNumber: i + 1,
+    text,
+    characterCount: text.length,
+  }));
+  const joined = LONG_PAGES.join("\n\n");
+  const extracted: ExtractedPdfText = {
+    pageCount: LONG_PAGES.length,
+    pages,
+    text: joined,
+    characterCount: joined.length,
+    hasText: true,
+  };
+  return vi.fn(async () => extracted);
+}
+
+describe("a short window is disclosed — to the model and to the job record", () => {
+  it("tells the model it is seeing only part, and names the last COMPLETE page", async () => {
+    const provider = providerReturning(SUCCESS("A summary."));
+    const run = await runSummarize(INPUT, OPTIONS, {
+      extract: longExtractor(),
+      provider,
+      limits: { maxInputChars: 500 },
+    });
+    expect(run.ok).toBe(true);
+
+    const system = provider.calls[0]?.system ?? "";
+    // Not merely "some of the document was cut": the instruction that PRODUCED
+    // the defect has to be revoked, or a model told only "answer from the
+    // document" still reports absence as absence from the whole document.
+    expect(system).toMatch(/do NOT say the document does not contain it/);
+    expect(system).toMatch(/pages 1-2 of 6/);
+    expect(system).toMatch(/mid-page/);
+  });
+
+  it("reports the window on meta so the panel can state it without the model", async () => {
+    const provider = providerReturning(SUCCESS("A summary."));
+    const run = await runSummarize(INPUT, OPTIONS, {
+      extract: longExtractor(),
+      provider,
+      limits: { maxInputChars: 500 },
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.window).toEqual({
+      truncated: true,
+      charactersSent: 500,
+      charactersTotal: 1210,
+      totalPages: 6,
+      lastCompletePage: 2,
+      cutMidPage: true,
+    });
+    expect(run.meta.truncationNotice).toMatch(/pages 1–2 of 6/);
+  });
+
+  it("says nothing at all when the whole document fits", async () => {
+    const provider = providerReturning(SUCCESS("A summary."));
+    const run = await runSummarize(INPUT, OPTIONS, {
+      extract: longExtractor(),
+      provider,
+      limits: { maxInputChars: 100_000 },
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.truncated).toBe(false);
+    expect(run.meta.truncationNotice).toBeNull();
+    // A notice on an untruncated document would be its own false claim.
+    expect(provider.calls[0]?.system ?? "").not.toMatch(/ONLY PART/);
+  });
+});
