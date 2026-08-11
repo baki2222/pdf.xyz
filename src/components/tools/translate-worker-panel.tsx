@@ -9,7 +9,11 @@ import {
   Timer,
 } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import {
+  AI_INPUT_LIMITS,
+  DEFAULT_RETENTION,
+  JOB_LIMITS,
+} from "@/lib/jobs/types";
 import {
   DEFAULT_TRANSLATE_SOURCE,
   LANGUAGE_NAMES,
@@ -197,7 +201,7 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters read`}
           />
         </div>
       </div>

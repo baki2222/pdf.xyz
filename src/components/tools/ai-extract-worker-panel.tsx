@@ -11,7 +11,11 @@ import {
   Trash2,
 } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import {
+  AI_INPUT_LIMITS,
+  DEFAULT_RETENTION,
+  JOB_LIMITS,
+} from "@/lib/jobs/types";
 import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
@@ -196,7 +200,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters read`}
           />
         </div>
       </div>

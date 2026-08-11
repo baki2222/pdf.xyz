@@ -87,6 +87,54 @@ export const JOB_LIMITS = {
 } as const;
 
 /**
+ * The AI tools' input ceiling — and what it actually buys, in pages.
+ *
+ * Every AI engine caps the text it sends at `maxInputCharacters` and sends a
+ * prefix. Until 2026-08-11 that number was written out EIGHT times (four
+ * engines, four `native.ts` wirings) and stated in no user-facing copy at all,
+ * so a visitor deciding whether to upload a 300-page report met the file-size
+ * limit and nothing else. It lives here now because copy derives from it: a
+ * published number and the number the code enforces have to be the same number,
+ * and eight independent definitions are how they stop being.
+ *
+ * The density figures are MEASURED, not estimated — 2026-08-10, pdf-lib
+ * fixtures through the real pdfjs extractor, text assembled exactly as the
+ * engines assemble it:
+ *
+ *     sparse (contract/report)     1,718 chars/page
+ *     ordinary prose               3,794 chars/page
+ *     dense (legal/technical)      6,158 chars/page
+ *
+ * They are here so a page range in copy is DERIVED rather than typed. A page
+ * count is the form of this limit a reader can act on, and it is also the form
+ * that is easy to get wrong: the homepage said "summarize a 200-page report",
+ * which needs 2,500 chars/page and is therefore true only at the sparsest of
+ * the three. A number a user can check against their own file has to be one
+ * that survives being checked.
+ */
+export const AI_INPUT_LIMITS = {
+  /** Characters of selectable text sent to the model; the rest is not read. */
+  maxInputCharacters: 500_000,
+  /** Measured chars/page at the densest realistic layout. */
+  densestCharactersPerPage: 6_158,
+  /** Measured chars/page at the sparsest realistic layout. */
+  sparsestCharactersPerPage: 1_718,
+  /** When the density figures were measured. Re-measure before quoting them again. */
+  densityMeasuredOn: "2026-08-10",
+} as const;
+
+/** Pages the AI cap buys at the DENSEST measured layout — the conservative end. */
+export const aiPagesAtDensest = Math.floor(
+  AI_INPUT_LIMITS.maxInputCharacters / AI_INPUT_LIMITS.densestCharactersPerPage,
+);
+
+/** Pages the AI cap buys at the SPARSEST measured layout — the generous end. */
+export const aiPagesAtSparsest = Math.floor(
+  AI_INPUT_LIMITS.maxInputCharacters /
+    AI_INPUT_LIMITS.sparsestCharactersPerPage,
+);
+
+/**
  * Contract-level rate limits. Enforcement lives at the edge/worker in
  * production (documented in docs/WORKER_ARCHITECTURE.md); this build does not
  * fake enforcement, it only publishes the numbers integrators should honor.

@@ -13,6 +13,7 @@ import {
 } from "../ai/truncation";
 import type { ExtractOptions, ExtractionField } from "@/lib/jobs/ai-extract";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
+import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 
 /**
  * AI Data Extraction engine for the `ai-extract` AI tool.
@@ -136,7 +137,7 @@ export type AiExtractRun =
  * only lower (never raise) is sufficient.
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 4000;
-const DEFAULT_MAX_INPUT_CHARS = 500_000;
+const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
 
 /** Human-readable one-line description of a field, for the system prompt. */
 function describeField(field: ExtractionField): string {
