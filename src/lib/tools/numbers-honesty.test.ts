@@ -128,6 +128,13 @@ function copyFiles(): string[] {
   const out: string[] = [
     // Outside every walked root — the reason a list entry is allowed at all.
     path.join(ROOT, "src", "lib", "faq.ts"),
+    // The AI allowance sentence, which left `tool-facts.ts` on 2026-08-11 for
+    // the lowest layer its six call sites could all import. This census is the
+    // one guard that caught the unowned `500 runs` in the reach measurement,
+    // so losing it here loses the only reader of that figure. Listed rather
+    // than walking `src/lib/jobs`, for the reason recorded at `copyFiles()` in
+    // `copy-surface.ts`; the discovery proof there covers a future move.
+    path.join(ROOT, "src", "lib", "jobs", "ai-allowance.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

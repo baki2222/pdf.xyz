@@ -15,9 +15,9 @@
  * "available" means, and the panels share one explanation of what is missing.
  */
 
-import { RATE_LIMITS } from "@/lib/jobs/types";
 import type { WorkerStatus } from "./status";
 import { canRunPdfSecurity } from "./pdf-security-client";
+import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 
 /**
  * True when the UI may offer a secure-worker AI flow. Three conditions, all
@@ -39,7 +39,9 @@ import { canRunPdfSecurity } from "./pdf-security-client";
  * the API actually enforces. "Per device" is the honest name for a
  * per-client limit identified from the request.
  */
-export const AI_DAILY_ALLOWANCE_NOTE = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`;
+// A third independent copy of the same sentence until 2026-08-11. The name
+// stays because four panels import it; the words come from one place now.
+export const AI_DAILY_ALLOWANCE_NOTE = AI_ALLOWANCE_FACT;
 
 export function canRunAiTool(status: WorkerStatus | null | undefined): boolean {
   if (!status) return false;
