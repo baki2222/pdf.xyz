@@ -22,6 +22,7 @@ import {
 } from "./guard";
 import { resetRateLimitGuardForTests } from "./guard";
 import { AI_SPEND_DAILY_TOKEN_CEILING } from "@/lib/jobs/ai-spend-ceiling";
+import { SPEND_PROBE_REFRESH_MS, shouldWriteSpendProbe } from "./spend-probe";
 
 /** The env that selects the real per-process limiter rather than `disabled`. */
 const LOCAL = {
@@ -160,6 +161,25 @@ describe("the worker and the web tier share one bucket, proven not assumed", () 
     expect(verdict.shared).toBe(false);
     if (verdict.shared) return;
     expect(verdict.reason).toBe("unenforced");
+  });
+
+  it("refreshes on a cadence, because the probe's window ROLLS OVER", async () => {
+    // A start-up-only write is not enough and the reason is the window: the
+    // probe rides `ai.spend`, whose window is a day, and the limiter sets a
+    // key's expiry only when it is absent. So the key vanishes at every
+    // rollover, and a worker up for a day would report `no-probe-visible` on a
+    // perfectly healthy deployment — the amber-that-looks-like-a-fault this
+    // posture exists to remove, delayed by 24 hours rather than avoided.
+    expect(shouldWriteSpendProbe(null, T0), "the start-up write is due").toBe(
+      true,
+    );
+    expect(shouldWriteSpendProbe(T0, T0 + 1_000)).toBe(false);
+    expect(shouldWriteSpendProbe(T0, T0 + SPEND_PROBE_REFRESH_MS)).toBe(true);
+    // A clock that jumped backwards must not park the probe for a day.
+    expect(shouldWriteSpendProbe(T0, T0 - 5_000)).toBe(true);
+    // And the cadence must actually be shorter than the window it refreshes,
+    // or the rollover gap it exists to close would be permanent.
+    expect(SPEND_PROBE_REFRESH_MS).toBeLessThan(86_400_000);
   });
 
   it("does not move the ceiling it is checking on", async () => {

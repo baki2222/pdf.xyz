@@ -92,6 +92,22 @@ export interface WorkerDaemonDeps {
    * the loop is byte-for-byte unchanged.
    */
   heartbeat?: () => void | Promise<void>;
+  /**
+   * Optional shared-bucket spend probe, invoked on exactly the same schedule as
+   * {@link heartbeat} — once at start and before each poll iteration — and
+   * self-throttling in the same way, so a hot loop still writes on its cadence.
+   *
+   * ITS OWN DEP RATHER THAN A LINE INSIDE `heartbeat`, deliberately. The
+   * heartbeat is doubly gated (an explicit feature flag AND a compatible
+   * broker); folding the probe into it would mean an operator turning liveness
+   * off silently blinds the AI spend posture, which would then report
+   * "the two tiers cannot be shown to share one budget" with no way to tell
+   * that from a real fault. A cost control must not acquire a hidden dependency
+   * on an observability toggle.
+   *
+   * Absent (the default) ⇒ nothing is written and the loop is unchanged.
+   */
+  spendProbe?: () => void | Promise<void>;
 }
 
 /** Map a tick outcome to the bounded queue-claim result it implies. */
@@ -146,6 +162,7 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
   const shouldStop = deps.shouldStop ?? (() => false);
   const metrics = deps.metrics;
   const heartbeat = deps.heartbeat;
+  const spendProbe = deps.spendProbe;
 
   /**
    * Publish a liveness heartbeat, if wired, swallowing any failure. A heartbeat
@@ -160,6 +177,27 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
       await heartbeat();
     } catch {
       // Intentionally ignored: liveness is observability, never a correctness gate.
+    }
+  };
+
+  /**
+   * Write the shared-bucket spend probe, if wired, swallowing any failure — the
+   * same containment as {@link beat} and for the same reason: a store blip must
+   * never disrupt draining or leave a job half-processed.
+   *
+   * It is called from the same two places as the heartbeat rather than from the
+   * spend hook in the executor, because a worker that has processed no AI jobs
+   * is still a worker whose bucket the web tier should be able to see. Waiting
+   * for traffic would leave a freshly-deployed, perfectly healthy worker
+   * reporting "unproven" for hours, which is the amber-that-looks-like-a-fault
+   * this whole posture exists to avoid.
+   */
+  const probeSpend = async (): Promise<void> => {
+    if (!spendProbe) return;
+    try {
+      await spendProbe();
+    } catch {
+      // Intentionally ignored: the probe is observability, never a gate.
     }
   };
 
@@ -252,6 +290,10 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
     // claim — so even a `once`/`drain` that finds an idle queue still reports a live
     // worker. Subsequent beats happen per iteration below (self-throttled).
     await beat();
+    // The probe on the same schedule, for the same reason one line up: a worker
+    // that has claimed nothing yet is still a worker whose bucket the reading
+    // tier must be able to see.
+    await probeSpend();
 
     if (mode === "once") {
       if (shouldStop()) return finish("stopped");
@@ -263,6 +305,7 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
       if (shouldStop()) return finish("stopped");
       if (cap !== undefined && summary.ticks >= cap) return finish("max_ticks");
       await beat();
+      await probeSpend();
 
       const tick = await safeTick();
       record(tick);

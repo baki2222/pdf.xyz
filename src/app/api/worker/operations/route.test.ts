@@ -13,6 +13,7 @@ import {
   enforceRateLimit,
   resetRateLimitGuardForTests,
   resetSelfBuiltProviderForTests,
+  writeSpendProbe,
 } from "@/lib/ratelimit/guard";
 import { GET } from "./route";
 
@@ -80,7 +81,17 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
   });
 
   /** A fully-green, heartbeat-enabled env so the verdict reaches the liveness residual. */
+  /**
+   * A stack with everything wired — INCLUDING a limiter, since the AI spend
+   * ceiling became its own subsystem. "Green" now means total AI cost is
+   * demonstrably bounded too, so a fixture that omitted the limiter would be
+   * asserting an ok posture over a genuinely unbounded one.
+   *
+   * `local-memory` rather than the remote limiter on purpose: it needs no
+   * `fetch`, so it cannot collide with the broker stub these tests install.
+   */
   const GREEN_HEARTBEAT_ENV: Record<string, string> = {
+    PDFXYZ_RATE_LIMIT_PROVIDER: "local-memory",
     PDFXYZ_STORAGE_PROVIDER: "s3",
     PDFXYZ_S3_ENDPOINT: "https://s3.example.com",
     PDFXYZ_S3_REGION: "auto",
@@ -108,6 +119,9 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
 
   it("marks daemonObserved true when a fresh heartbeat is visible, staying content-free", async () => {
     Object.assign(process.env, GREEN_HEARTBEAT_ENV);
+    // The worker's half of the two-tier proof; without it the spend ceiling
+    // honestly reports `tiers-unproven` and the action stops being `none`.
+    await writeSpendProbe(process.env);
     stubBrokerHeartbeat(
       buildHeartbeat({
         mode: "loop",
@@ -227,7 +241,14 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
         [LIFECYCLE_ENV.provider]: "aws-s3",
         [LIFECYCLE_ENV.validated]: "true",
         PDFXYZ_WORKER_HEARTBEAT: "enabled",
+        // See GREEN_HEARTBEAT_ENV: an ok posture now requires a bounded, and
+        // demonstrably shared, AI spend ceiling.
+        PDFXYZ_RATE_LIMIT_PROVIDER: "local-memory",
       });
+      // Stand in for the worker: without a probe write the web tier honestly
+      // reports that the two tiers cannot be shown to share one budget, which
+      // is a warn — and correctly so.
+      await writeSpendProbe(process.env);
       globalThis.fetch = (async () => ({
         ok: true,
         status: 200,
@@ -429,17 +450,31 @@ describe("GET /api/worker/operations — the rate-limit posture reaches the aler
     );
   });
 
-  it("the deliberate off-state (the default) stays quiet", async () => {
+  it("the deliberate off-state (the default) stays quiet — on the RATE-LIMIT row", async () => {
+    // AMENDED when the AI spend ceiling got its own posture, and the amendment
+    // is the interesting part. This used to assert a globally-`ok` severity,
+    // which conflated two claims: "the abuse guard is quiet when off by choice"
+    // (still true, and what this test is for) and "nothing else warns" (never
+    // what it meant).
+    //
+    // A deployment with no limiter selected now also reports `ai-spend:
+    // unenforced`, because total AI cost is genuinely unbounded there and the
+    // ceiling cannot tell "off by choice" apart from "this tier lost its
+    // limiter while the other kept one" — production's exact bug, mirrored. The
+    // narrowed assertions below pin the property this test actually owns.
     Object.assign(process.env, GREEN_ENV); // no rate-limit provider selected
 
     const body = (await json(await GET(opsReq()))) as OpsBody;
 
     expect(body.rateLimit?.code).toBe("disabled");
-    expect(body.alerts?.severity).toBe("ok");
     expect(body.alerts?.alerts ?? []).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: "rate-limit" }),
       ]),
     );
+    // The abuse guard contributes no alert; the spend ceiling is a separate
+    // subsystem answering a separate question, and it is allowed to speak.
+    const sources = (body.alerts?.alerts ?? []).map((a) => a.source);
+    expect(sources).not.toContain("rate-limit");
   });
 });

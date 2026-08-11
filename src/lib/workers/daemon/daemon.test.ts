@@ -358,3 +358,94 @@ describe("createWorkerDaemon — heartbeat (Phase 30)", () => {
     expect(summary.reason).toBe("drained");
   });
 });
+
+/**
+ * The shared-bucket spend probe's schedule.
+ *
+ * The probe is what lets the WEB tier prove that the AI spend counter it reads is
+ * the one this process writes. Until it had a call site it was a module invoked
+ * by nothing but its own unit tests — deployed, correct, and inert — so these pin
+ * the two properties that make it an instrument rather than a definition: it runs
+ * before any job is claimed, and it keeps running.
+ */
+describe("createWorkerDaemon — spend probe", () => {
+  it("writes once at start, before the first claim", async () => {
+    // A worker that has processed no AI jobs is still a worker whose bucket the
+    // reading tier should be able to see. Waiting for traffic would leave a
+    // freshly-deployed, perfectly healthy worker reporting "the two tiers cannot
+    // be shown to share one budget" for hours.
+    const { executor } = scriptedExecutor([tick("idle")]);
+    const order: string[] = [];
+    const daemon = createWorkerDaemon({
+      executor: {
+        async runOnce() {
+          order.push("tick");
+          return executor.runOnce();
+        },
+        drain: executor.drain,
+      },
+      spendProbe: () => {
+        order.push("probe");
+      },
+    });
+    await daemon.run({ mode: "once" });
+    expect(order[0], "the probe did not run before the first tick").toBe(
+      "probe",
+    );
+  });
+
+  it("writes again on every poll iteration, so a rolled-over window recovers", async () => {
+    // The probe key expires with its window; a start-only write would go dark
+    // after a day and report a healthy deployment as unproven. The daemon calls
+    // on every iteration and the CLI's own throttle decides what actually hits
+    // the store.
+    const { executor } = scriptedExecutor([tick("idle")]);
+    const { log, sleep } = harness();
+    let probes = 0;
+    const daemon = createWorkerDaemon({
+      executor,
+      log,
+      sleep,
+      spendProbe: () => {
+        probes += 1;
+      },
+    });
+    await daemon.run({ mode: "loop", maxTicks: 3 });
+    expect(probes).toBeGreaterThan(1);
+  });
+
+  it("survives a throwing probe without disrupting the run", async () => {
+    // Observability is never a correctness gate: a store blip must not fail a
+    // job or stop a drain.
+    const { executor } = scriptedExecutor([tick("completed"), tick("idle")]);
+    const { log, sleep } = harness();
+    const daemon = createWorkerDaemon({
+      executor,
+      log,
+      sleep,
+      spendProbe: () => {
+        throw new Error("SECRET store blip");
+      },
+    });
+    const summary = await daemon.run({ mode: "drain" });
+    expect(summary.reason).toBe("drained");
+    expect(summary.completed).toBe(1);
+  });
+
+  it("is independent of the heartbeat, which is separately feature-gated", async () => {
+    // The heartbeat is doubly gated (an explicit flag AND a broker). If the
+    // probe rode inside it, an operator turning liveness off would silently
+    // blind the AI spend posture — a cost control acquiring a hidden dependency
+    // on an observability toggle.
+    const { executor } = scriptedExecutor([tick("idle")]);
+    let probes = 0;
+    const daemon = createWorkerDaemon({
+      executor,
+      spendProbe: () => {
+        probes += 1;
+      },
+    });
+    await daemon.run({ mode: "once" });
+    expect(probes, "no heartbeat was wired and the probe still ran").toBe(1);
+  });
+});

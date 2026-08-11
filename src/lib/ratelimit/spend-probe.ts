@@ -57,3 +57,42 @@ export type SpendProbeVerdict =
 /** The units one probe write adds. Small, fixed, and never zero — a zero write
  * is indistinguishable from no write at all. */
 export const SPEND_PROBE_UNITS = 1;
+
+/**
+ * How often the writing tier refreshes the probe.
+ *
+ * **A startup-only write is not enough, and the reason is the window.** The
+ * probe rides `ai.spend`, whose window is a day, and the limiter sets a key's
+ * expiry only when it is absent — a FIXED window, not a sliding one. So the
+ * probe key vanishes at every rollover, and a worker that wrote once at boot
+ * and has been up for a day would go dark: `no-probe-visible` on a perfectly
+ * healthy deployment, which is precisely the amber-that-looks-like-a-fault this
+ * posture exists to avoid. Startup gives a truthful reading without waiting for
+ * traffic; the refresh keeps it truthful afterwards.
+ *
+ * A minute is chosen against the rollover gap, not against a cost target: the
+ * probe is invisible for at most one interval per day, and at one INCRBY per
+ * write that is ~1,440 store commands a day — below the worker's existing
+ * heartbeat traffic and immaterial next to the job load it rides alongside.
+ * Writing every tick instead would be up to 86,400, which is a real bill for no
+ * additional truth.
+ */
+export const SPEND_PROBE_REFRESH_MS = 60_000;
+
+/**
+ * Should the writing tier refresh the probe now? Pure, so the cadence is
+ * testable without a clock or a store.
+ *
+ * `null` means "never written in this process" and is always due — that is the
+ * startup write, and it must not wait out an interval before the posture can
+ * tell the truth.
+ */
+export function shouldWriteSpendProbe(
+  lastWriteMs: number | null,
+  nowMs: number,
+): boolean {
+  if (lastWriteMs === null) return true;
+  // A clock that jumped backwards must not park the probe for a day.
+  if (nowMs < lastWriteMs) return true;
+  return nowMs - lastWriteMs >= SPEND_PROBE_REFRESH_MS;
+}

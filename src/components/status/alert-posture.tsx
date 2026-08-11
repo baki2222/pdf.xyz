@@ -149,6 +149,12 @@ const REASON_COPY: Record<AlertReason, string> = {
     "The rate limiter's store is failing and the guard is failing open (nothing throttles)",
   "rate-limit-shared-bucket":
     "The rate limiter is enforcing, but counts every caller in one shared bucket (budgets are global, not per visitor)",
+  "ai-spend-unenforced":
+    "No limiter applies the global AI spend ceiling in this tier (total AI cost is unbounded)",
+  "ai-spend-tiers-unproven":
+    "The AI spend ceiling is enforcing, but no counter written by the tier that records spend has been read back (the two cannot be shown to share one budget)",
+  "ai-spend-ceiling-reached":
+    "The global AI spend ceiling is reached for this window, so AI features are degrading deliberately (the cost control working, not a fault)",
   "lifecycle-undeclared": "No retention/lifecycle backstop is declared",
   "lifecycle-unverified": "The retention backstop is declared but unverified",
   "lifecycle-drift":

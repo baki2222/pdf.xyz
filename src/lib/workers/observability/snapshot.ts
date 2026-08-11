@@ -79,6 +79,10 @@ import {
 } from "../cleanup-evidence/types";
 import { resolveRateLimitStatus } from "@/lib/ratelimit/status";
 import type { RateLimitStatusCode } from "@/lib/ratelimit/status";
+import type {
+  AiSpendProbeState,
+  AiSpendStatusCode,
+} from "@/lib/ratelimit/spend-status";
 
 // Re-export the bounded liveness enums the snapshot surfaces, so the UI (and any
 // consumer) can import them alongside the snapshot types from this barrel.
@@ -134,6 +138,13 @@ export type SnapshotSubsystemId =
   | "ocr"
   | "malware-scan"
   | "rate-limit"
+  /**
+   * The GLOBAL AI token ceiling — a cost control, not a fairness device, and a
+   * different subsystem from `rate-limit` on purpose. Conflating the two is
+   * what let the ceiling's absence sit unnoticed while the abuse guard
+   * reported healthy.
+   */
+  | "ai-spend"
   | "lifecycle"
   | "lifecycle-verification"
   | "cleanup-evidence"
@@ -287,6 +298,169 @@ export function rateLimitPostureForCode(
 export const UNOBSERVED_RATE_LIMIT_POSTURE: SnapshotRateLimitPosture =
   rateLimitPostureForCode("unknown");
 
+/* ------------------------------------------------------------------ *
+ *  Global AI spend-ceiling posture
+ * ------------------------------------------------------------------ */
+
+/**
+ * The bounded AI spend-ceiling codes the snapshot can carry: the four states a
+ * reading tier can be in (`src/lib/ratelimit/spend-status.ts`), plus `unknown`
+ * for a vantage that did not read the store at all.
+ *
+ * `unknown` is the DEFAULT, and that is load-bearing. Resolving this posture
+ * takes two store reads, so unlike the abuse guard's it cannot be derived inside
+ * this pure collector — a caller has to supply it. A caller that forgets
+ * therefore gets "not observed", never a green "bounded"; the reachability guard
+ * in `spend-probe-reachability.test.ts` is what makes forgetting visible.
+ */
+export const SNAPSHOT_AI_SPEND_CODES = [
+  "unenforced",
+  "tiers-unproven",
+  "shared",
+  "ceiling-reached",
+  "unknown",
+] as const;
+export type SnapshotAiSpendCode = (typeof SNAPSHOT_AI_SPEND_CODES)[number];
+
+// Compile-time proof that every code the spend-status layer can produce fits this
+// vocabulary — the same brace the rate-limit codes get, for the same reason: if
+// spend-status.ts adds a state, this fails to type-check until the code list, the
+// detail map, the health map, the alert fold AND the UI copy map have learned it.
+const _spendCodesAreSnapshotCodes: AssertExtends<
+  AiSpendStatusCode,
+  SnapshotAiSpendCode
+> = true;
+void _spendCodesAreSnapshotCodes;
+
+/** The probe reading as the snapshot carries it — its own bounded vocabulary. */
+export const SNAPSHOT_AI_SPEND_PROBE_STATES = [
+  "shared",
+  "no-probe-visible",
+  "unenforced",
+  "unknown",
+] as const;
+export type SnapshotAiSpendProbeState =
+  (typeof SNAPSHOT_AI_SPEND_PROBE_STATES)[number];
+
+const _probeStatesAreSnapshotStates: AssertExtends<
+  AiSpendProbeState,
+  SnapshotAiSpendProbeState
+> = true;
+void _probeStatesAreSnapshotStates;
+
+/**
+ * The AI spend ceiling's posture as the snapshot carries it.
+ *
+ * **It carries no token count, and that is a security property, not tidiness.**
+ * `/api/worker/operations` is unauthenticated. The spent total tells an abuser
+ * exactly how much room is left before AI degrades, and the ceiling figure is a
+ * number nobody outside can act on — so neither is in this type at all, rather
+ * than merely omitted by today's caller. A field that does not exist cannot be
+ * added back by a well-meaning diff that only saw a gap.
+ */
+export interface SnapshotAiSpendPosture {
+  readonly code: SnapshotAiSpendCode;
+  /** True only when a limiter really applies the ceiling in the reading tier. */
+  readonly enforced: boolean;
+  /**
+   * The probe reading, carried BESIDE the code and never folded into it: a
+   * reached ceiling and an unproven pair of tiers are independent observations,
+   * and either collapsing the other is how this feature stayed invisible.
+   */
+  readonly probe: SnapshotAiSpendProbeState;
+  /** One-line, content-free explanation authored here. Never a variable or value. */
+  readonly detail: string;
+}
+
+/** Fixed, content-free detail per code. Exported so ingest re-authors from it. */
+export const AI_SPEND_DETAIL: Record<SnapshotAiSpendCode, string> = {
+  unenforced:
+    "No limiter resolves in this tier, so the global AI spend ceiling is not bounding anything here: AI runs are limited only by the per-visitor allowance, which does not cap total cost.",
+  "tiers-unproven":
+    "The AI spend ceiling is enforcing here, but no counter written by the tier that records spend has been read back, so the two tiers cannot be shown to share one budget. Either the recording tier has not written yet, or the two are counting into different places.",
+  shared:
+    "The global AI spend ceiling is enforcing, and a counter written by the tier that records spend was read back here — the two tiers are sharing one budget.",
+  "ceiling-reached":
+    "The global AI spend ceiling has been reached for the current window, so AI features are degrading deliberately. This is the cost control doing its job, not a fault; other tools are unaffected.",
+  unknown:
+    "The global AI spend ceiling was not read from this vantage, so nothing is claimed about whether total AI cost is bounded.",
+};
+
+/**
+ * Map a code to its SLO health class.
+ *
+ * `shared` is the only `ok`. Both `unenforced` and `tiers-unproven` are `warn`
+ * — **absent must not read as agreement.** The state production shipped in was
+ * "the reading tier looks perfectly healthy and every write silently does
+ * nothing", and a posture that showed green on it would have certified the
+ * broken deployment as working, which is worse than having no posture at all.
+ *
+ * `ceiling-reached` is `warn` too, but it keeps its own CODE and its own alert
+ * reason, because "the ceiling did its job" and "something is broken" need
+ * different responses and one shared class would give them the same one.
+ */
+export function aiSpendHealth(code: SnapshotAiSpendCode): HealthClass {
+  switch (code) {
+    case "shared":
+      return "ok";
+    case "unenforced":
+    case "tiers-unproven":
+    case "ceiling-reached":
+      return "warn";
+    case "unknown":
+      return "unknown";
+  }
+}
+
+/**
+ * Build the full posture for a code — the single place `enforced`/`detail` are
+ * derived, shared by the route, the ingest path and the tests.
+ *
+ * The probe state defaults to the one each code implies, so a caller with only a
+ * code (the ingest path re-authoring an untrusted payload) still gets a coherent
+ * posture. `ceiling-reached` is the exception and takes `unknown`, because a
+ * reached ceiling genuinely does not tell you whether the tiers were ever proven
+ * to share a bucket — inventing `shared` there would be the collapse this type
+ * is shaped to prevent.
+ */
+export function aiSpendPostureForCode(
+  code: SnapshotAiSpendCode,
+  probe: SnapshotAiSpendProbeState = defaultProbeFor(code),
+): SnapshotAiSpendPosture {
+  return {
+    code,
+    // `enforced` describes THE MECHANISM: whether a limiter applies the ceiling
+    // in this process. `tiers-unproven` really is enforcing — we simply cannot
+    // say it is the same budget the recording tier writes into, which is what
+    // the code carries.
+    enforced:
+      code === "shared" ||
+      code === "ceiling-reached" ||
+      code === "tiers-unproven",
+    probe,
+    detail: AI_SPEND_DETAIL[code],
+  };
+}
+
+/** The probe reading each code implies on its own. See the note above. */
+function defaultProbeFor(code: SnapshotAiSpendCode): SnapshotAiSpendProbeState {
+  switch (code) {
+    case "shared":
+      return "shared";
+    case "tiers-unproven":
+      return "no-probe-visible";
+    case "unenforced":
+      return "unenforced";
+    case "ceiling-reached":
+    case "unknown":
+      return "unknown";
+  }
+}
+
+/** The honest posture for a vantage that did not read the spend ceiling. */
+export const UNOBSERVED_AI_SPEND_POSTURE: SnapshotAiSpendPosture =
+  aiSpendPostureForCode("unknown");
+
 /** One subsystem's SLO classification. Content-free (label + class + generic prose). */
 export interface SnapshotSubsystem {
   readonly id: SnapshotSubsystemId;
@@ -314,6 +488,7 @@ export type RecommendedAction =
   | "install-ocr-engine" // OCR is opted into but no engine is installed on the worker
   | "fix-scanner" // a malware scanner is selected but misconfigured
   | "enable-per-client-identity" // the limiter enforces, but on ONE bucket for all callers
+  | "verify-ai-spend-ceiling" // total AI spend is unbounded here, or the two tiers are unproven
   | "declare-lifecycle" // no retention/lifecycle backstop is declared
   | "verify-lifecycle" // a backstop is declared but not asserted validated
   | "reconcile-lifecycle-drift" // an observed config shows the backstop does not hold
@@ -430,6 +605,14 @@ export interface WorkerOperationsSnapshot {
    * never names an environment variable (unlike the ratelimit layer's own status).
    */
   readonly rateLimit: SnapshotRateLimitPosture;
+  /**
+   * The GLOBAL AI spend ceiling's posture — whether total AI cost is bounded at
+   * all, and whether the tier reading the counter is reading the one the
+   * recording tier writes. A different question from the abuse guard above, and
+   * the one that had no answer until this field existed. Carries no token count:
+   * this payload is unauthenticated.
+   */
+  readonly aiSpend: SnapshotAiSpendPosture;
   /** The last in-process loop outcome, when a run just completed; else `null`. */
   readonly lastLoop: SnapshotLoopOutcome | null;
 }
@@ -469,6 +652,18 @@ export interface OperationsSnapshotInput {
    * must not claim "disabled" (a deliberate operator choice) on no evidence.
    */
   readonly rateLimit?: SnapshotRateLimitPosture;
+  /**
+   * The AI spend ceiling's posture, when the caller has read it.
+   *
+   * UNLIKE `rateLimit`, THIS CANNOT BE RESOLVED HERE. The abuse guard's posture
+   * is a pure function of configuration, so the collector resolves it rather
+   * than trusting callers to remember; this one takes two round trips to the
+   * store, and this function is pure and synchronous. Omit ⇒ the honest
+   * `unknown`, never a green default — and `spend-probe-reachability.test.ts`
+   * walks the import graph so that a tier which SHOULD be reading it cannot
+   * quietly stop.
+   */
+  readonly aiSpend?: SnapshotAiSpendPosture;
   /** The last in-process daemon loop outcome, when a run completed. Omit ⇒ `null`. */
   readonly lastLoop?: DaemonRunSummary;
   /**
@@ -500,6 +695,8 @@ export const RECOMMENDED_ACTION_DETAIL: Record<RecommendedAction, string> = {
     "A malware scanner is selected but its endpoint configuration is missing or malformed, so inputs would not be scanned. Fix the scanner configuration.",
   "enable-per-client-identity":
     "The rate limiter is configured and enforcing, but it counts every caller in one shared bucket, so the published per-policy budgets apply to all traffic combined rather than per visitor. Per-client accounting needs BOTH trusted client identity and a key salt that is identical on every instance — see the rate-limiting runbook.",
+  "verify-ai-spend-ceiling":
+    "Total AI spend is not demonstrably bounded here: either no limiter applies the global ceiling in this tier, or no counter written by the tier that records spend has been read back, so the two cannot be shown to share one budget. The per-visitor AI allowance is a fairness device and does not cap total cost — see the rate-limiting runbook.",
   "declare-lifecycle":
     "No retention/lifecycle backstop is declared, so bucket auto-deletion is unknown here. Generate a policy, apply it out-of-band, and declare it.",
   "verify-lifecycle":
@@ -523,6 +720,7 @@ export const SUBSYSTEM_LABEL: Record<SnapshotSubsystemId, string> = {
   ocr: "OCR",
   "malware-scan": "Malware scanning",
   "rate-limit": "Rate limiting",
+  "ai-spend": "AI spend ceiling",
   lifecycle: "Lifecycle backstop",
   "lifecycle-verification": "Lifecycle verification",
   "cleanup-evidence": "Cleanup evidence",
@@ -615,6 +813,7 @@ function buildSubsystems(
   lifecycleVerification: SnapshotLifecycleVerification,
   cleanupEvidence: CleanupEvidencePosture,
   rateLimit: SnapshotRateLimitPosture,
+  aiSpend: SnapshotAiSpendPosture,
 ): SnapshotSubsystem[] {
   const { readiness, deployment } = input;
   const engineState = facetOf(deployment, "engine")?.state;
@@ -690,6 +889,11 @@ function buildSubsystems(
     // "not selected" is a fine choice (ok) and "selected but not doing its job"
     // is the caveat (warn). The posture's own code disambiguates why.
     sub("rate-limit", rateLimitHealth(rateLimit.code), rateLimit.detail),
+    // The COST control, deliberately its own row beside the fairness device one
+    // line up. They answer different questions — "is any one caller throttled"
+    // versus "is total spend bounded at all" — and the second went unasked for
+    // months precisely because the first was green.
+    sub("ai-spend", aiSpendHealth(aiSpend.code), aiSpend.detail),
     sub(
       "lifecycle",
       lifecycleHealth(deployment.lifecycle.state),
@@ -929,11 +1133,13 @@ export function buildWorkerOperationsSnapshot(
   const cleanupEvidence =
     input.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE;
   const rateLimit = input.rateLimit ?? UNOBSERVED_RATE_LIMIT_POSTURE;
+  const aiSpend = input.aiSpend ?? UNOBSERVED_AI_SPEND_POSTURE;
   const subsystems = buildSubsystems(
     input,
     lifecycleVerification,
     cleanupEvidence,
     rateLimit,
+    aiSpend,
   );
   let { health, action } = deriveVerdict(input, lifecycleVerification);
   // Fold the abuse guard into the HEADLINE, not just into a row.
@@ -954,6 +1160,23 @@ export function buildWorkerOperationsSnapshot(
     // inventing a second vocabulary for them here would let the two disagree.
     if (rateLimit.code === "remote-configured-shared") {
       action = "enable-per-client-identity";
+    }
+  }
+  // Fold the COST control into the headline on the same terms, and for the same
+  // reason: a warn row under an `ok` headline is a footnote, not an alert. An
+  // unbounded or unproven spend ceiling is exactly the condition that reads as
+  // working right up until the bill arrives.
+  //
+  // Only ESCALATES — a real blocker keeps its own action, and nothing here can
+  // make a degraded system look healthier.
+  if (aiSpendHealth(aiSpend.code) === "warn" && health === "ok") {
+    health = "warn";
+    // `ceiling-reached` is the ceiling working as designed, so it does NOT
+    // claim the headline action: there is nothing for an operator to fix, and
+    // telling them to fix something would send them looking for a fault that
+    // does not exist. The other two are real configuration gaps and get one.
+    if (aiSpend.code !== "ceiling-reached" && action === "none") {
+      action = "verify-ai-spend-ceiling";
     }
   }
   const daemon = resolveDaemonLiveness(input.vantage, input.daemonLiveness);
@@ -997,6 +1220,7 @@ export function buildWorkerOperationsSnapshot(
     lifecycleVerification,
     cleanupEvidence,
     rateLimit,
+    aiSpend,
     lastLoop,
   };
 }
@@ -1045,6 +1269,13 @@ export function collectWebOperationsSnapshot(
      * omit it. Costs nothing: the resolver reads configuration, never the store.
      */
     rateLimit?: SnapshotRateLimitPosture;
+    /**
+     * The AI spend ceiling's posture, read by the caller. Cannot be resolved
+     * here — it takes two store round trips and this function is pure. Omit ⇒
+     * the honest `unknown`; see the input type's note and the reachability
+     * guard that keeps a tier from silently ceasing to read it.
+     */
+    aiSpend?: SnapshotAiSpendPosture;
   } = {},
 ): WorkerOperationsSnapshot {
   const readiness = resolveDaemonReadiness(env);
@@ -1063,6 +1294,7 @@ export function collectWebOperationsSnapshot(
     deployment,
     guardrails,
     rateLimit,
+    ...(opts.aiSpend ? { aiSpend: opts.aiSpend } : {}),
     ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
     ...(opts.cleanupEvidence ? { cleanupEvidence: opts.cleanupEvidence } : {}),
     // No `ocrEnabled`: the web can't observe the worker's OCR, so OCR stays `unknown`.

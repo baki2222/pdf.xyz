@@ -141,6 +141,7 @@ const SUBSYSTEM_IDS = [
   "ocr",
   "malware-scan",
   "rate-limit",
+  "ai-spend",
   "lifecycle",
   "lifecycle-verification",
   "cleanup-evidence",
