@@ -27,6 +27,20 @@
  * truth, it is a seventh copy. This module is the lowest layer all of them can
  * import, so there is nowhere left to put a duplicate that compiles.
  *
+ * THE BUCKET IS AN ADDRESS, AND AN ADDRESS IS NOT A PERSON. `deriveClientToken`
+ * is `sha256(salt ␀ address)` over the forwarded address — no cookie, no session,
+ * no per-action branch — so everyone behind one NAT shares one bucket: an office,
+ * a campus, a café, a mobile CGNAT range. The first version of this fix
+ * over-corrected into *"You have used your 3 free AI runs for today"*, which is
+ * not a dropped hedge but a **factual claim about the reader's own past
+ * conduct**, and it is wrong for every visitor who shares an address with
+ * whoever spent them.
+ *
+ * So the copy attributes the spend to the CONNECTION. That is true for one person
+ * and true for fifty behind one address, and it keeps the information that
+ * actually matters — this is not the whole world's three runs, which is what the
+ * pre-2026-08-11 wording claimed.
+ *
  * WHAT IS DELIBERATELY NOT CLAIMED: that the allowance is guaranteed, isolated,
  * or unaffected by anything else. A separate internal spend ceiling exists as a
  * circuit breaker, is never published, and can stop AI for everyone. These
@@ -36,24 +50,43 @@
 import { RATE_LIMITS } from "./types";
 
 /**
- * The clause both sentences are built from.
+ * The quantity, shared by both sentences — and the only part that can go stale,
+ * because it is the only part derived from a constant.
+ *
+ * Split from the cadence on purpose. An offer states a rate ("a day"); a refusal
+ * states an exhausted quantity ("are used up for today"), and gluing the cadence
+ * into the refusal produced "your 3 free AI runs a day for today". What the two
+ * surfaces must never disagree about is the NUMBER and what it counts, so that
+ * is what they share.
+ */
+export const AI_ALLOWANCE_RUNS = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs`;
+
+/**
+ * The offer's clause: the quantity plus its cadence.
  *
  * Shared rather than shipped as one string serving both surfaces: an offer and a
  * refusal legitimately read differently, and forcing one sentence to do both
  * jobs is how the refusal ended up carrying "it may not reflect your own usage"
  * — a hedge that made sense only while the bucket was shared.
  */
-export const AI_ALLOWANCE_CLAUSE = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day`;
+export const AI_ALLOWANCE_CLAUSE = `${AI_ALLOWANCE_RUNS} a day`;
 
 /** What a visitor is offered, stated before they spend it. */
-export const AI_ALLOWANCE_FACT = `Your own ${AI_ALLOWANCE_CLAUSE} — the allowance resets daily.`;
+export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection — the allowance resets daily.`;
 
 /**
  * What a visitor is told when it runs out.
  *
- * It names their own usage, because it is their own bucket. The previous version
- * said the allowance was "currently shared across everyone using pdf.xyz, so it
- * may not reflect your own usage" — which sent someone who had spent nothing
- * looking for a stranger to blame.
+ * It names the CONNECTION, never the reader. See the module docblock: the bucket
+ * is an address, and an address is not a person. The first version of this fix
+ * said "You have used your 3 free AI runs for today", which is a factual claim
+ * about the reader's own past conduct and is false for everyone behind a shared
+ * address who has run nothing.
+ *
+ * The middle sentence is the one addition beyond stating the scope: "this
+ * connection" is accurate but leaves a blameless reader hunting for what they
+ * did. Naming the shared-network case answers that without reinstating the old
+ * "shared across everyone using pdf.xyz", which claimed one bucket for the whole
+ * product and was false for every visitor.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `You have used your ${AI_ALLOWANCE_CLAUSE} for today. The allowance resets daily; retry after the interval in the Retry-After header.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include runs made by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;

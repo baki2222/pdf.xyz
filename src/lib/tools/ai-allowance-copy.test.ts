@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import {
   AI_ALLOWANCE_CLAUSE,
   AI_ALLOWANCE_FACT,
+  AI_ALLOWANCE_RUNS,
   AI_ALLOWANCE_USED_MESSAGE,
 } from "@/lib/jobs/ai-allowance";
 import { RATE_LIMITS } from "@/lib/jobs/types";
@@ -54,6 +55,7 @@ describe("the words match the enforced policy", () => {
       AI_ALLOWANCE_FACT,
       AI_ALLOWANCE_USED_MESSAGE,
       AI_ALLOWANCE_CLAUSE,
+      AI_ALLOWANCE_RUNS,
     ]) {
       expect(text.toLowerCase()).not.toContain("shared across everyone");
       expect(text.toLowerCase()).not.toContain("may not reflect your own");
@@ -82,12 +84,16 @@ describe("the words match the enforced policy", () => {
     ).toEqual([]);
   });
 
-  it("says the allowance is the visitor's own, and derives the number", () => {
-    expect(AI_ALLOWANCE_FACT).toContain("Your own");
+  it("attributes the allowance to the connection, and derives the number", () => {
+    // NOT "your own three runs" — that shipped for one commit and was a claim
+    // about the reader's conduct. The counter keys on a forwarded address, so
+    // the connection is the largest thing it can honestly name. The banned
+    // shapes and their corpus live in `ratelimit/allowance-copy.test.ts`.
+    expect(AI_ALLOWANCE_FACT).toContain("connection");
+    expect(AI_ALLOWANCE_USED_MESSAGE).toContain("connection");
     expect(AI_ALLOWANCE_FACT).toContain(
       String(RATE_LIMITS.aiRunsPerDayPerClient),
     );
-    expect(AI_ALLOWANCE_USED_MESSAGE).toContain("your");
   });
 
   it("promises no isolation and no availability", () => {
@@ -112,12 +118,16 @@ describe("the words match the enforced policy", () => {
     }
   });
 
-  it("keeps the offer and the refusal distinct, sharing a clause", () => {
+  it("keeps the offer and the refusal distinct, sharing the quantity", () => {
     // One string serving both surfaces is how the refusal came to carry a hedge
-    // that only made sense while the bucket was shared.
+    // that only made sense while the bucket was shared. What they must share is
+    // the NUMBER and what it counts — not the cadence: an offer states a rate,
+    // a refusal states an exhausted quantity, and gluing "a day" into the
+    // refusal produced "your 3 free AI runs a day for today".
     expect(AI_ALLOWANCE_FACT).not.toBe(AI_ALLOWANCE_USED_MESSAGE);
     expect(AI_ALLOWANCE_FACT).toContain(AI_ALLOWANCE_CLAUSE);
-    expect(AI_ALLOWANCE_USED_MESSAGE).toContain(AI_ALLOWANCE_CLAUSE);
+    expect(AI_ALLOWANCE_CLAUSE).toContain(AI_ALLOWANCE_RUNS);
+    expect(AI_ALLOWANCE_USED_MESSAGE).toContain(AI_ALLOWANCE_RUNS);
   });
 });
 
@@ -126,12 +136,21 @@ describe("there is exactly one copy of the sentence", () => {
     // Walked, not listed. The duplicates were in three different modules and a
     // list of the ones we knew about is what let the fourth through.
     const offenders = sourceFiles().filter((file) => {
-      const source = readFileSync(file, "utf8");
+      // Comments stripped, like its sibling above and for the same reason: the
+      // rule that history stays in a comment and the rule that the sentence
+      // exists once will otherwise fight, and the guard loses — `copy-surface.ts`
+      // records the sentence it MEASURED the guards against, which is evidence,
+      // not a second copy. A commented-out duplicate renders to nobody; a real
+      // one is still code and still caught.
+      const source = withoutComments(readFileSync(file, "utf8"));
       const isTheSource = file
         .replace(/\\/g, "/")
         .endsWith("jobs/ai-allowance.ts");
       if (isTheSource) return false;
-      return /free AI runs a day/.test(source);
+      // `free AI runs`, not `free AI runs a day`: the refusal drops the cadence,
+      // so a hand-written refusal would have slipped a phrase-anchored net —
+      // the same way `You have used your` slipped a ban on `you've used your`.
+      return /free AI runs\b/.test(source);
     });
 
     expect(
