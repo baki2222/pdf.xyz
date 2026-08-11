@@ -59,13 +59,14 @@ describe("normalizeOperationsSnapshot — valid input", () => {
     expect(r.snapshot.daemon.source).toBe("queue-broker");
     expect(r.snapshot.daemon.lastSeen).toBe("under-30s");
     expect(r.snapshot.daemonObserved).toBe(true);
-    // The cleanup-evidence and rate-limit subsystems are always surfaced (derived from
-    // their postures), so a monitor-supplied snapshot's exit code always reflects them.
+    // The cleanup-evidence, rate-limit and ai-spend subsystems are always surfaced
+    // (derived from their postures), so a monitor-supplied snapshot exit code reflects them.
     expect(r.snapshot.subsystems.map((s) => s.id)).toEqual([
       "storage",
       "queue",
       "cleanup-evidence",
       "rate-limit",
+      "ai-spend",
     ]);
     expect(r.snapshot.proofs).toEqual({
       compressionDeep: "available",
@@ -130,6 +131,7 @@ describe("normalizeOperationsSnapshot — valid input", () => {
       "storage",
       "cleanup-evidence",
       "rate-limit",
+      "ai-spend",
     ]);
     expect(r.snapshot.subsystems[0]?.health).toBe("warn");
   });
@@ -322,6 +324,7 @@ describe("no-leak sanitization — end to end", () => {
       "malware-scan",
       "cleanup-evidence",
       "rate-limit",
+      "ai-spend",
     ]);
   });
 });

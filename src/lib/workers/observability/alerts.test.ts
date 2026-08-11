@@ -14,6 +14,7 @@ import {
   rateLimitHealth,
   rateLimitPostureForCode,
   UNOBSERVED_RATE_LIMIT_POSTURE,
+  UNOBSERVED_AI_SPEND_POSTURE,
   type CleanupEvidenceReason,
   type CleanupEvidenceState,
   type DaemonLivenessState,
@@ -21,6 +22,7 @@ import {
   type RecommendedAction,
   type SnapshotRateLimitCode,
   type SnapshotRateLimitPosture,
+  type SnapshotAiSpendPosture,
   type SnapshotSubsystem,
   type SnapshotSubsystemId,
   type WorkerOperationsSnapshot,
@@ -58,6 +60,7 @@ interface SnapshotOverrides {
   subsystems?: SnapshotSubsystem[];
   cleanupEvidence?: CleanupEvidencePosture;
   rateLimit?: SnapshotRateLimitPosture;
+  aiSpend?: SnapshotAiSpendPosture;
   poisonProse?: boolean;
 }
 
@@ -98,6 +101,7 @@ function makeSnapshot(o: SnapshotOverrides = {}): WorkerOperationsSnapshot {
     },
     cleanupEvidence: o.cleanupEvidence ?? DISABLED_CLEANUP_EVIDENCE_POSTURE,
     rateLimit: o.rateLimit ?? UNOBSERVED_RATE_LIMIT_POSTURE,
+    aiSpend: o.aiSpend ?? UNOBSERVED_AI_SPEND_POSTURE,
     lastLoop: null,
   };
 }

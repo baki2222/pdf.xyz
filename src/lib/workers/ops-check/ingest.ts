@@ -33,6 +33,10 @@ import {
   RECOMMENDED_ACTION_DETAIL,
   rateLimitHealth,
   rateLimitPostureForCode,
+  aiSpendHealth,
+  aiSpendPostureForCode,
+  SNAPSHOT_AI_SPEND_CODES,
+  SNAPSHOT_AI_SPEND_PROBE_STATES,
   SNAPSHOT_RATE_LIMIT_CODES,
   SUBSYSTEM_LABEL,
   type HealthClass,
@@ -42,6 +46,7 @@ import {
   type SnapshotLifecycleVerification,
   type SnapshotLoopOutcome,
   type SnapshotRateLimitPosture,
+  type SnapshotAiSpendPosture,
   type SnapshotSubsystem,
   type SnapshotSubsystemId,
   type SnapshotVantage,
@@ -161,6 +166,7 @@ const SUBSYSTEM_IDS = [
   "ocr",
   "malware-scan",
   "rate-limit",
+  "ai-spend",
   "lifecycle",
   "lifecycle-verification",
   "cleanup-evidence",
@@ -408,6 +414,30 @@ function normalizeRateLimit(raw: unknown): SnapshotRateLimitPosture {
 }
 
 /**
+ * Rebuild a content-free {@link SnapshotAiSpendPosture} from an untrusted value.
+ *
+ * `enforced` and `detail` are RECOMPUTED from the bounded code, never copied, so
+ * a forged `enforced: true` on an `unenforced` posture cannot survive ingestion.
+ *
+ * The probe reading is validated SEPARATELY against its own bounded vocabulary
+ * rather than derived from the code, because the two are genuinely independent
+ * observations: a reached ceiling says nothing about whether the tiers were ever
+ * proven to share a bucket. Deriving it would silently manufacture one of the
+ * two facts this posture exists to keep apart. An absent or garbage value falls
+ * back to `unknown` — never to `shared`, which is the only reading that makes a
+ * claim.
+ */
+function normalizeAiSpend(raw: unknown): SnapshotAiSpendPosture {
+  const code = isObject(raw)
+    ? (oneOf(raw.code, SNAPSHOT_AI_SPEND_CODES) ?? "unknown")
+    : "unknown";
+  const probe = isObject(raw)
+    ? (oneOf(raw.probe, SNAPSHOT_AI_SPEND_PROBE_STATES) ?? "unknown")
+    : "unknown";
+  return aiSpendPostureForCode(code, probe);
+}
+
+/**
  * Rebuild a content-free {@link CleanupEvidencePosture} from an untrusted value (Phase 44). Each
  * field is validated against its bounded enum and defaulted safely; the detail is RE-AUTHORED from
  * {@link CLEANUP_EVIDENCE_DETAIL} by the resolved reason — never copied from the input — so a
@@ -475,8 +505,13 @@ export function normalizeOperationsSnapshot(
     cleanupEvidence.state,
   );
   const rateLimitHealthClass = rateLimitHealth(rateLimit.code);
+  const aiSpend = normalizeAiSpend(raw.aiSpend);
+  const aiSpendHealthClass = aiSpendHealth(aiSpend.code);
   const subsystems = normalizeSubsystems(raw.subsystems).filter(
-    (s) => s.id !== "cleanup-evidence" && s.id !== "rate-limit",
+    (s) =>
+      s.id !== "cleanup-evidence" &&
+      s.id !== "rate-limit" &&
+      s.id !== "ai-spend",
   );
   subsystems.push({
     id: "cleanup-evidence",
@@ -489,6 +524,12 @@ export function normalizeOperationsSnapshot(
     label: SUBSYSTEM_LABEL["rate-limit"],
     health: rateLimitHealthClass,
     detail: subsystemDetail("rate-limit", rateLimitHealthClass),
+  });
+  subsystems.push({
+    id: "ai-spend",
+    label: SUBSYSTEM_LABEL["ai-spend"],
+    health: aiSpendHealthClass,
+    detail: subsystemDetail("ai-spend", aiSpendHealthClass),
   });
 
   const snapshot: WorkerOperationsSnapshot = {
@@ -508,6 +549,7 @@ export function normalizeOperationsSnapshot(
     lifecycleVerification,
     cleanupEvidence,
     rateLimit,
+    aiSpend,
     lastLoop: normalizeLastLoop(raw.lastLoop),
   };
   return { ok: true, snapshot };

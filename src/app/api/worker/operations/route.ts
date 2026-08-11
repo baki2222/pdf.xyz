@@ -22,10 +22,12 @@
 import { ok } from "@/lib/jobs";
 import { resolveWorkerMode, type ToolAvailability } from "@/lib/workers";
 import {
+  aiSpendPostureForCode,
   collectWebOperationsSnapshot,
   evaluateOperationsAlerts,
   rateLimitPostureForCode,
 } from "@/lib/workers/observability";
+import { readAiSpendStatus } from "@/lib/ratelimit/spend-status";
 import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
 import { readCleanupEvidencePosture } from "@/lib/workers/cleanup-evidence/read";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
@@ -90,11 +92,40 @@ export async function GET(request: Request): Promise<Response> {
     statusForDecision(resolveRateLimitStatus(process.env), limit).code,
   );
 
+  /**
+   * The GLOBAL AI spend ceiling's posture — blocker 2's remaining half.
+   *
+   * The ceiling is written by the worker (only it knows what a call cost) and
+   * read here (only the web tier can refuse a job). They are different processes
+   * with different environments, and for the whole of the feature's life the
+   * worker carried no limiter at all: every `recordAiSpend` returned false, the
+   * counter could never rise, and this tier was reading a number nobody wrote.
+   * Every unit test was green, because no test runs in two tiers.
+   *
+   * So this does not compare configuration — it reads back a value the OTHER
+   * tier wrote. Two store round trips, and unlike the abuse guard's posture they
+   * cannot ride the decision above (different buckets), which is why this is
+   * resolved here rather than inside the pure collector.
+   *
+   * IT COSTS NOTHING ON AN UNCONFIGURED DEPLOYMENT: both reads short-circuit on
+   * `providerId === "disabled"` before any network, so the default path stays
+   * offline. With a limiter wired it is two reads on an endpoint that already
+   * pays for one guard check and one heartbeat read — and the posture it
+   * produces carries no token count in either direction, because this endpoint
+   * is unauthenticated and the headroom is exactly what an abuser would want.
+   */
+  const aiSpendStatus = await readAiSpendStatus(process.env);
+  const aiSpend = aiSpendPostureForCode(
+    aiSpendStatus.code,
+    aiSpendStatus.probe,
+  );
+
   const snapshot = collectWebOperationsSnapshot(process.env, {
     tools,
     daemonLiveness,
     cleanupEvidence,
     rateLimit,
+    aiSpend,
   });
   // Phase 31: attach the content-free alert posture (overall severity + the bounded
   // reasons/actions of each contributing alert) the operator dashboard renders and any

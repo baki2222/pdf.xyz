@@ -44,7 +44,11 @@ import {
 import { OPS_CHECK_EXIT } from "@/lib/workers/observability";
 import { resolveWorkerRuntime } from "@/lib/workers/daemon/runtime";
 import { readWorkerHeartbeatLiveness } from "@/lib/workers/heartbeat";
-import { collectWebOperationsSnapshot } from "@/lib/workers/observability";
+import {
+  aiSpendPostureForCode,
+  collectWebOperationsSnapshot,
+} from "@/lib/workers/observability";
+import { readAiSpendStatus } from "@/lib/ratelimit/spend-status";
 import { readCleanupEvidencePosture } from "@/lib/workers/cleanup-evidence/read";
 import { resolveWorkerMode, type ToolAvailability } from "@/lib/workers";
 import { readFileSync, statSync } from "node:fs";
@@ -69,11 +73,31 @@ async function collectLive(
   // path is configured; never contacts the cloud, never throws, never leaks a path.
   const cleanupEvidence = readCleanupEvidencePosture(env);
 
+  /**
+   * The AI spend ceiling's posture — read for BOTH sources, because this CLI is
+   * the hourly watcher.
+   *
+   * It was omitted here in the first draft of the posture work, and the omission
+   * was invisible: the snapshot's `aiSpend` defaults to the honest `unknown`, so
+   * every ops-check run reported grey and nothing failed. `ceiling-reached` was
+   * given its own code precisely so a watcher could tell "the ceiling did its
+   * job" from "something is broken" — and the watcher could not have seen either.
+   *
+   * A no-op with no network unless a limiter is configured.
+   */
+  const spend = await readAiSpendStatus(env);
+  const aiSpend = aiSpendPostureForCode(spend.code, spend.probe);
+
   if (source === "runtime") {
     // The same wiring the daemon uses: real provider config + a live native-engine
     // probe. Logs nothing; the executor is built but never ticked (no job is claimed).
     const runtime = resolveWorkerRuntime(env);
-    return collectRuntimeOperations(runtime, daemonLiveness, cleanupEvidence);
+    return collectRuntimeOperations(
+      runtime,
+      daemonLiveness,
+      cleanupEvidence,
+      aiSpend,
+    );
   }
 
   // `web`: no host probe except in local-dev, where the web app is the in-process
@@ -88,6 +112,7 @@ async function collectLive(
     ...(tools ? { tools } : {}),
     daemonLiveness,
     cleanupEvidence,
+    aiSpend,
   });
   return { snapshot, slo: null, metrics: null };
 }

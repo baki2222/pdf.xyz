@@ -48,6 +48,8 @@ import {
   type HeartbeatPublisher,
 } from "@/lib/workers/heartbeat";
 import { queueSupportsAtomicTransitions } from "@/lib/workers/queue/redis-config";
+import { writeSpendProbe } from "@/lib/ratelimit/guard";
+import { shouldWriteSpendProbe } from "@/lib/ratelimit/spend-probe";
 import {
   collectRuntimeOperationsSnapshot,
   createWorkerMetricsCollector,
@@ -526,6 +528,12 @@ async function main(): Promise<number> {
   const heartbeat = buildHeartbeatPublisher(runtime, args.mode);
   // Tracks the last observed publish state so only changes are logged.
   let lastBeatPublished: boolean | undefined;
+  // The spend probe's own cadence + last outcome. `null` means "never written in
+  // this process", which `shouldWriteSpendProbe` treats as due — that is the
+  // start-up write, and it must not wait out an interval before the web tier's
+  // posture can tell the truth about a freshly-deployed worker.
+  let lastProbeWriteMs: number | null = null;
+  let lastProbeWritten: boolean | undefined;
   emit({
     src: "daemon",
     event: "heartbeat_capability",
@@ -613,6 +621,32 @@ async function main(): Promise<number> {
       if (result.published !== lastBeatPublished) {
         lastBeatPublished = result.published;
         emit({ src: "daemon", event: "heartbeat", ...result });
+      }
+    },
+    // Write the shared-bucket spend probe, so the WEB tier can prove empirically
+    // that the AI spend counter it reads is the one this process writes.
+    //
+    // Until this call site existed the probe was a module invoked by nothing but
+    // its own unit tests: built, reviewed, merged, deployed, and inert — the web
+    // tier had no way to distinguish "the two tiers share a bucket" from "the
+    // worker's writes have been silently doing nothing for months", which is the
+    // state production was actually in. "The probe is ready" and "the probe
+    // answers" differ by exactly this.
+    //
+    // Throttled here rather than in the guard so the cadence is one testable
+    // decision (`shouldWriteSpendProbe`) instead of a timestamp compare buried
+    // in a limiter call. A `false` result means THIS tier has no limiter — the
+    // precise condition that made the ceiling decorative — so it is logged on
+    // transition rather than swallowed, the same lesson the heartbeat learned
+    // when a total liveness outage turned out to be completely silent.
+    spendProbe: async () => {
+      const now = Date.now();
+      if (!shouldWriteSpendProbe(lastProbeWriteMs, now)) return;
+      lastProbeWriteMs = now;
+      const written = await writeSpendProbe(process.env, now);
+      if (written !== lastProbeWritten) {
+        lastProbeWritten = written;
+        emit({ src: "daemon", event: "spend_probe", written });
       }
     },
   });

@@ -279,6 +279,12 @@ const SUBSYSTEM_META: Record<
       "The optional abuse guard on the public API. Deliberately off is healthy; selected-but-not-enforcing (a bad store config, or a store failing open) is the warning.",
     icon: Gauge,
   },
+  "ai-spend": {
+    label: "AI spend ceiling",
+    description:
+      "The global daily cap on AI tokens — a cost control, not a per-visitor limit. Healthy means the tier that records spend and the tier that reads it have been shown to share one budget; a reached ceiling is the control working.",
+    icon: Gauge,
+  },
   lifecycle: {
     label: "Lifecycle backstop",
     description:
@@ -312,7 +318,23 @@ const SUBSYSTEM_META: Record<
 };
 
 /** Canonical render order (pipeline order): entry → engine → retention → runtime. */
-const SUBSYSTEM_ORDER: SnapshotSubsystemId[] = [
+/**
+ * The render order of the subsystem grid.
+ *
+ * IT MUST LIST EVERY SUBSYSTEM, and until this commit nothing made it. The
+ * declared type was `SnapshotSubsystemId[]` — which checks that each entry is
+ * VALID, never that the set is COMPLETE — and the renderer maps over this array,
+ * so an id missing here is silently dropped from the UI entirely. A test one
+ * layer up carried the comment "this pins SUBSYSTEM_ORDER, which no type
+ * forces", pinning exactly one id; a comment naming a hole is not a guard, and
+ * the next subsystem added (this file's own `ai-spend`) would have vanished
+ * without a single failure.
+ *
+ * `satisfies` plus the exhaustiveness assertion below is the same brace the
+ * ops-check ingest lists already use: adding a `SnapshotSubsystemId` now fails
+ * to compile until it is placed here deliberately.
+ */
+const SUBSYSTEM_ORDER = [
   "drainability",
   "storage",
   "queue",
@@ -320,12 +342,19 @@ const SUBSYSTEM_ORDER: SnapshotSubsystemId[] = [
   "ocr",
   "malware-scan",
   "rate-limit",
+  "ai-spend",
   "lifecycle",
   "lifecycle-verification",
   "cleanup-evidence",
   "guardrails",
   "daemon-loop",
-];
+] as const satisfies readonly SnapshotSubsystemId[];
+
+/** `never` iff every subsystem id appears in the order above. */
+type AssertNever<T extends never> = T;
+type _SubsystemOrderIsExhaustive = AssertNever<
+  Exclude<SnapshotSubsystemId, (typeof SUBSYSTEM_ORDER)[number]>
+>;
 
 const RECOMMENDED_ACTION_COPY: Record<
   RecommendedAction,
@@ -374,6 +403,11 @@ const RECOMMENDED_ACTION_COPY: Record<
     title: "Enable per-client rate limiting",
     detail:
       "The limiter is enforcing, but counts every caller in one shared bucket, so the published budgets apply to all traffic combined rather than per visitor. It needs both trusted client identity and a key salt identical on every instance.",
+  },
+  "verify-ai-spend-ceiling": {
+    title: "Verify the AI spend ceiling",
+    detail:
+      "Total AI spend is not demonstrably bounded here: either no limiter applies the global ceiling in this tier, or no counter written by the tier that records spend has been read back. The per-visitor AI allowance is a fairness device and does not cap total cost.",
   },
   "declare-lifecycle": {
     title: "Declare a retention backstop",

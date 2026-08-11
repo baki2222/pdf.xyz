@@ -87,6 +87,13 @@ export const ALERT_REASONS = [
   "rate-limit-misconfigured",
   "rate-limit-fail-open",
   "rate-limit-shared-bucket",
+  // The COST control's three alertable states. `ai-spend-ceiling-reached` is
+  // deliberately separate from the other two: it means the ceiling WORKED, and
+  // an hourly watcher that could not tell it from a broken one would either
+  // page on a healthy degradation or learn to ignore both.
+  "ai-spend-unenforced",
+  "ai-spend-tiers-unproven",
+  "ai-spend-ceiling-reached",
   "lifecycle-undeclared",
   "lifecycle-unverified",
   "lifecycle-drift",
@@ -135,6 +142,8 @@ export const ALERT_ACTIONS = [
   "refresh-cleanup-evidence", // cleanup evidence report is stale/missing/unreadable/malformed
   "fix-rate-limit-config", // a remote limiter is selected but its store config is incomplete
   "investigate-rate-limit-store", // a configured limiter's store is erroring; guard failing open
+  "verify-ai-spend-ceiling", // total AI spend is unbounded here, or the two tiers are unproven
+  "await-ai-spend-window", // the ceiling did its job; nothing to fix, the window resets
   "enable-per-client-identity", // now also a RecommendedAction; listed here so
   // the RecommendedAction-is-an-AlertAction assert still holds
   "monitor", // informational; nothing to fix, keep observing
@@ -169,6 +178,8 @@ const EXTRA_ACTION_DETAIL: Record<
     "A remote rate-limit provider is selected but its store configuration is missing or incomplete, so nothing is throttling despite the operator opting in. Fix the store configuration (see the rate-limiting runbook) or deliberately disable the provider.",
   "investigate-rate-limit-store":
     "The distributed rate limiter is configured, but the store is unreachable or erroring and the guard is failing OPEN — traffic is passing unthrottled right now. Investigate the store's health and quota; the app itself needs no fix.",
+  "await-ai-spend-window":
+    "The global AI spend ceiling has been reached for the current window, so AI features are degrading deliberately while every other tool is unaffected. This is the cost control working, not a fault: there is nothing to fix and the window resets on its own. Investigate only if it trips far earlier than the expected daily volume, which would mean the ceiling figure needs revising rather than the deployment.",
   monitor:
     "No fix is required right now; this is informational. Keep the monitor in place so a change is caught.",
 };
@@ -380,6 +391,23 @@ function subsystemReasonAction(
         : {
             reason: "rate-limit-misconfigured",
             action: "fix-rate-limit-config",
+          };
+    case "ai-spend":
+      // Only reachable on a warn health, and the posture's own code says which
+      // — so the alert and the posture can never disagree. A reached ceiling is
+      // the control WORKING and gets a wait-it-out action; the other two are
+      // real gaps where total spend is not demonstrably bounded.
+      if (snapshot.aiSpend.code === "ceiling-reached") {
+        return {
+          reason: "ai-spend-ceiling-reached",
+          action: "await-ai-spend-window",
+        };
+      }
+      return snapshot.aiSpend.code === "unenforced"
+        ? { reason: "ai-spend-unenforced", action: "verify-ai-spend-ceiling" }
+        : {
+            reason: "ai-spend-tiers-unproven",
+            action: "verify-ai-spend-ceiling",
           };
     case "lifecycle":
       // undeclared (warn, no backstop) vs declared-but-unverified vs invalid (blocked).

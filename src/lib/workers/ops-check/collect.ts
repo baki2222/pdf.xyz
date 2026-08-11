@@ -10,6 +10,7 @@
 import {
   collectOperatorProbeSnapshot,
   type RuntimeSnapshotSource,
+  type SnapshotAiSpendPosture,
   type WorkerOperationsSnapshot,
 } from "../observability/snapshot";
 import {
@@ -79,6 +80,7 @@ export function collectRuntimeOperations(
   runtime: OpsCheckRuntime,
   daemonLiveness: HeartbeatLiveness,
   cleanupEvidence: CleanupEvidencePosture,
+  aiSpend?: SnapshotAiSpendPosture,
 ): CollectedOperations {
   const metrics = runtimeMetricsSnapshot(runtime, [
     deriveCleanupEvidenceMetric(cleanupEvidence),
@@ -87,6 +89,7 @@ export function collectRuntimeOperations(
     snapshot: collectOperatorProbeSnapshot(runtime, {
       daemonLiveness,
       cleanupEvidence,
+      ...(aiSpend ? { aiSpend } : {}),
     }),
     slo: evaluateSlos(metrics),
     metrics,

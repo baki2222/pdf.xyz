@@ -122,6 +122,11 @@ function buildResult(
         enforced: snapshot.rateLimit.enforced,
         distributed: snapshot.rateLimit.distributed,
       },
+      aiSpend: {
+        code: snapshot.aiSpend.code,
+        enforced: snapshot.aiSpend.enforced,
+        probe: snapshot.aiSpend.probe,
+      },
       lastLoop: snapshot.lastLoop,
     },
     slo: sloDigest(collected),

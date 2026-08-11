@@ -66,6 +66,12 @@ function makeSnapshot(
       distributed: false,
       detail: "server-detail-should-not-render",
     },
+    aiSpend: {
+      code: "unknown",
+      enforced: false,
+      probe: "unknown",
+      detail: "server-detail-should-not-render",
+    },
     lastLoop: null,
   };
   const merged = { ...base, ...overrides };

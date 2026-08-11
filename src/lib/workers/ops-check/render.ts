@@ -22,13 +22,15 @@ import type {
   AlertSeverity,
   LivenessAlert,
 } from "../observability/alerts";
-import { rateLimitHealth } from "../observability/snapshot";
+import { aiSpendHealth, rateLimitHealth } from "../observability/snapshot";
 import type {
   HealthClass,
   ProofAvailability,
   RecommendedAction,
   SnapshotLoopOutcome,
   SnapshotRateLimitCode,
+  SnapshotAiSpendCode,
+  SnapshotAiSpendProbeState,
   SnapshotSubsystemId,
   SnapshotVantage,
   CleanupEvidenceState,
@@ -63,6 +65,20 @@ export interface OpsCheckRateLimitDigest {
   readonly distributed: boolean;
 }
 
+/**
+ * The GLOBAL AI spend-ceiling posture, reduced to its bounded enums.
+ *
+ * Carries the probe reading beside the code rather than folding it in: a reached
+ * ceiling and an unproven pair of tiers are independent facts, and a digest that
+ * kept only one of them would hand an operator the same blind spot the posture
+ * was built to remove. No token count — the source payload has none either.
+ */
+export interface OpsCheckAiSpendDigest {
+  readonly code: SnapshotAiSpendCode;
+  readonly enforced: boolean;
+  readonly probe: SnapshotAiSpendProbeState;
+}
+
 /** A content-free digest of the operations snapshot (enums / booleans / counts only). */
 export interface OpsCheckSnapshotDigest {
   readonly vantage: SnapshotVantage;
@@ -81,6 +97,8 @@ export interface OpsCheckSnapshotDigest {
   readonly cleanupEvidence: OpsCheckCleanupEvidenceDigest;
   /** The abuse-guard posture — bounded enums only, never an env-var name. */
   readonly rateLimit: OpsCheckRateLimitDigest;
+  /** The AI spend ceiling's posture — bounded enums only, and never a figure. */
+  readonly aiSpend: OpsCheckAiSpendDigest;
   readonly lastLoop: SnapshotLoopOutcome | null;
 }
 
@@ -283,6 +301,21 @@ export function renderOpsCheckPrometheus(
       healthCode(rateLimitHealth(rl.code)),
     ),
   );
+  const spend = outcome.snapshot.aiSpend;
+  lines.push(
+    line(
+      "pdfxyz_ops_check_ai_spend",
+      // `probe` is a label of its own so a scrape can distinguish "the tiers
+      // were never proven to share a budget" from "the ceiling tripped" without
+      // either reading erasing the other.
+      {
+        code: spend.code,
+        enforced: String(spend.enforced),
+        probe: spend.probe,
+      },
+      healthCode(aiSpendHealth(spend.code)),
+    ),
+  );
   // Reuse the shipped metric-series renderer for any series behind the SLOs.
   const series = metrics ? renderPrometheus(metrics) : "";
   if (series) lines.push(series);
@@ -308,6 +341,9 @@ export function renderOpsCheckText(outcome: OpsCheckOutcome): string {
   );
   lines.push(
     `  rate limit: ${outcome.snapshot.rateLimit.code} (${outcome.snapshot.rateLimit.enforced ? "enforcing" : "not enforcing"})`,
+  );
+  lines.push(
+    `  ai spend ceiling: ${outcome.snapshot.aiSpend.code} (${outcome.snapshot.aiSpend.enforced ? "enforcing" : "not enforcing"}, probe: ${outcome.snapshot.aiSpend.probe})`,
   );
   lines.push(`  action: ${outcome.action} — ${outcome.actionDetail}`);
   for (const alert of outcome.alerts) {
