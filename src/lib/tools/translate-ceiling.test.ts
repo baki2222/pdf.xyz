@@ -68,13 +68,20 @@ describe("translate's ceiling is derived, not typed", () => {
     },
   );
 
+  // DRAWN characters — the fixture generator's own accumulator, NOT extracted.
+  // Deliberately left in that unit rather than half-converted: only the 4-page
+  // case was ever extracted (13,678), and converting one row would rebuild the
+  // mixed-unit table this whole exercise came from. It is safe here because the
+  // assertion is one-sided and extraction only ADDS: ceiling < drawn implies
+  // ceiling < extracted, so every row holds a fortiori in either unit. The
+  // bracket test below is the one that needs a single unit, and it has one.
   it.each([
     ["4 pages", 13_528, "45s"],
     ["5 pages", 16_910, "54s"],
     ["6 pages", 20_292, "61s"],
     ["40 pages", 135_280, "49s"],
   ])(
-    "refuses %s / %i chars, which failed in %s on production",
+    "refuses %s / %i drawn chars, which failed in %s on production",
     (_pp, chars) => {
       // Every one of these reached the provider, was billed, and came back
       // "reached its output limit". The 4-page case is the near boundary: the
@@ -83,9 +90,14 @@ describe("translate's ceiling is derived, not typed", () => {
     },
   );
 
-  it("sits inside the measured bracket, which is the whole claim", () => {
-    // The true boundary is somewhere in (10,258, 13,528). Any ceiling in that
+  it("sits inside the measured bracket, in ONE unit", () => {
+    // The true boundary is somewhere in (10,258, 13,678). Any ceiling in that
     // gap is defensible; anything outside it contradicts an observation.
+    //
+    // Both ends are WORKER-EXTRACTED characters, and that is load-bearing: they
+    // used to be recorded from different sources (the success from the product's
+    // truncation block, the failure from the fixture generator) in the same
+    // table. A bracket whose ends are in different units is not a bracket.
     expect(TRANSLATE_MAX_INPUT_CHARS).toBeGreaterThanOrEqual(
       TRANSLATE_CALIBRATION.largestSuccessChars,
     );
