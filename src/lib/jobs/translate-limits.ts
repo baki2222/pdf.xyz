@@ -31,14 +31,25 @@
  * matters is `largestSuccessChars` and `smallestFailureChars`: the true boundary
  * is between them, and every published number has to sit inside that gap.
  *
- * ⚠️ CALIBRATED ON SPANISH, WHICH IS A FAVOURABLE CASE. Characters-per-token is
- * a property of the TARGET language, and Latin scripts are the best represented
- * in these tokenizers. We also advertise Bengali, Russian and Ukrainian, where a
- * character costs materially more tokens — so this ceiling is expected to
- * OVERPROMISE for them, by an amount nobody has measured yet. The probe that
- * would settle it is a Bengali document at 10,258 characters: the size that
- * passes in Spanish. Until that runs, a non-Latin target can still reach the
- * provider and fail, and this comment is the only warning of it.
+ * ⚠️ CALIBRATED ON SPANISH, WHICH IS A FAVOURABLE CASE — but the non-Latin risk
+ * this warning was written for has been checked at the shipped value, and it did
+ * not materialise. Characters-per-token is a property of the TARGET language,
+ * and Latin scripts are the best represented in these tokenizers; the concern
+ * was that Bengali, Russian and Ukrainian would cost materially more tokens per
+ * character and that a Spanish-calibrated ceiling would overpromise for them.
+ *
+ * MEASURED 2026-08-11, production, `target=bn`: a 10,258-character document —
+ * the shipped ceiling exactly, and the size that passes in Spanish — **completed
+ * in 36 seconds**, the same time as Spanish. Bengali is among the hardest scripts
+ * advertised here, with Cyrillic between it and Latin, so this is cover for the
+ * set rather than one lucky point.
+ *
+ * WHAT THAT PROVES AND DOES NOT. It proves the Bengali ceiling is **at or above**
+ * the shipped value, which is the only question the design put at risk. It does
+ * NOT locate the Bengali ceiling and does NOT show the two languages share one.
+ * The gap is therefore **unmeasured rather than unexamined** — and if the budget
+ * ever rises, the ceiling rises with it and this single point stops covering the
+ * new value. Re-probe before trusting a larger number.
  */
 export const TRANSLATE_CALIBRATION = {
   /** ISO date of the production run. */
