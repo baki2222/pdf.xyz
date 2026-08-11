@@ -31,6 +31,8 @@ import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import { Dropzone, ErrorNote, WorkerRunButton } from "./runner/runner-kit";
+import { TruncationNotice } from "./truncation-notice";
+import type { Job } from "@/lib/jobs/types";
 import { NotifyMe } from "./notify-me";
 
 type Phase = "loading" | "error" | "ready";
@@ -226,6 +228,12 @@ interface TranscriptEntry {
   answer: string | null;
   filename: string;
   output: Uint8Array;
+  /**
+   * The completed job for THIS question. Kept per entry, not per panel: each
+   * question is its own job, and the window a given answer was produced from is
+   * a fact about that answer.
+   */
+  job: Job;
 }
 
 function ChatBuilder() {
@@ -312,6 +320,7 @@ function ChatBuilder() {
             answer,
             filename: result.artifact.filename,
             output: result.output,
+            job: result.job,
           },
         ]);
         setQuestion("");
@@ -423,6 +432,12 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
           className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
         >
           <p className="text-sm font-medium text-slate-200">{entry.question}</p>
+          {/* Before the answer, not after: a reader who stops at the answer is
+              exactly the reader the notice is for. */}
+          <TruncationNotice
+            job={entry.job}
+            consequence="An answer that says the document does not mention something may only mean it is not in the pages that were read."
+          />
           {entry.answer !== null ? (
             // The model's answer verbatim, exactly as shipped in the package — never a
             // paraphrase, and never anything the panel composed itself.

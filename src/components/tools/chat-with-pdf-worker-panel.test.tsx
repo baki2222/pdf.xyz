@@ -387,3 +387,89 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
+  /**
+   * The load-bearing case: the model answered with a confident denial and said
+   * NOTHING about its window. That is not a hypothetical — it is the shape of
+   * the original defect, and it is the shape a model still produces when it
+   * declines the prompt instruction. So the panel's notice must come from the
+   * job record's counts, never from the model's words.
+   */
+  it("states the page bound even when the answer does not mention it", async () => {
+    const question = "When is it due?";
+    const denial = "The document does not state a due date.";
+
+    stubStatus();
+    runWorkerChatWithPdf.mockImplementationOnce(async () => {
+      const success = await workerSuccess(question, denial);
+      return {
+        ...success,
+        job: {
+          ...success.job,
+          results: {
+            ai: {
+              truncation: {
+                truncated: true,
+                charactersSent: 500_000,
+                charactersTotal: 1_600_000,
+                totalPages: 400,
+                lastCompletePage: 131,
+                cutMidPage: true,
+              },
+            },
+          },
+        },
+      };
+    });
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask(question);
+
+    // The answer is shown verbatim — the denial is not edited or suppressed.
+    expect(await screen.findByText(denial)).toBeInTheDocument();
+
+    // And beside it, the fact that makes the denial readable: a named page.
+    const notice = await screen.findByText(/pages 1–131 of 400/);
+    expect(notice).toBeInTheDocument();
+    expect(notice.textContent).toMatch(/cut mid-page/);
+    expect(
+      screen.getByText(/may only mean it is not in the pages that were read/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no notice when the whole document was read", async () => {
+    const question = "What is the total?";
+    stubStatus();
+    runWorkerChatWithPdf.mockImplementationOnce(async () => {
+      const success = await workerSuccess(question, "The total is $1,240.00.");
+      return {
+        ...success,
+        job: {
+          ...success.job,
+          results: {
+            ai: {
+              truncation: {
+                truncated: false,
+                charactersSent: 42,
+                charactersTotal: 42,
+                totalPages: 1,
+                lastCompletePage: 1,
+                cutMidPage: false,
+              },
+            },
+          },
+        },
+      };
+    });
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask(question);
+
+    expect(await screen.findByText(/The total is/)).toBeInTheDocument();
+    // A caveat on a complete reading would be its own false claim.
+    expect(screen.queryByText(/could be read/)).not.toBeInTheDocument();
+  });
+});

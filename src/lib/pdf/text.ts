@@ -62,14 +62,37 @@ export function normalizeExtractedText(text: string): string {
     .trim();
 }
 
+/** The separator `joinPageTexts` puts between pages. Exported so a caller can
+ * compute offsets into the joined string without guessing it. */
+export const PAGE_JOIN = "\n\n";
+
+/**
+ * The normalized, non-empty page blocks that `joinPageTexts` joins — WITH their
+ * real page numbers.
+ *
+ * Exported because normalization changes lengths and empty pages are dropped,
+ * so anything reasoning about offsets or page numbers in the joined string must
+ * use these exact chunks. Deriving them separately is how a truncation notice
+ * ends up naming a page that is off by however many blank pages preceded it.
+ */
+export function pageTextChunks(
+  pages: Pick<ExtractedTextPage, "text" | "pageNumber">[],
+): { pageNumber: number; text: string }[] {
+  return pages
+    .map((page) => ({
+      pageNumber: page.pageNumber,
+      text: normalizeExtractedText(page.text),
+    }))
+    .filter((chunk) => chunk.text.length > 0);
+}
+
 /** Join page blocks with a single blank line between non-empty pages. */
 export function joinPageTexts(
-  pages: Pick<ExtractedTextPage, "text">[],
+  pages: Pick<ExtractedTextPage, "text" | "pageNumber">[],
 ): string {
-  return pages
-    .map((page) => normalizeExtractedText(page.text))
-    .filter((text) => text.length > 0)
-    .join("\n\n");
+  return pageTextChunks(pages)
+    .map((chunk) => chunk.text)
+    .join(PAGE_JOIN);
 }
 
 export function textOutputName(sourceName: string): string {

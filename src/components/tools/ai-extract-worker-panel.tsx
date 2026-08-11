@@ -32,6 +32,7 @@ import {
   type AiExtractWorkerResult,
 } from "@/lib/workers/ai-extract-client";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
@@ -427,6 +428,10 @@ function AiExtractBuilder() {
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your AI extraction package is ready.">
+          <TruncationNotice
+            job={outcome.job}
+            consequence="A field reported as not found was not found in those pages — it may still appear later in the document."
+          />
           <p className="text-sm text-emerald-200">
             Your AI extraction package is ready — the extracted data as JSON, a
             readable rendering, plus a manifest recording the model and honest
