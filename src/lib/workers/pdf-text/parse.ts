@@ -13,8 +13,31 @@
  * branch is unit-testable without a binary; `./native` owns the subprocess.
  *
  * Normalization is deliberately shared with the browser path
- * ({@link normalizeExtractedText}, {@link joinPageTexts}) so the same PDF yields
- * the same text whichever extractor produced it.
+ * ({@link normalizeExtractedText}, {@link joinPageTexts}) so both paths agree on
+ * line endings, trailing whitespace, blank-line collapsing and page joining.
+ *
+ * ⚠️ THAT IS NOT THE SAME AS AGREEING ON THE TEXT, and this docblock used to
+ * claim it was — *"so the same PDF yields the same text whichever extractor
+ * produced it"*. It does not, and nothing here ever tested that it did. Measured
+ * on production 2026-08-11: one document, **13,530** characters from the browser
+ * extractor and **13,678** from this one.
+ *
+ * The two are different programs, not two configurations of one. `-layout` (see
+ * `pdfTextArgs`) reconstructs the page's horizontal arrangement by padding
+ * between columns with spaces; the browser's `textItemsToPlainText` appends
+ * `item.str` and a newline on `hasEOL`, so it structurally cannot emit a space
+ * that is not inside a text item. Shared normalization cannot remove the
+ * difference because it only strips TRAILING whitespace — inter-column padding
+ * is interior.
+ *
+ * Measured across six geometries (Xpdf `pdftotext` 4.00 locally, not the
+ * worker's poppler build — the shape is the finding, not the magnitudes), this
+ * extractor's length ÷ the drawn text's length ran from **1.0001** on
+ * single-column prose to **1.8626** on an eight-column grid; without `-layout`,
+ * 1.0001 to 1.2082. It has no finite worst case: a wide sparse table drives it
+ * arbitrarily high. Anything comparing a count from one extractor against a
+ * limit calibrated on the other — `TRANSLATE_MAX_INPUT_CHARS` does exactly
+ * that — is comparing two different quantities, and no constant factor fixes it.
  */
 
 import {

@@ -5,6 +5,7 @@
  * fails only on the worker.
  */
 import { describe, expect, it } from "vitest";
+import { normalizeExtractedText, textItemsToPlainText } from "@/lib/pdf/text";
 import { decodeXmlEntities, parseBboxLayout, parseLayoutText } from "./parse";
 
 /** One page, two rows of two aligned columns — poppler's `-bbox-layout` shape. */
@@ -130,5 +131,62 @@ describe("parseLayoutText", () => {
     // them here would silently merge columns.
     const out = parseLayoutText("North               1200   1350");
     expect(out.text).toBe("North               1200   1350");
+  });
+});
+
+/**
+ * The two extractors do not agree, executably.
+ *
+ * The module docblock used to promise they did. Nothing tested it, and on
+ * production one document measured 13,530 characters in the browser and 13,678
+ * here. These tests pin the MECHANISM rather than those two numbers, so they
+ * cannot go stale with a fixture: whatever the magnitudes, the worker counts
+ * inter-column padding and the browser structurally cannot.
+ */
+describe("the browser and worker extractors count different things", () => {
+  /** One table row, as each extractor really receives it. */
+  const PADDING = 15;
+  const workerLine = `North${" ".repeat(PADDING)}1200`;
+  // pdfjs hands over text ITEMS. The friendliest realistic case is given here —
+  // a genuine space glyph between the columns — because the point survives it.
+  const browserItems = [
+    { str: "North" },
+    { str: " " },
+    { str: "1200", hasEOL: true },
+  ];
+
+  it("the worker's count includes column padding the browser never sees", () => {
+    const browser = textItemsToPlainText(browserItems);
+    const worker = parseLayoutText(workerLine).text;
+
+    expect(browser).toBe("North 1200");
+    expect(worker).toBe(workerLine);
+    expect(
+      worker.length - browser.length,
+      "if these ever agree, the extractors have been unified and the ceiling " +
+        "comparison in translate-limits.ts stops being a unit mismatch — go " +
+        "delete the warning there rather than leaving it to mislead",
+    ).toBe(PADDING - 1);
+  });
+
+  it("shared normalization does not close the gap, because the padding is interior", () => {
+    // `normalizeExtractedText` is shared by both paths and strips only TRAILING
+    // whitespace. Sharing it makes the paths agree on line endings and blank
+    // lines — never on the text.
+    expect(normalizeExtractedText(workerLine)).toBe(workerLine);
+  });
+
+  it("the surplus tracks geometry, not text length", () => {
+    // Which is why no constant factor can convert one count into the other.
+    // Same four characters of real text; the gap is set by where they sit.
+    const near = parseLayoutText(`ab${" ".repeat(2)}cd`).text.length;
+    const far = parseLayoutText(`ab${" ".repeat(60)}cd`).text.length;
+    expect(near).toBe(6);
+    expect(far).toBe(64);
+    expect(
+      far / near,
+      "a ratio this far apart for identical text is the reason " +
+        "TRANSLATE_MAX_INPUT_CHARS cannot be corrected by a measured margin",
+    ).toBeGreaterThan(10);
   });
 });
