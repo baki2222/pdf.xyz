@@ -28,7 +28,7 @@ import {
   AI_ALLOWANCE_USED_MESSAGE,
 } from "@/lib/jobs/ai-allowance";
 import { RATE_LIMITS } from "@/lib/jobs/types";
-import { withoutComments } from "./copy-surface";
+import { flattenForPhraseSearch, withoutComments } from "./copy-surface";
 
 const ROOT = process.cwd();
 
@@ -70,9 +70,13 @@ describe("the words match the enforced policy", () => {
     // Comments stripped first: the docblock explaining this defect quotes the
     // very sentence it forbids, and a guard that cries wolf is a guard the
     // next person weakens. Only what a user can read counts.
+    // Flattened first: the phrase is long enough that prettier splits it across
+    // lines as `"…everyone " + "using pdf.xyz…"`, and a literal search walks
+    // straight past that. Demonstrated 2026-08-11 — this assertion stayed green
+    // with the banned sentence sitting in a walked file, split at a space.
     const offenders = sourceFiles().filter((file) =>
       /shared across everyone using pdf\.xyz/.test(
-        withoutComments(readFileSync(file, "utf8")),
+        flattenForPhraseSearch(withoutComments(readFileSync(file, "utf8"))),
       ),
     );
     expect(
