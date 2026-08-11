@@ -116,6 +116,33 @@ export function withoutComments(source: string): string {
 }
 
 /**
+ * Flatten source so a MULTI-WORD phrase can be searched for without the search
+ * depending on where the formatter happened to break the line.
+ *
+ * **A line-based or literal phrase search has a hole at every wrap point**, and
+ * this is the material where the holes matter: prose is reflowed to a column, and
+ * long strings are split across lines by convention. Both were demonstrated on
+ * 2026-08-11:
+ *
+ *  - The owner's `grep "circuit breaker"` returned two hits where there were
+ *    three. In `ratelimit/policy.ts` the phrase straddled a wrap — `circuit` ended
+ *    one line and `breaker` began the next — so a line-based search could not
+ *    match it. Two hits was never "two copies"; it was "the copies where the
+ *    phrase happens not to straddle a break".
+ *  - The same hole was then found in OUR OWN guard. `ai-allowance-copy.test.ts`
+ *    scans for `shared across everyone using pdf.xyz`; writing that sentence as
+ *    `"…shared across everyone " + "using pdf.xyz…"` — ordinary, prettier-produced
+ *    formatting — walked straight past it. Reproduced: the split literal in a
+ *    walked file left the stale-claim assertion green.
+ *
+ * So: collapse string-concatenation joins, then all whitespace runs. What is left
+ * is what a READER sees, which is the thing the guard is actually about.
+ */
+export function flattenForPhraseSearch(source: string): string {
+  return source.replace(/(["'`])\s*\+\s*\1/g, "").replace(/\s+/g, " ");
+}
+
+/**
  * Every `.ts`/`.tsx` non-test source under `src/lib` — the search space for
  * "where did this constant go", not a guard surface of its own.
  */
