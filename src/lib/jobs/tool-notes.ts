@@ -5,12 +5,15 @@
  * `pdf-to-pdfa` (what Ghostscript deleted) — and the bounding rules are the same
  * for both, so they live once.
  *
- * The path check here is DELIBERATELY DUPLICATED from the worker's sanitizer.
- * That one runs where the temp paths are known and can be removed precisely;
- * this one is the boundary that never trusts its caller. It fails CLOSED — a
- * line still carrying a path is dropped whole, because a half-scrubbed path is
- * still a leak — and it COUNTS what it dropped, because a list that quietly
- * shrinks reads as "nothing happened", which is the opposite of what it means.
+ * TWO BOUNDARIES, ONE RULE. The worker's sanitizer runs where the temp paths are
+ * known and can be removed precisely; this one never trusts its caller. Both
+ * call {@link looksLikePath} — defined once, below — because for one commit they
+ * each had their own copy and the copies drifted, which is written up there.
+ *
+ * Both fail CLOSED: a line still carrying a path is dropped whole, because a
+ * half-scrubbed path is still a leak. And both COUNT what they dropped, because
+ * a list that quietly shrinks reads as "nothing happened", which is the opposite
+ * of what it means.
  */
 
 /** Max lines persisted onto a job record. */
