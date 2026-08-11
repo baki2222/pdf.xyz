@@ -50,15 +50,33 @@ export const MAX_DIAGNOSTIC_CHARS = 200;
 /**
  * Does this line still contain something shaped like a filesystem path?
  *
- * NOT simply "contains a slash". The first version of this rule was exactly
- * that, and the real Ghostscript message it was written for —
- * `"…cannot be represented in XMP for PDF/A1, discarding DOCINFO"` — was dropped
- * whole, because a PDF/A standard's own name has a slash in it. A rule that
- * silently deletes the very messages it exists to surface is worse than no rule.
+ * TWO RULES SHIPPED HERE AND BOTH DELETED REAL DIAGNOSTICS. The history is the
+ * documentation, because the next plausible-looking regex will be wrong too:
  *
- * A path is: an absolute POSIX token (` /tmp`), a Windows drive (`C:\`), a UNC
- * prefix, or any single token with two or more separators
- * (`Resource/Font/NimbusSans-Regular`). One slash inside a word is prose.
+ *  1. "contains a slash" (#90) deleted the Ghostscript notice it was written
+ *     for — `PDF/A1` has a slash inside a word.
+ *  2. Adding `(^|\s)\/\S` — start-of-line-or-space, slash, non-space — deleted
+ *     ALL NINE structural qpdf diagnostics, because **that is exactly the shape
+ *     of a PDF name object**: ` /Root`, `/Encrypt`, ` /Type`. It fixed the case
+ *     it was written for and deleted the case that dominates. Structural
+ *     diagnostics are the entire domain of `repair-pdf`; that was not an edge.
+ *
+ * THE DISCRIMINATOR IS SEPARATOR COUNT PER TOKEN. A path-shaped token has two or
+ * more; a PDF name has exactly one. `\S*` cannot cross a space, so
+ * `/Fields key of /AcroForm` is two names in two tokens and survives, while
+ * `Resource/Font/NimbusSans-Regular` is one token with two and does not.
+ * Mechanical, not a judgement call.
+ *
+ * COST, RULED AND ACCEPTED: a SINGLE-SEGMENT absolute path (`/etc`, `/tmp`) now
+ * survives this net. That is deliberate. Our own temp paths are always
+ * multi-segment AND are removed by exact string match before this rule is
+ * reached, so this is a second line of defence against paths we did not create —
+ * not the only one. Do not read the gap as an oversight.
+ *
+ * NOT REVIEWED BY READING. `native-diagnostics.corpus.ts` holds the real
+ * captured qpdf and Ghostscript output, and the test beside it runs every line
+ * through this rule and prints a verdict. Any change here gets executed against
+ * that corpus first.
  *
  * COST, STATED — AND IT GOT LARGER. A font-substitution notice names a path
  * inside the Ghostscript install, so this rule drops and counts it rather than
@@ -73,9 +91,14 @@ export const MAX_DIAGNOSTIC_CHARS = 200;
  */
 function looksLikePath(line: string): boolean {
   return (
-    /(^|\s)\/\S/.test(line) ||
+    // A Windows drive: `C:\`.
     /(^|\s)[A-Za-z]:[\\/]/.test(line) ||
+    // A UNC prefix: `\\server`.
     /\\\\/.test(line) ||
+    // TWO OR MORE separators inside ONE token. `\S*` cannot cross a space, so
+    // "/Fields key of /AcroForm" is two names in two tokens and survives, while
+    // "/tmp/pdfxyz-ab12/input.pdf" is one token with three separators and does
+    // not. That is the whole discriminator, and it is mechanical.
     /\S*[/\\]\S*[/\\]\S*/.test(line)
   );
 }
