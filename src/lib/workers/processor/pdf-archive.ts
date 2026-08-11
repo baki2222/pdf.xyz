@@ -124,6 +124,10 @@ export function createPdfArchiveProcessor(deps: PdfArchiveDeps): Processor {
           },
         ],
         toProcessorMeta(run.meta),
+        // Ghostscript deletes what PDF/A cannot represent and exits 0. Its
+        // prose is the only evidence that happened, so it travels with the
+        // artifact rather than dying in a discarded buffer.
+        { pdfa: { hadNotes: run.meta.hadNotes, notes: run.meta.notes } },
       );
     },
   };

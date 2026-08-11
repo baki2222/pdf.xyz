@@ -19,6 +19,7 @@ import {
   resolveNativePdfStructureConfig,
   type NativePdfStructureConfig,
 } from "./native-config";
+import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -94,58 +95,20 @@ function text(buf: Buffer | string | undefined): string {
 /** qpdf's documented "warnings issued, output was created" status. */
 const QPDF_EXIT_WARNINGS = 3;
 
-/** At most this many warning lines reach a caller; the rest are counted, not dropped silently. */
-const MAX_WARNING_LINES = 10;
-/** Each surviving line is clipped to this many characters. */
-const MAX_WARNING_CHARS = 200;
-
 /**
- * Turn qpdf's diagnostics into lines that are safe to hand a user.
+ * qpdf's diagnostics, made safe to hand a user.
  *
- * qpdf names the file it is complaining about, and that name is OUR temp path
- * (`/tmp/pdfxyz-structure-XXXX/input.pdf`). The known paths are removed first;
- * then any line that STILL contains a path separator is dropped whole rather
- * than partially redacted, because a half-scrubbed path is still a leak.
- *
- * Dropped and overflowing lines are COUNTED and reported, never silently
- * swallowed — a warning list that quietly shrinks reads as "the document was
- * fine", which is the opposite of what it means.
+ * Delegates since 2026-08-11: Ghostscript's PDF/A conversion needs the identical
+ * treatment, so the rules — remove our temp paths, drop whole any line that still
+ * holds one, count what was dropped, never parse — live once in
+ * `../native-diagnostics`. Kept as a named export because the qpdf-specific part
+ * (its `qpdf: ` prefix) belongs here rather than in the shared module.
  */
 export function sanitizeQpdfWarnings(
   raw: string,
   paths: readonly string[],
 ): string[] {
-  const stripped = raw.split(/\r?\n/).map((line) => {
-    let out = line;
-    // Longest first, so `<dir>/input.pdf` goes before `<dir>`.
-    for (const p of [...paths].sort((a, b) => b.length - a.length)) {
-      if (p) out = out.split(p).join("");
-    }
-    return out
-      .replace(/^\s*qpdf:\s*/i, "")
-      .replace(/^[\s:,-]+/, "")
-      .trim();
-  });
-
-  const kept: string[] = [];
-  let withheld = 0;
-  for (const line of stripped) {
-    if (line.length === 0) continue;
-    if (/[/\\]/.test(line)) {
-      withheld += 1;
-      continue;
-    }
-    const clipped = line.slice(0, MAX_WARNING_CHARS);
-    if (!kept.includes(clipped)) kept.push(clipped);
-  }
-
-  const overflow = Math.max(0, kept.length - MAX_WARNING_LINES);
-  const result = kept.slice(0, MAX_WARNING_LINES);
-  const unreported = withheld + overflow;
-  if (unreported > 0) {
-    result.push(`${unreported} further qpdf message(s) not shown.`);
-  }
-  return result;
+  return sanitizeNativeDiagnostics(raw, paths, /^\s*qpdf:\s*/i);
 }
 
 const defaultFs: QpdfStructureFs = {

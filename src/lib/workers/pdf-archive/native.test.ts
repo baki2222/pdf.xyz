@@ -51,7 +51,8 @@ describe("Ghostscript PDF/A native runner", () => {
     const fs = fsStub();
     const runner = createNativeGhostscriptPdfARunner(config, { exec, fs });
     const output = await runner.convertToPdfA(PDF, { standard: "PDF/A-2b" });
-    expect([...output]).toEqual([...PDF]);
+    expect([...output.bytes]).toEqual([...PDF]);
+    expect(output.notes).toEqual([]);
     expect(fs.writeFile).toHaveBeenCalledWith(
       join("/tmp/pdfxyz-pdfa-1", "input.pdf"),
       PDF,

@@ -221,7 +221,7 @@ describe("sanitizeQpdfWarnings", () => {
       "qpdf: /var/other/secret.pdf: damaged\nqpdf: recovered\n",
       ["/tmp/pdfxyz-structure-ab12"],
     );
-    expect(out).toEqual(["recovered", "1 further qpdf message(s) not shown."]);
+    expect(out).toEqual(["recovered", "1 further message(s) not shown."]);
   });
 
   it("deduplicates the same message repeated per object", () => {
