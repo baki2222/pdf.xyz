@@ -13,14 +13,10 @@
  * on its own.
  */
 
-import {
-  apiError,
-  RATE_LIMITS,
-  type ApiError,
-  type ApiResult,
-} from "@/lib/jobs";
+import { apiError, type ApiError, type ApiResult } from "@/lib/jobs";
 import type { RateLimitDecision } from "./types";
 import { policyFor } from "./policy";
+import { AI_ALLOWANCE_USED_MESSAGE } from "@/lib/jobs/ai-allowance";
 
 /** Client-facing 429 message. Generic by design; names no caller and no identity. */
 export const RATE_LIMITED_MESSAGE =
@@ -33,7 +29,10 @@ export const RATE_LIMITED_MESSAGE =
  * them anything vaguer is the "service unavailable" lie the owner ruled out.
  * Derived from the policy constant so the numbers census owns the figure.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The ${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs for today are used up. This allowance is currently shared across everyone using pdf.xyz, so it may not reflect your own usage — it resets daily; retry after the interval in the Retry-After header.`;
+// The words live in `@/lib/jobs/ai-allowance`, sharing a clause with the
+// offer rather than being a second sentence about the same fact. Re-exported
+// so callers of this module are unaffected.
+export { AI_ALLOWANCE_USED_MESSAGE };
 
 /** Build the typed 429 error result for a denied decision. */
 export function rateLimitErrorResult(

@@ -1,20 +1,30 @@
 // @vitest-environment node
 /**
- * The allowance copy may not claim per-person accounting the limiter cannot do.
+ * The allowance copy matches what the limiter can distinguish.
  *
- * `deriveClientToken` returns {@link SHARED_BUCKET_TOKEN} whenever
- * `trustForwardedFor` is off — which is the default, and which the operator
- * docs actively recommended — so every request keys into ONE bucket. While
- * that is true, "3 free AI runs a day per device" is false on four tool pages
- * and inside `FAQPage` JSON-LD, and the 429 tells a first-time visitor that
- * *they* have used *their* allowance.
+ * INVERTED 2026-08-11, not deleted — the history is the point, and the guard
+ * anticipated this moment in its own words.
  *
- * This guard is deliberately PRECONDITION-ANCHORED rather than a string ban:
- * it asserts the copy matches what the limiter can actually distinguish. The
- * moment identity keys on a real per-client address, the first test here goes
- * red and the copy must be re-strengthened ON PURPOSE — which is the correct
- * direction for a claim to move, and the opposite of letting a stale sentence
- * quietly become true again by accident.
+ * It used to assert the OPPOSITE: that the copy must NOT claim per-person
+ * accounting, because `deriveClientToken` returned {@link SHARED_BUCKET_TOKEN}
+ * for every caller and there was genuinely one bucket for the whole product. It
+ * ended with: *"The moment identity keys on a real per-client address, the first
+ * test here goes red and the copy must be re-strengthened ON PURPOSE."*
+ *
+ * That moment arrived by a route the guard did not anticipate. **Identity was
+ * not changed — the deployment was.** `deriveClientToken` still returns the
+ * shared token unless `trustForwardedFor` is on AND a salt is configured AND a
+ * forwarded address is present; production sets all three, and its posture reads
+ * `remote-configured` rather than `remote-configured-shared`. So the precondition
+ * as originally written — "two clients share a bucket in the DEFAULT
+ * configuration" — is *still true*, and stayed true while the claim it protected
+ * became false.
+ *
+ * A guard anchored to the default build cannot see a claim that went stale
+ * because of configuration. So the anchor moves to the configuration the product
+ * actually runs, and the dependency is stated rather than assumed: this copy is
+ * true of a deployment whose posture is `remote-configured`, and would be false
+ * of one that shares. The posture names that difference, and alerts on it.
  */
 import { describe, expect, it } from "vitest";
 import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
@@ -26,13 +36,11 @@ import { AI_DAILY_ALLOWANCE_NOTE } from "@/lib/workers/ai-tool-availability";
 const headersFor = (address: string) =>
   new Headers({ "x-forwarded-for": address });
 
-const PER_PERSON_CLAIMS = [
-  /\bper device\b/i,
-  /\bper user\b/i,
-  /\bper person\b/i,
-  /\byour\s+\d+\s+free\b/i,
-  /\byou'?ve used your\b/i,
-];
+/** The configuration production runs: forwarded addresses trusted, salt set. */
+const PRODUCTION_SHAPED = {
+  trustForwardedFor: true,
+  keySalt: "a-shared-salt-of-sufficient-length-for-the-validator",
+};
 
 const COPY: { where: string; text: string }[] = [
   {
@@ -47,42 +55,66 @@ const COPY: { where: string; text: string }[] = [
 ];
 
 describe("the AI allowance copy matches what the limiter can distinguish", () => {
-  it("still cannot tell two clients apart in the default configuration", () => {
-    // The precondition. If this ever fails, identity has been fixed — GOOD:
-    // go strengthen the copy in the same change, then delete this test.
-    const off = { trustForwardedFor: false };
-    const a = deriveClientToken(headersFor("203.0.113.7"), off);
-    const b = deriveClientToken(headersFor("198.51.100.42"), off);
-    expect(a).toBe(SHARED_BUCKET_TOKEN);
+  it("separates two clients under the configuration production runs", () => {
+    // THE PRECONDITION, re-anchored. The copy below claims a per-visitor
+    // allowance; this is the fact that makes the claim true. If it ever fails,
+    // the copy is lying again and must be weakened in the same change.
+    const a = deriveClientToken(headersFor("203.0.113.7"), PRODUCTION_SHAPED);
+    const b = deriveClientToken(headersFor("198.51.100.42"), PRODUCTION_SHAPED);
+    expect(a).not.toBe(SHARED_BUCKET_TOKEN);
     expect(
       b,
-      "identity now separates two clients — the allowance copy may (and should) " +
-        "claim per-person accounting again, and this guard should be deleted",
-    ).toBe(a);
+      "two different clients now key into the SAME bucket under production's " +
+        "own configuration — the allowance copy claims a per-visitor allowance " +
+        "and would be false",
+    ).not.toBe(a);
   });
 
-  it("claims no per-person accounting while every request shares one bucket", () => {
-    const offenders: string[] = [];
+  it("still shares one bucket in the DEFAULT configuration, which the copy depends on", () => {
+    // Stated rather than assumed: the claim is deployment-dependent. A default
+    // build — no trusted proxy, no salt — really does put everyone in one
+    // bucket, and there the copy would be wrong. That is not invisible: the
+    // posture reports `remote-configured-shared` for exactly this case and
+    // alerts on it, which is the mechanism that makes a static sentence
+    // survivable.
+    const off = {
+      trustForwardedFor: false,
+      keySalt: PRODUCTION_SHAPED.keySalt,
+    };
+    expect(deriveClientToken(headersFor("203.0.113.7"), off)).toBe(
+      SHARED_BUCKET_TOKEN,
+    );
+    // And with the proxy trusted but NO salt, it refuses to key per client
+    // rather than bucketing each instance differently.
+    expect(
+      deriveClientToken(headersFor("203.0.113.7"), {
+        trustForwardedFor: true,
+        keySalt: undefined,
+      }),
+    ).toBe(SHARED_BUCKET_TOKEN);
+  });
+
+  it("no longer tells a first-time visitor a stranger may have spent their runs", () => {
+    // The claim that went stale. It was true when written and the system was
+    // fixed underneath it; `policy.ts` has said `per client per day` throughout.
     for (const { where, text } of COPY) {
-      for (const pattern of PER_PERSON_CLAIMS) {
-        if (pattern.test(text)) {
-          offenders.push(
-            `${where}: ${pattern} matches "${text}" — but deriveClientToken returns ` +
-              `"${SHARED_BUCKET_TOKEN}" for every caller, so the allowance is shared, ` +
-              "not per person",
-          );
-        }
-      }
+      expect(text, `${where} still claims the allowance is shared`).not.toMatch(
+        /shared across everyone/i,
+      );
+      expect(
+        text,
+        `${where} still hedges that the count may not be the visitor's own`,
+      ).not.toMatch(/may not reflect your own/i);
     }
-    expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
-  it("says plainly that the allowance is shared", () => {
-    // Not just the absence of a false claim — the presence of the true one.
-    // A silently-scopeless "3 free AI runs a day" still reads as per-person.
+  it("says whose the allowance is, rather than leaving it scopeless", () => {
+    // Not merely the absence of the false claim — the presence of the true one.
+    // A silently-scopeless "3 free AI runs a day" leaves the reader to guess,
+    // and the guess a stranger makes after a refusal is the wrong one.
     for (const { where, text } of COPY) {
-      expect(text, `${where} does not say the allowance is shared`).toMatch(
-        /shared/i,
+      expect(text, `${where} does not say whose allowance it is`).toMatch(
+        /\byour\b/i,
       );
     }
   });

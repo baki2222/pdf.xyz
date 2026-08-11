@@ -23,10 +23,10 @@ import {
   AI_INPUT_LIMITS,
   JOB_LIMITS,
   DEFAULT_RETENTION,
-  RATE_LIMITS,
   aiPagesAtDensest,
   aiPagesAtSparsest,
 } from "@/lib/jobs/types";
+import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import type { Tool } from "./types";
@@ -182,25 +182,25 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "summarize-pdf": [
     {
       label: "Free allowance",
-      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`,
+      value: AI_ALLOWANCE_FACT,
     },
   ],
   "translate-pdf": [
     {
       label: "Free allowance",
-      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`,
+      value: AI_ALLOWANCE_FACT,
     },
   ],
   "ai-extract": [
     {
       label: "Free allowance",
-      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`,
+      value: AI_ALLOWANCE_FACT,
     },
   ],
   "chat-with-pdf": [
     {
       label: "Free allowance",
-      value: `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`,
+      value: AI_ALLOWANCE_FACT,
     },
   ],
 };
@@ -317,7 +317,10 @@ export function howToSteps(tool: Tool): readonly string[] {
 }
 
 /** Referenced by facts/FAQ builders below; exported for the page template. */
-export const AI_ALLOWANCE_FACT = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs a day, shared across everyone using pdf.xyz right now — the allowance resets daily.`;
+// Re-exported so existing importers keep working; the sentence itself lives
+// in `@/lib/jobs/ai-allowance`, where the panels and the 429 can also reach
+// it. It was defined here and used by ONE of its six call sites.
+export { AI_ALLOWANCE_FACT };
 
 export const OCR_ADVERTISED_LANGUAGES = OCR_LANGUAGES;
 export const OCR_MAX_PICK = MAX_OCR_LANGUAGES;
