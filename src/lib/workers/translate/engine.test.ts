@@ -471,3 +471,60 @@ describe("translate refuses more text than the model may write back", () => {
     expect(provider.calls).toHaveLength(1);
   });
 });
+
+describe("a failed translate run reports what it spent", () => {
+  it("carries usage AND the window on incomplete_output", async () => {
+    // The case the whole ceiling rests on: non-retryable BECAUSE the model hit
+    // its output ceiling, so it burned the maximum budget. A spend hook reading
+    // only successes would miss exactly the most expensive calls.
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: extractorFor("Some document text to translate."),
+      provider: {
+        id: "anthropic",
+        model: "claude-sonnet-5",
+        async complete() {
+          return {
+            ok: false as const,
+            kind: "incomplete_output" as const,
+            retryable: false,
+            message: "cut off",
+            usage: { inputTokens: 20, outputTokens: 8_000 },
+          };
+        },
+      },
+    });
+
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.usage, "a failed run that spent tokens reported none").toEqual({
+      inputTokens: 20,
+      outputTokens: 8_000,
+      calls: 1,
+      model: "claude-sonnet-5",
+    });
+    expect(
+      run.window,
+      "the window is gone, so the ai block cannot be built",
+    ).toBeDefined();
+  });
+
+  it("carries NEITHER field when no provider call happened", async () => {
+    // The co-occurrence invariant, pinned in its other direction: `usage`
+    // present ⟺ a call happened. A pre-extraction failure spent nothing, so
+    // reporting either field would be inventing a call that never ran.
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: extractorFor("   "),
+      provider: {
+        id: "anthropic",
+        model: "claude-sonnet-5",
+        async complete() {
+          throw new Error("must not be called");
+        },
+      },
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect("usage" in run).toBe(false);
+    expect("window" in run).toBe(false);
+  });
+});
