@@ -132,3 +132,81 @@ export function aiSpendTokens(usage: {
  */
 export const AI_CEILING_REACHED_MESSAGE =
   "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side, not on your file or your account. Please try again tomorrow; every other PDF tool is unaffected.";
+
+/* ------------------------------------------------------------------ *
+ *  The OTHER ceiling — the one outside this system.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The provider's own spend cap, as a STATED EXTERNAL ASSUMPTION.
+ *
+ * Our token ceiling and OpenAI's dollar cap are two bounds on the same thing and
+ * **they had never been compared.** Each is correct at its own layer; nobody put
+ * them side by side — the composed-seam defect, in a number rather than a
+ * pipeline.
+ *
+ * It matters because of which one trips first. **If the provider's cap binds
+ * first, ours never fires**: the balance runs out, calls start failing as
+ * generic provider errors, and the honest 503 in this file never renders. That
+ * is "a guard that cannot fire, which reads as protection" — arriving through
+ * the FIGURE rather than the wiring.
+ *
+ * ⚠️ THIS NUMBER IS NOT MACHINE-READABLE AND CANNOT BE VERIFIED BY ANY TEST. It
+ * lives in the OpenAI billing console. It is recorded here with its source and
+ * the date it was read, the same discipline as `densityMeasuredOn` — a fact from
+ * outside the system, dated, with its provenance, so a reader can tell how old
+ * it is and how to re-check it. **Re-checking means a human opening the billing
+ * page.** If auto-reload is switched off or the cap changes, nothing here will
+ * notice.
+ */
+export const AI_SPEND_EXTERNAL_BOUND = {
+  /** Monthly ceiling on money leaving the account. */
+  monthlyCapUsd: 100,
+  /** Auto-reload was ON, adding $10 whenever the balance fell below $5. */
+  source:
+    "OpenAI billing console: auto-reload ON ($10 at $5), monthly limit $100",
+  /** When a human last opened that page. */
+  readOn: "2026-08-11",
+} as const;
+
+/**
+ * Blended price per million tokens, **UNMEASURED**.
+ *
+ * `null` on purpose and not a placeholder to be filled with a plausible figure.
+ * An invented price multiplied by an invented run count is the `3.5 × 1.3` this
+ * codebase already removed, with a dollar sign on it.
+ *
+ * To measure it: OpenAI's Usage page reports tokens and cost for the same
+ * period, and the ratio is the number. Or — now that every job records
+ * `results.ai.usage` — run a known job and compare our token count against the
+ * account's spend delta.
+ */
+export const AI_BLENDED_PRICE_USD_PER_MTOK: number | null = null;
+
+/**
+ * The price at which the two ceilings coincide — **derived, not guessed**.
+ *
+ * Below this price ours binds first and the honest 503 renders. Above it, the
+ * provider's cap binds first and ours is decoration. This is a fact about the
+ * two numbers we already have, so it can be stated today without knowing the
+ * actual price: it is the threshold the measurement will be compared against.
+ *
+ * `2,000,000 tokens/day × 30 days = 60,000,000 tokens/month`, and
+ * `$100 ÷ 60 Mtok = $1.67 per Mtok`.
+ */
+export const AI_CEILING_BREAKEVEN_USD_PER_MTOK =
+  AI_SPEND_EXTERNAL_BOUND.monthlyCapUsd /
+  ((AI_SPEND_DAILY_TOKEN_CEILING * 30) / 1_000_000);
+
+/**
+ * Does our ceiling bind before the provider's cap?
+ *
+ * `"unknown"` while the price is unmeasured — **never a default of `true`**. A
+ * cost control that assumes it binds first is exactly the claim this whole
+ * exercise exists to stop being made without evidence.
+ */
+export function aiCeilingBindsFirst(): "yes" | "no" | "unknown" {
+  const price = AI_BLENDED_PRICE_USD_PER_MTOK;
+  if (price === null || !Number.isFinite(price) || price <= 0) return "unknown";
+  return price < AI_CEILING_BREAKEVEN_USD_PER_MTOK ? "yes" : "no";
+}
