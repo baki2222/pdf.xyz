@@ -114,7 +114,17 @@ export interface ExecutorLogEvent {
     | "requeued"
     | "canceled"
     | "no_processor"
-    | "input_missing";
+    | "input_missing"
+    /**
+     * An AI call spent tokens and the global spend ceiling did NOT record them.
+     *
+     * Emitted rather than swallowed because a permanently-failing record looks
+     * identical to success at a call site that ignores the return — which is
+     * the state this worker was in before it carried the limiter's
+     * configuration: every spend recorded nothing, silently, while the test
+     * suite stayed green. Content-free: it names the event, never an amount.
+     */
+    | "ai_spend_unrecorded";
   jobId: string;
   tool: string;
   attempt: number;

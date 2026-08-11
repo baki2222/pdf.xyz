@@ -33,6 +33,12 @@ import { deriveClientToken } from "./identity";
 import { getRateLimitProvider } from "./provider";
 import { createConfiguredRateLimitProvider } from "./factory";
 import { AI_SPEND_BUCKET } from "@/lib/jobs/ai-spend-ceiling";
+import {
+  SPEND_PROBE_BUCKET,
+  SPEND_PROBE_UNITS,
+  spendProbePolicy,
+  type SpendProbeVerdict,
+} from "./spend-probe";
 import type { RateLimitProvider } from "./provider";
 
 type EnvSource = Record<string, string | undefined>;
@@ -356,5 +362,80 @@ export async function recordAiSpend(
     // A lost increment under-counts, which is the direction this whole feature
     // exists to avoid — so it is reported as unrecorded rather than swallowed.
     return false;
+  }
+}
+
+/**
+ * WORKER SIDE: write the shared-bucket probe.
+ *
+ * Called from the process that records spend. Returns whether the write landed —
+ * a `false` here means this tier has no limiter, which is precisely the
+ * condition that made the ceiling inert, so it must be visible rather than
+ * swallowed.
+ */
+export async function writeSpendProbe(
+  env: EnvSource = process.env,
+  nowMs: number = Date.now(),
+): Promise<boolean> {
+  const policy = spendProbePolicy();
+  try {
+    const config = resolveRateLimitConfig(env);
+    if (config.providerId === "disabled") return false;
+    if (config.providerId === "remote-unimplemented") {
+      const provider = providerFor(env);
+      if (provider === null || !provider.spend) return false;
+      await provider.spend(
+        policy,
+        SPEND_PROBE_BUCKET,
+        nowMs,
+        SPEND_PROBE_UNITS,
+      );
+      return true;
+    }
+    limiter().spend(policy, SPEND_PROBE_BUCKET, nowMs, SPEND_PROBE_UNITS);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * WEB SIDE: read the probe back.
+ *
+ * `shared: true` is the only claim worth making, and it is empirical — the units
+ * came back, so both tiers key into one bucket through whatever chain of
+ * provider, URL, instance and prefix each of them resolved. Nothing is compared;
+ * something is observed.
+ *
+ * It deliberately CANNOT distinguish "the worker never wrote" from "the tiers
+ * disagree", and says so rather than guessing. A posture that reported
+ * `misconfigured` for a worker that had simply not started yet would be the
+ * confident-wrong answer this codebase keeps removing.
+ */
+export async function readSpendProbe(
+  env: EnvSource = process.env,
+  nowMs: number = Date.now(),
+): Promise<SpendProbeVerdict> {
+  const policy = spendProbePolicy();
+  try {
+    const config = resolveRateLimitConfig(env);
+    if (config.providerId === "disabled")
+      return { shared: false, reason: "unenforced" };
+
+    let used: number | undefined;
+    if (config.providerId === "remote-unimplemented") {
+      const provider = providerFor(env);
+      if (provider === null || !provider.peek)
+        return { shared: false, reason: "unenforced" };
+      used = (await provider.peek(policy, SPEND_PROBE_BUCKET, nowMs)).used;
+    } else {
+      used = limiter().peek(policy, SPEND_PROBE_BUCKET, nowMs).used;
+    }
+
+    return used !== undefined && used > 0
+      ? { shared: true, writtenUnits: used }
+      : { shared: false, reason: "no-probe-visible" };
+  } catch {
+    return { shared: false, reason: "unenforced" };
   }
 }
