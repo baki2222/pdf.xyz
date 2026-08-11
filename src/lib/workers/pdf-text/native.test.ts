@@ -14,6 +14,7 @@ import {
   nativeTableExtractDeps,
   pdfTextArgs,
   probePdfTextFromConfig,
+  resolveNativePdfTextExtractor,
   type PdfTextExec,
   type PdfTextFs,
   type PdfTextSeams,
@@ -124,11 +125,51 @@ describe("extractors", () => {
     const extract = createNativePdfTextExtractor(
       "pdftotext",
       config,
+      "keep",
       seams("page one\fpage two\f"),
     );
     const out = await extract(PDF);
     expect(out.pageCount).toBe(2);
     expect(out.hasText).toBe(true);
+  });
+
+  it("collapses -layout padding for the AI path and keeps it for export", async () => {
+    // The two consumers need opposite things and both failures are silent: an
+    // AI engine fed padding counts alignment spaces against its ceiling, and an
+    // office export fed collapsed text loses the 2+ spaces it splits rows on.
+    const row = "North   1200  1350";
+    const collapsing = createNativePdfTextExtractor(
+      "pdftotext",
+      config,
+      "collapse",
+      seams(row),
+    );
+    const keeping = createNativePdfTextExtractor(
+      "pdftotext",
+      config,
+      "keep",
+      seams(row),
+    );
+
+    expect((await collapsing(PDF)).text).toBe("North 1200 1350");
+    expect((await keeping(PDF)).text).toBe(row);
+  });
+
+  it("collapsing keeps the ROW, which is what -layout is carrying", async () => {
+    // Not merely "fewer characters". `-layout` is the only mode that
+    // reconstructs visual reading order: on the production binary (poppler
+    // 22.12.0) the default mode flattens a table to one cell per line with no
+    // row boundaries, and `-raw` emits content-stream order, which generators
+    // write out of visual order. Cells must stay on their row and stay
+    // separated. Full measurement at `collapseLayoutPadding`.
+    const table = "Region  Q1    Q2\nNorth   1200  1350";
+    const extract = createNativePdfTextExtractor(
+      "pdftotext",
+      config,
+      "collapse",
+      seams(table),
+    );
+    expect((await extract(PDF)).text).toBe("Region Q1 Q2\nNorth 1200 1350");
   });
 
   it("parses bbox output into positioned items", async () => {
@@ -148,6 +189,7 @@ describe("extractors", () => {
     const extract = createNativePdfTextExtractor(
       "pdftotext",
       config,
+      "keep",
       seams("x", { fs }),
     );
     await extract(PDF);
@@ -159,6 +201,7 @@ describe("extractors", () => {
     const extract = createNativePdfTextExtractor(
       "pdftotext",
       config,
+      "keep",
       seams("x", { fs }),
     );
     await extract(PDF);
@@ -167,7 +210,7 @@ describe("extractors", () => {
 
   it("removes the temp dir even when the binary fails", async () => {
     const fs = fakeFs(join("tmp", "run"));
-    const extract = createNativePdfTextExtractor("pdftotext", config, {
+    const extract = createNativePdfTextExtractor("pdftotext", config, "keep", {
       ...seams("", { fs }),
       exec: async () => {
         throw new Error("pdftotext failed.");
@@ -189,6 +232,7 @@ describe("extractors", () => {
     const extract = createNativePdfTextExtractor(
       "pdftotext",
       tiny,
+      "keep",
       seams("", { exec }),
     );
     await expect(extract(PDF)).rejects.toThrow(/maximum size/i);
@@ -208,6 +252,7 @@ describe("extractors", () => {
     await createNativePdfTextExtractor(
       "pdftotext",
       bounded,
+      "keep",
       seams("", { exec }),
     )(PDF);
     expect(options).toMatchObject({ maxBuffer: 8, timeout: 1234 });
@@ -236,5 +281,33 @@ describe("deps wiring — readiness must reflect the host, not the wiring", () =
   it("still reports size limits when the binary is missing", () => {
     const deps = nativeTableExtractDeps({}, { resolveOnPath: () => false });
     expect(deps.limits?.maxInputBytes).toBeGreaterThan(0);
+  });
+
+  it("gives the AI engines collapsed padding and office export the raw spacing", async () => {
+    // THE RELATIONSHIP, not the argument. Both builders call the same factory
+    // and the padding choice is now the only thing separating them; a swap is
+    // silent in both directions — AI ceilings would count alignment spaces
+    // again, and office export would lose the 2+ spaces it splits rows on.
+    const row = "North   1200  1350";
+    const wired = { resolveOnPath: () => true, ...seams(row) };
+
+    const ai = resolveNativePdfTextExtractor({}, wired);
+    const office = nativePdfOfficeExportDeps({}, wired).extract;
+    expect(
+      ai,
+      "pdftotext probed present but no AI extractor was built",
+    ).toBeTypeOf("function");
+    expect(office).toBeTypeOf("function");
+
+    expect(
+      (await ai!(PDF)).text,
+      "the four AI engines must receive collapsed padding — this count is " +
+        "compared against TRANSLATE_MAX_INPUT_CHARS and paid for in output tokens",
+    ).toBe("North 1200 1350");
+    expect(
+      (await office!(PDF)).text,
+      "PDF→Office export splits spreadsheet rows on runs of 2+ spaces; " +
+        "collapsing here merges its columns",
+    ).toBe(row);
   });
 });

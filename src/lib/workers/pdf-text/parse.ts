@@ -33,11 +33,22 @@
  * Measured across six geometries (Xpdf `pdftotext` 4.00 locally, not the
  * worker's poppler build — the shape is the finding, not the magnitudes), this
  * extractor's length ÷ the drawn text's length ran from **1.0001** on
- * single-column prose to **1.8626** on an eight-column grid; without `-layout`,
- * 1.0001 to 1.2082. It has no finite worst case: a wide sparse table drives it
- * arbitrarily high. Anything comparing a count from one extractor against a
- * limit calibrated on the other — `TRANSLATE_MAX_INPUT_CHARS` does exactly
- * that — is comparing two different quantities, and no constant factor fixes it.
+ * single-column prose to **1.8626** on an eight-column grid. It has no finite
+ * worst case: a wide sparse table drives it arbitrarily high, so no constant
+ * factor can convert one extractor's count into the other's.
+ *
+ * SINCE 2026-08-11 THE AI PATH COLLAPSES THAT PADDING — see
+ * {@link collapseLayoutPadding} — bringing the worst case to **1.2031**. The
+ * flag stays on, because **`-layout` is the only mode that reconstructs the
+ * page's visual reading order**: poppler 22.12.0's default mode flattens a table
+ * to one cell per line with no row boundaries, and `-raw` emits content-stream
+ * order, which generators write out of visual order constantly. Both give a
+ * model something fluent, complete and wrong. The full measurement, and the
+ * earlier transposition claim that turned out to be specific to Xpdf 4.00, are
+ * recorded at {@link collapseLayoutPadding}.
+ *
+ * Office export and table extraction still get the uncollapsed text, which is
+ * what they read structure out of.
  */
 
 import {

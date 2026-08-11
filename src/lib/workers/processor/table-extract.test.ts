@@ -83,7 +83,7 @@ describe("table-extract processor", () => {
         contentType: "application/zip",
       });
       expect(result.meta).toMatchObject({
-        engine: "pdfjs-layout-tables",
+        engine: "pdftotext-layout-tables",
         tool: "extract-tables",
         tableCount: 1,
       });

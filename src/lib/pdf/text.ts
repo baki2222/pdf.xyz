@@ -62,6 +62,53 @@ export function normalizeExtractedText(text: string): string {
     .trim();
 }
 
+/**
+ * Collapse `pdftotext -layout`'s inter-column padding to a single space, keeping
+ * every line break.
+ *
+ * `-layout` reconstructs a page's horizontal arrangement by padding between
+ * columns, which carries TWO things: that cells are separated (load-bearing) and
+ * how wide the gap is (not). This keeps the first and discards the second.
+ *
+ * WHY THE FLAG STAYS ON AND THE PADDING IS REMOVED AFTERWARDS, rather than the
+ * simpler-looking "just drop `-layout`": **`-layout` is the only mode that
+ * reconstructs the page's VISUAL READING ORDER.** The other two each give that
+ * up, in different ways, and both failures are silent.
+ *
+ * Measured on the production worker, `pdftotext` **22.12.0** (poppler), a
+ * four-column table:
+ *
+ * ```
+ *   -layout   142 chars   Region   Q1     Q2     Q3   /  North    1200   1350
+ *   default   115 chars   Region|Q1|Q2|Q3|North|1200|1350|1410|South|…
+ *   -raw       95 chars   Region Q1 Q2 Q3  /  North 1200 1350 1410
+ * ```
+ *
+ * **default** is row-major but flattened — one cell per line, no row boundaries.
+ * A model can only recover the table by assuming a fixed width and counting,
+ * which works on a perfect rectangle and breaks on a merged or missing cell.
+ *
+ * **`-raw`** means "strings in content-stream order", which is not visual order:
+ * a page whose generator emitted blocks 4, 2, 1, 3 comes out 4, 2, 1, 3.
+ * Generators do this constantly — LaTeX, Word exports, anything with footnotes
+ * or flowed columns. A summary or translation built on that is fluent, complete
+ * and **in the wrong order**, with nothing to warn. Same family as running OCR
+ * in the wrong language.
+ *
+ * ⚠️ AN EARLIER VERSION OF THIS NOTE SAID `default` TRANSPOSES THE TABLE. That
+ * was measured on Xpdf `pdftotext` 4.00, which groups by column; poppler 22.12.0
+ * flattens instead. **The claim was binary-specific and does not reproduce on the
+ * binary we ship** — recorded so the next person testing elsewhere is not
+ * confused by it. The conclusion did not change, but the reason it rested on was
+ * wrong, and a reason that does not reproduce is worse than no reason.
+ *
+ * On ordinary prose this collapse is a no-op — single-column text has no runs of
+ * two or more spaces, which is why the extractor divergence was 1.0001 there.
+ */
+export function collapseLayoutPadding(text: string): string {
+  return text.replace(/[ \t]{2,}/g, " ");
+}
+
 /** The separator `joinPageTexts` puts between pages. Exported so a caller can
  * compute offsets into the joined string without guessing it. */
 export const PAGE_JOIN = "\n\n";
