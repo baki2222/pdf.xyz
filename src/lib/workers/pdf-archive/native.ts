@@ -122,6 +122,14 @@ export function ghostscriptPdfAArgs(
   outputPath: string,
 ): string[] {
   return [
+    // OBSERVED, UNRESOLVED, RECORDED HERE BECAUSE WE QUOTE IT TO USERS: with
+    // this flag set to 2, Ghostscript 10.00.0 nonetheless says "PDF/A1" in its
+    // discard notices — "cannot be represented in XMP for PDF/A1" — verbatim, on
+    // every one. Whether that is a stale message template in gs or the converter
+    // genuinely applying A-1 metadata rules is a Ghostscript question and not
+    // ours to answer. It changes nothing about this code. But those notices are
+    // shown to users, and if gs turns out not to be doing what the flag says,
+    // the tool's `PDF/A-2b` output claim is the next thing to check.
     "-dPDFA=2",
     "-dBATCH",
     "-dNOPAUSE",
