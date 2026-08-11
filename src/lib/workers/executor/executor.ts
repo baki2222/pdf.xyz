@@ -545,7 +545,19 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     const spentUsage = result.results?.ai?.usage;
     if (spentUsage) {
       const tokens = aiSpendTokens(spentUsage);
-      if (tokens > 0) await recordAiSpend(tokens);
+      if (tokens > 0) {
+        // THE RETURN IS NOT DISCARDED, and that is deliberate. A permanently
+        // `false` return looks identical to success at a call site that ignores
+        // it — which is exactly the state this worker was in before it carried
+        // the limiter's configuration: every spend silently recorded nothing
+        // while twenty-six tests stayed green. `unrecorded` is a real outcome
+        // and has to be visible, the same absent-over-wrong rule the usage
+        // fields follow.
+        const recorded = await recordAiSpend(tokens);
+        if (!recorded) {
+          log({ event: "ai_spend_unrecorded", ...base });
+        }
+      }
     }
 
     if (!result.ok) {
