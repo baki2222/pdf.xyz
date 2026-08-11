@@ -32,6 +32,7 @@ import {
   aiFailure,
   type AiCompletionRequest,
   type AiCompletionResult,
+  type AiUsage,
   type AiProvider,
   validateCompletionRequest,
 } from "./provider";
@@ -193,6 +194,36 @@ export function buildChatCompletionsBody(
 }
 
 /**
+ * The token accounting a parsed Chat Completions body reports, or `undefined`.
+ *
+ * Hoisted out of the success path so a FAILURE can carry it too — the same fix
+ * as the Anthropic adapter's, applied here after production proved it was
+ * missing on the adapter that actually runs.
+ *
+ * NOTE THE CONVENTION DIFFERENCE, which matters to anything summing these:
+ * OpenAI's `prompt_tokens` is INCLUSIVE of the cached portion, so `inputTokens`
+ * is already the total and `cachedInputTokens` is a subset of it. Anthropic's
+ * three input fields are disjoint. A costing that assumes one convention across
+ * both providers is wrong for one of them.
+ *
+ * `undefined` when the body carried no usable counts. That is a MEASUREMENT GAP,
+ * never a free call.
+ */
+function usageFrom(body: OpenAiResponseBody): AiUsage | undefined {
+  const inputTokens = coerceCount(body.usage?.prompt_tokens);
+  const outputTokens = coerceCount(body.usage?.completion_tokens);
+  if (inputTokens === undefined || outputTokens === undefined) return undefined;
+  const cachedInputTokens = coerceCount(
+    body.usage?.prompt_tokens_details?.cached_tokens,
+  );
+  return {
+    inputTokens,
+    outputTokens,
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+  };
+}
+
+/**
  * Build a real OpenAI-backed {@link AiProvider}. The returned object exposes only
  * the public `id` ("openai") and `model`; the API key lives solely in the `complete`
  * closure. Every call validates the request shape first, then maps the Chat
@@ -309,11 +340,23 @@ export function createOpenAiProvider(
           );
         }
 
+        // USAGE IS READ HERE, ABOVE THE FAILURE BRANCHES. It used to sit below
+        // them — the identical defect fixed in `anthropic.ts` and missed here in
+        // the same change, because `aiFailure`'s third argument is optional so
+        // the two-argument calls kept type-checking. PRODUCTION RUNS THIS
+        // ADAPTER, so `incomplete_output` recorded 48,020 tokens as free on the
+        // live provider while the Anthropic test went green.
+        //
+        // The parse was correct; only its position was wrong. That is the shape
+        // in CLAUDE.md rule 3: when the type is fine, the order does the work.
+        const parsedUsage = usageFrom(body);
+
         const reason = finishReason(body);
         if (reason === "content_filter") {
           return aiFailure(
             "content_filtered",
             "The AI model declined to answer this request.",
+            parsedUsage,
           );
         }
 
@@ -326,6 +369,7 @@ export function createOpenAiProvider(
           return aiFailure(
             "incomplete_output",
             "The AI model reached its output limit before finishing, so the answer would have been cut off. Try a shorter document or a briefer output.",
+            parsedUsage,
           );
         }
 
@@ -334,34 +378,11 @@ export function createOpenAiProvider(
           return aiFailure(
             "invalid_response",
             "The AI provider returned no text.",
+            parsedUsage,
           );
         }
 
-        const inputTokens = coerceCount(body.usage?.prompt_tokens);
-        const outputTokens = coerceCount(body.usage?.completion_tokens);
-        // OpenAI caches long prompt prefixes on its own — there is no request-side
-        // parameter to set, which is why `AiCompletionRequest.cacheSystem` changes
-        // nothing about the body this adapter sends. What the flag still buys here is
-        // this reading: without it a caller has no way to tell a cached request from
-        // an uncached one, and the caching bet stays unfalsifiable.
-        //
-        // The one thing that DOES matter on this side is ordering, and it is already
-        // right: the system message carrying the document is built first and the
-        // question last, so the stable span is a genuine prefix. Moving anything
-        // volatile ahead of it would silently end the cache hits.
-        const cachedInputTokens = coerceCount(
-          body.usage?.prompt_tokens_details?.cached_tokens,
-        );
-        const usage =
-          inputTokens !== undefined && outputTokens !== undefined
-            ? {
-                inputTokens,
-                outputTokens,
-                ...(cachedInputTokens !== undefined
-                  ? { cachedInputTokens }
-                  : {}),
-              }
-            : undefined;
+        const usage = parsedUsage;
 
         return {
           ok: true,

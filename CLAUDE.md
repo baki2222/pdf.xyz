@@ -82,6 +82,15 @@ Two tells, both cheap to check:
 - **The capability exists everywhere except where it costs money.** Grep the file
   for the concept: 10, 10, 10 and 19 mentions across four engines, and zero on
   the failure branch. A count that high is not an oversight, it is a shape.
+- **Structural defences cannot see a wrong number.** Every rule above binds
+  statements to each other — one definition spread N ways, a hook above the fork,
+  `[] ⊆ X` health checks. **A constant has no relationships to constrain**, and
+  neither does an env var or a deployment topology. The same feature was made
+  decorative three times that way: a token figure nothing could check, a price
+  nobody had recorded, and a spend hook running in a process with no limiter.
+  Only a **second, independent bound** sees them — our ceiling against the
+  provider's dollar cap, our price against the published rate card — so write
+  that comparison as a test rather than as a paragraph.
 - **When the type is fine, the ORDER does the same work.** `usageFrom(body)` was
   correct, tested, and ran on every successful call — it simply sat _below_ the
   branch that needed it. A statement can be right and still be in the wrong

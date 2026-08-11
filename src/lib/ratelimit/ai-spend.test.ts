@@ -14,7 +14,12 @@
  * in-memory limiter, with the env that selects it — not a stubbed counter.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { peekAiSpendCeiling, recordAiSpend } from "./guard";
+import {
+  peekAiSpendCeiling,
+  readSpendProbe,
+  recordAiSpend,
+  writeSpendProbe,
+} from "./guard";
 import { resetRateLimitGuardForTests } from "./guard";
 import { AI_SPEND_DAILY_TOKEN_CEILING } from "@/lib/jobs/ai-spend-ceiling";
 
@@ -90,5 +95,77 @@ describe("the ceiling counts what was spent", () => {
     expect(verdict.affordable).toBe(true);
     expect(verdict.enforced).toBe(false);
     expect(await recordAiSpend(1_000, {}, T0)).toBe(false);
+  });
+});
+
+/**
+ * The two-tier probe — the check that would have caught blocker 2.
+ *
+ * The ceiling is WRITTEN by the worker and READ by the web tier. They are
+ * different processes with different environments, and the worker had never
+ * carried the limiter's configuration: `recordAiSpend` resolved `disabled`,
+ * returned false on every call, and the counter could never rise. Every test in
+ * the repo was green because none of them runs in two tiers.
+ *
+ * These simulate the two tiers as two environments against the same limiter,
+ * which is the only way to express the defect in-process.
+ */
+describe("the worker and the web tier share one bucket, proven not assumed", () => {
+  it("a probe written by the worker is read back by the web tier", async () => {
+    expect(await writeSpendProbe(LOCAL, T0)).toBe(true);
+    const verdict = await readSpendProbe(LOCAL, T0);
+    expect(verdict.shared).toBe(true);
+  });
+
+  it("says NOTHING VISIBLE rather than 'misconfigured' when the worker has not written", async () => {
+    // The honest distinction. A worker that has simply not started yet looks
+    // identical to a misconfigured one from here, and claiming the second would
+    // be the confident-wrong answer — a red posture on a healthy deployment.
+    const verdict = await readSpendProbe(LOCAL, T0);
+    expect(verdict.shared).toBe(false);
+    if (verdict.shared) return;
+    expect(verdict.reason).toBe("no-probe-visible");
+  });
+
+  it("reports UNENFORCED when this tier has no limiter — blocker 2 exactly", async () => {
+    // The worker's real state before the fix: Redis credentials present, the
+    // limiter variable absent, so every write silently did nothing.
+    expect(await writeSpendProbe({}, T0)).toBe(false);
+    const verdict = await readSpendProbe({}, T0);
+    expect(verdict.shared).toBe(false);
+    if (verdict.shared) return;
+    expect(verdict.reason).toBe("unenforced");
+  });
+
+  it("is RED when only the WRITER lacks a limiter — production's exact state", async () => {
+    // THE ASYMMETRIC CASE, and the one that actually shipped: the web tier is
+    // configured, the worker is not. Every write silently does nothing while
+    // the reading side looks perfectly healthy. Absent must not read as
+    // agreement — `shared` stays false, so a posture built on this cannot show
+    // green on the deployment that has been broken all along.
+    expect(await writeSpendProbe({}, T0)).toBe(false);
+    const verdict = await readSpendProbe(LOCAL, T0);
+    expect(
+      verdict.shared,
+      "the web tier reported a shared bucket while the worker had no limiter " +
+        "at all — this is blocker 2, and it must never read as agreement",
+    ).toBe(false);
+  });
+
+  it("is RED when only the READER lacks a limiter", async () => {
+    // The mirror. A worker counting into a real store while the tier that must
+    // refuse jobs cannot see it is equally decorative.
+    expect(await writeSpendProbe(LOCAL, T0)).toBe(true);
+    const verdict = await readSpendProbe({}, T0);
+    expect(verdict.shared).toBe(false);
+    if (verdict.shared) return;
+    expect(verdict.reason).toBe("unenforced");
+  });
+
+  it("does not move the ceiling it is checking on", async () => {
+    // A probe that spent from the real counter would make the measurement it
+    // exists to verify slightly wrong every time it ran.
+    await writeSpendProbe(LOCAL, T0);
+    expect((await peekAiSpendCeiling(LOCAL, T0)).used).toBe(0);
   });
 });

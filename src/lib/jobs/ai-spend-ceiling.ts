@@ -132,3 +132,117 @@ export function aiSpendTokens(usage: {
  */
 export const AI_CEILING_REACHED_MESSAGE =
   "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side, not on your file or your account. Please try again tomorrow; every other PDF tool is unaffected.";
+
+/* ------------------------------------------------------------------ *
+ *  The OTHER ceiling — the one outside this system.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The provider's own spend cap, as a STATED EXTERNAL ASSUMPTION.
+ *
+ * Our token ceiling and OpenAI's dollar cap are two bounds on the same thing and
+ * **they had never been compared.** Each is correct at its own layer; nobody put
+ * them side by side — the composed-seam defect, in a number rather than a
+ * pipeline.
+ *
+ * It matters because of which one trips first. **If the provider's cap binds
+ * first, ours never fires**: the balance runs out, calls start failing as
+ * generic provider errors, and the honest 503 in this file never renders. That
+ * is "a guard that cannot fire, which reads as protection" — arriving through
+ * the FIGURE rather than the wiring.
+ *
+ * ⚠️ THIS NUMBER IS NOT MACHINE-READABLE AND CANNOT BE VERIFIED BY ANY TEST. It
+ * lives in the OpenAI billing console. It is recorded here with its source and
+ * the date it was read, the same discipline as `densityMeasuredOn` — a fact from
+ * outside the system, dated, with its provenance, so a reader can tell how old
+ * it is and how to re-check it. **Re-checking means a human opening the billing
+ * page.** If auto-reload is switched off or the cap changes, nothing here will
+ * notice.
+ */
+export const AI_SPEND_EXTERNAL_BOUND = {
+  /** Monthly ceiling on money leaving the account. */
+  monthlyCapUsd: 100,
+  /** Auto-reload was ON, adding $10 whenever the balance fell below $5. */
+  source:
+    "OpenAI billing console: auto-reload ON ($10 at $5), monthly limit $100",
+  /** When a human last opened that page. */
+  readOn: "2026-08-11",
+} as const;
+
+/**
+ * Blended price per million tokens — **the WORST REACHABLE blend, not an average.**
+ *
+ * MEASURED 2026-08-11 from OpenAI's published rate card for `gpt-5.6-luna`
+ * (developers.openai.com/api/docs/pricing), $ per 1M tokens:
+ *
+ * ```
+ *   short ctx :  in 0.20   cachedIn 0.02   cacheWrite 0.25   out 1.20
+ *   long  ctx :  in 0.40   cachedIn 0.04   cacheWrite 0.50   out 1.80
+ * ```
+ *
+ * A ceiling is compared against a bound, so this is the highest blend a real
+ * call can reach rather than the one a typical call costs. Realistic translate
+ * blends at $0.96 and a 125k-token chat at $0.42; using either would make the
+ * comparison an average pretending to be a limit.
+ *
+ * WHY $1.20 AND NOT $1.80, because this is the question a future reader will get
+ * wrong. $1.80 is the long-context OUTPUT rate, and a blend can only reach it
+ * with 100% output at long-context pricing — which is self-contradictory. Long
+ * context is entered by a large INPUT, input is priced at a quarter to a third of
+ * output, and a call with zero input tokens does not exist. So the long-context
+ * rate always arrives attached to the thing that drags the blend down.
+ *
+ * The counter-intuitive consequence, worth stating because instinct says the
+ * opposite: **big-context runs are the CHEAP ones.** The expensive workload is
+ * the small call with a high output ratio.
+ *
+ * ⚠️ LIST PRICING, read by a human, not machine-readable. Re-check the same way
+ * as {@link AI_SPEND_EXTERNAL_BOUND} — and note that changing `PDFXYZ_AI_MODEL`
+ * changes this number with nothing here noticing.
+ */
+export const AI_BLENDED_PRICE_USD_PER_MTOK: number | null = 1.2;
+
+/** Provenance for the price above, since no test can verify it. */
+export const AI_PRICE_SOURCE = {
+  model: "gpt-5.6-luna",
+  source: "developers.openai.com/api/docs/pricing (published list pricing)",
+  readOn: "2026-08-11",
+  /** The rate used, and the one deliberately not used. */
+  usedRateUsdPerMTok: 1.2,
+  excludedRateUsdPerMTok: 1.8,
+  excludedBecause:
+    "long-context output pricing is only reachable via a large input, and input is cheaper than output, so a 100%-output long-context blend cannot occur",
+} as const;
+
+/** What the ceiling would cost per month at the worst reachable blend. */
+export const AI_CEILING_MONTHLY_COST_USD =
+  ((AI_SPEND_DAILY_TOKEN_CEILING * 30) / 1_000_000) *
+  (AI_BLENDED_PRICE_USD_PER_MTOK ?? 0);
+
+/**
+ * The price at which the two ceilings coincide — **derived, not guessed**.
+ *
+ * Below this price ours binds first and the honest 503 renders. Above it, the
+ * provider's cap binds first and ours is decoration. This is a fact about the
+ * two numbers we already have, so it can be stated today without knowing the
+ * actual price: it is the threshold the measurement will be compared against.
+ *
+ * `2,000,000 tokens/day × 30 days = 60,000,000 tokens/month`, and
+ * `$100 ÷ 60 Mtok = $1.67 per Mtok`.
+ */
+export const AI_CEILING_BREAKEVEN_USD_PER_MTOK =
+  AI_SPEND_EXTERNAL_BOUND.monthlyCapUsd /
+  ((AI_SPEND_DAILY_TOKEN_CEILING * 30) / 1_000_000);
+
+/**
+ * Does our ceiling bind before the provider's cap?
+ *
+ * `"unknown"` while the price is unmeasured — **never a default of `true`**. A
+ * cost control that assumes it binds first is exactly the claim this whole
+ * exercise exists to stop being made without evidence.
+ */
+export function aiCeilingBindsFirst(): "yes" | "no" | "unknown" {
+  const price = AI_BLENDED_PRICE_USD_PER_MTOK;
+  if (price === null || !Number.isFinite(price) || price <= 0) return "unknown";
+  return price < AI_CEILING_BREAKEVEN_USD_PER_MTOK ? "yes" : "no";
+}
