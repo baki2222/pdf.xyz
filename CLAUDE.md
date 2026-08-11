@@ -98,6 +98,48 @@ Two tells, both cheap to check:
   that needed it can. Reviewers ask _is this correct_, never _is this early
   enough_, and a diff shows neither.
 
+**4. A right command over the wrong set is the most convincing way to be wrong.**
+Rules 1–3 all assume the question was asked of the right things. Seven times in
+one day it was not — and **not once was the command wrong**. Every one returned a
+correct, confident answer to a question nobody meant to ask:
+
+| the set that was searched               | what it silently excluded                           |
+| --------------------------------------- | --------------------------------------------------- |
+| a checked-out tree 86 commits stale     | every claim made since                              |
+| `grep -c` piped through `head -1`       | every file but the first                            |
+| a count of the WORD                     | every other spelling of the shape                   |
+| `git grep -- src`                       | the worker's entry point, in `scripts/`             |
+| a guard naming 2 of 16 `worker:*` files | the fourteen it did not name                        |
+| an import walk following `import type`  | nothing — it ADDED edges that are erased at runtime |
+| a module graph read as a call graph     | nothing — it ADDED functions nobody calls           |
+
+**A corpus has no relationships to constrain**, exactly like the constant in
+rule 3. Every structural defence here binds statements to each other — one
+definition spread N ways, a hook above the fork, `[] ⊆ X` — and all of them run
+happily over a set that is missing half the world. The predicate can be perfect
+and the answer still false.
+
+Three things follow, each bought:
+
+- **Derive the set from something that must already be true.** Never type it.
+  The worker's entry point is not `/worker-daemon/`; it is
+  `Dockerfile CMD → package.json script → file` — three artifacts a deployment
+  already depends on, so renaming the file or repointing the script moves the
+  guard with it. Prefer the import graph over a directory, the route-handler
+  convention over a list of routes, the manifest over a filename.
+- **Bound the corpus's own size, and make a broken link FATAL.** `[] ⊆ X` is
+  vacuously true, so a corpus that quietly shrinks reports the strongest
+  possible pass. The mirror is worse-tempered and just as useless: a BFS bug
+  collapsed one call graph to _two_ entries, and every assertion would then have
+  failed **for the wrong reason** — and a red guard nobody can explain gets
+  deleted. Neither direction was visible to any assertion; only
+  `"the graph is implausibly small"` saw both.
+- **Widening the set is a defect too.** Five of the seven above lost members;
+  two GAINED them. Following an `import type` edge, or counting a function that
+  is loaded but never called, are not oversights — they are the set quietly
+  answering an easier question. **Loading a module is not running a function**,
+  and a guard that conflates them proves reachability while selling execution.
+
 ## Commands
 
 - Install: `pnpm install`
