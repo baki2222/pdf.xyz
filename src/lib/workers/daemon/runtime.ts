@@ -311,23 +311,23 @@ export interface WorkerRuntimeDeps {
   htmlRender?: HtmlRenderDeps;
   /** Office conversion deps; defaults to LibreOffice auto-detection. */
   officeConversion?: OfficeConversionDeps;
-  /** PDF to Office export deps; defaults to pdfjs text extraction. */
+  /** PDF to Office export deps; defaults to native `pdftotext -layout`. */
   pdfOfficeExport?: PdfOfficeExportDeps;
-  /** Table extraction deps; defaults to pdfjs positioned-text layout. */
+  /** Table extraction deps; defaults to native `pdftotext -bbox-layout`. */
   tableExtract?: TableExtractDeps;
   /** Request-signatures deps; defaults to the pdf-lib field preparer. */
   requestSignatures?: SignatureRequestDeps;
   /**
-   * Summarize deps (selectable-text extractor + AI provider). Defaults to the pdfjs
-   * extractor plus a live AI provider resolved from the environment via
+   * Summarize deps (selectable-text extractor + AI provider). Defaults to the native
+   * `pdftotext` extractor plus a live AI provider resolved from the environment via
    * {@link summarizeDeps} — the provider is present only when an operator configured
    * one (`PDFXYZ_AI_PROVIDER` + key), else summarize fails honestly as not-implemented.
    * Tests inject a fake provider to exercise the ready path without a real key.
    */
   summarize?: SummarizeDeps;
   /**
-   * Translate deps (selectable-text extractor + AI provider). Defaults to the pdfjs
-   * extractor plus a live AI provider resolved from the environment via
+   * Translate deps (selectable-text extractor + AI provider). Defaults to the native
+   * `pdftotext` extractor plus a live AI provider resolved from the environment via
    * {@link translateDeps} — the provider is present only when an operator configured
    * one (`PDFXYZ_AI_PROVIDER` + key), else translate fails honestly as not-implemented.
    * Tests inject a fake provider to exercise the ready path without a real key.
@@ -335,7 +335,7 @@ export interface WorkerRuntimeDeps {
   translate?: TranslateDeps;
   /**
    * AI Data Extraction deps (selectable-text extractor + AI provider). Defaults to
-   * the pdfjs extractor plus a live AI provider resolved from the environment via
+   * the native `pdftotext` extractor plus a live AI provider resolved from the environment via
    * {@link aiExtractDeps} — the provider is present only when an operator configured
    * one (`PDFXYZ_AI_PROVIDER` + key), else ai-extract fails honestly as not-implemented.
    * Tests inject a fake provider to exercise the ready path without a real key.
@@ -343,7 +343,7 @@ export interface WorkerRuntimeDeps {
   aiExtract?: AiExtractDeps;
   /**
    * Chat with PDF deps (selectable-text extractor + AI provider). Defaults to the
-   * pdfjs extractor plus a live AI provider resolved from the environment via
+   * native `pdftotext` extractor plus a live AI provider resolved from the environment via
    * {@link chatWithPdfDeps} — the provider is present only when an operator configured
    * one (`PDFXYZ_AI_PROVIDER` + key), else chat-with-pdf fails honestly as
    * not-implemented. Tests inject a fake provider to exercise the ready path.

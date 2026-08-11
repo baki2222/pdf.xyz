@@ -4,17 +4,26 @@ import JSZip from "jszip";
  * Table extraction engine for the `extract-tables` tool.
  *
  * This is a real, heuristic table detector — not an AI model and not a fabricated
- * output. It works purely from the *positioned* selectable text of a PDF (the same
- * text pdfjs exposes, with each run's page coordinates), clusters those runs into
- * rows and columns by geometry, and only reports a table when an aligned grid of
- * at least two columns and two rows actually emerges. Scanned/image-only PDFs have
- * no selectable text and fail honestly as `no_text`; prose or single-column PDFs
- * fail honestly as `no_tables`. When tables are found, it emits a real ZIP holding
- * one RFC-4180 CSV per table plus a combined multi-sheet XLSX workbook.
+ * output. It works purely from the *positioned* selectable text of a PDF (each
+ * run with its page coordinates), clusters those runs into rows and columns by
+ * geometry, and only reports a table when an aligned grid of at least two columns
+ * and two rows actually emerges. Scanned/image-only PDFs have no selectable text
+ * and fail honestly as `no_text`; prose or single-column PDFs fail honestly as
+ * `no_tables`. When tables are found, it emits a real ZIP holding one RFC-4180
+ * CSV per table plus a combined multi-sheet XLSX workbook.
  *
  * The engine takes its layout extractor as an injected dependency so it stays
- * node-free and unit-testable: the production worker wires the pdfjs-backed
- * extractor (`./native`), tests wire a deterministic fake.
+ * node-free and unit-testable: the production worker wires the NATIVE
+ * `pdftotext -bbox-layout` extractor (`./native` → `pdf-text/native`), tests wire
+ * a deterministic fake.
+ *
+ * ⚠️ IT IS NOT pdfjs, and this docblock said it was — twice: *"the same text pdfjs
+ * exposes"* and *"the production worker wires the pdfjs-backed extractor"*. pdfjs
+ * is browser-only and throws under Node before reading a byte, which is the whole
+ * reason `pdf-text/native` exists. The two extractors also do not agree on the
+ * text: see `pdf-text/parse.ts`. {@link EXTRACT_TABLES_ENGINE} still reads
+ * `pdfjs-layout-tables` and is left alone deliberately — it ships inside job
+ * results, so renaming it is a contract change rather than a comment fix.
  */
 
 export const EXTRACT_TABLES_TOOL = "extract-tables" as const;
