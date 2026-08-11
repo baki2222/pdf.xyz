@@ -43,6 +43,28 @@ const ROOT = process.cwd();
  * which was true of numbers and false of everything else — a page a visitor
  * reads is a page a copy guard should read, and where the component happens
  * to live is not a reason.
+ *
+ * `src/lib/jobs/ai-allowance.ts` joined on 2026-08-11, and it is the seventh
+ * appearance: the AI allowance sentence was moved OUT of `tool-facts.ts` into
+ * the lowest layer all six of its call sites could import — the right home for
+ * the constant, and outside every walked root. Membership survived and
+ * COVERAGE LEFT. Measured: the sentence *"Your own 3 free AI runs a day — sign
+ * in to upgrade to Pro for $9 per month, or buy 500 runs."* in the new home
+ * gave 30 passed / 0 failed; the identical sentence in the old home gave 6
+ * failures (sign-in invitation, literal price, billing cadence, upgrade CTA,
+ * upsell pitch, and the census's unowned `500 runs`).
+ *
+ * WHY A FILE AND NOT THE DIRECTORY, because a list is the thing that drifts and
+ * this entry is one: walking `src/lib/jobs` was tried first and produces two
+ * findings that are comments rather than copy — `types.ts` writes
+ * `maxFileBytes: 100 * 1024 * 1024, // 100 MB`, and {@link withoutComments}
+ * strips only FULL-LINE `//`. Buying the directory costs either two baseline
+ * entries (which this census refuses on principle) or a change to the stripper
+ * that would blind it wherever a string contains `//`. So the list entry stays
+ * and the drift is closed a different way: `copy-surface.test.ts` DISCOVERS
+ * every file under `src/lib` that defines an allowance sentence and requires
+ * the walk to reach it, so moving the constant again collapses loudly wherever
+ * it lands.
  */
 export function copyFiles(): string[] {
   const roots = [
@@ -54,6 +76,7 @@ export function copyFiles(): string[] {
   const out: string[] = [
     path.join(ROOT, "src", "lib", "faq.ts"),
     path.join(ROOT, "src", "lib", "site.ts"),
+    path.join(ROOT, "src", "lib", "jobs", "ai-allowance.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -79,9 +102,50 @@ export function copyFiles(): string[] {
  * phrase it forbids — flagging those is a false positive, and a guard that
  * cries wolf is a guard the next person weakens. Only what a user can read
  * counts.
+ *
+ * `^\s*` IS LOAD-BEARING and stays: only full-line `//` comments are stripped,
+ * so a TRAILING `// 100 MB` survives into the scan and reads as a claim. That
+ * is a false positive, which errs toward over-reporting; dropping the anchor
+ * would strip from the first `//` to end of line and silently eat the rest of
+ * any line containing a URL, which errs toward a blind guard. Measured
+ * 2026-08-11 on `src/lib/jobs/types.ts`, whose two trailing unit comments are
+ * the reason that directory is not walked wholesale.
  */
 export function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
+}
+
+/**
+ * Every `.ts`/`.tsx` non-test source under `src/lib` — the search space for
+ * "where did this constant go", not a guard surface of its own.
+ */
+export function libSourceFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
+        out.push(full);
+    }
+  };
+  walk(path.join(ROOT, "src", "lib"));
+  return out;
+}
+
+/**
+ * Does this source DEFINE an allowance sentence, as opposed to re-exporting
+ * one?
+ *
+ * The distinction is the whole point. `ratelimit/response.ts` and
+ * `workers/ai-tool-availability.ts` both surface the sentence to users, but
+ * neither holds the words — they re-export (`export { X }`) or alias
+ * (`export const Y = X`). Only an initialiser that OPENS A STRING is a place
+ * the words can go stale, and only that place has to be inside the copy walk.
+ * Exercised in both directions by `copy-surface.test.ts`.
+ */
+export function definesAllowanceCopy(source: string): boolean {
+  return /export\s+const\s+\w*ALLOWANCE\w*\s*(?::[^=]+)?=\s*[`"']/.test(source);
 }
 
 /** The operator docs: top-level `docs/*.md` — the docs-integrity surface. */
