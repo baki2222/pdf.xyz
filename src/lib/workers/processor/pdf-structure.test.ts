@@ -25,8 +25,8 @@ function fakeRunner(
   over: Partial<QpdfStructureRunner> = {},
 ): QpdfStructureRunner {
   return {
-    repair: async () => pdf(64),
-    linearize: async () => pdf(80),
+    repair: async () => ({ bytes: pdf(64), warnings: [] }),
+    linearize: async () => ({ bytes: pdf(80), warnings: [] }),
     ...over,
   };
 }
@@ -56,7 +56,7 @@ describe("pdf-structure processor — repair", () => {
   it("repairs a PDF and returns a named artifact + content-free meta", async () => {
     const repaired = pdf(96);
     const proc = createPdfStructureProcessor(
-      wired({ repair: async () => repaired }),
+      wired({ repair: async () => ({ bytes: repaired, warnings: [] }) }),
     );
 
     const result = await proc.process({
@@ -97,7 +97,7 @@ describe("pdf-structure processor — optimize-web", () => {
   it("linearizes a PDF and returns a named artifact + content-free meta", async () => {
     const optimized = pdf(120);
     const proc = createPdfStructureProcessor(
-      wired({ linearize: async () => optimized }),
+      wired({ linearize: async () => ({ bytes: optimized, warnings: [] }) }),
     );
 
     const result = await proc.process({

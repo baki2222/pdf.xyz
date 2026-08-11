@@ -22,6 +22,11 @@
  */
 
 import {
+  buildRepairResultMeta,
+  isRepairResultMeta,
+  type RepairResultMeta,
+} from "./repair-results";
+import {
   buildAiResultMeta,
   isAiWindowMeta,
   type AiResultMeta,
@@ -52,6 +57,12 @@ export interface JobResults {
    * client. See {@link AiResultMeta}.
    */
   ai?: AiResultMeta;
+  /**
+   * What qpdf had to fix. Present on a completed `repair-pdf` job — including
+   * a clean one, so a missing block means "this worker did not report",
+   * not "nothing was wrong". See {@link RepairResultMeta}.
+   */
+  repair?: RepairResultMeta;
 }
 
 /** True when a {@link JobResults} carries at least one populated block. */
@@ -97,6 +108,13 @@ export function sanitizeJobResults(
   const ai = results.ai;
   if (ai && typeof ai === "object" && isAiWindowMeta(ai.truncation)) {
     clean.ai = buildAiResultMeta(ai);
+  }
+
+  // Same discriminant rule: a boolean that only the real contract sets. The
+  // builder re-bounds the lines and drops any that still carry a path.
+  const repair = results.repair;
+  if (isRepairResultMeta(repair)) {
+    clean.repair = buildRepairResultMeta(repair);
   }
 
   return hasJobResults(clean) ? clean : undefined;

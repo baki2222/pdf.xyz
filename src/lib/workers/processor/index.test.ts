@@ -11,7 +11,10 @@ const PDF = new TextEncoder().encode(
 );
 
 function fakeStructureRunner(): QpdfStructureRunner {
-  return { repair: async () => PDF, linearize: async () => PDF };
+  return {
+    repair: async () => ({ bytes: PDF, warnings: [] }),
+    linearize: async () => ({ bytes: PDF, warnings: [] }),
+  };
 }
 function fakePdfARunner(): GhostscriptPdfARunner {
   return { convertToPdfA: async () => PDF };

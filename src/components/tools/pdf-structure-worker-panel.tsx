@@ -31,6 +31,7 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { RepairWarnings } from "./repair-warnings";
 
 type Phase = "loading" | "error" | "ready";
 type Mode = "repair" | "optimize";
@@ -342,6 +343,9 @@ function StructureRunArea({
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce={copy.done}>
+          {/* Before the download button: a user who clicks and leaves is
+              exactly the user this is for. */}
+          <RepairWarnings job={outcome.job} />
           <p className="text-sm text-emerald-200">{copy.done}</p>
           <button
             type="button"

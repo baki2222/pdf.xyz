@@ -155,6 +155,17 @@ export function createPdfStructureProcessor(deps: PdfStructureDeps): Processor {
           },
         ],
         toProcessorMeta(run.meta),
+        // Only repair reports this: optimize-web makes no claim about
+        // recovering anything, so a warnings block there would describe a
+        // promise the tool never made.
+        input.tool === REPAIR_TOOL
+          ? {
+              repair: {
+                recoveredWithWarnings: run.meta.recoveredWithWarnings,
+                warnings: run.meta.warnings,
+              },
+            }
+          : undefined,
       );
     },
   };
