@@ -72,6 +72,15 @@ export interface PageStart {
  * is wrong by that shift and the notice names a page confidently and wrongly.
  * That is worse than the number being absent, so it is checked rather than
  * assumed: the last page must end exactly where the string ends.
+ *
+ * WHAT IT DOES NOT COVER. This is a total-length identity, so it catches any
+ * shift that changes the total — a leading trim, a different separator, an
+ * extractor whose `text` is not `joinPageTexts(pages)`. It would NOT catch a
+ * re-join that preserves the total length while moving interior boundaries
+ * (say, a separator that grew by one character between two pages and shrank by
+ * one between two others). No such assembly exists in this codebase and the
+ * check is deliberately not paid for; the limit is recorded so nobody reads
+ * this as a proof that every offset is right.
  */
 function tableDescribes(assembled: string, starts: readonly PageStart[]) {
   const last = starts[starts.length - 1];
