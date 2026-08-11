@@ -283,11 +283,19 @@ describe("a short window is disclosed — to the model and to the job record", (
 
     const system = provider.calls[0]?.system ?? "";
     // Not merely "some of the document was cut": the instruction that PRODUCED
-    // the defect has to be revoked, or a model told only "answer from the
-    // document" still reports absence as absence from the whole document.
-    expect(system).toMatch(/do NOT say the document does not contain it/);
+    // the defect has to be revoked. For a summarizer that instruction is
+    // "produce a summary" — its wrong claim is a summary of the first pages
+    // presented as the summary of the document.
+    expect(system).toMatch(
+      /Never describe it as a summary of the whole document/,
+    );
+    expect(system).toMatch(/covers only pages 1-2 of 6/);
     expect(system).toMatch(/pages 1-2 of 6/);
     expect(system).toMatch(/mid-page/);
+    // And NOT chat's revocation. A summarizer told "do not say the document
+    // does not contain it" is being answered a question it never asked; the
+    // shared helper used to hand that sentence to every tool.
+    expect(system).not.toMatch(/do NOT say the document does not contain it/);
   });
 
   it("reports the window on meta so the panel can state it without the model", async () => {

@@ -30,6 +30,7 @@ import {
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
@@ -367,6 +368,10 @@ function TranslateBuilder() {
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your AI translation package is ready.">
+          <TruncationNotice
+            job={outcome.job}
+            consequence="The rest of the document was not translated — this package covers those pages only."
+          />
           <p className="text-sm text-emerald-200">
             Your AI translation package is ready — the translation in Markdown
             and plain text, plus a manifest recording the model and honest

@@ -218,7 +218,14 @@ function buildSystemPrompt(
   // it can override the "say the document does not state this" instruction
   // above — the instruction that turned a length limit into a confident denial
   // about the user's own file.
-  const notice = modelTruncationNotice(window);
+  // Chat is instructed to say "The document does not state this." when it
+  // cannot find something — so its wrong claim is a confident DENIAL.
+  const notice = modelTruncationNotice(
+    window,
+    (upTo) =>
+      "If the answer is not in the text you were given, do NOT say the document does not contain it —\n" +
+      `say that you can only see ${upTo} and the answer may appear later in the document.`,
+  );
   if (notice) parts.push(notice);
   return parts.join("\n");
 }

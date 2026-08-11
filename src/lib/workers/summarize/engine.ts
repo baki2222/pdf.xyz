@@ -170,13 +170,15 @@ function buildSystemPrompt(
     parts.push(`Pay special attention to: ${options.focus}.`);
   }
   // The window disclosure goes last so it overrides anything above it.
-  const notice = modelTruncationNotice(window);
-  if (notice) {
-    parts.push(
-      notice,
-      'State plainly in the summary that it covers only the pages you were given (e.g. "This summarises pages 1-N of M"). Never describe it as a summary of the whole document.',
-    );
-  }
+  // A summarizer's wrong claim is not a denial — it is presenting a summary of
+  // the first pages AS the summary of the document.
+  const notice = modelTruncationNotice(
+    window,
+    (upTo) =>
+      `State plainly in the summary that it covers only ${upTo} (e.g. "This summarises ${upTo}").\n` +
+      "Never describe it as a summary of the whole document.",
+  );
+  if (notice) parts.push(notice);
   return parts.join(" ");
 }
 

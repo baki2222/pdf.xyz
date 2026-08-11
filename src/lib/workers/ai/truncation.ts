@@ -158,14 +158,28 @@ export function pageStartsFor(
 }
 
 /**
- * The sentence appended to a model's system prompt when the window is short.
+ * The block appended to a model's system prompt when the window is short.
  *
- * It states the bound and REVOKES the instruction that produced the defect: a
- * model told only "answer from the document" will still deny, because as far
- * as it can see the document simply does not contain the answer. It has to be
- * told that "not present here" and "not in the document" are different claims.
+ * Two jobs, and only the first is tool-agnostic:
+ *
+ *  1. **State the bound** — which pages the model actually holds.
+ *  2. **Revoke the instruction that turns the bound into a false claim** — and
+ *     that instruction is different for every tool, which is why `revocation`
+ *     is a required argument rather than a default. Chat is told to answer from
+ *     the document, so it denies. A summarizer is told to output a summary, so
+ *     it presents a partial one as the summary. A translator is told to output
+ *     only the translation with no commentary, so it hands back a fifth of a
+ *     document with nothing marking where it stops. Same bound, three different
+ *     wrong claims, and a prompt that revokes the wrong one is noise: telling a
+ *     translator "do NOT say the document does not contain it" is a sentence
+ *     about an answer it was never asked to give.
+ *
+ * `revocation` receives the bound phrase so it can name the pages itself.
  */
-export function modelTruncationNotice(window: TruncationWindow): string {
+export function modelTruncationNotice(
+  window: TruncationWindow,
+  revocation: (upTo: string) => string,
+): string {
   if (!window.truncated) return "";
   const upTo =
     window.lastCompletePage !== null
@@ -178,8 +192,7 @@ export function modelTruncationNotice(window: TruncationWindow): string {
     "",
     "IMPORTANT — YOU ARE SEEING ONLY PART OF THIS DOCUMENT.",
     `The text above covers ${upTo}; the rest was not sent because of a length limit.${fragment}`,
-    "If the answer is not in the text you were given, do NOT say the document does not contain it —",
-    `say that you can only see ${upTo} and the answer may appear later in the document.`,
+    revocation(upTo),
   ].join("\n");
 }
 

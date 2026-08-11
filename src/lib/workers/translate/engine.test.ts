@@ -270,3 +270,122 @@ describe("runTranslate — provider-injected deterministic success", () => {
     expect(provider.calls[0]!.maxOutputTokens).toBe(512);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Truncation disclosure (TASK-45, folding in the #12 header defect)
+// ---------------------------------------------------------------------------
+
+/**
+ * Six pages of 200 characters each, joined by a blank line: offsets 0, 202, 404,
+ * 606, 808, 1010, total 1,210. A 500-character cap lands 96 characters INTO
+ * page 3 — page 2 is the last complete page and the cut is mid-page.
+ */
+const LONG_PAGES = Array.from({ length: 6 }, (_, i) =>
+  String.fromCharCode(97 + i).repeat(200),
+);
+
+function longExtractor(): PdfTextExtractor {
+  const pages = LONG_PAGES.map((text, i) => ({
+    pageNumber: i + 1,
+    text,
+    characterCount: text.length,
+  }));
+  const joined = LONG_PAGES.join("\n\n");
+  const extracted: ExtractedPdfText = {
+    pageCount: LONG_PAGES.length,
+    pages,
+    text: joined,
+    characterCount: joined.length,
+    hasText: true,
+  };
+  return vi.fn(async () => extracted);
+}
+
+describe("a short window is disclosed — to the model and to the job record", () => {
+  it("names the last COMPLETE page in the model's system prompt", async () => {
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: longExtractor(),
+      provider,
+      limits: { maxInputChars: 500 },
+    });
+    expect(run.ok).toBe(true);
+
+    // Before this change the ONLY hint was a parenthetical in the user turn:
+    // "(Only the first part of a long document is included.)" — vague where it
+    // needed to be specific, and nowhere near the instructions it has to override.
+    const system = provider.calls[0]?.system ?? "";
+    expect(system).toMatch(/pages 1-2 of 6/);
+    expect(system).toMatch(/mid-page/);
+  });
+
+  it("forbids presenting a partial translation as the document's translation", async () => {
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    await runTranslate(INPUT, OPTIONS, {
+      extract: longExtractor(),
+      provider,
+      limits: { maxInputChars: 500 },
+    });
+    const system = provider.calls[0]?.system ?? "";
+    // Translate's failure mode is not a false denial — it is a partial
+    // translation that looks complete, so the instruction it must revoke is
+    // "Output ONLY the translation, with no preamble or commentary."
+    expect(system).toMatch(/only the pages you were given/i);
+  });
+
+  it("reports the window on meta so the panel can state it without the model", async () => {
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: longExtractor(),
+      provider,
+      limits: { maxInputChars: 500 },
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.window).toEqual({
+      truncated: true,
+      charactersSent: 500,
+      charactersTotal: 1210,
+      totalPages: 6,
+      lastCompletePage: 2,
+      cutMidPage: true,
+    });
+    expect(run.meta.truncationNotice).toMatch(/pages 1–2 of 6/);
+  });
+
+  it("stops the package header claiming the whole source PDF (#12)", async () => {
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: longExtractor(),
+      provider,
+      limits: { maxInputChars: 500 },
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+
+    const zip = await JSZip.loadAsync(run.output);
+    const md = await zip.file("translation.md")!.async("string");
+    // The header says "from the selectable text of the source PDF" directly
+    // above a translation of its first fifth. The page-named line is what makes
+    // that header readable rather than misleading.
+    expect(md).toMatch(/pages 1–2 of 6/);
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
+    expect(manifest.source.truncationNotice).toMatch(/pages 1–2 of 6/);
+  });
+
+  it("says nothing at all when the whole document fits", async () => {
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: longExtractor(),
+      provider,
+      limits: { maxInputChars: 100_000 },
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.truncated).toBe(false);
+    expect(run.meta.truncationNotice).toBeNull();
+    expect(provider.calls[0]?.system ?? "").not.toMatch(/ONLY PART/);
+  });
+});
