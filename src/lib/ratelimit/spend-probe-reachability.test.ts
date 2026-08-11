@@ -62,17 +62,62 @@ function walk(dir: string): string[] {
 /**
  * The processes a deployment actually starts.
  *
- * DISCOVERED, never listed. A named list cannot see a file it does not name, so
- * a new route that needed the posture — or a second worker entry point — would
- * be invisible to a hand-written array. The web tier's entry points are Next's
- * route handlers; the worker tier's are the daemon scripts.
+ * DISCOVERED, never listed — and the first version of this function did not
+ * honour its own docblock. The web half really did discover (every Next route
+ * handler); the worker half read
+ *
+ *     walk(SCRIPTS).filter(f => /worker-daemon|worker-ops-check/.test(f))
+ *
+ * which hand-names two of the sixteen `worker:*` scripts. A comment claiming
+ * discovery above a regex naming files is the precise artifact this codebase
+ * exists to delete, and it sat in the file whose whole subject is instruments
+ * that lie.
+ *
+ * The worker tier's entry point is now derived from the chain a deployment
+ * actually uses — **container command → package script → file**:
+ *
+ *     Dockerfile   CMD ["pnpm", "worker:daemon"]
+ *     package.json "worker:daemon": "tsx scripts/worker-daemon.ts"
+ *
+ * Three artifacts pinned to each other. Repoint the script, rename the file, or
+ * change what the container runs, and this follows; none of those is something a
+ * regex over filenames can see.
  */
 function entryPoints(): { web: string[]; worker: string[] } {
   const web = walk(join(SRC, "app")).filter((f) => /[\\/]route\.ts$/.test(f));
-  const worker = walk(SCRIPTS).filter((f) =>
-    /worker-daemon|worker-ops-check/.test(f),
-  );
-  return { web, worker };
+  return { web, worker: workerEntryPoints() };
+}
+
+/**
+ * Resolve what the worker container runs, through the package manifest, to files.
+ *
+ * FATAL on a broken link rather than skipping it. A `pnpm <name>` in the
+ * Dockerfile that no script defines means the image cannot start, and an
+ * instrument that quietly dropped it would shrink its own corpus toward the
+ * empty set — which passes every `⊆` assertion it is asked.
+ */
+function workerEntryPoints(): string[] {
+  const dockerfile = readFileSync(join(ROOT, "Dockerfile"), "utf8");
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  const scripts = pkg.scripts ?? {};
+
+  const files = new Set<string>();
+  for (const m of dockerfile.matchAll(/["']pnpm["']\s*,\s*["']([^"']+)["']/g)) {
+    const name = m[1]!;
+    const command = scripts[name];
+    if (command === undefined) {
+      throw new Error(
+        `the Dockerfile runs \`pnpm ${name}\` but package.json defines no such script`,
+      );
+    }
+    // Only the scripts that are a TypeScript entry point in this repo; `pnpm
+    // start` is Next's server and has no file of ours to walk.
+    const file = /(?:^|\s)(scripts\/[\w.-]+\.ts)(?:\s|$)/.exec(command);
+    if (file) files.add(join(ROOT, file[1]!));
+  }
+  return [...files];
 }
 
 /** Resolve one import specifier to a file on disk, or null if it is external. */
@@ -256,8 +301,29 @@ describe("the spend probe is reachable from the processes that run", () => {
     ).toBeGreaterThan(10);
     expect(
       worker.length,
-      "no worker entry-point script was discovered",
+      "no worker entry-point script was discovered from the Dockerfile's " +
+        "command through package.json — the chain is broken, and every arm " +
+        "below would then be asserting something about the empty set",
     ).toBeGreaterThan(0);
+    // Every discovered entry point must exist on disk. A resolved-but-absent
+    // file would silently contribute nothing to the graph.
+    for (const f of worker) expect(statSync(f).isFile()).toBe(true);
+  });
+
+  it("CONTROL: the worker entry point is derived, not named", () => {
+    // The defect this replaced hand-named two of the sixteen `worker:*`
+    // scripts under a docblock claiming discovery. The property that makes the
+    // replacement real is that the answer comes from the Dockerfile and
+    // package.json — so it must NOT include scripts the container never runs.
+    const { worker } = entryPoints();
+    const all = walk(SCRIPTS);
+    expect(all.length, "the scripts directory did not walk").toBeGreaterThan(
+      worker.length,
+    );
+    // `worker:ops-check` is a `worker:*` script and a legitimate entry point for
+    // an operator, but it is not what the container starts — so the derived set
+    // must exclude it, which a filename regex over `worker-*` could not.
+    expect(worker.some((f) => /worker-ops-check/.test(f))).toBe(false);
   });
 
   it("POSITIVE CONTROL: the graph walk reaches a symbol known to be wired", () => {

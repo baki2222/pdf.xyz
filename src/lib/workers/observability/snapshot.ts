@@ -1328,6 +1328,13 @@ export function collectRuntimeOperationsSnapshot(
     lifecycleVerification?: LifecycleVerificationInput;
     lastLoop?: DaemonRunSummary;
     cleanupEvidence?: CleanupEvidencePosture;
+    /**
+     * The AI spend ceiling's posture, read by the caller. The WORKER vantage can
+     * read it too — it is the tier that writes the counter — and a collector
+     * that omitted it would report `unknown` from the one process guaranteed to
+     * have the limiter.
+     */
+    aiSpend?: SnapshotAiSpendPosture;
   } = {},
 ): WorkerOperationsSnapshot {
   return buildWorkerOperationsSnapshot({
@@ -1343,6 +1350,7 @@ export function collectRuntimeOperationsSnapshot(
     ...(extras.cleanupEvidence
       ? { cleanupEvidence: extras.cleanupEvidence }
       : {}),
+    ...(extras.aiSpend ? { aiSpend: extras.aiSpend } : {}),
   });
 }
 
@@ -1372,6 +1380,13 @@ export function collectOperatorProbeSnapshot(
   opts: {
     daemonLiveness?: HeartbeatLiveness;
     cleanupEvidence?: CleanupEvidencePosture;
+    /**
+     * The AI spend ceiling's posture. `pnpm worker:ops-check` IS the hourly
+     * watcher, so a collector that omitted this would report `unknown` forever
+     * — and `ceiling-reached` would never reach the surface it was given its own
+     * code for.
+     */
+    aiSpend?: SnapshotAiSpendPosture;
   } = {},
 ): WorkerOperationsSnapshot {
   return buildWorkerOperationsSnapshot({
@@ -1382,5 +1397,6 @@ export function collectOperatorProbeSnapshot(
     guardrails: runtime.guardrails,
     ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
     ...(opts.cleanupEvidence ? { cleanupEvidence: opts.cleanupEvidence } : {}),
+    ...(opts.aiSpend ? { aiSpend: opts.aiSpend } : {}),
   });
 }
