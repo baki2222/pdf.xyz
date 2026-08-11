@@ -137,6 +137,31 @@ describe("the worker and the web tier share one bucket, proven not assumed", () 
     expect(verdict.reason).toBe("unenforced");
   });
 
+  it("is RED when only the WRITER lacks a limiter — production's exact state", async () => {
+    // THE ASYMMETRIC CASE, and the one that actually shipped: the web tier is
+    // configured, the worker is not. Every write silently does nothing while
+    // the reading side looks perfectly healthy. Absent must not read as
+    // agreement — `shared` stays false, so a posture built on this cannot show
+    // green on the deployment that has been broken all along.
+    expect(await writeSpendProbe({}, T0)).toBe(false);
+    const verdict = await readSpendProbe(LOCAL, T0);
+    expect(
+      verdict.shared,
+      "the web tier reported a shared bucket while the worker had no limiter " +
+        "at all — this is blocker 2, and it must never read as agreement",
+    ).toBe(false);
+  });
+
+  it("is RED when only the READER lacks a limiter", async () => {
+    // The mirror. A worker counting into a real store while the tier that must
+    // refuse jobs cannot see it is equally decorative.
+    expect(await writeSpendProbe(LOCAL, T0)).toBe(true);
+    const verdict = await readSpendProbe({}, T0);
+    expect(verdict.shared).toBe(false);
+    if (verdict.shared) return;
+    expect(verdict.reason).toBe("unenforced");
+  });
+
   it("does not move the ceiling it is checking on", async () => {
     // A probe that spent from the real counter would make the measurement it
     // exists to verify slightly wrong every time it ran.
