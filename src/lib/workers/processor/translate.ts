@@ -53,6 +53,15 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "too_much_text":
+      // Not retryable and not a size error: the same document through the same
+      // model produces the same overflow, and the file may be tiny. The message
+      // already carries both numbers.
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "no_text":
       return {
         code: "unprocessable_entity",

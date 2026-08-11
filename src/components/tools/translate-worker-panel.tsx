@@ -9,11 +9,7 @@ import {
   Timer,
 } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
-import {
-  AI_INPUT_LIMITS,
-  DEFAULT_RETENTION,
-  JOB_LIMITS,
-} from "@/lib/jobs/types";
+import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
   DEFAULT_TRANSLATE_SOURCE,
   LANGUAGE_NAMES,
@@ -34,6 +30,11 @@ import {
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { extractPdfText } from "@/lib/pdf/text";
+import {
+  TRANSLATE_MAX_INPUT_CHARS,
+  translateTooLongMessage,
+} from "@/lib/jobs/translate-limits";
 import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
@@ -201,7 +202,7 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters read`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters translated`}
           />
         </div>
       </div>
@@ -250,9 +251,36 @@ function TranslateBuilder() {
     try {
       setOutcome(null);
       const trimmed = instructions.trim();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+
+      // MEASURE HERE, BEFORE ANYTHING IS SPENT.
+      //
+      // Translate is bounded by how much the model may WRITE, and its output is
+      // as long as its input — so a document can be far under the file-size
+      // limit and still be impossible. Measured on production: 135,280
+      // characters was accepted, uploaded, scanned, extracted, sent to the
+      // provider, billed, and refused after 49 seconds.
+      //
+      // The daily AI allowance is consumed when the job is CREATED
+      // (`api/jobs/route.ts`), so the worker's own check — which exists as a
+      // backstop — cannot give it back. Extracting the text here costs a local
+      // pdfjs parse and gives the user an immediate, specific answer instead of
+      // a 49-second wait and one of three daily runs.
+      const extracted = await extractPdfText(bytes);
+      if (extracted.characterCount > TRANSLATE_MAX_INPUT_CHARS) {
+        setOutcome({
+          ok: false,
+          message: translateTooLongMessage(
+            extracted.characterCount,
+            TRANSLATE_MAX_INPUT_CHARS,
+          ),
+        });
+        return;
+      }
+
       const result = await runWorkerTranslate({
         filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
+        bytes,
         targetLanguage,
         sourceLanguage,
         ...(trimmed ? { instructions: trimmed } : {}),
