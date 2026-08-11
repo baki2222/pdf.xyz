@@ -23,7 +23,7 @@
  *    is written and the job never reaches `completed`.
  */
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { DEFAULT_RETENTION, type Job } from "@/lib/jobs";
 import { DevWorkerStore } from "../store";
 import { newFileId } from "../ids";
@@ -136,9 +136,27 @@ function fakeBucket() {
   return { objects, calls, fn };
 }
 
-async function makePdf(pages: number): Promise<Uint8Array> {
+async function makePdf(
+  pages: number,
+  opts: { withText?: boolean } = {},
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  for (let i = 0; i < pages; i++) doc.addPage([300, 300]);
+  const font = opts.withText
+    ? await doc.embedFont(StandardFonts.Helvetica)
+    : undefined;
+  for (let i = 0; i < pages; i++) {
+    const page = doc.addPage([300, 300]);
+    if (font) {
+      for (let line = 0; line < 8; line += 1) {
+        page.drawText(`content line ${line}`, {
+          x: 10,
+          y: 280 - line * 20,
+          size: 9,
+          font,
+        });
+      }
+    }
+  }
   return doc.save();
 }
 
@@ -316,7 +334,7 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
     const { store, queue, storage } = harness(bucket);
 
     const fileId = newFileId();
-    const original = await makePdf(8);
+    const original = await makePdf(8, { withText: true });
     bucket.objects.set(keyPath("input", fileId), {
       bytes: original,
       contentType: "application/pdf",
@@ -329,7 +347,13 @@ describe("native compression worker path — S3 seam, end-to-end", () => {
 
     // A deterministic stand-in for Ghostscript: returns a real, smaller PDF so the
     // native path is exercised faithfully without shipping a binary in CI.
-    const deepOutput = await makePdf(2);
+    // 8 pages in, 8 pages out — fewer bytes, every page intact.
+    //
+    // This was `makePdf(2)`: a "deep compression" mock returning a 2-page
+    // document for an 8-page input, with the test asserting the job completed.
+    // The fixture did not merely describe the wrong world, it encoded the exact
+    // defect TASK-49 exists to stop and blessed it as the expected outcome.
+    const deepOutput = await makePdf(8);
     const runnerCalls: {
       engine: string;
       inputBytes: number;

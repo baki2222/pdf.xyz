@@ -7,7 +7,7 @@
 // queued → processing → completed with a real, validated artifact — and that with
 // no native engine the same job fails honestly as not_implemented, never faked.
 import { beforeEach, describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { DEFAULT_RETENTION, type Job } from "@/lib/jobs";
 import { DevWorkerStore } from "../store";
 import { createLocalDevQueue } from "../queue/local-dev";
@@ -20,13 +20,32 @@ import { resolveWorkerRuntime } from "./runtime";
 
 async function makePdf(pages = 6): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  for (let i = 0; i < pages; i++) doc.addPage([300, 300]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < pages; i++) {
+    const page = doc.addPage([300, 300]);
+    for (let line = 0; line < 8; line += 1) {
+      page.drawText(`content line ${line}`, {
+        x: 10,
+        y: 280 - line * 20,
+        size: 9,
+        font,
+      });
+    }
+  }
   return doc.save();
 }
 
-/** Minimal, structurally-valid PDF the mocked native engine "produces". */
-function tinyPdf(pad = 32): Uint8Array {
-  return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
+/**
+ * A REAL PDF the mocked native engine "produces": the input's page count, fewer
+ * bytes. It used to be `%PDF-` + zeroes + `%%EOF`, described as "minimal,
+ * structurally-valid" — it was neither valid nor a PDF (no page tree, unopenable
+ * by pdf-lib). The compression page-count gate failed on it the moment it was
+ * added, which is how the misdescription surfaced.
+ */
+async function compressedPdf(pages = 6): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < pages; i++) doc.addPage([50, 50]);
+  return doc.save();
 }
 
 const noEngines: CompressionDeps = {
@@ -76,7 +95,7 @@ describe("worker daemon — native deep compression end-to-end", () => {
     const jobId = "job_cmp0000000001";
     const { fileId } = await seedJob(jobId);
 
-    const compressed = tinyPdf();
+    const compressed = await compressedPdf();
     // A registry whose compression processor has a native engine wired to a MOCK —
     // exactly the seam a real Ghostscript runner slots into.
     const registry = createProcessorRegistry({

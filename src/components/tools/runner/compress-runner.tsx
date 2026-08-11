@@ -653,6 +653,27 @@ function DeepRunControls({
               {pct(savedBytes / Math.max(1, originalBytes))}%) —{" "}
               {formatBytes(outcome.output.byteLength)} final.
             </p>
+            {/* The percentage above is computed from two byte counts. It is a
+                COMPRESSION figure only when the worker proved the output still
+                holds the input's pages; when the input could not be counted it
+                is a size difference between two files whose relationship was
+                never established, and saying so is cheaper than being wrong. */}
+            {outcome.job?.results?.compression?.pageCheck === "unverified" && (
+              <p
+                role="status"
+                className="flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+              >
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                <span>
+                  <strong className="font-semibold">
+                    This file could not be checked page-for-page.
+                  </strong>{" "}
+                  The size went down; we could not confirm the result still has
+                  every page the original did. Open it before deleting your
+                  copy.
+                </span>
+              </p>
+            )}
             <button
               type="button"
               onClick={() =>

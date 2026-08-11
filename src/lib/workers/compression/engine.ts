@@ -20,6 +20,7 @@
  */
 
 import { PDFDocument } from "pdf-lib";
+import { countPdfPagesDetailed } from "@/lib/pdf/page-count";
 import { apiError, type ParseResult } from "@/lib/jobs";
 
 /**
@@ -250,7 +251,21 @@ export interface CompressionLimits {
    * spawned. Lossless (in-process pdf-lib) is intentionally not limited here.
    */
   maxInputBytes?: number;
+  /**
+   * Largest artifact the page check will parse. Above it the count is reported
+   * as unknown rather than attempted — pdf-lib loads a whole document into
+   * memory, so this is a real budget line and not a formality.
+   */
+  maxPageCountParseBytes?: number;
 }
+
+/**
+ * Default ceiling for the page check. Chosen to sit at the deep path's own input
+ * limit rather than below it: a ceiling under the accepted file size would make
+ * every large job `unverified`, which is the quiet way a gate stops meaning
+ * anything.
+ */
+const MAX_PAGE_PARSE_BYTES = 200 * 1024 * 1024;
 
 /** Everything {@link runCompression} needs, all injectable for tests. */
 export interface CompressionDeps {
@@ -278,8 +293,37 @@ export interface CompressionResultMeta {
   outputBytes: number;
   /** Bytes saved; never negative (a repack that grows a file reports 0). */
   savedBytes: number;
-  /** Fraction saved, 0–1. */
+  /**
+   * Fraction saved, 0–1.
+   *
+   * READ THIS WITH `pageCheck`. Until 2026-08-11 this number was the product's
+   * headline success metric and it was computed from bytes alone, so a native
+   * engine that silently dropped 197 of 200 pages reported a 98% saving — the
+   * more of the document it destroyed, the better the run looked. It is only a
+   * compression figure when `pageCheck === "verified"`; otherwise it is a size
+   * difference between two files whose relationship was not established.
+   */
   savedRatio: number;
+  /**
+   * Whether the output was proven to still contain the input's pages.
+   *
+   * - `verified`    — both counts known, and the output has at least as many.
+   * - `not-applicable` — the lossless in-browser repack, which cannot lose pages
+   *   because it re-serializes a parsed document rather than re-rendering it.
+   * - `unverified`  — the INPUT could not be counted (unparseable, or above the
+   *   parse ceiling). The artifact still ships; the CLAIM does not. Failing here
+   *   would break the largest files a user has, which is the pressure that ends
+   *   with the gate being deleted.
+   *
+   * There is no `unverified` for an unreadable OUTPUT: we produced that file, so
+   * our own parser failing on it is evidence against the artifact, not missing
+   * information. That case fails.
+   */
+  pageCheck: "verified" | "unverified" | "not-applicable";
+  /** Input page count when known; `null` when it could not be established. */
+  pagesIn: number | null;
+  /** Output page count when known; `null` on the paths that do not measure it. */
+  pagesOut: number | null;
 }
 
 /**
@@ -296,6 +340,19 @@ export type CompressionRun =
     }
   | { ok: false; kind: "invalid_pdf"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
+  /**
+   * The deep engine returned a readable PDF with FEWER pages than it was given.
+   * Its own kind rather than `failed`, because the numbers are the useful part
+   * of the message and because this is not transient — retrying the same bytes
+   * through the same engine loses the same pages.
+   */
+  | {
+      ok: false;
+      kind: "page_loss";
+      pagesIn: number;
+      pagesOut: number;
+      message: string;
+    }
   | { ok: false; kind: "failed"; message: string };
 
 /**
@@ -382,6 +439,9 @@ export async function runCompression(
 
   // Deep path: never accept the engine's output without validating it is a real,
   // readable PDF, and never hand back a file larger than the input.
+  let pageCheck: CompressionResultMeta["pageCheck"] = "not-applicable";
+  let pagesIn: number | null = null;
+  let pagesOut: number | null = null;
   if (isNative) {
     const validate = deps.validate ?? looksLikePdf;
     if (!(await validate(output))) {
@@ -404,6 +464,41 @@ export async function runCompression(
       }
       output = input;
     }
+
+    // The page check runs on the FINAL artifact, after the swap above — the
+    // question is about the file the user receives, not the one the engine
+    // happened to emit.
+    const ceiling = deps.limits?.maxPageCountParseBytes ?? MAX_PAGE_PARSE_BYTES;
+    const countIn = await countPdfPagesDetailed(input, ceiling);
+    const countOut = await countPdfPagesDetailed(output, ceiling);
+    pagesIn = countIn.ok ? countIn.count : null;
+    pagesOut = countOut.ok ? countOut.count : null;
+
+    if (!countOut.ok) {
+      // We produced this file and `looksLikePdf` blessed it, and our own parser
+      // cannot find its page tree. That is not missing information.
+      return {
+        ok: false,
+        kind: "failed",
+        message: "The compression engine produced an unreadable PDF.",
+      };
+    }
+    if (countIn.ok) {
+      if (countOut.count < countIn.count) {
+        return {
+          ok: false,
+          kind: "page_loss",
+          pagesIn: countIn.count,
+          pagesOut: countOut.count,
+          message:
+            "Compression finished but the result was missing pages, so it was rejected. Your original file is unchanged.",
+        };
+      }
+      pageCheck = "verified";
+    } else {
+      // The input could not be counted. The file may ship; the CLAIM may not.
+      pageCheck = "unverified";
+    }
   }
 
   const originalBytes = input.byteLength;
@@ -414,6 +509,9 @@ export async function runCompression(
     ok: true,
     output,
     meta: {
+      pageCheck,
+      pagesIn,
+      pagesOut,
       engine: plan.engine,
       profile: options.profile,
       originalBytes,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   DEEP_COMPRESSION_TOOLS,
   looksLikePdf,
@@ -11,13 +11,41 @@ import {
 } from "./engine";
 
 /** Minimal, structurally-valid PDF bytes (header + trailer) for deep-path fakes. */
-function tinyPdf(pad = 40): Uint8Array {
+/**
+ * Bytes SHAPED like a PDF — `%PDF-` header, `%%EOF` trailer, rubble between.
+ *
+ * Renamed from `tinyPdf` on 2026-08-11. It was called a PDF, and two tests
+ * described it in comments as "a real, structurally-valid PDF"; it has no page
+ * tree and pdf-lib cannot open it. The page-count gate failed both of those
+ * tests the moment it was added, which is how the misdescription surfaced. The
+ * name now says what it is, and it is used only where header-and-trailer rubble
+ * is the POINT — chiefly in proving what `looksLikePdf` cannot see.
+ */
+function pdfShapedBytes(pad = 40): Uint8Array {
   return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
 }
 
-async function makePdf(pages = 3): Promise<Uint8Array> {
+async function makePdf(
+  pages = 3,
+  opts: { withText?: boolean } = {},
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  for (let i = 0; i < pages; i++) doc.addPage([200, 200]);
+  const font = opts.withText
+    ? await doc.embedFont(StandardFonts.Helvetica)
+    : undefined;
+  for (let i = 0; i < pages; i++) {
+    const page = doc.addPage([200, 200]);
+    if (font) {
+      for (let line = 0; line < 8; line += 1) {
+        page.drawText(`content line ${line}`, {
+          x: 10,
+          y: 180 - line * 20,
+          size: 9,
+          font,
+        });
+      }
+    }
+  }
   return doc.save();
 }
 
@@ -148,10 +176,11 @@ describe("runCompression", () => {
   });
 
   it("runs the deep path through an available native engine", async () => {
-    const input = await makePdf();
-    // A real, structurally-valid PDF that is smaller than the input — the genuine
-    // deep-compression win case.
-    const fakeOutput = tinyPdf();
+    const input = await makePdf(3, { withText: true });
+    // A real, structurally-valid PDF: SAME page count, fewer bytes — the genuine
+    // deep-compression win case, and the only shape that should pass the gate.
+    const fakeOutput = await makePdf(3);
+    expect(fakeOutput.byteLength).toBeLessThan(input.byteLength);
     let calledWith: string | null = null;
     const run = await runCompression(
       input,
@@ -192,7 +221,10 @@ describe("runCompression", () => {
   it("never returns a file larger than the input (no-worse policy returns the original)", async () => {
     const input = await makePdf(2);
     // A valid PDF, but LARGER than the input — deep compression backfired.
-    const bigger = tinyPdf(input.byteLength + 512);
+    // Larger than the input, so the no-worse policy swaps the ORIGINAL back in
+    // and the page check runs on that. These bytes are never counted, which is
+    // why rubble is still an honest fixture here.
+    const bigger = pdfShapedBytes(input.byteLength + 512);
     expect(bigger.byteLength).toBeGreaterThan(input.byteLength);
     const run = await runCompression(
       input,
@@ -224,7 +256,7 @@ describe("runCompression", () => {
         limits: { maxInputBytes: 8 },
         native: async () => {
           spawned = true;
-          return tinyPdf();
+          return pdfShapedBytes();
         },
       },
     );
@@ -267,7 +299,7 @@ describe("runCompression", () => {
 
 describe("looksLikePdf", () => {
   it("accepts bytes with a %PDF- header and a %%EOF trailer", () => {
-    expect(looksLikePdf(tinyPdf())).toBe(true);
+    expect(looksLikePdf(pdfShapedBytes())).toBe(true);
   });
 
   it("accepts a genuine pdf-lib document", async () => {
@@ -286,5 +318,122 @@ describe("looksLikePdf", () => {
     expect(
       looksLikePdf(new TextEncoder().encode(`%PDF-1.7\n${"x".repeat(64)}`)),
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The page-count gate (TASK-49)
+// ---------------------------------------------------------------------------
+
+describe("deep compression is rejected when it loses pages", () => {
+  it("refuses a 200-page input that comes back as 3 pages", async () => {
+    // The measured defect, reproduced. Before the gate this returned ok:true
+    // with savedRatio 98.1% — the more pages the engine destroyed, the better
+    // the run reported it had gone.
+    const input = await makePdf(200, { withText: true });
+    const gutted = await makePdf(3);
+
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      {
+        tools: { ghostscript: true, qpdf: false, mutool: false },
+        native: async () => gutted,
+      },
+    );
+
+    expect(run.ok).toBe(false);
+    if (run.ok || run.kind !== "page_loss")
+      throw new Error("expected page_loss");
+    expect(run.pagesIn).toBe(200);
+    expect(run.pagesOut).toBe(3);
+    // The numbers are in the failure because "it lost pages" without saying how
+    // many is not something a user can act on.
+    expect(run.message).toMatch(/missing pages/i);
+  });
+
+  it("accepts an output that GAINED pages, and says so", async () => {
+    // `>=`, not `===`. A native engine repairing a damaged xref can recover
+    // pages pdf-lib could not reach; that is the best available outcome, and a
+    // strict equality gate would reject it.
+    const input = await makePdf(3, { withText: true });
+    const recovered = await makePdf(5);
+
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      {
+        tools: { ghostscript: true, qpdf: false, mutool: false },
+        native: async () => recovered,
+      },
+    );
+
+    // The recovered file is larger, so the no-worse policy returns the original
+    // — and the check then runs on THAT, which is the artifact the user gets.
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.pageCheck).toBe("verified");
+  });
+});
+
+describe("the gate's unknowns are asymmetric on purpose", () => {
+  it("FAILS when the OUTPUT cannot be counted, even though looksLikePdf passes", async () => {
+    // We produced that file and `looksLikePdf` blessed it, and our own parser
+    // cannot find its page tree. That is evidence against the artifact, not
+    // missing information.
+    const input = await makePdf(4, { withText: true });
+    const rubble = pdfShapedBytes(64);
+    expect(looksLikePdf(rubble)).toBe(true);
+
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      {
+        tools: { ghostscript: true, qpdf: false, mutool: false },
+        native: async () => rubble,
+      },
+    );
+
+    expect(run.ok).toBe(false);
+    if (!run.ok) expect(run.kind).toBe("failed");
+  });
+
+  it("SHIPS but stamps `unverified` when the INPUT is above the parse ceiling", async () => {
+    // Failing here would break the largest files a user has — the pressure that
+    // ends with the gate being deleted. The file ships; the CLAIM does not.
+    const input = await makePdf(6, { withText: true });
+    const smaller = await makePdf(6);
+
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      {
+        tools: { ghostscript: true, qpdf: false, mutool: false },
+        native: async () => smaller,
+        // Ceiling below the input but above the output: the input cannot be
+        // counted, the output can.
+        limits: { maxPageCountParseBytes: smaller.byteLength },
+      },
+    );
+
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.pageCheck).toBe("unverified");
+    expect(run.meta.pagesIn).toBeNull();
+    expect(run.meta.pagesOut).toBe(6);
+  });
+
+  it("marks the LOSSLESS path not-applicable rather than unverified", async () => {
+    // The in-browser repack re-serializes a parsed document; it cannot lose
+    // pages. Calling that "unverified" would invite a caveat on the one path
+    // that never needed one.
+    const run = await runCompression(
+      await makePdf(3, { withText: true }),
+      { profile: "lossless", targetDpi: 150 },
+      { tools: { ghostscript: false, qpdf: false, mutool: false } },
+    );
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.pageCheck).toBe("not-applicable");
   });
 });
