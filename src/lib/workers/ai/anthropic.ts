@@ -21,6 +21,7 @@ import {
   type AiCompletionRequest,
   type AiCompletionResult,
   type AiProvider,
+  type AiUsage,
   validateCompletionRequest,
 } from "./provider";
 
@@ -130,6 +131,34 @@ function coerceCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : undefined;
+}
+
+/**
+ * The token accounting a parsed Messages-API body reports, or `undefined`.
+ *
+ * Hoisted out of the success path so a FAILURE can carry it too. `input_tokens`
+ * is the UNCACHED REMAINDER ONLY — the prompt total is
+ * `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`, billed
+ * at three different rates (fresh, ~1.25x to write, ~0.1x to read), so reading
+ * fewer than three makes a cached request look like a tiny one.
+ *
+ * `undefined` when the body carried no usable counts. That is a MEASUREMENT GAP,
+ * never a free call, and every caller keeps it absent rather than zeroing it.
+ */
+function usageFrom(body: AnthropicResponseBody): AiUsage | undefined {
+  const inputTokens = coerceCount(body.usage?.input_tokens);
+  const outputTokens = coerceCount(body.usage?.output_tokens);
+  if (inputTokens === undefined || outputTokens === undefined) return undefined;
+  const cachedInputTokens = coerceCount(body.usage?.cache_read_input_tokens);
+  const cacheWriteInputTokens = coerceCount(
+    body.usage?.cache_creation_input_tokens,
+  );
+  return {
+    inputTokens,
+    outputTokens,
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+    ...(cacheWriteInputTokens !== undefined ? { cacheWriteInputTokens } : {}),
+  };
 }
 
 /**
@@ -268,10 +297,18 @@ export function createAnthropicProvider(
         );
       }
 
+      // USAGE IS READ HERE, ABOVE THE FAILURE BRANCHES, and that placement is the
+      // point. It used to be computed below them, so `max_tokens` — the branch
+      // that exists BECAUSE the model spent its entire output budget — returned
+      // with the counts sitting in scope, one expression from the `return`, and
+      // dropped them. The most expensive outcome in the system recorded as free.
+      const parsedUsage = usageFrom(body);
+
       if (body.stop_reason === "refusal") {
         return aiFailure(
           "content_filtered",
           "The AI model declined to answer this request.",
+          parsedUsage,
         );
       }
 
@@ -283,6 +320,7 @@ export function createAnthropicProvider(
         return aiFailure(
           "incomplete_output",
           "The AI model reached its output limit before finishing, so the answer would have been cut off. Try a shorter document or a briefer output.",
+          parsedUsage,
         );
       }
 
@@ -291,38 +329,11 @@ export function createAnthropicProvider(
         return aiFailure(
           "invalid_response",
           "The AI provider returned no text.",
+          parsedUsage,
         );
       }
 
-      const inputTokens = coerceCount(body.usage?.input_tokens);
-      const outputTokens = coerceCount(body.usage?.output_tokens);
-      // `input_tokens` is the UNCACHED REMAINDER ONLY. The prompt total is
-      //     input_tokens + cache_creation_input_tokens + cache_read_input_tokens
-      // and all three are needed, at three different prices: fresh, write
-      // (1.25x), read (0.1x). Reading fewer than three makes a cached request
-      // look like a tiny one.
-      const cachedInputTokens = coerceCount(
-        body.usage?.cache_read_input_tokens,
-      );
-      // The write side, unread until 2026-08-11 and the reason a 50-page chat
-      // recorded as 20 input tokens: turn one of a `cacheSystem` request writes
-      // the whole document into the cache, so every character of it was billed
-      // here and counted nowhere. Kept as its own field because it is priced at
-      // neither the fresh nor the read rate.
-      const cacheWriteInputTokens = coerceCount(
-        body.usage?.cache_creation_input_tokens,
-      );
-      const usage =
-        inputTokens !== undefined && outputTokens !== undefined
-          ? {
-              inputTokens,
-              outputTokens,
-              ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
-              ...(cacheWriteInputTokens !== undefined
-                ? { cacheWriteInputTokens }
-                : {}),
-            }
-          : undefined;
+      const usage = parsedUsage;
 
       return {
         ok: true,
