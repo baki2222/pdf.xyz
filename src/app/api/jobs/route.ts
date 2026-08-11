@@ -12,7 +12,9 @@
 import { capabilityForMode, parseCreateJobRequest } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
-import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import { enforceRateLimit, peekAiSpendCeiling } from "@/lib/ratelimit/guard";
+import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
+import { apiError } from "@/lib/jobs/responses";
 import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
 import { readJsonBody, respond, respondRateLimited } from "../_lib/http";
 
@@ -48,6 +50,17 @@ export async function POST(request: Request): Promise<Response> {
   // throttle (see AI_ALLOWANCE_USED_MESSAGE).
   const tool = getToolBySlug(parsed.value.tool);
   if (tool && capabilityForMode(tool.processing) === "ai") {
+    // The GLOBAL ceiling first, and it is not a 429. A spent cost control is
+    // OUR limit, not this caller's quota — answering it as a rate limit would
+    // tell someone who has run nothing that they are out of runs. Peeked, never
+    // spent: asking whether AI is affordable must not make it unaffordable.
+    const ceiling = await peekAiSpendCeiling();
+    if (!ceiling.affordable) {
+      return respond(
+        apiError("service_unavailable", AI_CEILING_REACHED_MESSAGE),
+      );
+    }
+
     const aiLimit = await enforceRateLimit("ai.run", request);
     if (!aiLimit.allowed) return respondRateLimited(aiLimit);
   }

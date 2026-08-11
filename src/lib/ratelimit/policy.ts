@@ -12,6 +12,7 @@
  */
 
 import { RATE_LIMITS } from "@/lib/jobs";
+import { AI_SPEND_DAILY_TOKEN_CEILING } from "@/lib/jobs/ai-spend-ceiling";
 import type { RateLimitAction, RateLimitPolicy } from "./types";
 import { RATE_LIMIT_ACTIONS } from "./types";
 
@@ -95,21 +96,36 @@ export const RATE_LIMIT_POLICIES: Record<RateLimitAction, RateLimitPolicy> = {
   // tools, ON TOP of jobs.create; the refusal names the allowance, not a
   // generic throttle.
   //
-  // ⚠️ THIS COMMENT USED TO SAY "the internal spend ceiling is a separate
-  // circuit breaker, never published, never this policy". No such ceiling
-  // exists — verified 2026-08-11 five ways, including the whole `PDFXYZ_AI_*`
-  // namespace. This policy is the ONLY AI cost control in the product.
+  // ⚠️ THIS COMMENT ONCE SAID "the internal spend ceiling is a separate circuit
+  // breaker, never published, never this policy" — while no such ceiling
+  // existed. It was the worst-placed of three copies of that claim: this is the
+  // file someone would open to ADD a global bound, and it told them the bound
+  // already lived elsewhere.
   //
-  // It was the worst-placed of the three copies of that claim: this is the file
-  // someone would open to add a global bound, and it told them the bound already
-  // lived elsewhere. A ceiling is being built and will be a policy whose bucket
-  // is global rather than per client — note that this limiter counts REQUESTS
-  // (`redis.ts` runs a bare `INCR`, one per hit), so a token-denominated bound
-  // needs a cost argument and `INCRBY`, not a new policy alone.
+  // The ceiling is real as of 2026-08-11 and is `ai.spend`, immediately below.
+  // This policy is a per-client FAIRNESS device and has never been a cost
+  // control; the two are deliberately separate, because conflating them is what
+  // let the gap sit unnoticed.
   "ai.run": {
     id: "ai.run",
     action: "ai.run",
     limit: RATE_LIMITS.aiRunsPerDayPerClient,
+    windowSeconds: DAY,
+  },
+  // THE GLOBAL DAILY TOKEN CEILING, and the only policy here that is a COST
+  // CONTROL rather than a fairness device. Every other policy counts requests
+  // per client; this one counts TOKENS across all clients, into one constant
+  // bucket (`AI_SPEND_BUCKET`), because "3 per address" bounds nothing when the
+  // number of addresses is unbounded.
+  //
+  // It is spent in two phases — `peek` before a job is accepted, `spend` on the
+  // terminal transition — because a limiter tests before an action while a token
+  // cost is only known after the provider replies. The figure is PROVISIONAL and
+  // says so in `AI_SPEND_CEILING.measuredOn`.
+  "ai.spend": {
+    id: "ai.spend",
+    action: "ai.spend",
+    limit: AI_SPEND_DAILY_TOKEN_CEILING,
     windowSeconds: DAY,
   },
 };
