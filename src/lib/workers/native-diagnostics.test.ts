@@ -182,6 +182,15 @@ describe("the two rules that pull against each other", () => {
 });
 
 describe("the path rule is about paths, not about slashes", () => {
+  it("keeps a PDF NAME OBJECT, which is the shape that actually dominates", () => {
+    // The only keep-assertion here used to be `PDF/A1` — and that is the one
+    // shape whose slash sits MID-TOKEN, so it survives every rule this file has
+    // ever had, including the two that were wrong. It asserted nothing about the
+    // family that matters. A leading name object is the real test.
+    const text = "WARNING: /Type key should be /Pages but is not; overriding";
+    expect(sanitizeNativeDiagnostics(text, [])).toEqual([text]);
+  });
+
   it("keeps a message whose only slash is a standard's name", () => {
     // The rule's first version dropped this real Ghostscript line whole, because
     // "PDF/A1" has a slash. A rule that deletes the messages it exists to

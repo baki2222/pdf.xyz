@@ -21,15 +21,42 @@ export const MAX_TOOL_NOTE_CHARS = 200;
 /**
  * Whether a line still looks like a filesystem path.
  *
- * Not "contains a slash": a Ghostscript message about `PDF/A1` legitimately has
- * one, and dropping it would delete the very notice this seam exists to carry.
- * See `workers/native-diagnostics` for where that was first got wrong.
+ * THE SINGLE DEFINITION. It lives in `jobs/` because that is the lower layer —
+ * `workers/native-diagnostics.ts` imports it, never the reverse.
+ *
+ * It was duplicated here for one commit, with a comment calling the duplication
+ * deliberate: two trust boundaries, one in the worker where the temp paths are
+ * known and one at persistence which trusts nobody. **The defence in depth is
+ * real and is kept** — both boundaries still call this. Duplicating the
+ * IMPLEMENTATION was the mistake, and it was not theoretical. The worker copy
+ * was corrected to the two-separator rule and this one was not, so for one
+ * commit the worker passed all nine structural qpdf diagnostics through and this
+ * boundary dropped all nine. Measured end to end through the real chain:
+ * *fed in 9, survived the worker 9, survived persistence 0* — the user would
+ * have seen "9 further message(s) not shown." The fix was inert and nothing
+ * said so.
+ *
+ * THE DISCRIMINATOR is separator count PER TOKEN: a path-shaped token has two or
+ * more, a PDF name object has exactly one. `\S*` cannot cross a space, so
+ * `/Fields key of /AcroForm` is two names in two tokens and survives, while
+ * `/tmp/pdfxyz-ab12/input.pdf` is one token with three and does not.
+ *
+ * THE TRADE IS FORCED, NOT CHOSEN — and this is the half that went unrecorded
+ * before. A PDF name object and a one-component absolute path are
+ * **syntactically identical**: `/Root` and `/etc` have the same shape. No rule
+ * can separate them, so every rule must choose which to sacrifice. Dropping
+ * `/Root` loses the diagnostic a repair tool exists to give; letting `/etc`
+ * through risks a bare directory name — and our own temp paths are always
+ * multi-segment AND are removed by exact string match before this net is
+ * reached. So the single segment survives. That is a ruling, not an oversight.
  */
-function looksLikePath(line: string): boolean {
+export function looksLikePath(line: string): boolean {
   return (
-    /(^|\s)\/\S/.test(line) ||
+    // A Windows drive: `C:\`.
     /(^|\s)[A-Za-z]:[\\/]/.test(line) ||
+    // A UNC prefix: `\\server`.
     /\\\\/.test(line) ||
+    // Two or more separators inside ONE token.
     /\S*[/\\]\S*[/\\]\S*/.test(line)
   );
 }

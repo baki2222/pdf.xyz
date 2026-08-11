@@ -26,6 +26,7 @@
  * measuring instrument that reports "nothing" when it means "I no longer
  * understand". The text goes through as text.
  */
+import { looksLikePath } from "@/lib/jobs/tool-notes";
 
 /**
  * Max lines handed to a caller. Everything beyond is counted, not dropped
@@ -61,47 +62,28 @@ export const MAX_DIAGNOSTIC_CHARS = 200;
  *     it was written for and deleted the case that dominates. Structural
  *     diagnostics are the entire domain of `repair-pdf`; that was not an edge.
  *
- * THE DISCRIMINATOR IS SEPARATOR COUNT PER TOKEN. A path-shaped token has two or
- * more; a PDF name has exactly one. `\S*` cannot cross a space, so
- * `/Fields key of /AcroForm` is two names in two tokens and survives, while
- * `Resource/Font/NimbusSans-Regular` is one token with two and does not.
- * Mechanical, not a judgement call.
- *
- * COST, RULED AND ACCEPTED: a SINGLE-SEGMENT absolute path (`/etc`, `/tmp`) now
- * survives this net. That is deliberate. Our own temp paths are always
- * multi-segment AND are removed by exact string match before this rule is
- * reached, so this is a second line of defence against paths we did not create —
- * not the only one. Do not read the gap as an oversight.
+ * THE RULE ITSELF LIVES IN `@/lib/jobs/tool-notes` and is imported, not copied.
+ * It was briefly defined in both places, described as deliberate duplication for
+ * defence in depth. The depth is real and is kept — both boundaries call it —
+ * but duplicating the implementation cost the entire fix for one commit: this
+ * copy was corrected and the persistence copy was not, so the worker passed all
+ * nine structural diagnostics and the job record dropped all nine. Read the
+ * forced trade (`/Root` and `/etc` are the same shape) at the definition.
  *
  * NOT REVIEWED BY READING. `native-diagnostics.corpus.ts` holds the real
  * captured qpdf and Ghostscript output, and the test beside it runs every line
- * through this rule and prints a verdict. Any change here gets executed against
- * that corpus first.
+ * through this rule and prints a verdict. Any change gets executed against that
+ * corpus first.
  *
- * COST, STATED — AND IT GOT LARGER. A font-substitution notice names a path
- * inside the Ghostscript install, so this rule drops and counts it rather than
- * showing it. Since `-dQUIET` was added to the PDF/A argv that line is not
- * emitted at all, so for PDF/A it is now unobservable rather than merely
- * unshown. Font substitution is a real change to a document, so this is a
- * genuine reduction in what we can tell a user. It is recorded as a known gap:
+ * ONE COST IS THIS FILE'S OWN, because it is created by the argv rather than the
+ * rule: a font-substitution notice names a path inside the Ghostscript install,
+ * so the rule drops and counts it. Since `-dQUIET` was added to the PDF/A argv
+ * that line is not emitted at all, so for PDF/A it is now unobservable rather
+ * than merely unshown. Font substitution is a real change to a document, so this
+ * is a genuine reduction in what we can tell a user, recorded as a known gap:
  * recovering it would mean running gs loudly and filtering the boilerplate back
- * out, which is the classifier this file argues against — a filter that stopped
- * matching would let the banner through visibly, but only after someone had
- * already accepted a filter as the mechanism.
+ * out — the classifier this file argues against.
  */
-function looksLikePath(line: string): boolean {
-  return (
-    // A Windows drive: `C:\`.
-    /(^|\s)[A-Za-z]:[\\/]/.test(line) ||
-    // A UNC prefix: `\\server`.
-    /\\\\/.test(line) ||
-    // TWO OR MORE separators inside ONE token. `\S*` cannot cross a space, so
-    // "/Fields key of /AcroForm" is two names in two tokens and survives, while
-    // "/tmp/pdfxyz-ab12/input.pdf" is one token with three separators and does
-    // not. That is the whole discriminator, and it is mechanical.
-    /\S*[/\\]\S*[/\\]\S*/.test(line)
-  );
-}
 
 /**
  * Tidy what path removal leaves behind.

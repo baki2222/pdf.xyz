@@ -92,3 +92,62 @@ describe("path-bearing lines still fail closed", () => {
     ]);
   });
 });
+
+describe("the whole chain, worker through persistence", () => {
+  it("delivers all nine structural diagnostics to the job record", async () => {
+    // THE ASSERTION THAT WAS MISSING, and its absence hid a live defect: the
+    // path rule was corrected in the worker and NOT in the persistence
+    // boundary, which held a second copy described as deliberate duplication.
+    // Measured through the real chain at that point: fed in 9, survived the
+    // worker 9, survived persistence 0 — the user saw only
+    // "9 further message(s) not shown."
+    //
+    // Testing each boundary alone could never have caught it. Both passed.
+    const { sanitizeJobResults } = await import("@/lib/jobs/results");
+    const texts = QPDF_STRUCTURAL.map((l) => l.text);
+
+    const fromWorker = sanitizeNativeDiagnostics(texts.join("\n"), []);
+    const persisted =
+      sanitizeJobResults({
+        repair: { recoveredWithWarnings: true, warnings: fromWorker },
+      })?.repair?.warnings ?? [];
+
+    for (const text of texts) {
+      expect(
+        persisted,
+        `"${text}" reached the worker's output but not the job record. The path ` +
+          "rule exists in ONE place for exactly this reason — check that " +
+          "jobs/tool-notes and workers/native-diagnostics still share it.",
+      ).toContain(text);
+    }
+    expect(persisted.join(" ")).not.toMatch(/further message/);
+  });
+});
+
+describe("the path rule has exactly one implementation", () => {
+  it("is defined in jobs/tool-notes and imported by the worker", async () => {
+    // A comment saying duplication is deliberate does not stop it drifting; it
+    // drifted within one commit of being written. Defence in depth is kept by
+    // both boundaries CALLING this, not by both defining it.
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const read = (rel: string) =>
+      fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+
+    const worker = read("src/lib/workers/native-diagnostics.ts");
+    expect(
+      worker,
+      "workers/native-diagnostics.ts must IMPORT looksLikePath, not define it.",
+    ).toContain('from "@/lib/jobs/tool-notes"');
+    expect(
+      worker.includes("function looksLikePath"),
+      "workers/native-diagnostics.ts defines a second looksLikePath. The last " +
+        "time two copies existed, one was corrected and the other was not, and " +
+        "the fix was inert for a commit.",
+    ).toBe(false);
+
+    expect(read("src/lib/jobs/tool-notes.ts")).toContain(
+      "export function looksLikePath",
+    );
+  });
+});
