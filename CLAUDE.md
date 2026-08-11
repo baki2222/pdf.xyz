@@ -68,6 +68,27 @@ Corollaries in the same family, each from a real miss:
 - Tests that pinned a defect get **inverted, not deleted**, with the history kept
   in the file.
 
+**3. Failure paths get the minimal type, and money is spent on the way to both.**
+Success shapes accumulate rich metadata; failure shapes stay lean, because they
+are written while thinking about _what went wrong_ and never about _what it
+cost_. So the omission is invisible at authoring time and unidirectional toward
+free at runtime. One feature hit it at **three** layers in a row — the provider's
+failure shape, four engines' failure arms, and `ProcessorResult` — each dropping
+the token counts of `incomplete_output`, the outcome that is non-retryable
+_precisely because_ it burned the maximum budget.
+
+Two tells, both cheap to check:
+
+- **The capability exists everywhere except where it costs money.** Grep the file
+  for the concept: 10, 10, 10 and 19 mentions across four engines, and zero on
+  the failure branch. A count that high is not an oversight, it is a shape.
+- **When the type is fine, the ORDER does the same work.** `usageFrom(body)` was
+  correct, tested, and ran on every successful call — it simply sat _below_ the
+  branch that needed it. A statement can be right and still be in the wrong
+  place, and no test of that statement can tell you; only a test of the branch
+  that needed it can. Reviewers ask _is this correct_, never _is this early
+  enough_, and a diff shows neither.
+
 ## Commands
 
 - Install: `pnpm install`
