@@ -212,9 +212,10 @@ export default function PrivacyPage() {
           recognition to manufacture text from a scan, and a scanned document is
           refused rather than silently half-processed. And for{" "}
           <strong className="font-semibold text-white">Chat with PDF</strong>,
-          the document&apos;s text is held briefly in the provider&apos;s cache
-          between your questions, so a follow-up does not resend the whole
-          document; that cache lasts minutes, not days.
+          the document&apos;s text is sent again with every question — the
+          worker keeps nothing between them. The provider holds it in a
+          short-lived cache, which lowers the cost of processing the repeat
+          rather than avoiding it; that cache lasts minutes, not days.
         </p>
         <p>
           We use providers under agreements that prohibit training on data sent
