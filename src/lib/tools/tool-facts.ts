@@ -19,7 +19,14 @@
  *    the mode-true default flow. A client tool's steps NEVER claim an
  *    upload; the structured-data guard pins that relationship.
  */
-import { JOB_LIMITS, DEFAULT_RETENTION, RATE_LIMITS } from "@/lib/jobs/types";
+import {
+  AI_INPUT_LIMITS,
+  JOB_LIMITS,
+  DEFAULT_RETENTION,
+  RATE_LIMITS,
+  aiPagesAtDensest,
+  aiPagesAtSparsest,
+} from "@/lib/jobs/types";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import type { Tool } from "./types";
@@ -248,6 +255,17 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
     entries.push({
       question: `Is ${tool.name} free?`,
       answer: `Yes — ${AI_ALLOWANCE_FACT}`,
+    });
+    // The second limit these tools have, stated in the same place as the first.
+    // "How large can my file be?" answered in megabytes only, and a 300-page
+    // report is well under the size cap while being well over this one — so a
+    // reader met the limit that would not stop them and never met the one that
+    // would. The page range is derived from measured densities rather than
+    // typed, because a page count is the form of this limit a reader can act
+    // on and also the form that is easy to get wrong.
+    entries.push({
+      question: `How much of my PDF does ${tool.name} read?`,
+      answer: `Up to ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters of selectable text — roughly ${aiPagesAtDensest} pages of dense text, or about ${aiPagesAtSparsest} of sparsely-set pages. Longer documents are read up to that point only, and the tool tells you which page it reached rather than treating the rest as absent.`,
     });
   }
 

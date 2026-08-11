@@ -8,6 +8,7 @@ import {
   type TranslateSourceLanguage,
 } from "@/lib/jobs/translate-pdf";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
+import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 
 /**
  * Translate PDF engine for the `translate-pdf` AI tool.
@@ -116,7 +117,7 @@ export type TranslateRun =
  * fixed default the operator's `maxOutputTokens` limit can only lower, never raise.
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 8000;
-const DEFAULT_MAX_INPUT_CHARS = 500_000;
+const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
 
 /** The honesty-critical system prompt: translate ONLY the provided text; invent nothing. */
 function buildSystemPrompt(options: TranslateOptions): string {

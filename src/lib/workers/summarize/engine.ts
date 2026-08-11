@@ -17,6 +17,7 @@ import type {
   SummaryLength,
 } from "@/lib/jobs/summarize-pdf";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
+import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 
 /**
  * Summarize PDF engine for the `summarize-pdf` AI tool.
@@ -150,7 +151,7 @@ const FORMAT_GUIDANCE: Record<SummaryFormat, string> = {
     "Format the summary as a hierarchical markdown outline with section headings.",
 };
 
-const DEFAULT_MAX_INPUT_CHARS = 500_000;
+const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
 
 /** The honesty-critical system prompt: summarize ONLY the provided text; invent nothing. */
 function buildSystemPrompt(

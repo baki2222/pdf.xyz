@@ -32,7 +32,12 @@ export function AiSection() {
                 Understand documents, not just process them
               </h2>
               <p className="text-base leading-relaxed text-pretty text-slate-300">
-                Chat with a contract, summarize a 200-page report, translate a
+                {/* This sentence named a page count until 2026-08-11; it was
+                    true at only one of three measured text densities. The
+                    concrete figure now lives where it is derived from
+                    AI_INPUT_LIMITS and maintained — the tool page's own limit
+                    answer — not in a homepage line nothing recomputes. */}
+                Chat with a contract, summarize a long report, translate a
                 brochure&apos;s text into another language, or pull clean
                 structured data from invoices. Your content stays private: we
                 use providers under agreements that prohibit training on data

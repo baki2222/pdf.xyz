@@ -15,6 +15,7 @@ import {
   type AiMessage,
   type AiProvider,
 } from "../ai/provider";
+import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 
 /**
  * Chat with PDF engine for the `chat-with-pdf` AI tool.
@@ -149,7 +150,7 @@ export type ChatWithPdfRun =
  * raise) is sufficient.
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 2000;
-const DEFAULT_MAX_INPUT_CHARS = 500_000;
+const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
 
 /** Assemble the grounding text. When pages carry text, prefix each with a `[Page N]`
  * marker so the model can cite pages; otherwise fall back to the joined text (ungrounded). */
