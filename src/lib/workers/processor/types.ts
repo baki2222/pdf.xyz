@@ -86,7 +86,27 @@ export type ProcessorResult =
       meta?: ProcessorMeta;
       results?: JobResults;
     }
-  | { ok: false; error: JobError };
+  | {
+      ok: false;
+      error: JobError;
+      /**
+       * Structured metadata a FAILED run still has to report.
+       *
+       * **A failure that spent money must be able to say so.** Until 2026-08-11
+       * this arm was `{ ok: false; error }` and the type forbade it, so token
+       * usage was discarded one layer below the executor's terminal transition —
+       * and `incomplete_output` is a FAILURE, classified non-retryable precisely
+       * because the model hit its output ceiling and therefore burned the
+       * maximum budget. A spend hook reading only the success branch would have
+       * been blind to exactly the largest expenses while appearing to work.
+       *
+       * Optional, because twelve non-AI processors have nothing to attach and
+       * keep compiling unchanged. Optional also means an AI processor can forget
+       * it and nothing complains, so the coverage is a per-processor control
+       * rather than the type.
+       */
+      results?: JobResults;
+    };
 
 /** The honest, client-safe capability/status of a processor in this environment. */
 export interface ProcessorCapability {
@@ -133,7 +153,16 @@ export function processorOk(
   };
 }
 
-/** Build a failed processor result from a typed, client-safe job error. */
-export function processorFail(error: JobError): ProcessorResult {
-  return { ok: false, error };
+/**
+ * Build a failed processor result from a typed, client-safe job error.
+ *
+ * `results` carries what the run still has to report despite failing — today,
+ * the AI token usage a call spent before it failed. See the failure arm's
+ * docblock: a failure that spent money must be able to say so.
+ */
+export function processorFail(
+  error: JobError,
+  results?: JobResults,
+): ProcessorResult {
+  return { ok: false, error, ...(results ? { results } : {}) };
 }
