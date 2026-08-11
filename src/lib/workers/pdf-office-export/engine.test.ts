@@ -46,7 +46,7 @@ describe("pdf-office-export engine", () => {
       ok: true,
       meta: {
         tool: "pdf-to-word",
-        engine: "pdfjs-office-openxml",
+        engine: "pdftotext-office-openxml",
         pageCount: 2,
       },
     });

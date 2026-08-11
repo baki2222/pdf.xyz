@@ -10,7 +10,15 @@ export const PDF_OFFICE_EXPORT_TOOLS = [
   PDF_TO_POWERPOINT_TOOL,
 ] as const;
 export type PdfOfficeExportTool = (typeof PDF_OFFICE_EXPORT_TOOLS)[number];
-export const PDF_OFFICE_EXPORT_ENGINE = "pdfjs-office-openxml" as const;
+/**
+ * The engine name that ships inside every PDF→Office job result.
+ *
+ * RENAMED 2026-08-11 from `pdfjs-office-openxml`, which named an extractor this
+ * worker does not use and cannot use — pdfjs is browser-only and throws under
+ * Node before reading a byte, which is why `pdf-text/native` shells out to
+ * `pdftotext` instead. Job records written before that date carry the old value.
+ */
+export const PDF_OFFICE_EXPORT_ENGINE = "pdftotext-office-openxml" as const;
 
 export type PdfTextExtractor = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 export interface PdfOfficeExportDeps {

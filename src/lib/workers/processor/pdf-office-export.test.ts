@@ -69,7 +69,7 @@ describe("pdf-office-export processor", () => {
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       });
       expect(result.meta).toMatchObject({
-        engine: "pdfjs-office-openxml",
+        engine: "pdftotext-office-openxml",
         tool: "pdf-to-word",
       });
     }
