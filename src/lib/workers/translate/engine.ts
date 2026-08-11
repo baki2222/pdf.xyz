@@ -152,6 +152,28 @@ export type TranslateRun =
       ceilingCharacters?: number;
       retryable?: boolean;
       message: string;
+      /**
+       * Token usage when the failure came AFTER a provider call. Absent when no
+       * call happened.
+       *
+       * `incomplete_output` is why this exists: it is non-retryable precisely
+       * because the model hit its output ceiling, so it burned the maximum
+       * budget and is the most expensive outcome in the system. A ceiling fed
+       * only by successes would be blind to exactly its largest expenses.
+       */
+      usage?: AiUsageMeta;
+      /**
+       * What the model was given, when there was a call to give it to.
+       *
+       * SEPARATELY OPTIONAL from `usage` even though the two co-occur in
+       * practice — the window is computed before the call, so a failure that
+       * spent tokens always has both and a pre-extraction failure has neither.
+       * Encoding "both or neither" as one object would make that invariant
+       * UNFALSIFIABLE: the test could not construct the broken state to prove it
+       * is rejected. Optional-and-tested beats structurally-impossible-and-
+       * unproven, the same reason `hadNotes` stayed separate from `notes.length`.
+       */
+      window?: TruncationWindow;
     };
 
 /**
@@ -200,7 +222,19 @@ function buildSystemPrompt(
 /** Map a provider completion failure to an honest, typed run failure. */
 function mapProviderFailure(
   result: Extract<AiCompletionResult, { ok: false }>,
+  window: TruncationWindow,
+  model: string,
 ): Extract<TranslateRun, { ok: false }> {
+  // A provider CALL happened, so both travel with every branch below: the spend
+  // is real even though the run failed.
+  const spent =
+    result.usage !== undefined
+      ? ({ ...result.usage, calls: 1, model } satisfies AiUsageMeta)
+      : undefined;
+  const carry = {
+    ...(spent ? { usage: spent } : {}),
+    window,
+  };
   switch (result.kind) {
     case "not_configured":
       return {
@@ -208,6 +242,7 @@ function mapProviderFailure(
         kind: "ai_unconfigured",
         retryable: false,
         message: result.message,
+        ...carry,
       };
     case "rate_limited":
       return {
@@ -215,6 +250,7 @@ function mapProviderFailure(
         kind: "rate_limited",
         retryable: true,
         message: result.message,
+        ...carry,
       };
     case "content_filtered":
       return {
@@ -222,6 +258,7 @@ function mapProviderFailure(
         kind: "content_filtered",
         retryable: false,
         message: result.message,
+        ...carry,
       };
     case "too_long":
       return {
@@ -230,6 +267,7 @@ function mapProviderFailure(
         retryable: false,
         message:
           "This document is too large for the AI model's context window. Try a shorter PDF or split it first.",
+        ...carry,
       };
     case "timeout":
     case "invalid_response":
@@ -240,6 +278,7 @@ function mapProviderFailure(
         kind: "failed",
         retryable: result.retryable,
         message: result.message,
+        ...carry,
       };
   }
 }
@@ -363,7 +402,8 @@ export async function runTranslate(
     temperature: 0.2,
   });
 
-  if (!completion.ok) return mapProviderFailure(completion);
+  if (!completion.ok)
+    return mapProviderFailure(completion, window, provider.model);
 
   const translation = completion.text.trim();
   if (translation.length === 0) {

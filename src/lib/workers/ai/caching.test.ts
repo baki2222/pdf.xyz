@@ -226,3 +226,53 @@ describe("Anthropic — the cache WRITE is billed and must be reported", () => {
     expect(read.cache_read_input_tokens).toBeGreaterThan(0);
   });
 });
+
+describe("a failure that spent money says so", () => {
+  /** `max_tokens` — the branch that exists BECAUSE the budget was spent. */
+  const MAX_TOKENS_REPLY = {
+    content: [{ type: "text", text: "A half-written ans" }],
+    stop_reason: "max_tokens",
+    usage: {
+      input_tokens: 20,
+      output_tokens: 8_000,
+      cache_creation_input_tokens: 40_000,
+      cache_read_input_tokens: 0,
+    },
+  };
+
+  it("carries usage on incomplete_output, the most expensive outcome there is", async () => {
+    // Non-retryable PRECISELY because the model hit its output ceiling, so it
+    // burned the maximum budget. Until 2026-08-11 the counts sat in scope one
+    // expression from this `return` and were dropped — a spend ceiling reading
+    // only successes would have been blind to exactly its largest expenses.
+    const result = await anthropic(capturing(MAX_TOKENS_REPLY).fetch).complete(
+      REQUEST,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.kind).toBe("incomplete_output");
+    expect(
+      result.usage,
+      "the call spent 48,020 tokens and reported none — the ceiling cannot " +
+        "see the calls that cost the most",
+    ).toEqual({
+      inputTokens: 20,
+      outputTokens: 8_000,
+      cachedInputTokens: 0,
+      cacheWriteInputTokens: 40_000,
+    });
+  });
+
+  it("carries NO usage when no body was parsed", async () => {
+    // A 401 never reached the model, so there is nothing to account for.
+    // Absence over a wrong number: a zero here would be a measured claim that
+    // the call was free, and this is the accounting path.
+    const fake = (async () =>
+      new Response("nope", { status: 401 })) as unknown as typeof fetch;
+    const result = await anthropic(fake).complete(REQUEST);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.kind).toBe("rejected");
+    expect("usage" in result).toBe(false);
+  });
+});

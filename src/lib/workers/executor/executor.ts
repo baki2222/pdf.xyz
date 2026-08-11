@@ -77,6 +77,8 @@ import type {
   ExecutorStorage,
   ExecutorTick,
 } from "./types";
+import { aiSpendTokens } from "@/lib/jobs/ai-spend-ceiling";
+import { recordAiSpend } from "@/lib/ratelimit/guard";
 
 /** Everything the executor needs, all injectable for deterministic tests. */
 export interface ExecutorDeps {
@@ -519,6 +521,32 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     // Record the processor's wall-clock latency (bucketed at construction) for both a
     // successful and a failed run, before the disposition branches below.
     if (metrics) emit(processorLatencyMetric(kind, now() - startedAt));
+
+    // THE GLOBAL SPEND CEILING'S ADD PHASE. Placed here — immediately after the
+    // processor returns, BEFORE the success/failure branches — for two reasons.
+    //
+    // 1. EVERY TERMINAL OUTCOME THAT SPENT TOKENS. Hooking the success branch
+    //    would miss `incomplete_output`, which is non-retryable precisely
+    //    because the model hit its output ceiling and therefore burned the
+    //    maximum budget: the most expensive call in the system, recorded as
+    //    free. One site above the fork means no branch can forget it.
+    // 2. LIMITER FIRST, JOB RECORD SECOND. The increment and the record write
+    //    cannot be atomic, and the ORDER picks the failure mode. Record-first
+    //    loses the increment on a crash and UNDER-counts — blind toward free,
+    //    the pattern this whole feature exists to remove. Limiter-first
+    //    double-counts on a requeue and OVER-counts, which errs toward
+    //    refusing. For a cost control that is the safe direction, and it
+    //    composes with the honest-unavailable path. It looks arbitrary; it is
+    //    not. Do not "fix" it into the other order.
+    //
+    // A requeued job that calls the provider again SHOULD count again: that is
+    // real money spent twice. Charging the user is a separate ledger, keyed
+    // `(jobId, chunkIndex)`; this counter is not that ledger.
+    const spentUsage = result.results?.ai?.usage;
+    if (spentUsage) {
+      const tokens = aiSpendTokens(spentUsage);
+      if (tokens > 0) await recordAiSpend(tokens);
+    }
 
     if (!result.ok) {
       // A conflict from fail() means the job was canceled mid-flight; the helper

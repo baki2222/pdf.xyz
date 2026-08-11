@@ -32,6 +32,7 @@ import { createMemoryRateLimiter } from "./memory";
 import { deriveClientToken } from "./identity";
 import { getRateLimitProvider } from "./provider";
 import { createConfiguredRateLimitProvider } from "./factory";
+import { AI_SPEND_BUCKET } from "@/lib/jobs/ai-spend-ceiling";
 import type { RateLimitProvider } from "./provider";
 
 type EnvSource = Record<string, string | undefined>;
@@ -227,5 +228,133 @@ export async function enforceRateLimit(
     // Fail open: a guard bug — or a remote backend that threw — must never break
     // the API. Marked unenforced so the pass is never mistaken for real capacity.
     return allowUnenforced(action, policy.id, "disabled");
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  The GLOBAL AI spend ceiling — a separate entry point, on purpose.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The ceiling's verdict. Deliberately NOT a {@link RateLimitDecision}: that
+ * shape carries `retryAfterSeconds` and is answered as a 429, and a tripped
+ * COST control is not the caller's fault and must not read like their quota.
+ */
+export interface AiSpendVerdict {
+  /** False ⇒ the global daily token ceiling is spent; refuse and degrade. */
+  readonly affordable: boolean;
+  /**
+   * True only when a real limiter answered. `false` means the ceiling did not
+   * actually bound anything — the same honesty rule the request guard follows,
+   * and the reason the posture must report it rather than showing a green
+   * "ceiling: on".
+   */
+  readonly enforced: boolean;
+  /** Tokens counted in the current window, when the backend reports it. */
+  readonly used?: number;
+}
+
+const UNENFORCED_AFFORDABLE: AiSpendVerdict = {
+  affordable: true,
+  enforced: false,
+};
+
+/**
+ * Phase one: can we afford another AI run right now?
+ *
+ * **Its own entry point rather than a flag on {@link enforceRateLimit}**, and
+ * named so the two cannot be confused at a call site. A flag that switched key
+ * derivation would be one function with two meanings at exactly the interesting
+ * point — the same defect as a `cost` parameter on `check()`.
+ *
+ * Two things it does NOT do, both load-bearing:
+ *  - it never derives a client token. The bucket is the constant
+ *    {@link AI_SPEND_BUCKET}; this is a cost control, not a fairness device.
+ *  - it never spends. `peek` leaves the counter and the window untouched, so
+ *    asking whether AI is affordable cannot make it unaffordable.
+ *
+ * FAILS OPEN, like the request guard: a limiter outage must not take AI down.
+ * The `enforced: false` that comes back is the honest half of that — a caller
+ * that reports "ceiling healthy" on an unenforced verdict is claiming a bound
+ * nothing applied.
+ */
+export async function peekAiSpendCeiling(
+  env: EnvSource = process.env,
+  nowMs: number = Date.now(),
+): Promise<AiSpendVerdict> {
+  const policy = policyFor("ai.spend");
+  try {
+    const config = resolveRateLimitConfig(env);
+    if (config.providerId === "disabled") return UNENFORCED_AFFORDABLE;
+
+    if (config.providerId === "remote-unimplemented") {
+      const provider = providerFor(env);
+      // No backend, or a backend predating the two-phase contract. Falling back
+      // to `check` here would SPEND a token on a question, so it does not.
+      if (provider === null || !provider.peek) {
+        noteFailOpen("provider-unreachable");
+        return UNENFORCED_AFFORDABLE;
+      }
+      try {
+        const verdict = await provider.peek(policy, AI_SPEND_BUCKET, nowMs);
+        return {
+          affordable: verdict.allowed,
+          enforced: true,
+          ...(verdict.used !== undefined ? { used: verdict.used } : {}),
+        };
+      } catch {
+        noteFailOpen("store-error");
+        return UNENFORCED_AFFORDABLE;
+      }
+    }
+
+    const verdict = limiter().peek(policy, AI_SPEND_BUCKET, nowMs);
+    return {
+      affordable: verdict.allowed,
+      enforced: true,
+      ...(verdict.used !== undefined ? { used: verdict.used } : {}),
+    };
+  } catch {
+    return UNENFORCED_AFFORDABLE;
+  }
+}
+
+/**
+ * Phase two: record what a completed AI call actually cost.
+ *
+ * Called on the TERMINAL TRANSITION of a job — every outcome that spent tokens,
+ * not the success branch. `incomplete_output` is the case that proves the hook
+ * is on the right seam: it is classified non-retryable *precisely because* the
+ * model hit its output ceiling, so it burned the maximum budget and is the most
+ * expensive call in the system. A success-only hook would record it as free.
+ *
+ * Returns whether the measurement was recorded, so the caller can say
+ * "unrecorded" rather than assume zero. It never throws: a limiter outage must
+ * not fail a job that already succeeded.
+ */
+export async function recordAiSpend(
+  tokens: number,
+  env: EnvSource = process.env,
+  nowMs: number = Date.now(),
+): Promise<boolean> {
+  if (!Number.isFinite(tokens) || tokens <= 0) return false;
+  const policy = policyFor("ai.spend");
+  try {
+    const config = resolveRateLimitConfig(env);
+    if (config.providerId === "disabled") return false;
+
+    if (config.providerId === "remote-unimplemented") {
+      const provider = providerFor(env);
+      if (provider === null || !provider.spend) return false;
+      await provider.spend(policy, AI_SPEND_BUCKET, nowMs, tokens);
+      return true;
+    }
+
+    limiter().spend(policy, AI_SPEND_BUCKET, nowMs, tokens);
+    return true;
+  } catch {
+    // A lost increment under-counts, which is the direction this whole feature
+    // exists to avoid — so it is reported as unrecorded rather than swallowed.
+    return false;
   }
 }

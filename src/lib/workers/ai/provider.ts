@@ -157,6 +157,28 @@ export interface AiCompletionFailure {
   message: string;
   /** True when retrying the identical request may succeed. Derived from `kind`. */
   retryable: boolean;
+  /**
+   * Token accounting when the provider reported it **and the call still cost
+   * money**. Absent whenever no body was parsed.
+   *
+   * WHY THIS DOES NOT WEAKEN THE CLIENT-SAFE BOUNDARY asserted above. Token
+   * counts are SIZE metadata, not content — they say how much text there was,
+   * which the file size and page count already imply. No prompt, no answer, no
+   * upstream body, no key. The rule this type enforces is "never a raw upstream
+   * body"; a handful of integers lifted out of one is not that body.
+   *
+   * WHY IT EXISTS AT ALL. `incomplete_output` is decided on the branch where the
+   * model hit `max_tokens` — it is non-retryable *precisely because* it burned
+   * the entire output budget, making it the most expensive outcome in the
+   * system. Until 2026-08-11 the counts sat in a local variable one expression
+   * from the `return` and were dropped, so a spend ceiling reading only
+   * successes would have been blind to exactly its largest expenses.
+   *
+   * ATTACHED ONLY WHERE A BODY WAS PARSED. A network failure, a 401 or a timeout
+   * has no usage and must carry none rather than a zero — absence over a wrong
+   * number, in the accounting path.
+   */
+  usage?: AiUsage;
 }
 
 export type AiCompletionResult = AiCompletionSuccess | AiCompletionFailure;
@@ -198,8 +220,15 @@ export function isRetryableAiFailure(kind: AiFailureKind): boolean {
 export function aiFailure(
   kind: AiFailureKind,
   message: string,
+  usage?: AiUsage,
 ): AiCompletionFailure {
-  return { ok: false, kind, message, retryable: isRetryableAiFailure(kind) };
+  return {
+    ok: false,
+    kind,
+    message,
+    retryable: isRetryableAiFailure(kind),
+    ...(usage ? { usage } : {}),
+  };
 }
 
 /** The honest failure returned when no provider is wired — used by every AI engine. */

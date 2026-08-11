@@ -47,6 +47,15 @@ const extract = async (): Promise<ExtractedPdfText> => ({
   hasText: true,
 });
 
+/** No selectable text — every engine refuses BEFORE it reaches the model. */
+const emptyExtract = async (): Promise<ExtractedPdfText> => ({
+  pageCount: 2,
+  pages: [],
+  text: "   ",
+  characterCount: 3,
+  hasText: false,
+});
+
 /**
  * The wire shape, not a pre-formed `AiUsage`.
  *
@@ -109,18 +118,24 @@ const TOOLS = [
     name: "translate-pdf",
     reply: "Le total dû est de 1200 euros.",
     make: (p: AiProvider) => createTranslateProcessor({ extract, provider: p }),
+    makeEmpty: (p: AiProvider) =>
+      createTranslateProcessor({ extract: emptyExtract, provider: p }),
     input: { tool: "translate-pdf", options: { targetLanguage: "fr" } },
   },
   {
     name: "summarize-pdf",
     reply: "An invoice for 1200 euros, payable in thirty days.",
     make: (p: AiProvider) => createSummarizeProcessor({ extract, provider: p }),
+    makeEmpty: (p: AiProvider) =>
+      createSummarizeProcessor({ extract: emptyExtract, provider: p }),
     input: { tool: "summarize-pdf", options: {} },
   },
   {
     name: "ai-extract",
     reply: '{"total":"1200 euros"}',
     make: (p: AiProvider) => createAiExtractProcessor({ extract, provider: p }),
+    makeEmpty: (p: AiProvider) =>
+      createAiExtractProcessor({ extract: emptyExtract, provider: p }),
     input: {
       tool: "ai-extract",
       options: { mode: "prompt", prompt: "Extract totals" },
@@ -131,6 +146,8 @@ const TOOLS = [
     reply: "The total is 1200 euros [p.1].",
     make: (p: AiProvider) =>
       createChatWithPdfProcessor({ extract, provider: p }),
+    makeEmpty: (p: AiProvider) =>
+      createChatWithPdfProcessor({ extract: emptyExtract, provider: p }),
     input: {
       tool: "chat-with-pdf",
       options: { question: "What is the total?" },
@@ -179,6 +196,103 @@ describe("provider token usage reaches the job record", () => {
       expect(
         persisted?.ai?.usage,
         `${name} invented a usage block the provider never reported`,
+      ).toBeUndefined();
+    },
+  );
+});
+
+/**
+ * THE CLAIM THE WHOLE CEILING RESTS ON: a run that FAILED after spending
+ * tokens still reports them to the job record.
+ *
+ * Per-tool rather than one shared case, for the same reason the guard controls
+ * are per-guard: the four have different failure mappers, and a merged assertion
+ * can pass on one tool's data while another drops it silently.
+ *
+ * `incomplete_output` is the case, and it is the case on purpose. It is
+ * classified non-retryable PRECISELY because the model hit its output ceiling —
+ * so it burned the maximum budget and is the most expensive outcome in the
+ * system. Until 2026-08-11 the counts were discarded at three separate layers on
+ * the way here, and a spend hook reading only successes would have been blind to
+ * exactly the largest expenses while appearing to work.
+ */
+describe("a FAILED run's spend reaches the job record", () => {
+  /** `stop_reason: max_tokens` — the branch that exists because the budget went. */
+  const MAX_TOKENS = {
+    input_tokens: 20,
+    output_tokens: 8_000,
+    cache_creation_input_tokens: 40_000,
+    cache_read_input_tokens: 0,
+  };
+
+  it.each(TOOLS.map((t) => [t.name, t] as const))(
+    "%s carries usage on incomplete_output, through to sanitizeJobResults",
+    async (name, tool) => {
+      const fake = (async () =>
+        new Response(
+          JSON.stringify({
+            content: [{ type: "text", text: "half an ans" }],
+            stop_reason: "max_tokens",
+            usage: MAX_TOKENS,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        )) as unknown as typeof fetch;
+
+      const processor = tool.make(
+        createAnthropicProvider(
+          { model: "claude-sonnet-5", apiKey: "test-key", timeoutMs: 1_000 },
+          { fetch: fake },
+        ),
+      );
+      const result = await processor.process({
+        ...tool.input,
+        inputs: [file],
+      } as ProcessorInput);
+
+      expect(result.ok, `${name} unexpectedly succeeded`).toBe(false);
+      if (result.ok) return;
+
+      const persisted = sanitizeJobResults(result.results);
+      expect(
+        persisted?.ai?.usage,
+        `${name} spent 48,020 tokens and failed, and the job record has none — ` +
+          "the ceiling cannot see the calls that cost the most. Check that the " +
+          "engine's mapProviderFailure carries usage+window and the processor " +
+          "passes aiResultsFromFailure(run) to processorFail",
+      ).toEqual({
+        inputTokens: 20,
+        outputTokens: 8_000,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 40_000,
+        calls: 1,
+        model: "claude-sonnet-5",
+      });
+    },
+  );
+
+  it.each(TOOLS.map((t) => [t.name, t] as const))(
+    "%s reports NOTHING when the failure preceded any provider call",
+    async (name, tool) => {
+      // The invariant's other direction: `usage` present ⟺ a call happened.
+      // A scanned/empty document fails before the model is reached, so a block
+      // here would invent a spend and the ceiling would over-count silently.
+      const processor = tool.makeEmpty({
+        id: "anthropic",
+        model: "claude-sonnet-5",
+        async complete() {
+          throw new Error("must not be called");
+        },
+      });
+      const result = await processor.process({
+        ...tool.input,
+        inputs: [file],
+        // No extractable text ⇒ the engines refuse before prompting.
+      } as ProcessorInput);
+      if (result.ok) return;
+      const persisted = sanitizeJobResults(result.results);
+      expect(
+        persisted?.ai?.usage,
+        `${name} reported a spend for a call that never happened`,
       ).toBeUndefined();
     },
   );
