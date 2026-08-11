@@ -101,8 +101,8 @@ describe("resolveWorkerRuntime — gating", () => {
       `%PDF-1.7\n${"1".repeat(32)}\n%%EOF\n`,
     );
     const qpdf: QpdfStructureRunner = {
-      repair: async () => output,
-      linearize: async () => output,
+      repair: async () => ({ bytes: output, warnings: [] }),
+      linearize: async () => ({ bytes: output, warnings: [] }),
     };
     const runtime = resolveWorkerRuntime(
       {},

@@ -10,7 +10,7 @@
  * success, and failures are fixed/content-free (no filenames, paths, or qpdf text).
  */
 
-import { looksLikePdf } from "../compression/engine";
+import { looksLikePdf, looksRepairable } from "../compression/engine";
 
 export const REPAIR_TOOL = "repair-pdf";
 export const OPTIMIZE_WEB_TOOL = "optimize-web";
@@ -20,11 +20,24 @@ export type PdfStructureTool = (typeof PDF_STRUCTURE_TOOLS)[number];
 export const PDF_STRUCTURE_ENGINE = "qpdf" as const;
 export type PdfStructureEngine = typeof PDF_STRUCTURE_ENGINE;
 
+/**
+ * What a qpdf run produced: the bytes, and what qpdf said about getting there.
+ *
+ * `warnings` is non-empty when qpdf exited 3 — its documented "warnings issued,
+ * output produced" status, which for a damaged file IS a successful recovery.
+ * The lines are sanitized in `native.ts` before they reach here; nothing that
+ * arrives is a path, a filename, or document content.
+ */
+export interface QpdfStructureOutput {
+  bytes: Uint8Array;
+  warnings: string[];
+}
+
 export interface QpdfStructureRunner {
   /** Rewrite/recover the input PDF and return the repaired bytes. */
-  repair(input: Uint8Array): Promise<Uint8Array>;
+  repair(input: Uint8Array): Promise<QpdfStructureOutput>;
   /** Linearize the input PDF for fast web viewing and return the output bytes. */
-  linearize(input: Uint8Array): Promise<Uint8Array>;
+  linearize(input: Uint8Array): Promise<QpdfStructureOutput>;
 }
 
 export interface PdfStructureLimits {
@@ -42,6 +55,14 @@ export interface PdfStructureResultMeta {
   operation: "repair" | "linearize";
   inputBytes: number;
   outputBytes: number;
+  /**
+   * True when qpdf recovered the document but had something to say about it.
+   * A separate boolean from `warnings.length > 0` so a UI can distinguish
+   * "clean" from "recovered with warnings" without inspecting the list.
+   */
+  recoveredWithWarnings: boolean;
+  /** Sanitized qpdf warning lines. Empty on a clean run — never `null`. */
+  warnings: string[];
 }
 
 export type PdfStructureRun =
@@ -71,9 +92,26 @@ const failed = (): PdfStructureRun => ({
   message: FAILED_MESSAGE,
 });
 
+/**
+ * The INPUT floor, chosen by operation.
+ *
+ * repair-pdf exists to accept damage, so it requires only a header
+ * ({@link looksRepairable}). optimize-web promises fast web viewing, not
+ * recovery — a damaged file there is honestly refused and the user is pointed at
+ * repair, rather than silently handed a repair they did not ask for.
+ *
+ * Deliberately NOT `deps.validate`: that seam is the OUTPUT validator, and a
+ * deployment tightening its output check must not thereby re-close the door on
+ * the files repair exists for.
+ */
+function inputFloor(operation: "repair" | "linearize") {
+  return operation === "repair" ? looksRepairable : looksLikePdf;
+}
+
 async function preflight(
   input: Uint8Array,
   deps: PdfStructureDeps,
+  operation: "repair" | "linearize",
 ): Promise<{ ok: true } | { ok: false; run: PdfStructureRun }> {
   if (!deps.qpdf) return { ok: false, run: unsupported() };
 
@@ -90,8 +128,7 @@ async function preflight(
     };
   }
 
-  const validate = deps.validate ?? looksLikePdf;
-  if (!(await validate(input))) {
+  if (!inputFloor(operation)(input)) {
     return {
       ok: false,
       run: { ok: false, kind: "invalid_pdf", message: INVALID_PDF_MESSAGE },
@@ -106,14 +143,17 @@ async function runStructure(
   deps: PdfStructureDeps,
   operation: "repair" | "linearize",
 ): Promise<PdfStructureRun> {
-  const pre = await preflight(input, deps);
+  const pre = await preflight(input, deps, operation);
   if (!pre.ok) return pre.run;
 
   const qpdf = deps.qpdf!;
+  // The OUTPUT is still held to the strict check. Accepting a damaged input is
+  // not the same as accepting a damaged result, and conflating the two is how
+  // "we repaired it" becomes a claim about rubble.
   const validate = deps.validate ?? looksLikePdf;
-  let output: Uint8Array;
+  let result: QpdfStructureOutput;
   try {
-    output =
+    result =
       operation === "repair"
         ? await qpdf.repair(input)
         : await qpdf.linearize(input);
@@ -121,16 +161,18 @@ async function runStructure(
     return failed();
   }
 
-  if (!(await validate(output))) return failed();
+  if (!(await validate(result.bytes))) return failed();
 
   return {
     ok: true,
-    output,
+    output: result.bytes,
     meta: {
       engine: PDF_STRUCTURE_ENGINE,
       operation,
       inputBytes: input.byteLength,
-      outputBytes: output.byteLength,
+      outputBytes: result.bytes.byteLength,
+      recoveredWithWarnings: result.warnings.length > 0,
+      warnings: result.warnings,
     },
   };
 }

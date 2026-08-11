@@ -519,8 +519,8 @@ describe("local-dev worker — qpdf structure job flow", () => {
   const fakeStructure = (
     over: Partial<QpdfStructureRunner> = {},
   ): QpdfStructureRunner => ({
-    repair: async () => taggedPdf("REPAIRED"),
-    linearize: async () => taggedPdf("LINEARIZED"),
+    repair: async () => ({ bytes: taggedPdf("REPAIRED"), warnings: [] }),
+    linearize: async () => ({ bytes: taggedPdf("LINEARIZED"), warnings: [] }),
     ...over,
   });
 

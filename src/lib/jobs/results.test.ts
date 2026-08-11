@@ -253,3 +253,64 @@ describe("sanitizeJobResults — the AI window block", () => {
     expect(clean?.ai?.truncation.lastCompletePage).toBeNull();
   });
 });
+
+describe("sanitizeJobResults — the repair block", () => {
+  it("carries a recovered repair through to the job record", () => {
+    const clean = sanitizeJobResults({
+      repair: {
+        recoveredWithWarnings: true,
+        warnings: ["file is damaged", "reconstructing cross-reference table"],
+      },
+    });
+    expect(clean?.repair?.recoveredWithWarnings).toBe(true);
+    expect(clean?.repair?.warnings).toEqual([
+      "file is damaged",
+      "reconstructing cross-reference table",
+    ]);
+  });
+
+  it("drops a line that still carries a path, and says how many", () => {
+    // Fails CLOSED. A half-scrubbed path is still a leak, so the line goes
+    // whole — but silently shrinking the list would read as "nothing was
+    // wrong", which is the opposite of what it means.
+    const clean = sanitizeJobResults({
+      repair: {
+        recoveredWithWarnings: true,
+        warnings: [
+          "/tmp/pdfxyz-structure-ab12/input.pdf: damaged",
+          "recovered",
+        ],
+      },
+    });
+    expect(clean?.repair?.warnings).toEqual([
+      "recovered",
+      "1 further message(s) not shown.",
+    ]);
+  });
+
+  it("still reports a recovery whose every line was dropped", () => {
+    // The distinction a repair tool must never blur: "nothing was wrong" and
+    // "we cannot tell you what was wrong" are different answers.
+    // The separator is built rather than typed: a backslash in a fixture is one
+    // careless escape away from not being a separator at all, and the test
+    // would then pass for the wrong reason.
+    const sep = String.fromCharCode(92);
+    const clean = sanitizeJobResults({
+      repair: {
+        recoveredWithWarnings: true,
+        warnings: [`C:${sep}temp${sep}input.pdf: damaged`],
+      },
+    });
+    expect(clean?.repair?.recoveredWithWarnings).toBe(true);
+    expect(clean?.repair?.warnings).toEqual([
+      "1 further message(s) not shown.",
+    ]);
+  });
+
+  it("drops a block that did not come from the real contract", () => {
+    const clean = sanitizeJobResults({
+      repair: { warnings: ["x"] },
+    } as unknown as JobResults);
+    expect(clean).toBeUndefined();
+  });
+});

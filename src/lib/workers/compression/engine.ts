@@ -200,6 +200,27 @@ export function looksLikePdf(bytes: Uint8Array): boolean {
 }
 
 /**
+ * The floor for a tool whose job is to REPAIR a damaged PDF: a header, and a
+ * plausible minimum length. Deliberately weaker than {@link looksLikePdf}.
+ *
+ * `looksLikePdf` requires `%%EOF` near the end, which is exactly the byte a
+ * truncated file has lost — the commonest damage, and the file a user brings to
+ * a repair tool. Using it as repair-pdf's INPUT check meant the tool rejected
+ * its entire reason to exist as `invalid_pdf` and never spawned qpdf.
+ *
+ * The floor moved rather than disappearing. Without a `%PDF-` header there is no
+ * document to recover and qpdf would only burn a subprocess to say so, so that
+ * much is still required — the same window `looksLikePdf` uses, so the two
+ * predicates disagree about exactly one thing and it is the one they should.
+ * This is an INPUT floor only: repair output is still held to `looksLikePdf`.
+ */
+export function looksRepairable(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 32) return false;
+  const headEnd = Math.min(bytes.byteLength, 1024);
+  return containsSequence(bytes, PDF_HEADER, 0, headEnd);
+}
+
+/**
  * Real, lossless structural repack via pdf-lib. Re-serializes with object
  * streams and refreshes the producer; it never changes rendered content. Throws
  * if the bytes are not a readable PDF.
