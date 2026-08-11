@@ -93,8 +93,19 @@ export const RATE_LIMIT_POLICIES: Record<RateLimitAction, RateLimitPolicy> = {
   // per client per day because a user can act on "3 runs a day" and cannot
   // act on a global dollar figure. Enforced at job creation for AI-capability
   // tools, ON TOP of jobs.create; the refusal names the allowance, not a
-  // generic throttle. The internal spend ceiling is a separate circuit
-  // breaker, never published, never this policy.
+  // generic throttle.
+  //
+  // ⚠️ THIS COMMENT USED TO SAY "the internal spend ceiling is a separate
+  // circuit breaker, never published, never this policy". No such ceiling
+  // exists — verified 2026-08-11 five ways, including the whole `PDFXYZ_AI_*`
+  // namespace. This policy is the ONLY AI cost control in the product.
+  //
+  // It was the worst-placed of the three copies of that claim: this is the file
+  // someone would open to add a global bound, and it told them the bound already
+  // lived elsewhere. A ceiling is being built and will be a policy whose bucket
+  // is global rather than per client — note that this limiter counts REQUESTS
+  // (`redis.ts` runs a bare `INCR`, one per hit), so a token-denominated bound
+  // needs a cost argument and `INCRBY`, not a new policy alone.
   "ai.run": {
     id: "ai.run",
     action: "ai.run",

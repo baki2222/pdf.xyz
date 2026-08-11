@@ -42,10 +42,24 @@
  * pre-2026-08-11 wording claimed.
  *
  * WHAT IS DELIBERATELY NOT CLAIMED: that the allowance is guaranteed, isolated,
- * or unaffected by anything else. A separate internal spend ceiling exists as a
- * circuit breaker, is never published, and can stop AI for everyone. These
- * sentences say what the allowance IS and say nothing about what happens if the
- * service itself stops — which is the difference between a fact and a promise.
+ * or unaffected by anything else. These sentences say what the allowance IS and
+ * say nothing about what happens if the service itself stops — which is the
+ * difference between a fact and a promise.
+ *
+ * ⚠️ THIS DOCBLOCK USED TO CITE A REASON THAT DOES NOT EXIST. It said "a separate
+ * internal spend ceiling exists as a circuit breaker, is never published, and can
+ * stop AI for everyone" — and no such ceiling is implemented. Searched five ways
+ * on 2026-08-11 (concept, config surface, limiter policies, docs, the
+ * `PDFXYZ_AI_*` namespace): there is no global spend or token bound anywhere, and
+ * no configuration for one. `aiRunsPerDayPerClient: 3` bucketed by address is the
+ * only AI cost control, and per-client is not a global bound — it is "3 × however
+ * many addresses reach us".
+ *
+ * **The copy above is still correct**; not promising availability is safe whether
+ * or not a breaker exists. Only the stated REASON was fiction, and a reason that
+ * cannot be checked is how three files came to describe a mechanism nobody built.
+ * The ceiling is being built (owner ruling, 2026-08-11); when it lands, this note
+ * becomes a pointer to it rather than a warning about its absence.
  */
 import { RATE_LIMITS } from "./types";
 

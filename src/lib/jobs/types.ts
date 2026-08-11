@@ -148,8 +148,19 @@ export const RATE_LIMITS = {
    * on — runs, not dollars. Deliberately conservative (owner ruling,
    * 2026-08-10): raising a limit is an announcement, lowering one is a broken
    * promise. Every user-facing mention derives from this constant; the
-   * numbers census owns the figure. The global daily spend ceiling is a
-   * separate, internal circuit breaker and is never published.
+   * numbers census owns the figure.
+   *
+   * ⚠️ AND IT IS THE ONLY AI COST CONTROL THAT EXISTS. This comment used to end
+   * "the global daily spend ceiling is a separate, internal circuit breaker and
+   * is never published" — there is no such ceiling. Verified 2026-08-11 across
+   * the concept, the config surface, the limiter policies, the docs, and the
+   * whole `PDFXYZ_AI_*` namespace: nothing implements or configures one.
+   *
+   * Which means our AI spend is bounded by 3 runs × however many addresses reach
+   * us, and that is not a bound. It is survivable only while one run is one
+   * provider call; chunked translation makes one run up to thirty. Being built
+   * (owner ruling, 2026-08-11) — until it lands, do not reason as though a
+   * backstop is there.
    */
   aiRunsPerDayPerClient: 3,
 } as const;
