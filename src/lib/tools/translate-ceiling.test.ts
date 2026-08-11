@@ -20,6 +20,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import {
+  TRANSLATE_CALIBRATION,
+  TRANSLATE_CHARS_PER_OUTPUT_TOKEN,
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   TRANSLATE_MAX_INPUT_CHARS,
   translateMaxInputChars,
@@ -58,15 +60,59 @@ describe("translate's ceiling is derived, not typed", () => {
     expect(translateMaxInputChars(Number.NaN)).toBe(0);
   });
 
-  it("accepts the largest document MEASURED to succeed on production", () => {
-    // 10,258 characters completed in 36s on 2026-08-11. A ceiling below this
-    // would refuse work we have watched succeed.
-    expect(TRANSLATE_MAX_INPUT_CHARS).toBeGreaterThanOrEqual(10_258);
+  it.each([["3 pages", 10_258, "completed in 36s"]])(
+    "accepts %s / %i chars, which %s on production",
+    (_pp, chars) => {
+      // A ceiling below this refuses work we have WATCHED succeed.
+      expect(TRANSLATE_MAX_INPUT_CHARS).toBeGreaterThanOrEqual(chars);
+    },
+  );
+
+  it.each([
+    ["4 pages", 13_528, "45s"],
+    ["5 pages", 16_910, "54s"],
+    ["6 pages", 20_292, "61s"],
+    ["40 pages", 135_280, "49s"],
+  ])(
+    "refuses %s / %i chars, which failed in %s on production",
+    (_pp, chars) => {
+      // Every one of these reached the provider, was billed, and came back
+      // "reached its output limit". The 4-page case is the near boundary: the
+      // first published ceiling (21,538) would have admitted three of these four.
+      expect(TRANSLATE_MAX_INPUT_CHARS).toBeLessThan(chars);
+    },
+  );
+
+  it("sits inside the measured bracket, which is the whole claim", () => {
+    // The true boundary is somewhere in (10,258, 13,528). Any ceiling in that
+    // gap is defensible; anything outside it contradicts an observation.
+    expect(TRANSLATE_MAX_INPUT_CHARS).toBeGreaterThanOrEqual(
+      TRANSLATE_CALIBRATION.largestSuccessChars,
+    );
+    expect(TRANSLATE_MAX_INPUT_CHARS).toBeLessThan(
+      TRANSLATE_CALIBRATION.smallestFailureChars,
+    );
   });
 
-  it("refuses the smallest document MEASURED to fail on production", () => {
-    // 135,280 characters failed after 49s with "reached its output limit".
-    expect(TRANSLATE_MAX_INPUT_CHARS).toBeLessThan(135_280);
+  it("records the language and date it was calibrated on", () => {
+    // A factor whose calibration language is unrecorded is the same defect as an
+    // uncalibrated one: the next person cannot tell whether it still holds. The
+    // rate is a property of the TARGET language, and this one is Spanish.
+    expect(TRANSLATE_CALIBRATION.targetLanguage).toBe("es");
+    expect(TRANSLATE_CALIBRATION.measuredOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(TRANSLATE_CALIBRATION.model.length).toBeGreaterThan(0);
+  });
+
+  it("is the measurement, not two factors multiplied together", () => {
+    // The first published ceiling multiplied ~3.5 chars/token by ~1.3 expansion
+    // and got 2.69 where the truth is 1.28 — two defensible guesses compounding
+    // into a number 1.8x too generous. One end-to-end rate cannot compound.
+    expect(TRANSLATE_CHARS_PER_OUTPUT_TOKEN).toBeCloseTo(
+      TRANSLATE_CALIBRATION.largestSuccessChars /
+        TRANSLATE_CALIBRATION.outputTokenBudget,
+      10,
+    );
+    expect(TRANSLATE_CHARS_PER_OUTPUT_TOKEN).toBeLessThan(3.5 / 1.3);
   });
 });
 

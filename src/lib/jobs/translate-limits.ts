@@ -1,50 +1,71 @@
 /**
- * How much text translate can actually handle — **derived from the OUTPUT budget,
- * because that is what binds it.**
+ * How much text translate can actually handle — **measured end to end, not
+ * derived from two rules of thumb.**
  *
  * Every AI tool was put on one shared input cap, `AI_INPUT_LIMITS.maxInputCharacters`
  * (500,000). For summarize, chat and extract that is genuinely the binding
  * constraint: a lot goes in, a short answer comes out. **Translate's output is as
  * long as its input**, so the thing that stops it is how much the model is allowed
  * to WRITE — and nothing distinguished the two, because the shared constant's name
- * describes reading.
+ * describes reading. The panel advertised 500,000 characters and the tool died
+ * around 12,000, after 49 seconds and one of three daily AI runs.
  *
- * Measured on production 2026-08-11, `gpt-5.6-luna`:
+ * THE FIRST FIX WAS ALSO WRONG, AND WRONG THE SAME WAY. It multiplied two
+ * plausible constants — ~3.5 characters per output token, ~1.3 expansion for a
+ * translation running longer than its source — and got 2.69, which put the
+ * ceiling at 21,538. The measured value is **1.28**. Two guesses, each defensible
+ * alone, compounded into a number 1.8x too generous and still in the unsafe
+ * direction. There is no version of that model where reading it would have
+ * revealed the error.
  *
- *     3 pages,  10,258 chars  ->  completed, 36s
- *    40 pages, 135,280 chars  ->  FAILED,    49s  ("reached its output limit")
- *   200 pages, 800,090 chars  ->  FAILED,    same class
- *
- * The panel meanwhile advertised **500,000 characters read** — off by more than an
- * order of magnitude, and a user paid 49 seconds and one of three daily AI runs to
- * discover it.
- *
- * A CONSEQUENCE WORTH NAMING: the truncation notice built in TASK-43/45 can never
- * fire for translate. Truncation begins at 500,000 characters; translate fails
- * long before that. An honesty surface was shipped into a tool that cannot reach
- * the condition it describes.
+ * SO THE FACTOR IS THE MEASUREMENT. One rate, obtained by running real documents
+ * through the real provider, rather than two factors that multiply. A single
+ * end-to-end rate cannot compound, and its provenance is a date and a bracket
+ * rather than an argument.
  */
 
 /**
- * Characters per output token, conservatively.
+ * The production bracket this ceiling is derived from.
  *
- * ~4 is the usual rule of thumb for English in GPT-family tokenizers; other
- * scripts and accented languages tokenize worse (fewer characters per token).
- * The low estimate is the safe one here — it makes the ceiling SMALLER, and the
- * cost of being too high is the 49-second paid failure this exists to prevent.
+ * Five documents, one model, one target language, one afternoon. The pair that
+ * matters is `largestSuccessChars` and `smallestFailureChars`: the true boundary
+ * is between them, and every published number has to sit inside that gap.
+ *
+ * ⚠️ CALIBRATED ON SPANISH, WHICH IS A FAVOURABLE CASE. Characters-per-token is
+ * a property of the TARGET language, and Latin scripts are the best represented
+ * in these tokenizers. We also advertise Bengali, Russian and Ukrainian, where a
+ * character costs materially more tokens — so this ceiling is expected to
+ * OVERPROMISE for them, by an amount nobody has measured yet. The probe that
+ * would settle it is a Bengali document at 10,258 characters: the size that
+ * passes in Spanish. Until that runs, a non-Latin target can still reach the
+ * provider and fail, and this comment is the only warning of it.
  */
-export const TRANSLATE_CHARS_PER_OUTPUT_TOKEN = 3.5;
+export const TRANSLATE_CALIBRATION = {
+  /** ISO date of the production run. */
+  measuredOn: "2026-08-11",
+  /** The model the bracket was measured against. */
+  model: "gpt-5.6-luna",
+  /** Target language of the bracket — see the warning above. */
+  targetLanguage: "es",
+  /** The output budget in force during the run. */
+  outputTokenBudget: 8_000,
+  /** Largest source text that COMPLETED (3 pages, 36s). */
+  largestSuccessChars: 10_258,
+  /** Smallest source text that FAILED with "reached its output limit" (4 pages, 45s). */
+  smallestFailureChars: 13_528,
+} as const;
 
 /**
- * How much longer a translation runs than its source.
+ * Source characters per output token, measured.
  *
- * Translations of English into Romance and Germanic languages typically run
- * 15–30% longer in characters; 1.3 is the top of that band, so the ceiling is
- * sized for the worst common case rather than the average. Deliberately ONE
- * factor and not a per-language table: a table is a second thing to maintain, and
- * an unlisted language would silently fall back to the wrong number.
+ * Not a tokenizer statistic and not an expansion estimate — the two together, as
+ * one observed rate, so they cannot compound. Deriving it from
+ * `largestSuccessChars` rather than typing it means the number and the evidence
+ * for the number are the same thing.
  */
-export const TRANSLATE_EXPANSION_FACTOR = 1.3;
+export const TRANSLATE_CHARS_PER_OUTPUT_TOKEN =
+  TRANSLATE_CALIBRATION.largestSuccessChars /
+  TRANSLATE_CALIBRATION.outputTokenBudget;
 
 /**
  * The most source text translate can accept for a given output budget.
@@ -55,10 +76,7 @@ export const TRANSLATE_EXPANSION_FACTOR = 1.3;
  */
 export function translateMaxInputChars(maxOutputTokens: number): number {
   if (!Number.isFinite(maxOutputTokens) || maxOutputTokens <= 0) return 0;
-  return Math.floor(
-    (maxOutputTokens * TRANSLATE_CHARS_PER_OUTPUT_TOKEN) /
-      TRANSLATE_EXPANSION_FACTOR,
-  );
+  return Math.floor(maxOutputTokens * TRANSLATE_CHARS_PER_OUTPUT_TOKEN);
 }
 
 /**
@@ -97,10 +115,11 @@ export const TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS = 8_000;
 /**
  * The ceiling as advertised and as checked before upload.
  *
- * Derived from the default budget. If an operator ever raises the budget, the
- * engine will accept more than this advertises — the panel under-promises,
- * which is the safe direction: nobody is told a document will work and then
- * charged to find out it does not.
+ * Derived from the default budget, so at that budget it is exactly the largest
+ * document measured to complete. If an operator ever raises the budget, the
+ * engine will accept more than this advertises — the panel under-promises, which
+ * is the safe direction: nobody is told a document will work and then charged to
+ * find out it does not.
  */
 export const TRANSLATE_MAX_INPUT_CHARS = translateMaxInputChars(
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
