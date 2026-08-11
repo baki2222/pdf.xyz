@@ -155,6 +155,38 @@ export interface RateLimiterCore {
     key: string,
     nowMs: number,
   ): RateLimiterVerdict;
+  /**
+   * Report whether `key` is within budget **without spending anything**, and
+   * without starting a window.
+   *
+   * Phase one of a two-phase spend. A rate limiter tests before the action; a
+   * SPEND is only known after it — a provider reports its token usage when the
+   * call returns. So the two cannot be one operation, and `peek` is the half
+   * that runs first.
+   *
+   * Creating no window matters: a peek that started one would make merely
+   * ASKING whether AI is affordable begin the day's accounting window.
+   */
+  peek(policy: RateLimitPolicy, key: string, nowMs: number): RateLimiterVerdict;
+  /**
+   * Record `cost` against `key`, unconditionally. Phase two.
+   *
+   * **It returns nothing, and that is the design.** The add phase must never
+   * refuse: it runs after the money is spent, so declining to record an amount
+   * that overshoots the ceiling would under-count precisely the call that broke
+   * it. Accounting that is blind toward free is the failure mode this whole
+   * feature exists to remove — the cache-write field and the success-only hook
+   * were the first two, and all three point the same direction.
+   *
+   * A non-positive or non-finite `cost` records nothing rather than throwing:
+   * a provider that reports no usage must not take the ceiling down with it.
+   */
+  spend(
+    policy: RateLimitPolicy,
+    key: string,
+    nowMs: number,
+    cost: number,
+  ): void;
   /** Current number of tracked buckets (for tests / bounded-memory assertions). */
   size(): number;
 }
@@ -164,6 +196,20 @@ export interface RateLimiterVerdict {
   readonly allowed: boolean;
   /** Whole seconds until the current window resets. `0` when allowed. */
   readonly retryAfterSeconds: number;
+  /**
+   * Units accumulated in the current window, when the backend reports it.
+   *
+   * Needed for two things a boolean cannot express. **The operator posture** has
+   * to say how close the ceiling is rather than only whether it has tripped; and
+   * **an over-budget spend is otherwise unobservable** — once `allowed` is
+   * `false` it stays `false`, so a `spend` that silently declined to record
+   * would look identical to one that landed. That gap is not hypothetical: the
+   * first version of the test for "spend records past the limit" passed against
+   * an implementation that dropped exactly those spends.
+   *
+   * Optional because a backend may not have it cheaply; never a promise.
+   */
+  readonly used?: number;
 }
 
 /** Map an exact retry-after (seconds) to its coarse, content-free bucket. */

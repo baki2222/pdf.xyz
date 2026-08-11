@@ -112,6 +112,67 @@ export function createMemoryRateLimiter(
       return { allowed: true, retryAfterSeconds: 0 };
     },
 
+    peek(
+      policy: RateLimitPolicy,
+      clientKey: string,
+      nowMs: number,
+    ): RateLimiterVerdict {
+      const windowMs = policy.windowSeconds * 1000;
+      const existing = windows.get(bucketKey(policy.id, clientKey));
+
+      // No live window ⇒ nothing spent yet. Deliberately does NOT create one:
+      // asking whether AI is affordable must not start the accounting day.
+      if (!existing || nowMs >= existing.resetAtMs) {
+        return policy.limit >= 1
+          ? { allowed: true, retryAfterSeconds: 0, used: 0 }
+          : {
+              allowed: false,
+              retryAfterSeconds: Math.ceil(windowMs / 1000),
+              used: 0,
+            };
+      }
+
+      if (existing.count >= policy.limit) {
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(
+            1,
+            Math.ceil((existing.resetAtMs - nowMs) / 1000),
+          ),
+          used: existing.count,
+        };
+      }
+      return { allowed: true, retryAfterSeconds: 0, used: existing.count };
+    },
+
+    spend(
+      policy: RateLimitPolicy,
+      clientKey: string,
+      nowMs: number,
+      cost: number,
+    ): void {
+      // A provider that reported no usage must not take the ceiling down with
+      // it: record nothing rather than throwing or guessing.
+      if (!Number.isFinite(cost) || cost <= 0) return;
+      if (nowMs - lastSweepMs >= sweepIntervalMs) sweep(nowMs);
+
+      const key = bucketKey(policy.id, clientKey);
+      const windowMs = policy.windowSeconds * 1000;
+      const existing = windows.get(key);
+
+      if (!existing || nowMs >= existing.resetAtMs) {
+        if (!existing && windows.size >= softBucketCap) sweep(nowMs);
+        windows.set(key, { count: cost, resetAtMs: nowMs + windowMs });
+        return;
+      }
+
+      // ALWAYS records, even past the limit — unlike `check`, which denies
+      // without incrementing to keep a flooded counter bounded. This runs after
+      // the spend has already happened, so refusing to record it would hide the
+      // one call that went over.
+      existing.count += cost;
+    },
+
     size(): number {
       return windows.size;
     },

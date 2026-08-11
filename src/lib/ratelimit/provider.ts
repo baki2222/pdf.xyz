@@ -48,6 +48,34 @@ export interface RateLimitProvider {
     key: string,
     nowMs: number,
   ): Promise<RateLimiterVerdict>;
+  /**
+   * Report the verdict **without spending**, and without creating a window.
+   *
+   * Phase one of a two-phase spend, and the reason the two phases cannot be one
+   * call: a limiter tests before the action, but a token spend is only known
+   * after the provider replies. Optional so a backend registered before this
+   * existed still satisfies the contract; callers fall back to `check` only when
+   * they genuinely intend to spend a unit.
+   */
+  peek?(
+    policy: RateLimitPolicy,
+    key: string,
+    nowMs: number,
+  ): Promise<RateLimiterVerdict>;
+  /**
+   * Record `cost`, unconditionally. Phase two.
+   *
+   * Returns nothing on purpose: the add runs AFTER the money is spent, so
+   * refusing to record an amount that overshoots would hide exactly the call
+   * that broke the ceiling. It may throw on a backend error — the caller treats
+   * a failed add as a lost measurement and says so, rather than assuming zero.
+   */
+  spend?(
+    policy: RateLimitPolicy,
+    key: string,
+    nowMs: number,
+    cost: number,
+  ): Promise<void>;
 }
 
 // The single registered backend, or none. Module-level so a boot hook sets it once

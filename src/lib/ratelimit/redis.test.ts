@@ -98,16 +98,38 @@ function fakeRedis(
 }
 
 describe("FIXED_WINDOW_SCRIPT — atomic + constant", () => {
-  it("is a single EVAL script that INCRs, sets the window TTL once, and reads PTTL", () => {
-    expect(FIXED_WINDOW_SCRIPT).toContain("INCR");
+  it("is a single EVAL script that INCRBYs, stamps a missing TTL, and reads PTTL", () => {
+    expect(FIXED_WINDOW_SCRIPT).toContain("INCRBY");
     expect(FIXED_WINDOW_SCRIPT).toContain("PEXPIRE");
     expect(FIXED_WINDOW_SCRIPT).toContain("PTTL");
-    // Race-safe: the TTL is stamped only on the counter's creation (count == 1).
-    expect(FIXED_WINDOW_SCRIPT).toMatch(/count\s*==\s*1/);
     // Constant: dynamic data travels in KEYS/ARGV, never interpolated into the text.
     expect(FIXED_WINDOW_SCRIPT).toContain("KEYS[1]");
     expect(FIXED_WINDOW_SCRIPT).toContain("ARGV[1]");
+    expect(FIXED_WINDOW_SCRIPT).toContain("ARGV[2]");
     expect(FIXED_WINDOW_SCRIPT).not.toMatch(/\$\{/);
+  });
+
+  it("stamps the TTL on a MISSING ttl, not on `count == 1`", () => {
+    // CHANGED 2026-08-11, and the old assertion is why this one is explicit.
+    // It read: "the TTL is stamped only on the counter's creation (count == 1)",
+    // and pinned `/count\s*==\s*1/`. That was correct only while every hit cost
+    // exactly one. With a measured token spend the first hit of a window is
+    // 40,000, never 1 — so the key would have been created with NO EXPIRY and
+    // lived forever, and the day's ceiling would never reset.
+    //
+    // `PTTL` returns -2 for a missing key and -1 for one without an expiry, so
+    // `< 0` is the condition that was always meant: stamp when there is no live
+    // window. Equivalent in the cost-1 path, correct in the others.
+    expect(FIXED_WINDOW_SCRIPT).toMatch(/PTTL[^)]*\)\s*<\s*0/);
+    expect(FIXED_WINDOW_SCRIPT).not.toMatch(/count\s*==\s*1/);
+  });
+
+  it("reads without writing at cost 0, so a peek cannot start a window", () => {
+    // `INCRBY key 0` CREATES a missing key at zero. If a peek did that, asking
+    // whether AI is affordable would begin the accounting day — and the answer
+    // would depend on having asked.
+    expect(FIXED_WINDOW_SCRIPT).toContain("GET");
+    expect(FIXED_WINDOW_SCRIPT).toMatch(/if\s+cost\s*>\s*0\s+then/);
   });
 });
 

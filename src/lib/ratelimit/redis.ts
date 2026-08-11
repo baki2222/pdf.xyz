@@ -7,8 +7,9 @@
  * counter, so a policy's budget is shared, not multiplied by the replica count.
  *
  * Atomic by construction — never a race-prone get-then-set. Each check is ONE server
- * side Lua script (`EVAL`): `INCR` the window key, set the window TTL on first hit,
- * read the remaining TTL, and return `{count, pttlMs}` — all executed to completion
+ * side Lua script (`EVAL`): `INCRBY` the window key by this hit's cost, stamp the
+ * window TTL when there is none, read the remaining TTL, and return `{count, pttlMs}`
+ * — or, at cost 0, `GET` only. All executed to completion
  * with no interleaving, so two replicas incrementing at once can never both read a
  * stale count. (Redis runs a script atomically; the Upstash REST transport is
  * stateless, so `EVAL` — not `WATCH`/`MULTI` — is the primitive that gives a genuine
@@ -41,16 +42,33 @@ import type { RateLimitRedisConfig } from "./redis-config";
 
 /**
  * The atomic fixed-window script. Constant text — the key is `KEYS[1]`, the window
- * length (ms) is `ARGV[1]`. Returns `{ count, pttlMs }`:
- *  - `INCR` counts this hit (creating the key at 1 on the first hit of a window);
- *  - `PEXPIRE` stamps the window TTL exactly once, when the counter is created, so the
- *    window is fixed from its first hit and self-expires (bounded memory, no sweep);
+ * length (ms) is `ARGV[1]`, and the COST is `ARGV[2]`. Returns `{ count, pttlMs }`:
+ *  - `INCRBY` adds this hit's cost (creating the key at `cost` on the window's first);
+ *  - `PEXPIRE` stamps the window TTL so the window is fixed from its first hit and
+ *    self-expires (bounded memory, no sweep);
  *  - `PTTL` reports the ms remaining, which becomes the caller's retry-after on a deny.
+ *
+ * COST 0 IS A PEEK and takes a different branch on purpose: `GET`, never `INCRBY`.
+ * `INCRBY key 0` would CREATE a missing key at zero — so merely asking whether AI is
+ * affordable would start the accounting window, and the answer would depend on having
+ * asked. A read must not be a write.
+ *
+ * The TTL guard is `PTTL < 0` rather than the older `count == 1`. `PTTL` returns -2 for
+ * a missing key and -1 for one with no expiry, so this stamps exactly when there is no
+ * live window — which is the condition actually meant. `count == 1` was equivalent only
+ * while every hit cost exactly one; with a cost of 40,000 the first hit of a window is
+ * never 1, and the key would have lived forever.
  */
 export const FIXED_WINDOW_SCRIPT = `
-local count = redis.call('INCR', KEYS[1])
-if count == 1 then
-  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+local cost = tonumber(ARGV[2]) or 1
+local count
+if cost > 0 then
+  count = redis.call('INCRBY', KEYS[1], cost)
+  if redis.call('PTTL', KEYS[1]) < 0 then
+    redis.call('PEXPIRE', KEYS[1], ARGV[1])
+  end
+else
+  count = tonumber(redis.call('GET', KEYS[1])) or 0
 end
 local pttl = redis.call('PTTL', KEYS[1])
 return { count, pttl }`;
@@ -103,69 +121,86 @@ export function createRedisRateLimitProvider(
       ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
     });
 
-  return {
-    async check(
-      policy: RateLimitPolicy,
-      key: string,
-      _nowMs: number,
-    ): Promise<RateLimiterVerdict> {
-      // A non-positive limit means "never allow"; honor it without a round-trip.
-      if (policy.limit < 1) {
+  /**
+   * One round-trip for a `(policy, key, cost)` triple. `cost` 0 peeks, 1 is an
+   * ordinary request hit, N records a measured spend.
+   */
+  async function evaluate(
+    policy: RateLimitPolicy,
+    key: string,
+    cost: number,
+  ): Promise<RateLimiterVerdict> {
+    // A non-positive limit means "never allow"; honor it without a round-trip.
+    if (policy.limit < 1) {
+      return {
+        allowed: false,
+        retryAfterSeconds: Math.max(1, policy.windowSeconds),
+      };
+    }
+
+    const storeKey = rateLimitBucketKey(config.keyPrefix, policy.id, key);
+    const windowMs = policy.windowSeconds * 1000;
+    const res = await client.command([
+      "EVAL",
+      FIXED_WINDOW_SCRIPT,
+      "1",
+      storeKey,
+      String(windowMs),
+      String(cost),
+    ]);
+
+    // Transport/protocol failure (unreachable, non-2xx, command error, malformed
+    // reply) ⇒ degrade per the configured fail mode. We NEVER fabricate an *allow*
+    // from an errored backend; the choice is only "fail open" vs "fail closed":
+    //  - `open` (default): THROW so the guard fails OPEN (allow, unenforced) — a
+    //    limiter outage can never take the API down. The reason is generic and
+    //    content-free (no key, endpoint, or token).
+    //  - `closed`: return a deliberate DENY so the guard answers 429 — shed load
+    //    rather than serve unthrottled. Retry-after is the full window (the store
+    //    is down, so no live TTL is available).
+    const failMode = config.failMode ?? "open";
+    const onBackendError = (): RateLimiterVerdict => {
+      if (failMode === "closed") {
         return {
           allowed: false,
           retryAfterSeconds: Math.max(1, policy.windowSeconds),
         };
       }
+      throw new Error("rate-limit store unavailable");
+    };
 
-      const storeKey = rateLimitBucketKey(config.keyPrefix, policy.id, key);
-      const windowMs = policy.windowSeconds * 1000;
-      const res = await client.command([
-        "EVAL",
-        FIXED_WINDOW_SCRIPT,
-        "1",
-        storeKey,
-        String(windowMs),
-      ]);
+    if (!res.ok) return onBackendError();
 
-      // Transport/protocol failure (unreachable, non-2xx, command error, malformed
-      // reply) ⇒ degrade per the configured fail mode. We NEVER fabricate an *allow*
-      // from an errored backend; the choice is only "fail open" vs "fail closed":
-      //  - `open` (default): THROW so the guard fails OPEN (allow, unenforced) — a
-      //    limiter outage can never take the API down. The reason is generic and
-      //    content-free (no key, endpoint, or token).
-      //  - `closed`: return a deliberate DENY so the guard answers 429 — shed load
-      //    rather than serve unthrottled. Retry-after is the full window (the store
-      //    is down, so no live TTL is available).
-      const failMode = config.failMode ?? "open";
-      const onBackendError = (): RateLimiterVerdict => {
-        if (failMode === "closed") {
-          return {
-            allowed: false,
-            retryAfterSeconds: Math.max(1, policy.windowSeconds),
-          };
-        }
-        throw new Error("rate-limit store unavailable");
-      };
+    const reply = res.value;
+    const count = Array.isArray(reply) ? toInt(reply[0]) : null;
+    if (count === null) return onBackendError();
 
-      if (!res.ok) return onBackendError();
+    if (count <= policy.limit)
+      return { allowed: true, retryAfterSeconds: 0, used: count };
 
-      const reply = res.value;
-      const count = Array.isArray(reply) ? toInt(reply[0]) : null;
-      if (count === null) return onBackendError();
+    // Over budget ⇒ deliberate deny. Prefer the store's remaining TTL for retry-after;
+    // fall back to the full window if PTTL was unavailable (-1/-2) or malformed.
+    const pttl = Array.isArray(reply) ? toInt(reply[1]) : null;
+    const retryAfterSeconds =
+      pttl !== null && pttl > 0 ? Math.ceil(pttl / 1000) : policy.windowSeconds;
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, retryAfterSeconds),
+      used: count,
+    };
+  }
 
-      if (count <= policy.limit) return { allowed: true, retryAfterSeconds: 0 };
-
-      // Over budget ⇒ deliberate deny. Prefer the store's remaining TTL for retry-after;
-      // fall back to the full window if PTTL was unavailable (-1/-2) or malformed.
-      const pttl = Array.isArray(reply) ? toInt(reply[1]) : null;
-      const retryAfterSeconds =
-        pttl !== null && pttl > 0
-          ? Math.ceil(pttl / 1000)
-          : policy.windowSeconds;
-      return {
-        allowed: false,
-        retryAfterSeconds: Math.max(1, retryAfterSeconds),
-      };
+  return {
+    check: (policy, key, _nowMs) => evaluate(policy, key, 1),
+    peek: (policy, key, _nowMs) => evaluate(policy, key, 0),
+    async spend(policy, key, _nowMs, cost): Promise<void> {
+      // A provider that reported no usage must not take the ceiling down with
+      // it: record nothing rather than guessing a number.
+      if (!Number.isFinite(cost) || cost <= 0) return;
+      // The verdict is DELIBERATELY discarded. This runs after the spend has
+      // already happened; "over budget" is information for the NEXT peek, not a
+      // reason to drop the measurement that put us over.
+      await evaluate(policy, key, Math.floor(cost));
     },
   };
 }
