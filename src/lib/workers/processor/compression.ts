@@ -65,6 +65,15 @@ export function compressionJobError(run: CompressionFailure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "page_loss":
+      // Not retryable: the same bytes through the same engine lose the same
+      // pages. The counts are in the message because "it lost pages" without
+      // saying how many is a claim the user cannot act on.
+      return {
+        code: "unprocessable_entity",
+        message: `${run.message} (${run.pagesIn} pages in, ${run.pagesOut} out.)`,
+        retryable: false,
+      };
     case "failed":
     default:
       return {
@@ -160,7 +169,22 @@ export function createCompressionProcessor(deps: CompressionDeps): Processor {
           outputBytes: run.meta.outputBytes,
           savedBytes: run.meta.savedBytes,
           savedRatio: run.meta.savedRatio,
+          pageCheck: run.meta.pageCheck,
         },
+        // Only the deep path reports. The lossless repack's verdict is
+        // `not-applicable` with two nulls — a block carrying no information,
+        // and this seam's own rule is that metadata is never fabricated to
+        // fill a gap. Absence here means "no verdict to carry", which is what
+        // a UI needs it to mean.
+        run.meta.pageCheck === "not-applicable"
+          ? undefined
+          : {
+              compression: {
+                pageCheck: run.meta.pageCheck,
+                pagesIn: run.meta.pagesIn,
+                pagesOut: run.meta.pagesOut,
+              },
+            },
       );
     },
   };

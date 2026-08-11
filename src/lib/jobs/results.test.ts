@@ -314,3 +314,50 @@ describe("sanitizeJobResults — the repair block", () => {
     expect(clean).toBeUndefined();
   });
 });
+
+describe("sanitizeJobResults — the compression page check", () => {
+  it("carries a justified verdict through", () => {
+    const clean = sanitizeJobResults({
+      compression: { pageCheck: "verified", pagesIn: 12, pagesOut: 12 },
+    });
+    expect(clean?.compression).toEqual({
+      pageCheck: "verified",
+      pagesIn: 12,
+      pagesOut: 12,
+    });
+  });
+
+  it("downgrades a `verified` verdict nothing supports", () => {
+    // The whole value of the field is that "verified" means something was
+    // checked. A verdict without the numbers that would justify it is the
+    // failure this guard exists to stop, not a value to be trusted.
+    const clean = sanitizeJobResults({
+      compression: { pageCheck: "verified", pagesIn: null, pagesOut: 4 },
+    });
+    expect(clean?.compression?.pageCheck).toBe("unverified");
+  });
+
+  it("downgrades a `verified` verdict the numbers contradict", () => {
+    const clean = sanitizeJobResults({
+      compression: { pageCheck: "verified", pagesIn: 10, pagesOut: 3 },
+    });
+    expect(clean?.compression?.pageCheck).toBe("unverified");
+  });
+
+  it("never persists a page count of zero", () => {
+    // `0` is not a count a comparison can use, and persisting it would let a
+    // reader treat "we could not count" as "the document has no pages".
+    const clean = sanitizeJobResults({
+      compression: { pageCheck: "unverified", pagesIn: 0, pagesOut: -3 },
+    });
+    expect(clean?.compression?.pagesIn).toBeNull();
+    expect(clean?.compression?.pagesOut).toBeNull();
+  });
+
+  it("drops a block that did not come from the real contract", () => {
+    const clean = sanitizeJobResults({
+      compression: { pagesIn: 3 },
+    } as unknown as JobResults);
+    expect(clean).toBeUndefined();
+  });
+});

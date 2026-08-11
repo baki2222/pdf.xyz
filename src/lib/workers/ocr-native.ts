@@ -36,7 +36,6 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { PDFDocument } from "pdf-lib";
 import {
   buildOcrResultMeta,
   OCR_LOW_CONFIDENCE_WORD_THRESHOLD,
@@ -54,6 +53,7 @@ import type {
   OcrRunResult,
 } from "./processor/ocr";
 import type { ProcessorArtifact, ProcessorInputFile } from "./processor/types";
+import { countPdfPages as countPdfPagesShared } from "@/lib/pdf/page-count";
 
 /** stdout/stderr capture ceiling. Engines are `--quiet` and write to files, so this is generous. */
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
@@ -351,16 +351,12 @@ function ocrOutputBase(displayName: string): string {
  * engine's own output (already validated as a PDF), not raw user input.
  */
 export async function countPdfPages(bytes: Uint8Array): Promise<number | null> {
-  if (bytes.byteLength === 0 || bytes.byteLength > META_PDF_MAX_PARSE_BYTES) {
-    return null;
-  }
-  try {
-    const doc = await PDFDocument.load(bytes, { updateMetadata: false });
-    const pages = doc.getPageCount();
-    return Number.isInteger(pages) && pages > 0 ? pages : null;
-  } catch {
-    return null;
-  }
+  // Delegates since 2026-08-11. This was a second, subtly different copy of the
+  // same parse: it lacked `ignoreEncryption`, so a protected PDF read as "no
+  // count", and it collapsed unparseable / too-large / zero-pages into one
+  // `null` — three facts a gate has to tell apart. OCR only needs the hint, so
+  // it keeps the lossy shape; it no longer keeps its own parser.
+  return countPdfPagesShared(bytes, META_PDF_MAX_PARSE_BYTES);
 }
 
 /**

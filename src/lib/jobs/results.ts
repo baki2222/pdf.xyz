@@ -22,6 +22,11 @@
  */
 
 import {
+  buildCompressionResultBlock,
+  isCompressionResultBlock,
+  type CompressionResultBlock,
+} from "./compression-results";
+import {
   buildRepairResultMeta,
   isRepairResultMeta,
   type RepairResultMeta,
@@ -63,6 +68,11 @@ export interface JobResults {
    * not "nothing was wrong". See {@link RepairResultMeta}.
    */
   repair?: RepairResultMeta;
+  /**
+   * Whether a deep-compression run's size figure is a COMPRESSION figure.
+   * Present on a completed compress job. See {@link CompressionResultBlock}.
+   */
+  compression?: CompressionResultBlock;
 }
 
 /** True when a {@link JobResults} carries at least one populated block. */
@@ -115,6 +125,11 @@ export function sanitizeJobResults(
   const repair = results.repair;
   if (isRepairResultMeta(repair)) {
     clean.repair = buildRepairResultMeta(repair);
+  }
+
+  const compression = results.compression;
+  if (isCompressionResultBlock(compression)) {
+    clean.compression = buildCompressionResultBlock(compression);
   }
 
   return hasJobResults(clean) ? clean : undefined;

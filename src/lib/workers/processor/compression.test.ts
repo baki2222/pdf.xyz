@@ -1,18 +1,37 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { CompressionDeps } from "../compression/engine";
 import { createCompressionProcessor } from "./compression";
 import type { ProcessorInputFile } from "./types";
 
-async function makePdf(pages = 4): Promise<Uint8Array> {
+async function makePdf(
+  pages = 4,
+  opts: { withText?: boolean } = {},
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  for (let i = 0; i < pages; i++) doc.addPage([300, 300]);
+  const font = opts.withText
+    ? await doc.embedFont(StandardFonts.Helvetica)
+    : undefined;
+  for (let i = 0; i < pages; i++) {
+    const page = doc.addPage([300, 300]);
+    if (font) {
+      for (let line = 0; line < 8; line += 1) {
+        page.drawText(`content line ${line}`, {
+          x: 10,
+          y: 280 - line * 20,
+          size: 9,
+          font,
+        });
+      }
+    }
+  }
   return doc.save();
 }
 
 /** Minimal, structurally-valid PDF bytes for mocking a native engine's output. */
-function tinyPdf(pad = 32): Uint8Array {
+/** Bytes SHAPED like a PDF: header, trailer, rubble between. See engine.test.ts. */
+function pdfShapedBytes(pad = 32): Uint8Array {
   return new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(pad)}\n%%EOF\n`);
 }
 
@@ -25,7 +44,7 @@ async function file(name = "report.pdf"): Promise<ProcessorInputFile> {
     fileId: "f_1234567890",
     filename: name,
     contentType: "application/pdf",
-    bytes: await makePdf(6),
+    bytes: await makePdf(6, { withText: true }),
   };
 }
 
@@ -83,7 +102,10 @@ describe("compression processor", () => {
   });
 
   it("completes a real deep job through a wired native engine (validated, smaller output)", async () => {
-    const native = tinyPdf();
+    // A REAL smaller PDF with the same page count. This test's name has always
+    // said "validated, smaller output"; until 2026-08-11 its fixture was rubble
+    // with a PDF header, and nothing in the pipeline could tell.
+    const native = await makePdf(6);
     const proc = createCompressionProcessor({
       tools: { ghostscript: true, qpdf: false, mutool: false },
       native: async () => native,
@@ -106,7 +128,7 @@ describe("compression processor", () => {
     const proc = createCompressionProcessor({
       tools: { ghostscript: true, qpdf: false, mutool: false },
       limits: { maxInputBytes: 8 },
-      native: async () => tinyPdf(),
+      native: async () => pdfShapedBytes(),
     });
     const result = await proc.process({
       tool: "compress-pdf",
