@@ -45,32 +45,102 @@ describe("real qpdf output", () => {
   });
 });
 
-describe("real Ghostscript PDF/A output", () => {
-  // Captured with the exact production argv, gs 10.00.0, exit 0.
-  const RAW = [
-    "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO",
-    "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO",
-    `Loading font Helvetica (or substitute) from ${TMP}/Resource/Font/NimbusSans-Regular`,
-  ].join("\n");
+/**
+ * Ghostscript's WHOLE stdout+stderr, not the interesting part of it.
+ *
+ * The first version of this file used the two DOCINFO lines alone, because that
+ * is what the brief quoted. A faithful excerpt of a stream is NOT a faithful
+ * fixture of the stream: run against the real thing, `363f6ab` reported
+ * `hadNotes: true` for a conversion that removed nothing and rendered the AGPL
+ * notice as the evidence, and from five pages up the per-page lines pushed the
+ * one line that mattered into "N further message(s) not shown."
+ *
+ * PROVENANCE, stated because it decides how much these tests are worth:
+ *  - the banner, copyright, licence, "Processing pages 1 through N." and
+ *    "Page N" lines are VERBATIM from a clean production run (gs 10.00.0);
+ *  - the two DOCINFO lines and the font line are VERBATIM from the
+ *    transparency-document run with the production argv;
+ *  - the repetition of "Page N" for N > 1 is EXTRAPOLATED from the documented
+ *    one-line-per-page behaviour, not separately captured.
+ */
+const GS_BANNER = [
+  "GPL Ghostscript 10.00.0 (2022-09-21)",
+  "Copyright (C) 2022 Artifex Software, Inc. All rights reserved.",
+  "This software is supplied under the GNU AGPLv3 and comes with NO WARRANTY:",
+  "see the file COPYING for full details.",
+];
 
-  it("keeps the deletion notice and drops the line that is all path", () => {
-    const out = sanitizeNativeDiagnostics(RAW, PATHS);
-    expect(out).toEqual([
-      "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO",
-      // The font line named a path outside our temp dir; it fails closed and is
-      // counted rather than half-scrubbed.
-      "1 further message(s) not shown.",
+const GS_DELETION_NOTICE =
+  "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO";
+
+/** The whole stream a run produces WITHOUT `-dQUIET`. */
+function gsStreamWithoutQuiet(pages: number, deletions: number): string {
+  const stdout = [
+    ...GS_BANNER,
+    `Processing pages 1 through ${pages}.`,
+    ...Array.from({ length: pages }, (_, i) => `Page ${i + 1}`),
+  ];
+  if (deletions > 0) {
+    stdout.push(
+      `Loading font Helvetica (or substitute) from ${TMP}/Resource/Font/NimbusSans-Regular`,
+    );
+  }
+  const stderr = Array.from({ length: deletions }, () => GS_DELETION_NOTICE);
+  return [...stdout, ...stderr].join("\n");
+}
+
+/**
+ * The whole stream WITH `-dQUIET` — measured on the production worker: stdout
+ * empty, stderr unchanged, both deletion notices still present.
+ */
+function gsStreamWithQuiet(deletions: number): string {
+  return Array.from({ length: deletions }, () => GS_DELETION_NOTICE).join("\n");
+}
+
+describe("Ghostscript's whole stream, WITHOUT -dQUIET — why the flag is needed", () => {
+  it("a CLEAN conversion produces lines that read as 'something was removed'", () => {
+    // This is the defect. Every one of these is boilerplate, and `PdfANotes`
+    // rendered them under "The converter changed or removed some content."
+    const out = sanitizeNativeDiagnostics(gsStreamWithoutQuiet(1, 0), PATHS);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.join(" ")).toContain("GPL Ghostscript");
+  });
+
+  it("a 20-page conversion buries the deletion notice under page lines", () => {
+    const out = sanitizeNativeDiagnostics(gsStreamWithoutQuiet(20, 2), PATHS);
+    // The one line that matters does not survive the bound.
+    expect(out).not.toContain(GS_DELETION_NOTICE);
+    expect(out[out.length - 1]).toMatch(/further message\(s\) not shown/);
+  });
+});
+
+describe("Ghostscript's whole stream, WITH -dQUIET — the fix", () => {
+  it("a CLEAN conversion produces NOTHING, so hadNotes can be false", () => {
+    // The `false` case was unreachable before the flag: there was always a
+    // banner. "Nothing was removed" only becomes sayable here.
+    expect(sanitizeNativeDiagnostics(gsStreamWithQuiet(0), PATHS)).toEqual([]);
+  });
+
+  it("a 1-page conversion with a deletion shows the deletion and nothing else", () => {
+    expect(sanitizeNativeDiagnostics(gsStreamWithQuiet(2), PATHS)).toEqual([
+      GS_DELETION_NOTICE,
     ]);
   });
 
-  it("deduplicates the message repeated once per offending object", () => {
+  it("a 20-page conversion still shows the deletion, not a count", () => {
+    // The page lines are gone at the source, so the bound is nowhere near
+    // binding and the notice is visible rather than counted.
+    const out = sanitizeNativeDiagnostics(gsStreamWithQuiet(2), PATHS);
+    expect(out).toEqual([GS_DELETION_NOTICE]);
+    expect(out.join(" ")).not.toMatch(/further message/);
+  });
+
+  it("deduplicates the notice repeated once per offending object", () => {
     // gs said this twice for one document. The user needs to know metadata was
     // discarded, not how many objects were involved.
-    const out = sanitizeNativeDiagnostics(
-      "discarding DOCINFO\ndiscarding DOCINFO\ndiscarding DOCINFO",
-      [],
-    );
-    expect(out).toEqual(["discarding DOCINFO"]);
+    expect(sanitizeNativeDiagnostics(gsStreamWithQuiet(9), PATHS)).toEqual([
+      GS_DELETION_NOTICE,
+    ]);
   });
 });
 

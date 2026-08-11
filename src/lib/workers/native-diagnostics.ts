@@ -27,7 +27,22 @@
  * understand". The text goes through as text.
  */
 
-/** Max lines handed to a caller. Everything beyond is counted, not dropped silently. */
+/**
+ * Max lines handed to a caller. Everything beyond is counted, not dropped
+ * silently.
+ *
+ * RE-EXAMINED 2026-08-11, because it was sized against a stream that was mostly
+ * boilerplate. Ghostscript now runs with `-dQUIET` and qpdf only speaks when
+ * something is wrong, so what reaches here is notices, and identical lines are
+ * de-duplicated before the bound applies — a document that trips one condition
+ * on every page produces ONE line, not one per page.
+ *
+ * What ten still protects: a pathological document tripping many DISTINCT
+ * conditions. It bounds what is persisted onto a job record and what a panel
+ * renders, at roughly 2 KB worst case. It should now be far from binding, and
+ * if it ever does bind, the overflow count says so rather than the list
+ * quietly ending.
+ */
 export const MAX_DIAGNOSTIC_LINES = 10;
 /** Each surviving line is clipped to this many characters. */
 export const MAX_DIAGNOSTIC_CHARS = 200;
@@ -45,10 +60,16 @@ export const MAX_DIAGNOSTIC_CHARS = 200;
  * prefix, or any single token with two or more separators
  * (`Resource/Font/NimbusSans-Regular`). One slash inside a word is prose.
  *
- * COST, STATED: a font-substitution notice names a path inside the Ghostscript
- * install, so it is dropped and counted rather than shown. That is the fail-
- * closed side of the trade, and inventing an exception for "paths that are only
- * ours" would put back the judgement call this rule exists to remove.
+ * COST, STATED — AND IT GOT LARGER. A font-substitution notice names a path
+ * inside the Ghostscript install, so this rule drops and counts it rather than
+ * showing it. Since `-dQUIET` was added to the PDF/A argv that line is not
+ * emitted at all, so for PDF/A it is now unobservable rather than merely
+ * unshown. Font substitution is a real change to a document, so this is a
+ * genuine reduction in what we can tell a user. It is recorded as a known gap:
+ * recovering it would mean running gs loudly and filtering the boilerplate back
+ * out, which is the classifier this file argues against — a filter that stopped
+ * matching would let the banner through visibly, but only after someone had
+ * already accepted a filter as the mechanism.
  */
 function looksLikePath(line: string): boolean {
   return (
