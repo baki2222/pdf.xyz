@@ -400,3 +400,66 @@ describe("a short window is disclosed — to the model and to the job record", (
     expect(provider.calls[0]?.system ?? "").not.toMatch(/ONLY PART/);
   });
 });
+
+describe("the download can audit the caching bet", () => {
+  it("carries all three token classes into the manifest", async () => {
+    // §3 of the review: the bet is "turn one pays a write premium, a later turn
+    // collects". Until 2026-08-11 the manifest showed two of three classes, so
+    // the COST side was invisible and a zero read could not be told apart from
+    // "never cached". Anthropic's `input` is the uncached remainder only.
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages([
+        "Cover page.",
+        "Invoice INV-42, grand total $1,200.",
+      ]),
+      provider: providerReturning({
+        ok: true,
+        text: "The invoice total is $1,200 [p.2].",
+        model: "claude-sonnet-5",
+        usage: {
+          inputTokens: 20,
+          outputTokens: 300,
+          cachedInputTokens: 0,
+          cacheWriteInputTokens: 40_000,
+        },
+      }),
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+
+    const zip = await JSZip.loadAsync(run.output);
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
+    expect(
+      manifest.usage,
+      "the download shows fewer token classes than the job record — the write " +
+        "premium is the cost side of the caching bet and without it the " +
+        "decision cannot be audited from the artefact",
+    ).toEqual({ input: 20, output: 300, cachedInput: 0, cacheWrite: 40_000 });
+    // Still v1: an optional additive field breaks no reader.
+    expect(manifest.schema).toBe("pdfxyz.chat/v1");
+  });
+
+  it("omits cacheWrite entirely when the provider did not report it", async () => {
+    // Absent means NOT MEASURED. Every manifest before this commit is in that
+    // state and there is no back-fill, so a zero here would be a fabricated
+    // measurement of history.
+    const run = await runChatWithPdf(INPUT, QUESTION, {
+      extract: extractorForPages([
+        "Cover page.",
+        "Invoice INV-42, grand total $1,200.",
+      ]),
+      provider: providerReturning(
+        SUCCESS("The invoice total is $1,200 [p.2]."),
+      ),
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    const zip = await JSZip.loadAsync(run.output);
+    const manifest = JSON.parse(
+      await zip.file("manifest.json")!.async("string"),
+    );
+    expect("cacheWrite" in manifest.usage).toBe(false);
+  });
+});

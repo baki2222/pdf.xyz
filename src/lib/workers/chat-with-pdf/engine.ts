@@ -460,6 +460,9 @@ export async function runChatWithPdf(
           usage: {
             input: completion.usage.inputTokens,
             output: completion.usage.outputTokens,
+            ...(completion.usage.cacheWriteInputTokens !== undefined
+              ? { cacheWrite: completion.usage.cacheWriteInputTokens }
+              : {}),
             ...(completion.usage.cachedInputTokens !== undefined
               ? { cachedInput: completion.usage.cachedInputTokens }
               : {}),
@@ -555,14 +558,35 @@ interface ChatManifest {
   /**
    * Token accounting, when the provider reported it. Counts only — never text.
    *
-   * `cachedInput` is what makes the caching decision auditable rather than assumed.
-   * Caching the document is a bet that a second question follows: turn one pays a write
-   * premium and only a later turn collects. Recorded next to `contextTurns`, the two
-   * answer the question directly — do requests that carry prior turns actually show
-   * cache reads? If that stays zero across real traffic, the bet is not paying and
+   * `cachedInput` and `cacheWrite` are what make the caching decision auditable
+   * rather than assumed. Caching the document is a bet that a second question
+   * follows: turn one pays a write premium and only a later turn collects.
+   * Recorded next to `contextTurns`, they answer the question directly — do
+   * requests carrying prior turns actually show cache reads, and what did the
+   * writes cost? If reads stay zero across real traffic the bet is not paying and
    * `cacheSystem` should come back off.
+   *
+   * ⚠️ `cacheWrite` WAS MISSING UNTIL 2026-08-11, AND WITHOUT IT THE BET COULD NOT
+   * BE EVALUATED AT ALL. Anthropic's `input` is the UNCACHED REMAINDER; turn one
+   * of a `cacheSystem` request writes the whole document into the cache and bills
+   * it to a field nothing read. A 50-page document recorded as 20 input tokens.
+   * Worse for the decision this block exists to support: a zero `cachedInput`
+   * could not distinguish "cached and never re-read" from "never cached at all" —
+   * Anthropic silently declines to cache below ~1024 tokens — so the read side was
+   * ambiguous and the cost side was invisible.
+   *
+   * ADDITIVE, and the schema stays `pdfxyz.chat/v1`: an optional field no reader
+   * is required to know about does not break one, and bumping a version for an
+   * addition trains us to bump it for nothing. **Absent means NOT MEASURED, never
+   * zero** — which is also true of every manifest produced before this commit.
+   * There is no back-fill: the numbers were never stored.
    */
-  usage?: { input: number; output: number; cachedInput?: number };
+  usage?: {
+    input: number;
+    output: number;
+    cachedInput?: number;
+    cacheWrite?: number;
+  };
   grounded: boolean;
   notice: string;
 }
