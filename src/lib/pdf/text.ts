@@ -70,23 +70,40 @@ export function normalizeExtractedText(text: string): string {
  * columns, which carries TWO things: that cells are separated (load-bearing) and
  * how wide the gap is (not). This keeps the first and discards the second.
  *
- * MEASURED 2026-08-11, a four-column table, same PDF three ways:
+ * WHY THE FLAG STAYS ON AND THE PADDING IS REMOVED AFTERWARDS, rather than the
+ * simpler-looking "just drop `-layout`": **`-layout` is the only mode that
+ * reconstructs the page's VISUAL READING ORDER.** The other two each give that
+ * up, in different ways, and both failures are silent.
+ *
+ * Measured on the production worker, `pdftotext` **22.12.0** (poppler), a
+ * four-column table:
  *
  * ```
- *   -layout   97 chars   Region  Q1    Q2    Q3 / North   1200  1350  1410
- *   default   79 chars   Region North South East / Q1 1200 980 1440   ← TRANSPOSED
- *   -raw      76 chars   Region Q1 Q2 Q3 / North 1200 1350 1410
+ *   -layout   142 chars   Region   Q1     Q2     Q3   /  North    1200   1350
+ *   default   115 chars   Region|Q1|Q2|Q3|North|1200|1350|1410|South|…
+ *   -raw       95 chars   Region Q1 Q2 Q3  /  North 1200 1350 1410
  * ```
  *
- * The middle row is why the AI engines still pass `-layout` and collapse
- * afterwards rather than simply dropping the flag: `pdftotext`'s default mode
- * re-derives reading order and grouped that table by COLUMN, transposing it.
- * Handing a model a transposed table is a silent semantic corruption, and a far
- * worse defect than an inflated character count. Collapsing `-layout` reaches the
- * same 76 characters as `-raw` with the rows intact.
+ * **default** is row-major but flattened — one cell per line, no row boundaries.
+ * A model can only recover the table by assuming a fixed width and counting,
+ * which works on a perfect rectangle and breaks on a merged or missing cell.
  *
- * On ordinary prose this is a no-op — single-column text has no runs of two or
- * more spaces, which is why the extractor divergence was 1.0001 there.
+ * **`-raw`** means "strings in content-stream order", which is not visual order:
+ * a page whose generator emitted blocks 4, 2, 1, 3 comes out 4, 2, 1, 3.
+ * Generators do this constantly — LaTeX, Word exports, anything with footnotes
+ * or flowed columns. A summary or translation built on that is fluent, complete
+ * and **in the wrong order**, with nothing to warn. Same family as running OCR
+ * in the wrong language.
+ *
+ * ⚠️ AN EARLIER VERSION OF THIS NOTE SAID `default` TRANSPOSES THE TABLE. That
+ * was measured on Xpdf `pdftotext` 4.00, which groups by column; poppler 22.12.0
+ * flattens instead. **The claim was binary-specific and does not reproduce on the
+ * binary we ship** — recorded so the next person testing elsewhere is not
+ * confused by it. The conclusion did not change, but the reason it rested on was
+ * wrong, and a reason that does not reproduce is worse than no reason.
+ *
+ * On ordinary prose this collapse is a no-op — single-column text has no runs of
+ * two or more spaces, which is why the extractor divergence was 1.0001 there.
  */
 export function collapseLayoutPadding(text: string): string {
   return text.replace(/[ \t]{2,}/g, " ");

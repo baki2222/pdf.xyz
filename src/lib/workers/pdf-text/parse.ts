@@ -39,11 +39,16 @@
  *
  * SINCE 2026-08-11 THE AI PATH COLLAPSES THAT PADDING — see
  * {@link collapseLayoutPadding} — bringing the worst case to **1.2031**. The
- * flag stays on, because `-layout` is also the only thing carrying ROW
- * structure: dropping it hands `pdftotext`'s reading-order mode a table and it
- * transposes the thing, which is a silent semantic corruption and much worse
- * than a wrong character count. Office export and table extraction still get the
- * uncollapsed text, which is what they read structure out of.
+ * flag stays on, because **`-layout` is the only mode that reconstructs the
+ * page's visual reading order**: poppler 22.12.0's default mode flattens a table
+ * to one cell per line with no row boundaries, and `-raw` emits content-stream
+ * order, which generators write out of visual order constantly. Both give a
+ * model something fluent, complete and wrong. The full measurement, and the
+ * earlier transposition claim that turned out to be specific to Xpdf 4.00, are
+ * recorded at {@link collapseLayoutPadding}.
+ *
+ * Office export and table extraction still get the uncollapsed text, which is
+ * what they read structure out of.
  */
 
 import {

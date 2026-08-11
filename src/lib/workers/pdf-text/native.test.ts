@@ -156,10 +156,12 @@ describe("extractors", () => {
   });
 
   it("collapsing keeps the ROW, which is what -layout is carrying", async () => {
-    // Not merely "fewer characters". Dropping `-layout` instead of collapsing it
-    // hands pdftotext's reading-order mode a table and it transposes the thing;
-    // measured 2026-08-11 on a four-column fixture. Cells must stay on their row
-    // and stay separated.
+    // Not merely "fewer characters". `-layout` is the only mode that
+    // reconstructs visual reading order: on the production binary (poppler
+    // 22.12.0) the default mode flattens a table to one cell per line with no
+    // row boundaries, and `-raw` emits content-stream order, which generators
+    // write out of visual order. Cells must stay on their row and stay
+    // separated. Full measurement at `collapseLayoutPadding`.
     const table = "Region  Q1    Q2\nNorth   1200  1350";
     const extract = createNativePdfTextExtractor(
       "pdftotext",
