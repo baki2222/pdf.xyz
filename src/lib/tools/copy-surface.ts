@@ -9,7 +9,8 @@
  * mechanical version of the promise.
  *
  * Scope note: the numbers census and the legal-pages overclaim scan read
- * DIFFERENT, deliberate surfaces (wider — runner components; narrower — the
+ * DIFFERENT, deliberate surfaces (the numbers census still walks its own
+ * roots, which now overlap this one; the legal scan is narrower — the
  * FAQ-plus-sections block) and do not import this walk. A new guard that
  * wants the visitor-readable page surface imports it from here rather than
  * copying it.
@@ -30,10 +31,23 @@ const ROOT = process.cwd();
  * picks up `categories.ts` and `processing.ts`, whose descriptions are
  * user-facing copy the list never carried. `faq.ts` and `site.ts` stay
  * listed because they live outside any walked root — each with this reason.
+ *
+ * `src/components/tools` joined on 2026-08-11, and the reason is the sixth
+ * appearance of the same gap. A census of AI-scope claims found ten in the
+ * tool panels — including the sentence a visitor reads directly above the
+ * file picker while deciding whether to upload a 300-page report. Every one
+ * of them sat outside this walk, so `marketing-honesty`, `pricing-honesty`
+ * and `account-honesty` were blind to the panels entirely; only
+ * `numbers-honesty` reached them, through a wider list of its own. The
+ * earlier scope note said the runner surface "belongs to a different guard",
+ * which was true of numbers and false of everything else — a page a visitor
+ * reads is a page a copy guard should read, and where the component happens
+ * to live is not a reason.
  */
 export function copyFiles(): string[] {
   const roots = [
     path.join(ROOT, "src", "components", "sections"),
+    path.join(ROOT, "src", "components", "tools"),
     path.join(ROOT, "src", "app"),
     path.join(ROOT, "src", "lib", "tools"),
   ];

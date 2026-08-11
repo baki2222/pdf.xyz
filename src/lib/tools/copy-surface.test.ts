@@ -26,6 +26,15 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/tools/processing.ts",
       "src/lib/faq.ts",
       "src/lib/site.ts",
+      // The tool panels. Added 2026-08-11 after a copy census found ten
+      // whole-document claims living here — including the sentence a visitor
+      // reads directly above the file picker, while deciding whether to upload
+      // a 300-page report. Three of the four guards that import this walk could
+      // not see any of them.
+      "src/components/tools/summarize-worker-panel.tsx",
+      "src/components/tools/translate-worker-panel.tsx",
+      "src/components/tools/chat-with-pdf-worker-panel.tsx",
+      "src/components/tools/ai-extract-worker-panel.tsx",
     ]) {
       expect(
         files,
