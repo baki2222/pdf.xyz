@@ -60,7 +60,17 @@ export interface AiCompletionRequest {
   cacheSystem?: boolean;
 }
 
-/** Content-free token accounting a provider MAY report (never required). */
+/**
+ * Content-free token accounting a provider MAY report (never required).
+ *
+ * ⚠️ THESE THREE INPUT FIELDS DO NOT OVERLAP AND MUST NOT BE ADDED TO ONE
+ * ANOTHER CARELESSLY. With Anthropic the prompt total is
+ * `inputTokens + cacheWriteInputTokens + cachedInputTokens`, and each is billed
+ * at a different rate — fresh, ~1.25x to write, ~0.1x to read. With OpenAI
+ * `prompt_tokens` is INCLUSIVE of the cached portion, so `inputTokens` there is
+ * already the total and `cachedInputTokens` is a subset of it. A costing that
+ * assumes one convention across both providers is wrong for one of them.
+ */
 export interface AiUsage {
   inputTokens: number;
   outputTokens: number;
@@ -68,12 +78,26 @@ export interface AiUsage {
    * How many of the input tokens were served from the provider's prompt cache.
    * Absent when the provider does not report it.
    *
-   * This is the only way to tell whether {@link AiCompletionRequest.cacheSystem} is
-   * actually paying for itself. A run of requests where this stays 0 means the cached
-   * prefix is being invalidated — or that nobody is asking a second question — and
-   * the bet should be reconsidered rather than assumed.
+   * Tells whether {@link AiCompletionRequest.cacheSystem} is paying for itself —
+   * but only alongside {@link AiUsage.cacheWriteInputTokens}. Zero reads on its
+   * own cannot distinguish "cached and never re-read" from "never cached at
+   * all", and Anthropic silently declines to cache prompts below ~1024 tokens.
+   * The read is the benefit; the write is the cost, and a bet needs both sides.
    */
   cachedInputTokens?: number;
+  /**
+   * Input tokens billed at the cache-WRITE rate — the premium paid to put a
+   * prompt into the cache. Absent when the provider does not report it, which
+   * OpenAI never does.
+   *
+   * Read since 2026-08-11. Its absence was a live under-count rather than a
+   * missing nicety: turn one of every `cacheSystem: true` request writes the
+   * whole document into the cache, so with Anthropic the entire document was
+   * billed here and recorded nowhere. Measured through the real adapter, a
+   * 50-page document persisted as **20 input tokens** — plausible, attributed,
+   * and unidirectional toward free.
+   */
+  cacheWriteInputTokens?: number;
 }
 
 /**

@@ -52,6 +52,29 @@ const ANTHROPIC_REPLY = {
   usage: { input_tokens: 12, output_tokens: 5, cache_read_input_tokens: 4_000 },
 };
 
+/**
+ * The OTHER direction of the protocol — a cache WRITE.
+ *
+ * Caching has two events and this file only ever modelled one. Turn ONE of a
+ * `cacheSystem` request is a write: the document goes into the cache, is billed
+ * at the write premium, and `input_tokens` reports only the uncached remainder.
+ * With no write fixture, the adapter's failure to read
+ * `cache_creation_input_tokens` was invisible here — a 50-page document could
+ * record as 12 input tokens and every test still passed.
+ *
+ * One direction of a two-direction protocol is a corpus with a hole.
+ */
+const ANTHROPIC_CACHE_WRITE_REPLY = {
+  content: [{ type: "text", text: "It says hello." }],
+  stop_reason: "end_turn",
+  usage: {
+    input_tokens: 12,
+    output_tokens: 5,
+    cache_creation_input_tokens: 40_000,
+    cache_read_input_tokens: 0,
+  },
+};
+
 const OPENAI_REPLY = {
   choices: [{ message: { content: "It says hello." }, finish_reason: "stop" }],
   usage: {
@@ -170,5 +193,36 @@ describe("OpenAI — caching is automatic, so the body must not change", () => {
       outputTokens: 5,
       cachedInputTokens: 4_000,
     });
+  });
+});
+
+describe("Anthropic — the cache WRITE is billed and must be reported", () => {
+  it("reads cache_creation_input_tokens as its own field", async () => {
+    // Anthropic's `input_tokens` is the UNCACHED REMAINDER, so on a write turn
+    // the entire document sits in `cache_creation_input_tokens`. Reading only
+    // the other two recorded a 50-page document as 12 input tokens: plausible,
+    // attributed, and unidirectional toward free.
+    const result = await anthropic(
+      capturing(ANTHROPIC_CACHE_WRITE_REPLY).fetch,
+    ).complete({ ...REQUEST, cacheSystem: true });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.usage).toEqual({
+      inputTokens: 12,
+      outputTokens: 5,
+      cachedInputTokens: 0,
+      cacheWriteInputTokens: 40_000,
+    });
+  });
+
+  it("keeps write and read separate, because they are priced separately", () => {
+    // ~1.25x to write, ~0.1x to read, 1x fresh. Three rates, three fields —
+    // folding any pair together makes one of them unpriceable.
+    const write = ANTHROPIC_CACHE_WRITE_REPLY.usage;
+    const read = ANTHROPIC_REPLY.usage;
+    expect(write.cache_creation_input_tokens).toBeGreaterThan(0);
+    expect(write.cache_read_input_tokens).toBe(0);
+    expect(read).not.toHaveProperty("cache_creation_input_tokens");
+    expect(read.cache_read_input_tokens).toBeGreaterThan(0);
   });
 });

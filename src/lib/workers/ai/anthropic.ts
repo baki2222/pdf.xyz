@@ -58,6 +58,16 @@ interface AnthropicResponseBody {
     output_tokens?: unknown;
     /** Tokens billed at the cache-read rate; absent when nothing was cached. */
     cache_read_input_tokens?: unknown;
+    /**
+     * Tokens billed at the cache-WRITE rate — the premium paid to put a prompt
+     * into the cache. Absent when nothing was written.
+     *
+     * Declared since 2026-08-11, and its absence was a live under-count: turn
+     * one of every `cacheSystem` request is a cache write, so the entire
+     * document landed here and nowhere we read. A 50-page document recorded as
+     * 20 input tokens.
+     */
+    cache_creation_input_tokens?: unknown;
   };
 }
 
@@ -286,11 +296,21 @@ export function createAnthropicProvider(
 
       const inputTokens = coerceCount(body.usage?.input_tokens);
       const outputTokens = coerceCount(body.usage?.output_tokens);
-      // `input_tokens` counts only what was NOT served from cache, so a cache hit shows
-      // up as a small `input_tokens` plus a large `cache_read_input_tokens` — reading
-      // the first alone makes a cached request look like a tiny one.
+      // `input_tokens` is the UNCACHED REMAINDER ONLY. The prompt total is
+      //     input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+      // and all three are needed, at three different prices: fresh, write
+      // (1.25x), read (0.1x). Reading fewer than three makes a cached request
+      // look like a tiny one.
       const cachedInputTokens = coerceCount(
         body.usage?.cache_read_input_tokens,
+      );
+      // The write side, unread until 2026-08-11 and the reason a 50-page chat
+      // recorded as 20 input tokens: turn one of a `cacheSystem` request writes
+      // the whole document into the cache, so every character of it was billed
+      // here and counted nowhere. Kept as its own field because it is priced at
+      // neither the fresh nor the read rate.
+      const cacheWriteInputTokens = coerceCount(
+        body.usage?.cache_creation_input_tokens,
       );
       const usage =
         inputTokens !== undefined && outputTokens !== undefined
@@ -298,6 +318,9 @@ export function createAnthropicProvider(
               inputTokens,
               outputTokens,
               ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+              ...(cacheWriteInputTokens !== undefined
+                ? { cacheWriteInputTokens }
+                : {}),
             }
           : undefined;
 

@@ -25,6 +25,7 @@ import {
   translateTooLongMessage,
 } from "@/lib/jobs/translate-limits";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
+import type { AiUsageMeta } from "@/lib/jobs/ai-results";
 
 /**
  * Translate PDF engine for the `translate-pdf` AI tool.
@@ -111,6 +112,11 @@ export interface TranslateMeta {
    * carries to the browser so the panel can state the bound.
    */
   window: TruncationWindow;
+  /**
+   * Provider-reported token usage, absent when the provider did not report it.
+   * Carried to the job record so an AI run's cost is measurable after the fact.
+   */
+  usage?: AiUsageMeta;
 }
 
 export type TranslateFailureKind =
@@ -415,6 +421,28 @@ export async function runTranslate(
       tool: TRANSLATE_TOOL,
       provider: provider.id,
       model: completion.model,
+      // Token counts travel to the job record so the per-page cost of an AI run
+      // is measurable after the fact. Absent when the provider did not report.
+      ...(completion.usage
+        ? {
+            usage: {
+              inputTokens: completion.usage.inputTokens,
+              outputTokens: completion.usage.outputTokens,
+              ...(completion.usage.cachedInputTokens !== undefined
+                ? { cachedInputTokens: completion.usage.cachedInputTokens }
+                : {}),
+              ...(completion.usage.cacheWriteInputTokens !== undefined
+                ? {
+                    cacheWriteInputTokens:
+                      completion.usage.cacheWriteInputTokens,
+                  }
+                : {}),
+              // One provider call per job today. Chunked translation makes this N.
+              calls: 1,
+              model: completion.model,
+            },
+          }
+        : {}),
       targetLanguage: options.targetLanguage,
       sourceLanguage: options.sourceLanguage,
       pageCount: extracted.pageCount,

@@ -14,6 +14,7 @@ import {
 import type { ExtractOptions, ExtractionField } from "@/lib/jobs/ai-extract";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
+import type { AiUsageMeta } from "@/lib/jobs/ai-results";
 
 /**
  * AI Data Extraction engine for the `ai-extract` AI tool.
@@ -104,6 +105,11 @@ export interface AiExtractMeta {
    * to the browser so the panel can state the bound without re-deriving it.
    */
   window: TruncationWindow;
+  /**
+   * Provider-reported token usage, absent when the provider did not report it.
+   * Carried to the job record so an AI run's cost is measurable after the fact.
+   */
+  usage?: AiUsageMeta;
 }
 
 export type AiExtractFailureKind =
@@ -412,6 +418,28 @@ export async function runAiExtract(
       tool: AI_EXTRACT_TOOL,
       provider: provider.id,
       model: completion.model,
+      // Token counts travel to the job record so the per-page cost of an AI run
+      // is measurable after the fact. Absent when the provider did not report.
+      ...(completion.usage
+        ? {
+            usage: {
+              inputTokens: completion.usage.inputTokens,
+              outputTokens: completion.usage.outputTokens,
+              ...(completion.usage.cachedInputTokens !== undefined
+                ? { cachedInputTokens: completion.usage.cachedInputTokens }
+                : {}),
+              ...(completion.usage.cacheWriteInputTokens !== undefined
+                ? {
+                    cacheWriteInputTokens:
+                      completion.usage.cacheWriteInputTokens,
+                  }
+                : {}),
+              // One provider call per job today. Chunked translation makes this N.
+              calls: 1,
+              model: completion.model,
+            },
+          }
+        : {}),
       mode: options.mode,
       fieldCount: options.mode === "schema" ? (options.schema?.length ?? 0) : 0,
       extractedKeys,
