@@ -32,16 +32,21 @@ export default function HomePage() {
           faqPageSchema(faqs),
         ]}
       />
-      <Hero />
-      <StatsBand />
-      <ToolShowcase />
-      <WorkflowSection />
-      <AiSection />
-      <SecuritySection />
-      <PricingSection />
-      <FaqSection />
-      <AboutSection />
-      <CtaSection />
+      {/* The homepage renders inside the paper scope; the sticky header and
+          the footer carry the same scope themselves (they live outside every
+          page). Routes not yet redesigned keep the :root dark tokens. */}
+      <div className="theme-paper bg-canvas text-fg">
+        <Hero />
+        <StatsBand />
+        <ToolShowcase />
+        <WorkflowSection />
+        <AiSection />
+        <SecuritySection />
+        <PricingSection />
+        <FaqSection />
+        <AboutSection />
+        <CtaSection />
+      </div>
     </>
   );
 }

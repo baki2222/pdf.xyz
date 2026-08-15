@@ -1,99 +1,96 @@
 import Link from "next/link";
-import { ArrowRight, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { getPopularTools, toolCount } from "@/lib/tools";
-import { getCategory } from "@/lib/tools/categories";
 import { Container } from "@/components/ui/container";
-import { Pill } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { ToolIcon } from "@/components/ui/tool-icon";
 import { UploadZone } from "@/components/upload/upload-zone";
-import { cn } from "@/lib/utils";
 
 const trust = [
-  { icon: ShieldCheck, label: "No sign-up to start" },
-  { icon: Zap, label: "Most tools run in-browser" },
-  { icon: Sparkles, label: "AI built in, not bolted on" },
+  "No sign-up to start",
+  "Most tools run in-browser",
+  "AI built in, not bolted on",
 ];
 
+/**
+ * Editorial hero: headline column left, the working object — a real drop
+ * zone — right. No badge pill, no gradient text, no glow; the kicker is a
+ * mono catalogue line, the headline is set in the serif with the promise
+ * italicised in the accent, and the trust items sit on a hairline rule.
+ */
 export function Hero() {
   const popular = getPopularTools(6);
 
   return (
-    <section className="relative overflow-hidden pt-14 sm:pt-20">
-      <Container className="flex flex-col items-center gap-7 text-center">
-        <Pill className="animate-float-up">
-          <Sparkles className="size-3.5 text-violet-300" aria-hidden />
-          Privacy-first PDF platform · {toolCount} tools
-        </Pill>
-
-        <h1 className="max-w-4xl text-4xl leading-[1.05] font-bold tracking-tight text-balance text-white sm:text-6xl md:text-7xl">
-          Every PDF tool.{" "}
-          <span className="gradient-text">Private by design.</span>
-        </h1>
-
-        <p className="max-w-2xl text-base leading-relaxed text-pretty text-slate-400 sm:text-lg">
-          Merge, split, compress, convert, edit, sign, and run AI on your
-          documents — in one fast, beautiful workspace. Most tools run entirely
-          in your browser, so your files never leave your device.
-        </p>
-
-        <div className="flex flex-col items-center gap-3 sm:flex-row">
-          <Link
-            href="/workspace"
-            className={buttonVariants({ variant: "primary", size: "lg" })}
-          >
-            Start for free
-            <ArrowRight className="size-4" aria-hidden />
-          </Link>
-          <Link
-            href="/tools"
-            className={buttonVariants({ variant: "secondary", size: "lg" })}
-          >
-            Browse all tools
-          </Link>
-        </div>
-
-        <ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-          {trust.map(({ icon: Icon, label }) => (
-            <li
-              key={label}
-              className="inline-flex items-center gap-2 text-sm text-slate-400"
-            >
-              <Icon className="size-4 text-emerald-400" aria-hidden />
-              {label}
-            </li>
-          ))}
-        </ul>
-      </Container>
-
-      <Container className="mt-12 max-w-3xl">
-        <div className="gradient-border">
-          <div className="glass rounded-3xl p-5 sm:p-7">
-            <UploadZone />
-          </div>
-        </div>
-
-        <div className="mt-7 flex flex-col items-center gap-3">
-          <p className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
-            Popular right now
+    <section className="border-line border-b">
+      <Container className="grid gap-14 pt-16 pb-16 sm:pt-20 lg:grid-cols-12 lg:gap-10 lg:pt-24 lg:pb-20">
+        <div className="flex flex-col items-start lg:col-span-7 lg:pr-6">
+          <p className="text-muted font-mono text-xs font-medium tracking-[0.2em] uppercase">
+            Privacy-first PDF platform · {toolCount} tools
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {popular.map((tool) => (
-              <Link
-                key={tool.slug}
-                href={`/tools/${tool.slug}`}
-                className={cn(
-                  "group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pr-4 pl-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-white/20 hover:bg-white/10 hover:text-white",
-                )}
+
+          <h1 className="font-display text-fg mt-6 text-5xl leading-[1.04] font-medium tracking-tight text-balance sm:text-6xl lg:text-[4.25rem]">
+            Every PDF tool.{" "}
+            <em className="text-accent italic">Private by design.</em>
+          </h1>
+
+          <p className="text-muted mt-6 max-w-xl text-base leading-relaxed text-pretty sm:text-lg">
+            Merge, split, compress, convert, edit, sign, and run AI on your
+            documents — in one fast, beautiful workspace. Most tools run
+            entirely in your browser, so your files never leave your device.
+          </p>
+
+          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <Link
+              href="/workspace"
+              className={buttonVariants({ variant: "primary", size: "lg" })}
+            >
+              Start for free
+              <ArrowRight className="size-4" aria-hidden />
+            </Link>
+            <Link
+              href="/tools"
+              className="text-fg decoration-line-strong hover:decoration-accent inline-flex items-center gap-1.5 text-[15px] font-medium underline decoration-1 underline-offset-[6px] transition-colors"
+            >
+              Browse all tools
+            </Link>
+          </div>
+
+          <ul className="border-line mt-12 flex w-full flex-wrap items-center gap-x-7 gap-y-2 border-t pt-5">
+            {trust.map((label) => (
+              <li
+                key={label}
+                className="text-muted inline-flex items-center gap-2 text-[13px]"
               >
-                <ToolIcon
-                  icon={tool.icon}
-                  gradient={getCategory(tool.category)?.gradient}
-                  size="sm"
-                />
-                {tool.name}
-              </Link>
+                <span className="bg-accent size-1 shrink-0" aria-hidden />
+                {label}
+              </li>
             ))}
+          </ul>
+        </div>
+
+        <div className="flex flex-col lg:col-span-5">
+          <UploadZone />
+
+          <div className="mt-8">
+            <p className="text-faint font-mono text-xs font-medium tracking-[0.2em] uppercase">
+              Popular right now
+            </p>
+            <ul className="border-line mt-3 grid grid-cols-2 gap-x-6 border-t">
+              {popular.map((tool) => (
+                <li key={tool.slug} className="border-line border-b">
+                  <Link
+                    href={`/tools/${tool.slug}`}
+                    className="group text-fg hover:text-accent flex items-center justify-between gap-2 py-2.5 pr-1 text-sm transition-colors"
+                  >
+                    {tool.name}
+                    <ArrowUpRight
+                      className="text-faint size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                      aria-hidden
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </Container>

@@ -10,6 +10,11 @@ import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/layout/logo";
 import { cn } from "@/lib/utils";
 
+/**
+ * Masthead. Carries the paper theme scope itself because it renders outside
+ * every page's own wrapper: an opaque paper band with a hairline rule, on
+ * every route. No blur, no translucency — a masthead, not a glass strip.
+ */
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -20,21 +25,21 @@ export function SiteHeader() {
     (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
   return (
-    <header className="bg-ink/70 sticky top-0 z-50 border-b border-white/10 backdrop-blur-xl">
-      <Container className="flex h-16 items-center justify-between gap-4">
+    <header className="theme-paper bg-canvas border-line sticky top-0 z-50 border-b">
+      <Container className="flex h-14 items-center justify-between gap-4">
         <Logo />
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+        <nav className="hidden items-center gap-6 md:flex" aria-label="Primary">
           {primaryNav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               aria-current={isActive(item.href) ? "page" : undefined}
               className={cn(
-                "rounded-full px-3.5 py-2 text-sm font-medium transition-colors",
+                "text-sm transition-colors",
                 isActive(item.href)
-                  ? "bg-white/10 text-white"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white",
+                  ? "text-fg decoration-accent underline decoration-2 underline-offset-[6px]"
+                  : "text-muted hover:text-fg",
               )}
             >
               {item.label}
@@ -63,7 +68,7 @@ export function SiteHeader() {
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
           aria-controls="mobile-menu"
-          className="grid size-10 place-items-center rounded-xl border border-white/10 text-slate-200 transition hover:bg-white/5 md:hidden"
+          className="border-line text-fg hover:bg-wash grid size-9 place-items-center rounded-[3px] border transition-colors md:hidden"
         >
           {open ? (
             <X className="size-5" aria-hidden />
@@ -76,7 +81,7 @@ export function SiteHeader() {
       {open && (
         <div
           id="mobile-menu"
-          className="bg-ink/95 border-t border-white/10 backdrop-blur-xl md:hidden"
+          className="bg-canvas border-line border-t md:hidden"
         >
           <Container className="flex flex-col gap-1 py-4">
             {primaryNav.map((item) => (
@@ -85,7 +90,7 @@ export function SiteHeader() {
                 href={item.href}
                 onClick={() => setOpen(false)}
                 aria-current={isActive(item.href) ? "page" : undefined}
-                className="rounded-xl px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-white/5 hover:text-white"
+                className="text-fg hover:bg-wash rounded-[3px] px-3 py-2.5 text-sm font-medium transition-colors"
               >
                 {item.label}
               </Link>

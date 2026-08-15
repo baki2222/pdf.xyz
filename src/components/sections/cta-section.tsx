@@ -4,39 +4,39 @@ import { toolCount } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
 
+/**
+ * The colophon: the page's one full-bleed ink band, closing the paper page
+ * the way a printed piece ends. Inside `.theme-ink` every token inverts, so
+ * the same buttonVariants render a paper button on ink — no gradient panel,
+ * no dotted grid, no glow.
+ */
 export function CtaSection() {
   return (
-    <section className="pb-8">
-      <Container>
-        <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-violet-600/25 via-indigo-600/15 to-blue-600/20 px-6 py-14 text-center sm:px-12 sm:py-20">
-          <div
-            className="bg-grid pointer-events-none absolute inset-0 opacity-30"
-            aria-hidden
-          />
-          <div className="relative flex flex-col items-center gap-6">
-            <h2 className="max-w-2xl text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl md:text-5xl">
-              Every PDF tool, in one private workspace
-            </h2>
-            <p className="max-w-xl text-base leading-relaxed text-pretty text-slate-300 sm:text-lg">
-              Join thousands who edit, convert, and sign documents without
-              giving up their privacy. {toolCount} tools, no sign-up to start.
-            </p>
-            <div className="flex flex-col items-center gap-3 sm:flex-row">
-              <Link
-                href="/workspace"
-                className={buttonVariants({ variant: "primary", size: "lg" })}
-              >
-                Start for free
-                <ArrowRight className="size-4" aria-hidden />
-              </Link>
-              <Link
-                href="/tools"
-                className={buttonVariants({ variant: "secondary", size: "lg" })}
-              >
-                Browse all tools
-              </Link>
-            </div>
-          </div>
+    <section className="theme-ink bg-canvas">
+      <Container className="grid gap-10 py-20 sm:py-24 lg:grid-cols-12 lg:items-end">
+        <div className="flex flex-col items-start gap-6 lg:col-span-8">
+          <h2 className="font-display text-fg max-w-2xl text-4xl leading-[1.06] font-medium tracking-tight text-balance sm:text-5xl">
+            Every PDF tool, in one private workspace
+          </h2>
+          <p className="text-muted max-w-xl text-base leading-relaxed text-pretty sm:text-lg">
+            Join thousands who edit, convert, and sign documents without giving
+            up their privacy. {toolCount} tools, no sign-up to start.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:col-span-4 lg:justify-end lg:pb-2">
+          <Link
+            href="/workspace"
+            className={buttonVariants({ variant: "primary", size: "lg" })}
+          >
+            Start for free
+            <ArrowRight className="size-4" aria-hidden />
+          </Link>
+          <Link
+            href="/tools"
+            className="text-fg decoration-line-strong hover:decoration-accent inline-flex items-center gap-1.5 text-[15px] font-medium underline decoration-1 underline-offset-[6px] transition-colors"
+          >
+            Browse all tools
+          </Link>
         </div>
       </Container>
     </section>

@@ -221,7 +221,9 @@ export default async function ToolPage({
                   <ol className="flex flex-col gap-3">
                     {steps.map((step, i) => (
                       <li key={step} className="flex items-start gap-3">
-                        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-xs font-semibold text-white">
+                        {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
+                            theme ground — 16.4:1 here, and correct inside any future scope. */}
+                        <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
                           {i + 1}
                         </span>
                         <span className="text-sm leading-relaxed text-slate-300">
@@ -273,7 +275,9 @@ export default async function ToolPage({
                   <ol className="flex flex-col gap-3">
                     {steps.map((step, i) => (
                       <li key={step} className="flex items-start gap-3">
-                        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-xs font-semibold text-white">
+                        {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
+                            theme ground — 16.4:1 here, and correct inside any future scope. */}
+                        <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
                           {i + 1}
                         </span>
                         <span className="text-sm leading-relaxed text-slate-300">

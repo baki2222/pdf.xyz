@@ -1,6 +1,11 @@
 import { categories, tools, toolCount } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 
+/**
+ * A spec strip, not a stats band: the same four true numbers, set in mono
+ * against hairlines like a data sheet. The gradient-filled 5xl numerals in
+ * boxed cells were the funding-round version of this information.
+ */
 export function StatsBand() {
   const inBrowser = tools.filter(
     (t) => t.processing === "client" || t.processing === "hybrid",
@@ -14,18 +19,22 @@ export function StatsBand() {
   ];
 
   return (
-    <section className="py-14">
+    <section className="border-line border-b">
       <Container>
-        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-3xl border border-white/10 bg-white/5 lg:grid-cols-4">
-          {stats.map((stat) => (
+        <dl className="grid grid-cols-2 lg:grid-cols-4">
+          {stats.map((stat, i) => (
             <div
               key={stat.label}
-              className="bg-ink flex flex-col items-center gap-1 px-6 py-8 text-center"
+              className={
+                "border-line flex flex-col gap-1 py-7 " +
+                (i > 0 ? "lg:border-l lg:pl-8 " : "") +
+                (i % 2 === 1 ? "max-lg:border-l max-lg:pl-6" : "")
+              }
             >
-              <dt className="order-2 text-sm text-slate-400">{stat.label}</dt>
-              <dd className="order-1 bg-gradient-to-br from-white to-slate-400 bg-clip-text text-4xl font-bold tracking-tight text-transparent sm:text-5xl">
+              <dd className="text-fg order-1 font-mono text-3xl font-medium tracking-tight tabular-nums sm:text-4xl">
                 {stat.value}
               </dd>
+              <dt className="text-muted order-2 text-[13px]">{stat.label}</dt>
             </div>
           ))}
         </dl>

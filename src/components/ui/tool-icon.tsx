@@ -3,25 +3,28 @@ import { getIcon, type IconName } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 
 const sizeMap = {
-  sm: { box: "size-9 rounded-lg", icon: "size-4.5" },
-  md: { box: "size-11 rounded-xl", icon: "size-5.5" },
-  lg: { box: "size-14 rounded-2xl", icon: "size-7" },
+  sm: { box: "size-8", icon: "size-4" },
+  md: { box: "size-10", icon: "size-5" },
+  lg: { box: "size-12", icon: "size-6" },
 } as const;
 
 /**
- * Renders a tool/category icon inside a gradient-tinted glass tile.
+ * Renders a tool/category icon as a plain ink glyph in a hairline box.
+ *
+ * The multicolour gradient tiles this used to paint were the loudest single
+ * element of the old design — a different hue per category, everywhere. The
+ * `gradient` prop is still accepted (category data and out-of-scope routes
+ * pass it) but deliberately no longer painted; it retires with the catalog
+ * data when the tool routes are redesigned.
  */
-export function ToolIcon({
-  icon,
-  gradient = "from-violet-500 to-blue-500",
-  size = "md",
-  className,
-}: {
+export function ToolIcon(props: {
   icon: IconName;
+  /** @deprecated Ignored — kept only for call-site compatibility. */
   gradient?: string;
   size?: keyof typeof sizeMap;
   className?: string;
 }) {
+  const { icon, size = "md", className } = props;
   const dims = sizeMap[size];
   // `getIcon` returns a stable component from a static registry (it does not
   // create one during render); `createElement` keeps that intent explicit and
@@ -29,15 +32,14 @@ export function ToolIcon({
   return (
     <span
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center border border-white/10 bg-gradient-to-br text-white shadow-inner shadow-white/5",
+        "border-line bg-wash text-fg relative inline-flex shrink-0 items-center justify-center rounded-[3px] border",
         dims.box,
-        gradient,
         className,
       )}
     >
       {createElement(getIcon(icon), {
         className: cn(dims.icon),
-        strokeWidth: 1.75,
+        strokeWidth: 1.5,
         "aria-hidden": true,
       })}
     </span>

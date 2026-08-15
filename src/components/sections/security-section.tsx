@@ -40,28 +40,33 @@ const pillars = [
   },
 ];
 
+/**
+ * Six facts on a ruled grid — a spec sheet, not a card wall. Plain ink
+ * icons; the words are the reassurance, and they are the audited kind.
+ */
 export function SecuritySection() {
   return (
-    <section id="privacy" className="scroll-mt-24 py-20 sm:py-28">
+    <section
+      id="privacy"
+      className="border-line scroll-mt-24 border-b py-20 sm:py-28"
+    >
       <span id="security" className="sr-only" />
-      <Container className="flex flex-col gap-14">
+      <Container className="flex flex-col gap-12">
         <SectionHeading
           eyebrow="Privacy & security"
           title="Your documents never become our data"
           description="Privacy isn't a setting on pdf.xyz — it's the architecture. Here's exactly what happens to your files."
         />
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-x-10 sm:grid-cols-2 lg:grid-cols-3">
           {pillars.map(({ icon: Icon, title, body }) => (
             <div
               key={title}
-              className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-6"
+              className="border-line flex flex-col gap-2.5 border-t py-6"
             >
-              <span className="grid size-11 place-items-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
-                <Icon className="size-5" strokeWidth={1.75} aria-hidden />
-              </span>
-              <h3 className="text-base font-semibold text-white">{title}</h3>
-              <p className="text-sm leading-relaxed text-slate-400">{body}</p>
+              <Icon className="text-fg size-5" strokeWidth={1.5} aria-hidden />
+              <h3 className="text-fg text-base font-medium">{title}</h3>
+              <p className="text-muted text-sm leading-relaxed">{body}</p>
             </div>
           ))}
         </div>

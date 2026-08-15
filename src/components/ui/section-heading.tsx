@@ -1,10 +1,15 @@
 import { cn } from "@/lib/utils";
 
+/**
+ * Editorial section opener: a mono kicker, a serif display title, and muted
+ * supporting copy. Left alignment is the default voice of the redesign;
+ * `align="center"` remains for the routes that still use it.
+ */
 export function SectionHeading({
   eyebrow,
   title,
   description,
-  align = "center",
+  align = "left",
   as: Heading = "h2",
   className,
 }: {
@@ -25,17 +30,17 @@ export function SectionHeading({
       )}
     >
       {eyebrow && (
-        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold tracking-widest text-violet-200 uppercase">
+        <span className="text-accent inline-flex items-center gap-3 font-mono text-xs font-medium tracking-[0.18em] uppercase">
           {eyebrow}
         </span>
       )}
-      <Heading className="max-w-3xl text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl md:text-[2.75rem] md:leading-[1.1]">
+      <Heading className="font-display text-fg max-w-3xl text-4xl leading-[1.08] font-medium tracking-tight text-balance sm:text-5xl">
         {title}
       </Heading>
       {description && (
         <p
           className={cn(
-            "max-w-2xl text-base leading-relaxed text-pretty text-slate-400 sm:text-lg",
+            "text-muted max-w-2xl text-base leading-relaxed text-pretty sm:text-lg",
             align === "center" && "mx-auto",
           )}
         >

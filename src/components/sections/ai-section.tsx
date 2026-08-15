@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { getAiTools } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
-import { ToolIcon } from "@/components/ui/tool-icon";
 import { buttonVariants } from "@/components/ui/button";
 
 const highlights = [
@@ -11,88 +10,79 @@ const highlights = [
   "Runs on secure infrastructure under provider agreements that prohibit training on your content",
 ];
 
+/**
+ * The AI story, without the violet wash: pitch on the left, and the actual
+ * AI tools as index rows on the right — the same catalogue voice as the rest
+ * of the page, because AI here is a set of working tools, not an aura.
+ */
 export function AiSection() {
   const aiTools = getAiTools();
 
   return (
-    <section className="py-20 sm:py-28">
-      <Container>
-        <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-violet-600/20 via-indigo-600/10 to-blue-600/15 p-8 sm:p-12">
-          <div
-            className="bg-grid pointer-events-none absolute inset-0 opacity-40"
-            aria-hidden
-          />
-          <div className="relative grid gap-10 lg:grid-cols-2 lg:items-center">
-            <div className="flex flex-col gap-6">
-              <span className="inline-flex w-fit items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-xs font-semibold tracking-widest text-violet-200 uppercase">
-                <Sparkles className="size-3.5" aria-hidden />
-                AI, done right
-              </span>
-              <h2 className="text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl">
-                Understand documents, not just process them
-              </h2>
-              <p className="text-base leading-relaxed text-pretty text-slate-300">
-                {/* This sentence named a page count until 2026-08-11; it was
-                    true at only one of three measured text densities. The
-                    concrete figure now lives where it is derived from
-                    AI_INPUT_LIMITS and maintained — the tool page's own limit
-                    answer — not in a homepage line nothing recomputes. */}
-                Chat with a contract, summarize a long report, translate a
-                brochure&apos;s text into another language, or pull clean
-                structured data from invoices. Your content stays private: we
-                use providers under agreements that prohibit training on data
-                sent through their API, and we cannot control what a provider
-                does beyond those terms.
-              </p>
-              <ul className="flex flex-col gap-3">
-                {highlights.map((item) => (
-                  <li
-                    key={item}
-                    className="flex items-start gap-3 text-sm text-slate-200"
-                  >
-                    <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-violet-500/20 text-violet-200">
-                      <Sparkles className="size-3" aria-hidden />
-                    </span>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <div>
-                <Link
-                  href="/tools?category=ai"
-                  className={buttonVariants({ variant: "primary", size: "md" })}
-                >
-                  Explore AI tools
-                  <ArrowRight className="size-4" aria-hidden />
-                </Link>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {aiTools.map((tool) => (
-                <Link
-                  key={tool.slug}
-                  href={`/tools/${tool.slug}`}
-                  className="card-hover group bg-ink/40 hover:bg-ink/60 flex flex-col gap-3 rounded-2xl border border-white/10 p-5 backdrop-blur-sm hover:border-white/25"
-                >
-                  <ToolIcon
-                    icon={tool.icon}
-                    gradient="from-violet-500 via-purple-500 to-blue-500"
-                    size="md"
-                  />
-                  <div className="flex flex-col gap-1">
-                    <h3 className="text-sm font-semibold text-white">
-                      {tool.name}
-                    </h3>
-                    <p className="line-clamp-2 text-xs leading-relaxed text-slate-400">
-                      {tool.tagline}
-                    </p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
+    <section className="border-line border-b py-20 sm:py-28">
+      <Container className="grid gap-12 lg:grid-cols-2 lg:gap-16">
+        <div className="flex flex-col items-start gap-6">
+          <span className="text-accent font-mono text-xs font-medium tracking-[0.18em] uppercase">
+            AI, done right
+          </span>
+          <h2 className="font-display text-fg text-4xl leading-[1.08] font-medium tracking-tight text-balance sm:text-5xl">
+            Understand documents, not just process them
+          </h2>
+          <p className="text-muted text-base leading-relaxed text-pretty">
+            {/* This sentence named a page count until 2026-08-11; it was
+                true at only one of three measured text densities. The
+                concrete figure now lives where it is derived from
+                AI_INPUT_LIMITS and maintained — the tool page's own limit
+                answer — not in a homepage line nothing recomputes. */}
+            Chat with a contract, summarize a long report, translate a
+            brochure&apos;s text into another language, or pull clean structured
+            data from invoices. Your content stays private: we use providers
+            under agreements that prohibit training on data sent through their
+            API, and we cannot control what a provider does beyond those terms.
+          </p>
+          <ul className="flex flex-col gap-3">
+            {highlights.map((item) => (
+              <li key={item} className="text-fg flex items-start gap-3 text-sm">
+                <span
+                  className="bg-accent mt-[7px] size-1 shrink-0"
+                  aria-hidden
+                />
+                {item}
+              </li>
+            ))}
+          </ul>
+          <Link
+            href="/tools?category=ai"
+            className={buttonVariants({ variant: "primary", size: "md" })}
+          >
+            Explore AI tools
+            <ArrowRight className="size-4" aria-hidden />
+          </Link>
         </div>
+
+        <ul className="border-line flex flex-col self-start border-t">
+          {aiTools.map((tool) => (
+            <li key={tool.slug} className="border-line border-b">
+              <Link
+                href={`/tools/${tool.slug}`}
+                className="group hover:bg-wash flex items-center justify-between gap-4 py-4 pr-2 pl-1 transition-colors"
+              >
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-fg group-hover:text-accent text-[15px] font-medium transition-colors">
+                    {tool.name}
+                  </span>
+                  <span className="text-muted line-clamp-1 text-sm leading-relaxed">
+                    {tool.tagline}
+                  </span>
+                </span>
+                <ArrowUpRight
+                  className="text-faint size-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-hidden
+                />
+              </Link>
+            </li>
+          ))}
+        </ul>
       </Container>
     </section>
   );
