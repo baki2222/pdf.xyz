@@ -251,7 +251,7 @@ function OrganizeEditor({
       <RunnerSection
         title="Arrange pages"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             {items.length} page{items.length === 1 ? "" : "s"} in output
           </span>
         }
@@ -273,7 +273,7 @@ function OrganizeEditor({
             <Redo2 className="size-3.5" aria-hidden />
             Redo
           </ChipButton>
-          <span className="mx-1 h-4 w-px bg-white/10" aria-hidden />
+          <span className="bg-wash mx-1 h-4 w-px" aria-hidden />
           <ChipButton
             onClick={() => {
               dispatch({ type: "reverse" });
@@ -308,7 +308,7 @@ function OrganizeEditor({
       <ul
         role="list"
         aria-label="Pages — drag a tile, use its move buttons, or grab its handle and use the arrow keys to reorder"
-        className="grid max-h-[58vh] list-none grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+        className="border-line bg-wash grid max-h-[58vh] list-none grid-cols-2 gap-3 overflow-auto rounded-[4px] border p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
       >
         {items.map((item, i) => (
           <PageTile
@@ -396,7 +396,7 @@ function OrganizeEditor({
       {error && <ErrorNote message={error} />}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-400">
+        <p className="text-muted text-xs">
           Badge shows the new position; label shows the original page. Grab a
           tile&apos;s handle and use arrow keys, or press Ctrl/⌘+Z to undo.
         </p>

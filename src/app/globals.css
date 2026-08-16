@@ -80,6 +80,15 @@
   --color-line: var(--sf-line);
   --color-line-strong: var(--sf-line-strong);
   --color-accent: var(--sf-accent);
+
+  /* Status roles for stateful surfaces (runner results, errors, warnings,
+     worker/info accents). Tints are taken with slash-opacity at the call
+     site (bg-ok/10, border-err/30) so each scheme needs only the base tone.
+     Every base was verified ≥4.5:1 on its own 10–12% tint over the panel. */
+  --color-ok: var(--sf-ok);
+  --color-warn: var(--sf-warn);
+  --color-err: var(--sf-err);
+  --color-info: var(--sf-info);
 }
 
 /* ------------------------------------------------------------------ *
@@ -102,6 +111,10 @@
   --sf-line: #ffffff14;
   --sf-line-strong: #ffffff2e;
   --sf-accent: #a78bfa;
+  --sf-ok: #34d399;
+  --sf-warn: #fbbf24;
+  --sf-err: #f87171;
+  --sf-info: #60a5fa;
 }
 
 .theme-paper {
@@ -119,6 +132,10 @@
   --sf-line: #1c191724;
   --sf-line-strong: #1c191747;
   --sf-accent: #9a3412;
+  --sf-ok: #065f46;
+  --sf-warn: #92400e;
+  --sf-err: #b91c1c;
+  --sf-info: #1d4ed8;
 }
 
 .theme-ink {
@@ -136,6 +153,10 @@
   --sf-line: #f7f5f224;
   --sf-line-strong: #f7f5f247;
   --sf-accent: #e09070;
+  --sf-ok: #34d399;
+  --sf-warn: #fbbf24;
+  --sf-err: #f87171;
+  --sf-info: #60a5fa;
 }
 
 /* Dark scheme, by system preference. Paper becomes a warm charcoal — the
@@ -158,6 +179,10 @@
     --sf-line: #ece7e121;
     --sf-line-strong: #ece7e142;
     --sf-accent: #e0906e;
+    --sf-ok: #34d399;
+    --sf-warn: #fbbf24;
+    --sf-err: #f87171;
+    --sf-info: #60a5fa;
   }
 
   .theme-ink {
@@ -175,6 +200,10 @@
     --sf-line: #1c191724;
     --sf-line-strong: #1c191747;
     --sf-accent: #9a3412;
+    --sf-ok: #065f46;
+    --sf-warn: #92400e;
+    --sf-err: #b91c1c;
+    --sf-info: #1d4ed8;
   }
 }
 

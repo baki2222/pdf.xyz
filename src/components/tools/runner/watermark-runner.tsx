@@ -129,7 +129,7 @@ function WatermarkEditor({
             format={(v) => `${v} pt`}
           />
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-slate-300">Color</span>
+            <span className="text-muted text-xs font-medium">Color</span>
             <SegmentedControl
               label="Watermark color"
               value={color}

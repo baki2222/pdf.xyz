@@ -187,14 +187,14 @@ function RedactEditor({
       <RunnerSection
         title="Redaction areas"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             Points from bottom-left · 72 pt = 1 in
           </span>
         }
       >
-        <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+        <div className="border-line bg-wash flex flex-col gap-4 rounded-[4px] border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-slate-400">
+            <span className="text-muted text-xs">
               {activePage
                 ? `Page ${draft.page} is ${Math.round(activePage.width)} × ${Math.round(activePage.height)} pt`
                 : "Reading page sizes…"}
@@ -345,7 +345,7 @@ function BoxList({
 }) {
   if (boxes.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-4 py-6 text-center text-xs text-slate-400">
+      <p className="border-line bg-wash text-muted rounded-[4px] border border-dashed px-4 py-6 text-center text-xs">
         No redaction areas yet. Add one above — its box appears on the page
         preview.
       </p>
@@ -356,12 +356,12 @@ function BoxList({
       {boxes.map((box, index) => (
         <li
           key={box.id}
-          className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5"
+          className="border-line bg-wash flex items-center gap-3 rounded-[3px] border px-3.5 py-2.5"
         >
-          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-violet-500/15 text-[11px] font-semibold text-violet-200">
+          <span className="bg-accent/10 text-accent grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold">
             {index + 1}
           </span>
-          <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
+          <span className="text-muted min-w-0 flex-1 truncate text-xs">
             Page {box.page} · x {box.x}, y {box.y} · {box.width} × {box.height}{" "}
             pt
           </span>
@@ -369,7 +369,7 @@ function BoxList({
             type="button"
             onClick={() => onRemove(box.id)}
             aria-label={`Remove redaction area ${index + 1}`}
-            className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-white/5 hover:text-red-300"
+            className="text-muted hover:bg-wash hover:text-err shrink-0 rounded-md p-1 transition"
           >
             <Trash2 className="size-4" aria-hidden />
           </button>
@@ -395,7 +395,7 @@ function PagePreview({
 }) {
   if (!page || page.width <= 0 || page.height <= 0) {
     return (
-      <div className="aspect-[3/4] w-full max-w-[180px] animate-pulse rounded-lg bg-white/10" />
+      <div className="bg-wash aspect-[3/4] w-full max-w-[180px] animate-pulse rounded-lg" />
     );
   }
 
@@ -437,14 +437,12 @@ function PagePreview({
         {draftValid && (
           <span
             aria-hidden
-            className="absolute border border-dashed border-violet-500 bg-violet-500/20"
+            className="border-accent/40 bg-accent/10 absolute border border-dashed"
             style={toStyle(draft)}
           />
         )}
       </div>
-      <span className="text-[11px] text-slate-400">
-        Page {pageNumber} preview
-      </span>
+      <span className="text-muted text-[11px]">Page {pageNumber} preview</span>
     </div>
   );
 }
@@ -452,11 +450,8 @@ function PagePreview({
 /** The load-bearing honesty of this tool: the output is a raster PDF. */
 function RasterWarning() {
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3.5 text-sm text-amber-100">
-      <TriangleAlert
-        className="mt-0.5 size-4 shrink-0 text-amber-300"
-        aria-hidden
-      />
+    <div className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
+      <TriangleAlert className="text-warn mt-0.5 size-4 shrink-0" aria-hidden />
       <p className="leading-relaxed">
         <span className="font-semibold">Output is rasterized.</span> Every
         redacted page is flattened into an image, so selectable text, form
@@ -472,15 +467,15 @@ function RenderProgress({ done, total }: { done: number; total: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
     <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+      <span className="text-muted inline-flex items-center gap-1.5 text-xs">
         <Spinner className="size-3" /> Redacting pages… {done}/{total}
       </span>
       <span
-        className="h-1 w-full overflow-hidden rounded-full bg-white/5"
+        className="bg-wash h-1 w-full overflow-hidden rounded-full"
         aria-hidden
       >
         <span
-          className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-300"
+          className="bg-accent block h-full rounded-full transition-[width] duration-300"
           style={{ width: `${pct}%` }}
         />
       </span>
@@ -498,12 +493,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

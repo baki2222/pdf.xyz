@@ -63,7 +63,7 @@ export function ToolsExplorer({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <label className="relative w-full lg:max-w-md">
           <Search
-            className="pointer-events-none absolute top-1/2 left-4 size-4.5 -translate-y-1/2 text-slate-400"
+            className="text-muted pointer-events-none absolute top-1/2 left-4 size-4.5 -translate-y-1/2"
             aria-hidden
           />
           <input
@@ -72,20 +72,20 @@ export function ToolsExplorer({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={`Search ${toolCount} tools — merge, compress, sign…`}
             aria-label="Search tools"
-            className="bg-surface-2 h-12 w-full rounded-full border border-white/10 pr-11 pl-11 text-sm text-white transition outline-none placeholder:text-slate-400 focus:border-violet-400/50 focus:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-violet-400/50"
+            className="bg-panel border-line placeholder:text-faint focus:border-accent/40 focus-visible:ring-accent/50 text-fg h-12 w-full rounded-[3px] border pr-11 pl-11 text-sm transition outline-none focus-visible:ring-2"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="absolute top-1/2 right-3.5 grid size-6 -translate-y-1/2 place-items-center rounded-md text-slate-400 transition hover:bg-white/10 hover:text-white"
+              className="text-muted hover:bg-wash hover:text-fg absolute top-1/2 right-3.5 grid size-6 -translate-y-1/2 place-items-center rounded-md transition"
             >
               <X className="size-3.5" aria-hidden />
             </button>
           )}
         </label>
-        <p className="inline-flex items-center gap-2 text-sm text-slate-400">
+        <p className="text-muted inline-flex items-center gap-2 text-sm">
           <SlidersHorizontal className="size-4" aria-hidden />
           <span className="tabular-nums">{results.length}</span>
           {results.length === 1 ? " tool" : " tools"}
@@ -106,17 +106,17 @@ export function ToolsExplorer({
               aria-pressed={selected}
               onClick={() => setActive(filter.id)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+                "inline-flex items-center gap-1.5 rounded-[2px] border px-3.5 py-1.5 text-sm font-medium transition-colors",
                 selected
-                  ? "text-ink border-transparent bg-white"
-                  : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:text-white",
+                  ? "bg-invert text-fg-invert border-transparent"
+                  : "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
               )}
             >
               {filter.label}
               <span
                 className={cn(
                   "text-xs tabular-nums",
-                  selected ? "text-ink/60" : "text-slate-400",
+                  selected ? "text-fg-invert/70" : "text-faint",
                 )}
               >
                 {filter.count}
@@ -133,9 +133,9 @@ export function ToolsExplorer({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-white/15 bg-white/[0.02] px-6 py-16 text-center">
-          <p className="text-lg font-semibold text-white">No tools found</p>
-          <p className="max-w-sm text-sm text-slate-400">
+        <div className="border-line-strong bg-wash flex flex-col items-center gap-3 rounded-[4px] border border-dashed px-6 py-16 text-center">
+          <p className="text-fg text-lg font-semibold">No tools found</p>
+          <p className="text-muted max-w-sm text-sm">
             Nothing matches “{query}”. Try a different search, or clear the
             filters to see all {toolCount} tools.
           </p>
@@ -145,7 +145,7 @@ export function ToolsExplorer({
               setQuery("");
               setActive("all");
             }}
-            className="mt-1 rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/5 hover:text-white"
+            className="border-line-strong hover:bg-wash text-fg mt-1 rounded-[3px] border px-4 py-2 text-sm font-medium transition-colors"
           >
             Reset filters
           </button>

@@ -8,16 +8,16 @@ import { Container } from "@/components/ui/container";
 export default function Loading() {
   return (
     <div
-      className="grid min-h-[60vh] place-items-center py-20"
+      className="theme-paper bg-canvas grid min-h-[60vh] place-items-center py-20"
       role="status"
       aria-live="polite"
     >
       <Container className="flex flex-col items-center gap-4">
         <span
-          className="size-8 animate-spin rounded-full border-2 border-white/15 border-t-violet-400"
+          className="border-line-strong border-t-accent size-8 animate-spin rounded-full border-2"
           aria-hidden
         />
-        <span className="text-sm text-slate-400">Loading…</span>
+        <span className="text-muted text-sm">Loading…</span>
       </Container>
     </div>
   );

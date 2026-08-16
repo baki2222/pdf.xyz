@@ -77,13 +77,13 @@ function DefaultBoundaryFallback({ retry }: { retry: () => void }) {
   return (
     <div
       role="alert"
-      className="flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-12 text-center"
+      className="border-line bg-wash flex flex-col items-center gap-4 rounded-[4px] border px-6 py-12 text-center"
     >
       <div className="flex flex-col gap-1.5">
-        <p className="text-base font-semibold text-white">
+        <p className="text-fg text-base font-semibold">
           This tool hit an unexpected snag
         </p>
-        <p className="mx-auto max-w-sm text-sm leading-relaxed text-slate-400">
+        <p className="text-muted mx-auto max-w-sm text-sm leading-relaxed">
           {disclosure ? `${disclosure} ` : ""}You can try again, or reload the
           page.
         </p>

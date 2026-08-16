@@ -194,7 +194,7 @@ function PageSelectEditor({
       <RunnerSection
         title="Select pages"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             {config.helper(selected.size)}
           </span>
         }
@@ -205,7 +205,7 @@ function PageSelectEditor({
             Clear
           </ChipButton>
           <ChipButton onClick={invert}>Invert</ChipButton>
-          <span className="mx-1 h-4 w-px bg-white/10" aria-hidden />
+          <span className="bg-wash mx-1 h-4 w-px" aria-hidden />
           <input
             type="text"
             value={rangeInput}
@@ -214,7 +214,7 @@ function PageSelectEditor({
             placeholder="e.g. 1-3, 5"
             spellCheck={false}
             aria-label="Select pages by range"
-            className="bg-ink/60 w-36 rounded-full border border-white/10 px-3.5 py-1.5 text-xs text-white transition outline-none focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
+            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 w-36 rounded-full border px-3.5 py-1.5 text-xs transition outline-none focus:ring-2"
           />
           <ChipButton onClick={applyRange}>
             <MousePointerClick className="size-3.5" aria-hidden />
@@ -236,7 +236,7 @@ function PageSelectEditor({
       <div
         role="group"
         aria-label={`Pages — select the ones to ${config === CONFIG.extract ? "extract" : "remove"}. Shift-click to select a range.`}
-        className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
+        className="border-line bg-wash grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-[4px] border p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
       >
         {pdf.rotations.map((rotation, i) => (
           <PageTile
@@ -258,7 +258,7 @@ function PageSelectEditor({
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         {config.disallowSelectAll && allSelected && (
-          <p className="text-xs text-amber-300/80">
+          <p className="text-warn text-xs">
             You can&apos;t delete every page — deselect at least one.
           </p>
         )}

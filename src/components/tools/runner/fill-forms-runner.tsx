@@ -79,7 +79,7 @@ function FormInspector({
     return (
       <div className="flex flex-col gap-4">
         <FileHeader pdf={pdf} />
-        <div className="flex items-center justify-center gap-2 rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-12 text-sm text-slate-400">
+        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
           <Spinner />
           Reading form fields…
         </div>
@@ -126,30 +126,30 @@ function NoFieldsNotice({
   return (
     <div className="flex flex-col gap-4">
       <FileHeader pdf={pdf} />
-      <div className="flex flex-col gap-3 rounded-3xl border border-amber-400/25 bg-amber-500/[0.07] p-6">
+      <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-6">
         <div className="flex items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-amber-500/15 text-amber-300">
+          <span className="bg-warn/10 text-warn grid size-10 shrink-0 place-items-center rounded-[4px]">
             <TriangleAlert className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col gap-1">
-            <h3 className="text-base font-semibold text-white">
+            <h3 className="text-fg text-base font-semibold">
               {unsupportedOnly
                 ? "No fillable form fields here"
                 : "No form fields detected"}
             </h3>
-            <p className="text-sm leading-relaxed text-slate-300">
+            <p className="text-muted text-sm leading-relaxed">
               {unsupportedOnly
                 ? "This PDF only contains field types we can't fill safely (such as push buttons or signature fields)."
                 : "This PDF has no interactive AcroForm, so there are no fields to fill."}
             </p>
           </div>
         </div>
-        <p className="text-xs leading-relaxed text-slate-400">
+        <p className="text-muted text-xs leading-relaxed">
           This tool fills a PDF&apos;s existing form fields — it never adds new
           fields or draws text onto flat pages. To place a signature or text on
           a document without form fields, use{" "}
-          <span className="text-slate-200">Sign PDF</span>. Everything stays in
-          your browser.
+          <span className="text-fg">Sign PDF</span>. Everything stays in your
+          browser.
         </p>
         <div>
           <button
@@ -261,7 +261,7 @@ function FieldsEditor({
           Download filled PDF
         </button>
         {notApplied.length > 0 && (
-          <p className="text-xs text-slate-400">
+          <p className="text-muted text-xs">
             {notApplied.length} value{notApplied.length === 1 ? "" : "s"}{" "}
             couldn&apos;t be applied and were left unchanged.
           </p>
@@ -277,7 +277,7 @@ function FieldsEditor({
       <RunnerSection
         title="Form fields"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             {editable.length} fillable
             {unsupported.length > 0
               ? ` · ${unsupported.length} unsupported`
@@ -285,7 +285,7 @@ function FieldsEditor({
           </span>
         }
       >
-        <div className="flex flex-col divide-y divide-white/5 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]">
+        <div className="border-line bg-wash flex flex-col divide-y divide-white/5 overflow-hidden rounded-[4px] border">
           {editable.map((field) => (
             <FieldRow key={field.name} field={field}>
               <FieldControl
@@ -305,18 +305,18 @@ function FieldsEditor({
 
       {unsupported.length > 0 && <UnsupportedNote fields={unsupported} />}
 
-      <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+      <label className="border-line bg-wash flex cursor-pointer items-start gap-3 rounded-[4px] border p-4">
         <input
           type="checkbox"
           checked={flatten}
           onChange={(event) => setFlatten(event.target.checked)}
-          className="mt-0.5 size-4 accent-violet-500"
+          className="accent-accent mt-0.5 size-4"
         />
         <span className="flex flex-col gap-0.5">
-          <span className="text-sm font-medium text-slate-200">
+          <span className="text-fg text-sm font-medium">
             Flatten after filling
           </span>
-          <span className="text-xs leading-relaxed text-slate-400">
+          <span className="text-muted text-xs leading-relaxed">
             Bake the values into the page so they can&apos;t be edited or
             cleared in a viewer. Leave off to keep the form interactive.
           </span>
@@ -355,18 +355,18 @@ function FieldRow({
     <div className="grid gap-2 p-3.5 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-center sm:gap-4">
       <div className="flex min-w-0 flex-col gap-0.5">
         <span
-          className="truncate text-sm font-medium text-slate-200"
+          className="text-fg truncate text-sm font-medium"
           title={field.name}
         >
           {field.name}
           {field.required && (
-            <span className="text-rose-400" aria-label="required">
+            <span className="text-err" aria-label="required">
               {" "}
               *
             </span>
           )}
         </span>
-        <span className="text-[11px] tracking-wide text-slate-400 uppercase">
+        <span className="text-muted text-[11px] tracking-wide uppercase">
           {field.widgetLabel}
         </span>
       </div>
@@ -376,7 +376,7 @@ function FieldRow({
 }
 
 const INPUT_CLASS =
-  "w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20";
+  "w-full rounded-[3px] border border-line bg-black/20 px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
 
 function asString(value: FieldValue): string {
   return typeof value === "string"
@@ -503,7 +503,7 @@ function TextControl({
         />
       )}
       {showCount && (
-        <span className="self-end text-[11px] text-slate-400 tabular-nums">
+        <span className="text-muted self-end text-[11px] tabular-nums">
           {value.length}/{field.maxLength}
         </span>
       )}
@@ -519,12 +519,12 @@ function CheckboxControl({
   onChange: (value: FieldValue) => void;
 }) {
   return (
-    <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+    <label className="text-muted inline-flex cursor-pointer items-center gap-2 text-sm">
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="size-4 accent-violet-500"
+        className="accent-accent size-4"
       />
       {checked ? "Checked" : "Unchecked"}
     </label>
@@ -614,7 +614,7 @@ function ChoiceControl({
   };
 
   if (options.length === 0) {
-    return <span className="text-xs text-slate-400">No options defined.</span>;
+    return <span className="text-muted text-xs">No options defined.</span>;
   }
 
   return (
@@ -624,7 +624,7 @@ function ChoiceControl({
         return (
           <label
             key={option}
-            className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-300"
+            className="text-muted inline-flex cursor-pointer items-center gap-2 text-sm"
           >
             <input
               type={variant}
@@ -632,7 +632,7 @@ function ChoiceControl({
               checked={active}
               onChange={() => toggle(option)}
               className={cn(
-                "size-4 accent-violet-500",
+                "accent-accent size-4",
                 variant === "radio" && "rounded-full",
               )}
             />
@@ -644,7 +644,7 @@ function ChoiceControl({
         <button
           type="button"
           onClick={() => onChange([])}
-          className="self-start text-[11px] text-slate-400 underline-offset-2 hover:text-slate-300 hover:underline"
+          className="text-muted hover:text-muted self-start text-[11px] underline-offset-2 hover:underline"
         >
           Clear selection
         </button>
@@ -664,10 +664,10 @@ function ReadOnlyControl({ field }: { field: FormFieldInfo }) {
         : (field.text ?? "");
   return (
     <div className="flex items-center gap-2">
-      <span className="min-w-0 flex-1 truncate rounded-xl border border-white/10 bg-black/10 px-3.5 py-2.5 text-sm text-slate-400">
-        {current || <span className="text-slate-400">(empty)</span>}
+      <span className="border-line text-muted min-w-0 flex-1 truncate rounded-[3px] border bg-black/10 px-3.5 py-2.5 text-sm">
+        {current || <span className="text-muted">(empty)</span>}
       </span>
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[11px] text-slate-400">
+      <span className="border-line text-muted inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px]">
         <Lock className="size-3" aria-hidden />
         Read-only
       </span>
@@ -677,13 +677,13 @@ function ReadOnlyControl({ field }: { field: FormFieldInfo }) {
 
 function UnsupportedNote({ fields }: { fields: FormFieldInfo[] }) {
   return (
-    <div className="flex items-start gap-2 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs leading-relaxed text-slate-400">
-      <Info className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
+    <div className="border-line bg-wash text-muted flex items-start gap-2 rounded-[4px] border px-4 py-3 text-xs leading-relaxed">
+      <Info className="text-muted mt-0.5 size-4 shrink-0" aria-hidden />
       <span>
         {fields.length} field{fields.length === 1 ? "" : "s"} of an unsupported
         type ({[...new Set(fields.map((f) => f.widgetLabel))].join(", ")}) are
         shown for reference but left unchanged:{" "}
-        <span className="text-slate-300">
+        <span className="text-muted">
           {fields.map((f) => f.name).join(", ")}
         </span>
         .

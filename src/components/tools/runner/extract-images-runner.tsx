@@ -101,9 +101,7 @@ function ExtractImagesEditor({
 
       <RunnerSection
         title="What gets extracted"
-        aside={
-          <span className="text-xs text-slate-400">Original resolution</span>
-        }
+        aside={<span className="text-muted text-xs">Original resolution</span>}
       >
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
@@ -166,17 +164,17 @@ function ExtractionResult({
         {...empty}
         role="group"
         aria-label="No extractable images found"
-        className="animate-float-up flex flex-col gap-5 rounded-3xl border border-amber-400/25 bg-amber-500/[0.06] p-6 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+        className="animate-float-up border-warn/40 bg-warn/10 focus-visible:ring-warn/50 flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2"
       >
         <div className="flex items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-amber-500/15 text-amber-300">
+          <span className="bg-warn/10 text-warn grid size-10 shrink-0 place-items-center rounded-[4px]">
             <FileWarning className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col gap-1">
-            <h3 className="text-base font-semibold text-white">
+            <h3 className="text-fg text-base font-semibold">
               No extractable images found
             </h3>
-            <p className="text-sm text-slate-400">
+            <p className="text-muted text-sm">
               {skipped.length > 0
                 ? "This PDF's images are in formats this tool doesn't recover yet (see below), so nothing was extracted."
                 : "We scanned every page but found no embedded raster images in this PDF."}
@@ -187,7 +185,7 @@ function ExtractionResult({
         <button
           type="button"
           onClick={onStartOver}
-          className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-slate-400 transition hover:text-white"
+          className="text-muted hover:text-fg inline-flex items-center gap-1.5 self-start text-xs font-medium transition"
         >
           Start over
         </button>
@@ -347,7 +345,7 @@ function ImageGrid({
           return (
             <div
               key={image.name}
-              className="group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]"
+              className="group border-line bg-wash overflow-hidden rounded-[4px] border"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -356,14 +354,14 @@ function ImageGrid({
                 className="h-40 w-full bg-black/30 object-contain"
               />
               <div className="flex items-center justify-between gap-2 p-2.5">
-                <span className="min-w-0 truncate text-xs text-slate-400">
+                <span className="text-muted min-w-0 truncate text-xs">
                   {image.width}×{image.height} · {image.format.toUpperCase()}
                 </span>
                 <button
                   type="button"
                   onClick={() => onDownload(image)}
                   title={`Download ${image.name}`}
-                  className="inline-grid size-7 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10"
+                  className="border-line bg-wash text-muted hover:bg-wash inline-grid size-7 shrink-0 place-items-center rounded-full border transition"
                 >
                   <Download className="size-3.5" aria-hidden />
                 </button>
@@ -373,7 +371,7 @@ function ImageGrid({
         })}
       </div>
       {hiddenCount > 0 && (
-        <p className="text-xs text-slate-400">
+        <p className="text-muted text-xs">
           Showing the first {previews.length} previews — all {images.length}{" "}
           images are included in the ZIP.
         </p>
@@ -390,17 +388,15 @@ function SkippedNote({ skipped }: { skipped: SkippedImage[] }) {
   const rows = [...groups.entries()].sort((a, b) => b[1] - a[1]);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <FileWarning className="size-4 text-amber-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <FileWarning className="text-warn size-4" aria-hidden />
         {skipped.length} image{skipped.length === 1 ? "" : "s"} skipped
       </div>
-      <ul className="flex flex-col gap-1 text-xs leading-relaxed text-slate-400">
+      <ul className="text-muted flex flex-col gap-1 text-xs leading-relaxed">
         {rows.map(([reason, count]) => (
           <li key={reason} className="flex gap-2">
-            <span className="shrink-0 text-slate-400 tabular-nums">
-              {count}×
-            </span>
+            <span className="text-muted shrink-0 tabular-nums">{count}×</span>
             <span>{reason}</span>
           </li>
         ))}
@@ -419,12 +415,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

@@ -108,35 +108,35 @@ export function CompressBatchRunner({
       )}
 
       {/* Honest scope banner: lossless-only, on-device. */}
-      <div className="bg-surface-2 flex items-start gap-2.5 rounded-2xl border border-white/10 p-4">
-        <Info className="mt-0.5 size-4 shrink-0 text-violet-300" aria-hidden />
-        <p className="text-sm leading-relaxed text-slate-400">
-          Batch <span className="text-slate-200">lossless compression</span>{" "}
-          repacks each PDF&apos;s structure in your browser — no quality loss,
-          nothing uploaded. It doesn&apos;t re-encode images; image-heavy files
-          need the secure worker (open a single file to see that path).
+      <div className="bg-panel border-line flex items-start gap-2.5 rounded-[4px] border p-4">
+        <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
+        <p className="text-muted text-sm leading-relaxed">
+          Batch <span className="text-fg">lossless compression</span> repacks
+          each PDF&apos;s structure in your browser — no quality loss, nothing
+          uploaded. It doesn&apos;t re-encode images; image-heavy files need the
+          secure worker (open a single file to see that path).
         </p>
       </div>
 
       {/* Accessible progress */}
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="text-muted flex items-center justify-between text-xs">
           <span>
             {state.phase === "idle"
               ? `${files.length} PDF${files.length === 1 ? "" : "s"} ready`
               : `${progress.settled} of ${progress.total} done`}
             {progress.error > 0 && (
-              <span className="text-amber-300"> · {progress.error} failed</span>
+              <span className="text-warn"> · {progress.error} failed</span>
             )}
             {progress.canceled > 0 && (
-              <span className="text-slate-400">
+              <span className="text-muted">
                 {" "}
                 · {progress.canceled} canceled
               </span>
             )}
           </span>
           {settled && totalSaved > 0 && (
-            <span className="font-medium text-emerald-300">
+            <span className="text-ok font-medium">
               −{formatBytes(totalSaved)} total
             </span>
           )}
@@ -148,12 +148,12 @@ export function CompressBatchRunner({
           aria-valuenow={progress.pct}
           aria-valuetext={`${progress.settled} of ${progress.total} files processed`}
           aria-label="Batch compression progress"
-          className="h-2 w-full overflow-hidden rounded-full bg-white/5"
+          className="bg-wash h-2 w-full overflow-hidden rounded-full"
         >
           <span
             className={cn(
-              "block h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-300",
-              state.phase === "canceled" && "from-slate-500 to-slate-600",
+              "bg-accent block h-full rounded-full transition-[width] duration-300",
+              state.phase === "canceled" && "bg-faint",
             )}
             style={{ width: `${progress.pct}%` }}
           />
@@ -176,7 +176,7 @@ export function CompressBatchRunner({
 
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-400">
+        <p className="text-muted text-xs">
           Files are processed one at a time, on your device.
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -249,13 +249,11 @@ export function CompressBatchRunner({
 /** One row in the batch list: status glyph, name, and per-item result/error. */
 function BatchRow({ item }: { item: BatchItem<CompressResult> }) {
   return (
-    <li className="bg-surface-2 flex items-center gap-3 rounded-xl border border-white/10 px-3 py-2.5">
+    <li className="bg-panel border-line flex items-center gap-3 rounded-[3px] border px-3 py-2.5">
       <StatusGlyph status={item.status} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-slate-200">
-          {item.name}
-        </span>
-        <span className="block text-xs text-slate-400">
+        <span className="text-fg block truncate text-sm">{item.name}</span>
+        <span className="text-muted block text-xs">
           <BatchDetail item={item} />
         </span>
       </span>
@@ -266,7 +264,7 @@ function BatchRow({ item }: { item: BatchItem<CompressResult> }) {
             downloadBytes(item.result!.bytes, item.result!.outputName)
           }
           aria-label={`Download compressed ${item.name}`}
-          className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
+          className="text-muted hover:bg-wash hover:text-fg grid size-8 shrink-0 place-items-center rounded-lg transition"
         >
           <Download className="size-4" aria-hidden />
         </button>
@@ -284,20 +282,18 @@ function BatchDetail({ item }: { item: BatchItem<CompressResult> }) {
     case "queued":
       return <>Queued</>;
     case "running":
-      return <span className="text-violet-300">Compressing…</span>;
+      return <span className="text-accent">Compressing…</span>;
     case "canceled":
       return <>Canceled</>;
     case "error":
       return (
-        <span className="text-amber-300">
-          {item.error ?? "Couldn’t compress"}
-        </span>
+        <span className="text-warn">{item.error ?? "Couldn’t compress"}</span>
       );
     case "done": {
       const r = item.result;
       if (!r) return null;
       return r.savedBytes > 0 ? (
-        <span className="text-emerald-300">
+        <span className="text-ok">
           −{formatBytes(r.savedBytes)} ({pct(r.savedBytes, r.originalBytes)}%) ·{" "}
           {formatBytes(r.optimizedBytes)}
         </span>
@@ -319,31 +315,31 @@ function StatusGlyph({
   switch (status) {
     case "running":
       return (
-        <span className={cn(base, "bg-violet-500/15 text-violet-300")}>
+        <span className={cn(base, "bg-accent/10 text-accent")}>
           <Spinner className="size-4" />
         </span>
       );
     case "done":
       return (
-        <span className={cn(base, "bg-emerald-500/15 text-emerald-300")}>
+        <span className={cn(base, "bg-ok/10 text-ok")}>
           <CheckCircle2 className="size-4" aria-hidden />
         </span>
       );
     case "error":
       return (
-        <span className={cn(base, "bg-amber-500/15 text-amber-300")}>
+        <span className={cn(base, "bg-warn/10 text-warn")}>
           <AlertTriangle className="size-4" aria-hidden />
         </span>
       );
     case "canceled":
       return (
-        <span className={cn(base, "bg-white/5 text-slate-400")}>
+        <span className={cn(base, "bg-wash text-muted")}>
           <CircleSlash className="size-4" aria-hidden />
         </span>
       );
     default:
       return (
-        <span className={cn(base, "bg-white/5 text-slate-400")}>
+        <span className={cn(base, "bg-wash text-muted")}>
           <Clock className="size-4" aria-hidden />
         </span>
       );

@@ -53,13 +53,11 @@ function SpecRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-400" aria-hidden />
+      <span className="text-muted inline-flex items-center gap-2 text-sm">
+        <Icon className="text-muted size-4" aria-hidden />
         {label}
       </span>
-      <span className="text-right text-sm font-medium text-slate-200">
-        {value}
-      </span>
+      <span className="text-fg text-right text-sm font-medium">{value}</span>
     </div>
   );
 }
@@ -100,11 +98,11 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
   const available = phase === "ready" && canRunHtmlRender(status);
 
   return (
-    <div className="gradient-border">
-      <div className="glass flex flex-col gap-6 rounded-3xl p-5 sm:p-7">
+    <div className="">
+      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/30 bg-blue-400/10 px-2.5 py-1 text-[11px] font-medium text-blue-200">
+            <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
               <Icon className="size-3" aria-hidden />
               Chromium renderer
             </span>
@@ -114,10 +112,10 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
               pulse={badge.pulse}
             />
           </div>
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="text-fg text-lg font-semibold">
             {tool.name} runs on an encrypted secure worker
           </h2>
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="text-muted text-sm leading-relaxed">
             Chromium renders{" "}
             {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
             real print PDF on the isolated worker. It produces a PDF artifact or
@@ -137,7 +135,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
@@ -145,21 +143,18 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
-                    <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
+                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
                       <Icon className="size-4" aria-hidden />
                     </span>
                     {index < all.length - 1 && (
-                      <span
-                        className="my-1 w-px flex-1 bg-white/10"
-                        aria-hidden
-                      />
+                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
                     )}
                   </div>
                   <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-sm font-medium text-slate-200">
+                    <span className="text-fg text-sm font-medium">
                       {index + 1}. {stage.title}
                     </span>
-                    <span className="text-xs leading-relaxed text-slate-400">
+                    <span className="text-muted text-xs leading-relaxed">
                       {stage.description}
                     </span>
                   </div>
@@ -169,7 +164,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
           </ol>
         </div>
 
-        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
+        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
           <SpecRow
             icon={mode === "url" ? Globe : FileCode}
             label="Input"
@@ -211,9 +206,9 @@ function HtmlRenderUnavailable({
         : (status?.daemon.detail ?? "The secure worker is not drainable here.");
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <p className="text-sm leading-relaxed text-slate-300">{detail}</p>
-      <p className="text-xs leading-relaxed text-slate-400">
+    <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
+      <p className="text-muted text-sm leading-relaxed">{detail}</p>
+      <p className="text-muted text-xs leading-relaxed">
         No runner is shown until the worker is ready, so {toolName} never
         pretends to process input it cannot actually render.
       </p>
@@ -260,8 +255,8 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
     busy || (mode === "html" ? !file : url.trim().length <= "https://".length);
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-blue-400/25 bg-blue-500/[0.06] p-4">
-      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-blue-100/90">
+    <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
+      <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         Running this uses a private secure-worker job.{" "}
         {mode === "url"
@@ -276,11 +271,11 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
             setUrl(event.target.value);
             setOutcome(null);
           }}
-          className="rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 transition outline-none placeholder:text-slate-400 focus:border-blue-400/60"
+          className="border-line text-fg placeholder:text-muted focus:border-info/40 rounded-[3px] border bg-slate-950/70 px-3 py-2 text-sm transition outline-none"
           placeholder="https://example.com"
         />
       ) : file ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200">
+        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
           <span className="truncate">{file.name}</span>
           <button
             type="button"
@@ -288,7 +283,7 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
               setFile(null);
               setOutcome(null);
             }}
-            className="shrink-0 text-xs font-medium text-slate-400 transition hover:text-white"
+            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
           >
             Remove
           </button>
@@ -318,13 +313,13 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">
-          <p className="text-sm text-emerald-200">Your PDF is ready.</p>
+          <p className="text-ok text-sm">Your PDF is ready.</p>
           <button
             type="button"
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)
             }
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
+            className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex w-full items-center justify-center gap-2 rounded-[3px] px-6 py-2.5 text-sm font-semibold transition-colors sm:w-auto sm:self-start"
           >
             <Download className="size-4" aria-hidden />
             Download {outcome.artifact.filename}

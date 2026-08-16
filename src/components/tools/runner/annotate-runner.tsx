@@ -303,19 +303,19 @@ function AnnotateEditor({
       <RunnerSection
         title="Add markup"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             Points from bottom-left · 72 pt = 1 in
           </span>
         }
       >
-        <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+        <div className="border-line bg-wash flex flex-col gap-4 rounded-[4px] border p-4">
           <TypePicker
             value={draft.type}
             onChange={(type) => setField("type", type)}
           />
 
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-slate-400">
+            <span className="text-muted text-xs">
               {activePage
                 ? `Page ${draft.page} is ${Math.round(activePage.width)} × ${Math.round(activePage.height)} pt`
                 : "Reading page sizes…"}
@@ -424,10 +424,10 @@ function TypePicker({
             aria-checked={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition",
+              "inline-flex items-center gap-1.5 rounded-[3px] border px-3 py-1.5 text-xs font-medium transition",
               active
-                ? "border-violet-400/50 bg-violet-500/15 text-violet-100"
-                : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25 hover:bg-white/[0.06] hover:text-white",
+                ? "border-accent/40 bg-accent/10 text-accent"
+                : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
             )}
           >
             <Icon className="size-3.5" aria-hidden />
@@ -590,7 +590,7 @@ function TypeFields({
         <div className="flex flex-col gap-2">
           <label
             htmlFor="annotate-note-text"
-            className="text-xs font-medium text-slate-300"
+            className="text-muted text-xs font-medium"
           >
             Note text
           </label>
@@ -600,9 +600,9 @@ function TypeFields({
             rows={2}
             placeholder="Type the note to place on the page…"
             onChange={(event) => setField("text", event.target.value)}
-            className="w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 transition outline-none placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 w-full resize-y rounded-[3px] border bg-black/20 px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
-          <span className="text-[11px] text-slate-400">
+          <span className="text-muted text-[11px]">
             Y is the baseline of the first line; wrapped lines flow downward.
             Wrap 0 = one line per line break.
           </span>
@@ -687,7 +687,7 @@ function MarkupList({
 }) {
   if (markups.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-4 py-6 text-center text-xs text-slate-400">
+      <p className="border-line bg-wash text-muted rounded-[4px] border border-dashed px-4 py-6 text-center text-xs">
         No markups yet. Add one above — it appears on the page preview.
       </p>
     );
@@ -697,24 +697,24 @@ function MarkupList({
       {markups.map((markup, index) => (
         <li
           key={markup.id}
-          className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5"
+          className="border-line bg-wash flex items-center gap-3 rounded-[3px] border px-3.5 py-2.5"
         >
           <span
             aria-hidden
             className="size-3 shrink-0 rounded-full ring-1 ring-white/30"
             style={{ backgroundColor: markup.annotation.color }}
           />
-          <span className="grid shrink-0 place-items-center rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-violet-200 uppercase">
+          <span className="bg-accent/10 text-accent grid shrink-0 place-items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
             {TYPE_LABEL[markup.annotation.type]}
           </span>
-          <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
+          <span className="text-muted min-w-0 flex-1 truncate text-xs">
             Page {markup.annotation.page} · {describeMarkup(markup.annotation)}
           </span>
           <button
             type="button"
             onClick={() => onRemove(markup.id)}
             aria-label={`Remove markup ${index + 1}`}
-            className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-white/5 hover:text-red-300"
+            className="text-muted hover:bg-wash hover:text-err shrink-0 rounded-md p-1 transition"
           >
             <Trash2 className="size-4" aria-hidden />
           </button>
@@ -736,7 +736,7 @@ function PagePreview({
 }) {
   if (!page || page.width <= 0 || page.height <= 0) {
     return (
-      <div className="aspect-[3/4] w-full max-w-[180px] animate-pulse rounded-lg bg-white/10" />
+      <div className="bg-wash aspect-[3/4] w-full max-w-[180px] animate-pulse rounded-lg" />
     );
   }
 
@@ -824,9 +824,7 @@ function PagePreview({
           );
         })}
       </div>
-      <span className="text-[11px] text-slate-400">
-        Page {pageNumber} preview
-      </span>
+      <span className="text-muted text-[11px]">Page {pageNumber} preview</span>
     </div>
   );
 }
@@ -834,8 +832,8 @@ function PagePreview({
 /** The load-bearing honesty of this tool: flattened markup, not comments. */
 function HonestScopeNote() {
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-sky-400/25 bg-sky-500/[0.08] px-4 py-3.5 text-sm text-sky-100">
-      <Info className="mt-0.5 size-4 shrink-0 text-sky-300" aria-hidden />
+    <div className="border-info/40 bg-info/10 text-info flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
+      <Info className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
       <p className="leading-relaxed">
         <span className="font-semibold">
           Markups are flattened into the page.
@@ -861,12 +859,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

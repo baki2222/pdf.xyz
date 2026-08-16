@@ -253,7 +253,7 @@ export function MergeRunner() {
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             Drag to reorder · top to bottom
           </span>
         }
@@ -283,21 +283,21 @@ export function MergeRunner() {
                 setOverIndex(null);
               }}
               className={cn(
-                "bg-surface-2 flex items-center gap-3 rounded-2xl border px-3 py-2.5 transition",
+                "bg-panel flex items-center gap-3 rounded-[4px] border px-3 py-2.5 transition",
                 overIndex === index && dragIndex !== null && dragIndex !== index
-                  ? "border-violet-400/60 ring-1 ring-violet-400/40"
-                  : "border-white/10",
+                  ? "border-accent/40 ring-accent/50 ring-1"
+                  : "border-line",
                 dragIndex === index && "opacity-50",
               )}
             >
               <GripVertical
-                className="size-4 shrink-0 cursor-grab text-slate-400"
+                className="text-muted size-4 shrink-0 cursor-grab"
                 aria-hidden
               />
-              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white/5 text-xs font-semibold text-slate-400 tabular-nums">
+              <span className="bg-wash text-muted grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold tabular-nums">
                 {index + 1}
               </span>
-              <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md bg-white/5 ring-1 ring-white/10">
+              <span className="bg-wash ring-line grid size-9 shrink-0 place-items-center overflow-hidden rounded-md ring-1">
                 {item.cover ? (
                   <img
                     src={item.cover.url}
@@ -306,14 +306,14 @@ export function MergeRunner() {
                     className="max-h-full max-w-full object-contain"
                   />
                 ) : (
-                  <FileText className="size-4 text-violet-300" aria-hidden />
+                  <FileText className="text-accent size-4" aria-hidden />
                 )}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm text-slate-200">
+                <span className="text-fg block truncate text-sm">
                   {item.name}
                 </span>
-                <span className="block text-xs text-slate-400">
+                <span className="text-muted block text-xs">
                   {item.pageCount} page{item.pageCount === 1 ? "" : "s"} ·{" "}
                   {formatBytes(item.size)}
                 </span>
@@ -324,7 +324,7 @@ export function MergeRunner() {
                   onClick={() => move(index, index - 1)}
                   aria-disabled={index === 0 || undefined}
                   aria-label={`Move ${item.name} up`}
-                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                  className="text-muted hover:bg-wash hover:text-fg grid size-7 place-items-center rounded-lg transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
                 >
                   <ArrowUp className="size-4" aria-hidden />
                 </button>
@@ -333,7 +333,7 @@ export function MergeRunner() {
                   onClick={() => move(index, index + 1)}
                   aria-disabled={index === items.length - 1 || undefined}
                   aria-label={`Move ${item.name} down`}
-                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                  className="text-muted hover:bg-wash hover:text-fg grid size-7 place-items-center rounded-lg transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
                 >
                   <ArrowDown className="size-4" aria-hidden />
                 </button>
@@ -341,7 +341,7 @@ export function MergeRunner() {
                   type="button"
                   onClick={() => removeAt(index)}
                   aria-label={`Remove ${item.name}`}
-                  className="grid size-7 place-items-center rounded-lg text-slate-400 transition hover:bg-red-500/15 hover:text-red-200"
+                  className="text-muted hover:bg-err/10 hover:text-err grid size-7 place-items-center rounded-lg transition"
                 >
                   <X className="size-4" aria-hidden />
                 </button>
@@ -349,7 +349,7 @@ export function MergeRunner() {
             </li>
           ))}
           {loading > 0 && (
-            <li className="bg-surface-2 flex items-center gap-2 rounded-2xl border border-white/10 px-3 py-3 text-sm text-slate-400">
+            <li className="bg-panel border-line text-muted flex items-center gap-2 rounded-[4px] border px-3 py-3 text-sm">
               <Spinner />
               Reading {loading} file{loading === 1 ? "" : "s"}…
             </li>
@@ -370,8 +370,8 @@ export function MergeRunner() {
       {error && <ErrorNote message={error} />}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-          <Layers className="size-3.5 text-violet-300" aria-hidden />
+        <p className="text-muted inline-flex items-center gap-1.5 text-xs">
+          <Layers className="text-accent size-3.5" aria-hidden />
           Files are combined in the order shown above.
         </p>
         <RunButton
@@ -400,7 +400,7 @@ function RejectionsNote({
   return (
     <div
       role="alert"
-      className="flex flex-col gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+      className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <div className="flex items-start justify-between gap-3">
         <span className="flex items-center gap-2 font-medium">
@@ -411,16 +411,15 @@ function RejectionsNote({
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 rounded-md px-2 py-0.5 text-xs text-amber-200/80 transition hover:bg-amber-500/15 hover:text-amber-100"
+          className="text-warn hover:bg-warn/10 hover:text-warn shrink-0 rounded-md px-2 py-0.5 text-xs transition"
         >
           Dismiss
         </button>
       </div>
-      <ul className="flex flex-col gap-1 pl-6 text-xs text-amber-200/90">
+      <ul className="text-warn flex flex-col gap-1 pl-6 text-xs">
         {rejections.map((r, i) => (
           <li key={`${r.name}-${i}`} className="list-disc">
-            <span className="font-medium text-amber-100">{r.name}</span> —{" "}
-            {r.reason}
+            <span className="text-warn font-medium">{r.name}</span> — {r.reason}
           </li>
         ))}
       </ul>

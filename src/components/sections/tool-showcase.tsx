@@ -11,16 +11,16 @@ import { ProcessingBadge } from "@/components/tools/processing-badge";
  * rail, single-line entries with dot leaders on the right — the way a
  * document indexes itself. Round 1 gave every tool a two-line card at equal
  * weight and the section ate a third of the page saying nothing about where
- * to start; here a popular tool is marked (accent square), every entry keeps
- * its processing fact, and the tagline moves to the entry's title attribute
- * — rendered less, edited nothing. The full-weight browsing surface is
- * /tools, one click away.
+ * to start; here a popular tool is marked (accent square) and every entry
+ * keeps its processing fact. Deliberately names-only: a `title` attribute
+ * was tried and rejected — it asserts the tagline is available while
+ * withholding it from screen readers and touch, which is a claim the markup
+ * does not keep. The descriptions live on /tools, one click away.
  */
 function IndexRow({ tool }: { tool: Tool }) {
   return (
     <Link
       href={`/tools/${tool.slug}`}
-      title={tool.tagline}
       className="group flex items-baseline gap-3 py-[7px] text-sm"
     >
       <span className="flex min-w-0 items-baseline gap-2">

@@ -36,17 +36,17 @@ export default async function WorkspacePage({
   const preselected = tool && getToolBySlug(tool) ? tool : undefined;
 
   return (
-    <div className="py-14 sm:py-20">
+    <div className="theme-paper bg-canvas text-fg py-14 sm:py-20">
       <Container className="flex flex-col gap-10">
         <div className="flex flex-col items-start gap-4">
           <Pill>
-            <ShieldCheck className="size-3.5 text-emerald-400" aria-hidden />
+            <ShieldCheck className="text-ok size-3.5" aria-hidden />
             Local session only
           </Pill>
-          <h1 className="text-4xl font-bold tracking-tight text-balance text-white sm:text-5xl">
+          <h1 className="font-display text-fg text-4xl font-medium tracking-tight text-balance sm:text-5xl">
             Your workspace
           </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-pretty text-slate-400 sm:text-lg">
+          <p className="text-muted max-w-2xl text-base leading-relaxed text-pretty sm:text-lg">
             Stage your documents here, get tool suggestions based on what you
             dropped, and line up a batch. Everything sits in this browser tab —
             nothing is uploaded, and your files clear the moment you close it.

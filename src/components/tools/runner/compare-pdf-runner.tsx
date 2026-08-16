@@ -194,7 +194,7 @@ function ComparePdfEditor({
               value={result.summary.changedLines.toLocaleString()}
             />
           </div>
-          <div className="max-h-80 overflow-auto rounded-2xl border border-white/10 bg-black/20 p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-slate-200">
+          <div className="border-line text-fg max-h-80 overflow-auto rounded-[4px] border bg-black/20 p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
             {result.report}
           </div>
           <button
@@ -227,7 +227,7 @@ function ComparePdfEditor({
       <RunnerSection
         title="Files to compare"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             {items.length}/2 selected{loading ? ` · loading ${loading}` : ""}
           </span>
         }
@@ -238,11 +238,11 @@ function ComparePdfEditor({
             return item ? (
               <div
                 key={item.id}
-                className="flex items-start justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                className="border-line bg-wash flex items-start justify-between gap-3 rounded-[4px] border p-4"
               >
                 <div>
-                  <p className="font-medium text-slate-100">{item.name}</p>
-                  <p className="mt-1 text-xs text-slate-400">
+                  <p className="text-fg font-medium">{item.name}</p>
+                  <p className="text-muted mt-1 text-xs">
                     {item.pageCount} page{item.pageCount === 1 ? "" : "s"} ·{" "}
                     {formatBytes(item.size)}
                   </p>
@@ -250,7 +250,7 @@ function ComparePdfEditor({
                 <button
                   type="button"
                   onClick={() => onRemove(item.id)}
-                  className="rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-white"
+                  className="text-muted hover:bg-wash hover:text-fg rounded-full p-2"
                 >
                   <X className="size-4" aria-hidden />
                   <span className="sr-only">Remove {item.name}</span>
@@ -259,7 +259,7 @@ function ComparePdfEditor({
             ) : (
               <div
                 key={slot}
-                className="flex min-h-24 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[0.02] text-sm text-slate-400"
+                className="border-line-strong bg-wash text-muted flex min-h-24 items-center justify-center rounded-[4px] border border-dashed text-sm"
               >
                 <Plus className="mr-2 size-4" aria-hidden />
                 PDF {slot + 1}
@@ -287,7 +287,7 @@ function ComparePdfEditor({
       </RunnerSection>
 
       {rejections.length > 0 && (
-        <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-100">
+        <div className="border-warn/40 bg-warn/10 text-warn rounded-[4px] border p-4 text-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
             <strong>Some files were skipped</strong>
             <button
@@ -326,9 +326,9 @@ function ComparePdfEditor({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <p className="text-xs tracking-wide text-slate-400 uppercase">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-white">{value}</p>
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <p className="text-muted text-xs tracking-wide uppercase">{label}</p>
+      <p className="text-fg mt-1 text-lg font-semibold">{value}</p>
     </div>
   );
 }
@@ -343,14 +343,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div
-      className={cn("rounded-2xl border border-white/10 bg-white/[0.02] p-4")}
-    >
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className={cn("border-line bg-wash rounded-[4px] border p-4")}>
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

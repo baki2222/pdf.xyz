@@ -138,17 +138,17 @@ export function BatchPanel({
   return (
     <section
       aria-labelledby="batch-heading"
-      className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5"
+      className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-5"
     >
       <div className="flex items-center gap-2.5">
-        <span className="grid size-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 text-white">
+        <span className="border-line bg-wash text-fg grid size-8 place-items-center rounded-lg border">
           <Layers className="size-4" aria-hidden />
         </span>
         <div className="min-w-0">
-          <h2 id="batch-heading" className="text-sm font-semibold text-white">
+          <h2 id="batch-heading" className="text-fg text-sm font-semibold">
             Batch queue
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-muted text-xs">
             Line up files, choose one tool, hand them straight over.
           </p>
         </div>
@@ -158,7 +158,7 @@ export function BatchPanel({
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor={selectId}
-          className="text-xs font-medium tracking-wide text-slate-400 uppercase"
+          className="text-muted text-xs font-medium tracking-wide uppercase"
         >
           Tool
         </label>
@@ -166,7 +166,7 @@ export function BatchPanel({
           id={selectId}
           value={batch.toolSlug ?? ""}
           onChange={(e) => onSetTool(e.target.value || null)}
-          className="bg-surface-1 w-full rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-100 outline-none focus-visible:border-violet-400/60 focus-visible:ring-2 focus-visible:ring-violet-400/40"
+          className="bg-surface-1 border-line text-fg focus-visible:border-accent/40 focus-visible:ring-accent/50 w-full rounded-[3px] border px-3 py-2 text-sm outline-none focus-visible:ring-2"
         >
           <option value="">Choose a tool…</option>
           <optgroup label="Runs in your browser">
@@ -201,7 +201,7 @@ export function BatchPanel({
       {/* Step 2 — queue files */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium tracking-wide text-slate-400 uppercase">
+          <span className="text-muted text-xs font-medium tracking-wide uppercase">
             Files ({queued}/{files.length})
           </span>
           <div className="flex items-center gap-1.5">
@@ -240,14 +240,14 @@ export function BatchPanel({
               return (
                 <li
                   key={id}
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] py-1 pr-1 pl-2.5 text-xs text-slate-300"
+                  className="border-line bg-wash text-muted inline-flex max-w-full items-center gap-1.5 rounded-lg border py-1 pr-1 pl-2.5 text-xs"
                 >
                   <span className="max-w-[10rem] truncate">{file.name}</span>
                   <button
                     type="button"
                     onClick={() => onRemove(id)}
                     aria-label={`Remove ${file.name} from batch`}
-                    className="grid size-5 shrink-0 place-items-center rounded text-slate-400 transition hover:bg-white/10 hover:text-white"
+                    className="text-muted hover:bg-wash hover:text-fg grid size-5 shrink-0 place-items-center rounded transition"
                   >
                     <X className="size-3" aria-hidden />
                   </button>
@@ -256,7 +256,7 @@ export function BatchPanel({
             })}
           </ul>
         ) : (
-          <p className="text-xs text-slate-400">
+          <p className="text-muted text-xs">
             {files.length === 0
               ? "Stage files above, then add them here."
               : "No files queued yet."}
@@ -267,20 +267,19 @@ export function BatchPanel({
       {/* Step 3 — honest launch / worker path */}
       <div
         className={cn(
-          "flex flex-col gap-3 rounded-xl border p-3.5",
-          content.tone === "ready" &&
-            "border-emerald-400/25 bg-emerald-400/[0.06]",
-          content.tone === "worker" && "border-blue-400/25 bg-blue-400/[0.06]",
-          content.tone === "muted" && "border-white/10 bg-white/[0.02]",
+          "flex flex-col gap-3 rounded-[3px] border p-3.5",
+          content.tone === "ready" && "border-ok/40 bg-ok/10",
+          content.tone === "worker" && "border-info/40 bg-info/10",
+          content.tone === "muted" && "border-line bg-wash",
         )}
       >
         <div className="flex flex-col gap-1" role="status" aria-live="polite">
           <span
             className={cn(
               "inline-flex items-center gap-1.5 text-sm font-semibold",
-              content.tone === "ready" && "text-emerald-200",
-              content.tone === "worker" && "text-blue-200",
-              content.tone === "muted" && "text-slate-300",
+              content.tone === "ready" && "text-ok",
+              content.tone === "worker" && "text-info",
+              content.tone === "muted" && "text-muted",
             )}
           >
             {content.tone === "ready" && (
@@ -291,9 +290,7 @@ export function BatchPanel({
             )}
             {content.title}
           </span>
-          <p className="text-xs leading-relaxed text-slate-400">
-            {content.body}
-          </p>
+          <p className="text-muted text-xs leading-relaxed">{content.body}</p>
         </div>
 
         {canHandoff && tool && (

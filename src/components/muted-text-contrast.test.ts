@@ -127,7 +127,20 @@ describe("muted text meets WCAG AA on the app's own background", () => {
   it("finds slate text colours to check at all", () => {
     // Without this, a rename of the utility or a broken walker would turn the
     // suite green by having nothing to say.
-    expect(usages.length).toBeGreaterThan(100);
+    //
+    // RE-ANCHORED 2026-08-16, deliberately, with the redesign that moved the
+    // homepage, tool pages and workspace onto semantic tokens: `text-slate-*`
+    // stopped being the product's muted idiom and became its LEGACY idiom.
+    // The floor (was >100, now >0) still catches a broken walker, which
+    // returns nothing, not fewer things. The NEW bound is the ceiling: the
+    // legacy count was 72 on the day of the re-anchor and must only shrink —
+    // someone reintroducing slate as a text colour on a token surface is
+    // exactly the drift this file exists to catch, and the old floor could
+    // never see it. When the count reaches the two deliberate sign-runner
+    // steps (the white signature paper, see LIGHT_SURFACES), this check gets
+    // rewritten to enumerate them.
+    expect(usages.length).toBeGreaterThan(0);
+    expect(usages.length).toBeLessThanOrEqual(72);
   });
 
   it("resolves every slate step that the tree uses", () => {

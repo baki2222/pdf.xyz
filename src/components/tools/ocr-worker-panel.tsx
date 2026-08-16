@@ -91,13 +91,11 @@ function SpecRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-400" aria-hidden />
+      <span className="text-muted inline-flex items-center gap-2 text-sm">
+        <Icon className="text-muted size-4" aria-hidden />
         {label}
       </span>
-      <span className="text-right text-sm font-medium text-slate-200">
-        {value}
-      </span>
+      <span className="text-fg text-right text-sm font-medium">{value}</span>
     </div>
   );
 }
@@ -198,12 +196,12 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
   const outputs = ocrOutputsForMode(outputMode).join(", ");
 
   return (
-    <div className="gradient-border">
-      <div className="glass flex flex-col gap-6 rounded-3xl p-5 sm:p-7">
+    <div className="">
+      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
         {/* Header */}
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/30 bg-blue-400/10 px-2.5 py-1 text-[11px] font-medium text-blue-200">
+            <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
               <ScanText className="size-3" aria-hidden />
               Secure-worker OCR
             </span>
@@ -213,10 +211,10 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               pulse={badge.pulse}
             />
           </div>
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="text-fg text-lg font-semibold">
             {tool.name} runs on an encrypted secure worker
           </h2>
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="text-muted text-sm leading-relaxed">
             Optical character recognition needs a native OCR engine, so it runs
             on an isolated, auto-deleting worker rather than in your browser.
             Configure the recognition below — we&apos;ll show exactly what
@@ -225,19 +223,17 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {/* Recognition settings */}
-        <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-4 sm:p-5">
-          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+        <div className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-4 sm:p-5">
+          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
             Recognition settings
           </h3>
 
           {/* Languages */}
           <div className="flex flex-col gap-2">
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
+            <span className="text-muted inline-flex items-center gap-1.5 text-xs font-medium">
               <Languages className="size-3.5" aria-hidden />
               Languages{" "}
-              <span className="text-slate-400">
-                (up to {MAX_OCR_LANGUAGES})
-              </span>
+              <span className="text-muted">(up to {MAX_OCR_LANGUAGES})</span>
             </span>
             {/*
               The single most useful sentence on this page. OCR against the wrong
@@ -245,7 +241,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               user who leaves the default alone gets a successful job and unusable
               output, with nothing anywhere to tell them why.
             */}
-            <p className="text-xs leading-relaxed text-slate-400">
+            <p className="text-muted text-xs leading-relaxed">
               Select every language printed on the page — a page that mixes
               Bengali with English technical terms needs both. The wrong
               language does not produce an error, it produces plausible-looking
@@ -278,8 +274,8 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
                       active
-                        ? "border-violet-400/50 bg-violet-500/15 text-violet-100"
-                        : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25 hover:bg-white/[0.06] hover:text-white",
+                        ? "border-accent/40 bg-accent/10 text-accent"
+                        : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
                     )}
                   >
                     {active && <Check className="size-3" aria-hidden />}
@@ -292,7 +288,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
           {/* Output mode */}
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-slate-400">Output</span>
+            <span className="text-muted text-xs font-medium">Output</span>
             <div
               className="flex flex-wrap gap-1.5"
               role="radiogroup"
@@ -311,8 +307,8 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition",
                       active
-                        ? "border-violet-400/50 bg-violet-500/15 text-violet-100"
-                        : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25 hover:bg-white/[0.06] hover:text-white",
+                        ? "border-accent/40 bg-accent/10 text-accent"
+                        : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
                     )}
                   >
                     {mode.label}
@@ -320,7 +316,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                 );
               })}
             </div>
-            <p className="text-xs leading-relaxed text-slate-400">
+            <p className="text-muted text-xs leading-relaxed">
               {
                 OCR_OUTPUT_MODES.find((mode) => mode.id === outputMode)
                   ?.description
@@ -329,26 +325,26 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
           </div>
 
           {/* Skip-text toggle */}
-          <label className="flex items-start gap-2.5 text-sm text-slate-300">
+          <label className="text-muted flex items-start gap-2.5 text-sm">
             <input
               type="checkbox"
               checked={skipTextPages}
               onChange={(event) => setSkipTextPages(event.target.checked)}
-              className="mt-0.5 size-4 rounded border-white/20 bg-white/5 accent-violet-500"
+              className="border-line-strong bg-wash accent-accent mt-0.5 size-4 rounded"
             />
             <span className="flex flex-col gap-0.5">
-              <span className="font-medium text-slate-200">
+              <span className="text-fg font-medium">
                 Skip pages that already have text
               </span>
-              <span className="text-xs leading-relaxed text-slate-400">
+              <span className="text-muted text-xs leading-relaxed">
                 Leave pages with an existing text layer untouched instead of
                 re-recognizing them.
               </span>
             </span>
           </label>
 
-          <p className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-400">
-            <span className="font-medium text-slate-300">This request:</span>{" "}
+          <p className="border-line bg-wash text-muted rounded-[3px] border px-3 py-2 text-xs">
+            <span className="text-muted font-medium">This request:</span>{" "}
             {describeOcrRequest(request)}
             {skipTextPages ? " · skip text pages" : ""}
           </p>
@@ -368,7 +364,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
@@ -376,21 +372,18 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               (stage, i, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
-                    <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
+                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
                       <StageIcon id={stage.id} className="size-4" />
                     </span>
                     {i < all.length - 1 && (
-                      <span
-                        className="my-1 w-px flex-1 bg-white/10"
-                        aria-hidden
-                      />
+                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
                     )}
                   </div>
                   <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-sm font-medium text-slate-200">
+                    <span className="text-fg text-sm font-medium">
                       {i + 1}. {stage.title}
                     </span>
-                    <span className="text-xs leading-relaxed text-slate-400">
+                    <span className="text-muted text-xs leading-relaxed">
                       {stage.description}
                     </span>
                   </div>
@@ -401,7 +394,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {/* Spec rows */}
-        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
+        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
           <SpecRow
             icon={FileUp}
             label="Inputs"
@@ -420,7 +413,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
           />
         </div>
 
-        <p className="text-xs leading-relaxed text-slate-400">
+        <p className="text-muted text-xs leading-relaxed">
           No account required. OCR runs on an isolated secure worker: files are
           encrypted in transit and at rest, recognized in a sandbox with no
           network egress, and deleted automatically. It&apos;s enabled per
@@ -448,17 +441,17 @@ function OcrUnavailable({
   toolSlug: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] p-4">
+    <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-4">
       {phase === "loading" ? (
         <p
-          className="inline-flex items-center gap-2 text-sm text-slate-400"
+          className="text-muted inline-flex items-center gap-2 text-sm"
           role="status"
         >
           <Spinner className="size-4" />
           Checking whether a secure worker is available…
         </p>
       ) : (
-        <p className="text-sm leading-relaxed text-amber-100/90">
+        <p className="text-warn text-sm leading-relaxed">
           {phase === "error"
             ? "We couldn't confirm secure-worker availability just now, so OCR isn't offered here. No file is ever uploaded until OCR is confirmed available."
             : (status?.ocr.detail ??
@@ -517,8 +510,8 @@ function OcrRunArea({
   }, [file, request]);
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-blue-400/25 bg-blue-500/[0.06] p-4">
-      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-blue-100/90">
+    <div className="border-info/40 bg-info/10 flex flex-col gap-3 rounded-[4px] border p-4">
+      <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker — the file is processed in-process on this machine, not sent to any third party."
@@ -526,7 +519,7 @@ function OcrRunArea({
       </p>
 
       {file ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200">
+        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
           <span className="truncate">{file.name}</span>
           <button
             type="button"
@@ -534,7 +527,7 @@ function OcrRunArea({
               setFile(null);
               setOutcome(null);
             }}
-            className="shrink-0 text-xs font-medium text-slate-400 transition hover:text-white"
+            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
           >
             Remove
           </button>
@@ -566,7 +559,7 @@ function OcrRunArea({
         <ResultCard
           announce={`OCR complete — ${outcome.artifacts.length} file${outcome.artifacts.length === 1 ? "" : "s"} ready.`}
         >
-          <p className="text-sm text-emerald-200">
+          <p className="text-ok text-sm">
             OCR complete — {outcome.artifacts.length} file
             {outcome.artifacts.length === 1 ? "" : "s"} ready.
           </p>
@@ -575,7 +568,7 @@ function OcrRunArea({
               <a
                 key={entry.artifact.artifactId}
                 href={entry.artifact.url}
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110"
+                className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex items-center gap-2 rounded-[3px] px-5 py-2 text-sm font-semibold transition-colors"
                 download={entry.artifact.filename}
               >
                 <Download className="size-4" aria-hidden />
@@ -652,8 +645,8 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
   const languageNames = meta.languages.map(describeOcrLanguage).join(", ");
 
   return (
-    <div className="mt-1 flex flex-col gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-      <h4 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+    <div className="border-line bg-wash mt-1 flex flex-col gap-1 rounded-[3px] border p-3">
+      <h4 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
         Recognition summary
       </h4>
       <dl className="divide-y divide-white/5">
@@ -662,11 +655,11 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
             key={row.label}
             className="flex items-center justify-between gap-3 py-1.5"
           >
-            <dt className="inline-flex items-center gap-2 text-xs text-slate-400">
-              <row.icon className="size-3.5 text-slate-400" aria-hidden />
+            <dt className="text-muted inline-flex items-center gap-2 text-xs">
+              <row.icon className="text-muted size-3.5" aria-hidden />
               {row.label}
             </dt>
-            <dd className="text-right text-xs font-medium text-slate-200">
+            <dd className="text-fg text-right text-xs font-medium">
               {row.value}
             </dd>
           </div>
@@ -679,15 +672,15 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
         output has no reason to suspect the setting rather than the tool.
       */}
       {languageNames.length > 0 && (
-        <p className="pt-1 text-xs leading-relaxed text-slate-400">
-          Recognized as <span className="text-slate-300">{languageNames}</span>.
-          If the text looks wrong, run it again with the language actually
-          printed on the page — OCR returns plausible-looking gibberish for the
-          wrong language rather than an error.
+        <p className="text-muted pt-1 text-xs leading-relaxed">
+          Recognized as <span className="text-muted">{languageNames}</span>. If
+          the text looks wrong, run it again with the language actually printed
+          on the page — OCR returns plausible-looking gibberish for the wrong
+          language rather than an error.
         </p>
       )}
       {looksLow && (
-        <p className="mt-1 rounded-lg border border-amber-400/25 bg-amber-500/10 px-2.5 py-2 text-xs leading-relaxed text-amber-100/90">
+        <p className="border-warn/40 bg-warn/10 text-warn mt-1 rounded-lg border px-2.5 py-2 text-xs leading-relaxed">
           {/*
             Deliberately a list of causes, not a diagnosis. Nothing here identifies
             script, so "this document appears to be Bengali" would be invention. The

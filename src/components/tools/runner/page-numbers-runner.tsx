@@ -117,8 +117,8 @@ function PageNumbersEditor({
       <RunnerSection
         title="Format"
         aside={
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-slate-300">
-            Preview: <span className="text-violet-200">{preview || "—"}</span>
+          <span className="border-line bg-wash text-muted rounded-full border px-2.5 py-1 text-xs">
+            Preview: <span className="text-accent">{preview || "—"}</span>
           </span>
         }
       >
