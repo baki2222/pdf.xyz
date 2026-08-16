@@ -126,8 +126,7 @@ describe("the download CTA has one home", () => {
         continue;
       if (
         STYLED_AS_SOMETHING_ELSE.some(
-          (entry) =>
-            file.endsWith(entry.file) && entry.fingerprint.test(src),
+          (entry) => file.endsWith(entry.file) && entry.fingerprint.test(src),
         )
       )
         continue;

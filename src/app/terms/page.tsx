@@ -30,9 +30,7 @@ export default function TermsPage() {
       updated={LEGAL_UPDATED}
       summary={
         <>
-          <strong className="text-fg font-semibold">
-            The short version.
-          </strong>{" "}
+          <strong className="text-fg font-semibold">The short version.</strong>{" "}
           The tools are free and provided as they are. You keep every right in
           the documents you process — we take only the narrow, temporary
           permission needed to run the tool you asked for, and nothing beyond
@@ -45,9 +43,7 @@ export default function TermsPage() {
       <LegalSection id="agreement" heading="1. This agreement">
         <p>
           These terms apply when you use pdf.xyz, which is operated by{" "}
-          <strong className="text-fg font-semibold">
-            {LEGAL_ENTITY.name}
-          </strong>
+          <strong className="text-fg font-semibold">{LEGAL_ENTITY.name}</strong>
           , a limited liability company registered in{" "}
           {LEGAL_ENTITY.jurisdiction}. By using the service you accept them. If
           you do not, please do not use it.
@@ -260,9 +256,7 @@ export default function TermsPage() {
 
       <LegalSection id="contact" heading="14. Contact">
         <p>
-          <strong className="text-fg font-semibold">
-            {LEGAL_ENTITY.name}
-          </strong>
+          <strong className="text-fg font-semibold">{LEGAL_ENTITY.name}</strong>
         </p>
         <address className="text-muted not-italic">
           {LEGAL_ENTITY.address.map((line) => (

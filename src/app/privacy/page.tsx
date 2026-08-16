@@ -52,9 +52,7 @@ export default function PrivacyPage() {
       updated={LEGAL_UPDATED}
       summary={
         <>
-          <strong className="text-fg font-semibold">
-            The short version.
-          </strong>{" "}
+          <strong className="text-fg font-semibold">The short version.</strong>{" "}
           {inBrowser} of our {tools.length} tools do their work entirely inside
           your browser — those files are never uploaded, so we never receive
           them. The remaining {onWorker} send your file to a processing worker,
@@ -68,9 +66,7 @@ export default function PrivacyPage() {
       <LegalSection id="who-we-are" heading="1. Who we are">
         <p>
           pdf.xyz is operated by{" "}
-          <strong className="text-fg font-semibold">
-            {LEGAL_ENTITY.name}
-          </strong>
+          <strong className="text-fg font-semibold">{LEGAL_ENTITY.name}</strong>
           , a limited liability company registered in{" "}
           {`${LEGAL_ENTITY.jurisdiction} `}(&ldquo;we&rdquo;, &ldquo;us&rdquo;).
         </p>
@@ -201,8 +197,8 @@ export default function PrivacyPage() {
         <p>
           Our AI tools — summarising, translating, answering questions about a
           document, and structured extraction — work from the{" "}
-          <strong className="text-fg font-semibold">text</strong> of your
-          PDF. The worker extracts that text and sends it to a third-party AI
+          <strong className="text-fg font-semibold">text</strong> of your PDF.
+          The worker extracts that text and sends it to a third-party AI
           provider to produce the answer. The PDF file itself is not sent to the
           provider.
         </p>
@@ -211,11 +207,11 @@ export default function PrivacyPage() {
           the PDF already contains as text is sent — we do not run character
           recognition to manufacture text from a scan, and a scanned document is
           refused rather than silently half-processed. And for{" "}
-          <strong className="text-fg font-semibold">Chat with PDF</strong>,
-          the document&apos;s text is sent again with every question — the
-          worker keeps nothing between them. The provider holds it in a
-          short-lived cache, which lowers the cost of processing the repeat
-          rather than avoiding it; that cache lasts minutes, not days.
+          <strong className="text-fg font-semibold">Chat with PDF</strong>, the
+          document&apos;s text is sent again with every question — the worker
+          keeps nothing between them. The provider holds it in a short-lived
+          cache, which lowers the cost of processing the repeat rather than
+          avoiding it; that cache lasts minutes, not days.
         </p>
         <p>
           We use providers under agreements that prohibit training on data sent
@@ -239,9 +235,7 @@ export default function PrivacyPage() {
             period by those providers.
           </li>
           <li>
-            <strong className="text-fg font-semibold">
-              A job identifier.
-            </strong>{" "}
+            <strong className="text-fg font-semibold">A job identifier.</strong>{" "}
             Worker tools create a job with a random identifier so your browser
             can poll for the result. It is not linked to you.
           </li>
@@ -277,9 +271,7 @@ export default function PrivacyPage() {
             harmless.
           </li>
           <li>
-            <strong className="text-fg font-semibold">
-              What you send us.
-            </strong>{" "}
+            <strong className="text-fg font-semibold">What you send us.</strong>{" "}
             If you email us, we keep that correspondence so we can reply.
           </li>
         </ul>

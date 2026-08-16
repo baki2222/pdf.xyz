@@ -769,9 +769,7 @@ export function OperationsHealthCard({ view }: { view: SafeOperationsView }) {
             <span className="text-faint font-mono text-[0.7rem] font-medium tracking-[0.18em] uppercase">
               Worker operations
             </span>
-            <span className="text-fg text-lg font-semibold">
-              {meta.label}
-            </span>
+            <span className="text-fg text-lg font-semibold">{meta.label}</span>
           </div>
         </div>
         <HealthBadge health={view.health} />
@@ -880,9 +878,7 @@ export function RecommendedActionCallout({
           Recommended next action
         </span>
         <p className="text-fg text-sm font-semibold">{copy.title}</p>
-        <p className="text-muted text-sm leading-relaxed">
-          {copy.detail}
-        </p>
+        <p className="text-muted text-sm leading-relaxed">{copy.detail}</p>
       </div>
     </div>
   );
@@ -1026,9 +1022,7 @@ function SubsystemTile({ sub }: { sub: SafeSubsystem }) {
         </span>
         <StatusBadge tone={health.tone} label={health.label} />
       </div>
-      <p className="text-muted text-xs leading-relaxed">
-        {meta.description}
-      </p>
+      <p className="text-muted text-xs leading-relaxed">{meta.description}</p>
     </div>
   );
 }
@@ -1168,8 +1162,8 @@ export function ProofsCard({
         <p className="text-muted text-xs leading-relaxed">
           A separate worker image&apos;s installed engines can&apos;t be probed
           from the web, so these stay{" "}
-          <span className="text-muted">unknown</span> here — a
-          worker-vantage snapshot confirms them.
+          <span className="text-muted">unknown</span> here — a worker-vantage
+          snapshot confirms them.
         </p>
       )}
     </StatusCard>

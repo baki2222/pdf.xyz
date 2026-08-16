@@ -246,9 +246,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
         <StatusBadge tone={meta.tone} label={meta.label} />
       </div>
 
-      <p className="text-muted text-sm leading-relaxed">
-        {meta.summary}
-      </p>
+      <p className="text-muted text-sm leading-relaxed">{meta.summary}</p>
 
       {posture.reasons.length > 0 && (
         <ul className="flex flex-wrap gap-1.5">
@@ -265,8 +263,8 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
 
       <p className="text-muted text-[11px] leading-relaxed">
         This is the verdict a monitor running{" "}
-        <code className="text-muted">worker:ops-check</code> would report
-        from this snapshot — local evaluation only, never a hosted pager.
+        <code className="text-muted">worker:ops-check</code> would report from
+        this snapshot — local evaluation only, never a hosted pager.
       </p>
     </div>
   );
