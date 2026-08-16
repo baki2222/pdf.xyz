@@ -160,13 +160,14 @@ export function createRedisQueue(
     ttl,
   ];
 
-  /** The five keys a transition script declares, for one job. */
+  /** The six keys a transition script declares, for one job. */
   const keysFor = (jobId: string): TransitionKeys => ({
     job: k("job", jobId),
     spec: k("spec", jobId),
     lease: k("lease", jobId),
     ready: k("ready"),
     active: k("active"),
+    delayed: k("delayed"),
   });
 
   /** Render an optional attempt fingerprint into its `ARGV` form (`''` ⇒ skip). */
@@ -369,6 +370,31 @@ export function createRedisQueue(
         if (outcome === "unavailable") return UNAVAILABLE();
         // invalid_state/missing_job: the job changed under us (already terminal);
         // the ZREM above removed it from `active`, so there is nothing more to do.
+      }
+
+      // 1.5. Promotion sweep: move due parked jobs (delayed requeues whose
+      // visible-at has passed) onto the ready list. Same atomic hand-off as the
+      // redelivery sweep above — only the claimer whose ZREM removes the member
+      // owns the promotion, so two claimers can't both list it. A parked job
+      // that is NOT yet due simply stays in the ZSET, which is what lets the
+      // runnable job behind it be claimed instead.
+      const dueRes = await client.command([
+        "ZRANGEBYSCORE",
+        k("delayed"),
+        "-inf",
+        String(nowMs),
+      ]);
+      if (!dueRes.ok) return UNAVAILABLE();
+      const due = Array.isArray(dueRes.value) ? dueRes.value : [];
+      for (const entry of due) {
+        if (typeof entry !== "string") continue;
+        const won = await client.command(["ZREM", k("delayed"), entry]);
+        if (!won.ok) return UNAVAILABLE();
+        if (Number(won.value) !== 1) continue; // another claimer promoted it
+        const listed = await client.command(["LPUSH", k("ready"), entry]);
+        if (!listed.ok) return UNAVAILABLE();
+        // A stale id (job canceled/expired while parked) is harmless here: the
+        // claim below loads the record, sees a non-queued status, and drops it.
       }
 
       // 2. Claim the oldest queued job. RPOP is the atomic dequeue.
@@ -575,13 +601,27 @@ export function createRedisQueue(
         };
         // Keep spec (inputs) + lease (attempt count); the requeue script re-lists
         // the job and removes it from `active` atomically under an ownership CAS.
-        const outcome = await runTransition(client, "requeue", keysFor(jobId), [
-          JSON.stringify(requeued),
-          ttl,
-          attemptArg(expectedAttempt),
-          statusCsv(sourceStatusesFor("queued")),
-          jobId,
-        ]);
+        // A positive delay parks it in the visible-at ZSET instead of the ready
+        // list — same guards, different destination — so no claim can see it
+        // until the promotion sweep moves it across.
+        const delayMs = disposition.delayMs ?? 0;
+        const outcome =
+          delayMs > 0
+            ? await runTransition(client, "requeueDelayed", keysFor(jobId), [
+                JSON.stringify(requeued),
+                ttl,
+                attemptArg(expectedAttempt),
+                statusCsv(sourceStatusesFor("queued")),
+                jobId,
+                String(now() + delayMs),
+              ])
+            : await runTransition(client, "requeue", keysFor(jobId), [
+                JSON.stringify(requeued),
+                ttl,
+                attemptArg(expectedAttempt),
+                statusCsv(sourceStatusesFor("queued")),
+                jobId,
+              ]);
         return applyOutcome(
           outcome,
           requeued,

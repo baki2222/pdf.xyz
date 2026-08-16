@@ -22,6 +22,7 @@ const KEYS: TransitionKeys = {
   lease: "pdfxyz:lease:job_secret001",
   ready: "pdfxyz:ready",
   active: "pdfxyz:active",
+  delayed: "pdfxyz:delayed",
 };
 
 /** A stub REST client that records commands and replays one canned reply. */
@@ -116,9 +117,9 @@ describe("runTransition — REST command shape", () => {
     expect(cmd[0]).toBe("EVAL");
     // The program text is the frozen constant — never a dynamically built string.
     expect(cmd[1]).toBe(TRANSITION_SCRIPTS.finalize);
-    expect(cmd[2]).toBe("5"); // numkeys
-    expect(cmd.slice(3, 8)).toEqual(transitionKeyList(KEYS));
-    expect(cmd.slice(8)).toEqual(argv.map(String));
+    expect(cmd[2]).toBe("6"); // numkeys
+    expect(cmd.slice(3, 9)).toEqual(transitionKeyList(KEYS));
+    expect(cmd.slice(9)).toEqual(argv.map(String));
     // The script text itself carries none of the dynamic values.
     expect(cmd[1]).not.toContain("<<JOB_JSON_PAYLOAD>>");
     expect(cmd[1]).not.toContain("job_secret001");
@@ -131,13 +132,16 @@ describe("runTransition — REST command shape", () => {
     );
   });
 
-  it("declares exactly the five positional keys for every script", async () => {
+  it("declares exactly the six positional keys for every script", async () => {
+    // Six since the delayed-requeue ZSET joined the fixed key set (KEYS[6]);
+    // five before that. Every script declares the full set even when it only
+    // touches a subset — the Redis-Cluster-safety contract this file pins.
     for (const name of Object.keys(TRANSITION_SCRIPTS) as Array<
       keyof typeof TRANSITION_SCRIPTS
     >) {
       const { client, calls } = stubClient({ ok: true, value: "applied" });
       await runTransition(client, name, KEYS, []);
-      expect(calls[0]!.map(String)[2], name).toBe("5");
+      expect(calls[0]!.map(String)[2], name).toBe("6");
     }
   });
 });

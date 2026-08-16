@@ -195,7 +195,15 @@ describe("executor metric emission", () => {
       options: { profile: "lossless" },
     });
     // maxAttempts defaults to 3: requeue, requeue, then terminal (dead letter).
-    await executor(fixedScanner("error")).drain();
+    // Each retryable requeue PARKS the job (delayed requeue), so the clock must
+    // pass the retry delay between attempts — a bare drain() stops at idle
+    // while the job is still parked.
+    const exec = executor(fixedScanner("error"));
+    await exec.runOnce(); // attempt 1: requeued (parked)
+    clock += 61_000;
+    await exec.runOnce(); // attempt 2: requeued (parked)
+    clock += 61_000;
+    await exec.runOnce(); // attempt 3: terminal dead letter
 
     const snap = metrics.snapshot();
     expect(

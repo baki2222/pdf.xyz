@@ -123,13 +123,8 @@ export function createFakeRedis(): FakeRedis {
     keys: string[],
     argv: string[],
   ): string => {
-    const [jobKey, specKey, leaseKey, readyKey, activeKey] = keys as [
-      string,
-      string,
-      string,
-      string,
-      string,
-    ];
+    const [jobKey, specKey, leaseKey, readyKey, activeKey, delayedKey] =
+      keys as [string, string, string, string, string, string];
     const jobRaw = strings.get(jobKey);
     if (jobRaw === undefined) return "missing";
     const job = JSON.parse(jobRaw) as { status: string };
@@ -193,6 +188,7 @@ export function createFakeRedis(): FakeRedis {
         del(leaseKey);
         lrem(readyKey, argv[4]!);
         zrem(activeKey, argv[4]!);
+        zrem(delayedKey, argv[4]!);
         return "applied";
       }
       case "requeue": {
@@ -201,6 +197,15 @@ export function createFakeRedis(): FakeRedis {
         if (ownershipStale(argv[2]!)) return "stale";
         strings.set(jobKey, argv[0]!);
         lpush(readyKey, argv[4]!);
+        zrem(activeKey, argv[4]!);
+        return "applied";
+      }
+      case "requeueDelayed": {
+        // ARGV: [jobJson, ttl, expectedAttempt, allowedCsv, jobId, visibleAtMs]
+        if (!statusIn(argv[3]!)) return "invalid";
+        if (ownershipStale(argv[2]!)) return "stale";
+        strings.set(jobKey, argv[0]!);
+        zadd(delayedKey, Number(argv[5]), argv[4]!);
         zrem(activeKey, argv[4]!);
         return "applied";
       }

@@ -267,6 +267,33 @@ export interface WorkerExecutor {
 
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
+
+/**
+ * How long a retryable requeue waits before the job is claimable again.
+ *
+ * Before this existed, "retry" meant three provider calls inside a few
+ * milliseconds — functionally identical to not retrying at all, because the
+ * failure kind that most needs a retry (`rate_limited`) is the one whose whole
+ * nature is "wait". A provider's rate-limit window is seconds to minutes, so
+ * every instant attempt failed for the same reason and the caller got a
+ * terminal error a short wait would have avoided.
+ *
+ * The schedule: attempt 1 → 2s, attempt 2 → 8s (attempt 3 is terminal at the
+ * default cap). Quadrupling, not doubling, because the second retry is the last
+ * one — if 2s was not enough, the evidence says the window is longer, and a
+ * final attempt at 4s spends the job's last life on nearly the same instant.
+ * Capped at 60s so a raised attempt ceiling can never park a job for hours.
+ *
+ * THE NUMBERS ARE A JUDGEMENT, NOT A MEASUREMENT, and the direction of error is
+ * chosen: too short wastes one retry; too long delays one already-failing job
+ * (never the queue behind it — the delay is per-job, held at the store). Revise
+ * from real `requeued` log events once there are some.
+ */
+export function retryRequeueDelayMs(attempt: number): number {
+  const base = 2_000;
+  const delay = base * 4 ** (Math.max(1, attempt) - 1);
+  return Math.min(delay, 60_000);
+}
 const DEFAULT_DRAIN_CAP = 1000;
 
 export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
@@ -324,7 +351,9 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       const disposition = await queue.fail(
         job.jobId,
         error,
-        { requeue },
+        requeue
+          ? { requeue, delayMs: retryRequeueDelayMs(attempt) }
+          : { requeue },
         attempt,
       );
       if (!disposition.ok) {

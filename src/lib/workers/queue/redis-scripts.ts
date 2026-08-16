@@ -49,10 +49,16 @@ export type AtomicOutcome =
   | "unavailable"; // the broker errored or was unreachable — transient
 
 /**
- * The five keys every transition script declares, in a fixed positional order
- * (`KEYS[1..5]`). Passing the full set for every script keeps the provider and
+ * The six keys every transition script declares, in a fixed positional order
+ * (`KEYS[1..6]`). Passing the full set for every script keeps the provider and
  * the script contract uniform and is Redis-Cluster-safe (all touched keys are
  * declared), even when a given script only reads/writes a subset.
+ *
+ * `delayed` (KEYS[6]) is the visible-at ZSET a delayed requeue parks into:
+ * member = jobId, score = the epoch-ms before which the job must not be
+ * claimed. It exists BESIDE `ready` rather than replacing it, deliberately —
+ * the undelayed hot path (submit → claim → complete) keeps its LIST semantics
+ * byte-for-byte, and only the parked path pays for a time-ordered structure.
  */
 export interface TransitionKeys {
   job: string;
@@ -60,11 +66,19 @@ export interface TransitionKeys {
   lease: string;
   ready: string;
   active: string;
+  delayed: string;
 }
 
 /** Flatten {@link TransitionKeys} into the positional `KEYS` array. */
 export function transitionKeyList(keys: TransitionKeys): string[] {
-  return [keys.job, keys.spec, keys.lease, keys.ready, keys.active];
+  return [
+    keys.job,
+    keys.spec,
+    keys.lease,
+    keys.ready,
+    keys.active,
+    keys.delayed,
+  ];
 }
 
 /**
@@ -191,6 +205,7 @@ redis.call('DEL', KEYS[2])
 redis.call('DEL', KEYS[3])
 redis.call('LREM', KEYS[4], '0', ARGV[5])
 redis.call('ZREM', KEYS[5], ARGV[5])
+redis.call('ZREM', KEYS[6], ARGV[5])
 return 'applied'`;
 
 /**
@@ -212,6 +227,27 @@ redis.call('ZREM', KEYS[5], ARGV[5])
 return 'applied'`;
 
 /**
+ * Requeue a running job for another attempt **after a delay**: back to
+ * `queued`, but PARKED — the id goes into the visible-at ZSET (KEYS[6], score
+ * ARGV[6] = epoch-ms) instead of the ready list, so no claim can see it until
+ * the claim-side promotion moves it across once due. Same guards as
+ * {@link REQUEUE}; a separate script rather than a flag on it, so the undelayed
+ * path's text — and therefore its fake twin — is untouched.
+ *   ARGV[1]=jobJson ARGV[2]=ttl ARGV[3]=expectedAttempt ARGV[4]=allowedCsv
+ *   ARGV[5]=jobId  ARGV[6]=visibleAtMs
+ */
+const REQUEUE_DELAYED = `
+local jobRaw = redis.call('GET', KEYS[1])
+if not jobRaw then return 'missing' end
+local job = cjson.decode(jobRaw)
+if not ${STATUS_GUARD("ARGV[4]", "job.status")} then return 'invalid' end
+${OWNERSHIP_GUARD("ARGV[3]")}
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+redis.call('ZADD', KEYS[6], ARGV[6], ARGV[5])
+redis.call('ZREM', KEYS[5], ARGV[5])
+return 'applied'`;
+
+/**
  * The full script set, keyed by name. Frozen constants — the source of truth for
  * both the production runner and the test fake's twin executor (which dispatches
  * on the exact text of these constants, so the two can never silently drift).
@@ -223,6 +259,7 @@ export const TRANSITION_SCRIPTS = {
   advance: ADVANCE,
   finalize: FINALIZE,
   requeue: REQUEUE,
+  requeueDelayed: REQUEUE_DELAYED,
 } as const;
 
 export type TransitionScriptName = keyof typeof TRANSITION_SCRIPTS;

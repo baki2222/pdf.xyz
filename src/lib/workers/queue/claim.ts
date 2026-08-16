@@ -74,9 +74,24 @@ export interface ClaimOptions {
 /**
  * How the executor dispositions a running job's failure:
  *  - `{ requeue: false }` → terminal `failed`;
- *  - `{ requeue: true }`  → back to `queued` for another attempt (redelivery).
+ *  - `{ requeue: true }`  → back to `queued` for another attempt (redelivery);
+ *  - `{ requeue: true, delayMs }` → requeued, but **not claimable until
+ *    `delayMs` has elapsed**.
+ *
+ * WHY THE DELAY IS THE QUEUE'S JOB AND NOT THE DAEMON'S. The failure kind that
+ * most needs a retry — `rate_limited` — is the one whose whole nature is
+ * "wait", and without a delay the executor's three attempts fire back to back
+ * inside a few milliseconds: functionally identical to not retrying at all. A
+ * daemon-side sleep was considered and rejected, because it blocks the whole
+ * worker — one rate-limited job would delay every OTHER job behind it. Held at
+ * the queue, the delayed job simply is not visible yet: the daemon claims
+ * again immediately (correct — other work may be ready), drains whatever else
+ * is runnable, and goes idle only when nothing is.
+ *
+ * `delayMs` is meaningful only when `requeue` is true; absent or `<= 0` means
+ * immediately claimable (the pre-delay behavior, unchanged).
  */
-export type FailDisposition = { requeue: boolean };
+export type FailDisposition = { requeue: boolean; delayMs?: number };
 
 /** A running-state update: advance scan→process and/or move progress forward. */
 export interface RunningUpdate {
