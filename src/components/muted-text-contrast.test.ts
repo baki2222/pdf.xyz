@@ -124,35 +124,42 @@ function slateTextUsages(): Usage[] {
 describe("muted text meets WCAG AA on the app's own background", () => {
   const usages = slateTextUsages();
 
-  it("finds slate text colours to check at all", () => {
-    // Without this, a rename of the utility or a broken walker would turn the
-    // suite green by having nothing to say.
+  it("the only slate text left is the enumerated signature paper", () => {
+    // HISTORY, KEPT (inverted, not deleted — house rule):
     //
     // RE-ANCHORED 2026-08-16, deliberately, with the redesign that moved the
     // homepage, tool pages and workspace onto semantic tokens: `text-slate-*`
     // stopped being the product's muted idiom and became its LEGACY idiom.
-    // The legacy count was 72 that day.
+    // The legacy count was 72 that day, and this check was a BAND —
+    // `>= 60 && <= 72` — with the floor guarding against a walk that lost
+    // half the corpus (a BFS bug once collapsed a call graph to TWO entries:
+    // fewer, not none) and the ceiling against slate creeping back onto a
+    // token surface. Its own text ordered: "when the count reaches the two
+    // deliberate sign-runner steps, this check gets rewritten to enumerate
+    // them."
     //
-    // A BAND, NOT A HALF-LINE, AND THE FLOOR IS THE HALF THAT WAS ALMOST LOST.
-    // The re-anchor was first written as `> 0` plus this ceiling, reasoning
-    // that "a broken walker returns nothing, not fewer things". That is the
-    // one assumption `CLAUDE.md` rule 4 was paid for and refutes by name: a
-    // BFS bug once collapsed a call graph to TWO entries — fewer, not none.
-    // A walk that silently found 30 of these files would satisfy `> 0` and
-    // `<= 72` and report the count as having SHRUNK, which on this check reads
-    // as progress. The old `> 100` would have caught it; `> 0` cannot.
-    //
-    // So both directions are bounded: the ceiling catches someone
-    // reintroducing slate as a text colour on a token surface (drift the old
-    // floor could never see), and the floor catches a walk that lost half the
-    // corpus (vacuity the ceiling alone cannot see). DECREMENT THE FLOOR
-    // DELIBERATELY as legacy surfaces convert — never leave it slack in
-    // advance, because slack is exactly the room a partial walk hides in.
-    // When the count reaches the two deliberate sign-runner steps (the white
-    // signature paper, see LIGHT_SURFACES), this check gets rewritten to
-    // enumerate them.
-    expect(usages.length).toBeGreaterThanOrEqual(60);
-    expect(usages.length).toBeLessThanOrEqual(72);
+    // That day arrived 2026-08-16, same date, when the last legacy surfaces
+    // (/status, /privacy, /terms, the error pages, and the status component
+    // suite) converted to tokens. The 70 legacy usages are gone; what remains
+    // is exactly LIGHT_SURFACES — the signature paper, where DARK slate text
+    // on white is the correct rendering and a token role would be wrong. The
+    // enumeration below is exhaustive both ways: every remaining usage must
+    // be a LIGHT_SURFACES entry (slate may not come back as a text colour
+    // anywhere else), and "exempts only light surfaces that genuinely exist"
+    // below keeps every entry pointing at a real usage. Together they pin the
+    // corpus at exactly its enumerated members, which is a tighter bound than
+    // the band ever was — the walker-health floor is now the requirement that
+    // the enumerated usages are FOUND, so an empty walk still fails.
+    const unexpected = usages.filter(
+      (usage) => !isLightSurface(usage.file, usage.step),
+    );
+    expect(
+      unexpected.map((u) => `${u.file}:${u.line} text-slate-${u.step}`),
+      "slate is the legacy idiom; new muted text uses the token roles (text-muted / text-faint)",
+    ).toEqual([]);
+    // The positive control: the walk still sees the enumerated members, so a
+    // broken walker cannot report this suite green by finding nothing.
+    expect(usages.length).toBeGreaterThanOrEqual(2);
   });
 
   it("resolves every slate step that the tree uses", () => {

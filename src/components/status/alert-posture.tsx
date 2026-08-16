@@ -177,19 +177,19 @@ const REASON_COPY: Record<AlertReason, string> = {
 };
 
 const TILE_TONE: Record<StatusTone, string> = {
-  ok: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  warn: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  danger: "border-red-400/30 bg-red-400/10 text-red-300",
-  info: "border-blue-400/30 bg-blue-400/10 text-blue-300",
-  muted: "border-white/10 bg-white/5 text-slate-400",
+  ok: "border-ok/40 bg-ok/10 text-ok",
+  warn: "border-warn/40 bg-warn/10 text-warn",
+  danger: "border-err/40 bg-err/10 text-err",
+  info: "border-info/40 bg-info/10 text-info",
+  muted: "border-line bg-wash text-muted",
 };
 
 const CALLOUT_TONE: Record<StatusTone, string> = {
-  ok: "border-emerald-400/25 bg-emerald-400/[0.06]",
-  warn: "border-amber-400/25 bg-amber-400/[0.06]",
-  danger: "border-red-400/25 bg-red-400/[0.06]",
-  info: "border-blue-400/25 bg-blue-400/[0.06]",
-  muted: "border-white/10 bg-white/[0.03]",
+  ok: "border-ok/30 bg-ok/5",
+  warn: "border-warn/30 bg-warn/5",
+  danger: "border-err/30 bg-err/5",
+  info: "border-info/30 bg-info/5",
+  muted: "border-line bg-wash",
 };
 
 /* ------------------------------------------------------------------ *
@@ -211,7 +211,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-2xl border p-4",
+        "flex flex-col gap-3 rounded-[4px] border p-4",
         CALLOUT_TONE[meta.tone],
       )}
       role="note"
@@ -221,20 +221,20 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
         <div className="flex items-center gap-3">
           <span
             className={cn(
-              "grid size-8 shrink-0 place-items-center rounded-lg border",
+              "grid size-8 shrink-0 place-items-center rounded-[3px] border",
               TILE_TONE[meta.tone],
             )}
           >
             <Icon className="size-4" aria-hidden />
           </span>
           <div className="flex flex-col">
-            <span className="text-[0.7rem] font-semibold tracking-widest text-slate-400 uppercase">
+            <span className="text-faint font-mono text-[0.7rem] font-medium tracking-[0.18em] uppercase">
               Alert posture
             </span>
-            <span className="text-sm font-semibold text-white">
+            <span className="text-fg text-sm font-semibold">
               {meta.label}
               {total > 0 && (
-                <span className="ml-1.5 font-normal text-slate-400">
+                <span className="text-muted ml-1.5 font-normal">
                   · {posture.critical > 0 && `${posture.critical} critical`}
                   {posture.critical > 0 && posture.warn > 0 && ", "}
                   {posture.warn > 0 && `${posture.warn} warning`}
@@ -246,7 +246,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
         <StatusBadge tone={meta.tone} label={meta.label} />
       </div>
 
-      <p className="text-sm leading-relaxed text-slate-300/90">
+      <p className="text-muted text-sm leading-relaxed">
         {meta.summary}
       </p>
 
@@ -255,7 +255,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
           {posture.reasons.map((reason) => (
             <li
               key={reason}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-[11px] text-slate-300"
+              className="border-line bg-wash text-fg inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px]"
             >
               {REASON_COPY[reason]}
             </li>
@@ -263,9 +263,9 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
         </ul>
       )}
 
-      <p className="text-[11px] leading-relaxed text-slate-400">
+      <p className="text-muted text-[11px] leading-relaxed">
         This is the verdict a monitor running{" "}
-        <code className="text-slate-400">worker:ops-check</code> would report
+        <code className="text-muted">worker:ops-check</code> would report
         from this snapshot — local evaluation only, never a hosted pager.
       </p>
     </div>

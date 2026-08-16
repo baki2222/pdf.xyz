@@ -25,7 +25,7 @@ export function SiteHeader() {
     (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
   return (
-    <header className="theme-paper bg-canvas border-line sticky top-0 z-50 border-b">
+    <header className="bg-canvas border-line sticky top-0 z-50 border-b">
       <Container className="flex h-14 items-center justify-between gap-4">
         <Logo />
 

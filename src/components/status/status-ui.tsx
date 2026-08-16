@@ -26,12 +26,12 @@ import { cn } from "@/lib/utils";
 export type StatusTone = "ok" | "warn" | "danger" | "info" | "muted";
 
 /**
- * Token-based since 2026-08-16: this badge renders on the redesigned paper
- * tool pages (every worker panel imports it) AND on the legacy-dark /status
- * route, and the theme scope resolves the same classes correctly in both.
- * The old hardcoded dark tints put text-slate-400 on white panels — the six
- * failures the both-scheme contrast audit caught the day the tool pages
- * flipped to paper.
+ * Token-based since 2026-08-16: this badge renders on the paper tool pages
+ * (every worker panel imports it) and on /status, and the theme scope
+ * resolves the same classes correctly wherever it lands. The old hardcoded
+ * dark tints put slate-400 text on white panels — the six failures the
+ * both-scheme contrast audit caught the day the tool pages flipped to paper.
+ * The rest of this module followed when /status itself converted.
  */
 const TONE_STYLES: Record<StatusTone, { pill: string; dot: string }> = {
   ok: {
@@ -132,19 +132,16 @@ export function RecoverableError({
     <div
       role="alert"
       className={cn(
-        "flex flex-col gap-3 rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100",
+        "border-err/40 bg-err/10 text-err flex flex-col gap-3 rounded-[4px] border p-4 text-sm",
         className,
       )}
     >
       <div className="flex items-start gap-2.5">
-        <AlertTriangle
-          className="mt-0.5 size-4 shrink-0 text-red-300"
-          aria-hidden
-        />
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
         <div className="flex flex-col gap-1">
-          <p className="font-semibold text-red-50">{title}</p>
-          <p className="text-red-100/90">{message}</p>
-          {detail && <p className="text-xs text-red-200/70">{detail}</p>}
+          <p className="font-semibold">{title}</p>
+          <p>{message}</p>
+          {detail && <p className="text-xs">{detail}</p>}
         </div>
       </div>
       {(onRetry || secondary) && (
@@ -182,16 +179,16 @@ export type AssuranceTone = "privacy" | "info" | "muted";
 
 const ASSURANCE_STYLES: Record<AssuranceTone, { box: string; icon: string }> = {
   privacy: {
-    box: "border-emerald-400/25 bg-emerald-400/[0.06] text-emerald-100",
-    icon: "text-emerald-300",
+    box: "border-ok/40 bg-ok/10 text-ok",
+    icon: "",
   },
   info: {
-    box: "border-blue-400/25 bg-blue-400/[0.06] text-blue-100",
-    icon: "text-blue-300",
+    box: "border-info/40 bg-info/10 text-info",
+    icon: "",
   },
   muted: {
-    box: "border-white/10 bg-white/[0.03] text-slate-300",
-    icon: "text-slate-400",
+    box: "border-line bg-wash text-muted",
+    icon: "text-faint",
   },
 };
 
@@ -213,7 +210,7 @@ export function AssuranceNote({
   return (
     <p
       className={cn(
-        "flex items-start gap-2 rounded-2xl border px-4 py-3 text-xs leading-relaxed",
+        "flex items-start gap-2 rounded-[4px] border px-4 py-3 text-xs leading-relaxed",
         styles.box,
         className,
       )}
@@ -234,9 +231,9 @@ export function AssuranceNote({
 /** A small check/neutral glyph pair for "does this run here / upload files". */
 export function AvailabilityGlyph({ available }: { available: boolean }) {
   return available ? (
-    <CheckCircle2 className="size-4 text-emerald-300" aria-hidden />
+    <CheckCircle2 className="text-ok size-4" aria-hidden />
   ) : (
-    <MinusCircle className="size-4 text-slate-400" aria-hidden />
+    <MinusCircle className="text-faint size-4" aria-hidden />
   );
 }
 
@@ -253,10 +250,10 @@ export function StatusCard({
   icon?: typeof Info;
 }) {
   return (
-    <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
+    <div className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-white">
-          <Icon className="size-4 text-slate-400" aria-hidden />
+        <h2 className="text-fg inline-flex items-center gap-2 text-sm font-semibold">
+          <Icon className="text-faint size-4" aria-hidden />
           {title}
         </h2>
         {badge}

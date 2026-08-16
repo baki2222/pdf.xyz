@@ -30,7 +30,7 @@ export default function TermsPage() {
       updated={LEGAL_UPDATED}
       summary={
         <>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             The short version.
           </strong>{" "}
           The tools are free and provided as they are. You keep every right in
@@ -45,7 +45,7 @@ export default function TermsPage() {
       <LegalSection id="agreement" heading="1. This agreement">
         <p>
           These terms apply when you use pdf.xyz, which is operated by{" "}
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             {LEGAL_ENTITY.name}
           </strong>
           , a limited liability company registered in{" "}
@@ -56,7 +56,7 @@ export default function TermsPage() {
           Our{" "}
           <Link
             href="/privacy"
-            className="text-violet-300 underline underline-offset-4"
+            className="text-accent underline underline-offset-4"
           >
             Privacy Policy
           </Link>{" "}
@@ -80,7 +80,7 @@ export default function TermsPage() {
         </p>
         <p>
           Specifically, for the tools that upload, you grant us a{" "}
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             non-exclusive, worldwide, royalty-free licence to store, transmit
             and process that file solely to produce the output you requested,
             and only for as long as the file exists on our systems
@@ -142,7 +142,7 @@ export default function TermsPage() {
           not reliable in the way a calculator is reliable.
         </p>
         <p>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             AI output can be incomplete or wrong even when it reads confidently.
           </strong>{" "}
           Check it against the original before relying on it, and do not treat
@@ -157,7 +157,7 @@ export default function TermsPage() {
       <LegalSection id="availability" heading="6. Availability">
         <p>
           The service is free and provided{" "}
-          <strong className="font-semibold text-white">as is</strong>. We do not
+          <strong className="text-fg font-semibold">as is</strong>. We do not
           promise it will be available, uninterrupted, or error-free, and we may
           change, suspend, or withdraw any part of it.
         </p>
@@ -165,7 +165,7 @@ export default function TermsPage() {
           Results stop being downloadable on a short timer — currently{" "}
           {outputWindow}, after which the link fails for everyone including us.
           Download what you need when it is ready.{" "}
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             Keep your own copy of anything that matters.
           </strong>{" "}
           We are not a storage service and we cannot recover a file once it is
@@ -190,7 +190,7 @@ export default function TermsPage() {
           purpose, and non-infringement.
         </p>
         <p>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             If you are a consumer,
           </strong>{" "}
           you have rights under the law of your country that cannot be excluded
@@ -246,7 +246,7 @@ export default function TermsPage() {
           have jurisdiction over any dispute.
         </p>
         <p>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             If you are a consumer, this does not move your protections.
           </strong>{" "}
           Where the law of your own country gives you rights that cannot be
@@ -260,11 +260,11 @@ export default function TermsPage() {
 
       <LegalSection id="contact" heading="14. Contact">
         <p>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             {LEGAL_ENTITY.name}
           </strong>
         </p>
-        <address className="text-slate-400 not-italic">
+        <address className="text-muted not-italic">
           {LEGAL_ENTITY.address.map((line) => (
             <span key={line} className="block">
               {line}
@@ -275,7 +275,7 @@ export default function TermsPage() {
           Questions, legal notices, and complaints:{" "}
           <a
             href={`mailto:${LEGAL_CONTACT}`}
-            className="text-violet-300 underline underline-offset-4"
+            className="text-accent underline underline-offset-4"
           >
             {LEGAL_CONTACT}
           </a>

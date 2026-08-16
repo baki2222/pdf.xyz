@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Boxes,
-  Download,
   FileText,
   Gauge,
   ImageIcon,
@@ -30,6 +29,7 @@ import type { WorkerStatus } from "@/lib/workers/status";
 import { cn, formatBytes } from "@/lib/utils";
 import {
   ChipButton,
+  DownloadCta,
   Dropzone,
   ErrorNote,
   ResultCard,
@@ -366,19 +366,17 @@ function CompressEditor({
       </div>
 
       {canDownload && (
-        <button
-          type="button"
+        <DownloadCta
+          size="lg"
           onClick={() =>
             downloadBytes(
               result.optimized,
               outputName(pdf.file.name, "optimized"),
             )
           }
-          className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex w-full items-center justify-center gap-2 rounded-[3px] px-7 py-3 text-base font-semibold transition-colors sm:w-auto sm:self-start"
         >
-          <Download className="size-4" aria-hidden />
           Download optimized PDF ({formatBytes(analysis.optimizedBytes)})
-        </button>
+        </DownloadCta>
       )}
 
       <WorkerDeepPanel pdf={pdf} analysis={analysis} />
@@ -669,8 +667,7 @@ function DeepRunControls({
                 </span>
               </p>
             )}
-            <button
-              type="button"
+            <DownloadCta
               onClick={() =>
                 downloadBytes(
                   outcome.output,
@@ -680,11 +677,9 @@ function DeepRunControls({
                     outputName(filename, "compressed"),
                 )
               }
-              className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex w-full items-center justify-center gap-2 rounded-[3px] px-6 py-2.5 text-sm font-semibold transition-colors sm:w-auto sm:self-start"
             >
-              <Download className="size-4" aria-hidden />
               Download compressed PDF
-            </button>
+            </DownloadCta>
           </ResultCard>
         ) : (
           <p

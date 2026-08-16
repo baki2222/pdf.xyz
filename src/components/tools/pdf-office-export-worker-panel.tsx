@@ -16,6 +16,7 @@ import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
+  DownloadCta,
   Dropzone,
   ErrorNote,
   ResultCard,
@@ -294,16 +295,13 @@ function PdfOfficeRunArea({
       {outcome?.ok === true && (
         <ResultCard announce={`Your ${output} file is ready.`}>
           <p className="text-ok text-sm">Your {output} file is ready.</p>
-          <button
-            type="button"
+          <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)
             }
-            className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex w-full items-center justify-center gap-2 rounded-[3px] px-6 py-2.5 text-sm font-semibold transition-colors sm:w-auto sm:self-start"
           >
-            <Download className="size-4" aria-hidden />
             Download {outcome.artifact.filename}
-          </button>
+          </DownloadCta>
         </ResultCard>
       )}
     </div>

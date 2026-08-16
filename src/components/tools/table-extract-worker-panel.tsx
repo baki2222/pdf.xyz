@@ -16,6 +16,7 @@ import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
+  DownloadCta,
   Dropzone,
   ErrorNote,
   ResultCard,
@@ -261,16 +262,13 @@ function TableExtractRunArea() {
             Your tables are ready as a ZIP of CSV files plus a combined Excel
             workbook.
           </p>
-          <button
-            type="button"
+          <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)
             }
-            className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex w-full items-center justify-center gap-2 rounded-[3px] px-6 py-2.5 text-sm font-semibold transition-colors sm:w-auto sm:self-start"
           >
-            <Download className="size-4" aria-hidden />
             Download {outcome.artifact.filename}
-          </button>
+          </DownloadCta>
         </ResultCard>
       )}
     </div>

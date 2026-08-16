@@ -31,14 +31,15 @@ export default function RouteError({
   return (
     <div className="grid min-h-[70vh] place-items-center py-20">
       <Container className="flex flex-col items-center gap-8 text-center">
-        <span className="bg-gradient-to-br from-white to-slate-500 bg-clip-text text-6xl font-bold tracking-tight text-transparent sm:text-7xl">
+        {/* The one display moment on the page gets the rubrication accent. */}
+        <span className="font-display text-accent text-6xl font-medium tracking-tight sm:text-7xl">
           Oops
         </span>
         <div className="flex flex-col items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+          <h1 className="font-display text-fg text-2xl font-medium tracking-tight sm:text-3xl">
             Something went wrong
           </h1>
-          <p className="max-w-md text-base leading-relaxed text-pretty text-slate-400">
+          <p className="text-muted max-w-md text-base leading-relaxed text-pretty">
             An unexpected error interrupted this page.{" "}
             {disclosure ? `${disclosure} ` : ""}Try again, or head back home.
           </p>
@@ -59,7 +60,9 @@ export default function RouteError({
         </div>
 
         {error.digest && (
-          <p className="text-xs text-slate-400">Reference: {error.digest}</p>
+          <p className="text-muted font-mono text-xs">
+            Reference: {error.digest}
+          </p>
         )}
       </Container>
     </div>

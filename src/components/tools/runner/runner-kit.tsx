@@ -12,6 +12,7 @@ import { announceOutcome } from "@/components/a11y/live-region";
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   Image as ImageIcon,
   ImageOff,
   Loader2,
@@ -434,6 +435,82 @@ export function WorkerRunButton({
           {children}
         </>
       )}
+    </button>
+  );
+}
+
+/**
+ * Sizes of {@link DownloadCta}. Exactly the three shapes the hand-rolled
+ * copies had converged on, no more: `md` is the standard result CTA, `lg` is
+ * the compress runner's hero download, `inline` is the compact per-file link
+ * used when a result is a LIST of artifacts (OCR batches) and a full-width
+ * button per file would stack into a wall.
+ */
+export type DownloadCtaSize = "md" | "lg" | "inline";
+
+const DOWNLOAD_CTA_SIZE: Record<DownloadCtaSize, string> = {
+  md: "w-full px-6 py-2.5 text-sm sm:w-auto sm:self-start",
+  lg: "w-full px-7 py-3 text-base sm:w-auto sm:self-start",
+  inline: "px-5 py-2 text-sm",
+};
+
+/**
+ * The download/open CTA a finished result offers — the inverted-ground primary
+ * action that hands the user their file.
+ *
+ * WHY THIS EXISTS AT ALL
+ * The same defect-shape as {@link WorkerRunButton}, one verb later. #46 fixed
+ * the run trigger and #47 found the fix had reached 28 of 45 sites because the
+ * other 17 had each pasted their own copy of the markup; the copying was the
+ * bug's survival mechanism. The download CTA was living the identical history:
+ * one class string pasted verbatim across eleven worker panels, twice in the
+ * compress runner, and once (as an anchor, at a third size) in the OCR panel —
+ * 14 sites in 13 files, found by deriving the set from the download BEHAVIOUR
+ * (`downloadBytes` calls + `download=` anchors) rather than from any one
+ * spelling of the class string. The gradient spelling this button wore before
+ * the redesign died in PR #110; the paste survived the restyle, which is
+ * exactly why the paste, not the spelling, is the thing to remove.
+ *
+ * Renders an `<a download>` when `href` is given (a worker artifact served by
+ * URL), otherwise a `<button>` (bytes already in memory). Both are always
+ * enabled — a result that exists is a result you may take, so this component
+ * deliberately has no disabled state to mis-handle.
+ */
+export function DownloadCta({
+  onClick,
+  href,
+  download,
+  size = "md",
+  className,
+  children,
+}: {
+  onClick?: () => void;
+  /** Render as an anchor to this URL instead of a button. */
+  href?: string;
+  /** The anchor's `download` filename (only meaningful with `href`). */
+  download?: string;
+  size?: DownloadCtaSize;
+  className?: string;
+  children: ReactNode;
+}) {
+  const classes = cn(
+    "bg-invert text-fg-invert hover:bg-invert/85 inline-flex items-center justify-center gap-2 rounded-[3px] font-semibold transition-colors",
+    DOWNLOAD_CTA_SIZE[size],
+    className,
+  );
+  const icon = <Download className="size-4" aria-hidden />;
+  if (href !== undefined) {
+    return (
+      <a href={href} download={download} className={classes}>
+        {icon}
+        {children}
+      </a>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} className={classes}>
+      {icon}
+      {children}
     </button>
   );
 }

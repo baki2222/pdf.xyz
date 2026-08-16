@@ -162,11 +162,15 @@ export function BatchPanel({
         >
           Tool
         </label>
+        {/* The background was `bg-surface-1` — a token that never existed, so
+            the class emitted no CSS and this select had been transparent since
+            it shipped. Found when the legacy `--color-surface*` tokens were
+            deleted and the reference sweep looked for survivors. */}
         <select
           id={selectId}
           value={batch.toolSlug ?? ""}
           onChange={(e) => onSetTool(e.target.value || null)}
-          className="bg-surface-1 border-line text-fg focus-visible:border-accent/40 focus-visible:ring-accent/50 w-full rounded-[3px] border px-3 py-2 text-sm outline-none focus-visible:ring-2"
+          className="bg-panel border-line text-fg focus-visible:border-accent/40 focus-visible:ring-accent/50 w-full rounded-[3px] border px-3 py-2 text-sm outline-none focus-visible:ring-2"
         >
           <option value="">Choose a tool…</option>
           <optgroup label="Runs in your browser">

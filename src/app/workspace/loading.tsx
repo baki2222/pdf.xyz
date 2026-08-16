@@ -8,7 +8,7 @@ import { Container } from "@/components/ui/container";
 export default function Loading() {
   return (
     <div
-      className="theme-paper bg-canvas grid min-h-[60vh] place-items-center py-20"
+      className="bg-canvas grid min-h-[60vh] place-items-center py-20"
       role="status"
       aria-live="polite"
     >

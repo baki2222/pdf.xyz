@@ -14,7 +14,7 @@ export function SiteFooter() {
   const year = 2026;
 
   return (
-    <footer className="theme-paper bg-canvas border-line border-t">
+    <footer className="bg-canvas border-line border-t">
       <Container className="py-14">
         <div className="grid gap-10 lg:grid-cols-[1.5fr_repeat(3,1fr)]">
           <div className="flex flex-col gap-4">
