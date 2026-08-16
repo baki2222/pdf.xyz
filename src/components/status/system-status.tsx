@@ -85,15 +85,15 @@ function ProviderRow({
       ? "Configured"
       : "Not configured";
   return (
-    <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+    <div className="border-line bg-wash flex flex-col gap-1.5 rounded-[3px] border p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300">
-          <Icon className="size-3.5 text-slate-400" aria-hidden />
+        <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
+          <Icon className="text-faint size-3.5" aria-hidden />
           {label}
         </span>
         <StatusBadge tone={tone} label={badge} />
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{detail}</p>
+      <p className="text-muted text-xs leading-relaxed">{detail}</p>
     </div>
   );
 }
@@ -156,7 +156,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
           icon={MonitorSmartphone}
           badge={<StatusBadge tone="ok" label="Available" />}
         >
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="text-muted text-sm leading-relaxed">
             {localTools.length} tool{localTools.length === 1 ? "" : "s"} run
             entirely on your device with WebAssembly and browser APIs — your
             files never leave the browser. The page and its processing engine
@@ -171,7 +171,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
               {localTools.map((tool) => (
                 <li
                   key={tool.slug}
-                  className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-slate-300"
+                  className="border-line bg-wash text-fg rounded-[2px] border px-2.5 py-1 text-xs"
                 >
                   {tool.name}
                 </li>
@@ -196,7 +196,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
         >
           {phase === "loading" && (
             <p
-              className="inline-flex items-center gap-2 text-sm text-slate-400"
+              className="text-muted inline-flex items-center gap-2 text-sm"
               role="status"
             >
               <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -219,17 +219,17 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   pipeline summary — so this paragraph can never again deny
                   what a row below asserts. Local-dev keeps its in-process
                   detail: that string is about THIS machine, and it is true. */}
-              <p className="text-sm leading-relaxed text-slate-400">
+              <p className="text-muted text-sm leading-relaxed">
                 {status.mode === "local-dev"
                   ? status.detail
                   : status.pipeline.detail}
               </p>
               {/* Per-capability honesty: OCR is called out explicitly so the page
                   never implies a searchable-PDF pipeline that isn't wired up. */}
-              <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+              <div className="border-line bg-wash flex flex-col gap-1.5 rounded-[3px] border p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300">
-                    <ScanText className="size-3.5 text-slate-400" aria-hidden />
+                  <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
+                    <ScanText className="text-faint size-3.5" aria-hidden />
                     OCR
                   </span>
                   <StatusBadge
@@ -237,7 +237,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                     label={status.ocr.available ? "Available" : "Not enabled"}
                   />
                 </div>
-                <p className="text-xs leading-relaxed text-slate-400">
+                <p className="text-muted text-xs leading-relaxed">
                   {status.ocr.detail}
                 </p>
               </div>
@@ -245,10 +245,10 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
               {/* Same honesty for the AI tools: a drainable pipeline says nothing
                   about whether a model is wired, so AI reports its own readiness
                   rather than being implied by the worker's. */}
-              <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+              <div className="border-line bg-wash flex flex-col gap-1.5 rounded-[3px] border p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300">
-                    <Sparkles className="size-3.5 text-slate-400" aria-hidden />
+                  <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
+                    <Sparkles className="text-faint size-3.5" aria-hidden />
                     AI tools
                   </span>
                   <StatusBadge
@@ -256,7 +256,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                     label={status.ai.ready ? "Declared" : "Not enabled"}
                   />
                 </div>
-                <p className="text-xs leading-relaxed text-slate-400">
+                <p className="text-muted text-xs leading-relaxed">
                   {status.ai.detail}
                 </p>
               </div>
@@ -266,7 +266,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   provider reports its own honest readiness so the page can say
                   exactly what a real deployment still needs to wire up. */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-[0.7rem] font-semibold tracking-wide text-slate-400 uppercase">
+                <span className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                   Production pipeline
                 </span>
                 <ProviderRow

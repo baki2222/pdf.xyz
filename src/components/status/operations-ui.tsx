@@ -734,8 +734,8 @@ export function HealthBadge({ health }: { health: HealthClass }) {
 /** A compact fact pill (e.g. "Vantage · web"). Bounded label + value only. */
 function FactPill({ label, value }: { label: string; value: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-[11px] text-slate-300">
-      <span className="text-slate-400">{label}</span>
+    <span className="border-line bg-wash text-fg inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px]">
+      <span className="text-muted">{label}</span>
       {value}
     </span>
   );
@@ -754,30 +754,28 @@ export function OperationsHealthCard({ view }: { view: SafeOperationsView }) {
   const meta = HEALTH_META[view.health];
   const Icon = meta.icon;
   return (
-    <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
+    <div className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <span
             className={cn(
-              "grid size-10 place-items-center rounded-xl border",
+              "grid size-10 place-items-center rounded-[3px] border",
               TILE_TONE[meta.tone],
             )}
           >
             <Icon className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col">
-            <span className="text-[0.7rem] font-semibold tracking-widest text-slate-400 uppercase">
+            <span className="text-faint font-mono text-[0.7rem] font-medium tracking-[0.18em] uppercase">
               Worker operations
             </span>
-            <span className="text-lg font-semibold text-white">
-              {meta.label}
-            </span>
+            <span className="text-fg text-lg font-semibold">{meta.label}</span>
           </div>
         </div>
         <HealthBadge health={view.health} />
       </div>
 
-      <p className="text-sm leading-relaxed text-slate-400">
+      <p className="text-muted text-sm leading-relaxed">
         {HEALTH_SUMMARY[view.health]}
       </p>
 
@@ -799,11 +797,11 @@ export function OperationsHealthCard({ view }: { view: SafeOperationsView }) {
 
 /** Tone → soft tile background (for the larger health/action tiles). */
 const TILE_TONE: Record<StatusTone, string> = {
-  ok: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  warn: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  danger: "border-red-400/30 bg-red-400/10 text-red-300",
-  info: "border-blue-400/30 bg-blue-400/10 text-blue-300",
-  muted: "border-white/10 bg-white/5 text-slate-400",
+  ok: "border-ok/40 bg-ok/10 text-ok",
+  warn: "border-warn/40 bg-warn/10 text-warn",
+  danger: "border-err/40 bg-err/10 text-err",
+  info: "border-info/40 bg-info/10 text-info",
+  muted: "border-line bg-wash text-muted",
 };
 
 /**
@@ -863,37 +861,35 @@ export function RecommendedActionCallout({
   return (
     <div
       className={cn(
-        "flex items-start gap-3 rounded-2xl border p-4",
+        "flex items-start gap-3 rounded-[4px] border p-4",
         CALLOUT_TONE[tone],
       )}
     >
       <span
         className={cn(
-          "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border",
+          "mt-0.5 grid size-8 shrink-0 place-items-center rounded-[3px] border",
           TILE_TONE[tone],
         )}
       >
         <Icon className="size-4" aria-hidden />
       </span>
       <div className="flex flex-col gap-1">
-        <span className="text-[0.7rem] font-semibold tracking-widest text-slate-400 uppercase">
+        <span className="text-faint font-mono text-[0.7rem] font-medium tracking-[0.18em] uppercase">
           Recommended next action
         </span>
-        <p className="text-sm font-semibold text-white">{copy.title}</p>
-        <p className="text-sm leading-relaxed text-slate-300/90">
-          {copy.detail}
-        </p>
+        <p className="text-fg text-sm font-semibold">{copy.title}</p>
+        <p className="text-muted text-sm leading-relaxed">{copy.detail}</p>
       </div>
     </div>
   );
 }
 
 const CALLOUT_TONE: Record<StatusTone, string> = {
-  ok: "border-emerald-400/25 bg-emerald-400/[0.06]",
-  warn: "border-amber-400/25 bg-amber-400/[0.06]",
-  danger: "border-red-400/25 bg-red-400/[0.06]",
-  info: "border-blue-400/25 bg-blue-400/[0.06]",
-  muted: "border-white/10 bg-white/[0.03]",
+  ok: "border-ok/30 bg-ok/5",
+  warn: "border-warn/30 bg-warn/5",
+  danger: "border-err/30 bg-err/5",
+  info: "border-info/30 bg-info/5",
+  muted: "border-line bg-wash",
 };
 
 /**
@@ -915,8 +911,8 @@ export function DaemonObservabilityCaveat({
   // Observed: a worker is genuinely visible.
   if (daemon.state === "observed") {
     return (
-      <div className="flex items-start gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.06] p-4 text-sm text-emerald-100">
-        <Cpu className="mt-0.5 size-4 shrink-0 text-emerald-300" aria-hidden />
+      <div className="border-ok/40 bg-ok/10 text-ok flex items-start gap-3 rounded-[4px] border p-4 text-sm">
+        <Cpu className="mt-0.5 size-4 shrink-0" aria-hidden />
         <p className="leading-relaxed">
           {daemon.source === "self"
             ? "A worker process is observable from this vantage — these figures include its real host probes and last-loop counters."
@@ -929,17 +925,17 @@ export function DaemonObservabilityCaveat({
   if (daemon.state === "stale" || daemon.state === "unknown") {
     return (
       <div
-        className="flex items-start gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4 text-sm text-amber-100"
+        className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border p-4 text-sm"
         role="note"
       >
-        <Cpu className="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden />
+        <Cpu className="mt-0.5 size-4 shrink-0" aria-hidden />
         <div className="flex flex-col gap-1">
-          <p className="font-semibold text-amber-50">
+          <p className="font-semibold">
             {daemon.state === "stale"
               ? "A worker heartbeat has gone stale"
               : "No recent worker heartbeat"}
           </p>
-          <p className="leading-relaxed text-amber-100/90">
+          <p className="leading-relaxed">
             Worker liveness observation is enabled, but{" "}
             {daemon.state === "stale"
               ? "the last heartbeat is older than the freshness window"
@@ -956,15 +952,15 @@ export function DaemonObservabilityCaveat({
   // Disabled: the honest web residual (proven copy — the app never becomes the daemon).
   return (
     <div
-      className="flex items-start gap-3 rounded-2xl border border-blue-400/25 bg-blue-400/[0.06] p-4 text-sm text-blue-100"
+      className="border-info/40 bg-info/10 text-info flex items-start gap-3 rounded-[4px] border p-4 text-sm"
       role="note"
     >
-      <Cpu className="mt-0.5 size-4 shrink-0 text-blue-300" aria-hidden />
+      <Cpu className="mt-0.5 size-4 shrink-0" aria-hidden />
       <div className="flex flex-col gap-1">
-        <p className="font-semibold text-blue-50">
+        <p className="font-semibold">
           This dashboard can&apos;t see a running worker
         </p>
-        <p className="leading-relaxed text-blue-100/90">
+        <p className="leading-relaxed">
           <span className="font-medium">daemonObserved is false</span> because
           liveness observation is not enabled here (this is the web vantage; the
           app never becomes the worker daemon).{" "}
@@ -990,7 +986,7 @@ export function DaemonLivenessCard({ daemon }: { daemon: SafeDaemonLiveness }) {
       badge={<StatusBadge tone={meta.tone} label={meta.label} />}
     >
       <div className="flex flex-col gap-3">
-        <p className="text-sm leading-relaxed text-slate-400">{meta.detail}</p>
+        <p className="text-muted text-sm leading-relaxed">{meta.detail}</p>
         <div className="flex flex-wrap gap-1.5 pt-1">
           <FactPill
             label="Source"
@@ -1018,17 +1014,15 @@ function SubsystemTile({ sub }: { sub: SafeSubsystem }) {
   const health = HEALTH_META[sub.health];
   const Icon = meta.icon;
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+    <div className="border-line bg-wash flex flex-col gap-2 rounded-[3px] border p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-200">
-          <Icon className="size-3.5 text-slate-400" aria-hidden />
+        <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
+          <Icon className="text-faint size-3.5" aria-hidden />
           {meta.label}
         </span>
         <StatusBadge tone={health.tone} label={health.label} />
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">
-        {meta.description}
-      </p>
+      <p className="text-muted text-xs leading-relaxed">{meta.description}</p>
     </div>
   );
 }
@@ -1042,7 +1036,7 @@ export function SubsystemGrid({ subsystems }: { subsystems: SafeSubsystem[] }) {
   if (ordered.length === 0) return null;
   return (
     <section className="flex flex-col gap-3">
-      <h3 className="text-[0.7rem] font-semibold tracking-widest text-slate-400 uppercase">
+      <h3 className="text-faint font-mono text-[0.7rem] font-medium tracking-[0.18em] uppercase">
         Subsystem health
       </h3>
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -1067,7 +1061,7 @@ export function LifecycleVerificationCard({ verdict }: { verdict: Verdict }) {
       icon={ShieldCheck}
       badge={<StatusBadge tone={meta.tone} label={meta.label} />}
     >
-      <p className="text-sm leading-relaxed text-slate-400">{meta.detail}</p>
+      <p className="text-muted text-sm leading-relaxed">{meta.detail}</p>
     </StatusCard>
   );
 }
@@ -1094,7 +1088,7 @@ export function CleanupEvidenceCard({
       badge={<StatusBadge tone={meta.tone} label={meta.label} />}
     >
       <div className="flex flex-col gap-3">
-        <p className="text-sm leading-relaxed text-slate-400">{meta.detail}</p>
+        <p className="text-muted text-sm leading-relaxed">{meta.detail}</p>
         {monitored && (
           <div className="flex flex-wrap gap-1.5 pt-1">
             <FactPill
@@ -1132,9 +1126,9 @@ function ProofRow({
 }) {
   const meta = PROOF_META[proof];
   return (
-    <div className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3">
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-200">
-        <Icon className="size-3.5 text-slate-400" aria-hidden />
+    <div className="border-line bg-wash flex items-center justify-between gap-2 rounded-[3px] border p-3">
+      <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
+        <Icon className="text-faint size-3.5" aria-hidden />
         {label}
       </span>
       <StatusBadge tone={meta.tone} label={meta.label} />
@@ -1165,11 +1159,11 @@ export function ProofsCard({
         <ProofRow icon={ScanText} label="OCR" proof={proofs.ocr} />
       </div>
       {vantage === "web" && (
-        <p className="text-xs leading-relaxed text-slate-400">
+        <p className="text-muted text-xs leading-relaxed">
           A separate worker image&apos;s installed engines can&apos;t be probed
           from the web, so these stay{" "}
-          <span className="text-slate-400">unknown</span> here — a
-          worker-vantage snapshot confirms them.
+          <span className="text-muted">unknown</span> here — a worker-vantage
+          snapshot confirms them.
         </p>
       )}
     </StatusCard>
@@ -1179,11 +1173,11 @@ export function ProofsCard({
 /** A single labeled loop counter. */
 function LoopStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex flex-col rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2">
-      <span className="text-sm font-semibold text-white tabular-nums">
+    <div className="border-line bg-wash flex flex-col rounded-[3px] border px-2.5 py-2">
+      <span className="text-fg text-sm font-semibold tabular-nums">
         {value}
       </span>
-      <span className="text-[0.65rem] tracking-wide text-slate-400 uppercase">
+      <span className="text-faint text-[0.65rem] tracking-wide uppercase">
         {label}
       </span>
     </div>
@@ -1205,11 +1199,9 @@ export function LoopOutcomeCard({ loop }: { loop: SafeLoop }) {
     >
       <div className="flex flex-col gap-3">
         {(loop.mode || loop.reason) && (
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="text-muted text-sm leading-relaxed">
             {loop.mode && (
-              <span className="text-slate-300">
-                {LOOP_MODE_LABEL[loop.mode]}
-              </span>
+              <span className="text-fg">{LOOP_MODE_LABEL[loop.mode]}</span>
             )}
             {loop.mode && loop.reason && " — "}
             {loop.reason && LOOP_REASON_LABEL[loop.reason]}
@@ -1240,15 +1232,15 @@ export function LoopOutcomeCard({ loop }: { loop: SafeLoop }) {
  */
 function SourceFooter({ view }: { view: SafeOperationsView }) {
   return (
-    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-400">
-      <ServerCog className="size-3 text-slate-400" aria-hidden />
+    <p className="text-muted flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px]">
+      <ServerCog className="text-faint size-3" aria-hidden />
       <span>
         Source: live, point-in-time{" "}
-        <span className="text-slate-400">{view.vantage}-vantage</span> worker
+        <span className="text-muted">{view.vantage}-vantage</span> worker
         operations snapshot
       </span>
       {view.schemaVersion > 0 && (
-        <span className="text-slate-400">· schema v{view.schemaVersion}</span>
+        <span className="text-muted">· schema v{view.schemaVersion}</span>
       )}
     </p>
   );

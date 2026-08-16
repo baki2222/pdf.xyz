@@ -53,13 +53,13 @@ export default function StatusPage() {
       <Container className="flex flex-col gap-10">
         <div className="flex flex-col items-start gap-4">
           <Pill>
-            <Activity className="size-3.5 text-emerald-400" aria-hidden />
+            <Activity className="text-ok size-3.5" aria-hidden />
             Live status
           </Pill>
-          <h1 className="text-4xl font-bold tracking-tight text-balance text-white sm:text-5xl">
+          <h1 className="font-display text-fg text-4xl font-medium tracking-tight text-balance sm:text-5xl">
             System status
           </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-pretty text-slate-400 sm:text-lg">
+          <p className="text-muted max-w-2xl text-base leading-relaxed text-pretty sm:text-lg">
             pdf.xyz is a privacy-first, browser-first platform. This page shows
             exactly what runs where in this environment — checked live, with no
             over-promising. It never reports on your files, only on
@@ -69,16 +69,16 @@ export default function StatusPage() {
 
         <SystemStatus localTools={localTools} />
 
-        <div className="h-px w-full bg-white/10" role="presentation" />
+        <div className="bg-line h-px w-full" role="presentation" />
 
         {/* The operator counterpart to the capability summary above: the same worker
             stack, projected into SLO health classes and a single next action. */}
         <WorkerOperationsDashboard />
 
-        <div className="h-px w-full bg-white/10" role="presentation" />
+        <div className="bg-line h-px w-full" role="presentation" />
 
         <section className="flex flex-col gap-4">
-          <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
+          <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
             What runs where
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -87,27 +87,27 @@ export default function StatusPage() {
               return (
                 <div
                   key={id}
-                  className="bg-surface-2 flex flex-col gap-2 rounded-2xl border border-white/10 p-5"
+                  className="bg-panel border-line flex flex-col gap-2 rounded-[4px] border p-5"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-semibold text-white">
+                    <span className="text-fg text-sm font-semibold">
                       {descriptor.label}
                     </span>
-                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                    <span className="text-muted inline-flex items-center gap-1.5 text-xs">
                       <AvailabilityGlyph available={!descriptor.uploadsFiles} />
                       {descriptor.uploadsFiles
                         ? "Files uploaded (encrypted, auto-deleted)"
                         : "Files never leave your device"}
                     </span>
                   </div>
-                  <p className="text-sm leading-relaxed text-slate-400">
+                  <p className="text-muted text-sm leading-relaxed">
                     {descriptor.summary}
                   </p>
                 </div>
               );
             })}
           </div>
-          <p className="text-xs leading-relaxed text-slate-400">
+          <p className="text-muted text-xs leading-relaxed">
             {/* Was: "show an honest, implementation-ready preview until their
                 backend is enabled" — false for all 21. Every server and AI slug
                 has a dedicated worker panel and the one hybrid tool renders the
@@ -117,7 +117,7 @@ export default function StatusPage() {
             Secure-worker, hybrid, and AI tools upload your file to an encrypted
             worker and tell you so before you run them — pdf.xyz never fakes
             processing in the browser. See the{" "}
-            <span className="text-slate-400">
+            <span className="text-muted">
               worker architecture and security docs
             </span>{" "}
             for how uploads, scanning, isolation, and auto-delete work.

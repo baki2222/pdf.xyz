@@ -130,7 +130,7 @@ export default async function ToolPage({
   );
 
   return (
-    <div className="theme-paper bg-canvas text-fg py-10 sm:py-14">
+    <div className="bg-canvas text-fg py-10 sm:py-14">
       <JsonLd
         data={[
           toolApplicationSchema(tool),

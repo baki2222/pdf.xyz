@@ -59,8 +59,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  // The paper canvas of the redesigned entry surface, per scheme. Routes
-  // still on the legacy dark theme set their own color-scheme via CSS.
+  // The paper canvas, per scheme. Every route renders on it since 2026-08-16.
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f7f5f2" },
     { media: "(prefers-color-scheme: dark)", color: "#171412" },
@@ -101,10 +100,15 @@ export default function RootLayout({
        * `metadata.title.default` covers the root and `.template` wraps every
        * page title, so the export is the single source. See metadata.spec.ts.
        */}
-      <body className="min-h-dvh font-sans antialiased">
+      {/* `.theme-paper` lives here — one application point for the whole app —
+          and `:root` shares the token block in globals.css so html-level
+          styling (viewport scrollbar, overscroll canvas) resolves the same
+          values. Per-route wrappers only carry a scope when they mean to
+          CHANGE it (`.theme-ink`). */}
+      <body className="theme-paper bg-canvas text-fg min-h-dvh font-sans antialiased">
         <a
           href="#main"
-          className="theme-paper bg-invert text-fg-invert sr-only rounded-[3px] px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]"
+          className="bg-invert text-fg-invert sr-only rounded-[3px] px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]"
         >
           Skip to content
         </a>

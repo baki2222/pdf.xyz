@@ -52,9 +52,7 @@ export default function PrivacyPage() {
       updated={LEGAL_UPDATED}
       summary={
         <>
-          <strong className="font-semibold text-white">
-            The short version.
-          </strong>{" "}
+          <strong className="text-fg font-semibold">The short version.</strong>{" "}
           {inBrowser} of our {tools.length} tools do their work entirely inside
           your browser — those files are never uploaded, so we never receive
           them. The remaining {onWorker} send your file to a processing worker,
@@ -68,13 +66,11 @@ export default function PrivacyPage() {
       <LegalSection id="who-we-are" heading="1. Who we are">
         <p>
           pdf.xyz is operated by{" "}
-          <strong className="font-semibold text-white">
-            {LEGAL_ENTITY.name}
-          </strong>
+          <strong className="text-fg font-semibold">{LEGAL_ENTITY.name}</strong>
           , a limited liability company registered in{" "}
           {`${LEGAL_ENTITY.jurisdiction} `}(&ldquo;we&rdquo;, &ldquo;us&rdquo;).
         </p>
-        <address className="text-slate-400 not-italic">
+        <address className="text-muted not-italic">
           {LEGAL_ENTITY.address.map((line) => (
             <span key={line} className="block">
               {line}
@@ -86,7 +82,7 @@ export default function PrivacyPage() {
           to{" "}
           <a
             href={`mailto:${LEGAL_CONTACT}`}
-            className="text-violet-300 underline underline-offset-4"
+            className="text-accent underline underline-offset-4"
           >
             {LEGAL_CONTACT}
           </a>
@@ -102,7 +98,7 @@ export default function PrivacyPage() {
       <LegalSection id="files" heading="2. Your files">
         <p>This is the part most people are asking about, so it comes first.</p>
         <p>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             Tools that run in your browser ({inBrowser} of {tools.length}).
           </strong>{" "}
           The file is opened and processed by code running on your own device.
@@ -111,7 +107,7 @@ export default function PrivacyPage() {
           name, or size reaches our servers.
         </p>
         <p>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             Tools that use a processing worker ({onWorker} of {tools.length}).
           </strong>{" "}
           Some work cannot be done in a browser — optical character recognition,
@@ -140,7 +136,7 @@ export default function PrivacyPage() {
         */}
         <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               The uploaded file is actively deleted
             </strong>{" "}
             as soon as the job reaches an end — success or failure — and in any
@@ -148,7 +144,7 @@ export default function PrivacyPage() {
             retried, the file is kept for that retry rather than re-uploaded.
           </li>
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               The result stops being downloadable after {outputWindow}.
             </strong>{" "}
             After that the link returns an error and nobody can retrieve it,
@@ -158,7 +154,7 @@ export default function PrivacyPage() {
             a number that sounds better.
           </li>
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               A record of the job — including your file&apos;s name — is kept
               for about 24 hours
             </strong>{" "}
@@ -175,7 +171,7 @@ export default function PrivacyPage() {
           the ordinary course of running the service.
         </p>
         <p>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             One case worth naming.
           </strong>{" "}
           If you use the tools that add or remove a PDF password, the password
@@ -189,7 +185,7 @@ export default function PrivacyPage() {
           choose a file, and{" "}
           <Link
             href="/status"
-            className="text-violet-300 underline underline-offset-4"
+            className="text-accent underline underline-offset-4"
           >
             the status page
           </Link>{" "}
@@ -201,8 +197,8 @@ export default function PrivacyPage() {
         <p>
           Our AI tools — summarising, translating, answering questions about a
           document, and structured extraction — work from the{" "}
-          <strong className="font-semibold text-white">text</strong> of your
-          PDF. The worker extracts that text and sends it to a third-party AI
+          <strong className="text-fg font-semibold">text</strong> of your PDF.
+          The worker extracts that text and sends it to a third-party AI
           provider to produce the answer. The PDF file itself is not sent to the
           provider.
         </p>
@@ -211,11 +207,11 @@ export default function PrivacyPage() {
           the PDF already contains as text is sent — we do not run character
           recognition to manufacture text from a scan, and a scanned document is
           refused rather than silently half-processed. And for{" "}
-          <strong className="font-semibold text-white">Chat with PDF</strong>,
-          the document&apos;s text is sent again with every question — the
-          worker keeps nothing between them. The provider holds it in a
-          short-lived cache, which lowers the cost of processing the repeat
-          rather than avoiding it; that cache lasts minutes, not days.
+          <strong className="text-fg font-semibold">Chat with PDF</strong>, the
+          document&apos;s text is sent again with every question — the worker
+          keeps nothing between them. The provider holds it in a short-lived
+          cache, which lowers the cost of processing the repeat rather than
+          avoiding it; that cache lasts minutes, not days.
         </p>
         <p>
           We use providers under agreements that prohibit training on data sent
@@ -229,7 +225,7 @@ export default function PrivacyPage() {
         <p>Beyond file processing, the data we handle is deliberately small.</p>
         <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               Ordinary server logs.
             </strong>{" "}
             Our hosting and storage providers record the technical details every
@@ -239,14 +235,12 @@ export default function PrivacyPage() {
             period by those providers.
           </li>
           <li>
-            <strong className="font-semibold text-white">
-              A job identifier.
-            </strong>{" "}
+            <strong className="text-fg font-semibold">A job identifier.</strong>{" "}
             Worker tools create a job with a random identifier so your browser
             can poll for the result. It is not linked to you.
           </li>
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               No product analytics leave your device.
             </strong>{" "}
             The site counts things like which tools get used, and that counting
@@ -256,7 +250,7 @@ export default function PrivacyPage() {
             list is ten packages, none of them a tracker.
           </li>
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               One thing you can choose to send us.
             </strong>{" "}
             Some tools in our catalogue are not built yet. If you press
@@ -266,7 +260,7 @@ export default function PrivacyPage() {
             what to build next. Pressing nothing sends nothing.
           </li>
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               Page-performance and error reports, only if we switch them on.
             </strong>{" "}
             There is one optional channel for load-speed measurements and crash
@@ -277,14 +271,12 @@ export default function PrivacyPage() {
             harmless.
           </li>
           <li>
-            <strong className="font-semibold text-white">
-              What you send us.
-            </strong>{" "}
+            <strong className="text-fg font-semibold">What you send us.</strong>{" "}
             If you email us, we keep that correspondence so we can reply.
           </li>
         </ul>
         <p>
-          <strong className="font-semibold text-white">
+          <strong className="text-fg font-semibold">
             There are no accounts.
           </strong>{" "}
           We do not ask for a name, an email address, or a password to use the
@@ -311,14 +303,14 @@ export default function PrivacyPage() {
         <p>Under UK and EU data protection law we rely on two lawful bases:</p>
         <ul className="ml-5 flex list-disc flex-col gap-1.5">
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               Performance of a contract
             </strong>{" "}
             — processing the file you asked us to process is the service you
             requested.
           </li>
           <li>
-            <strong className="font-semibold text-white">
+            <strong className="text-fg font-semibold">
               Legitimate interests
             </strong>{" "}
             — keeping the service available, secure, and free of abuse, and
@@ -405,7 +397,7 @@ export default function PrivacyPage() {
           To exercise any right, email{" "}
           <a
             href={`mailto:${LEGAL_CONTACT}`}
-            className="text-violet-300 underline underline-offset-4"
+            className="text-accent underline underline-offset-4"
           >
             {LEGAL_CONTACT}
           </a>
@@ -448,7 +440,7 @@ export default function PrivacyPage() {
         <p>
           <a
             href={`mailto:${LEGAL_CONTACT}`}
-            className="text-violet-300 underline underline-offset-4"
+            className="text-accent underline underline-offset-4"
           >
             {LEGAL_CONTACT}
           </a>

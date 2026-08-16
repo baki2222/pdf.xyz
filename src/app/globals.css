@@ -8,11 +8,16 @@
  *  and the surrounding theme scope decides what that resolves to.
  *
  *  Scopes:
- *    :root         — the legacy dark instrument theme. Every route that
- *                    has not been redesigned yet still reads these, so
- *                    the values mirror the pre-redesign palette.
- *    .theme-paper  — the editorial paper theme (homepage, header, footer).
- *                    Warm paper, near-black ink, one vermilion accent.
+ *    :root / .theme-paper — the editorial paper theme, and since
+ *                    2026-08-16 the DEFAULT: warm paper, near-black ink,
+ *                    one vermilion accent. `:root` shares the block so
+ *                    html-level styling (the viewport scrollbar, the
+ *                    canvas behind an overscrolled body) resolves the
+ *                    same tokens; `body` carries the class as the
+ *                    visible application point. The legacy dark values
+ *                    that used to live on `:root` retired with the last
+ *                    legacy routes (/status, /privacy, /terms, the
+ *                    error pages).
  *    .theme-ink    — the inverted colophon band used inside paper pages.
  *
  *  The paper and ink scopes each carry a `prefers-color-scheme: dark`
@@ -27,8 +32,6 @@
  *    dark paper: fg 13.19:1 · muted 7.15:1 · faint 5.42:1 · accent 6.47:1
  *                (each vs the LIGHTEST ground it can sit on — the wash)
  *    ink band:   fg 16.07:1 · muted 6.93:1 · accent 6.99:1
- *    legacy:     fg 13.28:1 · muted 6.23:1 · accent 6.02:1 (vs the measured
- *                lightest dark backdrop, rgb(28,27,65) — see a11y/palette.ts)
  * ------------------------------------------------------------------ */
 @theme {
   --font-sans:
@@ -39,26 +42,11 @@
   --font-display:
     var(--font-newsreader), Georgia, Cambria, "Times New Roman", serif;
 
-  /* Legacy dark-brand tokens — still consumed by the tool, workspace and
-     status routes. The homepage no longer uses any of these; they retire
-     surface-by-surface as the redesign reaches each route. */
-  --color-ink: #060611;
-  --color-ink-2: #0a0a18;
-  --color-surface: #0d0d1c;
-  --color-surface-2: #12122435;
-  --color-hairline: #ffffff14;
-  --color-brand: #8b5cf6;
-  --color-brand-2: #6366f1;
-  --color-brand-3: #3b82f6;
-  --color-brand-4: #22d3ee;
-
-  /* Radii. The redesigned system is near-square: controls use --radius-ctl,
-     panels use --radius-panel. The larger steps remain for legacy surfaces. */
+  /* Radii. The system is near-square: controls use --radius-ctl, panels
+     use --radius-panel. The larger legacy steps retired with the legacy
+     routes; Tailwind's own rounded-* scale still exists for one-offs. */
   --radius-ctl: 3px;
   --radius-panel: 4px;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.25rem;
-  --radius-3xl: 1.75rem;
 
   /* Motion */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -94,29 +82,7 @@
 /* ------------------------------------------------------------------ *
  *  Theme scopes
  * ------------------------------------------------------------------ */
-:root {
-  color-scheme: dark;
-
-  /* Legacy dark values — chosen to keep the not-yet-redesigned routes
-     rendering exactly as they measured before the token system existed. */
-  --sf-canvas: #060611;
-  --sf-panel: #0d0d1c;
-  --sf-wash: #ffffff0a;
-  --sf-invert: #e2e8f0;
-  --sf-fg: #e2e8f0;
-  --sf-muted: #90a1b9;
-  --sf-faint: #90a1b9;
-  --sf-fg-invert: #060611;
-  --sf-muted-invert: #45556c;
-  --sf-line: #ffffff14;
-  --sf-line-strong: #ffffff2e;
-  --sf-accent: #a78bfa;
-  --sf-ok: #34d399;
-  --sf-warn: #fbbf24;
-  --sf-err: #f87171;
-  --sf-info: #60a5fa;
-}
-
+:root,
 .theme-paper {
   color-scheme: light;
 
@@ -164,6 +130,7 @@
    DEFINITION ("the one band on the opposite ground") by flipping to paper.
    Placed after the light blocks so equal specificity resolves dark-last. */
 @media (prefers-color-scheme: dark) {
+  :root,
   .theme-paper {
     color-scheme: dark;
 
@@ -256,57 +223,8 @@
 }
 
 /* ------------------------------------------------------------------ *
- *  Legacy surfaces & effects — consumed only by not-yet-redesigned
- *  routes (tool pages, workspace, worker panels). Do not use these in
- *  redesigned components; they retire with the routes that use them.
+ *  Motion
  * ------------------------------------------------------------------ */
-
-/* Frosted glass panel */
-.glass {
-  background: linear-gradient(
-    to bottom right,
-    rgba(255, 255, 255, 0.06),
-    rgba(255, 255, 255, 0.02)
-  );
-  border: 1px solid var(--color-hairline);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-/* Animated conic gradient ring */
-.gradient-border {
-  position: relative;
-  border-radius: var(--radius-3xl);
-}
-.gradient-border::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(
-    130deg,
-    color-mix(in oklab, var(--color-brand) 70%, transparent),
-    transparent 40%,
-    color-mix(in oklab, var(--color-brand-4) 60%, transparent)
-  );
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-}
-
-/* Subtle dotted grid background */
-.bg-grid {
-  background-image: radial-gradient(
-    circle at 1px 1px,
-    #ffffff12 1px,
-    transparent 0
-  );
-  background-size: 28px 28px;
-}
 
 @keyframes float-up {
   from {
@@ -322,19 +240,6 @@
   animation: float-up 0.6s var(--ease-out-expo) both;
 }
 
-/* Card lift on hover */
-.card-hover {
-  transition:
-    transform 0.25s var(--ease-out-expo),
-    border-color 0.25s ease,
-    background-color 0.25s ease,
-    box-shadow 0.25s ease;
-  will-change: transform;
-}
-.card-hover:hover {
-  transform: translateY(-3px);
-}
-
 @media (prefers-reduced-motion: reduce) {
   /* Standard reduced-motion reset: neutralize animations/transitions and any
      movement while preserving final states, so nothing jumps or parallaxes. */
@@ -348,8 +253,5 @@
   }
   html {
     scroll-behavior: auto;
-  }
-  .card-hover:hover {
-    transform: none;
   }
 }

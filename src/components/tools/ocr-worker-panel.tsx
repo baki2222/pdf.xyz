@@ -40,6 +40,7 @@ import type { Tool } from "@/lib/tools/types";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
+  DownloadCta,
   Dropzone,
   ErrorNote,
   ResultCard,
@@ -565,15 +566,14 @@ function OcrRunArea({
           </p>
           <div className="flex flex-wrap gap-2">
             {outcome.artifacts.map((entry) => (
-              <a
+              <DownloadCta
                 key={entry.artifact.artifactId}
                 href={entry.artifact.url}
-                className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex items-center gap-2 rounded-[3px] px-5 py-2 text-sm font-semibold transition-colors"
                 download={entry.artifact.filename}
+                size="inline"
               >
-                <Download className="size-4" aria-hidden />
                 {entry.artifact.filename}
-              </a>
+              </DownloadCta>
             ))}
           </div>
           {outcome.job.results?.ocr && (

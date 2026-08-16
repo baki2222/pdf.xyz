@@ -27,12 +27,12 @@ export function LegalPage({
       <Container>
         <div className="mx-auto flex max-w-3xl flex-col gap-8">
           <header className="flex flex-col gap-4">
-            <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            <h1 className="font-display text-fg text-3xl font-medium tracking-tight sm:text-4xl">
               {title}
             </h1>
-            <p className="text-sm text-slate-400">
+            <p className="text-muted text-sm">
               Last updated{" "}
-              <time dateTime={updated}>
+              <time dateTime={updated} className="font-mono text-[0.8125rem]">
                 {new Date(`${updated}T00:00:00Z`).toLocaleDateString("en-GB", {
                   day: "numeric",
                   month: "long",
@@ -41,11 +41,13 @@ export function LegalPage({
                 })}
               </time>
             </p>
-            <div className="rounded-2xl border border-violet-400/25 bg-violet-500/[0.07] p-5 text-sm leading-relaxed text-slate-200">
+            {/* The reader's one-paragraph summary carries the accent — the
+                rubricated passage of the document. */}
+            <div className="border-accent/30 bg-accent/5 text-fg rounded-[4px] border p-5 text-sm leading-relaxed">
               {summary}
             </div>
           </header>
-          <div className="legal-prose flex flex-col gap-6 text-sm leading-relaxed text-slate-300">
+          <div className="legal-prose text-muted flex flex-col gap-6 text-sm leading-relaxed">
             {children}
           </div>
         </div>
@@ -66,7 +68,7 @@ export function LegalSection({
 }) {
   return (
     <section id={id} className="flex scroll-mt-24 flex-col gap-3">
-      <h2 className="text-lg font-semibold text-white">{heading}</h2>
+      <h2 className="text-fg text-lg font-semibold">{heading}</h2>
       {children}
     </section>
   );

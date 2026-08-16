@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, Search } from "lucide-react";
 import { getPopularTools, toolCount } from "@/lib/tools";
-import { getCategory } from "@/lib/tools/categories";
 import { Container } from "@/components/ui/container";
 import { ToolIcon } from "@/components/ui/tool-icon";
 import { buttonVariants } from "@/components/ui/button";
@@ -12,14 +11,15 @@ export default function NotFound() {
   return (
     <div className="grid min-h-[70vh] place-items-center py-20">
       <Container className="flex flex-col items-center gap-8 text-center">
-        <span className="bg-gradient-to-br from-white to-slate-500 bg-clip-text text-7xl font-bold tracking-tight text-transparent sm:text-8xl">
+        {/* The one display moment on the page gets the rubrication accent. */}
+        <span className="font-display text-accent text-7xl font-medium tracking-tight sm:text-8xl">
           404
         </span>
         <div className="flex flex-col items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+          <h1 className="font-display text-fg text-2xl font-medium tracking-tight sm:text-3xl">
             This page took a wrong turn
           </h1>
-          <p className="max-w-md text-base leading-relaxed text-pretty text-slate-400">
+          <p className="text-muted max-w-md text-base leading-relaxed text-pretty">
             We couldn&apos;t find what you were looking for. Try one of our{" "}
             {toolCount} tools, or head back home.
           </p>
@@ -47,13 +47,9 @@ export default function NotFound() {
             <Link
               key={tool.slug}
               href={`/tools/${tool.slug}`}
-              className="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pr-4 pl-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-white/20 hover:bg-white/10 hover:text-white"
+              className="group border-line text-fg hover:border-line-strong hover:bg-wash inline-flex items-center gap-2 rounded-full border py-1.5 pr-4 pl-1.5 text-sm font-medium transition-colors"
             >
-              <ToolIcon
-                icon={tool.icon}
-                gradient={getCategory(tool.category)?.gradient}
-                size="sm"
-              />
+              <ToolIcon icon={tool.icon} size="sm" />
               {tool.name}
             </Link>
           ))}

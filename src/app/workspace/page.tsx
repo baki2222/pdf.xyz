@@ -36,7 +36,7 @@ export default async function WorkspacePage({
   const preselected = tool && getToolBySlug(tool) ? tool : undefined;
 
   return (
-    <div className="theme-paper bg-canvas text-fg py-14 sm:py-20">
+    <div className="bg-canvas text-fg py-14 sm:py-20">
       <Container className="flex flex-col gap-10">
         <div className="flex flex-col items-start gap-4">
           <Pill>
