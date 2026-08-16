@@ -105,6 +105,8 @@ export class DevWorkerStore {
   private idempotency = new Map<string, string>();
   private specs = new Map<string, StoredJobSpec>();
   private leases = new Map<string, StoredLease>();
+  /** jobId → epoch-ms before which a requeued job must not be claimed. */
+  private visibleAt = new Map<string, number>();
   /**
    * Handles that were explicitly deleted before their retention window elapsed, so a
    * later retrieval reports `deleted` (410 Gone) rather than a generic `absent` (404).
@@ -229,6 +231,26 @@ export class DevWorkerStore {
       if (job) live.push(job);
     }
     return live;
+  }
+
+  /**
+   * Park a requeued job until `visibleAtMs`: it stays `queued` but must not be
+   * claimed before then. **A visibility fact, never a second copy of the job**
+   * — cancel/complete/expiry act on the job record exactly as before, and a
+   * stale entry here is inert because claim checks status first.
+   */
+  setVisibleAt(jobId: string, visibleAtMs: number): void {
+    this.visibleAt.set(jobId, visibleAtMs);
+  }
+
+  /** When the job becomes claimable; `undefined` means immediately. */
+  getVisibleAt(jobId: string): number | undefined {
+    return this.visibleAt.get(jobId);
+  }
+
+  /** Clear a job's park (on claim or terminal transition). Idempotent. */
+  clearVisibleAt(jobId: string): void {
+    this.visibleAt.delete(jobId);
   }
 
   /** Record the executor-facing spec (inputs + options) for a queued job. */

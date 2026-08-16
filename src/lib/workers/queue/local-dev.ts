@@ -132,12 +132,20 @@ export function createLocalDevQueue(
       }
 
       // 2. Claim the oldest queued job (ISO timestamps sort chronologically).
+      // A job parked by a delayed requeue is skipped — not removed — until its
+      // visible-at passes: still `queued`, still cancelable, just not claimable.
+      // The park is per job, so it never holds back the runnable job behind it.
       const queued = store
         .liveJobs()
         .filter((job) => job.status === "queued")
+        .filter((job) => {
+          const visibleAt = store.getVisibleAt(job.jobId);
+          return visibleAt === undefined || visibleAt <= nowMs;
+        })
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       const job = queued[0];
       if (!job) return queueOk<ClaimedJob | null>(null);
+      store.clearVisibleAt(job.jobId);
 
       const spec = store.getSpec(job.jobId);
       if (!spec) {
@@ -292,6 +300,12 @@ export function createLocalDevQueue(
           updatedAt: iso(now()),
         };
         store.putJob(requeued);
+        // A positive delay parks the job: queued but invisible to claim until
+        // visible-at. The park is a store-side visibility fact, so cancel and
+        // expiry act on the job record exactly as they would without it.
+        if (disposition.delayMs !== undefined && disposition.delayMs > 0) {
+          store.setVisibleAt(jobId, now() + disposition.delayMs);
+        }
         return queueOk(requeued);
       }
 

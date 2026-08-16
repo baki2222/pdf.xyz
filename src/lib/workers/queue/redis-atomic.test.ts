@@ -78,6 +78,7 @@ const KEYS: TransitionKeys = {
   lease: "pdfxyz:lease:job_1",
   ready: "pdfxyz:ready",
   active: "pdfxyz:active",
+  delayed: "pdfxyz:delayed",
 };
 
 /** Seed a minimal job/lease into the fake, as the scripts read only these fields. */

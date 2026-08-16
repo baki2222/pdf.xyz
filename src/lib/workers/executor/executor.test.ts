@@ -367,14 +367,21 @@ describe("worker executor — orchestration", () => {
           : processorOk(okArtifact);
       }),
     );
-    const ticks = await createWorkerExecutor({
+    const exec = createWorkerExecutor({
       queue,
       storage,
       registry,
       leaseMs: LEASE_MS,
       maxAttempts: 3,
-    }).drain();
-    expect(ticks.map((t) => t.outcome)).toEqual([
+    });
+    // A retryable requeue now PARKS the job (delayed requeue), so a drain that
+    // never advances time stops at ["requeued", "idle"]. The wait between
+    // ticks is the designed behavior, not harness noise: it is the whole fix.
+    const t1 = await exec.runOnce();
+    clock += 61_000; // past the retry delay for any attempt (capped at 60s)
+    const t2 = await exec.runOnce();
+    const t3 = await exec.runOnce();
+    expect([t1, t2, t3].map((t) => t.outcome)).toEqual([
       "requeued",
       "completed",
       "idle",
@@ -396,14 +403,22 @@ describe("worker executor — orchestration", () => {
         }),
       ),
     );
-    const ticks = await createWorkerExecutor({
+    const exec = createWorkerExecutor({
       queue,
       storage,
       registry,
       leaseMs: LEASE_MS,
       maxAttempts: 2,
-    }).drain();
-    expect(ticks.map((t) => t.outcome)).toEqual(["requeued", "failed", "idle"]);
+    });
+    const t1 = await exec.runOnce();
+    clock += 61_000; // the park is real; see the retry-then-complete case
+    const t2 = await exec.runOnce();
+    const t3 = await exec.runOnce();
+    expect([t1, t2, t3].map((t) => t.outcome)).toEqual([
+      "requeued",
+      "failed",
+      "idle",
+    ]);
     expect(store.getJob("job_exhaust000")?.status).toBe("failed");
   });
 
@@ -574,16 +589,24 @@ describe("worker executor — malware scan gate", () => {
   it("requeues a scan that could not complete, then fails terminally when attempts run out", async () => {
     const { storage, artifacts } = recordingStorage(oneInput);
     await submit("job_scanerr00");
-    const ticks = await createWorkerExecutor({
+    const exec = createWorkerExecutor({
       queue,
       storage,
       registry: okProcessor(),
       leaseMs: LEASE_MS,
       maxAttempts: 2,
       scanner: fakeScanner(scanError()),
-    }).drain();
+    });
+    const t1 = await exec.runOnce();
+    clock += 61_000; // the retryable requeue parks the job; wait it out
+    const t2 = await exec.runOnce();
+    const t3 = await exec.runOnce();
 
-    expect(ticks.map((t) => t.outcome)).toEqual(["requeued", "failed", "idle"]);
+    expect([t1, t2, t3].map((t) => t.outcome)).toEqual([
+      "requeued",
+      "failed",
+      "idle",
+    ]);
     expect(artifacts.size).toBe(0);
     const job = store.getJob("job_scanerr00");
     expect(job?.status).toBe("failed");
@@ -598,16 +621,20 @@ describe("worker executor — malware scan gate", () => {
     const scanner = fakeScanner(() =>
       ++calls === 1 ? scanError() : scanClean(),
     );
-    const ticks = await createWorkerExecutor({
+    const exec = createWorkerExecutor({
       queue,
       storage,
       registry: okProcessor(),
       leaseMs: LEASE_MS,
       maxAttempts: 3,
       scanner,
-    }).drain();
+    });
+    const t1 = await exec.runOnce();
+    clock += 61_000; // the retryable requeue parks the job; wait it out
+    const t2 = await exec.runOnce();
+    const t3 = await exec.runOnce();
 
-    expect(ticks.map((t) => t.outcome)).toEqual([
+    expect([t1, t2, t3].map((t) => t.outcome)).toEqual([
       "requeued",
       "completed",
       "idle",
