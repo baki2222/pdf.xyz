@@ -131,15 +131,27 @@ describe("muted text meets WCAG AA on the app's own background", () => {
     // RE-ANCHORED 2026-08-16, deliberately, with the redesign that moved the
     // homepage, tool pages and workspace onto semantic tokens: `text-slate-*`
     // stopped being the product's muted idiom and became its LEGACY idiom.
-    // The floor (was >100, now >0) still catches a broken walker, which
-    // returns nothing, not fewer things. The NEW bound is the ceiling: the
-    // legacy count was 72 on the day of the re-anchor and must only shrink —
-    // someone reintroducing slate as a text colour on a token surface is
-    // exactly the drift this file exists to catch, and the old floor could
-    // never see it. When the count reaches the two deliberate sign-runner
-    // steps (the white signature paper, see LIGHT_SURFACES), this check gets
-    // rewritten to enumerate them.
-    expect(usages.length).toBeGreaterThan(0);
+    // The legacy count was 72 that day.
+    //
+    // A BAND, NOT A HALF-LINE, AND THE FLOOR IS THE HALF THAT WAS ALMOST LOST.
+    // The re-anchor was first written as `> 0` plus this ceiling, reasoning
+    // that "a broken walker returns nothing, not fewer things". That is the
+    // one assumption `CLAUDE.md` rule 4 was paid for and refutes by name: a
+    // BFS bug once collapsed a call graph to TWO entries — fewer, not none.
+    // A walk that silently found 30 of these files would satisfy `> 0` and
+    // `<= 72` and report the count as having SHRUNK, which on this check reads
+    // as progress. The old `> 100` would have caught it; `> 0` cannot.
+    //
+    // So both directions are bounded: the ceiling catches someone
+    // reintroducing slate as a text colour on a token surface (drift the old
+    // floor could never see), and the floor catches a walk that lost half the
+    // corpus (vacuity the ceiling alone cannot see). DECREMENT THE FLOOR
+    // DELIBERATELY as legacy surfaces convert — never leave it slack in
+    // advance, because slack is exactly the room a partial walk hides in.
+    // When the count reaches the two deliberate sign-runner steps (the white
+    // signature paper, see LIGHT_SURFACES), this check gets rewritten to
+    // enumerate them.
+    expect(usages.length).toBeGreaterThanOrEqual(60);
     expect(usages.length).toBeLessThanOrEqual(72);
   });
 
