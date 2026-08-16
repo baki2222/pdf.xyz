@@ -80,7 +80,7 @@ export function UploadZone({
           "has-[:focus-visible]:border-accent has-[:focus-visible]:ring-accent/40 has-[:focus-visible]:ring-2",
           dragging
             ? "border-accent bg-accent/5"
-            : "border-line-strong bg-panel hover:border-fg/40",
+            : "border-line-strong bg-canvas hover:border-fg/40",
         )}
       >
         <input

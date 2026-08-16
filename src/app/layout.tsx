@@ -59,9 +59,12 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  // The paper canvas of the redesigned entry surface. Routes still on the
-  // legacy dark theme set their own scope-level color-scheme via CSS.
-  themeColor: "#f7f5f2",
+  // The paper canvas of the redesigned entry surface, per scheme. Routes
+  // still on the legacy dark theme set their own color-scheme via CSS.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f7f5f2" },
+    { media: "(prefers-color-scheme: dark)", color: "#171412" },
+  ],
   width: "device-width",
   initialScale: 1,
 };

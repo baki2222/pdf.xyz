@@ -48,7 +48,7 @@ export function SecuritySection() {
   return (
     <section
       id="privacy"
-      className="border-line scroll-mt-24 border-b py-20 sm:py-28"
+      className="border-line scroll-mt-24 border-b py-20 sm:py-24"
     >
       <span id="security" className="sr-only" />
       <Container className="flex flex-col gap-12">

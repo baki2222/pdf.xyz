@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { toolCount } from "@/lib/tools";
+import { toolCount, tools } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -11,6 +11,17 @@ import { buttonVariants } from "@/components/ui/button";
  * no dotted grid, no glow.
  */
 export function CtaSection() {
+  /**
+   * Derived the same way the spec strip derives it, from the catalog itself
+   * — never typed. And deliberately "run in-browser", the label the product
+   * already uses for client+hybrid tools, NOT "entirely in your browser":
+   * hybrid tools have a server fallback, so "entirely" would trade one false
+   * sentence for another.
+   */
+  const inBrowser = tools.filter(
+    (t) => t.processing === "client" || t.processing === "hybrid",
+  ).length;
+
   return (
     <section className="theme-ink bg-canvas">
       <Container className="grid gap-10 py-20 sm:py-24 lg:grid-cols-12 lg:items-end">
@@ -19,8 +30,13 @@ export function CtaSection() {
             Every PDF tool, in one private workspace
           </h2>
           <p className="text-muted max-w-xl text-base leading-relaxed text-pretty sm:text-lg">
-            Join thousands who edit, convert, and sign documents without giving
-            up their privacy. {toolCount} tools, no sign-up to start.
+            {/* "Join thousands who…" died here 2026-08-16: nothing in this
+                repository counts users, so it was a claim no test could stand
+                behind. These numbers the page can prove — both derived from
+                the catalog, neither typed. */}
+            Edit, convert, and sign documents without giving up your privacy:{" "}
+            {toolCount} tools, {inBrowser} of them running in-browser, and no
+            sign-up to start.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:col-span-4 lg:justify-end lg:pb-2">

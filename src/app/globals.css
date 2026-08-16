@@ -15,12 +15,20 @@
  *                    Warm paper, near-black ink, one vermilion accent.
  *    .theme-ink    — the inverted colophon band used inside paper pages.
  *
+ *  The paper and ink scopes each carry a `prefers-color-scheme: dark`
+ *  variant: dark paper is a warm charcoal (never the legacy navy), and
+ *  the colophon — defined as "the inverted ground" — flips to a light
+ *  band in dark scheme, so the relationship, not the colour, is the
+ *  design. Verified by `pnpm a11y:contrast` in BOTH schemes.
+ *
  *  Every fg/bg pairing here was checked against WCAG 2.1 AA with
  *  `src/lib/a11y/contrast.ts` before it was committed:
- *    paper: ink 16.07:1 · muted 7.01:1 · faint 5.05:1 · accent 6.71:1
- *    ink:   fg 16.07:1 · muted 6.93:1 · accent 6.99:1
- *    dark:  fg 13.28:1 · muted 6.23:1 · accent 6.02:1 (vs the measured
- *           lightest dark backdrop, rgb(28,27,65) — see a11y/palette.ts)
+ *    paper:      ink 16.07:1 · muted 7.01:1 · faint 5.05:1 · accent 6.71:1
+ *    dark paper: fg 13.19:1 · muted 7.15:1 · faint 5.42:1 · accent 6.47:1
+ *                (each vs the LIGHTEST ground it can sit on — the wash)
+ *    ink band:   fg 16.07:1 · muted 6.93:1 · accent 6.99:1
+ *    legacy:     fg 13.28:1 · muted 6.23:1 · accent 6.02:1 (vs the measured
+ *                lightest dark backdrop, rgb(28,27,65) — see a11y/palette.ts)
  * ------------------------------------------------------------------ */
 @theme {
   --font-sans:
@@ -128,6 +136,46 @@
   --sf-line: #f7f5f224;
   --sf-line-strong: #f7f5f247;
   --sf-accent: #e09070;
+}
+
+/* Dark scheme, by system preference. Paper becomes a warm charcoal — the
+   same warmth, inverted, never the legacy navy — and the colophon keeps its
+   DEFINITION ("the one band on the opposite ground") by flipping to paper.
+   Placed after the light blocks so equal specificity resolves dark-last. */
+@media (prefers-color-scheme: dark) {
+  .theme-paper {
+    color-scheme: dark;
+
+    --sf-canvas: #171412;
+    --sf-panel: #201c19;
+    --sf-wash: #242019;
+    --sf-invert: #ece7e1;
+    --sf-fg: #ece7e1;
+    --sf-muted: #b3aba2;
+    --sf-faint: #9c948b;
+    --sf-fg-invert: #171412;
+    --sf-muted-invert: #57534e;
+    --sf-line: #ece7e121;
+    --sf-line-strong: #ece7e142;
+    --sf-accent: #e0906e;
+  }
+
+  .theme-ink {
+    color-scheme: light;
+
+    --sf-canvas: #f7f5f2;
+    --sf-panel: #ffffff;
+    --sf-wash: #efece6;
+    --sf-invert: #1c1917;
+    --sf-fg: #1c1917;
+    --sf-muted: #57534e;
+    --sf-faint: #6e6862;
+    --sf-fg-invert: #f7f5f2;
+    --sf-muted-invert: #a8a29e;
+    --sf-line: #1c191724;
+    --sf-line-strong: #1c191747;
+    --sf-accent: #9a3412;
+  }
 }
 
 /* ------------------------------------------------------------------ *

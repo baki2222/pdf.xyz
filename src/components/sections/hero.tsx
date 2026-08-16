@@ -22,9 +22,9 @@ export function Hero() {
 
   return (
     <section className="border-line border-b">
-      <Container className="grid gap-14 pt-16 pb-16 sm:pt-20 lg:grid-cols-12 lg:gap-10 lg:pt-24 lg:pb-20">
+      <Container className="grid gap-14 pt-10 pb-16 sm:pt-14 lg:grid-cols-12 lg:gap-10 lg:pt-16 lg:pb-20">
         <div className="flex flex-col items-start lg:col-span-7 lg:pr-6">
-          <p className="text-muted font-mono text-xs font-medium tracking-[0.2em] uppercase">
+          <p className="text-muted font-mono text-xs font-medium tracking-[0.14em] uppercase sm:tracking-[0.2em]">
             Privacy-first PDF platform · {toolCount} tools
           </p>
 
@@ -69,7 +69,22 @@ export function Hero() {
         </div>
 
         <div className="flex flex-col lg:col-span-5">
-          <UploadZone />
+          {/* The working object. It gets the page's one shadow level and a
+              stack of sheets behind it — physical presence, reserved for the
+              single thing on this screen a visitor can actually use. */}
+          <div className="relative mt-2">
+            <div
+              aria-hidden
+              className="border-line bg-panel absolute -top-2.5 right-4 left-4 h-16 rounded-[4px] border"
+            />
+            <div
+              aria-hidden
+              className="border-line bg-panel absolute -top-[5px] right-2 left-2 h-16 rounded-[4px] border"
+            />
+            <div className="border-line bg-panel relative rounded-[4px] border p-4 shadow-[0_28px_48px_-32px_rgba(28,25,23,0.4)] sm:p-5">
+              <UploadZone />
+            </div>
+          </div>
 
           <div className="mt-8">
             <p className="text-faint font-mono text-xs font-medium tracking-[0.2em] uppercase">

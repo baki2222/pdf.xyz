@@ -19,14 +19,14 @@ export function StatsBand() {
   ];
 
   return (
-    <section className="border-line border-b">
+    <section className="border-line bg-wash border-b">
       <Container>
         <dl className="grid grid-cols-2 lg:grid-cols-4">
           {stats.map((stat, i) => (
             <div
               key={stat.label}
               className={
-                "border-line flex flex-col gap-1 py-7 " +
+                "border-line-strong/50 flex flex-col gap-1 py-7 " +
                 (i > 0 ? "lg:border-l lg:pl-8 " : "") +
                 (i % 2 === 1 ? "max-lg:border-l max-lg:pl-6" : "")
               }

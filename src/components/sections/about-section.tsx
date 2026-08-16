@@ -17,7 +17,7 @@ export function AboutSection() {
   const mailto = `mailto:${siteConfig.contactEmail}`;
 
   return (
-    <section id="about" className="scroll-mt-24 py-20 sm:py-28">
+    <section id="about" className="scroll-mt-24 py-20 sm:py-24">
       <Container className="flex flex-col gap-12">
         <SectionHeading
           eyebrow="About"
