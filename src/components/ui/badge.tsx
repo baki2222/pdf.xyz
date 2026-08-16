@@ -1,23 +1,27 @@
-import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ToolBadge } from "@/lib/tools/types";
 
+/**
+ * Editorial micro-tags: square-cornered, mono, hairline. One tag ("Popular")
+ * carries the accent; the rest stay quiet. The old per-badge tinted pills
+ * were the loudest repeated element on the page.
+ */
 const badgeStyles: Record<ToolBadge, { label: string; className: string }> = {
   popular: {
     label: "Popular",
-    className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+    className: "border-accent/50 text-accent",
   },
   new: {
     label: "New",
-    className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+    className: "border-line-strong text-muted",
   },
   ai: {
     label: "AI",
-    className: "border-violet-400/30 bg-violet-400/10 text-violet-200",
+    className: "border-line-strong text-muted",
   },
   beta: {
     label: "Beta",
-    className: "border-blue-400/30 bg-blue-400/10 text-blue-200",
+    className: "border-line-strong text-muted",
   },
 };
 
@@ -32,12 +36,11 @@ export function ToolBadgePill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
+        "inline-flex items-center rounded-[2px] border px-1.5 py-px font-mono text-[10px] font-medium tracking-wider uppercase",
         style.className,
         className,
       )}
     >
-      {badge === "ai" && <Sparkles className="size-2.5" aria-hidden />}
       {style.label}
     </span>
   );
@@ -53,7 +56,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300",
+        "text-muted border-line inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-xs",
         className,
       )}
     >

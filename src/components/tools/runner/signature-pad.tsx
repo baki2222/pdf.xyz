@@ -122,7 +122,7 @@ export function SignaturePad({
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white">
+      <div className="border-line relative overflow-hidden rounded-[4px] border bg-white">
         <canvas
           ref={canvasRef}
           width={BACKING_WIDTH}
@@ -139,7 +139,7 @@ export function SignaturePad({
           aria-hidden
         />
         {!hasInk && (
-          <span className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-slate-400">
+          <span className="text-muted pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs">
             Draw your signature above
           </span>
         )}

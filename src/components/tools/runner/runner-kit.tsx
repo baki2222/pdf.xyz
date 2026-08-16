@@ -142,11 +142,11 @@ export function Dropzone({
         emit(e.dataTransfer.files);
       }}
       className={cn(
-        "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed text-center transition-colors duration-200",
+        "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[4px] border border-dashed text-center transition-colors duration-150",
         compact ? "px-4 py-6" : "px-6 py-12",
         dragging
-          ? "border-violet-400/70 bg-violet-500/10"
-          : "border-white/15 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]",
+          ? "border-accent bg-accent/5"
+          : "border-line-strong bg-canvas hover:border-fg/40",
         className,
       )}
     >
@@ -162,36 +162,29 @@ export function Dropzone({
           e.target.value = "";
         }}
       />
-      <span
-        className={cn(
-          "grid place-items-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500 text-white shadow-lg shadow-violet-500/30 transition-transform duration-200 group-hover:scale-105",
-          compact ? "size-10" : "size-14",
-        )}
-      >
-        <UploadCloud
-          className={compact ? "size-5" : "size-7"}
-          strokeWidth={1.75}
-          aria-hidden
-        />
-      </span>
+      <UploadCloud
+        className={cn("text-muted", compact ? "size-5" : "size-6")}
+        strokeWidth={1.5}
+        aria-hidden
+      />
       <span className="flex flex-col gap-1">
         <span
           className={cn(
-            "font-semibold text-white",
-            compact ? "text-sm" : "text-base",
+            "text-fg font-medium",
+            compact ? "text-sm" : "text-[15px]",
           )}
         >
           {title}
           {browse && (
             <>
               {" "}
-              <span className="text-violet-300 underline underline-offset-4">
+              <span className="text-accent underline underline-offset-4">
                 browse
               </span>
             </>
           )}
         </span>
-        {hint && <span className="text-xs text-slate-400">{hint}</span>}
+        {hint && <span className="text-muted text-xs">{hint}</span>}
       </span>
     </label>
   );
@@ -278,7 +271,7 @@ export function ErrorNote({ message }: { message: string }) {
   return (
     <p
       role="alert"
-      className="flex items-start gap-2 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+      className="border-err/40 bg-err/10 text-err flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
       <span>{message}</span>
@@ -367,9 +360,8 @@ export function RunButton({
 export type WorkerRunTone = "blue" | "violet";
 
 const WORKER_RUN_TONE: Record<WorkerRunTone, string> = {
-  blue: "border-blue-400/40 bg-blue-500/15 text-blue-100 hover:bg-blue-500/25",
-  violet:
-    "border-violet-400/40 bg-violet-500/15 text-violet-100 hover:bg-violet-500/25",
+  blue: "border-info/40 bg-info/10 text-info hover:bg-info/20",
+  violet: "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20",
 };
 
 /**
@@ -427,7 +419,7 @@ export function WorkerRunButton({
       aria-disabled={blocked || undefined}
       aria-busy={busy}
       className={cn(
-        "inline-flex w-full items-center justify-center gap-2 rounded-full border px-6 py-2.5 text-sm font-semibold transition aria-disabled:cursor-not-allowed aria-disabled:opacity-60 sm:w-auto sm:self-start",
+        "inline-flex w-full items-center justify-center gap-2 rounded-[3px] border px-6 py-2.5 text-sm font-semibold transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-60 sm:w-auto sm:self-start",
         WORKER_RUN_TONE[tone],
       )}
     >
@@ -481,18 +473,18 @@ export function ResultPanel({
       {...outcome}
       role="group"
       aria-labelledby={summary ? `${id}-t ${id}-s` : `${id}-t`}
-      className="animate-float-up flex flex-col gap-5 rounded-3xl border border-emerald-400/25 bg-emerald-500/[0.07] p-6 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
+      className="animate-float-up border-ok/30 bg-ok/10 focus-visible:ring-ok/50 flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2"
     >
       <div className="flex items-start gap-3">
-        <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-emerald-500/15 text-emerald-300">
+        <span className="bg-ok/15 text-ok grid size-10 shrink-0 place-items-center rounded-[3px]">
           <CheckCircle2 className="size-5" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
-          <h3 id={`${id}-t`} className="text-base font-semibold text-white">
+          <h3 id={`${id}-t`} className="text-fg text-base font-semibold">
             {title}
           </h3>
           {summary && (
-            <div id={`${id}-s`} className="text-sm text-slate-400">
+            <div id={`${id}-s`} className="text-muted text-sm">
               {summary}
             </div>
           )}
@@ -504,7 +496,7 @@ export function ResultPanel({
       <button
         type="button"
         onClick={onReset}
-        className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-slate-400 transition hover:text-white"
+        className="text-muted hover:text-fg inline-flex items-center gap-1.5 self-start text-xs font-medium transition-colors"
       >
         <RefreshCw className="size-3.5" aria-hidden />
         {resetLabel}
@@ -538,7 +530,7 @@ export function ResultCard({
       role="group"
       aria-label={announce}
       className={cn(
-        "flex flex-col gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] p-4 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50",
+        "border-ok/30 bg-ok/10 focus-visible:ring-ok/50 flex flex-col gap-2 rounded-[4px] border p-4 outline-none focus-visible:ring-2",
         className,
       )}
     >
@@ -583,10 +575,10 @@ export function ChipButton({
       title={title}
       aria-pressed={active}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
+        "inline-flex items-center gap-1.5 rounded-[2px] border px-3 py-1.5 text-xs font-medium transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
         active
-          ? "border-violet-400/50 bg-violet-500/15 text-violet-100"
-          : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25 hover:bg-white/[0.06] hover:text-white",
+          ? "border-accent/50 bg-accent/10 text-accent"
+          : "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
       )}
     >
       {children}
@@ -618,7 +610,7 @@ export function PreviewStatus({
   if (status === "error") {
     return (
       <p
-        className="inline-flex items-center gap-1.5 text-xs text-slate-400"
+        className="text-muted inline-flex items-center gap-1.5 text-xs"
         role="status"
       >
         <ImageOff className="size-3.5" aria-hidden />
@@ -635,16 +627,16 @@ export function PreviewStatus({
     const pct = target > 0 ? Math.round((done / target) * 100) : 0;
     return (
       <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-        <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+        <span className="text-muted inline-flex items-center gap-1.5 text-xs">
           <Spinner className="size-3" />
           Rendering previews… {done}/{target}
         </span>
         <span
-          className="h-1 w-full overflow-hidden rounded-full bg-white/5"
+          className="bg-line h-1 w-full overflow-hidden rounded-full"
           aria-hidden
         >
           <span
-            className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-300"
+            className="bg-accent block h-full rounded-full transition-[width] duration-300"
             style={{ width: `${pct}%` }}
           />
         </span>
@@ -654,8 +646,8 @@ export function PreviewStatus({
 
   if (capped && (status === "done" || done >= target)) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-        <ImageIcon className="size-3.5 text-violet-300/70" aria-hidden />
+      <span className="text-muted inline-flex items-center gap-1.5 text-xs">
+        <ImageIcon className="text-faint size-3.5" aria-hidden />
         Showing {eager ?? target} previews — the rest render as you scroll.
       </span>
     );
@@ -698,7 +690,7 @@ export function RunnerSection({
       {(title || aside) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           {title && (
-            <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+            <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
               {title}
             </h3>
           )}
@@ -734,12 +726,9 @@ export function UndecodedImagesNotice({
   return (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/15 px-4 py-3.5 text-sm text-amber-100"
+      className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm"
     >
-      <TriangleAlert
-        className="mt-0.5 size-4 shrink-0 text-amber-300"
-        aria-hidden
-      />
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
       <p className="leading-relaxed">
         <span className="font-semibold">
           {count} image{plural} could not be decoded.

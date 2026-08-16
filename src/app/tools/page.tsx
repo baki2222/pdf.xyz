@@ -34,7 +34,7 @@ export default async function ToolsPage({
   const initialQuery = typeof q === "string" ? q : "";
 
   return (
-    <div className="py-14 sm:py-20">
+    <div className="theme-paper bg-canvas text-fg py-14 sm:py-20">
       <Container className="flex flex-col gap-12">
         <SectionHeading
           as="h1"

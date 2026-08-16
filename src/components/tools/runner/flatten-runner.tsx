@@ -80,7 +80,7 @@ function FlattenEditor({
       >
         <div className="flex flex-col gap-3">
           {!result.hadForm && (
-            <p className="max-w-2xl rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
+            <p className="border-warn/40 bg-warn/10 text-warn max-w-2xl rounded-[4px] border px-4 py-3 text-sm">
               This PDF did not contain AcroForm fields to flatten. Comments,
               markup annotations, and optional-content layers are not flattened
               by this browser tool.
@@ -127,18 +127,18 @@ function FlattenEditor({
 
       <RunnerSection title="Detected form fields">
         {fieldCount === null && !countError ? (
-          <p className="inline-flex items-center gap-2 text-sm text-slate-400">
+          <p className="text-muted inline-flex items-center gap-2 text-sm">
             <Spinner className="size-4" /> Inspecting PDF…
           </p>
         ) : countError ? (
-          <p className="text-sm text-amber-200">{countError}</p>
+          <p className="text-warn text-sm">{countError}</p>
         ) : fieldCount === 0 ? (
-          <p className="text-sm text-amber-100/90">
+          <p className="text-warn text-sm">
             No fillable AcroForm fields were detected. You can still re-save the
             PDF, but there may be nothing interactive for this tool to flatten.
           </p>
         ) : (
-          <p className="text-sm text-slate-300">
+          <p className="text-muted text-sm">
             Found {fieldCount} fillable form field{fieldCount === 1 ? "" : "s"}.
           </p>
         )}
@@ -170,12 +170,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

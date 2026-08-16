@@ -151,24 +151,24 @@ export function PageTile({
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       className={cn(
-        "group relative flex flex-col items-center gap-2 rounded-2xl border p-3 transition duration-200",
+        "group relative flex flex-col items-center gap-2 rounded-[4px] border p-3 transition duration-200",
         interactive && "cursor-pointer",
         draggable && "cursor-grab active:cursor-grabbing",
         selected
-          ? "border-violet-400/60 bg-violet-500/10 ring-2 ring-violet-400/40"
-          : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
-        dropTarget && "ring-2 ring-violet-400/70",
-        grabbed && "ring-offset-ink ring-2 ring-violet-400/80 ring-offset-2",
+          ? "border-accent/40 bg-accent/10 ring-accent/50 ring-2"
+          : "border-line bg-wash hover:border-line-strong hover:bg-wash",
+        dropTarget && "ring-accent/50 ring-2",
+        grabbed && "ring-offset-ink ring-accent/50 ring-2 ring-offset-2",
         dimmed && "opacity-40",
         className,
       )}
     >
       {selectable && (
-        <span className="absolute top-2 left-2 z-10 text-violet-300">
+        <span className="text-accent absolute top-2 left-2 z-10">
           {selected ? (
             <CheckSquare className="size-4" aria-hidden />
           ) : (
-            <Square className="size-4 text-slate-400" aria-hidden />
+            <Square className="text-muted size-4" aria-hidden />
           )}
         </span>
       )}
@@ -184,17 +184,17 @@ export function PageTile({
             dragHandle.onToggle();
           }}
           className={cn(
-            "absolute top-2 left-2 z-10 grid size-6 cursor-grab place-items-center rounded-md border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60 active:cursor-grabbing",
+            "focus-visible:ring-accent/50 absolute top-2 left-2 z-10 grid size-6 cursor-grab place-items-center rounded-md border transition focus:outline-none focus-visible:ring-2 active:cursor-grabbing",
             grabbed
-              ? "border-violet-400/60 bg-violet-500/25 text-violet-100"
-              : "bg-ink/70 border-white/10 text-slate-400 hover:text-white",
+              ? "border-accent/40 bg-accent/10 text-accent"
+              : "bg-canvas/70 border-line text-muted hover:text-fg",
           )}
         >
           <GripVertical className="size-3.5" aria-hidden />
         </button>
       )}
       {cornerBadge && (
-        <span className="bg-ink/80 absolute top-2 right-2 z-10 grid min-w-5 place-items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-slate-200 tabular-nums ring-1 ring-white/10">
+        <span className="bg-canvas/80 text-fg ring-line absolute top-2 right-2 z-10 grid min-w-5 place-items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ring-1">
           {cornerBadge}
         </span>
       )}
@@ -222,9 +222,9 @@ export function PageTile({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <span className="text-xs font-medium text-slate-300">{label}</span>
+        <span className="text-muted text-xs font-medium">{label}</span>
         {rotation !== 0 && (
-          <span className="rounded bg-white/10 px-1 text-[10px] font-semibold text-slate-300 tabular-nums">
+          <span className="bg-wash text-muted rounded px-1 text-[10px] font-semibold tabular-nums">
             {rotation}°
           </span>
         )}
@@ -272,9 +272,8 @@ export function TileAction({
         if (!disabled) onClick();
       }}
       className={cn(
-        "grid size-7 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-300 transition hover:bg-white/10 hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
-        danger &&
-          "hover:border-red-400/40 hover:bg-red-500/15 hover:text-red-200",
+        "border-line bg-wash text-muted hover:bg-wash hover:text-fg grid size-7 place-items-center rounded-lg border transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
+        danger && "hover:border-err/40 hover:bg-err/10 hover:text-err",
       )}
     >
       {children}

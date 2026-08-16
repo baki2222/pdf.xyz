@@ -160,15 +160,15 @@ function RenderProgress({ done, total }: { done: number; total: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
     <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+      <span className="text-muted inline-flex items-center gap-1.5 text-xs">
         <Spinner className="size-3" /> Converting pages… {done}/{total}
       </span>
       <span
-        className="h-1 w-full overflow-hidden rounded-full bg-white/5"
+        className="bg-wash h-1 w-full overflow-hidden rounded-full"
         aria-hidden
       >
         <span
-          className="block h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-300"
+          className="bg-accent block h-full rounded-full transition-[width] duration-300"
           style={{ width: `${pct}%` }}
         />
       </span>
@@ -186,12 +186,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

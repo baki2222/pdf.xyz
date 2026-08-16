@@ -124,7 +124,7 @@ function HeaderFooterEditor({
         title="Header"
         aside={
           headerPreview.trim() && (
-            <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-slate-400">
+            <span className="border-line bg-wash text-muted rounded-full border px-2.5 py-1 text-xs">
               {headerPreview}
             </span>
           )
@@ -156,7 +156,7 @@ function HeaderFooterEditor({
         title="Footer"
         aside={
           footerPreview.trim() && (
-            <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-slate-400">
+            <span className="border-line bg-wash text-muted rounded-full border px-2.5 py-1 text-xs">
               {footerPreview}
             </span>
           )

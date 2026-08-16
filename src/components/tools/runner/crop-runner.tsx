@@ -142,7 +142,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       <RunnerSection
         title="Crop margins"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             Pages never crop below {MIN_CROP_DIMENSION} pt
           </span>
         }
@@ -244,7 +244,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       {rangeError && <ErrorNote message={rangeError} />}
 
       <RunnerSection title="Crop preview">
-        <div className="flex justify-center rounded-2xl border border-white/10 bg-black/20 p-5">
+        <div className="border-line flex justify-center rounded-[4px] border bg-black/20 p-5">
           {preview ? (
             <div
               className="relative w-full max-w-[200px] overflow-hidden rounded-lg bg-white/90 shadow-sm ring-1 ring-black/10"
@@ -252,7 +252,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             >
               <span
                 aria-hidden
-                className="absolute rounded-[3px] border border-dashed border-violet-500 bg-violet-500/25"
+                className="border-accent/40 bg-accent/10 absolute rounded-[3px] border border-dashed"
                 style={{
                   top: `${preview.top}%`,
                   right: `${preview.right}%`,
@@ -262,7 +262,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
               />
             </div>
           ) : (
-            <div className="aspect-[3/4] w-full max-w-[200px] animate-pulse rounded-lg bg-white/10" />
+            <div className="bg-wash aspect-[3/4] w-full max-w-[200px] animate-pulse rounded-lg" />
           )}
         </div>
       </RunnerSection>

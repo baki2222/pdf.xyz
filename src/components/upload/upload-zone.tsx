@@ -2,7 +2,7 @@
 
 import { useCallback, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { FileText, ShieldCheck, UploadCloud, X } from "lucide-react";
+import { FileText, UploadCloud, X } from "lucide-react";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -74,13 +74,13 @@ export function UploadZone({
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         className={cn(
-          "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
+          "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[4px] border border-dashed px-6 py-12 text-center transition-colors duration-150",
           // The file input is visually hidden but focusable; surface its
           // keyboard focus on the dropzone so it isn't an invisible tab stop.
-          "has-[:focus-visible]:border-violet-400/70 has-[:focus-visible]:bg-violet-500/10 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-400/50",
+          "has-[:focus-visible]:border-accent has-[:focus-visible]:ring-accent/40 has-[:focus-visible]:ring-2",
           dragging
-            ? "border-violet-400/70 bg-violet-500/10"
-            : "border-white/15 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]",
+            ? "border-accent bg-accent/5"
+            : "border-line-strong bg-canvas hover:border-fg/40",
         )}
       >
         <input
@@ -92,42 +92,45 @@ export function UploadZone({
           className="sr-only"
           onChange={(e) => addFiles(e.target.files)}
         />
-        <span className="grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500 text-white shadow-lg shadow-violet-500/30 transition-transform duration-200 group-hover:scale-105">
-          <UploadCloud className="size-7" strokeWidth={1.75} aria-hidden />
-        </span>
+        <UploadCloud
+          className="text-muted size-6"
+          strokeWidth={1.5}
+          aria-hidden
+        />
         <span className="flex flex-col gap-1">
-          <span className="text-base font-semibold text-white">
+          <span className="text-fg text-[15px] font-medium">
             Drop files here, or{" "}
-            <span className="text-violet-300 underline underline-offset-4">
+            <span className="text-accent underline underline-offset-4">
               browse
             </span>
           </span>
-          <span className="text-sm text-slate-400">{hint}</span>
+          <span className="text-muted text-[13px]">{hint}</span>
         </span>
       </label>
 
       {files.length > 0 && (
-        <ul className="flex flex-col gap-2" aria-label="Selected files">
+        <ul className="flex flex-col gap-1.5" aria-label="Selected files">
           {files.map((file) => (
             <li
               key={file.id}
-              className="bg-surface-2 flex items-center gap-3 rounded-xl border border-white/10 px-3.5 py-2.5"
+              className="border-line bg-panel flex items-center gap-3 rounded-[3px] border px-3 py-2"
             >
               <FileText
-                className="size-4 shrink-0 text-violet-300"
+                className="text-muted size-4 shrink-0"
+                strokeWidth={1.5}
                 aria-hidden
               />
-              <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
+              <span className="text-fg min-w-0 flex-1 truncate text-sm">
                 {file.name}
               </span>
-              <span className="shrink-0 text-xs text-slate-400 tabular-nums">
+              <span className="text-muted shrink-0 font-mono text-xs tabular-nums">
                 {formatBytes(file.size)}
               </span>
               <button
                 type="button"
                 onClick={() => removeFile(file.id)}
                 aria-label={`Remove ${file.name}`}
-                className="grid size-6 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-white/10 hover:text-white"
+                className="text-muted hover:bg-wash hover:text-fg grid size-6 shrink-0 place-items-center rounded-[2px] transition-colors"
               >
                 <X className="size-3.5" aria-hidden />
               </button>
@@ -137,8 +140,11 @@ export function UploadZone({
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-          <ShieldCheck className="size-3.5 text-emerald-400" aria-hidden />
+        <p className="text-muted inline-flex items-center gap-2 text-xs">
+          <span
+            className="size-1.5 shrink-0 rounded-full bg-emerald-600"
+            aria-hidden
+          />
           Files stay on your device until you pick a tool.
         </p>
         <div className="flex items-center gap-2">

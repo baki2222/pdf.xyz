@@ -25,28 +25,36 @@ import { cn } from "@/lib/utils";
 
 export type StatusTone = "ok" | "warn" | "danger" | "info" | "muted";
 
+/**
+ * Token-based since 2026-08-16: this badge renders on the redesigned paper
+ * tool pages (every worker panel imports it) AND on the legacy-dark /status
+ * route, and the theme scope resolves the same classes correctly in both.
+ * The old hardcoded dark tints put text-slate-400 on white panels — the six
+ * failures the both-scheme contrast audit caught the day the tool pages
+ * flipped to paper.
+ */
 const TONE_STYLES: Record<StatusTone, { pill: string; dot: string }> = {
   ok: {
-    pill: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-    dot: "bg-emerald-400",
+    pill: "border-ok/40 bg-ok/10 text-ok",
+    dot: "bg-ok",
   },
   warn: {
-    pill: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    dot: "bg-amber-400",
+    pill: "border-warn/40 bg-warn/10 text-warn",
+    dot: "bg-warn",
   },
   // A hard, blocking failure (e.g. an operations `blocked` health class). Distinct
   // from `warn` so a pager can tell "fix eventually" from "cannot run at all".
   danger: {
-    pill: "border-red-400/30 bg-red-400/10 text-red-200",
-    dot: "bg-red-400",
+    pill: "border-err/40 bg-err/10 text-err",
+    dot: "bg-err",
   },
   info: {
-    pill: "border-blue-400/30 bg-blue-400/10 text-blue-200",
-    dot: "bg-blue-400",
+    pill: "border-info/40 bg-info/10 text-info",
+    dot: "bg-info",
   },
   muted: {
-    pill: "border-white/10 bg-white/5 text-slate-400",
-    dot: "bg-slate-500",
+    pill: "border-line bg-wash text-muted",
+    dot: "bg-faint",
   },
 };
 

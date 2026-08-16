@@ -50,13 +50,11 @@ function SpecRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-400" aria-hidden />
+      <span className="text-muted inline-flex items-center gap-2 text-sm">
+        <Icon className="text-muted size-4" aria-hidden />
         {label}
       </span>
-      <span className="text-right text-sm font-medium text-slate-200">
-        {value}
-      </span>
+      <span className="text-fg text-right text-sm font-medium">{value}</span>
     </div>
   );
 }
@@ -75,29 +73,26 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
   const retention = DEFAULT_RETENTION;
 
   return (
-    <div className="gradient-border">
-      <div className="glass flex flex-col gap-6 rounded-3xl p-5 sm:p-7">
+    <div className="">
+      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/30 bg-blue-400/10 px-2.5 py-1 text-[11px] font-medium text-blue-200">
+            <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
               <Cpu className="size-3" aria-hidden />
               {descriptor.label} preview
             </span>
             <span
-              className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-300"
+              className="text-warn inline-flex items-center gap-1.5 text-[11px] font-medium"
               title="No worker backend is configured in this environment."
             >
-              <span
-                className="size-1.5 rounded-full bg-amber-400"
-                aria-hidden
-              />
+              <span className="bg-warn size-1.5 rounded-full" aria-hidden />
               Not yet enabled
             </span>
           </div>
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="text-fg text-lg font-semibold">
             {tool.name} runs on a {descriptor.label.toLowerCase()}
           </h2>
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="text-muted text-sm leading-relaxed">
             {descriptor.summary} We&apos;d rather show you the real flow than
             fake it in the browser — here&apos;s exactly what will happen to
             your file.
@@ -108,18 +103,18 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
           {workerPipelineStages(false).map((stage, i, all) => (
             <li key={stage.id} className="flex items-start gap-3">
               <div className="flex flex-col items-center self-stretch">
-                <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
+                <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
                   <StageIcon id={stage.id} className="size-4" />
                 </span>
                 {i < all.length - 1 && (
-                  <span className="my-1 w-px flex-1 bg-white/10" aria-hidden />
+                  <span className="bg-wash my-1 w-px flex-1" aria-hidden />
                 )}
               </div>
               <div className="flex flex-col gap-0.5 pb-3">
-                <span className="text-sm font-medium text-slate-200">
+                <span className="text-fg text-sm font-medium">
                   {i + 1}. {stage.title}
                 </span>
-                <span className="text-xs leading-relaxed text-slate-400">
+                <span className="text-muted text-xs leading-relaxed">
                   {stage.description}
                 </span>
               </div>
@@ -127,7 +122,7 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
           ))}
         </ol>
 
-        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
+        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
           <SpecRow
             icon={FileUp}
             label="Inputs"
@@ -152,12 +147,12 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
 
         <div className="flex flex-col gap-3">
           <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
-          <p className="text-xs leading-relaxed text-slate-400">
+          <p className="text-muted text-xs leading-relaxed">
             No account required. When this ships, files are encrypted in transit
             and at rest, processed in an isolated sandbox, and deleted
             automatically — see our{" "}
-            <span className="text-slate-400">worker architecture</span> and
-            security docs.
+            <span className="text-muted">worker architecture</span> and security
+            docs.
           </p>
         </div>
       </div>

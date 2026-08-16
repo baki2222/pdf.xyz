@@ -158,7 +158,7 @@ function CompressSingle({
         <button
           type="button"
           onClick={onReset}
-          className="self-start text-xs font-medium text-slate-400 transition hover:text-white"
+          className="text-muted hover:text-fg self-start text-xs font-medium transition"
         >
           Try another file
         </button>
@@ -170,7 +170,7 @@ function CompressSingle({
     return preloaded ? (
       <HandoffLoading />
     ) : (
-      <div className="flex items-center justify-center gap-2 rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-12 text-sm text-slate-400">
+      <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
         <Spinner />
         Reading your PDF…
       </div>
@@ -195,17 +195,17 @@ const HEADLINES: Record<
 > = {
   "lossless-helps": {
     title: "Lossless cleanup shrank this file",
-    tone: "border-emerald-400/25 bg-emerald-500/[0.07] text-emerald-300",
+    tone: "border-ok/40 bg-ok/10 text-ok",
     icon: Sparkles,
   },
   "needs-worker": {
     title: "This PDF is image-heavy",
-    tone: "border-blue-400/25 bg-blue-500/[0.07] text-blue-300",
+    tone: "border-info/40 bg-info/10 text-info",
     icon: ImageIcon,
   },
   "already-lean": {
     title: "This PDF is already lean",
-    tone: "border-white/15 bg-white/[0.03] text-slate-300",
+    tone: "border-line-strong bg-wash text-muted",
     icon: Gauge,
   },
 };
@@ -269,7 +269,7 @@ function CompressEditor({
     return (
       <div className="flex flex-col gap-5">
         <FileHeader pdf={pdf} />
-        <div className="flex items-center justify-center gap-2 rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-12 text-sm text-slate-400">
+        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
           <Spinner />
           Analyzing your PDF…
         </div>
@@ -285,7 +285,7 @@ function CompressEditor({
         <button
           type="button"
           onClick={onReset}
-          className="self-start text-xs font-medium text-slate-400 transition hover:text-white"
+          className="text-muted hover:text-fg self-start text-xs font-medium transition"
         >
           Try another file
         </button>
@@ -308,18 +308,16 @@ function CompressEditor({
         role="group"
         aria-label={`Analysis complete. ${headline.title}.`}
         className={cn(
-          "flex items-start gap-3 rounded-3xl border p-5 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50",
+          "focus-visible:ring-ok/50 flex items-start gap-3 rounded-[4px] border p-5 outline-none focus-visible:ring-2",
           headline.tone,
         )}
       >
-        <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-white/5">
+        <span className="bg-wash grid size-10 shrink-0 place-items-center rounded-[4px]">
           <HeadlineIcon className="size-5" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
-          <h3 className="text-base font-semibold text-white">
-            {headline.title}
-          </h3>
-          <p className="text-sm text-slate-300/90">
+          <h3 className="text-fg text-base font-semibold">{headline.title}</h3>
+          <p className="text-muted/90 text-sm">
             {summary.recommendation === "lossless-helps" &&
               `Repacking this PDF losslessly saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) — no quality lost.`}
             {summary.recommendation === "needs-worker" &&
@@ -376,7 +374,7 @@ function CompressEditor({
               outputName(pdf.file.name, "optimized"),
             )
           }
-          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-7 py-3 text-base font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
+          className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex w-full items-center justify-center gap-2 rounded-[3px] px-7 py-3 text-base font-semibold transition-colors sm:w-auto sm:self-start"
         >
           <Download className="size-4" aria-hidden />
           Download optimized PDF ({formatBytes(analysis.optimizedBytes)})
@@ -388,7 +386,7 @@ function CompressEditor({
       <button
         type="button"
         onClick={onReset}
-        className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-slate-400 transition hover:text-white"
+        className="text-muted hover:text-fg inline-flex items-center gap-1.5 self-start text-xs font-medium transition"
       >
         Analyze another file
       </button>
@@ -489,20 +487,17 @@ function WorkerDeepPanel({
   }
 
   return (
-    <div className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-4">
+    <div className="bg-panel border-line flex flex-col gap-3 rounded-[4px] border p-4">
       <div className="flex items-start gap-2.5">
-        <ServerCog
-          className="mt-0.5 size-4 shrink-0 text-blue-300"
-          aria-hidden
-        />
+        <ServerCog className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
         <div className="flex flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-medium text-slate-200">
+            <span className="text-fg text-sm font-medium">
               Deep image compression (secure worker)
             </span>
             <WorkerBadge status={status} canRunDeep={canRunDeep} />
           </div>
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="text-muted text-sm leading-relaxed">
             Aggressive image downsampling and re-encoding can&apos;t be done
             reliably in the browser, so it runs on an encrypted, auto-deleting
             worker. The analysis above stays 100% on your device.
@@ -511,7 +506,7 @@ function WorkerDeepPanel({
       </div>
 
       {status === undefined ? (
-        <p className="inline-flex items-center gap-2 pl-6 text-xs text-slate-400">
+        <p className="text-muted inline-flex items-center gap-2 pl-6 text-xs">
           <Spinner className="size-3" />
           Checking whether a secure worker is available…
         </p>
@@ -527,7 +522,7 @@ function WorkerDeepPanel({
           originalBytes={analysis.originalBytes}
         />
       ) : (
-        <p className="pl-6 text-xs leading-relaxed text-slate-400">
+        <p className="text-muted pl-6 text-xs leading-relaxed">
           {status?.detail ??
             "The secure worker isn't enabled in this environment, so deep compression isn't available here."}
         </p>
@@ -547,22 +542,22 @@ function WorkerBadge({
   if (status === undefined) return null;
   if (status?.mode === "local-dev") {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-200">
-        <span className="size-1.5 rounded-full bg-amber-400" aria-hidden />
+      <span className="border-warn/40 bg-warn/10 text-warn inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium">
+        <span className="bg-warn size-1.5 rounded-full" aria-hidden />
         Local-dev worker
       </span>
     );
   }
   if (canRunDeep) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-200">
-        <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+      <span className="border-ok/40 bg-ok/10 text-ok inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium">
+        <span className="bg-ok size-1.5 rounded-full" aria-hidden />
         Secure worker
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-slate-400">
+    <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium">
       <span className="size-1.5 rounded-full bg-slate-500" aria-hidden />
       Not enabled
     </span>
@@ -608,7 +603,7 @@ function DeepRunControls({
 
   return (
     <div className="flex flex-col gap-3 pl-6">
-      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-amber-200/90">
+      <p className="text-warn flex items-start gap-1.5 text-xs leading-relaxed">
         <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker — the file is sent to the in-process worker on this machine, not to any third party."
@@ -616,7 +611,7 @@ function DeepRunControls({
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-medium tracking-wide text-slate-400 uppercase">
+        <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
           Quality
         </span>
         {DEEP_QUALITY.map((q) => (
@@ -648,7 +643,7 @@ function DeepRunControls({
           <ResultCard
             announce={`Compression finished. The worker shrank this file by ${formatBytes(savedBytes)} — ${formatBytes(outcome.output.byteLength)} final.`}
           >
-            <p className="text-sm text-emerald-200">
+            <p className="text-ok text-sm">
               The worker shrank this file by {formatBytes(savedBytes)} (
               {pct(savedBytes / Math.max(1, originalBytes))}%) —{" "}
               {formatBytes(outcome.output.byteLength)} final.
@@ -661,7 +656,7 @@ function DeepRunControls({
             {outcome.job?.results?.compression?.pageCheck === "unverified" && (
               <p
                 role="status"
-                className="flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+                className="border-warn/40 bg-warn/10 text-warn flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
               >
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
                 <span>
@@ -685,7 +680,7 @@ function DeepRunControls({
                     outputName(filename, "compressed"),
                 )
               }
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
+              className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex w-full items-center justify-center gap-2 rounded-[3px] px-6 py-2.5 text-sm font-semibold transition-colors sm:w-auto sm:self-start"
             >
               <Download className="size-4" aria-hidden />
               Download compressed PDF
@@ -696,7 +691,7 @@ function DeepRunControls({
             {...noGain}
             role="group"
             aria-label="Compression finished with no size reduction"
-            className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-sm text-slate-400 outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
+            className="border-line bg-wash text-muted focus-visible:ring-ok/50 rounded-[4px] border p-4 text-sm outline-none focus-visible:ring-2"
           >
             The worker couldn&apos;t shrink this file further without losing
             quality — the original is already efficient.
@@ -718,15 +713,15 @@ function StatTile({
   hint?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5">
-      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-slate-400 uppercase">
+    <div className="border-line bg-wash flex flex-col gap-1 rounded-[4px] border p-3.5">
+      <span className="text-muted inline-flex items-center gap-1.5 text-[11px] font-medium tracking-wide uppercase">
         <Icon className="size-3.5" aria-hidden />
         {label}
       </span>
-      <span className="text-lg font-semibold text-white tabular-nums">
+      <span className="text-fg text-lg font-semibold tabular-nums">
         {value}
       </span>
-      {hint && <span className="text-xs text-slate-400">{hint}</span>}
+      {hint && <span className="text-muted text-xs">{hint}</span>}
     </div>
   );
 }
@@ -743,7 +738,7 @@ function RejectionsNote({
   return (
     <div
       role="alert"
-      className="flex flex-col gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+      className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <div className="flex items-start justify-between gap-3">
         <span className="flex items-center gap-2 font-medium">
@@ -754,16 +749,15 @@ function RejectionsNote({
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 rounded-md px-2 py-0.5 text-xs text-amber-200/80 transition hover:bg-amber-500/15 hover:text-amber-100"
+          className="text-warn hover:bg-warn/10 hover:text-warn shrink-0 rounded-md px-2 py-0.5 text-xs transition"
         >
           Dismiss
         </button>
       </div>
-      <ul className="flex flex-col gap-1 pl-6 text-xs text-amber-200/90">
+      <ul className="text-warn flex flex-col gap-1 pl-6 text-xs">
         {rejections.map((r, i) => (
           <li key={`${r.name}-${i}`} className="list-disc">
-            <span className="font-medium text-amber-100">{r.name}</span> —{" "}
-            {r.reason}
+            <span className="text-warn font-medium">{r.name}</span> — {r.reason}
           </li>
         ))}
       </ul>

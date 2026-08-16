@@ -48,7 +48,7 @@ export function NotifyMe({
         role="status"
         className={cn(
           "inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm",
-          "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+          "border-ok/40 bg-ok/10 text-ok",
         )}
       >
         <Check className="size-4 shrink-0" aria-hidden />
@@ -87,7 +87,7 @@ export function NotifyMe({
         <BellRing className="size-4" aria-hidden />
         Notify me when this ships
       </button>
-      <p className="text-xs leading-relaxed text-slate-400">
+      <p className="text-muted text-xs leading-relaxed">
         Pressing it sends us the tool&apos;s name — nothing about you.
       </p>
     </div>

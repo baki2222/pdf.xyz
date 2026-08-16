@@ -148,7 +148,7 @@ function MarkdownToPdfEditor({
       <RunnerSection
         title="Markdown content"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             {characterCount.toLocaleString()} chars · {formatBytes(byteCount)}
           </span>
         }
@@ -159,7 +159,7 @@ function MarkdownToPdfEditor({
             onSource({ name: source.name, text: event.target.value })
           }
           placeholder="# Title\n\nWrite or paste Markdown here…"
-          className="min-h-72 w-full resize-y rounded-2xl border border-white/10 bg-black/20 px-4 py-3 font-mono text-sm leading-6 text-slate-100 transition outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+          className="border-line text-fg focus:border-accent focus:ring-accent/50 [min-height:18rem] w-full resize-y rounded-[4px] border bg-black/20 px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
         />
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
@@ -211,12 +211,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

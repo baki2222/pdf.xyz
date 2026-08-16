@@ -20,7 +20,7 @@ export function HandoffLoading() {
   return (
     <div
       role="status"
-      className="flex items-center justify-center gap-2 rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-12 text-sm text-slate-400"
+      className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm"
     >
       <Spinner />
       Bringing your files over from the workspace…
@@ -49,14 +49,14 @@ export function HandoffProblem({
   return (
     <div
       role="status"
-      className="flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+      className="border-warn/40 bg-warn/10 text-warn flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
       <span>{body}</span>
       <button
         type="button"
         onClick={handoff.dismiss}
-        className="ml-auto shrink-0 rounded-md px-2 py-0.5 text-xs text-amber-200/80 transition hover:bg-amber-500/15 hover:text-amber-100"
+        className="text-warn hover:bg-warn/10 hover:text-warn ml-auto shrink-0 rounded-md px-2 py-0.5 text-xs transition"
       >
         Dismiss
       </button>
@@ -76,14 +76,14 @@ export function HandoffLoadedBadge({
     <p
       role="status"
       aria-live="polite"
-      className="inline-flex flex-wrap items-center gap-1.5 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] px-3 py-2 text-xs text-emerald-200"
+      className="border-ok/40 bg-ok/10 text-ok inline-flex flex-wrap items-center gap-1.5 rounded-[3px] border px-3 py-2 text-xs"
     >
       <FolderInput className="size-3.5 shrink-0" aria-hidden />
       <span>
         Loaded {count} file{count === 1 ? "" : "s"} from your workspace.
       </span>
-      <ShieldCheck className="size-3.5 shrink-0 text-emerald-300" aria-hidden />
-      <span className="text-emerald-200/80">
+      <ShieldCheck className="text-ok size-3.5 shrink-0" aria-hidden />
+      <span className="text-ok">
         Still in this browser; nothing was uploaded.
         {skipped > 0
           ? ` ${skipped} non-PDF ${skipped === 1 ? "file was" : "files were"} skipped.`

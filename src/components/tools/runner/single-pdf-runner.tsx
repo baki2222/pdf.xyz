@@ -77,7 +77,7 @@ export function SinglePdfRunner({
     <div className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName={toolName} />
       {loading ? (
-        <div className="flex items-center justify-center gap-2 rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-12 text-sm text-slate-400">
+        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
           <Spinner />
           Reading your PDF…
         </div>
@@ -102,13 +102,13 @@ export function FileHeader({
   aside?: ReactNode;
 }) {
   return (
-    <div className="bg-surface-2 flex items-center gap-3 rounded-2xl border border-white/10 px-3.5 py-3">
-      <FileText className="size-4 shrink-0 text-violet-300" aria-hidden />
-      <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
+    <div className="bg-panel border-line flex items-center gap-3 rounded-[4px] border px-3.5 py-3">
+      <FileText className="text-accent size-4 shrink-0" aria-hidden />
+      <span className="text-fg min-w-0 flex-1 truncate text-sm">
         {pdf.file.name}
       </span>
       {aside}
-      <span className="shrink-0 text-xs text-slate-400">
+      <span className="text-muted shrink-0 text-xs">
         {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"} ·{" "}
         {formatBytes(pdf.file.size)}
       </span>

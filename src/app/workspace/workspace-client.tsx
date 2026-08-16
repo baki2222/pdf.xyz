@@ -112,8 +112,8 @@ export function WorkspaceClient({
     <div className="grid gap-8 lg:grid-cols-[1.35fr_1fr] lg:items-start">
       {/* ── Staging + batch column ── */}
       <div className="flex flex-col gap-6">
-        <div className="gradient-border">
-          <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
+        <div className="">
+          <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
             {/* Dropzone */}
             <label
               htmlFor={inputId}
@@ -128,11 +128,11 @@ export function WorkspaceClient({
                 ws.addFiles(e.dataTransfer.files);
               }}
               className={cn(
-                "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
-                "has-[:focus-visible]:border-violet-400/70 has-[:focus-visible]:bg-violet-500/10 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-violet-400/50",
+                "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[4px] border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
+                "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
                 dragging
-                  ? "border-violet-400/70 bg-violet-500/10"
-                  : "border-white/15 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]",
+                  ? "border-accent/40 bg-accent/10"
+                  : "border-line-strong bg-wash hover:border-line-strong hover:bg-wash",
               )}
             >
               <input
@@ -147,7 +147,7 @@ export function WorkspaceClient({
                   e.target.value = "";
                 }}
               />
-              <span className="grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500 text-white shadow-lg shadow-violet-500/30 transition-transform duration-200 group-hover:scale-105">
+              <span className="text-muted grid size-14 place-items-center rounded-[4px]">
                 <UploadCloud
                   className="size-7"
                   strokeWidth={1.75}
@@ -155,13 +155,13 @@ export function WorkspaceClient({
                 />
               </span>
               <span className="flex flex-col gap-1">
-                <span className="text-base font-semibold text-white">
+                <span className="text-fg text-base font-semibold">
                   Drop files here, or{" "}
-                  <span className="text-violet-300 underline underline-offset-4">
+                  <span className="text-accent underline underline-offset-4">
                     browse
                   </span>
                 </span>
-                <span className="text-sm text-slate-400">
+                <span className="text-muted text-sm">
                   PDF, images, Word, Excel, PowerPoint, text · Max {MAX_FILE_MB}{" "}
                   MB per file
                 </span>
@@ -172,10 +172,10 @@ export function WorkspaceClient({
             {rejected.length > 0 && (
               <div
                 role="alert"
-                className="flex flex-col gap-2 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] p-3.5"
+                className="border-warn/40 bg-warn/10 flex flex-col gap-2 rounded-[3px] border p-3.5"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-200">
+                  <span className="text-warn inline-flex items-center gap-1.5 text-sm font-medium">
                     <AlertTriangle className="size-4" aria-hidden />
                     {rejected.length} file{rejected.length === 1 ? "" : "s"}{" "}
                     couldn&apos;t be staged
@@ -183,19 +183,17 @@ export function WorkspaceClient({
                   <button
                     type="button"
                     onClick={ws.dismissRejected}
-                    className="grid size-6 place-items-center rounded-md text-amber-300/70 transition hover:bg-white/10 hover:text-white"
+                    className="text-warn hover:bg-wash hover:text-fg grid size-6 place-items-center rounded-md transition"
                     aria-label="Dismiss"
                   >
                     <X className="size-3.5" aria-hidden />
                   </button>
                 </div>
-                <ul className="flex flex-col gap-1 text-xs text-amber-100/80">
+                <ul className="text-warn flex flex-col gap-1 text-xs">
                   {rejected.map((r, i) => (
                     <li key={`${r.name}-${i}`}>
-                      <span className="font-medium text-amber-100">
-                        {r.name}
-                      </span>{" "}
-                      — {r.reason}
+                      <span className="text-warn font-medium">{r.name}</span> —{" "}
+                      {r.reason}
                     </li>
                   ))}
                 </ul>
@@ -210,17 +208,17 @@ export function WorkspaceClient({
                   return (
                     <li
                       key={file.id}
-                      className="bg-surface-2 flex items-center gap-3 rounded-xl border border-white/10 px-3 py-2.5"
+                      className="bg-panel border-line flex items-center gap-3 rounded-[3px] border px-3 py-2.5"
                     >
-                      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/5 text-violet-300">
+                      <span className="bg-wash text-accent grid size-9 shrink-0 place-items-center rounded-lg">
                         <Icon className="size-4" aria-hidden />
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-sm text-slate-200">
+                        <span className="text-fg truncate text-sm">
                           {file.name}
                         </span>
-                        <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-400">
-                          <span className="rounded border border-white/10 bg-white/5 px-1 py-px text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                        <span className="text-muted flex min-w-0 items-center gap-1.5 text-[11px]">
+                          <span className="border-line bg-wash text-muted rounded border px-1 py-px text-[10px] font-semibold tracking-wide uppercase">
                             {file.kind}
                           </span>
                           <span className="truncate tabular-nums">
@@ -235,7 +233,7 @@ export function WorkspaceClient({
                         type="button"
                         onClick={() => ws.removeFile(file.id)}
                         aria-label={`Remove ${file.name}`}
-                        className="grid size-7 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-white/10 hover:text-white"
+                        className="text-muted hover:bg-wash hover:text-fg grid size-7 shrink-0 place-items-center rounded-md transition"
                       >
                         <X className="size-3.5" aria-hidden />
                       </button>
@@ -244,11 +242,11 @@ export function WorkspaceClient({
                 })}
               </ul>
             ) : (
-              <div className="flex flex-col items-center gap-1 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-8 text-center">
-                <p className="text-sm font-medium text-slate-300">
+              <div className="border-line bg-wash flex flex-col items-center gap-1 rounded-[4px] border border-dashed px-6 py-8 text-center">
+                <p className="text-muted text-sm font-medium">
                   No files staged yet
                 </p>
-                <p className="max-w-sm text-xs text-slate-400">
+                <p className="text-muted max-w-sm text-xs">
                   Drop documents above to see file-aware tool suggestions and
                   build a batch. Nothing is uploaded.
                 </p>
@@ -258,11 +256,8 @@ export function WorkspaceClient({
             {/* Summary + actions */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-col gap-1.5">
-                <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-                  <ShieldCheck
-                    className="size-3.5 text-emerald-400"
-                    aria-hidden
-                  />
+                <p className="text-muted inline-flex items-center gap-1.5 text-xs">
+                  <ShieldCheck className="text-ok size-3.5" aria-hidden />
                   {hasFiles ? (
                     <span>
                       {state.files.length} file
@@ -283,7 +278,7 @@ export function WorkspaceClient({
                     {familyChips.map(({ family, count }) => (
                       <li
                         key={family}
-                        className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-medium text-slate-300"
+                        className="border-line bg-wash text-muted rounded-[2px] border px-2 py-0.5 font-mono text-[11px] font-medium"
                       >
                         {FAMILY_LABEL[family]} · {count}
                       </li>
@@ -346,11 +341,8 @@ export function WorkspaceClient({
           onClearSession={ws.clearSession}
         />
 
-        <p className="flex items-start gap-2 rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.04] p-4 text-xs leading-relaxed text-slate-400">
-          <ShieldCheck
-            className="mt-0.5 size-4 shrink-0 text-emerald-400"
-            aria-hidden
-          />
+        <p className="border-ok/40 bg-ok/10 text-muted flex items-start gap-2 rounded-[4px] border p-4 text-xs leading-relaxed">
+          <ShieldCheck className="text-ok mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
             Browser tools never upload — your files stay in this tab and clear
             when you close it. Only your tool choices are remembered on this
@@ -378,21 +370,21 @@ function RecentActivity({
   return (
     <section
       aria-labelledby="activity-heading"
-      className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-5"
+      className="bg-panel border-line flex flex-col gap-3 rounded-[4px] border p-5"
     >
       <div className="flex items-center justify-between gap-2">
         <h2
           id="activity-heading"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-white"
+          className="text-fg inline-flex items-center gap-1.5 text-sm font-semibold"
         >
-          <Clock className="size-4 text-slate-400" aria-hidden />
+          <Clock className="text-muted size-4" aria-hidden />
           Recent activity
         </h2>
         {canClear && (
           <button
             type="button"
             onClick={onClearSession}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+            className="text-muted hover:bg-wash hover:text-fg inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition"
             title="Clear staged files, remembered tools, activity, and any pending hand-off — all on this device"
           >
             <Trash2 className="size-3.5" aria-hidden />
@@ -404,14 +396,11 @@ function RecentActivity({
       {!hydrated ? (
         <ul className="flex flex-col gap-2" aria-hidden>
           {[0, 1].map((i) => (
-            <li
-              key={i}
-              className="h-9 animate-pulse rounded-lg bg-white/[0.04]"
-            />
+            <li key={i} className="bg-wash h-9 animate-pulse rounded-lg" />
           ))}
         </ul>
       ) : actions.length === 0 ? (
-        <p className="text-xs text-slate-400">
+        <p className="text-muted text-xs">
           Tools you open from here show up as your recent activity.
         </p>
       ) : (
@@ -421,16 +410,13 @@ function RecentActivity({
             return (
               <li
                 key={action.id}
-                className="flex items-center gap-2.5 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-1.5"
+                className="border-line bg-wash flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5"
               >
-                <Icon
-                  className="size-3.5 shrink-0 text-slate-400"
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1 truncate text-xs text-slate-300">
+                <Icon className="text-muted size-3.5 shrink-0" aria-hidden />
+                <span className="text-muted min-w-0 flex-1 truncate text-xs">
                   {action.label}
                 </span>
-                <span className="shrink-0 text-[11px] text-slate-400 tabular-nums">
+                <span className="text-muted shrink-0 text-[11px] tabular-nums">
                   {formatRelative(action.at, now)}
                 </span>
               </li>

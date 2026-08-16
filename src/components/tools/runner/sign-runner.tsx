@@ -146,7 +146,7 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
               placeholder="e.g. Alex Morgan"
             />
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium text-slate-300">Style</span>
+              <span className="text-muted text-xs font-medium">Style</span>
               <SegmentedControl
                 label="Signature style"
                 value={style}
@@ -187,7 +187,7 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       <RunnerSection title="Placement">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-8">
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-slate-300">Position</span>
+            <span className="text-muted text-xs font-medium">Position</span>
             <PositionPicker value={position} onChange={setPosition} />
           </div>
           <div className="flex flex-1 flex-col gap-5">
@@ -218,11 +218,8 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         </div>
       </RunnerSection>
 
-      <div className="flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
-        <ShieldAlert
-          className="mt-0.5 size-4 shrink-0 text-amber-300"
-          aria-hidden
-        />
+      <div className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3 text-sm">
+        <ShieldAlert className="text-warn mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
           Electronic signature — this places a visual signature onto your PDF.
           It is not a digital-certificate or cryptographic signature: it uses no
@@ -262,7 +259,7 @@ function TypedPreview({
 }) {
   const trimmed = text.trim();
   return (
-    <div className="flex min-h-16 items-center justify-center rounded-2xl border border-white/10 bg-white px-6 py-4">
+    <div className="border-line flex min-h-16 items-center justify-center rounded-[4px] border bg-white px-6 py-4">
       {trimmed ? (
         <span
           className={cn(
@@ -284,7 +281,7 @@ function TypedPreview({
 /** Preview a drawn or uploaded signature PNG on a light card. */
 function SignaturePreview({ url }: { url: string }) {
   return (
-    <div className="flex items-center justify-center rounded-2xl border border-white/10 bg-white p-4">
+    <div className="border-line flex items-center justify-center rounded-[4px] border bg-white p-4">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={url}

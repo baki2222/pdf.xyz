@@ -45,35 +45,38 @@ const groups = [
 
 export function PricingSection() {
   return (
-    <section id="pricing" className="scroll-mt-24 py-20 sm:py-28">
-      <Container className="flex flex-col gap-14">
+    <section
+      id="pricing"
+      className="border-line scroll-mt-24 border-b py-20 sm:py-28"
+    >
+      <Container className="flex flex-col gap-12">
         <SectionHeading
           eyebrow="Pricing"
           title="Free right now. All of it."
           description={`Every one of the ${toolCount} tools is free to use today — no account, no card, no trial clock. Here is exactly how that works and what will change.`}
         />
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="border-line divide-line bg-panel grid divide-y rounded-[4px] border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
           {groups.map((group) => (
-            <div
-              key={group.name}
-              className="bg-surface-2 flex flex-col gap-6 rounded-3xl border border-white/10 p-7"
-            >
+            <div key={group.name} className="flex flex-col gap-5 p-7 sm:p-8">
               <div className="flex flex-col gap-2">
-                <h3 className="text-lg font-semibold text-white">
+                <h3 className="font-display text-fg text-2xl font-medium tracking-tight">
                   {group.name}
                 </h3>
-                <p className="text-sm text-slate-300">{group.summary}</p>
+                <p className="text-muted text-sm leading-relaxed">
+                  {group.summary}
+                </p>
               </div>
 
               <ul className="flex flex-1 flex-col gap-3">
                 {group.points.map((point) => (
                   <li
                     key={point}
-                    className="flex items-start gap-2.5 text-sm text-slate-300"
+                    className="text-fg flex items-start gap-2.5 text-sm"
                   >
                     <Check
-                      className="mt-0.5 size-4 shrink-0 text-emerald-400"
+                      className="text-accent mt-0.5 size-4 shrink-0"
+                      strokeWidth={2}
                       aria-hidden
                     />
                     {point}
@@ -84,8 +87,8 @@ export function PricingSection() {
           ))}
         </div>
 
-        <div className="bg-surface-2 flex flex-col items-start gap-4 rounded-3xl border border-white/10 p-7 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm leading-relaxed text-slate-300">
+        <div className="border-line bg-wash flex flex-col items-start gap-4 rounded-[4px] border p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+          <p className="text-muted max-w-2xl text-sm leading-relaxed">
             When paid options arrive they will cover the server-side work above
             — and the in-browser tools stay free. Until then, there is simply
             nothing to pay for.

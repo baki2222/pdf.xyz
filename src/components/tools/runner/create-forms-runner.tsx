@@ -101,7 +101,7 @@ function FormBuilderStage({
     return (
       <div className="flex flex-col gap-4">
         <FileHeader pdf={pdf} />
-        <div className="flex items-center justify-center gap-2 rounded-3xl border border-white/10 bg-white/[0.02] px-6 py-12 text-sm text-slate-400">
+        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
           <Spinner />
           Reading the PDF…
         </div>
@@ -328,9 +328,9 @@ function FormBuilder({
           <Download className="size-4" aria-hidden />
           Download form PDF
         </button>
-        <p className="text-xs text-slate-400">
+        <p className="text-muted text-xs">
           Open it in any PDF viewer, or use{" "}
-          <span className="text-slate-200">Fill Forms</span> to complete the new
+          <span className="text-fg">Fill Forms</span> to complete the new
           fields.
         </p>
       </ResultPanel>
@@ -346,7 +346,7 @@ function FormBuilder({
       <RunnerSection
         title="Form fields"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             {drafts.length} field{drafts.length === 1 ? "" : "s"}
           </span>
         }
@@ -363,14 +363,14 @@ function FormBuilder({
             />
           ))}
           {drafts.length === 0 && (
-            <p className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-8 text-center text-sm text-slate-400">
+            <p className="border-line-strong bg-wash text-muted rounded-[4px] border border-dashed px-4 py-8 text-center text-sm">
               No fields yet — add one to start building your form.
             </p>
           )}
           <button
             type="button"
             onClick={addField}
-            className="inline-flex items-center justify-center gap-1.5 self-start rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs font-medium text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10 hover:text-white"
+            className="border-line bg-wash text-fg hover:border-accent/40 hover:bg-accent/10 hover:text-fg inline-flex items-center justify-center gap-1.5 self-start rounded-full border px-3.5 py-2 text-xs font-medium transition"
           >
             <Plus className="size-4" aria-hidden />
             Add field
@@ -389,7 +389,7 @@ function FormBuilder({
 
       <div className="flex flex-wrap items-center justify-end gap-3">
         {errors.length > 0 && drafts.length > 0 && (
-          <span className="text-xs text-amber-300/90">
+          <span className="text-warn text-xs">
             Fix {errors.length} issue{errors.length === 1 ? "" : "s"} above to
             continue.
           </span>
@@ -415,19 +415,19 @@ function FormBuilder({
 function CoordinateHelp({ context }: { context: NewFormContext }) {
   const first = context.pageSizes[0];
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3.5">
-      <Info className="mt-0.5 size-4 shrink-0 text-violet-300" aria-hidden />
-      <div className="flex flex-col gap-1 text-xs leading-relaxed text-slate-400">
+    <div className="border-line bg-wash flex items-start gap-3 rounded-[4px] border px-4 py-3.5">
+      <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
+      <div className="text-muted flex flex-col gap-1 text-xs leading-relaxed">
         <span>
-          Positions are <span className="text-slate-200">PDF points</span> (1 pt
-          = 1/72&quot;), measured from the{" "}
-          <span className="text-slate-200">bottom-left</span> corner of the page
-          — X goes right, Y goes up.
+          Positions are <span className="text-fg">PDF points</span> (1 pt =
+          1/72&quot;), measured from the{" "}
+          <span className="text-fg">bottom-left</span> corner of the page — X
+          goes right, Y goes up.
           {first
             ? ` Page 1 is ${Math.round(first.width)} × ${Math.round(first.height)} pt.`
             : ""}
         </span>
-        <span className="text-slate-400">
+        <span className="text-muted">
           This adds classic fillable AcroForm fields by coordinates — it
           isn&apos;t a visual drag-and-drop editor, and it doesn&apos;t create
           signature fields.
@@ -447,7 +447,7 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
  * ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  "w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20";
+  "w-full rounded-[3px] border border-line bg-black/20 px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
 
 function FieldCard({
   draft,
@@ -473,7 +473,7 @@ function FieldCard({
     : `Page ${draft.page} · out of range`;
 
   return (
-    <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/[0.02] p-4 sm:p-5">
+    <div className="border-line bg-wash flex flex-col gap-4 rounded-[4px] border p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl
           label="Field type"
@@ -484,7 +484,7 @@ function FieldCard({
         <button
           type="button"
           onClick={onRemove}
-          className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1.5 text-xs text-slate-400 transition hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-rose-200"
+          className="border-line text-muted hover:border-err/40 hover:bg-err/10 hover:text-err inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition"
           aria-label="Remove field"
         >
           <Trash2 className="size-3.5" aria-hidden />
@@ -501,12 +501,9 @@ function FieldCard({
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-slate-300">Placement</span>
+          <span className="text-muted text-xs font-medium">Placement</span>
           <span
-            className={cn(
-              "text-[11px]",
-              size ? "text-slate-400" : "text-amber-300/90",
-            )}
+            className={cn("text-[11px]", size ? "text-muted" : "text-warn")}
           >
             {pageHint}
           </span>
@@ -557,7 +554,7 @@ function FieldCard({
           {errors.map((message) => (
             <li
               key={message}
-              className="flex items-start gap-1.5 text-xs text-rose-300"
+              className="text-err flex items-start gap-1.5 text-xs"
             >
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
               <span>{message}</span>
@@ -712,7 +709,7 @@ function OptionsEditor({
   const id = useId();
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor={id} className="text-xs font-medium text-slate-300">
+      <label htmlFor={id} className="text-muted text-xs font-medium">
         Options — one per line
       </label>
       <textarea
@@ -724,9 +721,7 @@ function OptionsEditor({
         placeholder={"Option A\nOption B\nOption C"}
       />
       {hint && (
-        <span className="text-[11px] leading-relaxed text-slate-400">
-          {hint}
-        </span>
+        <span className="text-muted text-[11px] leading-relaxed">{hint}</span>
       )}
     </div>
   );
@@ -744,7 +739,7 @@ function DefaultSelect({
   const id = useId();
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor={id} className="text-xs font-medium text-slate-300">
+      <label htmlFor={id} className="text-muted text-xs font-medium">
         Default selection (optional)
       </label>
       <select
@@ -777,17 +772,17 @@ function Toggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5">
+    <label className="border-line bg-wash flex cursor-pointer items-start gap-3 rounded-[4px] border p-3.5">
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 size-4 accent-violet-500"
+        className="accent-accent mt-0.5 size-4"
       />
       <span className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-slate-200">{label}</span>
+        <span className="text-fg text-sm font-medium">{label}</span>
         {description && (
-          <span className="text-xs leading-relaxed text-slate-400">
+          <span className="text-muted text-xs leading-relaxed">
             {description}
           </span>
         )}

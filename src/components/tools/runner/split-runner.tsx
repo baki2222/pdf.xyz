@@ -148,7 +148,7 @@ function SplitEditor({
       <FileHeader pdf={pdf} />
 
       <RunnerSection title="How to split">
-        <div className="inline-flex flex-wrap gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
+        <div className="border-line bg-wash inline-flex flex-wrap gap-1 rounded-full border p-1">
           {MODES.map((m) => (
             <button
               key={m.id}
@@ -157,8 +157,8 @@ function SplitEditor({
               className={cn(
                 "rounded-full px-3.5 py-1.5 text-xs font-medium transition",
                 mode === m.id
-                  ? "bg-gradient-to-r from-violet-500 to-blue-500 text-white shadow"
-                  : "text-slate-400 hover:text-white",
+                  ? "bg-invert text-fg-invert"
+                  : "text-muted hover:text-fg",
               )}
             >
               {m.label}
@@ -169,7 +169,7 @@ function SplitEditor({
 
       {mode === "ranges" && (
         <label className="flex flex-col gap-2">
-          <span className="text-sm text-slate-300">
+          <span className="text-muted text-sm">
             Page ranges — one file per range
           </span>
           <input
@@ -178,18 +178,18 @@ function SplitEditor({
             onChange={(e) => setRangeInput(e.target.value)}
             placeholder="e.g. 1-3, 4-6, 7-"
             spellCheck={false}
-            className="bg-ink/60 rounded-xl border border-white/10 px-3.5 py-2.5 text-sm text-white transition outline-none focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
+            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             Use commas to separate files. Ranges are inclusive, e.g.{" "}
-            <code className="text-slate-400">1-3, 8, 10-</code>.
+            <code className="text-muted">1-3, 8, 10-</code>.
           </span>
         </label>
       )}
 
       {mode === "everyN" && (
         <label className="flex flex-col gap-2">
-          <span className="text-sm text-slate-300">Pages per file</span>
+          <span className="text-muted text-sm">Pages per file</span>
           <input
             type="number"
             min={1}
@@ -198,13 +198,13 @@ function SplitEditor({
             onChange={(e) =>
               setSize(Math.max(1, Math.floor(Number(e.target.value) || 1)))
             }
-            className="bg-ink/60 w-32 rounded-xl border border-white/10 px-3.5 py-2.5 text-sm text-white transition outline-none focus:border-violet-400/60 focus:ring-2 focus:ring-violet-400/30"
+            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 w-32 rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
         </label>
       )}
 
       {mode === "perPage" && (
-        <p className="text-sm text-slate-400">
+        <p className="text-muted text-sm">
           Every page becomes its own PDF — {pdf.pageCount} files in total.
         </p>
       )}
@@ -220,15 +220,15 @@ function SplitEditor({
               {parts.map((part, i) => (
                 <li
                   key={part.name}
-                  className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-sm"
+                  className="border-line bg-wash flex items-center gap-3 rounded-[3px] border px-3 py-2 text-sm"
                 >
-                  <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white/5 text-xs font-semibold text-slate-400 tabular-nums">
+                  <span className="bg-wash text-muted grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold tabular-nums">
                     {i + 1}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-slate-300">
+                  <span className="text-muted min-w-0 flex-1 truncate">
                     {part.name}
                   </span>
-                  <span className="shrink-0 text-xs text-slate-400">
+                  <span className="text-muted shrink-0 text-xs">
                     {part.indices.length} page
                     {part.indices.length === 1 ? "" : "s"}
                   </span>

@@ -34,6 +34,18 @@
  *   pnpm a11y:contrast                          # default route sample
  *   pnpm a11y:contrast --all-tools              # every /tools/<slug> too
  *   BASE=http://127.0.0.1:3100 pnpm a11y:contrast --json report.json
+ *   A11Y_SCHEME=dark pnpm a11y:contrast         # audit the dark colour scheme
+ *
+ * NOTE: this script does NOT build or serve. It measures whatever already
+ * answers on BASE — so serve the build you mean to audit yourself, and prove
+ * it is that build (grep the response for a token only the new build can
+ * produce) before trusting a number from here.
+ *
+ * A11Y_SCHEME exists because the redesign ships `prefers-color-scheme: dark`
+ * token overrides: a surface the instrument cannot render is a surface it
+ * cannot certify, so the scheme is part of the measurement, not a variant.
+ * Anything other than "dark" (or unset) is a loud error rather than a silent
+ * light-mode run reporting the wrong claim as checked.
  *
  * EXIT CODES
  *   0  every measured text run meets WCAG 2.1 AA (1.4.3)
@@ -55,6 +67,15 @@ import { decodePng } from "../src/lib/a11y/png";
 import { getAllToolSlugs } from "../src/lib/tools";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:3100";
+
+const SCHEME_INPUT = process.env.A11Y_SCHEME ?? "light";
+if (SCHEME_INPUT !== "light" && SCHEME_INPUT !== "dark") {
+  console.error(
+    `A11Y_SCHEME must be "light" or "dark", got ${JSON.stringify(SCHEME_INPUT)}`,
+  );
+  process.exit(2);
+}
+const SCHEME: "light" | "dark" = SCHEME_INPUT;
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => argv.includes(`--${name}`);
@@ -492,6 +513,7 @@ async function main(): Promise<number> {
       const context = await browser.newContext({
         viewport: { width: viewport.width, height: viewport.height },
         reducedMotion: "reduce",
+        colorScheme: SCHEME,
       });
       const page = await context.newPage();
       // tsx compiles this file with esbuild's `keepNames`, which rewrites named
@@ -527,6 +549,7 @@ async function main(): Promise<number> {
       JSON.stringify(
         {
           base: BASE,
+          scheme: SCHEME,
           measured,
           skipped,
           unresolved: [...unresolved],
@@ -539,7 +562,7 @@ async function main(): Promise<number> {
   }
 
   console.log(
-    `\nmeasured ${measured} text runs (${skipped} never fully in view), ${findings.length} below WCAG AA`,
+    `\n[${SCHEME}] measured ${measured} text runs (${skipped} never fully in view), ${findings.length} below WCAG AA`,
   );
 
   if (unresolved.size > 0) {

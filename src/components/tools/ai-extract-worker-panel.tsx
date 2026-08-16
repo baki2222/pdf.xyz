@@ -104,11 +104,11 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
         : aiToolUnavailableDetail(status);
 
   return (
-    <div className="gradient-border">
-      <div className="glass flex flex-col gap-6 rounded-3xl p-5 sm:p-7">
+    <div className="">
+      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-400/10 px-2.5 py-1 text-[11px] font-medium text-violet-200">
+            <span className="border-accent/40 bg-accent/10 text-accent inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
               <Sparkles className="size-3" aria-hidden />
               AI extraction
             </span>
@@ -118,10 +118,10 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
               pulse={badge.pulse}
             />
           </div>
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="text-fg text-lg font-semibold">
             {tool.name} runs on an encrypted secure worker
           </h2>
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="text-muted text-sm leading-relaxed">
             The worker extracts your PDF&apos;s selectable text and asks a
             configured AI model to pull the fields you describe into clean JSON,
             then returns an extraction package — the model&apos;s JSON, a
@@ -133,18 +133,18 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available && (
-          <p className="text-xs leading-relaxed text-slate-400">
+          <p className="text-muted text-xs leading-relaxed">
             {AI_DAILY_ALLOWANCE_NOTE}
           </p>
         )}
         {available ? (
           <AiExtractBuilder />
         ) : (
-          <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-sm leading-relaxed text-slate-300">
+          <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
+            <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
             </p>
-            <p className="text-xs leading-relaxed text-slate-400">
+            <p className="text-muted text-xs leading-relaxed">
               No builder is shown until the worker is ready, so {tool.name}{" "}
               never pretends to produce an extraction it cannot actually
               generate.
@@ -154,7 +154,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
@@ -162,21 +162,18 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
-                    <span className="grid size-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300">
+                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
                       <Sparkles className="size-4" aria-hidden />
                     </span>
                     {index < all.length - 1 && (
-                      <span
-                        className="my-1 w-px flex-1 bg-white/10"
-                        aria-hidden
-                      />
+                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
                     )}
                   </div>
                   <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-sm font-medium text-slate-200">
+                    <span className="text-fg text-sm font-medium">
                       {index + 1}. {stage.title}
                     </span>
-                    <span className="text-xs leading-relaxed text-slate-400">
+                    <span className="text-muted text-xs leading-relaxed">
                       {stage.description}
                     </span>
                   </div>
@@ -186,7 +183,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           </ol>
         </div>
 
-        <div className="bg-surface-2 divide-y divide-white/5 rounded-2xl border border-white/10 px-4 py-1">
+        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
           <SpecRow
             icon={Download}
             label="Output"
@@ -219,13 +216,11 @@ function SpecRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-        <Icon className="size-4 text-slate-400" aria-hidden />
+      <span className="text-muted inline-flex items-center gap-2 text-sm">
+        <Icon className="text-muted size-4" aria-hidden />
         {label}
       </span>
-      <span className="text-right text-sm font-medium text-slate-200">
-        {value}
-      </span>
+      <span className="text-fg text-right text-sm font-medium">{value}</span>
     </div>
   );
 }
@@ -288,8 +283,8 @@ function AiExtractBuilder() {
   }, [file, mode, prompt, namedFields, requestReady]);
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-violet-400/25 bg-violet-500/[0.06] p-4">
-      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-violet-100/90">
+    <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
+      <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         Running this uses a private secure-worker job. The worker extracts only
         the PDF&apos;s selectable text with a configured AI model — it does not
@@ -297,7 +292,7 @@ function AiExtractBuilder() {
       </p>
 
       {file ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200">
+        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
           <span className="truncate">{file.name}</span>
           <button
             type="button"
@@ -305,7 +300,7 @@ function AiExtractBuilder() {
               setFile(null);
               setOutcome(null);
             }}
-            className="shrink-0 text-xs font-medium text-slate-400 transition hover:text-white"
+            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
           >
             Remove
           </button>
@@ -321,7 +316,7 @@ function AiExtractBuilder() {
         />
       )}
 
-      <div className="inline-flex gap-1 self-start rounded-full border border-white/10 bg-white/[0.03] p-1 text-xs">
+      <div className="border-line bg-wash inline-flex gap-1 self-start rounded-full border p-1 text-xs">
         <ModeTab
           active={mode === "schema"}
           onClick={() => setMode("schema")}
@@ -335,7 +330,7 @@ function AiExtractBuilder() {
       </div>
 
       {mode === "prompt" ? (
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
+        <label className="text-muted flex flex-col gap-1 text-xs">
           What to extract
           <textarea
             value={prompt}
@@ -345,12 +340,12 @@ function AiExtractBuilder() {
             maxLength={MAX_EXTRACTION_PROMPT_CHARS}
             rows={3}
             placeholder="e.g. Extract the invoice number, issue date, vendor name, and grand total."
-            className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus:border-violet-400/50"
+            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-lg border px-3 py-2 text-sm outline-none"
           />
         </label>
       ) : (
         <div className="flex flex-col gap-2">
-          <span className="text-xs text-slate-400">Fields to extract</span>
+          <span className="text-muted text-xs">Fields to extract</span>
           {fields.map((field, i) => (
             <div key={i} className="flex items-center gap-2">
               <input
@@ -363,7 +358,7 @@ function AiExtractBuilder() {
                   );
                 }}
                 placeholder="field name (e.g. total)"
-                className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-400 focus:border-violet-400/50"
+                className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
               />
               <select
                 value={field.type}
@@ -373,7 +368,7 @@ function AiExtractBuilder() {
                     prev.map((f, j) => (j === i ? { ...f, type } : f)),
                   );
                 }}
-                className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-400/50"
+                className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-2 py-1.5 text-sm outline-none"
               >
                 {EXTRACTION_FIELD_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -393,7 +388,7 @@ function AiExtractBuilder() {
                 }
                 aria-disabled={fields.length <= 1 || undefined}
                 aria-label="Remove field"
-                className="grid size-8 shrink-0 place-items-center rounded-lg border border-white/10 text-slate-400 transition hover:text-white aria-disabled:opacity-40"
+                className="border-line text-muted hover:text-fg grid size-8 shrink-0 place-items-center rounded-lg border transition aria-disabled:opacity-40"
               >
                 <Trash2 className="size-3.5" aria-hidden />
               </button>
@@ -409,7 +404,7 @@ function AiExtractBuilder() {
               )
             }
             aria-disabled={fields.length >= MAX_EXTRACTION_FIELDS || undefined}
-            className="inline-flex items-center gap-1.5 self-start rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:text-white aria-disabled:opacity-40"
+            className="border-line text-muted hover:text-fg inline-flex items-center gap-1.5 self-start rounded-lg border px-3 py-1.5 text-xs font-medium transition aria-disabled:opacity-40"
           >
             <Plus className="size-3.5" aria-hidden />
             Add field
@@ -436,7 +431,7 @@ function AiExtractBuilder() {
             job={outcome.job}
             consequence="A field reported as not found was not found in those pages — it may still appear later in the document."
           />
-          <p className="text-sm text-emerald-200">
+          <p className="text-ok text-sm">
             Your AI extraction package is ready — the extracted data as JSON, a
             readable rendering, plus a manifest recording the model and honest
             scope.
@@ -446,7 +441,7 @@ function AiExtractBuilder() {
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)
             }
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 sm:w-auto sm:self-start"
+            className="bg-invert text-fg-invert hover:bg-invert/85 inline-flex w-full items-center justify-center gap-2 rounded-[3px] px-6 py-2.5 text-sm font-semibold transition-colors sm:w-auto sm:self-start"
           >
             <Download className="size-4" aria-hidden />
             Download {outcome.artifact.filename}
@@ -472,9 +467,7 @@ function ModeTab({
       onClick={onClick}
       aria-pressed={active}
       className={`rounded-full px-3 py-1 font-medium transition ${
-        active
-          ? "bg-violet-500/25 text-violet-100"
-          : "text-slate-400 hover:text-white"
+        active ? "bg-accent/10 text-accent" : "text-muted hover:text-fg"
       }`}
     >
       {label}

@@ -7,21 +7,25 @@ type Size = "sm" | "md" | "lg";
 // stays focusable while it is unavailable (see `RunButton`) must still LOOK
 // unavailable, and the two must not drift apart.
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-full font-semibold whitespace-nowrap transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-not-allowed aria-disabled:opacity-60";
+  "inline-flex items-center justify-center gap-2 rounded-[3px] font-medium whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-not-allowed aria-disabled:opacity-60";
 
+/**
+ * Token-driven, theme-scoped. `primary` is the inverted ground of whatever
+ * theme it sits in — ink-on-paper renders a near-black button, the legacy
+ * dark routes render a light one — which is also what took the white-on-
+ * gradient CTA from 3.9:1 to 16:1. No gradients, no glow, no pill.
+ */
 const variants: Record<Variant, string> = {
-  primary:
-    "bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 text-white shadow-lg shadow-violet-500/25 hover:shadow-xl hover:shadow-violet-500/40 hover:brightness-110",
-  secondary: "glass text-white hover:bg-white/10 hover:border-white/20",
-  outline:
-    "border border-white/15 bg-transparent text-slate-100 hover:bg-white/5 hover:border-white/25",
-  ghost: "bg-transparent text-slate-200 hover:bg-white/5 hover:text-white",
+  primary: "bg-invert text-fg-invert hover:bg-invert/85",
+  secondary: "border border-line-strong bg-transparent text-fg hover:bg-wash",
+  outline: "border border-line-strong bg-transparent text-fg hover:bg-wash",
+  ghost: "bg-transparent text-muted hover:bg-wash hover:text-fg",
 };
 
 const sizes: Record<Size, string> = {
   sm: "h-9 px-4 text-sm",
   md: "h-11 px-5 text-sm",
-  lg: "h-13 px-7 text-base",
+  lg: "h-12 px-6 text-[15px]",
 };
 
 export function buttonVariants({

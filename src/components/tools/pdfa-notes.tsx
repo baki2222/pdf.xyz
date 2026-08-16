@@ -43,7 +43,7 @@ export function PdfANotes({ job }: { job: Job | undefined }) {
   return (
     <div
       role="status"
-      className="flex flex-col gap-2 rounded-2xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100"
+      className="border-info/40 bg-info/10 text-info flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <p className="flex items-start gap-2">
         <Scissors className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -54,7 +54,7 @@ export function PdfANotes({ job }: { job: Job | undefined }) {
         </span>
       </p>
       {pdfa.notes.length > 0 ? (
-        <ul className="ml-6 flex list-disc flex-col gap-1 text-sky-100/90">
+        <ul className="text-info ml-6 flex list-disc flex-col gap-1">
           {pdfa.notes.map((note) => (
             <li key={note}>{note}</li>
           ))}
@@ -62,11 +62,9 @@ export function PdfANotes({ job }: { job: Job | undefined }) {
       ) : (
         // It reported something and none of it survived sanitizing. Say that,
         // rather than showing an empty list that reads as "nothing was removed".
-        <p className="ml-6 text-sky-100/90">
-          The details could not be shown safely.
-        </p>
+        <p className="text-info ml-6">The details could not be shown safely.</p>
       )}
-      <p className="ml-6 text-xs text-sky-100/70">
+      <p className="text-info ml-6 text-xs">
         Document metadata is the usual casualty and this is routine. Read the
         list if any of it matters to your archive.
       </p>

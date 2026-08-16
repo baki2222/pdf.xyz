@@ -23,7 +23,7 @@ export function RepairWarnings({ job }: { job: Job | undefined }) {
   return (
     <div
       role="status"
-      className="flex flex-col gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+      className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <p className="flex items-start gap-2">
         <Wrench className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -36,7 +36,7 @@ export function RepairWarnings({ job }: { job: Job | undefined }) {
         </span>
       </p>
       {repair.warnings.length > 0 ? (
-        <ul className="ml-6 flex list-disc flex-col gap-1 text-amber-100/90">
+        <ul className="text-warn ml-6 flex list-disc flex-col gap-1">
           {repair.warnings.map((warning) => (
             <li key={warning}>{warning}</li>
           ))}
@@ -44,9 +44,7 @@ export function RepairWarnings({ job }: { job: Job | undefined }) {
       ) : (
         // The engine reported a recovery but nothing survived sanitizing. Say
         // that, rather than showing an empty list that reads as "nothing wrong".
-        <p className="ml-6 text-amber-100/90">
-          The details could not be shown safely.
-        </p>
+        <p className="text-warn ml-6">The details could not be shown safely.</p>
       )}
     </div>
   );

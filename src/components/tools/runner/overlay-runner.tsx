@@ -136,18 +136,18 @@ function OverlayEditor({
       <RunnerSection
         title="Overlay PDF"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             stamp · letterhead · template
           </span>
         }
       >
         {overlay ? (
-          <div className="flex items-center gap-3 rounded-2xl border border-violet-400/25 bg-violet-500/[0.06] px-3.5 py-3">
-            <Layers className="size-4 shrink-0 text-violet-300" aria-hidden />
-            <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
+          <div className="border-accent/40 bg-accent/10 flex items-center gap-3 rounded-[4px] border px-3.5 py-3">
+            <Layers className="text-accent size-4 shrink-0" aria-hidden />
+            <span className="text-fg min-w-0 flex-1 truncate text-sm">
               {overlay.file.name}
             </span>
-            <span className="shrink-0 text-xs text-slate-400">
+            <span className="text-muted shrink-0 text-xs">
               {overlay.pageCount} page{overlay.pageCount === 1 ? "" : "s"} ·{" "}
               {formatBytes(overlay.file.size)}
             </span>
@@ -158,13 +158,13 @@ function OverlayEditor({
                 setOverlayError(null);
               }}
               title="Remove overlay"
-              className="inline-grid size-7 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10"
+              className="border-line bg-wash text-muted hover:bg-wash inline-grid size-7 shrink-0 place-items-center rounded-full border transition"
             >
               <X className="size-3.5" aria-hidden />
             </button>
           </div>
         ) : loadingOverlay ? (
-          <p className="inline-flex items-center gap-2 text-sm text-slate-400">
+          <p className="text-muted inline-flex items-center gap-2 text-sm">
             <Spinner className="size-4" /> Reading overlay PDF…
           </p>
         ) : (
@@ -182,7 +182,7 @@ function OverlayEditor({
       <RunnerSection title="Placement">
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-slate-300">Scale</span>
+            <span className="text-muted text-xs font-medium">Scale</span>
             <SegmentedControl
               label="Overlay scale mode"
               value={fit}
@@ -206,7 +206,7 @@ function OverlayEditor({
         </div>
         {multiPageOverlay && (
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-slate-300">
+            <span className="text-muted text-xs font-medium">
               Multi-page overlay
             </span>
             <SegmentedControl
@@ -286,12 +286,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

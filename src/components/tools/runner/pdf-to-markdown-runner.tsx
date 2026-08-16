@@ -67,7 +67,7 @@ function PdfToMarkdownEditor({
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
-            <div className="max-h-72 overflow-auto rounded-2xl border border-white/10 bg-black/20 p-4 font-mono text-sm leading-6 whitespace-pre-wrap text-slate-200">
+            <div className="border-line text-fg max-h-72 overflow-auto rounded-[4px] border bg-black/20 p-4 font-mono text-sm leading-6 whitespace-pre-wrap">
               {result.markdown}
             </div>
             <button
@@ -87,7 +87,7 @@ function PdfToMarkdownEditor({
             </button>
           </div>
         ) : (
-          <p className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm leading-relaxed text-amber-100">
+          <p className="border-warn/40 bg-warn/10 text-warn rounded-[4px] border p-4 text-sm leading-relaxed">
             This PDF does not contain selectable text. Use OCR PDF first for
             scanned pages, or Extract Tables for table-heavy documents when AI
             table extraction is enabled.
@@ -104,7 +104,7 @@ function PdfToMarkdownEditor({
       <RunnerSection
         title="Convert selectable text to Markdown"
         aside={
-          <span className="text-xs text-slate-400">
+          <span className="text-muted text-xs">
             {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}
           </span>
         }
@@ -150,12 +150,12 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-        <Icon className="size-4 text-violet-300" aria-hidden />
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <Icon className="text-accent size-4" aria-hidden />
         {title}
       </div>
-      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+      <p className="text-muted text-xs leading-relaxed">{body}</p>
     </div>
   );
 }

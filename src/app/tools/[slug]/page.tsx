@@ -118,19 +118,19 @@ export default async function ToolPage({
   const formatChips = (
     <div className="flex flex-wrap items-center gap-2">
       <ProcessingBadge mode={tool.processing} variant="long" />
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-        <FileUp className="size-3.5 text-slate-400" aria-hidden />
+      <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-[11px]">
+        <FileUp className="text-faint size-3.5" aria-hidden />
         In: {tool.accept.join(", ")}
       </span>
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-        <FileDown className="size-3.5 text-slate-400" aria-hidden />
+      <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-[11px]">
+        <FileDown className="text-faint size-3.5" aria-hidden />
         Out: {tool.outputs.join(", ")}
       </span>
     </div>
   );
 
   return (
-    <div className="py-10 sm:py-14">
+    <div className="theme-paper bg-canvas text-fg py-10 sm:py-14">
       <JsonLd
         data={[
           toolApplicationSchema(tool),
@@ -144,11 +144,11 @@ export default async function ToolPage({
       <Container className="flex flex-col gap-10">
         <nav
           aria-label="Breadcrumb"
-          className="flex items-center gap-2 text-sm text-slate-400"
+          className="text-muted flex items-center gap-2 text-sm"
         >
           <Link
             href="/tools"
-            className="inline-flex items-center gap-1.5 transition hover:text-white"
+            className="hover:text-fg inline-flex items-center gap-1.5 transition-colors"
           >
             <ArrowLeft className="size-3.5" aria-hidden />
             All tools
@@ -157,7 +157,7 @@ export default async function ToolPage({
           {category && (
             <Link
               href={`/tools?category=${category.id}`}
-              className="transition hover:text-white"
+              className="hover:text-fg transition-colors"
             >
               {category.name}
             </Link>
@@ -176,55 +176,55 @@ export default async function ToolPage({
                 />
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                    <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
                       {tool.name}
                     </h1>
                     {tool.badge && <ToolBadgePill badge={tool.badge} />}
                   </div>
-                  <p className="text-base text-slate-400">{tool.tagline}</p>
+                  <p className="text-muted text-base">{tool.tagline}</p>
                 </div>
               </div>
               {formatChips}
             </div>
 
-            <div className="gradient-border">
-              <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
-                <div className="flex items-center gap-2 text-sm text-emerald-300">
-                  <ShieldCheck className="size-4" aria-hidden />
-                  {tool.processing === "hybrid"
-                    ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
-                    : "Runs in your browser — your file never leaves your device."}
-                </div>
-                <ErrorBoundary boundary="tool-runner">
-                  <ToolRunner kind={runnerKind} slug={tool.slug} />
-                </ErrorBoundary>
+            <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
+              <div className="text-ok flex items-center gap-2 text-sm">
+                <ShieldCheck className="size-4" aria-hidden />
+                {tool.processing === "hybrid"
+                  ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
+                  : "Runs in your browser — your file never leaves your device."}
               </div>
+              <ErrorBoundary boundary="tool-runner">
+                <ToolRunner kind={runnerKind} slug={tool.slug} />
+              </ErrorBoundary>
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2">
-              <div className="bg-surface-2 flex flex-col gap-3 rounded-2xl border border-white/10 p-5">
-                <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
+              <div className="border-line bg-panel flex flex-col gap-3 rounded-[4px] border p-5">
+                <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                   About this tool
                 </h2>
-                <p className="text-sm leading-relaxed text-slate-300">
+                <p className="text-fg text-sm leading-relaxed">
                   {tool.description}
                 </p>
-                <p className="text-sm leading-relaxed text-slate-400">
+                <p className="text-muted text-sm leading-relaxed">
                   {processing.description}
                 </p>
               </div>
               {steps.length > 0 && (
-                <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
-                  <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
+                <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+                  <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                     How it works
                   </h2>
                   <ol className="flex flex-col gap-3">
                     {steps.map((step, i) => (
                       <li key={step} className="flex items-start gap-3">
-                        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-xs font-semibold text-white">
+                        {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
+                            theme ground — 16.4:1 here, and correct inside any future scope. */}
+                        <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
                           {i + 1}
                         </span>
-                        <span className="text-sm leading-relaxed text-slate-300">
+                        <span className="text-muted text-sm leading-relaxed">
                           {step}
                         </span>
                       </li>
@@ -246,37 +246,39 @@ export default async function ToolPage({
                 />
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                    <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
                       {tool.name}
                     </h1>
                     {tool.badge && <ToolBadgePill badge={tool.badge} />}
                   </div>
-                  <p className="text-base text-slate-400">{tool.tagline}</p>
+                  <p className="text-muted text-base">{tool.tagline}</p>
                 </div>
               </div>
 
-              <p className="text-base leading-relaxed text-pretty text-slate-300">
+              <p className="text-fg text-base leading-relaxed text-pretty">
                 {tool.description}
               </p>
 
               {formatChips}
 
-              <p className="bg-surface-2 rounded-2xl border border-white/10 p-4 text-sm leading-relaxed text-slate-400">
+              <p className="border-line bg-wash text-muted rounded-[4px] border p-4 text-sm leading-relaxed">
                 {processing.description}
               </p>
 
               {steps.length > 0 && (
                 <div className="flex flex-col gap-4">
-                  <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
+                  <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                     How it works
                   </h2>
                   <ol className="flex flex-col gap-3">
                     {steps.map((step, i) => (
                       <li key={step} className="flex items-start gap-3">
-                        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-xs font-semibold text-white">
+                        {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
+                            theme ground — 16.4:1 here, and correct inside any future scope. */}
+                        <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
                           {i + 1}
                         </span>
-                        <span className="text-sm leading-relaxed text-slate-300">
+                        <span className="text-muted text-sm leading-relaxed">
                           {step}
                         </span>
                       </li>
@@ -289,23 +291,21 @@ export default async function ToolPage({
             <div className="lg:sticky lg:top-24">
               {tool.processing === "client" ? (
                 /* Client tool without a runner yet: stage files locally. */
-                <div className="gradient-border">
-                  <div className="glass flex flex-col gap-5 rounded-3xl p-5 sm:p-7">
-                    <div className="flex flex-col gap-1">
-                      <h2 className="text-lg font-semibold text-white">
-                        {tool.name}
-                      </h2>
-                      <p className="text-sm text-slate-400">
-                        Add your files to get started —{" "}
-                        {processing.short.toLowerCase()}.
-                      </p>
-                    </div>
-                    <UploadZone
-                      ctaLabel={`Run ${tool.name}`}
-                      ctaHref={`/workspace?tool=${tool.slug}`}
-                      hint={`Accepts ${tool.accept.join(", ")} · Max ${JOB_LIMITS.maxFileBytes / (1024 * 1024)} MB per file`}
-                    />
+                <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
+                  <div className="flex flex-col gap-1">
+                    <h2 className="text-fg text-lg font-semibold">
+                      {tool.name}
+                    </h2>
+                    <p className="text-muted text-sm">
+                      Add your files to get started —{" "}
+                      {processing.short.toLowerCase()}.
+                    </p>
                   </div>
+                  <UploadZone
+                    ctaLabel={`Run ${tool.name}`}
+                    ctaHref={`/workspace?tool=${tool.slug}`}
+                    hint={`Accepts ${tool.accept.join(", ")} · Max ${JOB_LIMITS.maxFileBytes / (1024 * 1024)} MB per file`}
+                  />
                 </div>
               ) : tool.slug === "ocr-pdf" ? (
                 /* OCR: a premium, OCR-specific secure-worker flow (honest, live
@@ -404,17 +404,17 @@ export default async function ToolPage({
         {(facts.length > 0 || faq.length > 0) && (
           <div className="grid gap-6 sm:grid-cols-2">
             {facts.length > 0 && (
-              <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
-                <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
+              <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+                <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                   What this tool can do
                 </h2>
                 <dl className="flex flex-col gap-3">
                   {facts.map((fact) => (
                     <div key={fact.label} className="flex flex-col gap-1">
-                      <dt className="text-xs font-medium tracking-wide text-slate-400 uppercase">
+                      <dt className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">
                         {fact.label}
                       </dt>
-                      <dd className="text-sm leading-relaxed text-slate-300">
+                      <dd className="text-muted text-sm leading-relaxed">
                         {fact.value}
                       </dd>
                     </div>
@@ -423,16 +423,16 @@ export default async function ToolPage({
               </div>
             )}
             {faq.length > 0 && (
-              <div className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5">
-                <h2 className="text-sm font-semibold tracking-widest text-slate-400 uppercase">
+              <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+                <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                   Common questions
                 </h2>
                 {faq.map((entry) => (
                   <div key={entry.question} className="flex flex-col gap-1.5">
-                    <h3 className="text-sm font-semibold text-slate-200">
+                    <h3 className="text-fg text-sm font-semibold">
                       {entry.question}
                     </h3>
-                    <p className="text-sm leading-relaxed text-slate-400">
+                    <p className="text-muted text-sm leading-relaxed">
                       {entry.answer}
                     </p>
                   </div>
@@ -443,14 +443,14 @@ export default async function ToolPage({
         )}
 
         {related.length > 0 && (
-          <div className="flex flex-col gap-6 border-t border-white/10 pt-10">
+          <div className="border-line flex flex-col gap-6 border-t pt-10">
             <div className="flex items-end justify-between gap-4">
-              <h2 className="text-xl font-semibold text-white">
+              <h2 className="font-display text-fg text-2xl font-medium tracking-tight">
                 Related tools
               </h2>
               <Link
                 href="/tools"
-                className="group inline-flex items-center gap-1.5 text-sm font-medium text-violet-300 transition hover:text-violet-200"
+                className="group text-accent inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
               >
                 All tools
                 <ArrowRight
@@ -467,8 +467,8 @@ export default async function ToolPage({
           </div>
         )}
 
-        <p className="inline-flex items-center gap-2 text-xs text-slate-400">
-          <Check className="size-3.5 text-emerald-400" aria-hidden />
+        <p className="text-muted inline-flex items-center gap-2 text-xs">
+          <Check className="text-ok size-3.5" aria-hidden />
           No sign-up required. Your files stay on your device until you run a
           tool.
         </p>

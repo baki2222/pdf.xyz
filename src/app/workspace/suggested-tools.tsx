@@ -11,16 +11,16 @@ import { indexSummaries, type WorkspaceToolSummary } from "./summary";
 
 /** Accent classes for the small "where it runs" tag on each tool. */
 function capabilityTone(live: boolean, processing: ProcessingMode): string {
-  if (live) return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
+  if (live) return "border-ok/40 bg-ok/10 text-ok";
   switch (processing) {
     case "server":
-      return "border-blue-400/30 bg-blue-400/10 text-blue-200";
+      return "border-info/40 bg-info/10 text-info";
     case "hybrid":
-      return "border-cyan-400/30 bg-cyan-400/10 text-cyan-200";
+      return "border-info/40 bg-info/10 text-info";
     case "ai":
-      return "border-violet-400/30 bg-violet-400/10 text-violet-200";
+      return "border-accent/40 bg-accent/10 text-accent";
     default:
-      return "border-white/15 bg-white/5 text-slate-300";
+      return "border-line-strong bg-wash text-muted";
   }
 }
 
@@ -87,19 +87,19 @@ export function SuggestedTools({
   return (
     <section
       aria-labelledby="suggested-heading"
-      className="bg-surface-2 flex flex-col gap-4 rounded-2xl border border-white/10 p-5"
+      className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-5"
     >
       <div className="flex items-center justify-between gap-3">
         <h2
           id="suggested-heading"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-white"
+          className="text-fg inline-flex items-center gap-1.5 text-sm font-semibold"
         >
-          <Sparkles className="size-4 text-violet-300" aria-hidden />
+          <Sparkles className="text-accent size-4" aria-hidden />
           {title}
         </h2>
         <Link
           href="/tools"
-          className="text-xs font-medium text-violet-300 transition hover:text-violet-200"
+          className="text-accent hover:text-accent text-xs font-medium transition"
         >
           All tools
         </Link>
@@ -113,38 +113,38 @@ export function SuggestedTools({
               onClick={() => onOpen(tool)}
               aria-current={suggested ? "true" : undefined}
               className={cn(
-                "group flex items-center gap-3 rounded-xl border px-2.5 py-2 transition",
+                "group flex items-center gap-3 rounded-[3px] border px-2.5 py-2 transition",
                 suggested
-                  ? "border-violet-400/40 bg-violet-500/10"
-                  : "border-transparent hover:border-white/10 hover:bg-white/[0.04]",
+                  ? "border-accent/40 bg-accent/10"
+                  : "hover:border-line hover:bg-wash border-transparent",
               )}
             >
               <ToolIcon icon={tool.icon} gradient={tool.gradient} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium text-white">
+                  <span className="text-fg truncate text-sm font-medium">
                     {tool.name}
                   </span>
                   {suggested && (
-                    <span className="rounded-full border border-violet-400/40 bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-violet-200 uppercase">
+                    <span className="border-accent/40 bg-accent/10 text-accent rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide uppercase">
                       Suggested
                     </span>
                   )}
                   <span
                     className={cn(
-                      "ml-auto shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                      "ml-auto shrink-0 rounded-[2px] border px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide uppercase",
                       capabilityTone(tool.live, tool.processing),
                     )}
                   >
                     {tool.live ? "In-browser" : tool.capabilityLabel}
                   </span>
                 </span>
-                <span className="block truncate text-xs text-slate-400">
+                <span className="text-muted block truncate text-xs">
                   {reason}
                 </span>
               </span>
               <ArrowRight
-                className="size-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-white"
+                className="text-muted group-hover:text-fg size-4 shrink-0 transition group-hover:translate-x-0.5"
                 aria-hidden
               />
             </Link>

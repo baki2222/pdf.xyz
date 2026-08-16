@@ -191,7 +191,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         <RunnerSection
           title="Image order"
           aside={
-            <span className="text-xs text-slate-400">
+            <span className="text-muted text-xs">
               {items.length} image{items.length === 1 ? "" : "s"}
             </span>
           }
@@ -200,7 +200,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             {items.map((item, index) => (
               <div
                 key={item.id}
-                className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]"
+                className="border-line bg-wash overflow-hidden rounded-[4px] border"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -209,12 +209,12 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                   className="h-40 w-full bg-black/30 object-contain"
                 />
                 <div className="flex items-center gap-2 p-3">
-                  <GripVertical className="size-4 text-slate-400" aria-hidden />
+                  <GripVertical className="text-muted size-4" aria-hidden />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-200">
+                    <p className="text-fg truncate text-sm font-medium">
                       {item.name}
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-muted text-xs">
                       Page {index + 1} · {formatBytes(item.size)}
                     </p>
                   </div>
@@ -252,7 +252,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       )}
 
       {loading > 0 && (
-        <p className="text-sm text-slate-400">
+        <p className="text-muted text-sm">
           Loading {loading} image{loading === 1 ? "" : "s"}…
         </p>
       )}
@@ -288,4 +288,4 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
 }
 
 const iconButtonClass =
-  "inline-grid size-8 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
+  "inline-grid size-8 place-items-center rounded-full border border-line bg-wash text-muted transition hover:bg-wash aria-disabled:cursor-not-allowed aria-disabled:opacity-40";

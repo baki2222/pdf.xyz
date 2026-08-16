@@ -131,9 +131,7 @@ function RotateEditor({
 
       <RunnerSection
         title="Rotate"
-        aside={
-          <span className="text-xs text-slate-400">Applies to {scope}</span>
-        }
+        aside={<span className="text-muted text-xs">Applies to {scope}</span>}
       >
         <div className="flex flex-wrap items-center gap-2">
           <ChipButton onClick={() => rotateBy(-90)}>
@@ -148,7 +146,7 @@ function RotateEditor({
             <FlipHorizontal2 className="size-3.5" aria-hidden />
             180°
           </ChipButton>
-          <span className="mx-1 h-4 w-px bg-white/10" aria-hidden />
+          <span className="bg-wash mx-1 h-4 w-px" aria-hidden />
           <ChipButton onClick={() => setSelected(allIndices(pdf.pageCount))}>
             Select all
           </ChipButton>
@@ -186,7 +184,7 @@ function RotateEditor({
       <div
         role="group"
         aria-label="Pages — select the ones to rotate. Shift-click to select a range."
-        className="grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-2xl border border-white/10 bg-white/[0.015] p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
+        className="border-line bg-wash grid max-h-[58vh] grid-cols-2 gap-3 overflow-auto rounded-[4px] border p-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
       >
         {rotations.map((rotation, i) => (
           <PageTile

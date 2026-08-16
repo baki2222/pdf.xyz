@@ -55,7 +55,7 @@ export function PositionPicker({
     <div
       role="radiogroup"
       aria-label={label}
-      className="grid aspect-[4/3] w-40 grid-cols-3 grid-rows-3 gap-1 rounded-2xl border border-white/10 bg-black/20 p-1.5"
+      className="border-line grid aspect-[4/3] w-40 grid-cols-3 grid-rows-3 gap-1 rounded-[4px] border bg-black/20 p-1.5"
     >
       {STAMP_POSITIONS.map((position) => {
         const { h, v } = resolveAlign(position);
@@ -74,14 +74,14 @@ export function PositionPicker({
               H_JUSTIFY[h],
               V_ALIGN[v],
               active
-                ? "border-violet-400/60 bg-violet-500/20"
-                : "border-white/10 bg-white/[0.02] hover:border-white/25 hover:bg-white/[0.05]",
+                ? "border-accent/40 bg-accent/10"
+                : "border-line bg-wash hover:border-line-strong hover:bg-wash",
             )}
           >
             <span
               className={cn(
                 "size-1.5 rounded-full transition",
-                active ? "bg-violet-300" : "bg-slate-500",
+                active ? "bg-accent" : "bg-slate-500",
               )}
               aria-hidden
             />
@@ -114,10 +114,10 @@ export function RangeField({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <label htmlFor={id} className="text-xs font-medium text-slate-300">
+        <label htmlFor={id} className="text-muted text-xs font-medium">
           {label}
         </label>
-        <span className="text-xs text-slate-400 tabular-nums">
+        <span className="text-muted text-xs tabular-nums">
           {format ? format(value) : value}
         </span>
       </div>
@@ -129,7 +129,7 @@ export function RangeField({
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-violet-400"
+        className="bg-wash accent-accent h-1.5 w-full cursor-pointer appearance-none rounded-full"
       />
     </div>
   );
@@ -151,7 +151,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="inline-flex rounded-xl border border-white/10 bg-black/20 p-1"
+      className="border-line inline-flex rounded-[3px] border bg-black/20 p-1"
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -165,9 +165,7 @@ export function SegmentedControl<T extends string>({
             onClick={() => onChange(option.value)}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition",
-              active
-                ? "bg-violet-500/20 text-violet-100"
-                : "text-slate-400 hover:text-white",
+              active ? "bg-accent/10 text-accent" : "text-muted hover:text-fg",
             )}
           >
             {option.label}
@@ -196,7 +194,7 @@ export function TextField({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <label htmlFor={id} className="text-xs font-medium text-slate-300">
+        <label htmlFor={id} className="text-muted text-xs font-medium">
           {label}
         </label>
         {aside}
@@ -207,7 +205,7 @@ export function TextField({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 transition outline-none placeholder:text-slate-400 focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+        className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 w-full rounded-[3px] border bg-black/20 px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
       />
     </div>
   );
@@ -230,7 +228,7 @@ export function NumberField({
   const id = useId();
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor={id} className="text-xs font-medium text-slate-300">
+      <label htmlFor={id} className="text-muted text-xs font-medium">
         {label}
       </label>
       <input
@@ -244,7 +242,7 @@ export function NumberField({
           if (Number.isNaN(next)) return;
           onChange(Math.min(max, Math.max(min, Math.round(next))));
         }}
-        className="w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 text-sm text-slate-100 transition outline-none focus:border-violet-400/50 focus:ring-2 focus:ring-violet-400/20"
+        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 w-full rounded-[3px] border bg-black/20 px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
       />
     </div>
   );
@@ -260,7 +258,7 @@ export function TokenButtons({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] tracking-wide text-slate-400 uppercase">
+      <span className="text-muted text-[11px] tracking-wide uppercase">
         Insert
       </span>
       {tokens.map(({ token, label }) => (
@@ -268,7 +266,7 @@ export function TokenButtons({
           key={token}
           type="button"
           onClick={() => onInsert(token)}
-          className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-0.5 font-mono text-[11px] text-violet-200 transition hover:border-violet-400/40 hover:bg-violet-500/10"
+          className="border-line bg-wash text-accent hover:border-accent/40 hover:bg-accent/10 rounded-md border px-2 py-0.5 font-mono text-[11px] transition"
         >
           {label}
         </button>
@@ -280,8 +278,8 @@ export function TokenButtons({
 /** A compact, reassuring privacy line reused across the stamping runners. */
 export function PrivacyLine({ children }: { children: ReactNode }) {
   return (
-    <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-      <ShieldCheck className="size-3.5 text-emerald-400/80" aria-hidden />
+    <p className="text-muted inline-flex items-center gap-1.5 text-xs">
+      <ShieldCheck className="text-ok size-3.5" aria-hidden />
       {children}
     </p>
   );

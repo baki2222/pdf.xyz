@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Newsreader } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { siteConfig } from "@/lib/site";
@@ -9,6 +10,18 @@ import { LiveRegion } from "@/components/a11y/live-region";
 import { isTelemetryEnabled } from "@/lib/telemetry";
 import { cn } from "@/lib/utils";
 import "./globals.css";
+
+/**
+ * The display voice of the redesign: an editorial serif for headlines,
+ * paired against Geist Sans for UI and Geist Mono for data. Self-hosted
+ * at build time by next/font, so no runtime font request leaves the page.
+ */
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  variable: "--font-newsreader",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
@@ -46,8 +59,12 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#060611",
-  colorScheme: "dark",
+  // The paper canvas of the redesigned entry surface, per scheme. Routes
+  // still on the legacy dark theme set their own color-scheme via CSS.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f7f5f2" },
+    { media: "(prefers-color-scheme: dark)", color: "#171412" },
+  ],
   width: "device-width",
   initialScale: 1,
 };
@@ -58,7 +75,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={cn(GeistSans.variable, GeistMono.variable)}
+      className={cn(
+        GeistSans.variable,
+        GeistMono.variable,
+        newsreader.variable,
+      )}
       /**
        * We ship `html { scroll-behavior: smooth }` for in-page anchor links.
        * Since Next 16 the router no longer neutralizes that during a route
@@ -80,10 +101,10 @@ export default function RootLayout({
        * `metadata.title.default` covers the root and `.template` wraps every
        * page title, so the export is the single source. See metadata.spec.ts.
        */}
-      <body className="bg-ink min-h-dvh font-sans text-slate-200 antialiased">
+      <body className="min-h-dvh font-sans antialiased">
         <a
           href="#main"
-          className="text-ink sr-only rounded-full bg-white px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]"
+          className="theme-paper bg-invert text-fg-invert sr-only rounded-[3px] px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]"
         >
           Skip to content
         </a>
