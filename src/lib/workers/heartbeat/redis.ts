@@ -80,6 +80,8 @@ export interface HeartbeatPublishSpec {
   readonly capabilities: HeartbeatCapabilities;
   /** Raw release; coarsened to `major.minor` (or dropped) before storage. */
   readonly release?: string;
+  /** The image's source fingerprint; dropped unless it is exactly 12 hex. */
+  readonly fingerprint?: string;
 }
 
 /**
@@ -119,10 +121,12 @@ export function createRedisHeartbeatPublisher(
       // Back off regardless of the outcome below, so a persistent broker failure is
       // retried at most once per interval rather than hammered every tick.
       lastAttemptAt = t;
+      // SPREAD, never field by field. Naming the fields here is what made the
+      // build fingerprint a no-op: it computed, the daemon passed it, and three
+      // separate hand-copies in a row each forwarded everything they had been
+      // told about and silently dropped what they had not.
       const record = buildHeartbeat({
-        mode: spec.mode,
-        capabilities: spec.capabilities,
-        ...(spec.release !== undefined ? { release: spec.release } : {}),
+        ...spec,
         at: t,
       });
       try {

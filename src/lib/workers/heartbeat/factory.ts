@@ -173,14 +173,24 @@ export function createHeartbeatPublisher(
 ): HeartbeatPublisher {
   const resolved = resolveHeartbeat(env);
   if (resolved.enabled && resolved.redis) {
+    /**
+     * FORWARD THE SPEC, do not rebuild it.
+     *
+     * This function used to name `mode`, `capabilities` and `release` and copy
+     * them across — and that is precisely how the build fingerprint shipped
+     * inert: it computed correctly inside the running image, the daemon passed
+     * it, and this hand-copy dropped it without a word. Everything downstream
+     * was correct about a field it never received.
+     *
+     * `deps` is the only member that is not part of the published record, so it
+     * is the only one named. Anything added to `HeartbeatPublishSpec` now
+     * reaches the wire by construction rather than by somebody remembering.
+     */
+    const { deps: _deps, ...spec } = opts;
     return createRedisHeartbeatPublisher(
       resolved.redis,
       resolved.intervalSeconds,
-      {
-        mode: opts.mode,
-        capabilities: opts.capabilities,
-        ...(opts.release !== undefined ? { release: opts.release } : {}),
-      },
+      spec,
       opts.deps ?? {},
     );
   }
