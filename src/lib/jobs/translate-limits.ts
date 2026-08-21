@@ -230,3 +230,64 @@ export const TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS = 8_000;
 export const TRANSLATE_MAX_INPUT_CHARS = translateMaxInputChars(
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
 );
+
+/**
+ * The measured collapsed divergence between the two extractors, per geometry —
+ * the table above, as data rather than prose.
+ *
+ * It is here so the headroom below is DERIVED from the measurement rather than
+ * typed beside it. A constant typed next to its own evidence still goes stale
+ * silently; a constant computed from it cannot.
+ */
+export const TRANSLATE_EXTRACTOR_DIVERGENCE = {
+  /** Xpdf `pdftotext` 4.00, six pdf-lib fixtures, 120 lines each. */
+  measuredOn: "2026-08-11",
+  /**
+   * ⚠️ NOT THE BINARY WE SHIP. The worker runs poppler 22.12.0; these were taken
+   * on Xpdf 4.00, and this file already records one claim from that binary — the
+   * `default`-mode transposition — that **did not reproduce on poppler**. So the
+   * shape is the finding and the magnitudes are indicative, and the headroom
+   * derived from them is a SAMPLED maximum, not a bound. Re-measure on the
+   * worker's binary before treating it as one.
+   */
+  binary: "xpdf-pdftotext-4.00",
+  shippedBinary: "poppler-22.12.0",
+  /** Worker length ÷ browser length, after `collapseLayoutPadding`. */
+  collapsed: {
+    singleColumnProse: 1.0001,
+    deepLeftIndent: 1.0005,
+    twoColumns: 1.0198,
+    sparseWideGrid: 1.1076,
+    fourColumnTable: 1.0781,
+    eightColumnGrid: 1.2031,
+  },
+} as const;
+
+/**
+ * How much more text the WORKER may find than the browser reported.
+ *
+ * The browser under-counts, and the docblock above establishes why with
+ * arithmetic that closes to within one character: pdfjs concatenates adjacent
+ * text items with nothing between them, so it reads `North1200` as eleven
+ * characters where any reader sees twelve. The surplus is one space per
+ * inter-column gap per line — a property of PAGE GEOMETRY, not of length.
+ *
+ * WHY A MARGIN IS RIGHT HERE AND WRONG FOR THE CEILING. The docblock above says
+ * plainly that "a margin is still not the answer" — and for the ceiling it is
+ * not: under-margining there truncates a document, and over-margining bills a
+ * user for a call the model cannot answer. Both directions are expensive.
+ *
+ * For a per-client ALLOWANCE the two directions are not symmetric. Under-
+ * reserving would truncate an honest caller's own document; over-reserving
+ * costs a little capacity. The uncertainty lands on the cheap side, which is
+ * what makes this a chosen margin rather than a guessed constant.
+ *
+ * IT IS A SAMPLED MAXIMUM, NOT A BOUND, and that is why it may not stand alone.
+ * The mechanism is `(columns − 1) × lines` surplus characters, so a denser grid
+ * than the eight-column fixture would exceed it — the six geometries are a
+ * corpus, not a proof. The reservation is therefore backed by a delivery cap
+ * that makes an exceeded reservation **visible** rather than silent.
+ */
+export const TRANSLATE_EXTRACTOR_HEADROOM = Math.max(
+  ...Object.values(TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed),
+);

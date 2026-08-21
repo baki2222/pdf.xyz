@@ -29,7 +29,11 @@ import {
 } from "./guard";
 import { AI_CHARACTER_ALLOWANCE } from "@/lib/jobs/ai-allowance";
 import { RATE_LIMITS } from "@/lib/jobs/types";
-import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
+import {
+  TRANSLATE_EXTRACTOR_DIVERGENCE,
+  TRANSLATE_EXTRACTOR_HEADROOM,
+  TRANSLATE_MAX_INPUT_CHARS,
+} from "@/lib/jobs/translate-limits";
 
 const LOCAL = { PDFXYZ_RATE_LIMIT_PROVIDER: "local-memory" };
 const T0 = 1_700_000_000_000;
@@ -44,10 +48,19 @@ describe("the daily budget is derived, never typed", () => {
     // Ships behind today's capacity so nothing gets more expensive by accident,
     // and DERIVED from both factors so it moves if either does — a typed 30774
     // would silently stop describing the tool the day the ceiling changed.
+    // Three factors, all derived: the per-call ceiling, the runs it replaces,
+    // and the headroom that stops an honest caller paying for our two
+    // extractors disagreeing. `30,774 × 1.2031` — today's capacity preserved
+    // exactly at the worst measured geometry, so nothing becomes more
+    // expensive by accident.
     expect(AI_CHARACTER_ALLOWANCE).toBe(
-      TRANSLATE_MAX_INPUT_CHARS * RATE_LIMITS.aiRunsPerDayPerClient,
+      Math.floor(
+        TRANSLATE_MAX_INPUT_CHARS *
+          RATE_LIMITS.aiRunsPerDayPerClient *
+          TRANSLATE_EXTRACTOR_HEADROOM,
+      ),
     );
-    expect(AI_CHARACTER_ALLOWANCE).toBe(30_774);
+    expect(AI_CHARACTER_ALLOWANCE).toBe(37_024);
   });
 });
 
@@ -119,5 +132,66 @@ describe("a job reserves the characters it will actually use", () => {
     const verdict = await enforceAiCharacterAllowance(500, req(), {}, T0);
     expect(verdict.allowed).toBe(true);
     expect(verdict.enforced).toBe(false);
+  });
+});
+
+/**
+ * The headroom that keeps an HONEST caller from paying for our two extractors
+ * disagreeing.
+ *
+ * The browser reports the count; the worker finds up to ~20% more on a
+ * column-heavy page, because pdfjs concatenates adjacent text items with
+ * nothing between them and `pdftotext -layout` (collapsed) emits one space per
+ * inter-column gap. Reserving the browser's raw count would truncate a
+ * legitimate document — a broken result the caller did not cause.
+ */
+describe("the extractor headroom", () => {
+  it("is DERIVED from the recorded table, not typed beside it", () => {
+    // A constant typed next to its own evidence still goes stale silently.
+    expect(TRANSLATE_EXTRACTOR_HEADROOM).toBe(
+      Math.max(...Object.values(TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed)),
+    );
+    expect(TRANSLATE_EXTRACTOR_HEADROOM).toBe(1.2031);
+  });
+
+  it("preserves today's capacity at the WORST geometry, and improves prose", () => {
+    // The criterion the original pages ruling led with and the only one it got
+    // right: nothing becomes more expensive by accident. At the worst measured
+    // geometry a client still gets exactly today's three runs' worth; on
+    // ordinary prose (divergence 1.0001) they get slightly more.
+    const worst = TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed.eightColumnGrid;
+    const todaysCapacity =
+      TRANSLATE_MAX_INPUT_CHARS * RATE_LIMITS.aiRunsPerDayPerClient;
+    expect(AI_CHARACTER_ALLOWANCE / worst).toBeGreaterThanOrEqual(
+      todaysCapacity - 1,
+    );
+    const prose = TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed.singleColumnProse;
+    expect(AI_CHARACTER_ALLOWANCE / prose).toBeGreaterThan(todaysCapacity);
+  });
+
+  it("records that it was measured on a binary we do not ship", () => {
+    // This file already carries one claim from Xpdf 4.00 that did NOT reproduce
+    // on poppler (the `default`-mode transposition). A load-bearing constant
+    // from the same source has to say so rather than let the next reader assume
+    // it came from production.
+    expect(TRANSLATE_EXTRACTOR_DIVERGENCE.binary).toMatch(/xpdf/i);
+    expect(TRANSLATE_EXTRACTOR_DIVERGENCE.shippedBinary).toMatch(/poppler/i);
+    expect(TRANSLATE_EXTRACTOR_DIVERGENCE.binary).not.toBe(
+      TRANSLATE_EXTRACTOR_DIVERGENCE.shippedBinary,
+    );
+    expect(TRANSLATE_EXTRACTOR_DIVERGENCE.measuredOn).toMatch(
+      /^\d{4}-\d{2}-\d{2}$/,
+    );
+  });
+
+  it("is a SAMPLED maximum — the corpus is six geometries, not a proof", () => {
+    // The mechanism is (columns − 1) × lines surplus characters, so a denser
+    // grid than the eight-column fixture exceeds this. That is precisely why
+    // the reservation may not stand alone: an exceeded reservation has to be
+    // visible, not silent.
+    const rows = Object.values(TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed);
+    expect(rows.length).toBe(6);
+    expect(Math.min(...rows)).toBeLessThan(1.001); // prose is ~a no-op
+    expect(Math.max(...rows)).toBeGreaterThan(1.2); // a grid is not
   });
 });

@@ -62,7 +62,10 @@
  * becomes a pointer to it rather than a warning about its absence.
  */
 import { RATE_LIMITS } from "./types";
-import { TRANSLATE_MAX_INPUT_CHARS } from "./translate-limits";
+import {
+  TRANSLATE_EXTRACTOR_HEADROOM,
+  TRANSLATE_MAX_INPUT_CHARS,
+} from "./translate-limits";
 
 /**
  * The quantity, shared by both sentences — and the only part that can go stale,
@@ -101,8 +104,11 @@ import { TRANSLATE_MAX_INPUT_CHARS } from "./translate-limits";
  * persisted recently. Revise it from `results.ai.usage` rows and record the date
  * here in the same commit.
  */
-export const AI_CHARACTER_ALLOWANCE =
-  TRANSLATE_MAX_INPUT_CHARS * RATE_LIMITS.aiRunsPerDayPerClient;
+export const AI_CHARACTER_ALLOWANCE = Math.floor(
+  TRANSLATE_MAX_INPUT_CHARS *
+    RATE_LIMITS.aiRunsPerDayPerClient *
+    TRANSLATE_EXTRACTOR_HEADROOM,
+);
 
 /** Where the figure came from, so its age is visible rather than implicit. */
 export const AI_CHARACTER_ALLOWANCE_BASIS = {
