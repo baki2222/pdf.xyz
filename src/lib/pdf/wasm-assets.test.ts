@@ -15,6 +15,7 @@
  * region and no error, which is why they are pinned here rather than trusted
  * to review.
  */
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -109,37 +110,81 @@ describe("the pinned pdfjs decoders match the installed package", () => {
 
 describe("every document we open asks for the decoders", () => {
   /**
-   * The whole source tree, recursively — NOT `src/lib/pdf`.
+   * The corpus: every TypeScript file THIS REPOSITORY TRACKS.
    *
-   * The first version of this guard read one flat directory, because that is
-   * where all four call sites happen to live today. It would have been blind
-   * to a `getDocument` in a `.tsx` runner, under `src/lib/workers`, or in
-   * `scripts/` — a private, narrow walk written inside the fix for the defect
-   * that narrow private walks keep causing. The surface has to be as wide as
-   * the place the mistake can be made, not as wide as the mistakes made so far.
+   * DERIVED, not listed — and the previous version was listed. It walked
+   * `["src", "scripts"]`, under a docblock arguing that "the surface has to be
+   * as wide as the place the mistake can be made". Two roots is not that: the
+   * e2e proof harness lives in `e2e/`, and `e2e/client-proof/artifacts.ts`
+   * became the first `getDocument` call site outside those two roots — so the
+   * guard that exists to stop a pdfjs asset option from going unset could not
+   * see the newest place one is configured. CLAUDE.md rule 4: a right command
+   * over the wrong set.
+   *
+   * `git ls-files` is the derivation because it is a fact that must ALREADY be
+   * true — the repository's own answer to "what source do we have". A new
+   * top-level directory is covered the day it is committed, generated output
+   * (`.next`, `test-results`) is excluded because git already ignores it, and
+   * nobody has to remember to widen a list. It is FATAL if git cannot answer:
+   * an instrument that silently returns fewer files reports the strongest
+   * possible pass.
    */
   const sourceFiles = (): string[] => {
+    const listed = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    return listed
+      .split("\n")
+      .map((f) => f.trim())
+      .filter((f) => f.length > 0 && !f.includes(".test."))
+      .map((f) => path.join(process.cwd(), f));
+  };
+
+  /**
+   * The arguments of every `getDocument(...)` call in `source`, matched by
+   * counting parentheses rather than by a regex.
+   *
+   * `getDocument\(([^)]*)\)` stops at the FIRST `)`, so a perfectly ordinary
+   * call — `getDocument({ data: new Uint8Array(buf), ...DEFAULTS })` — was read
+   * as `{ data: new Uint8Array(buf` and would have been reported as an offender
+   * the moment the corpus grew to include one. The matcher was as narrow as the
+   * set it had only ever been pointed at, which is the same defect one layer in.
+   */
+  const getDocumentArgs = (source: string): string[] => {
     const out: string[] = [];
-    const walk = (dir: string) => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
-          out.push(full);
+    const needle = "getDocument(";
+    let at = source.indexOf(needle);
+    while (at !== -1) {
+      let depth = 0;
+      let i = at + needle.length - 1;
+      for (; i < source.length; i++) {
+        const ch = source[i];
+        if (ch === "(") depth += 1;
+        else if (ch === ")") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
       }
-    };
-    for (const root of ["src", "scripts"]) {
-      const dir = path.join(process.cwd(), root);
-      if (statSync(dir).isDirectory()) walk(dir);
+      out.push(source.slice(at + needle.length, i));
+      at = source.indexOf(needle, i);
     }
     return out;
   };
 
-  it("scans the whole source tree, not one directory", () => {
-    const files = sourceFiles().map((f) =>
+  const relFiles = (): string[] =>
+    sourceFiles().map((f) =>
       path.relative(process.cwd(), f).replace(/\\/g, "/"),
     );
-    expect(files.length).toBeGreaterThanOrEqual(200);
+
+  it("HEALTH CHECK: the corpus is the repository, not a directory", () => {
+    const files = relFiles();
+    expect(
+      files.length,
+      "git listed implausibly little TypeScript — the corpus collapsed and every " +
+        "assertion below would pass over almost nothing",
+    ).toBeGreaterThanOrEqual(200);
     // Reach-proof: a call site could legitimately appear in any of these
     // shapes, so the walk must demonstrably reach all of them.
     expect(files).toContain("src/lib/pdf/render.ts");
@@ -148,6 +193,57 @@ describe("every document we open asks for the decoders", () => {
     ).toBe(true);
     expect(files.some((f) => f.startsWith("src/lib/workers/"))).toBe(true);
     expect(files.some((f) => f.startsWith("scripts/"))).toBe(true);
+    // The directory the previous list could not see.
+    expect(
+      files.some((f) => f.startsWith("e2e/")),
+      "the corpus does not reach e2e/, where the proof harness configures pdfjs",
+    ).toBe(true);
+  });
+
+  it("reaches EVERY file that calls getDocument, wherever it lives", () => {
+    // The property, stated independently of any one root: no file in this
+    // repository may call getDocument without the guard seeing it. This is the
+    // arm that was red before the corpus was derived —
+    // `e2e/client-proof/artifacts.ts` called getDocument and nothing here
+    // could reach it.
+    const callers = sourceFiles().filter((f) =>
+      readFileSync(f, "utf8").includes("getDocument("),
+    );
+    expect(
+      callers.length,
+      "no getDocument callers found at all — this guard has stopped reading the engines",
+    ).toBeGreaterThan(0);
+    const roots = new Set(
+      callers.map(
+        (f) =>
+          path.relative(process.cwd(), f).replace(/\\/g, "/").split("/")[0],
+      ),
+    );
+    expect(
+      roots.has("e2e"),
+      "no e2e getDocument call site is visible; if the harness stopped opening " +
+        "documents this assertion should be revisited deliberately, not deleted",
+    ).toBe(true);
+    expect(
+      roots.size,
+      "every call site sits under one root again — the corpus may have narrowed",
+    ).toBeGreaterThan(1);
+  });
+
+  it("CONTROL: the argument matcher survives a nested call", () => {
+    // The regex this replaced stopped at the first `)`, so this exact shape —
+    // the one the e2e harness actually uses — read as
+    // `{ data: new Uint8Array(buf` and would have been reported as an offender.
+    const args = getDocumentArgs(
+      "const t = getDocument({ data: new Uint8Array(buf), ...PDFJS_DOCUMENT_DEFAULTS });",
+    );
+    expect(args).toHaveLength(1);
+    expect(args[0]).toContain("PDFJS_DOCUMENT_DEFAULTS");
+    // And it still separates two independent calls rather than swallowing both.
+    expect(getDocumentArgs("getDocument(a); getDocument(b(c));")).toEqual([
+      "a",
+      "b(c)",
+    ]);
   });
 
   it("has no getDocument call that builds its own options", () => {
@@ -155,11 +251,11 @@ describe("every document we open asks for the decoders", () => {
     let callSites = 0;
     for (const file of sourceFiles()) {
       const source = readFileSync(file, "utf8");
-      for (const match of source.matchAll(/getDocument\(([^)]*)\)/g)) {
+      for (const args of getDocumentArgs(source)) {
         callSites += 1;
-        if (!match[1]!.includes("PDFJS_DOCUMENT_DEFAULTS")) {
+        if (!args.includes("PDFJS_DOCUMENT_DEFAULTS")) {
           offenders.push(
-            `${rel(file)}: getDocument(${match[1]!.trim()}) does not spread ` +
+            `${rel(file)}: getDocument(${args.trim()}) does not spread ` +
               "PDFJS_DOCUMENT_DEFAULTS — without wasmUrl this document's JPEG2000 and " +
               "JBIG2 images decode to nothing, silently",
           );

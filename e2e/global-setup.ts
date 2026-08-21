@@ -43,13 +43,17 @@ export default async function guardProductionServer(
 
   if (status === 404) {
     // A PRODUCTION server is listening and about to be adopted. Refuse it unless
-    // it serves THIS checkout's build: `reuseExistingServer` happily adopts a
-    // leftover `next start` from another checkout, and a suite that silently
-    // tests last week's code is the worst failure mode — it reports success.
-    // (Measured 2026-08-09: a worktree run adopted the main tree's stale server
-    // on the shared port and failed brand-new specs against old code.) The
-    // discriminator is the local build's newest content-hashed chunk — served
-    // 200 iff the adopted server runs the same bytes.
+    // it was BUILT FROM THIS TREE: `reuseExistingServer` happily adopts a
+    // leftover `next start`, and a suite that silently tests other code is the
+    // worst failure mode — it reports success. Two ways that happens, and the
+    // second is the one the first version of this check could not see:
+    //   1. another checkout on the shared port (measured 2026-08-09);
+    //   2. THIS worktree, rebuilt in place while the old process kept running
+    //      (measured 2026-08-16 — it cost a full e2e run, 30 cases red for the
+    //      wrong reason, because `next start` serves /_next/static/* off disk
+    //      and the stale process happily served the new chunk files).
+    // The discriminator is the build id the server itself reports, which it
+    // holds in memory from the build it booted with.
     const verdict = await verifyAdoptedServerBuild(
       baseURL,
       path.join(process.cwd(), ".next"),
@@ -60,7 +64,9 @@ export default async function guardProductionServer(
         `A production server is already listening on ${baseURL}, but it is not serving THIS checkout's build.`,
         verdict.reason === "no-local-build"
           ? "This checkout has no local .next build to compare against, so the adopted server's code is unknown."
-          : "The freshest locally built chunk is not served there (404) — it is another checkout's or an older build.",
+          : verdict.reason === "unreachable"
+            ? "It did not answer with a page, so its build could not be identified — adoption is refused rather than guessed at."
+            : "It reports a different build id than this tree just built: another checkout, or this one before your last `pnpm build` (the old process keeps serving even though the files on disk are new).",
         "",
         "Adopting it would run the suite against different code than you think you are testing.",
         "Stop that server (or free the port via E2E_PORT), then re-run:",
