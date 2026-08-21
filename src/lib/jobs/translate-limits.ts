@@ -264,6 +264,53 @@ export const TRANSLATE_EXTRACTOR_DIVERGENCE = {
 } as const;
 
 /**
+ * The same measurement on the binary we ACTUALLY SHIP — poppler 22.12.0, run on
+ * the worker box, `-layout` plus `collapseLayoutPadding`.
+ *
+ * It is here because the Xpdf table above turned out to understate the range
+ * badly, and not at the margin: **a wide table of short cells — any spreadsheet
+ * exported to PDF — reaches 1.95**, which is 1.6× the Xpdf maximum. A headroom
+ * of 1.2031 would have truncated the honest owner of such a document at ~63% of
+ * their own file. That is not a tail case a backstop mops up; it is a common
+ * input the constant simply did not cover.
+ */
+export const TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED = {
+  measuredOn: "2026-08-21",
+  binary: "poppler-22.12.0",
+  /** `columns × characters-per-cell` → worker length ÷ drawn length. */
+  collapsed: {
+    oneColumnFiveChar: 1.0014,
+    eightColumnFiveChar: 1.1709,
+    sixteenColumnFiveChar: 1.1853,
+    twentyFourColumnOneChar: 1.9203,
+    fortyColumnOneChar: 1.9514,
+  },
+} as const;
+
+/**
+ * The horizontal divergence a page of `itemsPerLine` text items can produce —
+ * the DERIVATION the measurements above check.
+ *
+ * After `collapseLayoutPadding`, `pdftotext -layout` can emit **at most one
+ * space per column gap** (collapsing runs of whitespace to one is exactly what
+ * guarantees that), and every drawn item contributes **at least one character**.
+ * So per line the worker emits at most `n items + (n − 1) spaces + 1 newline`
+ * while the browser emits at least `n items + 1 newline`:
+ *
+ * ```
+ *   ratio ≤ (2n) / (n + 1)  =  1 + (n − 1)/(n + 1)  <  2   for every n
+ * ```
+ *
+ * Two is approached and never reached. Checked against poppler on the shipped
+ * binary and agreeing to four significant figures: n=24 predicts 1.9200 against
+ * 1.9203 measured, n=40 predicts 1.9512 against 1.9514.
+ */
+export function extractorHorizontalRatioBound(itemsPerLine: number): number {
+  const n = Math.max(1, Math.floor(itemsPerLine));
+  return (2 * n) / (n + 1);
+}
+
+/**
  * How much more text the WORKER may find than the browser reported.
  *
  * The browser under-counts, and the docblock above establishes why with
@@ -282,12 +329,31 @@ export const TRANSLATE_EXTRACTOR_DIVERGENCE = {
  * costs a little capacity. The uncertainty lands on the cheap side, which is
  * what makes this a chosen margin rather than a guessed constant.
  *
- * IT IS A SAMPLED MAXIMUM, NOT A BOUND, and that is why it may not stand alone.
- * The mechanism is `(columns − 1) × lines` surplus characters, so a denser grid
- * than the eight-column fixture would exceed it — the six geometries are a
- * corpus, not a proof. The reservation is therefore backed by a delivery cap
- * that makes an exceeded reservation **visible** rather than silent.
+ * IT IS DERIVED, NOT SAMPLED — and the first version of it was sampled, which
+ * is the mistake worth keeping. `Math.max` over the Xpdf table gave **1.2031**,
+ * and poppler on the shipped binary reaches **1.9514** on a wide table of short
+ * cells: any spreadsheet exported to PDF. That headroom would have truncated
+ * such a document's honest owner at ~63% of their own file — not a tail case,
+ * a common input.
+ *
+ * So the constant is the supremum of {@link extractorHorizontalRatioBound},
+ * which is proven rather than observed and checked against poppler to four
+ * significant figures.
+ *
+ * **AND IT COSTS NOTHING, which is why the size is not worth arguing about.**
+ * With budget `B = ceiling × runs × h` and a reservation of `count × h`, a
+ * client's documents per day is `B / (count × h) = ceiling × runs / count` —
+ * **`h` cancels.** Capacity is 30,774 browser-characters whatever `h` is;
+ * raising it changes only how often the reservation falls short. There is no
+ * honest-user cost to trade against, so a tight headroom buys nothing and a
+ * loose one gives nothing away.
+ *
+ * ⚠️ WHAT THIS BOUND DOES NOT COVER, written here because a reader will
+ * otherwise assume it does. It bounds the HORIZONTAL term only. `-layout` also
+ * emits **blank lines** for vertical gaps, and `collapseLayoutPadding` does not
+ * touch newlines — that term is neither bounded nor measured. A page of widely
+ * separated blocks can therefore still exceed this. That is precisely why the
+ * reservation is backed by a delivery cap: an exceeded reservation has to be
+ * **visible**, as a positioned gap, rather than a silently short translation.
  */
-export const TRANSLATE_EXTRACTOR_HEADROOM = Math.max(
-  ...Object.values(TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed),
-);
+export const TRANSLATE_EXTRACTOR_HEADROOM = 2;

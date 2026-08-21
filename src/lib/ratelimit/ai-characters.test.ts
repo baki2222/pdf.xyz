@@ -31,7 +31,9 @@ import { AI_CHARACTER_ALLOWANCE } from "@/lib/jobs/ai-allowance";
 import { RATE_LIMITS } from "@/lib/jobs/types";
 import {
   TRANSLATE_EXTRACTOR_DIVERGENCE,
+  TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED,
   TRANSLATE_EXTRACTOR_HEADROOM,
+  extractorHorizontalRatioBound,
   TRANSLATE_MAX_INPUT_CHARS,
 } from "@/lib/jobs/translate-limits";
 
@@ -45,14 +47,15 @@ beforeEach(() => {
 
 describe("the daily budget is derived, never typed", () => {
   it("is exactly today's effective capacity", () => {
-    // Ships behind today's capacity so nothing gets more expensive by accident,
-    // and DERIVED from both factors so it moves if either does — a typed 30774
-    // would silently stop describing the tool the day the ceiling changed.
-    // Three factors, all derived: the per-call ceiling, the runs it replaces,
-    // and the headroom that stops an honest caller paying for our two
-    // extractors disagreeing. `30,774 × 1.2031` — today's capacity preserved
-    // exactly at the worst measured geometry, so nothing becomes more
-    // expensive by accident.
+    // Three factors, all derived, none typed: the per-call ceiling, the runs it
+    // replaces, and the extractor headroom. A typed `61_548` would go on
+    // describing a tool that had changed underneath it.
+    //
+    // THE HEADROOM DOES NOT MAKE ANYONE RICHER, which is the part that reads
+    // wrong at a glance. A reservation is `count × h` against a budget of
+    // `ceiling × runs × h`, so documents per day is `ceiling × runs / count` —
+    // `h` cancels. Capacity is still 30,774 browser-characters; the factor only
+    // decides how often a reservation falls short of what the worker finds.
     expect(AI_CHARACTER_ALLOWANCE).toBe(
       Math.floor(
         TRANSLATE_MAX_INPUT_CHARS *
@@ -60,7 +63,7 @@ describe("the daily budget is derived, never typed", () => {
           TRANSLATE_EXTRACTOR_HEADROOM,
       ),
     );
-    expect(AI_CHARACTER_ALLOWANCE).toBe(37_024);
+    expect(AI_CHARACTER_ALLOWANCE).toBe(61_548);
   });
 });
 
@@ -72,8 +75,8 @@ describe("a job reserves the characters it will actually use", () => {
     expect(first.allowed).toBe(true);
     const second = await enforceAiCharacterAllowance(500, req(), LOCAL, T0);
     expect(second.allowed).toBe(true);
-    // Three tiny documents used to exhaust the day. They now cost 1,500 of
-    // 30,774 — a twentieth of it.
+    // Three tiny documents used to exhaust the day. They now cost 1,500 of the
+    // budget rather than all of it.
     for (let i = 0; i < 20; i += 1) {
       const more = await enforceAiCharacterAllowance(500, req(), LOCAL, T0);
       expect(
@@ -139,59 +142,93 @@ describe("a job reserves the characters it will actually use", () => {
  * The headroom that keeps an HONEST caller from paying for our two extractors
  * disagreeing.
  *
- * The browser reports the count; the worker finds up to ~20% more on a
- * column-heavy page, because pdfjs concatenates adjacent text items with
- * nothing between them and `pdftotext -layout` (collapsed) emits one space per
- * inter-column gap. Reserving the browser's raw count would truncate a
- * legitimate document — a broken result the caller did not cause.
+ * The browser under-counts: pdfjs concatenates adjacent text items with nothing
+ * between them, so it reads `North1200` as eleven characters where any reader
+ * sees twelve. Reserving its raw count would truncate a legitimate document —
+ * a broken result the caller did not cause.
+ *
+ * THE FIRST VERSION OF THIS CONSTANT WAS SAMPLED AND WRONG BY 1.6×, and the
+ * history is the point. `Math.max` over the Xpdf table gave 1.2031; poppler on
+ * the binary we actually ship reaches 1.9514 on a wide table of short cells —
+ * any spreadsheet exported to PDF. That headroom would have truncated such a
+ * document's honest owner at ~63% of their own file.
  */
 describe("the extractor headroom", () => {
-  it("is DERIVED from the recorded table, not typed beside it", () => {
-    // A constant typed next to its own evidence still goes stale silently.
-    expect(TRANSLATE_EXTRACTOR_HEADROOM).toBe(
-      Math.max(...Object.values(TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed)),
-    );
-    expect(TRANSLATE_EXTRACTOR_HEADROOM).toBe(1.2031);
+  it("is DERIVED and below 2 for every page, never sampled from a table", () => {
+    // After collapsing, the worker emits at most `n items + (n-1) spaces + 1
+    // newline` per line where the browser emits at least `n + 1`. So the ratio
+    // is 2n/(n+1), which rises toward 2 and never reaches it.
+    for (const n of [1, 2, 8, 16, 24, 40, 1_000, 100_000]) {
+      expect(extractorHorizontalRatioBound(n)).toBeLessThan(2);
+    }
+    expect(extractorHorizontalRatioBound(1)).toBeCloseTo(1, 6);
+    // The supremum is what the constant is, so nothing a page can do exceeds it
+    // on the horizontal term.
+    expect(TRANSLATE_EXTRACTOR_HEADROOM).toBe(2);
   });
 
-  it("preserves today's capacity at the WORST geometry, and improves prose", () => {
-    // The criterion the original pages ruling led with and the only one it got
-    // right: nothing becomes more expensive by accident. At the worst measured
-    // geometry a client still gets exactly today's three runs' worth; on
-    // ordinary prose (divergence 1.0001) they get slightly more.
-    const worst = TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed.eightColumnGrid;
-    const todaysCapacity =
-      TRANSLATE_MAX_INPUT_CHARS * RATE_LIMITS.aiRunsPerDayPerClient;
-    expect(AI_CHARACTER_ALLOWANCE / worst).toBeGreaterThanOrEqual(
-      todaysCapacity - 1,
+  it("matches the SHIPPED binary to four significant figures", () => {
+    // The derivation checked against measurement — poppler 22.12.0 on the
+    // worker box, not the Xpdf build this table was first taken on. A bound
+    // that agrees with the real binary to four figures is the second,
+    // independent check a derived constant needs.
+    const shipped = TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED.collapsed;
+    expect(extractorHorizontalRatioBound(24)).toBeCloseTo(
+      shipped.twentyFourColumnOneChar,
+      3,
     );
-    const prose = TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed.singleColumnProse;
-    expect(AI_CHARACTER_ALLOWANCE / prose).toBeGreaterThan(todaysCapacity);
+    expect(extractorHorizontalRatioBound(40)).toBeCloseTo(
+      shipped.fortyColumnOneChar,
+      3,
+    );
+    // And every shipped measurement sits under the bound, which is the claim.
+    for (const ratio of Object.values(shipped)) {
+      expect(ratio).toBeLessThan(TRANSLATE_EXTRACTOR_HEADROOM);
+    }
   });
 
-  it("records that it was measured on a binary we do not ship", () => {
-    // This file already carries one claim from Xpdf 4.00 that did NOT reproduce
-    // on poppler (the `default`-mode transposition). A load-bearing constant
-    // from the same source has to say so rather than let the next reader assume
-    // it came from production.
+  it("covers the case the sampled maximum missed", () => {
+    // The regression this constant exists to prevent: a spreadsheet-shaped page
+    // that the Xpdf table's maximum did not reach.
+    const worstXpdf = Math.max(
+      ...Object.values(TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed),
+    );
+    const worstShipped = Math.max(
+      ...Object.values(TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED.collapsed),
+    );
+    expect(
+      worstShipped,
+      "the shipped binary no longer exceeds the Xpdf table — if that is real, " +
+        "the derivation still stands, but re-read why this test was written",
+    ).toBeGreaterThan(worstXpdf);
+    expect(worstShipped).toBeLessThan(TRANSLATE_EXTRACTOR_HEADROOM);
+  });
+
+  it("records that the table and the shipped run are different binaries", () => {
     expect(TRANSLATE_EXTRACTOR_DIVERGENCE.binary).toMatch(/xpdf/i);
     expect(TRANSLATE_EXTRACTOR_DIVERGENCE.shippedBinary).toMatch(/poppler/i);
-    expect(TRANSLATE_EXTRACTOR_DIVERGENCE.binary).not.toBe(
+    expect(TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED.binary).toBe(
       TRANSLATE_EXTRACTOR_DIVERGENCE.shippedBinary,
     );
-    expect(TRANSLATE_EXTRACTOR_DIVERGENCE.measuredOn).toMatch(
-      /^\d{4}-\d{2}-\d{2}$/,
-    );
+    for (const on of [
+      TRANSLATE_EXTRACTOR_DIVERGENCE.measuredOn,
+      TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED.measuredOn,
+    ]) {
+      expect(on).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
   });
 
-  it("is a SAMPLED maximum — the corpus is six geometries, not a proof", () => {
-    // The mechanism is (columns − 1) × lines surplus characters, so a denser
-    // grid than the eight-column fixture exceeds this. That is precisely why
-    // the reservation may not stand alone: an exceeded reservation has to be
-    // visible, not silent.
-    const rows = Object.values(TRANSLATE_EXTRACTOR_DIVERGENCE.collapsed);
-    expect(rows.length).toBe(6);
-    expect(Math.min(...rows)).toBeLessThan(1.001); // prose is ~a no-op
-    expect(Math.max(...rows)).toBeGreaterThan(1.2); // a grid is not
+  it("costs an honest user nothing, because the factor cancels", () => {
+    // Budget = ceiling x runs x h and a reservation is count x h, so documents
+    // per day is ceiling x runs / count — independent of h. This is why the
+    // size of the headroom is not worth trading against capacity.
+    const count = 5_000;
+    const docsPerDay = (h: number) =>
+      Math.floor(
+        TRANSLATE_MAX_INPUT_CHARS * RATE_LIMITS.aiRunsPerDayPerClient * h,
+      ) /
+      (count * h);
+    expect(docsPerDay(2)).toBeCloseTo(docsPerDay(1.2031), 3);
+    expect(docsPerDay(2)).toBeCloseTo(docsPerDay(7), 3);
   });
 });
