@@ -100,6 +100,7 @@ export function createLocalDevQueue(
         inputs: submission.inputs,
         ...(submission.inputNames ? { inputNames: submission.inputNames } : {}),
         options: submission.options,
+        ...(submission.delivery ? { delivery: submission.delivery } : {}),
       });
       if (idempotencyKey) {
         store.setIdempotency(idempotencyKey, submission.job.jobId);
@@ -181,6 +182,7 @@ export function createLocalDevQueue(
         inputs: spec.inputs,
         ...(spec.inputNames ? { inputNames: spec.inputNames } : {}),
         options: spec.options,
+        ...(spec.delivery ? { delivery: spec.delivery } : {}),
         attempt,
         leaseExpiresAt,
       });

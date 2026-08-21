@@ -128,7 +128,7 @@ function composedAdapter(
       );
     },
 
-    async createJob(request) {
+    async createJob(request, delivery) {
       // The queue is the gate: a not-configured queue (disabled/remote) denies
       // here with the honest typed failure. A ready broker proceeds.
       const queueProbe = queue.probe();
@@ -177,6 +177,10 @@ function composedAdapter(
               inputs: request.inputs,
               ...(request.inputNames ? { inputNames: request.inputNames } : {}),
               options: request.options ?? {},
+              // The cap the route derived, recorded with the spec so the worker
+              // that eventually claims this job is bound by what was charged
+              // for it — possibly in another process, on another day.
+              ...(delivery ? { delivery } : {}),
             },
             request.idempotencyKey,
           )

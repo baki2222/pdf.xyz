@@ -275,10 +275,12 @@ function TranslateBuilder() {
       // hand-written versions of "does this fit" is how a browser refusal ends
       // up hiding a worker that would have succeeded.
       const extracted = await extractPdfText(bytes);
-      const plan = planTranslateChunks(
-        pageTextChunks(extracted.pages),
-        TRANSLATE_MAX_INPUT_CHARS,
-      );
+      // THE SAME BLOCKS THE WORKER WILL CHUNK, computed once and used for both
+      // the refusal below and the page count declared with the job. Counting
+      // them twice — here and again at the call site — is how the declaration
+      // and the refusal end up describing different documents.
+      const textPages = pageTextChunks(extracted.pages);
+      const plan = planTranslateChunks(textPages, TRANSLATE_MAX_INPUT_CHARS);
       const noPageStructure = extracted.pages.length === 0;
       const nothingFits = noPageStructure
         ? extracted.characterCount > TRANSLATE_MAX_INPUT_CHARS
@@ -306,6 +308,11 @@ function TranslateBuilder() {
         // and silent, so the one caller that can count must not be able to stop
         // quietly.
         declaredCharacters: extracted.characterCount,
+        // PAGES WITH TEXT, not `extracted.pageCount`. Blank, whitespace-only
+        // and image-only pages are dropped before chunking, so the page count
+        // would over-declare a document with any of them — and the bound this
+        // feeds is the one that is supposed to be exact.
+        declaredTextPages: textPages.length,
       });
       setOutcome(result);
     } catch {

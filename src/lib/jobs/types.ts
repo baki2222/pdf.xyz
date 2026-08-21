@@ -249,6 +249,27 @@ export interface CreateJobRequest {
    * reasons that differ.
    */
   declaredCharacters?: number;
+  /**
+   * Pages WITH TEXT the client counted — not the document's page count.
+   *
+   * The two differ for any document with a blank, whitespace-only or image-only
+   * page, because pages with no text are dropped before the document is split
+   * into provider calls. The name carries the unit for the reason this file
+   * keeps re-learning: a figure whose unit is unrecorded is a defect even when
+   * its value is right, because the next person compares it to something.
+   *
+   * It is the EXACT half of the delivery cap. `declaredCharacters` is counted by
+   * pdfjs in the browser and enforced against `pdftotext` on the worker, and
+   * those two disagree by a factor that has to be guessed at; the text-page set
+   * is read from the same page tree by both and was measured to agree exactly —
+   * including on the invisible OCR text layers `ocr-pdf` produces. So this is
+   * the bound that can be enforced without a margin, and the one whose binding
+   * means the document is not the document that was declared.
+   *
+   * Optional for the same reason `declaredCharacters` is: an API caller has
+   * bytes, not extracted text. Absent means unbounded in this dimension.
+   */
+  declaredTextPages?: number;
   /** Optional idempotency key so retries don't double-run or double-charge. */
   idempotencyKey?: string;
 }

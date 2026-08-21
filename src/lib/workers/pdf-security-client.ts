@@ -159,6 +159,12 @@ export async function runSecurityJob(
    * per-call ceiling. Omitted by callers that cannot count.
    */
   declaredCharacters?: number,
+  /**
+   * Pages WITH TEXT the caller counted. The exact half of the delivery cap —
+   * both extractors read the same page tree, so unlike the character count this
+   * one needs no headroom. Omitted by callers that cannot count.
+   */
+  declaredTextPages?: number,
 ): Promise<PdfSecurityWorkerResult> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
@@ -210,6 +216,7 @@ export async function runSecurityJob(
       inputNames: [filename],
       options,
       ...(declaredCharacters !== undefined ? { declaredCharacters } : {}),
+      ...(declaredTextPages !== undefined ? { declaredTextPages } : {}),
     }),
     signal,
   });

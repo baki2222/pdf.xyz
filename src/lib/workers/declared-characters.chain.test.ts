@@ -35,6 +35,14 @@ import { runWorkerTranslate } from "./translate-client";
 const FILE_ID = "f_abc123def456";
 const BYTES = new Uint8Array([1, 2, 3, 4]);
 const DECLARED = 14_204;
+/**
+ * Pages WITH TEXT, the second half of the same declaration.
+ *
+ * Deliberately not equal to any page count the fixture could imply: a value
+ * that happened to match something else would let a wire that carried the
+ * wrong field pass.
+ */
+const DECLARED_PAGES = 9;
 
 /**
  * A transport that answers the three calls `runSecurityJob` makes and records
@@ -109,6 +117,7 @@ describe("the declared count reaches the route's contract", () => {
         targetLanguage: "fr",
         sourceLanguage: "auto",
         declaredCharacters: DECLARED,
+        declaredTextPages: DECLARED_PAGES,
       },
       { fetchImpl, pollIntervalMs: 0, maxPollAttempts: 1 },
     );
@@ -124,6 +133,11 @@ describe("the declared count reaches the route's contract", () => {
       "the client computed a character count and did not put it on the wire, " +
         "so every job it creates silently reserves the maximum",
     ).toBe(DECLARED);
+    expect(
+      body.declaredTextPages,
+      "the client counted the text pages and did not put them on the wire, so " +
+        "the exact half of the delivery cap is missing from every job it creates",
+    ).toBe(DECLARED_PAGES);
   });
 
   it("survives the REAL parser, not a hand-written shape", async () => {
@@ -138,6 +152,7 @@ describe("the declared count reaches the route's contract", () => {
         targetLanguage: "fr",
         sourceLanguage: "auto",
         declaredCharacters: DECLARED,
+        declaredTextPages: DECLARED_PAGES,
       },
       { fetchImpl, pollIntervalMs: 0, maxPollAttempts: 1 },
     );
@@ -153,6 +168,11 @@ describe("the declared count reaches the route's contract", () => {
       "the parser dropped the declared count, so the route would reserve the " +
         "maximum for a job that told it exactly what it needed",
     ).toBe(DECLARED);
+    expect(
+      parsed.value.declaredTextPages,
+      "the parser dropped the declared page count, so the cap would carry only " +
+        "its inexact half",
+    ).toBe(DECLARED_PAGES);
   });
 
   it("CONTROL: an undeclared job parses too, and declares nothing", async () => {
@@ -167,6 +187,7 @@ describe("the declared count reaches the route's contract", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.value.declaredCharacters).toBeUndefined();
+    expect(parsed.value.declaredTextPages).toBeUndefined();
   });
 
   it("CONTROL: a nonsense declaration is refused at the contract, not honoured", async () => {
@@ -182,6 +203,20 @@ describe("the declared count reaches the route's contract", () => {
       expect(
         parsed.ok,
         `a declared count of ${String(bad)} was accepted by the contract`,
+      ).toBe(false);
+
+      // The page half is attacker-controlled too, and it bounds delivery
+      // DIRECTLY rather than through a multiplication — a `0` accepted here
+      // would mean "translate nothing" for whoever sent it.
+      const pages = parseCreateJobRequest({
+        tool: "translate-pdf",
+        inputs: [FILE_ID],
+        options: { targetLanguage: "fr", sourceLanguage: "auto" },
+        declaredTextPages: bad,
+      });
+      expect(
+        pages.ok,
+        `a declared page count of ${String(bad)} was accepted by the contract`,
       ).toBe(false);
     }
   });

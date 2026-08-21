@@ -9,7 +9,11 @@
  * real and fails honestly when it cannot. See docs/WORKER_ARCHITECTURE.md.
  */
 
-import { capabilityForMode, parseCreateJobRequest } from "@/lib/jobs";
+import {
+  capabilityForMode,
+  parseCreateJobRequest,
+  type JobDeliveryCap,
+} from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
 import {
@@ -57,6 +61,16 @@ export async function POST(request: Request): Promise<Response> {
   // the job names — and the refusal names the allowance, not a generic
   // throttle (see AI_ALLOWANCE_USED_MESSAGE).
   const tool = getToolBySlug(parsed.value.tool);
+  /**
+   * What this job may deliver, in the two units the reservation is exposed in.
+   *
+   * DECLARED HERE rather than inside the branch below because the reservation
+   * and the cap are the same decision seen twice, and a `let` scoped to the
+   * branch that CHARGES would let the branch that DELIVERS be forgotten — which
+   * is the whole defect: a reservation nothing enforces looks enforced.
+   * `undefined` means this job is not AI-capability and has no cap.
+   */
+  let delivery: JobDeliveryCap | undefined;
   if (tool && capabilityForMode(tool.processing) === "ai") {
     // The GLOBAL ceiling first, and it is not a 429. A spent cost control is
     // OUR limit, not this caller's quota — answering it as a rate limit would
@@ -94,10 +108,30 @@ export async function POST(request: Request): Promise<Response> {
     );
     const aiLimit = await enforceAiCharacterAllowance(reserved, request);
     if (!aiLimit.allowed) return respondRateLimited(aiLimit);
+
+    /**
+     * THE SAME NUMBER, TRAVELLING TO THE PLACE THAT SPENDS IT.
+     *
+     * `reserved` is what the client's allowance was just debited. Handing it to
+     * the worker as a delivery bound is what makes the debit true: without it
+     * the reservation is a number the system takes and does not honour in
+     * either direction — the caller pays it and receives whatever the document
+     * happens to hold.
+     *
+     * It is built from `reserved` rather than recomputed, so the two can never
+     * drift. A second `declared × headroom` written here would be correct today
+     * and is exactly the shape that goes stale when the multiplier moves.
+     */
+    delivery = {
+      characters: reserved,
+      ...(parsed.value.declaredTextPages !== undefined
+        ? { pages: parsed.value.declaredTextPages }
+        : {}),
+    };
   }
 
   const adapter = await getWorkerAdapter();
-  const outcome = await adapter.createJob(parsed.value);
+  const outcome = await adapter.createJob(parsed.value, delivery);
   return respond(
     outcome.ok
       ? { status: outcome.status, body: outcome.value }

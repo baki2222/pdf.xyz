@@ -5,8 +5,11 @@ import {
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
 import {
+  capPagesToDelivery,
   missingPageMarker,
-  planTranslateChunks,
+  nothingDeliverableMessage,
+  withheldPagesMarker,
+  type DeliveryLimit,
   type TranslatePlan,
 } from "./chunking";
 import {
@@ -31,6 +34,7 @@ import {
 } from "@/lib/jobs/translate-limits";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
+import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
 
 /**
  * Translate PDF engine for the `translate-pdf` AI tool.
@@ -74,6 +78,15 @@ export interface TranslateLimits {
   maxInputChars?: number;
   /** Ceiling on the model's generated tokens; the default budget is clamped to it. */
   maxOutputTokens?: number;
+  /**
+   * What THIS JOB may deliver, as the route decided when it charged the
+   * caller's allowance.
+   *
+   * Distinct from `maxInputChars`, which is a property of the tool. This is a
+   * property of one submission, and absent means unbounded — every job queued
+   * before the cap existed, and every direct call in a test.
+   */
+  delivery?: JobDeliveryCap;
 }
 
 export interface TranslateDeps {
@@ -135,6 +148,13 @@ export type TranslateFailureKind =
    * shrink a file that is already small, when what they need is fewer pages.
    */
   | "too_much_text"
+  /**
+   * The document holds more than THIS JOB reserved. Distinct from
+   * `too_much_text`, which is about what the tool can do at all: the same
+   * document submitted with an honest declaration would succeed, so telling the
+   * caller their file is too big would be false.
+   */
+  | "over_reservation"
   | "rate_limited"
   | "content_filtered"
   | "failed";
@@ -188,6 +208,18 @@ export type TranslateRun =
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS;
 const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
+
+/**
+ * The limit a job with no cap runs under.
+ *
+ * Not a sentinel the walk special-cases: it is a real budget nothing can
+ * exceed, so the capped and uncapped paths are the same code with different
+ * numbers. `boundBy` is therefore `null` for an uncapped job by arithmetic
+ * rather than by a branch that could be forgotten.
+ */
+const UNBOUNDED_DELIVERY: DeliveryLimit = {
+  characters: Number.POSITIVE_INFINITY,
+};
 
 /** The honesty-critical system prompt: translate ONLY the provided text; invent nothing. */
 function buildSystemPrompt(
@@ -359,6 +391,7 @@ function assembleTranslation(
   plan: TranslatePlan | null,
   segmentCount: number,
   interruptedPages: readonly number[],
+  withheld: { pages: readonly number[]; marker: string } | null,
 ): string {
   if (plan === null) return parts.join("\n\n");
 
@@ -378,6 +411,12 @@ function assembleTranslation(
       at: interruptedPages[0]!,
       body: interruptedNotice(interruptedPages),
     });
+  }
+  // Positioned like every other gap: at the page where delivery stopped, not
+  // appended at the end. A reader who meets it after finishing has already
+  // believed the document was complete.
+  if (withheld && withheld.pages.length > 0) {
+    placed.push({ at: withheld.pages[0]!, body: withheld.marker });
   }
   void segmentCount;
   placed.sort((a, b) => a.at - b.at);
@@ -498,10 +537,41 @@ export async function runTranslate(
   // a fragment, which is the failure mode this whole feature keeps having. So
   // the old whole-document refusal stands for exactly that case, and it stays
   // the honest answer rather than a guess.
-  const plan =
+  /**
+   * What this job may deliver — ONE code path whether or not a cap was set.
+   *
+   * An unbounded job runs the same walk with an infinite character budget
+   * rather than skipping it. Two paths would mean the uncapped path (every job
+   * queued before the cap existed, every direct call in a test) never exercises
+   * the code that every capped job depends on, and the two would drift exactly
+   * as `pageStartsFor` and the planner would have if the truncation window were
+   * computed twice.
+   */
+  const limit: DeliveryLimit = deps.limits?.delivery ?? UNBOUNDED_DELIVERY;
+  const capped =
     pageBlocks.length > 0
-      ? planTranslateChunks(pageBlocks, ceilingCharacters)
+      ? capPagesToDelivery(pageBlocks, ceilingCharacters, limit)
       : null;
+  const plan = capped?.plan ?? null;
+
+  // NOTHING WAS COVERED BY THE RESERVATION. Refuse rather than package a
+  // document that is only an apology: the caller has already paid the
+  // reservation, and handing back a ZIP with no translation in it would spend
+  // their download on nothing. No provider call has happened at this point, so
+  // the refusal costs nothing on top.
+  if (
+    capped &&
+    capped.boundBy !== null &&
+    capped.plan.chunks.length === 0 &&
+    capped.plan.oversize.length === 0
+  ) {
+    return {
+      ok: false,
+      kind: "over_reservation",
+      retryable: false,
+      message: nothingDeliverableMessage(capped.boundBy, limit),
+    };
+  }
 
   if (plan === null) {
     if (sourceText.length > ceilingCharacters) {
@@ -607,11 +677,24 @@ export async function runTranslate(
   // Assembled BY PLAN INDEX, never by arrival: `parts` is appended in the loop
   // above, which runs the segments in order, so the order is structural rather
   // than incidental. Gaps are woven in where the pages they replace sat.
+  const withheld =
+    capped && capped.boundBy !== null && capped.withheldPages.length > 0
+      ? {
+          pages: capped.withheldPages,
+          marker: withheldPagesMarker(
+            capped.withheldPages,
+            capped.boundBy,
+            limit,
+          ),
+        }
+      : null;
+
   const translation = assembleTranslation(
     parts,
     plan,
     segments.length,
     interruptedPages,
+    withheld,
   );
 
   const createdAt = now();

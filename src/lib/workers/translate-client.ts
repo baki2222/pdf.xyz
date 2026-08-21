@@ -51,6 +51,20 @@ export interface TranslateWorkerInput {
    * drives this path end to end as well.
    */
   declaredCharacters: number;
+  /**
+   * Pages of this document that carry text — NOT its page count.
+   *
+   * The two differ for any document with a blank, whitespace-only or
+   * image-only page, and the difference is the whole point: chunking is
+   * denominated in the non-empty set, so a bound denominated in the page count
+   * would mean a different thing at each end. Both extractors were measured to
+   * agree on this set exactly, including for the invisible OCR text layers
+   * `ocr-pdf` produces, which is what makes it the bound that needs no margin.
+   *
+   * Required here for the same reason `declaredCharacters` is: this client CAN
+   * count, so a silent fallback would be a regression rather than a default.
+   */
+  declaredTextPages: number;
 }
 
 export function runWorkerTranslate(
@@ -70,6 +84,7 @@ export function runWorkerTranslate(
     jobOptions,
     options,
     input.declaredCharacters,
+    input.declaredTextPages,
   );
 }
 

@@ -478,6 +478,28 @@ export function parseCreateJobRequest(
     }
   }
 
+  /**
+   * The client's count of pages that carry text, if it sent one.
+   *
+   * Refused rather than coerced, for the same reason as the character count and
+   * one more: this one bounds DELIVERY directly rather than through a
+   * multiplication, so a `0` would silently mean "translate nothing" and a
+   * `1.5` would mean whatever the comparison happened to do with it.
+   */
+  const declaredPages = input.declaredTextPages;
+  if (declaredPages !== undefined) {
+    if (
+      typeof declaredPages !== "number" ||
+      !Number.isInteger(declaredPages) ||
+      declaredPages <= 0
+    ) {
+      return invalid(
+        "declaredTextPages must be a positive whole number of pages.",
+        "declaredTextPages",
+      );
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -486,6 +508,9 @@ export function parseCreateJobRequest(
       ...(namesResult.value ? { inputNames: namesResult.value } : {}),
       ...(input.options !== undefined ? { options } : {}),
       ...(declared !== undefined ? { declaredCharacters: declared } : {}),
+      ...(declaredPages !== undefined
+        ? { declaredTextPages: declaredPages }
+        : {}),
       ...(keyResult.value ? { idempotencyKey: keyResult.value } : {}),
     },
   };

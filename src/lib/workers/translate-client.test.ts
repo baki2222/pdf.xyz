@@ -171,6 +171,7 @@ describe("translate-client", () => {
         targetLanguage: "fr",
         sourceLanguage: "en",
         declaredCharacters: 1_000,
+        declaredTextPages: 3,
         instructions: "keep names",
       },
       { fetchImpl, sleep: async () => {} },
@@ -246,6 +247,7 @@ describe("translate-client", () => {
         targetLanguage: "de",
         sourceLanguage: "auto",
         declaredCharacters: 1_000,
+        declaredTextPages: 3,
       },
       { fetchImpl, sleep: async () => {} },
     );
@@ -302,6 +304,7 @@ describe("translate-client", () => {
         targetLanguage: "fr",
         sourceLanguage: "auto",
         declaredCharacters: 1_000,
+        declaredTextPages: 3,
       },
       { fetchImpl, sleep: async () => {} },
     );
