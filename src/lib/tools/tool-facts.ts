@@ -305,7 +305,7 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
       // true while this sentence rotted silently.
       entries.push({
         question: `How much of my PDF can ${tool.name} translate in one run?`,
-        answer: `Up to ${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so the ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is refused, with its own character count in the message, rather than translated in part; split it into smaller files and run them one at a time.`,
+        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A LONGER DOCUMENT IS NOT REFUSED: it is split at page boundaries and translated a few pages at a time, then reassembled in order. The one thing that cannot be translated is a SINGLE page holding more than that many characters — it is skipped, and the result says so in place, at the point where that page was.`,
       });
     } else {
       entries.push({

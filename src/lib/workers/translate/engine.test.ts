@@ -418,34 +418,65 @@ describe("translate refuses more text than the model may write back", () => {
     return vi.fn(async () => extracted);
   }
 
-  it("refuses BEFORE calling the provider, so nothing is billed", async () => {
+  /*
+   * INVERTED, NOT DELETED — and the history is the point.
+   *
+   * These two cases used to assert that a 40,038-character document was refused
+   * OUTRIGHT and the provider was never called. That was right when one call was
+   * all the engine could make: the alternative then was the production incident
+   * it was written for, where the document was accepted, extracted, sent,
+   * billed, and refused after 49 seconds with the user's daily AI run spent.
+   *
+   * They were pinning the MECHANISM (refuse the job) rather than the property
+   * (never make a call that cannot be answered). Chunking satisfies the property
+   * without the mechanism: twenty 2,000-character pages are four calls, each
+   * inside the ceiling, and all twenty pages come back. The old assertions
+   * would now hold the engine to delivering nothing for work it can do.
+   */
+  it("makes ONLY calls it can answer, and delivers the whole document", async () => {
     const provider = providerReturning(SUCCESS("Une traduction."));
     const run = await runTranslate(INPUT, OPTIONS, {
       extract: await oversizedExtractor(),
       provider,
     });
 
+    expect(
+      run.ok,
+      run.ok ? "" : `refused deliverable work: ${run.kind} — ${run.message}`,
+    ).toBe(true);
+    // The property the old `calls).toHaveLength(0)` was reaching for: nothing is
+    // billed for a call that must fail. Every call is inside the ceiling.
+    expect(provider.calls.length).toBeGreaterThan(1);
+    for (const call of provider.calls) {
+      const sent = call.messages.map((m) => m.content).join("\n").length;
+      expect(sent).toBeLessThanOrEqual(TRANSLATE_MAX_INPUT_CHARS);
+    }
+  });
+
+  it("still names both numbers when NOTHING is deliverable", async () => {
+    // The refusal survives for the case that is genuinely undeliverable: a
+    // single page larger than one call cannot be chunked, so there is no
+    // partial delivery to offer and "too long" still has to be actionable.
+    const huge = "a".repeat(TRANSLATE_MAX_INPUT_CHARS + 5_000);
+    const pages = [{ pageNumber: 1, text: huge, characterCount: huge.length }];
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: vi.fn(async () => ({
+        pageCount: 1,
+        pages,
+        text: huge,
+        characterCount: huge.length,
+        hasText: true,
+      })),
+      provider,
+    });
     expect(run.ok).toBe(false);
     if (run.ok) return;
     expect(run.kind).toBe("too_much_text");
-    // The load-bearing assertion: the provider was never called. On production
-    // this document was accepted, extracted, sent, billed, and refused after 49
-    // seconds — with the user's daily AI run already spent.
-    expect(provider.calls).toHaveLength(0);
-  });
-
-  it("names both numbers, because 'too long' is not actionable", async () => {
-    const provider = providerReturning(SUCCESS("Une traduction."));
-    const run = await runTranslate(INPUT, OPTIONS, {
-      extract: await oversizedExtractor(),
-      provider,
-    });
-    expect(run.ok).toBe(false);
-    if (run.ok) return;
-    expect(run.characters).toBe(20 * 2000 + 19 * 2);
     expect(run.ceilingCharacters).toBe(TRANSLATE_MAX_INPUT_CHARS);
-    expect(run.message).toContain("40,038");
     expect(run.message).toMatch(/Split it into smaller files/);
+    // Still nothing billed: there was never a call that could have succeeded.
+    expect(provider.calls).toHaveLength(0);
   });
 
   it("still translates a document within the ceiling", async () => {

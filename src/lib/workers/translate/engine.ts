@@ -5,6 +5,11 @@ import {
   type ExtractedPdfText,
 } from "@/lib/pdf/text";
 import {
+  missingPageMarker,
+  planTranslateChunks,
+  type TranslatePlan,
+} from "./chunking";
+import {
   describeWindow,
   modelTruncationNotice,
   pageStartsFor,
@@ -18,7 +23,7 @@ import {
   type TranslateOptions,
   type TranslateSourceLanguage,
 } from "@/lib/jobs/translate-pdf";
-import type { AiProvider, AiCompletionResult } from "../ai/provider";
+import type { AiProvider, AiCompletionResult, AiUsage } from "../ai/provider";
 import {
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   translateMaxInputChars,
@@ -291,6 +296,108 @@ function mapProviderFailure(
  * success, return a real ZIP package (translation.md + translation.txt +
  * manifest.json + README.txt).
  */
+/**
+ * Token counts summed across every provider call one job made.
+ *
+ * A chunked job that reported only the last call's usage would under-count what
+ * it spent, and the AI spend ceiling reads exactly this number — so the error
+ * would be silent, cumulative, and in the one direction a cost control must
+ * never be wrong in. `reported` stays false until some call actually reports,
+ * so "the provider told us nothing" is still distinguishable from "it cost
+ * nothing".
+ */
+class UsageTally {
+  calls = 0;
+  reported = false;
+  private input = 0;
+  private output = 0;
+  private cachedIn: number | undefined;
+  private cacheWrite: number | undefined;
+
+  add(usage: AiUsage | undefined): void {
+    this.calls += 1;
+    if (!usage) return;
+    this.reported = true;
+    this.input += usage.inputTokens;
+    this.output += usage.outputTokens;
+    if (usage.cachedInputTokens !== undefined)
+      this.cachedIn = (this.cachedIn ?? 0) + usage.cachedInputTokens;
+    if (usage.cacheWriteInputTokens !== undefined)
+      this.cacheWrite = (this.cacheWrite ?? 0) + usage.cacheWriteInputTokens;
+  }
+
+  totals(): {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    cacheWriteInputTokens?: number;
+  } {
+    return {
+      inputTokens: this.input,
+      outputTokens: this.output,
+      ...(this.cachedIn !== undefined
+        ? { cachedInputTokens: this.cachedIn }
+        : {}),
+      ...(this.cacheWrite !== undefined
+        ? { cacheWriteInputTokens: this.cacheWrite }
+        : {}),
+    };
+  }
+}
+
+/**
+ * Weave the translated parts and the untranslatable gaps back into one
+ * document, in plan order.
+ *
+ * The gaps are POSITIONED — each one sits where its page sat, between the parts
+ * that surround it — rather than listed at the end. A reader who meets a note
+ * about page 7 after reading to the end has already believed the document was
+ * complete; a reader who meets it in place has not.
+ */
+function assembleTranslation(
+  parts: readonly string[],
+  plan: TranslatePlan | null,
+  segmentCount: number,
+  interruptedPages: readonly number[],
+): string {
+  if (plan === null) return parts.join("\n\n");
+
+  // Interleave by document position: a chunk's pages and an oversize page both
+  // know where they belong, so ordering is read off the plan rather than
+  // reconstructed from arrival.
+  const placed: { at: number; body: string }[] = [];
+  for (const [i, chunk] of plan.chunks.entries()) {
+    const body = parts[i];
+    if (body !== undefined) placed.push({ at: chunk.pages[0]!, body });
+  }
+  for (const page of plan.oversize) {
+    placed.push({ at: page.pageNumber, body: missingPageMarker(page) });
+  }
+  if (interruptedPages.length > 0) {
+    placed.push({
+      at: interruptedPages[0]!,
+      body: interruptedNotice(interruptedPages),
+    });
+  }
+  void segmentCount;
+  placed.sort((a, b) => a.at - b.at);
+  return placed.map((p) => p.body).join("\n\n");
+}
+
+/** The gap left where a chunk failed part-way through a document. */
+function interruptedNotice(pages: readonly number[]): string {
+  const list =
+    pages.length === 1
+      ? `Page ${pages[0]}`
+      : `Pages ${pages[0]}–${pages[pages.length - 1]}`;
+  return [
+    "",
+    `> ⚠️ **${list} could not be translated.**`,
+    "> The AI provider stopped part-way through this document. Everything above was translated; this part was not. Try translating the remaining pages again — the rest of this file is unaffected.",
+    "",
+  ].join("\n");
+}
+
 export async function runTranslate(
   input: Uint8Array,
   options: TranslateOptions,
@@ -368,19 +475,48 @@ export async function runTranslate(
   const maxOutputTokens =
     deps.limits?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
-  // REFUSE BEFORE PAYING. Translate's binding constraint is the OUTPUT budget,
-  // not the input cap it shares with the other AI tools — its output is as long
-  // as its input. Measured on production: a 135,280-character document was
-  // accepted, scanned, extracted, sent to the provider, billed, and rejected
-  // after 49 seconds with "reached its output limit". The ceiling is knowable
-  // before any of that, so it is checked before any of that.
+  // THE CEILING IS A PROPERTY OF ONE CALL, NOT OF THE JOB. Translate's binding
+  // constraint is the OUTPUT budget — its output is as long as its input — so
+  // no single call may exceed it. Measured on production: a 135,280-character
+  // document was accepted, extracted, sent, billed, and rejected after 49
+  // seconds with "reached its output limit".
   //
-  // This is the BACKSTOP. By the time the worker runs, the daily AI allowance
-  // has already been spent at job creation, so the panel makes the same check
-  // before it uploads. This one saves the provider call and the 49 seconds, and
-  // it is what a caller reaching the API directly gets.
+  // Applying that per-call bound to the whole document refused work it could
+  // do: a twelve-page document of ordinary pages was rejected outright, and the
+  // caller spent one of three daily AI runs on nothing. It is now split at PAGE
+  // boundaries and delivered as far as it can go.
   const ceilingCharacters = translateMaxInputChars(maxOutputTokens);
-  if (sourceText.length > ceilingCharacters) {
+
+  // The page blocks the extractor joined, WITH their real page numbers — the
+  // same chunks the truncation window is described from, so a gap this engine
+  // names is a page the reader can go and check.
+  const pageBlocks = pageTextChunks(extracted.pages);
+
+  // NO PAGE STRUCTURE ⇒ NO SAFE SPLIT. Some callers hand over text with no
+  // per-page breakdown (and a browser extractor may too). Splitting that at an
+  // arbitrary offset would cut mid-sentence and produce a fluent translation of
+  // a fragment, which is the failure mode this whole feature keeps having. So
+  // the old whole-document refusal stands for exactly that case, and it stays
+  // the honest answer rather than a guess.
+  const plan =
+    pageBlocks.length > 0
+      ? planTranslateChunks(pageBlocks, ceilingCharacters)
+      : null;
+
+  if (plan === null) {
+    if (sourceText.length > ceilingCharacters) {
+      return {
+        ok: false,
+        kind: "too_much_text",
+        characters: sourceText.length,
+        ceilingCharacters,
+        message: translateTooLongMessage(sourceText.length, ceilingCharacters),
+      };
+    }
+  } else if (plan.chunks.length === 0) {
+    // Every page individually exceeds one call, so there is nothing to deliver.
+    // Refusing here costs the caller nothing; a partial delivery of zero pages
+    // would cost them an allowance for an empty package.
     return {
       ok: false,
       kind: "too_much_text",
@@ -390,30 +526,93 @@ export async function runTranslate(
     };
   }
 
-  const completion = await provider.complete({
-    system: buildSystemPrompt(options, window),
-    messages: [
-      {
-        role: "user",
-        content: `Translate the following document.${truncated ? " (Only the first part of a long document is included.)" : ""}\n\n---\n${promptText}\n---`,
-      },
-    ],
-    maxOutputTokens,
-    temperature: 0.2,
-  });
+  // One segment per provider call, in document order. The unchunked path is a
+  // single segment carrying the whole (possibly truncated) text, so both paths
+  // run the same loop and neither can drift from the other.
+  const segments: { text: string; pages: readonly number[] }[] =
+    plan === null
+      ? [{ text: promptText, pages: [] }]
+      : plan.chunks.map((chunk) => ({ text: chunk.text, pages: chunk.pages }));
 
-  if (!completion.ok)
-    return mapProviderFailure(completion, window, provider.model);
+  const parts: string[] = [];
+  const translatedPages: number[] = [];
+  const usage = new UsageTally();
+  let model = provider.model;
+  /** Pages a chunk failure left untranslated, in document order. */
+  let interruptedPages: number[] = [];
+  let interruption: TranslateRun | null = null;
 
-  const translation = completion.text.trim();
-  if (translation.length === 0) {
-    return {
-      ok: false,
-      kind: "failed",
-      retryable: true,
-      message: "The AI provider returned an empty translation.",
-    };
+  for (const [i, segment] of segments.entries()) {
+    const many = segments.length > 1;
+    const completion = await provider.complete({
+      system: buildSystemPrompt(options, window),
+      messages: [
+        {
+          role: "user",
+          content: `Translate the following document.${
+            truncated
+              ? " (Only the first part of a long document is included.)"
+              : ""
+          }${
+            many
+              ? ` (This is part ${i + 1} of ${segments.length} of one document; translate only the text given, and do not add any note about it being a part.)`
+              : ""
+          }\n\n---\n${segment.text}\n---`,
+        },
+      ],
+      maxOutputTokens,
+      temperature: 0.2,
+    });
+
+    if (!completion.ok) {
+      // A failure part-way through is NOT the whole job's failure if earlier
+      // parts succeeded: the caller has already paid, and the pages that were
+      // translated are worth more than a clean error. Stop here, keep what is
+      // done, and name the rest — the first failure is reported verbatim when
+      // nothing at all was translated.
+      interruption = mapProviderFailure(completion, window, provider.model);
+      interruptedPages = segments.slice(i).flatMap((s) => [...s.pages]);
+      break;
+    }
+    model = completion.model;
+    usage.add(completion.usage);
+    const text = completion.text.trim();
+    if (text.length > 0) {
+      parts.push(text);
+      translatedPages.push(...segment.pages);
+    } else if (!many) {
+      return {
+        ok: false,
+        kind: "failed",
+        retryable: true,
+        message: "The AI provider returned an empty translation.",
+      };
+    } else {
+      // An empty part in a multi-part document is a hole, not a total failure.
+      interruptedPages.push(...segment.pages);
+    }
   }
+
+  if (parts.length === 0) {
+    return (
+      interruption ?? {
+        ok: false,
+        kind: "failed",
+        retryable: true,
+        message: "The AI provider returned an empty translation.",
+      }
+    );
+  }
+
+  // Assembled BY PLAN INDEX, never by arrival: `parts` is appended in the loop
+  // above, which runs the segments in order, so the order is structural rather
+  // than incidental. Gaps are woven in where the pages they replace sat.
+  const translation = assembleTranslation(
+    parts,
+    plan,
+    segments.length,
+    interruptedPages,
+  );
 
   const createdAt = now();
   const manifest: TranslationManifest = {
@@ -422,7 +621,7 @@ export async function runTranslate(
     engine: TRANSLATE_ENGINE,
     createdAt,
     provider: provider.id,
-    model: completion.model,
+    model,
     options: {
       targetLanguage: options.targetLanguage,
       targetLanguageName: LANGUAGE_NAMES[options.targetLanguage],
@@ -460,28 +659,14 @@ export async function runTranslate(
       engine: TRANSLATE_ENGINE,
       tool: TRANSLATE_TOOL,
       provider: provider.id,
-      model: completion.model,
+      model,
       // Token counts travel to the job record so the per-page cost of an AI run
       // is measurable after the fact. Absent when the provider did not report.
-      ...(completion.usage
-        ? {
-            usage: {
-              inputTokens: completion.usage.inputTokens,
-              outputTokens: completion.usage.outputTokens,
-              ...(completion.usage.cachedInputTokens !== undefined
-                ? { cachedInputTokens: completion.usage.cachedInputTokens }
-                : {}),
-              ...(completion.usage.cacheWriteInputTokens !== undefined
-                ? {
-                    cacheWriteInputTokens:
-                      completion.usage.cacheWriteInputTokens,
-                  }
-                : {}),
-              // One provider call per job today. Chunked translation makes this N.
-              calls: 1,
-              model: completion.model,
-            },
-          }
+      // SUMMED ACROSS EVERY CALL a chunked job made, with `calls` recording how
+      // many — a chunked job that reported one call's tokens would under-count
+      // the spend ceiling in the one direction it must never be wrong in.
+      ...(usage.reported
+        ? { usage: { ...usage.totals(), calls: usage.calls, model } }
         : {}),
       targetLanguage: options.targetLanguage,
       sourceLanguage: options.sourceLanguage,

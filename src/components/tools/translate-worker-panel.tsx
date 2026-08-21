@@ -30,7 +30,8 @@ import {
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { extractPdfText } from "@/lib/pdf/text";
+import { extractPdfText, pageTextChunks } from "@/lib/pdf/text";
+import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
   translateTooLongMessage,
@@ -200,7 +201,11 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters translated`}
+            // The number is PER PASS, not per document: a long document is split
+            // at page boundaries and translated a few pages at a time. Saying
+            // "characters translated" flat would understate the tool by however
+            // many pages it can actually chain through.
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters per pass · longer documents split by page`}
           />
         </div>
       </div>
@@ -262,8 +267,23 @@ function TranslateBuilder() {
       // backstop — cannot give it back. Extracting the text here costs a local
       // pdfjs parse and gives the user an immediate, specific answer instead of
       // a 49-second wait and one of three daily runs.
+      // WHAT IS REFUSED HERE MUST MATCH WHAT THE WORKER REFUSES, or this check
+      // becomes a gate in front of a capability nobody can reach. The ceiling
+      // bounds ONE provider call, and the worker now splits a long document at
+      // page boundaries — so a document is impossible only when NO page fits.
+      // The same planner runs on both sides for exactly that reason: two
+      // hand-written versions of "does this fit" is how a browser refusal ends
+      // up hiding a worker that would have succeeded.
       const extracted = await extractPdfText(bytes);
-      if (extracted.characterCount > TRANSLATE_MAX_INPUT_CHARS) {
+      const plan = planTranslateChunks(
+        pageTextChunks(extracted.pages),
+        TRANSLATE_MAX_INPUT_CHARS,
+      );
+      const noPageStructure = extracted.pages.length === 0;
+      const nothingFits = noPageStructure
+        ? extracted.characterCount > TRANSLATE_MAX_INPUT_CHARS
+        : plan.chunks.length === 0;
+      if (nothingFits) {
         setOutcome({
           ok: false,
           message: translateTooLongMessage(

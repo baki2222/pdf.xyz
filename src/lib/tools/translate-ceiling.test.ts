@@ -185,3 +185,68 @@ describe("the two numbers cannot drift back together", () => {
     ).toContain("TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS");
   });
 });
+
+/*
+ * ── After chunking: the ceiling bounds a PASS, not a document ────────────────
+ *
+ * `TRANSLATE_MAX_INPUT_CHARS` used to be the largest document the tool would
+ * accept, and every surface said so. It is now the largest amount ONE provider
+ * call may be asked to write; a longer document is split at page boundaries and
+ * reassembled. Two things can go wrong with that, and neither is visible in a
+ * diff:
+ *
+ *  1. **A surface still says a long document is refused.** That was true and is
+ *     now a false claim about the product — the same stale-sentence family this
+ *     file already guards the NUMBER against, one level up at the sentence.
+ *  2. **The browser panel refuses what the worker would accept.** The panel
+ *     checks before uploading, so a stricter panel makes the worker's chunking
+ *     unreachable — a capability that exists everywhere except where a user can
+ *     get to it. Both sides therefore run the SAME planner.
+ */
+describe("the published ceiling describes a pass, not a document", () => {
+  it("no surface claims a long document is refused outright", () => {
+    // The old sentence: "A longer document is refused ... rather than
+    // translated in part; split it into smaller files and run them one at a
+    // time." Every word of that was accurate before chunking.
+    const surfaces = [
+      "src/lib/tools/tool-facts.ts",
+      "src/components/tools/translate-worker-panel.tsx",
+    ];
+    for (const file of surfaces) {
+      const source = read(file);
+      for (const claim of [
+        /longer document is refused/i,
+        /rather than translated in part/i,
+      ]) {
+        expect(
+          claim.test(source),
+          `${file} still tells the reader a long document is refused. It is now ` +
+            "split at page boundaries and translated a few pages at a time; the " +
+            "only thing refused is a SINGLE page over the ceiling.",
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("the FAQ names what IS still refused, so the ceiling stays actionable", () => {
+    // Removing the false claim must not leave the reader with no bound at all.
+    // A single oversize page is genuinely untranslatable and they need to know.
+    const facts = read("src/lib/tools/tool-facts.ts");
+    expect(facts).toMatch(/SINGLE page/);
+    expect(facts).toMatch(/skipped/i);
+  });
+
+  it("the panel refuses on the SAME plan the worker refuses on", () => {
+    // Not "the panel mentions chunking" — the panel must call the same planner,
+    // or two hand-written versions of "does this fit" drift and the stricter
+    // one silently hides the other.
+    const panel = read("src/components/tools/translate-worker-panel.tsx");
+    expect(
+      panel,
+      "the translate panel must plan with planTranslateChunks, or its pre-upload " +
+        "refusal can be stricter than the worker and make chunking unreachable",
+    ).toContain("planTranslateChunks");
+    const engine = read("src/lib/workers/translate/engine.ts");
+    expect(engine).toContain("planTranslateChunks");
+  });
+});
