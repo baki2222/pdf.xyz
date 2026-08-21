@@ -95,9 +95,26 @@ function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
     ),
   ];
   let bytes = 0;
+  const unweighed: string[] = [];
   for (const url of urls) {
-    const file = path.join(NEXT_DIR, url.replace("/_next/", ""));
+    // decodeURIComponent, because a dynamic route is percent-encoded in the
+    // HREF and NOT on disk: `/tools/%5Bslug%5D/page-*.js` is `[slug]` in
+    // `.next`. Without it `existsSync` was false for the LARGEST chunk on every
+    // tool page, which was then counted in `chunks` and added ZERO bytes.
+    const file = path.join(
+      NEXT_DIR,
+      decodeURIComponent(url.replace("/_next/", "")),
+    );
     if (existsSync(file)) bytes += statSync(file).size;
+    // A counted chunk that is not weighed is the defect above, and decoding
+    // only fixes today's spelling of it. The PROPERTY is that `chunks` and
+    // `kb` describe the same set, so a miss is fatal rather than silent.
+    else unweighed.push(url);
+  }
+  if (unweighed.length > 0) {
+    throw new Error(
+      `bundle-budget: ${unweighed.length} referenced chunk(s) were counted but not found on disk, so their bytes went uncounted: ${unweighed.join(", ")}`,
+    );
   }
   return { chunks: urls.length, kb: Math.round(bytes / 1024) };
 }
@@ -106,12 +123,27 @@ function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
  * Budgets sit just above what the current build produces, so they fail on a real
  * regression rather than on noise. Raising one is a decision, not a fix: say in
  * the same diff what got heavier and why it has to load up front.
+ *
+ * RE-ANCHORED 2026-08-21, and NOTHING GOT HEAVIER -- the weigher started telling
+ * the truth. `weigh()` did `existsSync` on a percent-encoded path, so the
+ * `/tools/%5Bslug%5D/page-*.js` chunk -- the LARGEST on every tool page -- was
+ * counted in `chunks` and contributed ZERO bytes. Measured on the same build,
+ * before and after the one-line decode:
+ *
+ *     tool pages   774 KB reported  ->  1,156 KB actual   (382 KB invisible)
+ *     homepage     unaffected (not a dynamic route)
+ *
+ * So the 850 KB figure was never a 850 KB budget; it was "850 KB minus the
+ * biggest chunk", and the pages had been over it the whole time with nothing
+ * able to say so. The new figure is the true measurement plus the same small
+ * margin the old one had. A future raise is still a decision that must name
+ * what grew -- this one names an instrument that was wrong.
  */
 const BUDGETS = [
   { name: "homepage", html: "index.html", kb: 700 },
-  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 850 },
-  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 850 },
-  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 850 },
+  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 1200 },
+  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 1200 },
+  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 1200 },
 ] as const;
 
 describe("client bundle budget", () => {
