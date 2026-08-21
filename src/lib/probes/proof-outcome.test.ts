@@ -38,13 +38,16 @@ import {
   EXIT_DEFECT,
   EXIT_INCOMPLETE,
   PROOF_OUTCOMES,
+  UNPROVEN_CAUSES,
   UNPROVEN_VIAS,
   harnessExitCode,
   orderSpecsForAllowance,
   refusalVerdict,
+  unprovenSummaryLines,
   type DeploymentProofLedger,
   type ObservedRefusal,
   type RefusalVerdict,
+  type UnprovenCause,
 } from "./proof-outcome";
 
 /* ------------------------------------------------------------------ *
@@ -183,6 +186,92 @@ describe("refusalVerdict", () => {
         message: AI_CEILING_REACHED_MESSAGE,
       }).outcome,
     ).toBe("failed");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  unprovenSummaryLines — the roll-up may not spread one observed cause
+ * ------------------------------------------------------------------ */
+
+/**
+ * THIS PINS A DEFECT THAT SHIPPED IN THIS FEATURE'S OWN FIRST RUN. Measured
+ * against production on 2026-08-21, the harness's summary said:
+ *
+ *   5 UNPROVEN — refused by the deployment's own policy, which is not
+ *   evidence about the tools: summarize-pdf, translate-pdf, ai-extract,
+ *   chat-with-pdf, chat-with-pdf (follow-up)
+ *
+ * Four of those five were refused. The fifth was never asked: its input
+ * artifact came from the opening chat turn, which had itself been refused, so
+ * no request left the harness and no policy said anything about it. Every
+ * per-proof line above the summary was correct; the roll-up took the cause it
+ * had observed for the majority and spread it over the union — the same
+ * defect `reservation-refusal.ts` exists to prevent, one file over.
+ */
+const REAL_RUN_2026_08_21: { label: string; cause: UnprovenCause }[] = [
+  { label: "summarize-pdf", cause: "rate-limit" },
+  { label: "translate-pdf", cause: "rate-limit" },
+  { label: "ai-extract", cause: "rate-limit" },
+  { label: "chat-with-pdf", cause: "rate-limit" },
+  { label: "chat-with-pdf (follow-up)", cause: "dependency" },
+];
+
+describe("unprovenSummaryLines", () => {
+  it("does not say a dependency-blocked proof was refused by a policy", () => {
+    const lines = unprovenSummaryLines(REAL_RUN_2026_08_21);
+    const refusalLine = lines.find((l) => l.includes("rate-limit policy"));
+    expect(refusalLine).toBeDefined();
+    expect(refusalLine).not.toContain("chat-with-pdf (follow-up)");
+    // The four that WERE refused are all still named, the opening turn among
+    // them — excluding the follow-up must not cost the line its own members.
+    expect(refusalLine).toContain("4 UNPROVEN");
+    expect(refusalLine?.endsWith("chat-with-pdf")).toBe(true);
+  });
+
+  it("gives the dependency-blocked proof its own, true sentence", () => {
+    const lines = unprovenSummaryLines(REAL_RUN_2026_08_21);
+    const line = lines.find((l) => l.includes("chat-with-pdf (follow-up)"));
+    expect(line).toContain("never asked");
+    expect(line).toContain("1 UNPROVEN");
+  });
+
+  it("names every unproven proof exactly once, across all lines", () => {
+    // Grouping must not lose a row (a count that quietly shrinks reports the
+    // strongest possible pass) nor double-count one.
+    const joined = unprovenSummaryLines(REAL_RUN_2026_08_21).join("\n");
+    for (const row of REAL_RUN_2026_08_21) {
+      expect(joined.split(row.label).length - 1).toBeGreaterThanOrEqual(1);
+    }
+    const counted = unprovenSummaryLines(REAL_RUN_2026_08_21)
+      .map((l) => Number(l.slice(0, l.indexOf(" "))))
+      .reduce((a, b) => a + b, 0);
+    expect(counted).toBe(REAL_RUN_2026_08_21.length);
+  });
+
+  it("every cause has a sentence, and no sentence goes unexercised", () => {
+    // The corpus, in both directions: one row per cause the harness can carry,
+    // and a distinct line for each — a cause with no line would vanish from
+    // the report, a line no cause reaches is decoration.
+    const oneEach = UNPROVEN_CAUSES.map((cause) => ({
+      label: `spec-${cause}`,
+      cause,
+    }));
+    const lines = unprovenSummaryLines(oneEach);
+    expect(lines).toHaveLength(UNPROVEN_CAUSES.length);
+    for (const { label } of oneEach) {
+      expect(lines.filter((l) => l.includes(label))).toHaveLength(1);
+    }
+    expect(new Set(lines).size).toBe(lines.length);
+  });
+
+  it("the causes are the two policy refusals plus dependency", () => {
+    // Pins the relationship rather than the list: a new UNPROVEN_VIAS member
+    // must appear here, and `dependency` must stay distinct from both.
+    expect([...UNPROVEN_CAUSES]).toEqual([...UNPROVEN_VIAS, "dependency"]);
+  });
+
+  it("no unproven proofs means no roll-up at all", () => {
+    expect(unprovenSummaryLines([])).toEqual([]);
   });
 });
 

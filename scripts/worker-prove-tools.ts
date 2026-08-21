@@ -42,12 +42,18 @@
  * Exit codes: 0 = every selected proof passed (and, on a full run, every
  * worker-backed tool has a spec — a new tool must arrive with a proof).
  * 1 = evidence of a defect: a proof FAILED, or a worker tool has no spec.
- * 2 = incomplete, not failing: nothing failed, but at least one proof was
- * refused by the deployment's own policy. Red (1) is reserved for evidence so
- * that red keeps meaning defect; a pipeline that stops on any nonzero still
- * stops on 2 — safe by default, an incomplete run never upgrades itself to
- * proven — but 2 means "rerun after the allowance resets", never "page
- * someone".
+ * 2 = incomplete, not failing: nothing failed, but at least one selected proof
+ * could not be made — refused by the deployment's own policy, or waiting on an
+ * artifact from a proof that was itself never made. Red (1) is reserved for
+ * evidence so that red keeps meaning defect; a pipeline that stops on any
+ * nonzero still stops on 2 — safe by default, an incomplete run never upgrades
+ * itself to proven — but 2 means "rerun after the allowance resets", never
+ * "page someone". The closing summary prints one line per cause OBSERVED,
+ * never one sentence over the union: a proof nobody asked about was refused by
+ * nobody.
+ *
+ * No CI job runs this today (see `.github/workflows/`); it is owner-run against
+ * a live deployment, and the codes above are the contract for the day one does.
  */
 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -62,10 +68,12 @@ import {
   orderSpecsForAllowance,
   refusalVerdict,
   specKey,
+  unprovenSummaryLines,
   EXIT_DEFECT,
   EXIT_INCOMPLETE,
   type DeploymentProofLedger,
   type ProofOutcome,
+  type UnprovenCause,
 } from "@/lib/probes/proof-outcome";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
@@ -937,6 +945,12 @@ function unspecifiedWorkerTools(): string[] {
 interface ProofResult {
   label: string;
   outcome: ProofOutcome;
+  /**
+   * Set on (and only on) an UNPROVEN result: which cause was OBSERVED for this
+   * proof. Carried on the row rather than re-derived from `stage`, so the
+   * roll-up groups by what happened instead of by how it was printed.
+   */
+  unprovenCause?: UnprovenCause;
   stage?: string;
   detail?: string;
   seconds?: number;
@@ -997,7 +1011,14 @@ function missingDependency(
     : producer.outcome === "unproven"
       ? `needs "${artifactKey}" from "${producer.label}", which was not proven this run — nothing here is evidence about this tool`
       : `needs "${artifactKey}" from "${producer.label}", which did not pass — the defect is on that line, not this one`;
-  return { label, outcome: "unproven", stage, seconds, detail };
+  return {
+    label,
+    outcome: "unproven",
+    unprovenCause: "dependency",
+    stage,
+    seconds,
+    detail,
+  };
 }
 
 async function postJson(path: string, body: unknown) {
@@ -1029,6 +1050,7 @@ function refusalResult(
     return {
       label,
       outcome: "unproven",
+      unprovenCause: verdict.via,
       seconds,
       stage:
         verdict.via === "spend-ceiling" ? "spend ceiling" : "policy refusal",
@@ -1378,12 +1400,28 @@ async function main(): Promise<number> {
   );
   if (failed > 0) console.log(`${failed} FAILED — evidence of a defect.`);
   if (unproven.length > 0) {
-    console.log(
-      `${unproven.length} UNPROVEN — refused by the deployment's own policy, ` +
-        `which is not evidence about the tools: ${unproven
-          .map((r) => r.label)
-          .join(", ")}`,
-    );
+    // One line per cause OBSERVED, never one sentence over the union: the
+    // first production run of this feature printed "5 UNPROVEN — refused by
+    // the deployment's own policy … chat-with-pdf (follow-up)" when the
+    // follow-up was refused by nothing and never asked. A row that carries no
+    // cause would silently vanish from the grouped lines, so it is fatal
+    // rather than a count that quietly shrinks.
+    const unprovenRows: { label: string; cause: UnprovenCause }[] = [];
+    const uncaused: string[] = [];
+    for (const r of unproven) {
+      if (r.unprovenCause) {
+        unprovenRows.push({ label: r.label, cause: r.unprovenCause });
+      } else {
+        uncaused.push(r.label);
+      }
+    }
+    if (uncaused.length > 0) {
+      throw new Error(
+        `UNPROVEN with no observed cause: ${uncaused.join(", ")} — every site ` +
+          `that returns outcome "unproven" must set unprovenCause`,
+      );
+    }
+    for (const line of unprovenSummaryLines(unprovenRows)) console.log(line);
   }
 
   // Record this run's passes for the AI rotation, then say when every AI

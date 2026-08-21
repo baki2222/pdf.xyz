@@ -45,9 +45,14 @@
  *    this harness exists to fix.
  *  - `1` — evidence of a defect: at least one proof FAILED, or a worker tool
  *    arrived without a proof spec. Red is *reserved* for evidence.
- *  - `2` — incomplete, not failing: nothing failed, but at least one proof
- *    was refused by the deployment's own policy. The claim "all proven" is
- *    not licensed, and nothing is known to be broken.
+ *  - `2` — incomplete, not failing: nothing failed, but at least one selected
+ *    proof could not be made — the deployment's own policy refused it, or its
+ *    input came from a proof that was itself never made. Stated as the
+ *    PROPERTY ("the claim was not made") rather than the mechanism ("a policy
+ *    refused"): the mechanism arrived first and is only one way to get here,
+ *    and a summary that says "refused" about a proof nothing refused is the
+ *    defect {@link unprovenSummaryLines} exists to prevent. Nothing is known
+ *    to be broken; "all proven" is simply not licensed.
  *
  * What should CI do with 2? Nothing that it does with 1. A pipeline that
  * treats any nonzero as "stop" still stops — safe by default, an incomplete
@@ -102,6 +107,53 @@ export type UnprovenVia = (typeof UNPROVEN_VIAS)[number];
 export type RefusalVerdict =
   | { outcome: "unproven"; via: UnprovenVia; reason: string }
   | { outcome: "failed" };
+
+/**
+ * Why a proof could not be made. The two {@link UNPROVEN_VIAS} are OBSERVED
+ * refusals — the deployment answered and said no. `dependency` is not: no
+ * request was ever sent, because the artifact this proof consumes never
+ * arrived (the chat follow-up when the opening turn was refused).
+ *
+ * They are kept apart because the roll-up line is the cheapest place in this
+ * harness to spread one observed cause over a set that did not share it — the
+ * defect `reservation-refusal.ts` exists to prevent, one file over. The first
+ * run of this feature against production on 2026-08-21 did exactly that:
+ * `5 UNPROVEN — refused by the deployment's own policy … chat-with-pdf
+ * (follow-up)`, when the follow-up was refused by nothing and never asked.
+ */
+export const UNPROVEN_CAUSES = [...UNPROVEN_VIAS, "dependency"] as const;
+export type UnprovenCause = (typeof UNPROVEN_CAUSES)[number];
+
+/** What each cause is allowed to say about the tools it names. */
+const CAUSE_SENTENCE: Record<UnprovenCause, string> = {
+  "rate-limit":
+    "refused by the deployment's own rate-limit policy, which is not evidence about the tools",
+  "spend-ceiling":
+    "refused by the deployment's AI spend ceiling, which is not evidence about the tools",
+  dependency:
+    "never asked — the artifact each consumes was not produced this run, so nothing here is evidence about them",
+};
+
+/**
+ * The run's UNPROVEN roll-up, one line per cause actually observed, each line
+ * naming only the proofs that carried that cause. Grouping (rather than one
+ * sentence over the union) is the whole point: a probe may not report a cause
+ * it did not observe, and that includes a cause it observed somewhere else.
+ * Order follows {@link UNPROVEN_CAUSES} so the output is stable across runs.
+ */
+export function unprovenSummaryLines(
+  rows: readonly { label: string; cause: UnprovenCause }[],
+): string[] {
+  const lines: string[] = [];
+  for (const cause of UNPROVEN_CAUSES) {
+    const labels = rows.filter((r) => r.cause === cause).map((r) => r.label);
+    if (labels.length === 0) continue;
+    lines.push(
+      `${labels.length} UNPROVEN — ${CAUSE_SENTENCE[cause]}: ${labels.join(", ")}`,
+    );
+  }
+  return lines;
+}
 
 /**
  * Classify a refused HTTP exchange. See the module docblock for the property;
