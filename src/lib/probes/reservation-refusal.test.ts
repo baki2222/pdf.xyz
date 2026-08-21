@@ -259,8 +259,11 @@ describe("explainReservationRefusal", () => {
   });
 
   it("surfaces the observed Retry-After and the structural source of a 429", () => {
-    const production = CORPUS[0];
-    const { message } = explainReservationRefusal(production.observed);
+    // Found by its distinguishing observation, not by position: the corpus
+    // case carrying the production Retry-After of 2026-08-20.
+    const production = CORPUS.find((c) => c.observed.retryAfter === "2328");
+    expect(production).toBeDefined();
+    const { message } = explainReservationRefusal(production!.observed);
     // Surfacing a number is a new claim: the observed 2328 must appear, with
     // the minutes rendering derived from it (ceil(2328 / 60) = 39).
     expect(message).toContain("2328s (~39 min)");
