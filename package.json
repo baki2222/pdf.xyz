@@ -2,10 +2,10 @@
   "name": "pdf-xyz",
   "version": "0.1.0",
   "private": true,
-  "description": "pdf.xyz \u2014 a modern, fast, privacy-first PDF platform.",
+  "description": "pdf.xyz — a modern, fast, privacy-first PDF platform.",
   "scripts": {
-    "dev": "tsx scripts/copy-pdfjs-wasm.ts && next dev",
-    "build": "tsx scripts/copy-pdfjs-wasm.ts && next build --webpack",
+    "dev": "tsx scripts/copy-pdfjs-wasm.ts && tsx scripts/copy-noto-fonts.ts && next dev",
+    "build": "tsx scripts/copy-pdfjs-wasm.ts && tsx scripts/copy-noto-fonts.ts && next build --webpack",
     "start": "next start",
     "worker:daemon": "tsx scripts/worker-daemon.ts",
     "worker:daemon:status": "tsx scripts/worker-daemon.ts --dry-run-status",
@@ -39,14 +39,18 @@
     "qa": "tsx scripts/qa.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "pdfjs:wasm": "tsx scripts/copy-pdfjs-wasm.ts"
+    "pdfjs:wasm": "tsx scripts/copy-pdfjs-wasm.ts",
+    "fonts:copy": "tsx scripts/copy-noto-fonts.ts",
+    "fonts:coverage": "tsx scripts/generate-font-coverage.ts"
   },
   "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "clsx": "^2.1.1",
+    "fontkit": "^2.0.4",
     "geist": "^1.7.2",
     "jszip": "^3.10.1",
     "lucide-react": "^1.22.0",
@@ -55,10 +59,16 @@
     "pdfjs-dist": "^6.1.200",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "regenerator-runtime": "^0.14.1",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
+    "@expo-google-fonts/noto-sans": "^0.4.2",
+    "@expo-google-fonts/noto-sans-bengali": "^0.4.4",
+    "@expo-google-fonts/noto-sans-jp": "^0.4.3",
+    "@expo-google-fonts/noto-sans-kr": "^0.4.3",
+    "@expo-google-fonts/noto-sans-sc": "^0.4.3",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",

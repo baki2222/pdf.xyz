@@ -78,10 +78,23 @@ export async function addPageNumbers(
   const color = toRgb(rgb, options.color ?? INK);
 
   const doc = await loadPdf(bytes);
-  const font = await embedStampFont(doc);
   const pages = doc.getPages();
   const numberedCount = Math.max(0, pages.length - (startPage - 1));
   const total = startAt + numberedCount - 1;
+
+  // Every label this run will draw, substituted, BEFORE a font is chosen. The
+  // template is not the text: "Page {n} of {total}" is pure ASCII while
+  // "পৃষ্ঠা {n}" is not, and a font picked from the template would be picked
+  // from the wrong set. Choosing up front also means a refusal arrives before
+  // page one is touched rather than part-way through the loop.
+  const labels: string[] = [];
+  pages.forEach((page, index) => {
+    if (index + 1 < startPage) return;
+    const n = startAt + (index - (startPage - 1));
+    const text = applyTokens(format, { n, total });
+    if (text.trim().length > 0) labels.push(text);
+  });
+  const font = await embedStampFont(doc, labels);
 
   pages.forEach((page, index) => {
     if (index + 1 < startPage) return;

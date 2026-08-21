@@ -2,6 +2,7 @@ import type { PDFFont } from "pdf-lib";
 import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
+import { embedDrawingFont } from "./unicode-font";
 
 const PRODUCER = "pdf.xyz";
 const PAGE_WIDTH = 612; // US Letter, points
@@ -127,12 +128,19 @@ export async function textToPdf(
   options: TextToPdfOptions = {},
 ): Promise<Uint8Array> {
   validatePlainTextInput(text);
-  const { PDFDocument, StandardFonts, rgb } = await loadPdfLib();
+  const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Courier);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const layout = layoutPlainText(text, font);
   const title = (options.title ?? "Text document").trim() || "Text document";
+  // The body font also draws the "1 / 3" footer, so its corpus is the document
+  // text plus the title; the title font's corpus is the title alone. Western
+  // input takes the same Courier/Helvetica-Bold pair this tool has always used
+  // and downloads nothing. A Bengali or Chinese .txt gets a real face instead
+  // of the refusal it used to get, and the layout below measures with THAT
+  // font — wrapping non-Latin text against Courier's metrics would have put
+  // every line break in the wrong place.
+  const font = await embedDrawingFont(doc, [text, title], "mono");
+  const bold = await embedDrawingFont(doc, [title], "sans-bold");
+  const layout = layoutPlainText(text, font);
 
   doc.setTitle(title);
   doc.setProducer(PRODUCER);

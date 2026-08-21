@@ -3,6 +3,12 @@ import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
+import { isWinAnsiEncodable, nonWinAnsiCharacters } from "./winansi";
+
+// Re-exported from their new home. Five modules needed the same predicate once
+// a Unicode face could be embedded, and two copies of an alphabet are two
+// chances to disagree about the euro sign. See `winansi.ts`.
+export { isWinAnsiEncodable, nonWinAnsiCharacters };
 
 /**
  * In-browser, flattened PDF markup built on pdf-lib only — no uploads, no worker.
@@ -183,73 +189,32 @@ export function clampOpacity(value: number): number {
 }
 
 /**
- * The exact set of Unicode code points, above the Latin-1 range, that pdf-lib's
- * built-in Helvetica (WinAnsi / CP1252) can encode — smart quotes, dashes, the
- * euro sign, etc. Kept precise so {@link sanitizeNoteText} matches the encoder
- * and a note can never crash the export.
- */
-const WINANSI_EXTRA: ReadonlySet<number> = new Set([
-  0x152, 0x153, 0x160, 0x161, 0x178, 0x17d, 0x17e, 0x192, 0x2c6, 0x2dc, 0x2013,
-  0x2014, 0x2018, 0x2019, 0x201a, 0x201c, 0x201d, 0x201e, 0x2020, 0x2021,
-  0x2022, 0x2026, 0x2030, 0x2039, 0x203a, 0x20ac, 0x2122,
-]);
-
-/** Can the built-in Helvetica encode this code point without throwing? */
-export function isWinAnsiEncodable(codePoint: number): boolean {
-  return (
-    (codePoint >= 0x20 && codePoint <= 0x7e) ||
-    (codePoint >= 0xa0 && codePoint <= 0xff) ||
-    WINANSI_EXTRA.has(codePoint)
-  );
-}
-
-/**
- * The distinct characters in `text` that the standard fonts cannot draw.
+ * Normalize note text for drawing: tabs become spaces and newlines are
+ * preserved so callers can wrap on them.
  *
- * Empty for ordinary Western text. Exported so a runner can check BEFORE the
- * user commits work, rather than after they have placed twenty markups.
- */
-export function unsupportedNoteCharacters(text: string): string[] {
-  const seen = new Set<string>();
-  for (const ch of text) {
-    if (ch === "\t" || ch === "\n" || ch === "\r") continue;
-    const cp = ch.codePointAt(0);
-    if (cp === undefined || !isWinAnsiEncodable(cp)) seen.add(ch);
-  }
-  return [...seen];
-}
-
-/**
- * Normalize note text for drawing with the standard Helvetica: tabs become
- * spaces and newlines are preserved so callers can wrap on them.
+ * WHAT THIS FUNCTION USED TO DO, AND WHY IT NO LONGER DOES IT
  *
- * **It no longer substitutes.** Until 2026-08-10 every character the WinAnsi
- * encoding cannot represent — all CJK, Cyrillic, Greek, Arabic, Hebrew, Hindi,
- * every emoji, and ordinary typographic marks like → and ✓ — was silently
- * replaced with `?` and the export reported success. A user annotating a
- * contract in Chinese was told "Markups applied" and downloaded a PDF of
- * question marks: their words destroyed, with nothing anywhere saying so.
+ * Until 2026-08-10 it SUBSTITUTED. Every character WinAnsi cannot represent —
+ * all CJK, Cyrillic, Greek, Arabic, Hebrew, Hindi, every emoji, and ordinary
+ * marks like the arrow and the tick — became `?` and the export reported
+ * success. A user annotating a contract in Chinese was told "Markups applied"
+ * and downloaded a PDF of question marks: their words destroyed, with nothing
+ * anywhere saying so. That was replaced by a refusal, which was right and
+ * remains the rule.
  *
- * Silent corruption is worse than refusal. A rejection costs the user the
- * export; a substitution costs them the document and tells them it worked.
- * The alphabet limit is real and belongs to pdf-lib's standard fonts (embedding
- * a Unicode font is the actual fix and a separate, larger piece) — so until
- * then this says so out loud, naming the characters it cannot draw.
+ * The refusal is no longer HERE, because the alphabet limit is no longer here.
+ * A real Unicode face is now chosen and embedded by {@link embedStampFont},
+ * which draws Bengali, Chinese, Japanese, Korean, Cyrillic, Greek, Devanagari
+ * and Latin-Extended, and which refuses — by name, per character, saying which
+ * scripts it does and does not draw — for everything else. One place decides,
+ * and it is the place that knows what the font can do. Leaving a second,
+ * narrower refusal here would have meant Bengali notes rejected by a check that
+ * had not noticed the fonts arrived.
+ *
+ * The invariant that survived both changes: this never substitutes. It returns
+ * the user's characters, or the caller throws. There is no third outcome.
  */
 export function sanitizeNoteText(text: string): string {
-  const unsupported = unsupportedNoteCharacters(text);
-  if (unsupported.length > 0) {
-    const shown = unsupported.slice(0, 8).join(" ");
-    const more =
-      unsupported.length > 8 ? ` (and ${unsupported.length - 8} more)` : "";
-    throw new PdfEngineError(
-      `These characters can't be drawn with the built-in fonts yet: ${shown}${more}. ` +
-        "The built-in fonts cover Western European alphabets only, so Chinese, " +
-        "Japanese, Korean, Cyrillic, Greek, Arabic, Hebrew and emoji are not " +
-        "supported here — rather than replace them with “?” and hand you a " +
-        "damaged file, this stops so nothing is lost.",
-    );
-  }
   let out = "";
   for (const ch of text) {
     out += ch === "\t" ? "    " : ch;
@@ -679,7 +644,13 @@ export async function annotatePdf(
     );
   }
 
-  const font = await embedStampFont(doc);
+  // Every note that will be drawn, normalized, BEFORE a font is chosen — so a
+  // Bengali note on page nine picks the face rather than the ASCII note on page
+  // one, and so a refusal lands before any page has been touched.
+  const noteTexts = list
+    .filter((item) => item.type === "note")
+    .map((item) => sanitizeNoteText((item as { text: string }).text));
+  const font = await embedStampFont(doc, noteTexts);
   const counts: Record<AnnotationType, number> = {
     highlight: 0,
     rect: 0,

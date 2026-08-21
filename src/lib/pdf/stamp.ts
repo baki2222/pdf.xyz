@@ -1,6 +1,6 @@
 import type { PDFDocument, PDFFont, RGB as PdfLibRGB } from "pdf-lib";
-import { loadPdfLib } from "./pdf-lib";
 import { loadPdf } from "./engine";
+import { embedDrawingFont } from "./unicode-font";
 
 /**
  * Shared, pure primitives for stamping text onto existing PDF pages — used by
@@ -227,13 +227,26 @@ export function stampProducer(doc: PDFDocument): void {
   doc.setCreator(STAMP_PRODUCER);
 }
 
-/** Embed a standard font for stamping; bold reads better for watermarks. */
+/**
+ * Embed the face that can stamp EVERY string in `texts`; bold reads better for
+ * watermarks.
+ *
+ * Western text still gets the built-in Helvetica and downloads nothing — the
+ * path this function had before Unicode support, unchanged and free. Anything
+ * else routes to {@link embedDrawingFont}, which fetches a real Noto face and
+ * refuses, loudly and by name, when no shipped face can draw the characters.
+ *
+ * Why the WHOLE list and not a sample: page numbers substitute `{n}` per page
+ * and header slots substitute `{date}`, so the string that needs a Bengali face
+ * is frequently not the template the caller was holding. A font chosen from one
+ * string is a font chosen from the wrong set — and the failure would surface as
+ * pdf-lib throwing a raw `WinAnsi cannot encode` mid-loop, after some pages had
+ * already been stamped.
+ */
 export async function embedStampFont(
   doc: PDFDocument,
+  texts: readonly string[],
   weight: "regular" | "bold" = "regular",
 ): Promise<PDFFont> {
-  const { StandardFonts } = await loadPdfLib();
-  return doc.embedFont(
-    weight === "bold" ? StandardFonts.HelveticaBold : StandardFonts.Helvetica,
-  );
+  return embedDrawingFont(doc, texts, weight === "bold" ? "sans-bold" : "sans");
 }

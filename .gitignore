@@ -64,3 +64,8 @@ next-env.d.ts
 
 # pdfjs character maps, copied by the same script. Generated, version-stamped.
 /public/pdfjs-cmaps/
+
+# Noto faces the text tools embed, copied out of node_modules by
+# scripts/copy-noto-fonts.ts before dev/build. 22 MB of generated,
+# version-stamped assets — never committed.
+/public/fonts/

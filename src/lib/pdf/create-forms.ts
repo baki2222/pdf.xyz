@@ -1,6 +1,7 @@
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";
+import { assertFormFieldTextDrawable } from "./unicode-font";
 
 /**
  * Pure, in-browser AcroForm *creation* built on pdf-lib only — no uploads, no
@@ -392,6 +393,23 @@ export async function createFormFields(
   if (errors.length > 0) {
     throw new PdfEngineError(summarizeErrors(errors));
   }
+
+  // Every string that will end up inside a field's appearance stream: the
+  // default values, the dropdown/list options, and the field names themselves
+  // (pdf-lib writes those into the AcroForm dictionary). Checked here, before a
+  // single widget is added, because the failure otherwise surfaces from
+  // `doc.save()` as a raw `WinAnsi cannot encode` with the form half-built.
+  assertFormFieldTextDrawable([
+    ...specs.map((spec) => spec.name),
+    ...specs.map((spec) =>
+      "defaultValue" in spec && typeof spec.defaultValue === "string"
+        ? spec.defaultValue
+        : "",
+    ),
+    ...specs.flatMap((spec) =>
+      "options" in spec && Array.isArray(spec.options) ? spec.options : [],
+    ),
+  ]);
 
   for (const spec of specs) {
     const page = pages[spec.page - 1];

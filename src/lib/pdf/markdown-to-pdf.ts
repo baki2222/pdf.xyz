@@ -2,6 +2,7 @@ import type { PDFDocument, PDFFont, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
 import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
+import { embedDrawingFont } from "./unicode-font";
 
 const PRODUCER = "pdf.xyz";
 const PAGE_WIDTH = 612;
@@ -209,6 +210,33 @@ function wrapText(
   return lines;
 }
 
+/**
+ * Every string this renderer will hand to `drawText`, including the decorations
+ * it invents.
+ *
+ * Kept next to {@link drawBlock} and mirroring its cases on purpose: a new block
+ * kind that draws a new marker has to be added in both, and the two sitting
+ * together is the cheapest way to make that obvious. `markdown-to-pdf.test.ts`
+ * pins the bullet specifically, because that is the character that broke.
+ */
+function drawnStrings(blocks: MarkdownBlock[], title: string): string[] {
+  const out = [title];
+  for (const block of blocks) {
+    if (block.kind === "list-item") {
+      const marker = block.ordered ? `${block.index ?? 1}. ` : "• ";
+      out.push(`${marker}${block.text}`);
+      continue;
+    }
+    if (block.kind === "code") {
+      if (block.language) out.push(block.language);
+      out.push(block.text);
+      continue;
+    }
+    out.push(block.text);
+  }
+  return out;
+}
+
 function newPage(cursor: Cursor): void {
   cursor.page = cursor.doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   cursor.y = PAGE_HEIGHT - MARGIN;
@@ -351,16 +379,24 @@ export async function markdownToPdf(
 ): Promise<Uint8Array> {
   validateMarkdownInput(markdown);
   const blocks = parseMarkdownBlocks(markdown);
-  const { PDFDocument, StandardFonts, rgb } = await loadPdfLib();
+  const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
-  const fonts: PdfFonts = {
-    body: await doc.embedFont(StandardFonts.Helvetica),
-    bold: await doc.embedFont(StandardFonts.HelveticaBold),
-    mono: await doc.embedFont(StandardFonts.Courier),
-    italic: await doc.embedFont(StandardFonts.HelveticaOblique),
-  };
   const title =
     (options.title ?? "Markdown document").trim() || "Markdown document";
+  // The corpus is what will be DRAWN, not what was typed. `drawnStrings` adds
+  // the list markers this renderer synthesises — "• " is U+2022, which is inside
+  // WinAnsi but outside Noto Sans Bengali's 14% of General Punctuation, so a
+  // Bengali bullet list chosen from the raw markdown would have picked a face
+  // that cannot draw its own bullets. Deriving the corpus from the parsed
+  // blocks is the difference between a right answer and a right answer to the
+  // wrong question.
+  const drawn = drawnStrings(blocks, title);
+  const fonts: PdfFonts = {
+    body: await embedDrawingFont(doc, drawn, "sans"),
+    bold: await embedDrawingFont(doc, drawn, "sans-bold"),
+    mono: await embedDrawingFont(doc, drawn, "mono"),
+    italic: await embedDrawingFont(doc, drawn, "sans-oblique"),
+  };
   doc.setTitle(title);
   doc.setCreator(PRODUCER);
   doc.setProducer(PRODUCER);

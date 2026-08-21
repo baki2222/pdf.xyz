@@ -365,6 +365,12 @@ describe("editPdf", () => {
     // Inverted 2026-08-10. This asserted the edit SUCCEEDED for
     // "Emoji 😀 and 日本語" — which it did, by writing "Emoji ? and ???" into the
     // user's document and reporting success. The test was agreeing with the bug.
+    //
+    // Split in two once a Unicode face could be embedded, because the original
+    // string was really two claims wearing one coat: 日本語 is now DRAWN, and
+    // only the emoji is refused. Left as one assertion it would have kept
+    // passing for a reason that had stopped being true — the most convincing
+    // way to be wrong.
     const base = await blankPdf([[300, 300]]);
     await expect(
       editPdf(base, [
@@ -373,12 +379,45 @@ describe("editPdf", () => {
           page: 1,
           x: 20,
           y: 150,
-          text: "Emoji 😀 and 日本語",
+          text: "Emoji 😀 here",
           color: "#000000",
           maxWidth: 260,
         },
       ]),
-    ).rejects.toThrow(/can't be drawn/i);
+    ).rejects.toThrow(/emoji is not supported because/i);
+    // The refusal still says what it will not do instead of doing it badly.
+    await expect(
+      editPdf(base, [
+        {
+          type: "text",
+          page: 1,
+          x: 20,
+          y: 150,
+          text: "Emoji 😀 here",
+          color: "#000000",
+          maxWidth: 260,
+        },
+      ]),
+    ).rejects.toThrow(/Rather than replace them with/);
+  });
+
+  it("DRAWS Japanese, which it used to turn into question marks", async () => {
+    // The other half of the string above. `src/lib/pdf/unicode-font.test.ts`
+    // proves the glyphs are really in the file; this proves the tool no longer
+    // rejects the language.
+    const base = await blankPdf([[300, 300]]);
+    const result = await editPdf(base, [
+      {
+        type: "text",
+        page: 1,
+        x: 20,
+        y: 150,
+        text: "日本語のメモ",
+        color: "#000000",
+        maxWidth: 260,
+      },
+    ]);
+    expect(result.counts.text).toBe(1);
   });
 
   it("still draws text the standard fonts cover", async () => {
