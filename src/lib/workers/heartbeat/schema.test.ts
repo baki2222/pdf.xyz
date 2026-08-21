@@ -15,6 +15,7 @@ import {
   WORKER_HEARTBEAT_SCHEMA_VERSION,
   type HeartbeatCapabilities,
 } from "./types";
+import { emptyCapabilities } from "./factory";
 
 const CAPS: HeartbeatCapabilities = {
   deepCompression: true,
@@ -22,6 +23,8 @@ const CAPS: HeartbeatCapabilities = {
   ocrLanguages: [],
   malwareScan: true,
   atomicQueue: true,
+  chunkedTranslate: true,
+  deliveryCap: true,
 };
 
 describe("coarseRelease", () => {
@@ -67,6 +70,8 @@ describe("buildHeartbeat / serialize / parse", () => {
         ocr: "yes" as unknown as boolean,
         malwareScan: true,
         atomicQueue: false,
+        chunkedTranslate: true,
+        deliveryCap: true,
         secretEndpoint: "https://evil.example.com",
       } as unknown as HeartbeatCapabilities,
       at: 5,
@@ -77,6 +82,8 @@ describe("buildHeartbeat / serialize / parse", () => {
       ocrLanguages: [],
       malwareScan: true,
       atomicQueue: false,
+      chunkedTranslate: true,
+      deliveryCap: true,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -86,6 +93,59 @@ describe("buildHeartbeat / serialize / parse", () => {
     const hb = buildHeartbeat({ mode: "once", capabilities: CAPS, at: 42 });
     const parsed = parseHeartbeat(serializeHeartbeat(hb));
     expect(parsed).toEqual(hb);
+  });
+
+  it("round-trips EVERY capability, with the key set derived from the type", () => {
+    /**
+     * `serializeHeartbeat` and `capabilitiesOf` are TWINS, written out field by
+     * field in two places. A capability added to one and forgotten in the other
+     * is dropped in flight, and the web tier then reads the default — which for
+     * a boolean is `false`, so the worker looks LESS capable than it is and
+     * nobody is alarmed by a capability going quiet.
+     *
+     * The test above cannot catch that in general. It compares one hand-built
+     * fixture, so it only notices a dropped field when that fixture happens to
+     * set the field to something other than its default. The next capability
+     * whose fixture value is `false` would sail through.
+     *
+     * So the key set is DERIVED from `emptyCapabilities()` and every value is
+     * flipped away from its default before the trip. A field the serializer
+     * forgets comes back as the default, which is now the one value it must
+     * not be.
+     */
+    const defaults = emptyCapabilities() as unknown as Record<string, unknown>;
+    const keys = Object.keys(defaults);
+
+    // BOUND THE CORPUS: an empty or collapsed key list would make the loop
+    // below assert nothing and report the strongest possible pass.
+    expect(
+      keys.length,
+      "the capability set is implausibly small — the corpus, not the code, is what failed",
+    ).toBeGreaterThanOrEqual(7);
+
+    const flipped = Object.fromEntries(
+      keys.map((key) => [
+        key,
+        Array.isArray(defaults[key]) ? ["eng"] : !defaults[key],
+      ]),
+    ) as unknown as HeartbeatCapabilities;
+
+    const trip = parseHeartbeat(
+      serializeHeartbeat(
+        buildHeartbeat({ mode: "once", capabilities: flipped, at: 42 }),
+      ),
+    );
+    expect(trip, "the heartbeat did not parse at all").not.toBeNull();
+
+    const got = trip!.capabilities as unknown as Record<string, unknown>;
+    for (const key of keys) {
+      expect(
+        got[key],
+        `capabilities.${key} did not survive serialize → parse. One of the two ` +
+          "twins does not name it, so a worker publishing it is read as not " +
+          "having it — and a capability that goes quiet raises no alarm.",
+      ).toEqual((flipped as unknown as Record<string, unknown>)[key]);
+    }
   });
 
   it("rejects records that fail the bounded schema", () => {
@@ -127,6 +187,8 @@ describe("buildHeartbeat / serialize / parse", () => {
         ocr: false,
         malwareScan: false,
         atomicQueue: true,
+        chunkedTranslate: true,
+        deliveryCap: true,
       },
       // Everything below is injected and must not survive.
       host: "worker-07.internal.example.com",
@@ -152,6 +214,8 @@ describe("buildHeartbeat / serialize / parse", () => {
         ocrLanguages: [],
         malwareScan: false,
         atomicQueue: true,
+        chunkedTranslate: true,
+        deliveryCap: true,
       },
       at: 1234,
     });

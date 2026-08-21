@@ -279,6 +279,12 @@ const SUBSYSTEM_META: Record<
       "The optional abuse guard on the public API. Deliberately off is healthy; selected-but-not-enforcing (a bad store config, or a store failing open) is the warning.",
     icon: Gauge,
   },
+  "worker-capability": {
+    label: "Advertised capabilities",
+    description:
+      "Whether the worker image that is RUNNING carries what the product's copy promises. A worker can be alive, drainable and healthy on every other row and still be an older build — measured once at nine days, while the FAQ described a feature the running image did not contain. Unknown here means no worker answered, which is not the same as fine.",
+    icon: Boxes,
+  },
   "ai-spend": {
     label: "AI spend ceiling",
     description:
@@ -348,6 +354,7 @@ const SUBSYSTEM_ORDER = [
   "cleanup-evidence",
   "guardrails",
   "daemon-loop",
+  "worker-capability",
 ] as const satisfies readonly SnapshotSubsystemId[];
 
 /** `never` iff every subsystem id appears in the order above. */

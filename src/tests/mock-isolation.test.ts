@@ -78,6 +78,12 @@ const isTestFile = (file: string): boolean => /\.(test|spec)\.tsx?$/.test(file);
  * output stays out; `--others --exclude-standard` is precisely "files that
  * would be committed".
  */
+/**
+ * The tracked half alone, so a failure can name which files were transient.
+ * Populated by {@link trackedSources}; only ever read in a failure message.
+ */
+let tracked = new Set<string>();
+
 function trackedSources(): string[] {
   const listings = [
     execFileSync("git", ["ls-files", "src"], { encoding: "utf8" }),
@@ -85,6 +91,11 @@ function trackedSources(): string[] {
       encoding: "utf8",
     }),
   ].join("\n");
+  tracked = new Set(
+    execFileSync("git", ["ls-files", "src"], { encoding: "utf8" })
+      .split("\n")
+      .map((line) => line.trim()),
+  );
   return [...new Set(listings.split("\n").map((line) => line.trim()))].filter(
     (line) => /\.tsx?$/.test(line),
   );
@@ -135,7 +146,25 @@ interface Parsed {
  * Missing a real edge costs a red CI on another platform.
  */
 function parse(file: string): Parsed {
-  const source = readFileSync(file, "utf8");
+  /**
+   * A file listed a moment ago can be gone by the time it is read — the
+   * untracked half of the corpus is by definition files somebody may be
+   * creating and deleting right now. A vanished file cannot be a violation, so
+   * it is skipped rather than thrown on.
+   *
+   * ⚠️ A HARDENING, NOT A DIAGNOSED FIX. This guard failed once in a full run
+   * and has not reproduced since — the file alone is green, nothing `chdir`s,
+   * and no test writes under `src/`. This race is the one mechanism here that
+   * is real and cheap to remove, so it is removed; the corpus-bound message
+   * below now carries what it actually saw, so the next occurrence does not
+   * cost another investigation that ends in a hypothesis.
+   */
+  let source: string;
+  try {
+    source = readFileSync(file, "utf8");
+  } catch {
+    return { imports: [], mocks: [] };
+  }
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const imports: string[] = [];
   const mocks: string[] = [];
@@ -317,9 +346,12 @@ describe("no mock is observable by another test file", () => {
 
     // BOUND THE CORPUS. A collapsed file list makes every assertion below
     // vacuously true and reports the strongest possible pass.
+    const transient = files.filter((file) => !tracked.has(file));
     expect(
       files.length,
-      "the tracked source listing is implausibly small — the corpus, not the code, is what failed",
+      `the source listing is implausibly small (${files.length} files, ` +
+        `${transient.length} untracked: ${transient.slice(0, 8).join(", ") || "none"}) ` +
+        "— the corpus, not the code, is what failed",
     ).toBeGreaterThan(500);
 
     const graph = new Map<string, Parsed>();

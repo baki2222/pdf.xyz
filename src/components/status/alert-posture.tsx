@@ -166,6 +166,10 @@ const REASON_COPY: Record<AlertReason, string> = {
     "A cleanup evidence report shows a breach (a should-be-gone object remains)",
   "cleanup-evidence-invalid":
     "The cleanup evidence report is unreadable or not a recognized summary",
+  "worker-capability-missing":
+    "The running worker image does not carry a capability the product's copy promises",
+  "worker-capability-unknown":
+    "No worker answered, so what the running image can do is unknown",
   "loop-errors": "The last worker loop hit queue/transient errors",
   "liveness-observed": "A fresh worker heartbeat is visible",
   "liveness-stale": "The worker heartbeat has gone stale",

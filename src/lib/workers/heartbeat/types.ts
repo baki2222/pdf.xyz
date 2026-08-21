@@ -107,6 +107,32 @@ export interface HeartbeatCapabilities {
   readonly malwareScan: boolean;
   /** The configured queue guarantees atomic, race-safe state transitions. */
   readonly atomicQueue: boolean;
+  /**
+   * This image can SPLIT a document too long for one provider call into
+   * several — the thing the FAQ promises in the words "a longer document is
+   * not refused".
+   *
+   * PROVEN AT START-UP by running the real planner, never declared. A boolean
+   * written in `main` would have read `true` for the nine days the running
+   * image had no chunking in it at all, which is exactly the period this field
+   * exists to have made visible.
+   *
+   * An image built before the feature does not publish this key, and
+   * `boolOf(undefined)` is `false` — so the old image does not have to
+   * cooperate. It could not: it was built before anyone thought to ask.
+   */
+  readonly chunkedTranslate: boolean;
+  /**
+   * This image enforces the per-job delivery bound and names the bound that
+   * stopped it.
+   *
+   * Separate from {@link chunkedTranslate} because they fail differently and
+   * cost differently: without splitting a long document is refused, which is
+   * visible and annoying; without the cap the character reservation is
+   * decorative and a caller can declare one character and be handed a whole
+   * translation, which is invisible and expensive.
+   */
+  readonly deliveryCap: boolean;
 }
 
 /**

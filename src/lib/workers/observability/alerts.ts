@@ -101,6 +101,12 @@ export const ALERT_REASONS = [
   "cleanup-evidence-drift",
   "cleanup-evidence-breach",
   "cleanup-evidence-invalid",
+  // The running IMAGE does not carry something the product's copy promises.
+  // Separate from every liveness reason: the worker is alive, drainable and
+  // healthy — it is simply not the build `main` describes. Nine days of that
+  // went unnoticed because every liveness signal was green the whole time.
+  "worker-capability-missing",
+  "worker-capability-unknown",
   "loop-errors",
   "liveness-observed",
   "liveness-stale",
@@ -351,6 +357,15 @@ function subsystemReasonAction(
 ): { reason: AlertReason; action: AlertAction } {
   const blocked = health === "blocked";
   switch (id) {
+    case "worker-capability":
+      // `confirm-worker-deployment` already exists and is exactly the response:
+      // go and look at what image is actually running.
+      return {
+        reason: blocked
+          ? "worker-capability-missing"
+          : "worker-capability-unknown",
+        action: "confirm-worker-deployment",
+      };
     case "drainability":
       // The specific configure-* action comes from the snapshot's recommendedAction.
       return {
