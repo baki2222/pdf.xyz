@@ -14,11 +14,12 @@
  * PASSED on that sentence — `legal-pages`, `allowance-copy`,
  * `marketing-honesty`, `pricing-honesty` all green while it shipped — because
  * their ban lists model privacy, retention, security and allowance claims.
- * Nobody had ever modelled an AUDIENCE-SIZE claim: grepping those guards for
- * `thousands|trusted by|join` returns nothing. That is rule 1 with the corpus
- * missing a whole CATEGORY rather than a synonym — a clean result from a list
- * that never knew the shape means "no claim in the words I know", not "no
- * claim".
+ * Nobody had ever modelled an AUDIENCE-SIZE claim: `thousands` and `trusted
+ * by` appear in none of those guards (verified 2026-08-21), and every `join`
+ * in them is `.join(` — the array method, not the invitation. That is rule 1
+ * with the corpus missing a whole CATEGORY rather than a synonym — a clean
+ * result from a list that never knew the shape means "no claim in the words
+ * I know", not "no claim".
  *
  * SHAPES, not words. "Thousands" is one spelling; the next writer ships
  * "join the many", "used daily by teams", "a growing community", "hundreds of
