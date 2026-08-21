@@ -102,8 +102,47 @@ export interface AiUsageMeta {
  * summarize / ai-extract / chat-with-pdf job — including untruncated ones, so a
  * missing block means "this worker did not report", not "nothing was cut".
  */
+/**
+ * What a job DELIVERED, when it delivered less than the document held.
+ *
+ * ── ABSENT MEANS DELIVERED IN FULL, AND THAT IS THE DISCRIMINANT ────────────
+ *
+ * There is deliberately no `partial: false` state. A block saying
+ * `withheldPages: 0` would be a partial-delivery report about a complete
+ * delivery — a confident sentence about nothing, which is the shape
+ * `buildAiResultMeta` already refuses for the truncation window. Absent is the
+ * whole-document case; present means pages were withheld and names how many.
+ *
+ * ── WHY THE JOB RECORD HAS TO CARRY IT ──────────────────────────────────────
+ *
+ * The gap is already inside `translation.md`, positioned where the pages were,
+ * so a reader who opens the artifact meets it. But the SCREEN said "completed"
+ * — true in the narrow sense that the job finished, while the thing the user
+ * asked for was not delivered and their allowance was spent on it. That is
+ * this product's signature defect wearing its usual clothes, and a surface may
+ * not assert something the system contradicts.
+ */
+export interface AiDeliveryMeta {
+  /** Pages actually translated. */
+  deliveredPages: number;
+  /** Pages the job's own reservation would not cover. Always ≥ 1 when present. */
+  withheldPages: number;
+  /**
+   * Which bound stopped it. The two lead to different actions — an exhausted
+   * reservation is "translate the rest separately", a page bound is "the
+   * document is not what was declared" — so collapsing them would leave a
+   * reader with a number and nothing to do about it.
+   */
+  boundBy: "characters" | "pages";
+}
+
 export interface AiResultMeta {
   truncation: AiWindowMeta;
+  /**
+   * Present ONLY when pages were withheld. See {@link AiDeliveryMeta}: absent
+   * is "delivered in full", and there is no third state.
+   */
+  delivery?: AiDeliveryMeta;
   /**
    * Omitted when the provider did not report usage — which both providers do by
    * omission rather than by zeroes. An absent block means "not reported"; a
@@ -145,6 +184,27 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
       : null;
 
   const used = boundUsage(raw.usage);
+  /**
+   * Re-bound, and DROPPED unless it reports a real withholding.
+   *
+   * A block that survived with `withheldPages: 0` would render as "delivered in
+   * part" over a complete delivery — the same confident-sentence-about-nothing
+   * the truncation invariants above exist to prevent. `boundBy` is closed to
+   * the two values the engine can produce, so a corrupted or newer record
+   * cannot widen the vocabulary a UI switches on.
+   */
+  const rawDelivery = raw.delivery;
+  const withheldPages = count(rawDelivery?.withheldPages);
+  const delivery =
+    rawDelivery &&
+    withheldPages > 0 &&
+    (rawDelivery.boundBy === "characters" || rawDelivery.boundBy === "pages")
+      ? {
+          deliveredPages: count(rawDelivery.deliveredPages),
+          withheldPages,
+          boundBy: rawDelivery.boundBy,
+        }
+      : undefined;
 
   return {
     truncation: {
@@ -158,6 +218,7 @@ export function buildAiResultMeta(raw: AiResultMeta): AiResultMeta {
       cutMidPage: truncated && w.cutMidPage === true,
     },
     ...(used ? { usage: used } : {}),
+    ...(delivery ? { delivery } : {}),
   };
 }
 
