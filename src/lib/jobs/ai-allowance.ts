@@ -151,6 +151,29 @@ export const AI_CHARACTER_ALLOWANCE_BASIS = {
   pageSpread: 3.58,
 } as const;
 
+/**
+ * The rate-limit action that carries this allowance — the ONE definition, and
+ * it lives HERE rather than in `ratelimit/types.ts` for two reasons.
+ *
+ * **It is what selects the message below.** `rateLimitErrorResult` chooses
+ * between the generic throttle sentence and `AI_ALLOWANCE_USED_MESSAGE` by
+ * comparing a decision's action to this. Keeping the discriminator in the same
+ * module as the words it discriminates for is what stops the pair drifting —
+ * and they did drift: `enforceAiCharacterAllowance` moved from `ai.run` to
+ * `ai.characters` while `response.ts` went on comparing against a literal
+ * `"ai.run"`, so every real refusal shipped the GENERIC message and told users
+ * "Too many requests ... see docs/SECURITY.md" instead of naming the allowance
+ * they had just spent. Both halves were individually correct.
+ *
+ * **And the unit test could not see it**: it hand-built a decision with
+ * `action: "ai.run"` and asserted the right message came back — a correct
+ * assertion about an action no route enforces any more.
+ *
+ * `ai.run` remains in the action union because a deployed record may still
+ * carry it. Nothing enforces it: it is a superseded policy, not a live one.
+ */
+export const AI_ALLOWANCE_ACTION = "ai.characters";
+
 export const AI_ALLOWANCE_RUNS = `${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} free characters of AI text`;
 
 /**

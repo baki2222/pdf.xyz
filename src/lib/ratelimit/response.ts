@@ -16,7 +16,10 @@
 import { apiError, type ApiError, type ApiResult } from "@/lib/jobs";
 import type { RateLimitDecision } from "./types";
 import { policyFor } from "./policy";
-import { AI_ALLOWANCE_USED_MESSAGE } from "@/lib/jobs/ai-allowance";
+import {
+  AI_ALLOWANCE_ACTION,
+  AI_ALLOWANCE_USED_MESSAGE,
+} from "@/lib/jobs/ai-allowance";
 
 /** Client-facing 429 message. Generic by design; names no caller and no identity. */
 export const RATE_LIMITED_MESSAGE =
@@ -40,7 +43,10 @@ export function rateLimitErrorResult(
 ): ApiResult<ApiError> {
   return apiError(
     "rate_limited",
-    decision.action === "ai.run"
+    // Compared against the constant the GUARD uses, never a literal repeated
+    // here. The literal is what went stale: the allowance moved to a new action
+    // and this line went on answering about the old one.
+    decision.action === AI_ALLOWANCE_ACTION
       ? AI_ALLOWANCE_USED_MESSAGE
       : RATE_LIMITED_MESSAGE,
   );

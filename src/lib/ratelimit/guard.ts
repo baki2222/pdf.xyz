@@ -26,6 +26,7 @@ import type {
   RateLimiterVerdict,
 } from "./types";
 import { retryAfterBucket } from "./types";
+import { AI_ALLOWANCE_ACTION } from "@/lib/jobs/ai-allowance";
 import { policyFor } from "./policy";
 import { resolveRateLimitConfig } from "./config";
 import { createMemoryRateLimiter } from "./memory";
@@ -266,7 +267,9 @@ export async function enforceAiCharacterAllowance(
   env: EnvSource = process.env,
   nowMs: number = Date.now(),
 ): Promise<RateLimitDecision> {
-  const action = "ai.characters" as const;
+  // The shared constant, so the message this refusal produces cannot drift
+  // from the policy it is refused under. See AI_ALLOWANCE_ACTION.
+  const action = AI_ALLOWANCE_ACTION;
   const policy = policyFor(action);
   if (!Number.isFinite(characters) || characters <= 0) {
     return {
