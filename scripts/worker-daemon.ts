@@ -123,10 +123,10 @@ function heartbeatModeFor(mode: DaemonMode): HeartbeatMode {
  * runtime health the readiness readout uses, so the two can never disagree. Every
  * field is a bounded enum/boolean — never a host, path, key, or value.
  */
-function buildHeartbeatPublisher(
+async function buildHeartbeatPublisher(
   runtime: WorkerRuntime,
   mode: DaemonMode,
-): HeartbeatPublisher {
+): Promise<HeartbeatPublisher> {
   const release = coarseRelease(process.env.npm_package_version);
   return createHeartbeatPublisher(process.env, {
     mode: heartbeatModeFor(mode),
@@ -139,8 +139,8 @@ function buildHeartbeatPublisher(
       // RUN, not asserted. These execute the real planner over a synthetic
       // document; an image that predates the feature cannot answer at all, and
       // its silence is read as `false` on the other side.
-      chunkedTranslate: provesChunkedTranslate(),
-      deliveryCap: provesDeliveryCap(),
+      chunkedTranslate: await provesChunkedTranslate(),
+      deliveryCap: await provesDeliveryCap(),
     },
     ...(release !== undefined ? { release } : {}),
   });
@@ -534,7 +534,7 @@ async function main(): Promise<number> {
   // enabled AND a compatible broker is configured. Its capability is content-free, so
   // it is safe to log verbatim; a beat is published in the readiness modes below and,
   // for a run, once at start and per iteration by the daemon loop.
-  const heartbeat = buildHeartbeatPublisher(runtime, args.mode);
+  const heartbeat = await buildHeartbeatPublisher(runtime, args.mode);
   // Tracks the last observed publish state so only changes are logged.
   let lastBeatPublished: boolean | undefined;
   // The spend probe's own cadence + last outcome. `null` means "never written in
