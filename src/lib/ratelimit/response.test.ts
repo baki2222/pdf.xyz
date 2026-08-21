@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RATE_LIMITS } from "@/lib/jobs";
-import { AI_CHARACTER_ALLOWANCE_DELIVERED } from "@/lib/jobs/ai-allowance";
+import {
+  AI_ALLOWANCE_ACTION,
+  AI_CHARACTER_ALLOWANCE_DELIVERED,
+} from "@/lib/jobs/ai-allowance";
+
 import {
   RATE_LIMITED_MESSAGE,
   rateLimitErrorResult,
@@ -33,12 +37,30 @@ describe("rateLimitErrorResult", () => {
     // A refused AI run is not a degraded service and not a generic flood
     // throttle — the user spent the allowance. Saying anything vaguer is the
     // "service unavailable" lie the owner ruled out.
+    /**
+     * INVERTED, NOT DELETED — this test pinned a live defect.
+     *
+     * It hand-built a decision with `action: "ai.run"` and asserted the right
+     * message came back. Perfectly correct, and about an action **no route
+     * enforces**: `enforceAiCharacterAllowance` moved to `ai.characters` when
+     * the allowance was re-denominated, while `rateLimitErrorResult` went on
+     * choosing its message with a literal `=== "ai.run"`. So every real
+     * refusal shipped the GENERIC message — "Too many requests ... see
+     * docs/SECURITY.md" — and this test stayed green through all of it,
+     * because it supplied by hand the one thing production no longer had.
+     *
+     * The action now comes from `AI_ALLOWANCE_ACTION`, the same constant the
+     * guard uses, so the two cannot drift apart again. And
+     * `ratelimit/allowance-probe.test.ts` drives the REAL route to a real
+     * refusal and reads the message off the response — which is the check that
+     * would have caught this, and the one that was missing.
+     */
     const result = rateLimitErrorResult({
       ...deny(42),
-      action: "ai.run",
-      policyId: "ai.run",
+      action: AI_ALLOWANCE_ACTION,
+      policyId: AI_ALLOWANCE_ACTION,
     });
-    // AMENDED TWICE, and the second time is the one worth reading.
+    // AMENDED TWICE BEFORE THAT, and the second is worth reading too.
     //
     // First: the allowance stopped being denominated in runs, because a run
     // stopped pricing a job once one job became up to thirty provider calls.

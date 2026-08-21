@@ -140,6 +140,64 @@ which is the right command asked of the wrong quantity.
 
 ---
 
+## Step 5 — ask whether the AI allowance is gone, without spending it
+
+The probes above answer "is throttling on". This one answers a different
+question — **has this connection used up its free daily AI characters** — and it
+costs 4 characters of the 123,096.
+
+```bash
+curl -sS -w '\n%{http_code}\n' \
+  -H 'content-type: application/json' \
+  -d '{"tool":"translate-pdf","inputs":["f_probe0000000000"],
+       "options":{"targetLanguage":"fr","sourceLanguage":"auto"},
+       "declaredCharacters":1}' \
+  https://<host>/api/jobs
+```
+
+**Read the body, not the status.** `POST /api/jobs` returns `429` for two
+unrelated reasons and they are told apart only by the message:
+
+| you get                                                                                     | it means                                                          |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `429` + _"The 30,774 free characters of AI text for this connection are used up for today"_ | the **allowance** is spent                                        |
+| `429` + _"Too many requests. This endpoint is rate-limited…"_                               | you hit `jobs.create` (60/hour); the allowance is unknown         |
+| anything else (`503`, `404`)                                                                | the allowance had room, and you just spent **4** characters of it |
+
+### Why it costs almost nothing, and why the obvious version does not work
+
+`declaredCharacters: 1` reserves `1 × extractor headroom` — **four characters**.
+The reservation is what the allowance is debited by, so a probe that declares
+one character pays four and no more.
+
+**A refusal costs nothing at all.** The allowance guard peeks before it spends
+(`spendIfItFits` in `ratelimit/guard.ts`): when the budget cannot cover the
+reservation it refuses without recording anything, so asking "am I out?" while
+you are out does not push your reset further away. Asking twice returns the same
+`Retry-After`.
+
+**The file id must be well-formed and may be imaginary.** `f_` plus ten or more
+`[A-Za-z0-9_-]` is all the contract checks — existence is the _worker's_
+problem, and the request never reaches a worker. Nothing is uploaded, no job is
+created, no AI provider is called.
+
+**Do not use a malformed id.** _"Send an invalid file id, the guard refuses
+before validation"_ is the intuitive version and it answers the wrong question:
+`file_abc` fails at `parseCreateJobRequest` with a `400`, which happens **before
+the allowance is ever consulted**. It is free and it tells you nothing. The
+allowance only speaks to a request that parses.
+
+All four of those claims are pinned by
+`src/lib/ratelimit/allowance-probe.test.ts` — including the malformed-id one, so
+this section cannot drift back to describing it.
+
+⚠️ **Against an unconfigured deployment this probe always looks healthy.** With
+no limiter provider set, the allowance guard short-circuits before reading a
+header and can never return `429`. Run Step 4 first: "no 429" means "allowance
+fine" only once you know something is counting.
+
+---
+
 ## Safety, and how to undo it
 
 **Enabling this cannot lock users out.** The fail mode defaults to `open`: if the
