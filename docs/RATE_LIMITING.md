@@ -125,6 +125,19 @@ worker runs, no object is written, no AI provider is called. The slots expire.
 It costs about one client's hourly upload budget, so run it once and from a
 machine that is not about to need the service.
 
+**It also spends the budget `pnpm verify:upload-length` reserves from.** Both
+probes hit the same `/api/uploads` bucket, so running this one first guarantees
+the length probe is refused with a 429 for the rest of the window (observed on
+production 2026-08-20: `Retry-After: 2328s`). Run `verify:upload-length` first
+— it costs two reservations against this probe's ~61 — or wait out the
+`Retry-After` this probe prints on success. The length probe reports a 429 as
+exactly that (with the server's Retry-After) and stops; it never retries in a
+loop.
+
+When capturing either probe's exit code, read `$?` from the command itself,
+never after a pipe: `pnpm verify:rate-limit | tail` makes `$?` report `tail`,
+which is the right command asked of the wrong quantity.
+
 ---
 
 ## Safety, and how to undo it

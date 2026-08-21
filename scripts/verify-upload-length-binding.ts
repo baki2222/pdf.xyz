@@ -28,15 +28,28 @@
  *   pnpm verify:upload-length                        # against production
  *   BASE=http://127.0.0.1:3000 pnpm verify:upload-length
  *
+ * ORDER MATTERS AGAINST THE SIBLING PROBE
+ * `pnpm verify:rate-limit` proves throttling by deliberately exhausting the
+ * same `/api/uploads` budget this script reserves from (up to 65 requests).
+ * Run this script FIRST when running both against one BASE — it costs two
+ * reservations, the rate-limit probe costs the whole window. Run the other
+ * way round, this script is refused with a 429; it then reports the observed
+ * Retry-After and stops rather than retrying (a silent retry loop would only
+ * move the confusion, not remove it).
+ *
+ * When a reservation is refused, the report names only causes it observed —
+ * the status, the typed `error.code` the API puts in every error body, a
+ * header (see `src/lib/probes/reservation-refusal.ts`, and its test for the
+ * property). This used to blame "storage is probably not configured" for
+ * every non-2xx alike, including that structural 429.
+ *
  * EXIT CODES
  *   0  the oversized PUT was refused — the ceiling is bound to the signature
  *   1  the oversized PUT was stored — the ceiling is advisory only
  *   2  the run could not complete, or the control PUT failed (nothing measured)
  */
 
-// A module, not a global script: `scripts/verify-rate-limit.ts` declares its own
-// top-level `BASE`, and two script-scoped files share one global scope in tsc.
-export {};
+import { explainReservationRefusal } from "../src/lib/probes/reservation-refusal";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
 
@@ -69,14 +82,16 @@ async function reserve(): Promise<Slot> {
     }),
   });
   const text = await res.text();
+  const observed = {
+    status: res.status,
+    bodyText: text,
+    retryAfter: res.headers.get("retry-after"),
+  };
   if (res.status !== 201 && res.status !== 200) {
-    throw new Error(
-      `POST /api/uploads returned ${res.status}. Storage is probably not ` +
-        `configured for this BASE, so there is nothing to measure.`,
-    );
+    throw new Error(explainReservationRefusal(observed).message);
   }
   const slot = (JSON.parse(text) as { slots?: Slot[] }).slots?.[0];
-  if (!slot) throw new Error("The upload session came back with no slot.");
+  if (!slot) throw new Error(explainReservationRefusal(observed).message);
   return slot;
 }
 
@@ -157,9 +172,17 @@ async function main(): Promise<number> {
   return 0;
 }
 
+// `process.exitCode`, never `process.exit()`: exiting mid-teardown of undici's
+// sockets trips a libuv assertion on Windows (`!(handle->flags &
+// UV_HANDLE_CLOSING)`, src\win\async.c:94) and replaces the meaningful exit
+// code with a crash code. Setting exitCode lets the loop drain (every response
+// body above is read, so nothing holds it open) and the process exits with the
+// code this run actually earned.
 main()
-  .then((code) => process.exit(code))
+  .then((code) => {
+    process.exitCode = code;
+  })
   .catch((error) => {
-    console.error(error);
-    process.exit(2);
+    console.error(String(error instanceof Error ? error.message : error));
+    process.exitCode = 2;
   });
