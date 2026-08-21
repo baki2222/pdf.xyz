@@ -14,6 +14,7 @@ import {
   extractPdfImages,
   reversePredictor,
 } from "./extract-images";
+import { embedRasterImage } from "./pdf-lib";
 
 // A real 1×1 JPEG and PNG (the same fixtures the image-to-pdf tool is tested
 // with) — genuine encoded image files, not page renders.
@@ -308,7 +309,7 @@ describe("extractPdfImages — JPEG", () => {
   it("extracts an embedded JPEG byte-for-byte at its native resolution", async () => {
     const doc = await PDFDocument.create();
     const page = doc.addPage([200, 200]);
-    const jpg = await doc.embedJpg(JPG_1X1);
+    const jpg = await embedRasterImage(doc, JPG_1X1, "jpg");
     page.drawImage(jpg, { x: 0, y: 0, width: 100, height: 100 });
     const bytes = await doc.save();
 
@@ -492,7 +493,7 @@ describe("extractPdfImages — Flate pixel images", () => {
   it("extracts an embedded PNG (pdf-lib stores it as a Flate image)", async () => {
     const doc = await PDFDocument.create();
     const page = doc.addPage([200, 200]);
-    const png = await doc.embedPng(PNG_1X1);
+    const png = await embedRasterImage(doc, PNG_1X1, "png");
     page.drawImage(png, { x: 0, y: 0, width: 100, height: 100 });
     const result = await extractPdfImages(await doc.save());
     expect(result.images).toHaveLength(1);
