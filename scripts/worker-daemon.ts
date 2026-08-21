@@ -48,6 +48,7 @@ import {
   type HeartbeatPublisher,
 } from "@/lib/workers/heartbeat";
 import { queueSupportsAtomicTransitions } from "@/lib/workers/queue/redis-config";
+import { computeBuildFingerprint } from "@/lib/workers/build-fingerprint";
 import {
   provesChunkedTranslate,
   provesDeliveryCap,
@@ -128,6 +129,10 @@ async function buildHeartbeatPublisher(
   mode: DaemonMode,
 ): Promise<HeartbeatPublisher> {
   const release = coarseRelease(process.env.npm_package_version);
+  // Computed from the sources this image carries — ~65ms, once, at start-up.
+  // `release` cannot do this job: `package.json` has been 0.1.0 forever, so it
+  // publishes the same "0.1" for every image ever built.
+  const fingerprint = computeBuildFingerprint() ?? undefined;
   return createHeartbeatPublisher(process.env, {
     mode: heartbeatModeFor(mode),
     capabilities: {
@@ -143,6 +148,7 @@ async function buildHeartbeatPublisher(
       deliveryCap: await provesDeliveryCap(),
     },
     ...(release !== undefined ? { release } : {}),
+    ...(fingerprint !== undefined ? { fingerprint } : {}),
   });
 }
 

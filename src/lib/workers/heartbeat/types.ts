@@ -143,8 +143,37 @@ export interface HeartbeatCapabilities {
 export interface WorkerHeartbeat {
   readonly v: typeof WORKER_HEARTBEAT_SCHEMA_VERSION;
   readonly role: HeartbeatRole;
-  /** Coarse `major.minor` release only (never a full build id); omitted if unknown. */
+  /**
+   * Coarse `major.minor` release only (never a full build id); omitted if unknown.
+   *
+   * ⚠️ AND IT HAS NEVER MOVED. It is `coarseRelease(npm_package_version)`, and
+   * `package.json` has been `0.1.0` since the beginning — so every worker image
+   * ever built has published `"0.1"`, including the 2026-08-12 one that could
+   * not chunk and the one that replaced it. It LOOKS like a build identity and
+   * is a constant. See {@link fingerprint} for the field that actually
+   * distinguishes builds.
+   */
   readonly release?: string;
+  /**
+   * Twelve hex characters identifying the SOURCE this image carries.
+   *
+   * Diagnostic, deliberately not an alarm — see `../build-fingerprint`. It
+   * turns "which build is running?" from an ssh session and a grep inside the
+   * container into a value on the posture endpoint, which is the question you
+   * ask once the capability probes have already fired.
+   *
+   * ON THE PRIVACY POSTURE, because this module's header says there is nowhere
+   * to put a high-cardinality value and this is one. It is a hash of source
+   * code that is not secret, computed from files the image ships; it names no
+   * host, container, path, key or endpoint, and reveals nothing an attacker
+   * could not get by reading the product. It is bounded by shape — exactly
+   * twelve lowercase hex, enforced by the parser — so there is nowhere to smuggle
+   * anything else through it.
+   *
+   * Omitted by any image built before this field existed, which reads as "did
+   * not say" rather than as a mismatch.
+   */
+  readonly fingerprint?: string;
   readonly mode: HeartbeatMode;
   readonly capabilities: HeartbeatCapabilities;
   /**
@@ -170,6 +199,13 @@ export interface HeartbeatLiveness {
   readonly mode: HeartbeatMode | null;
   /** The capability summary from the last heartbeat, or `null` when none is visible. */
   readonly capabilities: HeartbeatCapabilities | null;
+  /**
+   * The source fingerprint from the last heartbeat, or `null`.
+   *
+   * `null` covers both "no beat visible" and "the beat carried none" — an image
+   * built before the field existed. Diagnostic only; nothing classifies on it.
+   */
+  readonly fingerprint: string | null;
   /** One-line, content-free explanation. Never names an endpoint, key, or value. */
   readonly detail: string;
 }

@@ -100,6 +100,7 @@ function livenessFrom(serialized: string): HeartbeatLiveness {
     lastSeen: "under-30s",
     mode: "loop",
     capabilities: parsed!.capabilities,
+    fingerprint: parsed!.fingerprint ?? null,
     detail: "content-free",
   };
 }
@@ -213,5 +214,61 @@ describe("the 2026-08-12 worker, as it actually was", () => {
           "the deploy gap this guard exists for is not the one being tested",
       ).not.toContain(capability.key);
     }
+  });
+});
+
+describe("the build fingerprint reaches the operator, or says it could not", () => {
+  /**
+   * A published value nothing reads is the `writeSpendProbe` defect: built,
+   * merged, deployed, and called by nothing, while every unit test stayed
+   * green. So the assertion is not "the worker publishes it" — it is "an
+   * operator looking at the row that just went red can see which build it is".
+   */
+  const rowFor = (fingerprint: string | null, chunked: boolean) => {
+    const record = JSON.parse(oldWorkerRecord()) as Record<string, unknown>;
+    const live = livenessFrom(
+      JSON.stringify({
+        ...record,
+        ...(fingerprint ? { fingerprint } : {}),
+        capabilities: {
+          ...(record.capabilities as Record<string, unknown>),
+          chunkedTranslate: chunked,
+          deliveryCap: chunked,
+        },
+      }),
+    );
+    return collectWebOperationsSnapshot(DRAINABLE_ENV, {
+      daemonLiveness: live,
+    }).subsystems.find((s) => s.id === "worker-capability");
+  };
+
+  it("names the running build beside a healthy row", () => {
+    expect(rowFor("abc123def456", true)?.detail).toContain(
+      "Running build abc123def456",
+    );
+  });
+
+  it("names it beside a RED row, which is when it is actually needed", () => {
+    // The last time this question had to be answered it cost an ssh session and
+    // a grep inside the container — and the first attempt got it wrong, because
+    // the image id had been captured after the rebuild.
+    const row = rowFor("abc123def456", false);
+    expect(row?.health).toBe("blocked");
+    expect(row?.detail).toContain("abc123def456");
+  });
+
+  it("says it could not read one, rather than leaving a blank", () => {
+    // An image too old to publish a fingerprint is exactly the kind this
+    // subsystem exists to catch, so the absence is information.
+    const row = rowFor(null, false);
+    expect(row?.detail).toMatch(/no build fingerprint/i);
+  });
+
+  it("CONTROL: a malformed fingerprint is dropped, not surfaced", () => {
+    // The one high-cardinality field in a record whose whole posture is that
+    // there is nowhere to put a hostname. The parser bounds it by shape.
+    const row = rowFor("../../etc/passwd" as string, true);
+    expect(row?.detail).not.toContain("etc/passwd");
+    expect(row?.detail).toMatch(/no build fingerprint/i);
   });
 });
