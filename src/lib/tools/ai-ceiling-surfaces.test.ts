@@ -65,11 +65,18 @@ import {
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   translateMaxInputChars,
 } from "@/lib/jobs/translate-limits";
-import { runTranslate, type PdfTextExtractor } from "@/lib/workers/translate/engine";
+import {
+  runTranslate,
+  type PdfTextExtractor,
+} from "@/lib/workers/translate/engine";
 import { tools } from "./index";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
-import { copyFiles, flattenForPhraseSearch, withoutComments } from "./copy-surface";
+import {
+  copyFiles,
+  flattenForPhraseSearch,
+  withoutComments,
+} from "./copy-surface";
 import type { Tool } from "./types";
 
 const ROOT = process.cwd();
@@ -190,15 +197,17 @@ function panelsFromDispatch(): Map<string, string> {
       continue;
     }
     if (pending.length === 0) continue;
-    const module = imports.get(token[2]!);
+    // `moduleSpecifier`, not `module`: eslint's no-assign-module-variable
+    // forbids the shorter name. Rename only — the dispatch walk is unchanged.
+    const moduleSpecifier = imports.get(token[2]!);
     // The first component in a slug branch that the page imports from the
     // tools components tree is that branch's panel (ErrorBoundary and shared
     // UI live elsewhere).
-    if (!module?.startsWith("@/components/tools/")) continue;
+    if (!moduleSpecifier?.startsWith("@/components/tools/")) continue;
     const file = path.join(
       ROOT,
       "src",
-      module.replace(/^@\//, "").replace(/\//g, path.sep) + ".tsx",
+      moduleSpecifier.replace(/^@\//, "").replace(/\//g, path.sep) + ".tsx",
     );
     for (const slug of pending) bySlug.set(slug, file);
     pending = [];
@@ -353,7 +362,9 @@ describe("the derived sets are alive", () => {
   it("every output-bound engine has a behavioural probe, by name", () => {
     const outputBound = aiTools
       .map((t) => t.slug)
-      .filter((slug) => /translateMaxInputChars\s*\(/.test(read(engines.get(slug)!)));
+      .filter((slug) =>
+        /translateMaxInputChars\s*\(/.test(read(engines.get(slug)!)),
+      );
     // Positive control on the classifier itself: translate IS output-bound.
     expect(outputBound).toContain("translate-pdf");
     for (const slug of outputBound) {
@@ -480,7 +491,8 @@ describe("the third surface someone adds next month", () => {
     // deliberately scopes to MB/minutes/files/tools/languages/runs.
     const offenders = copyFiles().filter((file) =>
       /(?:\d{1,3}(?:,\d{3})+|\d{4,})\s+characters\b/.test(
-        flattenForPhraseSearch(withoutComments(read(file)))),
+        flattenForPhraseSearch(withoutComments(read(file))),
+      ),
     );
     expect(
       offenders.map(relative),

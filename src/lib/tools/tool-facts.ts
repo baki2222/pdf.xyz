@@ -48,6 +48,24 @@ export { MAX_IMAGE_BYTES, MAX_IMAGE_MB, MAX_SOURCE_BYTES, MAX_SOURCE_MB };
 
 const MAX_FILE_MB = JOB_LIMITS.maxFileBytes / (1024 * 1024);
 
+/**
+ * Translate's page floors, derived from ITS ceiling at the same measured
+ * densities the shared floors use. `aiPagesAtDensest`/`aiPagesAtSparsest`
+ * divide the READING cap; translate is bounded by the model's OUTPUT budget
+ * (its output is as long as its input), so its floors divide
+ * `TRANSLATE_MAX_INPUT_CHARS` instead — a right ceiling with the shared cap's
+ * page range beside it would be the same 49x defect one notch over.
+ */
+const translatePagesAtDensest = Math.floor(
+  TRANSLATE_MAX_INPUT_CHARS / AI_INPUT_LIMITS.densestCharactersPerPage,
+);
+const translatePagesAtSparsest = Math.floor(
+  TRANSLATE_MAX_INPUT_CHARS / AI_INPUT_LIMITS.sparsestCharactersPerPage,
+);
+
+/** "1 page" / "5 pages" — the dense floor IS 1 today, so this is exercised. */
+const pluralPages = (n: number) => (n === 1 ? "page" : "pages");
+
 /* ------------------------------------------------------------------ *
  *  Facts — each line's source is the runner constant or UI it names.
  * ------------------------------------------------------------------ */
@@ -264,10 +282,37 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
     // would. The page range is derived from measured densities rather than
     // typed, because a page count is the form of this limit a reader can act
     // on and also the form that is easy to get wrong.
-    entries.push({
-      question: `How much of my PDF does ${tool.name} read?`,
-      answer: `Up to ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters of selectable text — roughly ${aiPagesAtDensest} pages of dense text, or about ${aiPagesAtSparsest} of sparsely-set pages. Longer documents are read up to that point only, and the tool tells you which page it reached rather than treating the rest as absent.`,
-    });
+    //
+    // PER TOOL, because exactly one of the four is not bound by the shared
+    // reading cap. Until 2026-08-21 this entry quoted
+    // `AI_INPUT_LIMITS.maxInputCharacters` unconditionally, so translate's FAQ
+    // said 500,000 characters — 49x what its engine accepts — and shipped that
+    // figure to crawlers as FAQPage JSON-LD. The panel had been fixed on
+    // 2026-08-11; its guard (`translate-ceiling.test.ts`) named where the bug
+    // was FOUND, not where it can APPEAR, and never reached this file. The
+    // branch below cannot rot silently: `ai-ceiling-surfaces.test.ts`
+    // classifies every AI engine's enforcement and fails any page whose stated
+    // ceiling is not the one its engine honours, so a fifth AI tool landing in
+    // the wrong arm here turns that guard red by name.
+    if (tool.slug === "translate-pdf") {
+      // Output-bound: the engine REFUSES over-ceiling documents
+      // (`too_much_text`, before the provider is called) rather than reading
+      // a prefix — so this answer must not promise the truncation behaviour
+      // the read-bound tools have. Stated as `TRANSLATE_MAX_INPUT_CHARS` raw,
+      // not min(it, shared cap): if the output budget ever lifts translate's
+      // ceiling past the reading cap, the refusal story below becomes false
+      // and the ceiling guard goes red loudly — a min() would keep the number
+      // true while this sentence rotted silently.
+      entries.push({
+        question: `How much of my PDF can ${tool.name} translate in one run?`,
+        answer: `Up to ${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so the ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is refused, with its own character count in the message, rather than translated in part; split it into smaller files and run them one at a time.`,
+      });
+    } else {
+      entries.push({
+        question: `How much of my PDF does ${tool.name} read?`,
+        answer: `Up to ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters of selectable text — roughly ${aiPagesAtDensest} pages of dense text, or about ${aiPagesAtSparsest} of sparsely-set pages. Longer documents are read up to that point only, and the tool tells you which page it reached rather than treating the rest as absent.`,
+      });
+    }
   }
 
   if (tool.slug === "ocr-pdf") {
