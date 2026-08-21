@@ -236,17 +236,82 @@ describe("the published ceiling describes a pass, not a document", () => {
     expect(facts).toMatch(/skipped/i);
   });
 
+  it("the FAQ names the SECOND bound, which the delivery cap created", () => {
+    /**
+     * "A LONGER DOCUMENT IS NOT REFUSED: it is split at page boundaries" was
+     * true the day it was written and the delivery cap made it conditional.
+     * A job now stops where its reservation stops, and a job whose reservation
+     * covers no page is refused outright — so a reader told only about the
+     * single-oversize-page case has been told the old truth.
+     *
+     * This is the same shape as the claim the test above exists to have
+     * removed, one release later: not a wrong sentence, a sentence the system
+     * grew past. Two independent patterns rather than one phrase, so a rewrite
+     * has to keep the MEANING rather than the wording.
+     */
+    const facts = read("src/lib/tools/tool-facts.ts");
+    expect(
+      facts,
+      "the translate FAQ does not mention the daily allowance, so it still " +
+        "reads as though length is the only bound on how far a translation gets",
+    ).toMatch(/daily allowance/i);
+    expect(
+      facts,
+      "the FAQ does not say what happens to the part the allowance does not " +
+        "cover — a bound with no stated consequence is not actionable",
+    ).toMatch(/marked in place|says so in place|the reason named/i);
+  });
+
   it("the panel refuses on the SAME plan the worker refuses on", () => {
     // Not "the panel mentions chunking" — the panel must call the same planner,
     // or two hand-written versions of "does this fit" drift and the stricter
     // one silently hides the other.
+    const CHUNKING = "src/lib/workers/translate/chunking.ts";
     const panel = read("src/components/tools/translate-worker-panel.tsx");
     expect(
       panel,
       "the translate panel must plan with planTranslateChunks, or its pre-upload " +
         "refusal can be stricter than the worker and make chunking unreachable",
     ).toContain("planTranslateChunks");
+    expect(
+      panel,
+      "the panel plans with something other than the worker's chunking module",
+    ).toContain('from "@/lib/workers/translate/chunking"');
+
+    /**
+     * THE ENGINE'S ASSERTION WAS A STRING, AND THE STRING MOVED.
+     *
+     * It used to read `expect(engine).toContain("planTranslateChunks")`, and
+     * the delivery cap turned the engine's call into `capPagesToDelivery`,
+     * which plans the pages it allows. The PROPERTY did not change for a
+     * moment — both sides still plan with the one planner — but the guard went
+     * red, and a guard that goes red when nothing broke gets relaxed by
+     * whoever is in a hurry.
+     *
+     * So it pins the relationship instead of the name: the engine plans
+     * through the panel's module, and whatever that module wraps the planner in
+     * must actually call the planner rather than reimplement it. The
+     * behavioural half — an unbounded cap producing byte-identical plans to the
+     * bare planner — is proven over generated documents in
+     * `translate/chunking.cap.test.ts`.
+     */
     const engine = read("src/lib/workers/translate/engine.ts");
-    expect(engine).toContain("planTranslateChunks");
+    expect(
+      engine,
+      "the engine no longer plans through the module the panel plans with",
+    ).toContain('from "./chunking"');
+    const planner = /planTranslateChunks|capPagesToDelivery/.test(engine);
+    expect(
+      planner,
+      "the engine plans with neither the shared planner nor its delivery-capped wrapper",
+    ).toBe(true);
+    const chunking = read(CHUNKING);
+    expect(
+      /export function capPagesToDelivery[\s\S]*?planTranslateChunks\(/.test(
+        chunking,
+      ),
+      "capPagesToDelivery no longer delegates to planTranslateChunks — the two " +
+        "sides can now disagree about what fits while both look correct",
+    ).toBe(true);
   });
 });

@@ -15,3 +15,4 @@ export * from "./filenames";
 export * from "./ocr";
 export * from "./pdf-security";
 export * from "./results";
+export * from "./delivery-cap";

@@ -39,7 +39,13 @@
  */
 
 import { createHash } from "node:crypto";
-import type { Job, JobArtifact, JobError, JobResults } from "@/lib/jobs";
+import type {
+  Job,
+  JobArtifact,
+  JobDeliveryCap,
+  JobError,
+  JobResults,
+} from "@/lib/jobs";
 import { sanitizeJobResults } from "@/lib/jobs";
 import {
   canCancel,
@@ -91,6 +97,12 @@ interface RedisJobSpec {
   /** Sanitized display names aligned with `inputs` (a JSON value, never a key). */
   inputNames?: string[];
   options: Record<string, unknown>;
+  /**
+   * What the job may deliver. A plain JSON value like the rest of the spec —
+   * and, like the rest of the spec, absent on any record written before the
+   * field existed, which reads as unbounded rather than as zero.
+   */
+  delivery?: JobDeliveryCap;
 }
 
 /** A worker's lease record: the deadline plus the attempt count. */
@@ -301,6 +313,7 @@ export function createRedisQueue(
             ? { inputNames: submission.inputNames }
             : {}),
           options: submission.options,
+          ...(submission.delivery ? { delivery: submission.delivery } : {}),
         }),
       ];
       if (idempotencyKey) {
@@ -474,6 +487,7 @@ export function createRedisQueue(
           ? { inputNames: specRes.value.inputNames }
           : {}),
         options: specRes.value.options,
+        ...(specRes.value.delivery ? { delivery: specRes.value.delivery } : {}),
         attempt,
         leaseExpiresAt,
       });

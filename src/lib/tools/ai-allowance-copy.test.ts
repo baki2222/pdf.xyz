@@ -26,8 +26,8 @@ import {
   AI_ALLOWANCE_FACT,
   AI_ALLOWANCE_RUNS,
   AI_ALLOWANCE_USED_MESSAGE,
+  AI_CHARACTER_ALLOWANCE_DELIVERED,
 } from "@/lib/jobs/ai-allowance";
-import { RATE_LIMITS } from "@/lib/jobs/types";
 import { flattenForPhraseSearch, withoutComments } from "./copy-surface";
 
 const ROOT = process.cwd();
@@ -95,9 +95,27 @@ describe("the words match the enforced policy", () => {
     // shapes and their corpus live in `ratelimit/allowance-copy.test.ts`.
     expect(AI_ALLOWANCE_FACT).toContain("connection");
     expect(AI_ALLOWANCE_USED_MESSAGE).toContain("connection");
+    // AMENDED TWICE, and the second time is the instructive one.
+    //
+    // The unit moved from runs to characters when chunking made a run a
+    // variable amount of spend. But the assertion underneath was
+    // `toContain(String(3))` — a ONE-CHARACTER substring — and the first
+    // character budget was 37,024, which contains a "3". So this guard passed
+    // for the wrong reason across a commit that changed the sentence entirely,
+    // and only failed when the number became 61,548.
+    //
+    // A `toContain` on a single digit is satisfiable by accident by almost any
+    // number. It now derives the whole rendered figure, which cannot be.
+    //
+    // AMENDED A THIRD TIME: it derived the whole figure, and derived it from
+    // the wrong one. `AI_CHARACTER_ALLOWANCE` is the limiter's bucket in
+    // worker-extracted characters; this sentence is read by someone holding a
+    // document, who can only count what the browser counts. Deriving is not
+    // sufficient — the constant also has to be in the reader's unit.
     expect(AI_ALLOWANCE_FACT).toContain(
-      String(RATE_LIMITS.aiRunsPerDayPerClient),
+      AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US"),
     );
+    expect(AI_ALLOWANCE_FACT).toMatch(/characters/i);
   });
 
   it("promises no isolation and no availability", () => {

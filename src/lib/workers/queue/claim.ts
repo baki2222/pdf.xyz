@@ -17,6 +17,7 @@ import type {
   JobError,
   JobResults,
   JobStatus,
+  JobDeliveryCap,
 } from "@/lib/jobs";
 import type { QueueProvider, QueueResult } from "./types";
 
@@ -50,6 +51,13 @@ export interface JobSubmission {
   inputNames?: string[];
   /** Raw options (validated at submit time; processors re-validate defensively). */
   options: Record<string, unknown>;
+  /**
+   * What this job may DELIVER, decided by the route when it reserved the
+   * caller's allowance. Absent for every non-AI job and for any job submitted
+   * before this field existed — absent means unbounded, which is the behaviour
+   * those jobs already had.
+   */
+  delivery?: JobDeliveryCap;
 }
 
 /** A job claimed for execution: the record, its inputs/options, and its lease. */
@@ -59,6 +67,8 @@ export interface ClaimedJob {
   /** Sanitized display names aligned with `inputs`, when the submission carried them. */
   inputNames?: string[];
   options: Record<string, unknown>;
+  /** The submission's delivery cap, when it carried one. */
+  delivery?: JobDeliveryCap;
   /** 1-based attempt number; increments on redelivery or a retryable requeue. */
   attempt: number;
   /** Epoch-ms lease deadline; the executor must finish or heartbeat before it. */

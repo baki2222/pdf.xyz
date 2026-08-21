@@ -454,6 +454,52 @@ export function parseCreateJobRequest(
   const namesResult = parseInputNames(input.inputNames, inputs.length);
   if (!namesResult.ok) return namesResult;
 
+  /**
+   * The client's character count, if it sent one.
+   *
+   * REFUSED rather than coerced when malformed. It is attacker-controlled and
+   * it feeds arithmetic that decides how much of someone's daily allowance a
+   * job costs — so a `-1`, a `1.5` or a `"many"` must never reach that
+   * multiplication. Absent is fine and means "reserve the maximum"; present and
+   * nonsense is a bad request, because the caller asked for something specific
+   * and got the specifics wrong.
+   */
+  const declared = input.declaredCharacters;
+  if (declared !== undefined) {
+    if (
+      typeof declared !== "number" ||
+      !Number.isInteger(declared) ||
+      declared <= 0
+    ) {
+      return invalid(
+        "declaredCharacters must be a positive whole number of characters.",
+        "declaredCharacters",
+      );
+    }
+  }
+
+  /**
+   * The client's count of pages that carry text, if it sent one.
+   *
+   * Refused rather than coerced, for the same reason as the character count and
+   * one more: this one bounds DELIVERY directly rather than through a
+   * multiplication, so a `0` would silently mean "translate nothing" and a
+   * `1.5` would mean whatever the comparison happened to do with it.
+   */
+  const declaredPages = input.declaredTextPages;
+  if (declaredPages !== undefined) {
+    if (
+      typeof declaredPages !== "number" ||
+      !Number.isInteger(declaredPages) ||
+      declaredPages <= 0
+    ) {
+      return invalid(
+        "declaredTextPages must be a positive whole number of pages.",
+        "declaredTextPages",
+      );
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -461,6 +507,10 @@ export function parseCreateJobRequest(
       inputs: inputs as string[],
       ...(namesResult.value ? { inputNames: namesResult.value } : {}),
       ...(input.options !== undefined ? { options } : {}),
+      ...(declared !== undefined ? { declaredCharacters: declared } : {}),
+      ...(declaredPages !== undefined
+        ? { declaredTextPages: declaredPages }
+        : {}),
       ...(keyResult.value ? { idempotencyKey: keyResult.value } : {}),
     },
   };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RATE_LIMITS } from "@/lib/jobs";
+import { AI_CHARACTER_ALLOWANCE_DELIVERED } from "@/lib/jobs/ai-allowance";
 import {
   RATE_LIMITED_MESSAGE,
   rateLimitErrorResult,
@@ -37,9 +38,20 @@ describe("rateLimitErrorResult", () => {
       action: "ai.run",
       policyId: "ai.run",
     });
+    // AMENDED TWICE, and the second time is the one worth reading.
+    //
+    // First: the allowance stopped being denominated in runs, because a run
+    // stopped pricing a job once one job became up to thirty provider calls.
+    //
+    // Then: this asserted the BUCKET's size. The bucket is in worker-extracted
+    // characters — a quantity nobody outside the codebase can measure — while
+    // the sentence is read by someone holding a document. Deriving from a
+    // constant is not enough on its own; it has to be the constant in the
+    // reader's unit. The two differ by exactly the extractor headroom.
     expect(result.body.error.message).toContain(
-      `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs`,
+      AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US"),
     );
+    expect(result.body.error.message).toMatch(/free characters/i);
     expect(result.body.error.message).toMatch(/resets daily/i);
     // Every other action keeps the generic content-free message.
     expect(rateLimitErrorResult(deny(42)).body.error.message).toBe(

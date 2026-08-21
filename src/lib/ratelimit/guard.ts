@@ -237,6 +237,105 @@ export async function enforceRateLimit(
   }
 }
 
+/**
+ * Reserve `characters` of a client's free daily AI allowance.
+ *
+ * Its own entry point rather than a `cost` parameter on {@link enforceRateLimit},
+ * for the reason the spend ceiling got one: a flag that changed what a function
+ * charges would be one function with two meanings at exactly the interesting
+ * point, and every existing caller charges one hit.
+ *
+ * TWO PHASES, NOT ONE, AND THE ORDER IS THE POINT. The limiter's atomic path
+ * increments and then reports, so a charge-then-refuse would bill a caller for
+ * a job it declined. This peeks, decides, and only then spends — so a refused
+ * job costs nothing.
+ *
+ * THE RACE THAT LEAVES, STATED RATHER THAN HIDDEN: two concurrent requests can
+ * both peek before either spends, so a day's budget can be exceeded by at most
+ * the size of the jobs in flight. That is the right direction for a FAIRNESS
+ * device — the alternative charges people for work they did not get — and the
+ * cost control that actually bounds money (`ai.spend`) is separate, atomic, and
+ * unaffected by this.
+ *
+ * A claim that is not a positive finite count is REFUSED, never treated as free
+ * and never as unlimited: the caller has to say what it intends to use.
+ */
+export async function enforceAiCharacterAllowance(
+  characters: number,
+  request: Request,
+  env: EnvSource = process.env,
+  nowMs: number = Date.now(),
+): Promise<RateLimitDecision> {
+  const action = "ai.characters" as const;
+  const policy = policyFor(action);
+  if (!Number.isFinite(characters) || characters <= 0) {
+    return {
+      allowed: false,
+      enforced: true,
+      action,
+      policyId: policy.id,
+      provider: "local-memory",
+      retryAfterSeconds: 1,
+      retryAfterBucket: retryAfterBucket(1),
+    };
+  }
+  try {
+    const config = resolveRateLimitConfig(env);
+    if (config.providerId === "disabled")
+      return allowUnenforced(action, policy.id, "disabled");
+
+    const spendIfItFits = async (
+      peekVerdict: RateLimiterVerdict,
+      spend: () => void | Promise<void>,
+      backend: "local-memory" | "remote",
+    ): Promise<RateLimitDecision> => {
+      const used = peekVerdict.used ?? 0;
+      if (used + characters > policy.limit) {
+        return enforcedDecision(action, policy.id, backend, {
+          allowed: false,
+          retryAfterSeconds:
+            peekVerdict.retryAfterSeconds ?? policy.windowSeconds,
+        });
+      }
+      await spend();
+      return enforcedDecision(action, policy.id, backend, {
+        allowed: true,
+        retryAfterSeconds: 0,
+      });
+    };
+
+    if (config.providerId === "remote-unimplemented") {
+      const provider = providerFor(env);
+      if (provider === null || !provider.peek || !provider.spend) {
+        noteFailOpen("provider-unreachable");
+        return allowUnenforced(action, policy.id, "remote-unimplemented");
+      }
+      const token = deriveClientToken(request.headers, config);
+      try {
+        const peeked = await provider.peek(policy, token, nowMs);
+        return await spendIfItFits(
+          peeked,
+          () => provider.spend!(policy, token, nowMs, characters),
+          "remote",
+        );
+      } catch {
+        noteFailOpen("store-error");
+        return allowUnenforced(action, policy.id, "remote-error");
+      }
+    }
+
+    const token = deriveClientToken(request.headers, config);
+    const peeked = limiter().peek(policy, token, nowMs);
+    return await spendIfItFits(
+      peeked,
+      () => limiter().spend(policy, token, nowMs, characters),
+      "local-memory",
+    );
+  } catch {
+    return allowUnenforced(action, policy.id, "disabled");
+  }
+}
+
 /* ------------------------------------------------------------------ *
  *  The GLOBAL AI spend ceiling — a separate entry point, on purpose.
  * ------------------------------------------------------------------ */

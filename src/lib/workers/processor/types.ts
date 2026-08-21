@@ -14,7 +14,7 @@
  *    now and why, never naming a path, version, key, or secret value.
  */
 
-import type { JobError, JobResults } from "@/lib/jobs";
+import type { JobDeliveryCap, JobError, JobResults } from "@/lib/jobs";
 import type { AiUsageMeta, AiWindowMeta } from "@/lib/jobs/ai-results";
 
 /**
@@ -46,6 +46,12 @@ export interface ProcessorInput {
   /** Raw options; each processor validates its own bag defensively. */
   options: Record<string, unknown>;
   inputs: ProcessorInputFile[];
+  /**
+   * What this job may deliver, as the route decided when it charged the
+   * caller's allowance. Absent means unbounded — which is every non-AI job, and
+   * every job queued before the cap existed.
+   */
+  delivery?: JobDeliveryCap;
 }
 
 /**

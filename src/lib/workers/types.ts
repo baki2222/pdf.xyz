@@ -13,6 +13,7 @@ import type {
   CreateUploadSessionRequest,
   Job,
   UploadSession,
+  JobDeliveryCap,
 } from "@/lib/jobs";
 import type { WorkerMode } from "./mode";
 
@@ -51,7 +52,17 @@ export interface WorkerAdapter {
   createUploadSession(
     request: CreateUploadSessionRequest,
   ): Promise<AdapterOutcome<UploadSession>>;
-  createJob(request: CreateJobRequest): Promise<AdapterOutcome<Job>>;
+  /**
+   * Enqueue a job.
+   *
+   * `delivery` is SERVER-DERIVED and travels beside the request rather than in
+   * it: the route computes it from what the caller declared, and a caller must
+   * not be able to set its own cap. See {@link JobDeliveryCap}.
+   */
+  createJob(
+    request: CreateJobRequest,
+    delivery?: JobDeliveryCap,
+  ): Promise<AdapterOutcome<Job>>;
   getJob(jobId: string): Promise<AdapterOutcome<Job>>;
   /**
    * Cancel an in-flight job and/or delete its outputs now — the user's honest

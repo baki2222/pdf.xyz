@@ -512,6 +512,19 @@ describe("the third surface someone adds next month", () => {
         .map(([, file]) => relative(file)),
     );
     attributed.add("src/lib/tools/tool-facts.ts");
+    // The allowance module derives the DAILY BUDGET from the per-call ceiling; it
+    // does not state the ceiling itself. Its two sentences are attributed — and
+    // checked in both directions — by `ratelimit/allowance-copy.test.ts`, whose
+    // corpus imports AI_ALLOWANCE_FACT and AI_ALLOWANCE_USED_MESSAGE directly.
+    // Listed here so this guard keeps its teeth for a genuinely NEW ceiling
+    // surface rather than firing on the one place the budget is defined.
+    attributed.add("src/lib/jobs/ai-allowance.ts");
+    // The job route uses the ceiling as a NUMBER — the fallback reservation for
+    // a job that declares no character count — and never renders it. A file
+    // that computes with the constant is not a surface that states it, and the
+    // test directly below CHECKS that rather than taking this comment's word
+    // for it: an exception nothing verifies is how a guard erodes.
+    attributed.add("src/app/api/jobs/route.ts");
     const offenders = copyFiles()
       .filter((file) => {
         const source = withoutComments(read(file));
@@ -527,6 +540,27 @@ describe("the third surface someone adds next month", () => {
       "these copy files state an AI ceiling outside the attributed surfaces — " +
         "wire them into the per-tool checks in this file before they ship",
     ).toEqual([]);
+  });
+
+  it("the non-copy exceptions really do not STATE the ceiling", () => {
+    // The exception above says these files compute with the constant rather
+    // than rendering it. That claim is checked here, so the attribution cannot
+    // become a place to park a genuine copy surface.
+    for (const file of ["src/app/api/jobs/route.ts"]) {
+      const source = withoutComments(read(path.join(ROOT, file)));
+      // A surface renders a number into text: a template hole or a
+      // toLocaleString on the constant. Arithmetic does neither.
+      expect(
+        /\${[^}]*TRANSLATE_MAX_INPUT_CHARS/.test(source),
+        file +
+          " interpolates the ceiling into a string, so it IS a copy " +
+          "surface and must be attributed per-tool rather than excepted here",
+      ).toBe(false);
+      expect(
+        /TRANSLATE_MAX_INPUT_CHARSs*.s*toLocaleString/.test(source),
+        file + " renders the ceiling for a reader, so it IS a copy surface",
+      ).toBe(false);
+    }
   });
 });
 

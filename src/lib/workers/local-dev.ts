@@ -186,7 +186,7 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
       );
     },
 
-    async createJob(request) {
+    async createJob(request, delivery) {
       if (!LOCAL_DEV_SUPPORTED_TOOLS.has(request.tool)) {
         return adapterError(notImplemented());
       }
@@ -297,6 +297,10 @@ export function createLocalDevAdapter(deps: LocalDevDeps = {}): WorkerAdapter {
               tool: request.tool,
               options: request.options ?? {},
               inputs: [inputFile],
+              // Local dev runs the processor inline, so the cap never reaches a
+              // queue — it still has to be passed, or the one mode a developer
+              // actually watches would be the one mode that does not enforce it.
+              ...(delivery ? { delivery } : {}),
             });
       // Inputs are wiped as soon as the gate/processor finishes — success or failure —
       // via the storage provider's delete-now, matching the retention contract.

@@ -170,6 +170,8 @@ describe("translate-client", () => {
         bytes: new Uint8Array([1]),
         targetLanguage: "fr",
         sourceLanguage: "en",
+        declaredCharacters: 1_000,
+        declaredTextPages: 3,
         instructions: "keep names",
       },
       { fetchImpl, sleep: async () => {} },
@@ -244,6 +246,8 @@ describe("translate-client", () => {
         bytes: new Uint8Array([1]),
         targetLanguage: "de",
         sourceLanguage: "auto",
+        declaredCharacters: 1_000,
+        declaredTextPages: 3,
       },
       { fetchImpl, sleep: async () => {} },
     );
@@ -299,6 +303,8 @@ describe("translate-client", () => {
         bytes: new Uint8Array([1]),
         targetLanguage: "fr",
         sourceLanguage: "auto",
+        declaredCharacters: 1_000,
+        declaredTextPages: 3,
       },
       { fetchImpl, sleep: async () => {} },
     );

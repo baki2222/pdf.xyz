@@ -230,3 +230,167 @@ export const TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS = 8_000;
 export const TRANSLATE_MAX_INPUT_CHARS = translateMaxInputChars(
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
 );
+
+/**
+ * The measured collapsed divergence between the two extractors, per geometry —
+ * the table above, as data rather than prose.
+ *
+ * It is here so the headroom below is DERIVED from the measurement rather than
+ * typed beside it. A constant typed next to its own evidence still goes stale
+ * silently; a constant computed from it cannot.
+ */
+export const TRANSLATE_EXTRACTOR_DIVERGENCE = {
+  /** Xpdf `pdftotext` 4.00, six pdf-lib fixtures, 120 lines each. */
+  measuredOn: "2026-08-11",
+  /**
+   * ⚠️ NOT THE BINARY WE SHIP. The worker runs poppler 22.12.0; these were taken
+   * on Xpdf 4.00, and this file already records one claim from that binary — the
+   * `default`-mode transposition — that **did not reproduce on poppler**. So the
+   * shape is the finding and the magnitudes are indicative, and the headroom
+   * derived from them is a SAMPLED maximum, not a bound. Re-measure on the
+   * worker's binary before treating it as one.
+   */
+  binary: "xpdf-pdftotext-4.00",
+  shippedBinary: "poppler-22.12.0",
+  /** Worker length ÷ browser length, after `collapseLayoutPadding`. */
+  collapsed: {
+    singleColumnProse: 1.0001,
+    deepLeftIndent: 1.0005,
+    twoColumns: 1.0198,
+    sparseWideGrid: 1.1076,
+    fourColumnTable: 1.0781,
+    eightColumnGrid: 1.2031,
+  },
+} as const;
+
+/**
+ * The same measurement on the binary we ACTUALLY SHIP — poppler 22.12.0, run on
+ * the worker box, `-layout` plus `collapseLayoutPadding`.
+ *
+ * It is here because the Xpdf table above turned out to understate the range
+ * badly, and not at the margin: **a wide table of short cells — any spreadsheet
+ * exported to PDF — reaches 1.95**, which is 1.6× the Xpdf maximum. A headroom
+ * of 1.2031 would have truncated the honest owner of such a document at ~63% of
+ * their own file. That is not a tail case a backstop mops up; it is a common
+ * input the constant simply did not cover.
+ */
+export const TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED = {
+  measuredOn: "2026-08-21",
+  binary: "poppler-22.12.0",
+  /** `columns × characters-per-cell` → worker length ÷ drawn length. */
+  collapsed: {
+    oneColumnFiveChar: 1.0014,
+    eightColumnFiveChar: 1.1709,
+    sixteenColumnFiveChar: 1.1853,
+    twentyFourColumnOneChar: 1.9203,
+    fortyColumnOneChar: 1.9514,
+  },
+} as const;
+
+/**
+ * The horizontal divergence a page of `itemsPerLine` text items can produce —
+ * the DERIVATION the measurements above check.
+ *
+ * After `collapseLayoutPadding`, `pdftotext -layout` can emit **at most one
+ * space per column gap** (collapsing runs of whitespace to one is exactly what
+ * guarantees that), and every drawn item contributes **at least one character**.
+ * So per line the worker emits at most `n items + (n − 1) spaces + 1 newline`
+ * while the browser emits at least `n items + 1 newline`:
+ *
+ * ```
+ *   ratio ≤ (2n) / (n + 1)  =  1 + (n − 1)/(n + 1)  <  2   for every n
+ * ```
+ *
+ * Two is approached and never reached. Checked against poppler on the shipped
+ * binary and agreeing to four significant figures: n=24 predicts 1.9200 against
+ * 1.9203 measured, n=40 predicts 1.9512 against 1.9514.
+ */
+export function extractorHorizontalRatioBound(itemsPerLine: number): number {
+  const n = Math.max(1, Math.floor(itemsPerLine));
+  return (2 * n) / (n + 1);
+}
+
+/**
+ * The VERTICAL term, measured on the shipped binary — the one the derivation
+ * below explicitly does not cover.
+ *
+ * `-layout` emits blank lines for vertical gaps and `collapseLayoutPadding`
+ * only touches runs of spaces and tabs, so newlines pass through untouched.
+ * That term multiplies the horizontal one, and the horizontal supremum of 2 was
+ * shipped as a headroom while this was neither bounded nor measured.
+ *
+ * MEASURED 2026-08-21, poppler 22.12.0, worker box, `-layout` + collapse. Two
+ * of the three exceed 2:
+ *
+ * ```
+ *   24 columns, 10pt line gap   1,000 → 1,921   1.921
+ *   24 columns, 40pt line gap   1,000 → 2,071   2.071   exceeds 2
+ *   40 columns, 40pt line gap   1,640 → 3,351   2.043   exceeds 2
+ * ```
+ *
+ * ⚠️ THESE ARE SAMPLES OF AN UNBOUNDED TERM, NOT A BOUND. Nothing here limits
+ * how much blank space a page may hold, so the largest observed ratio is a
+ * lower bound on the worst case and nothing more. They are recorded as evidence
+ * that 2 was too small — which is a claim a sample CAN support — and
+ * deliberately NOT used to derive the replacement, because deriving a constant
+ * from a sampled maximum is the exact mistake that produced 1.2031.
+ */
+export const TRANSLATE_EXTRACTOR_DIVERGENCE_VERTICAL = {
+  measuredOn: "2026-08-21",
+  binary: "poppler-22.12.0",
+  /** `columns × line gap` → worker length ÷ drawn length. */
+  collapsed: {
+    twentyFourColumnTenPointGap: 1.921,
+    twentyFourColumnFortyPointGap: 2.071,
+    fortyColumnFortyPointGap: 2.043,
+  },
+} as const;
+
+/**
+ * How much more text the WORKER may find than the browser reported.
+ *
+ * **A CHOSEN MARGIN. Not a derivation, and the distinction is the whole point
+ * of this docblock** — a number this size, sitting under a page of measured
+ * tables, reads as though it came from data. It did not.
+ *
+ * WHAT IS ACTUALLY DERIVED. {@link extractorHorizontalRatioBound} proves the
+ * HORIZONTAL term is under 2 for every page, and poppler agrees to four
+ * significant figures. That bound is real and it is complete — for the term it
+ * covers. It says nothing about the vertical term, which multiplies it, has no
+ * bound at all, and is measured above at up to 2.071 on its own.
+ *
+ * SO WHY NOT DERIVE THE PRODUCT. Because there is nothing to derive it from:
+ * blank lines are unbounded, so any figure taken from the vertical
+ * measurements would be a sampled maximum wearing a derivation's clothes. That
+ * is precisely how the first version of this constant became **1.2031** —
+ * `Math.max` over an Xpdf table — against a spreadsheet that reaches 1.9514 on
+ * the binary we ship, which would have truncated that document's honest owner
+ * at ~63% of their own file. Repeating the mistake one layer up, with better
+ * arithmetic in front of it, would be harder to spot rather than less wrong.
+ *
+ * SO THE JUSTIFICATION IS THAT IT COSTS NOTHING, and that is a complete
+ * argument rather than a shrug:
+ *
+ *  - **To an honest caller, nothing at all.** A reservation is `count × h`
+ *    drawn from a budget of `deliverable × h`, so documents per day is
+ *    `deliverable / count` — `h` cancels. The published allowance is
+ *    {@link AI_CHARACTER_ALLOWANCE_DELIVERED}, which does not contain `h` at
+ *    all, so raising it changes no number any visitor is told.
+ *  - **To a liar, less than nothing.** A lie reserves `declared × h` and is
+ *    delivered `declared × h`, and a liar wants `declared` small. Declaring
+ *    one character buys four characters at h=4 instead of two at h=2. Both are
+ *    nothing; the larger `h` is marginally worse for them.
+ *  - **What it buys is truncation avoided.** The only cost of a small `h` is
+ *    cutting an honest document short, and 4 is twice the highest ratio either
+ *    binary has produced (2.071) and clear of the 3.28 composition that the
+ *    worst horizontal and worst vertical terms together would imply.
+ *
+ * WHAT IT IS STILL NOT. It is not a proof that no document exceeds it. The
+ * vertical term remains unbounded, so a sufficiently sparse page can still
+ * breach this — which is why the reservation is backed by a DELIVERY CAP that
+ * reports the bound it hit. An exceeded headroom then arrives as a positioned
+ * gap saying “the remaining pages held more text than this job reserved”,
+ * which is evidence this number is too small, rather than as a silently short
+ * translation, which is not evidence of anything.
+ */
+export const TRANSLATE_EXTRACTOR_HEADROOM = 4;

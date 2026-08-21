@@ -11,7 +11,12 @@
  * read, mirroring the contract's auto-delete guarantee.
  */
 
-import { DEFAULT_RETENTION, JOB_LIMITS, type Job } from "@/lib/jobs";
+import {
+  DEFAULT_RETENTION,
+  JOB_LIMITS,
+  type Job,
+  type JobDeliveryCap,
+} from "@/lib/jobs";
 import { isValidArtifactHandle } from "./artifacts/access";
 import type { ArtifactManifest } from "./artifacts/types";
 
@@ -86,6 +91,8 @@ export interface StoredJobSpec {
   /** Optional sanitized display names aligned with `inputs` (a value, never a key). */
   inputNames?: string[];
   options: Record<string, unknown>;
+  /** What the job may deliver, as the route decided at submit time. */
+  delivery?: JobDeliveryCap;
 }
 
 /** A worker's lease on a claimed job: the deadline plus the attempt count. */

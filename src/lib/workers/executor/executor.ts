@@ -331,7 +331,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     if (!claim.ok) return { outcome: "error" };
     if (claim.value === null) return { outcome: "idle" };
 
-    const { job, inputs, inputNames, options, attempt } = claim.value;
+    const { job, inputs, inputNames, options, delivery, attempt } = claim.value;
     const base = { jobId: job.jobId, tool: job.tool, attempt };
     log({ event: "claimed", ...base });
     // A claim past the first attempt is a redelivery (a prior lease expired or a
@@ -545,6 +545,10 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       tool: job.tool,
       options,
       inputs: files,
+      // Threaded rather than re-derived: the executor has no idea what the
+      // caller declared, and a cap recomputed here would be a second opinion
+      // about a number that was already charged for.
+      ...(delivery ? { delivery } : {}),
     });
 
     // Record the processor's wall-clock latency (bucketed at construction) for both a

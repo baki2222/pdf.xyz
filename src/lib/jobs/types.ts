@@ -229,6 +229,47 @@ export interface CreateJobRequest {
   inputNames?: string[];
   /** Tool-specific options (compression level, target language, url, …). */
   options?: Record<string, unknown>;
+  /**
+   * Characters of selectable text the CLIENT counted, when it could count them.
+   *
+   * The route reserves against this instead of a whole per-call ceiling, so a
+   * short document costs a short amount of the daily allowance. It is a CLAIM,
+   * not a measurement: it arrives from a browser and a browser can lie. Two
+   * things bound the damage — the reservation is multiplied by a derived
+   * extractor headroom, and the worker caps delivery at what was reserved, so
+   * under-reporting buys exactly the translation it paid for.
+   *
+   * **Absent is fully supported and is not an error**, and this being optional
+   * while the browser client's own input type makes it REQUIRED is deliberate:
+   * an API caller has bytes, not extracted text, so it genuinely cannot count
+   * and reserving the maximum is the honest answer for it. The panel can count,
+   * so for the panel the same fallback would be a silent regression — jobs
+   * quietly costing the maximum again with nothing failing — and its type
+   * forbids omission at compile time. Optional here, required there, for
+   * reasons that differ.
+   */
+  declaredCharacters?: number;
+  /**
+   * Pages WITH TEXT the client counted — not the document's page count.
+   *
+   * The two differ for any document with a blank, whitespace-only or image-only
+   * page, because pages with no text are dropped before the document is split
+   * into provider calls. The name carries the unit for the reason this file
+   * keeps re-learning: a figure whose unit is unrecorded is a defect even when
+   * its value is right, because the next person compares it to something.
+   *
+   * It is the EXACT half of the delivery cap. `declaredCharacters` is counted by
+   * pdfjs in the browser and enforced against `pdftotext` on the worker, and
+   * those two disagree by a factor that has to be guessed at; the text-page set
+   * is read from the same page tree by both and was measured to agree exactly —
+   * including on the invisible OCR text layers `ocr-pdf` produces. So this is
+   * the bound that can be enforced without a margin, and the one whose binding
+   * means the document is not the document that was declared.
+   *
+   * Optional for the same reason `declaredCharacters` is: an API caller has
+   * bytes, not extracted text. Absent means unbounded in this dimension.
+   */
+  declaredTextPages?: number;
   /** Optional idempotency key so retries don't double-run or double-charge. */
   idempotencyKey?: string;
 }

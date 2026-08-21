@@ -11,7 +11,7 @@
  * the engine takes), so this module stays free of Node built-ins and unit-testable.
  */
 
-import type { JobError } from "@/lib/jobs";
+import { readDeliveryCap, type JobError } from "@/lib/jobs";
 import {
   parseTranslateOptions,
   translationOutputName,
@@ -51,6 +51,15 @@ function jobError(run: Failure): JobError {
     case "too_large":
       return {
         code: "payload_too_large",
+        message: run.message,
+        retryable: false,
+      };
+    case "over_reservation":
+      // Not `payload_too_large` and not retryable: the file may be tiny, and
+      // the same file submitted with an honest declaration would succeed. The
+      // message carries the reservation, so the caller can see what to change.
+      return {
+        code: "unprocessable_entity",
         message: run.message,
         retryable: false,
       };
@@ -152,7 +161,32 @@ export function createTranslateProcessor(deps: TranslateDeps): Processor {
           retryable: false,
         });
       }
-      const run = await runTranslate(file.bytes, parsed.value, deps);
+      /**
+       * The delivery cap arrives on the INPUT, not on `deps`: `deps` is the
+       * worker's wiring, built once at start-up, and the cap is per-job.
+       *
+       * IT IS RE-READ RATHER THAN TRUSTED. The value is typed here but it came
+       * back from the queue as `JSON.parse(raw) as T` — an assertion, not a
+       * check. A malformed cap must not read as "no cap": absent is a supported
+       * state meaning unbounded, so the convenient reading of a broken value is
+       * "deliver everything", which is precisely what the cap exists to prevent.
+       * Fail closed.
+       */
+      const cap = readDeliveryCap(input.delivery);
+      if (!cap.ok) {
+        return processorFail({
+          code: "internal_error",
+          message: `This job could not be run because ${cap.reason}.`,
+          retryable: false,
+        });
+      }
+      const run = await runTranslate(file.bytes, parsed.value, {
+        ...deps,
+        limits: {
+          ...deps.limits,
+          ...(cap.cap ? { delivery: cap.cap } : {}),
+        },
+      });
       // A run that failed AFTER a provider call still owes the job record what
       // it spent — see `aiResultsFromFailure`. Absent when no call happened.
       if (!run.ok)

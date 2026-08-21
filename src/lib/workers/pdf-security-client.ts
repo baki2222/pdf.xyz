@@ -153,6 +153,18 @@ export async function runSecurityJob(
   bytes: Uint8Array,
   options: Record<string, unknown>,
   opts: PdfSecurityWorkerOptions,
+  /**
+   * Characters of selectable text the caller counted, when it could. Travels to
+   * the route so an AI job reserves what it will use instead of a whole
+   * per-call ceiling. Omitted by callers that cannot count.
+   */
+  declaredCharacters?: number,
+  /**
+   * Pages WITH TEXT the caller counted. The exact half of the delivery cap —
+   * both extractors read the same page tree, so unlike the character count this
+   * one needs no headroom. Omitted by callers that cannot count.
+   */
+  declaredTextPages?: number,
 ): Promise<PdfSecurityWorkerResult> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
@@ -203,6 +215,8 @@ export async function runSecurityJob(
       // server re-sanitizes it and never lets it reach a key or path.
       inputNames: [filename],
       options,
+      ...(declaredCharacters !== undefined ? { declaredCharacters } : {}),
+      ...(declaredTextPages !== undefined ? { declaredTextPages } : {}),
     }),
     signal,
   });
