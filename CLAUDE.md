@@ -173,10 +173,15 @@ at computation and absent at the wire.
 - **Merging is not shipping** for anything the worker does. The web tier
   auto-deploys; the worker image is built by hand. Verify at the tier that
   serves the claim, and remember it may not be the tier that ships the code.
-- **A guard on N-1 of N hops is a guard on the easy hops.** Three functions
-  rebuilt the heartbeat field by field; the guard covered the last two.
-  TypeScript could not help — excess-property checking does not fire on
-  conditional spreads, which is the idiom used for every optional field.
+- **A DERIVED corpus can still be the WRONG corpus.** Deriving a key set from a
+  value rather than typing it is necessary and not sufficient — ask _which_
+  value. A heartbeat guard derived its keys from the capabilities sub-object and
+  so never asked about a single top-level field: `fingerprint` appears **zero**
+  times in it, so a dropped top-level field was invisible at _every_ hop, not
+  merely at uncovered ones. Rule 4 nested inside a rule-3-style guard, and the
+  derivation is what made it feel safe. TypeScript could not help either —
+  excess-property checking does not fire on conditional spreads, which is the
+  idiom used for every optional field.
 - **The mutation needs its own health check.** Four times in one day a
   neutering landed on the wrong line, the wrong file, or died on its own
   `ReferenceError`. The symptom is _a green that should have been red_, and
