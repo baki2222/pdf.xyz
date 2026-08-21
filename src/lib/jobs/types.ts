@@ -239,9 +239,14 @@ export interface CreateJobRequest {
    * extractor headroom, and the worker caps delivery at what was reserved, so
    * under-reporting buys exactly the translation it paid for.
    *
-   * Absent is fully supported and is not an error: a caller that cannot count
-   * reserves the maximum a single call could need, which is the behaviour every
-   * caller had before this field existed.
+   * **Absent is fully supported and is not an error**, and this being optional
+   * while the browser client's own input type makes it REQUIRED is deliberate:
+   * an API caller has bytes, not extracted text, so it genuinely cannot count
+   * and reserving the maximum is the honest answer for it. The panel can count,
+   * so for the panel the same fallback would be a silent regression — jobs
+   * quietly costing the maximum again with nothing failing — and its type
+   * forbids omission at compile time. Optional here, required there, for
+   * reasons that differ.
    */
   declaredCharacters?: number;
   /** Optional idempotency key so retries don't double-run or double-charge. */

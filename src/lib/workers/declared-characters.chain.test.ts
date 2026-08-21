@@ -24,6 +24,15 @@ import { describe, expect, it } from "vitest";
 import { parseCreateJobRequest } from "@/lib/jobs";
 import { runWorkerTranslate } from "./translate-client";
 
+/**
+ * A file id in the shape the CONTRACT requires — `f_`, not `file_`.
+ *
+ * The first version of this fixture used `file_…`, so `parseCreateJobRequest`
+ * rejected it and a CONTROL failed for its own bug rather than for the property
+ * it exists to hold. A control that fails for its own bug is not a control,
+ * which is the whole reason they are run before they are trusted.
+ */
+const FILE_ID = "f_abc123def456";
 const BYTES = new Uint8Array([1, 2, 3, 4]);
 const DECLARED = 14_204;
 
@@ -41,7 +50,7 @@ function captureTransport() {
         ok: true,
         status: 201,
         json: async () => ({
-          slots: [{ fileId: "f_abc123def456", url: "/upload/slot-1" }],
+          slots: [{ fileId: FILE_ID, url: "/upload/slot-1" }],
         }),
       };
     }
@@ -49,9 +58,16 @@ function captureTransport() {
       return { ok: true, status: 200, json: async () => ({}) };
     }
     if (target === "/api/jobs") {
-      // The client encodes JSON bodies as an ArrayBuffer, so decode rather
-      // than assume a string — asserting on a shape the client does not
-      // actually produce would make this chain check test its own fixture.
+      // `jsonBody()` encodes to an ArrayBuffer, NOT a string. Decode rather
+      // than assume, because the first version of this capture read
+      // `typeof raw === "string"`, recorded nothing, and made the assertion
+      // below fail with **"the client never reached POST /api/jobs"** — when
+      // it had. A check that fails with a confidently wrong message is worse
+      // than one that fails opaquely: it spends the next reader's time hunting
+      // a break that does not exist. Same defect #113 fixed the same week, in
+      // a probe that reported "storage is probably not configured" for a 429
+      // it had actually observed. **A check may not report a cause it did not
+      // observe** — including about itself.
       const raw = init?.body;
       const text =
         typeof raw === "string"
@@ -145,7 +161,7 @@ describe("the declared count reaches the route's contract", () => {
     // contract would have become mandatory by accident.
     const parsed = parseCreateJobRequest({
       tool: "translate-pdf",
-      inputs: ["f_abc123def456"],
+      inputs: [FILE_ID],
       options: { targetLanguage: "fr", sourceLanguage: "auto" },
     });
     expect(parsed.ok).toBe(true);
@@ -159,7 +175,7 @@ describe("the declared count reaches the route's contract", () => {
     for (const bad of [-1, 0, 1.5, "many", null, Number.NaN]) {
       const parsed = parseCreateJobRequest({
         tool: "translate-pdf",
-        inputs: ["f_abc123def456"],
+        inputs: [FILE_ID],
         options: { targetLanguage: "fr", sourceLanguage: "auto" },
         declaredCharacters: bad,
       });

@@ -34,11 +34,21 @@ export interface TranslateWorkerInput {
    * Characters of selectable text this document holds, as the BROWSER counted
    * them — the figure the route reserves against.
    *
-   * REQUIRED, not optional, and that is the point. The route falls back to
-   * reserving a whole per-call ceiling when nothing is declared, which is a
-   * correct default and a silent one: a caller that stopped declaring would
-   * simply get three jobs a day again, with nothing failing. Making it required
-   * means the one caller that can count cannot quietly stop.
+   * **REQUIRED HERE, OPTIONAL ON THE WIRE, and the asymmetry is the design —
+   * not one of the two being wrong.** `CreateJobRequest.declaredCharacters` is
+   * optional because an API caller legitimately cannot count: it has bytes, not
+   * extracted text, and the route's fallback (reserve a whole per-call ceiling)
+   * is exactly the behaviour every caller had before this field existed.
+   *
+   * This client CAN count — the panel extracts the text before it uploads, for
+   * the per-call ceiling check — so for it the fallback would be a silent
+   * regression rather than a sane default: jobs would quietly cost the maximum
+   * again and nothing would fail. Required makes that unrepresentable, and it
+   * fails at COMPILE time rather than at assertion time.
+   *
+   * The type cannot see a property dropped in serialisation between a correct
+   * client and a correct parser, which is why `declared-characters.chain.test.ts`
+   * drives this path end to end as well.
    */
   declaredCharacters: number;
 }
