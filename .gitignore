@@ -49,6 +49,10 @@ next-env.d.ts
 # internal agent prompts
 .claude-*.md
 
+# worker-prove-tools: per-operator, per-deployment "last proven" ledger.
+# Local state, not a shared claim — see scripts/worker-prove-tools.ts.
+.worker-prove-tools-ledger.json
+
 # editor
 .idea
 .vscode/*

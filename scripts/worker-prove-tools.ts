@@ -20,15 +20,53 @@
  * document is ever read. Inputs and artifacts land in the deployment's own storage
  * under its normal retention policy.
  *
- * Exit codes: 0 = every selected tool proven; 1 = at least one failed or a
- * worker-backed tool has no spec below (a new tool must arrive with a proof).
+ * Outcomes (TASK-72): PASS — the tool did the thing and the artifact verified.
+ * FAIL — evidence of a defect somewhere on the proof's path. UNPROVEN — the
+ * deployment's own policy refused to run the job (the free AI allowance or the
+ * AI spend ceiling), which is the limiter working, not evidence about the
+ * tool. The license for claiming UNPROVEN, and its corpus, live in
+ * `src/lib/probes/proof-outcome.ts`; everything unlicensed stays FAIL, because
+ * a false alarm costs one investigation while a false "not evidence" is the
+ * convenient defect that ships.
+ *
+ * One connection's free AI allowance cannot cover the five AI proof runs in
+ * one day, and this harness never routes around the limiter — a probe that
+ * dodges the cost control stops proving what users actually hit. Coverage is
+ * spread over runs instead: AI tools are attempted least-recently-proven
+ * first, ordered by a per-deployment ledger (`.worker-prove-tools-ledger.json`
+ * at the repo root, gitignored, local to the operator's machine) that records
+ * when each AI proof last PASSED; every run prints that table. A refused or
+ * failed run does not advance a tool's position, so the rotation converges on
+ * whatever remains unproven instead of marching past it.
+ *
+ * Exit codes: 0 = every selected proof passed (and, on a full run, every
+ * worker-backed tool has a spec — a new tool must arrive with a proof).
+ * 1 = evidence of a defect: a proof FAILED, or a worker tool has no spec.
+ * 2 = incomplete, not failing: nothing failed, but at least one proof was
+ * refused by the deployment's own policy. Red (1) is reserved for evidence so
+ * that red keeps meaning defect; a pipeline that stops on any nonzero still
+ * stops on 2 — safe by default, an incomplete run never upgrades itself to
+ * proven — but 2 means "rerun after the allowance resets", never "page
+ * someone".
  */
 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import JSZip from "jszip";
 import { deflateSync } from "node:zlib";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
+import {
+  harnessExitCode,
+  orderSpecsForAllowance,
+  refusalVerdict,
+  specKey,
+  EXIT_DEFECT,
+  EXIT_INCOMPLETE,
+  type DeploymentProofLedger,
+  type ProofOutcome,
+} from "@/lib/probes/proof-outcome";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
 const ONLY = process.argv.slice(2).filter((a) => !a.startsWith("-"));
@@ -898,7 +936,7 @@ function unspecifiedWorkerTools(): string[] {
 
 interface ProofResult {
   label: string;
-  ok: boolean;
+  outcome: ProofOutcome;
   stage?: string;
   detail?: string;
   seconds?: number;
@@ -929,6 +967,39 @@ const TERMINAL_STATUSES = new Set([
 
 const carried = new Map<string, Buffer>();
 
+/**
+ * The full result of every spec that offered an artifact under `keepArtifactAs`,
+ * whatever its outcome — so a spec whose dependency is missing can say WHY
+ * rather than reporting the producer's problem as its own. The 2026-08-21 run
+ * printed `FAIL chat-with-pdf (follow-up) [options] no carried "chat-answer-1"`,
+ * a line that read as a second defect when it was purely the first line's
+ * shadow: turn one was refused by the allowance, so turn two never had an
+ * artifact to build from.
+ */
+const producers = new Map<string, ProofResult>();
+
+/**
+ * The outcome of a spec whose input artifact never arrived. The tool was not
+ * exercised, so this is never FAIL — the evidence (or the refusal) sits on the
+ * producer's own line; repeating it here would double-count one cause as two
+ * defects. It is always UNPROVEN, with the detail naming the producer so the
+ * reader follows the arrow instead of hunting.
+ */
+function missingDependency(
+  label: string,
+  artifactKey: string,
+  stage: string,
+  seconds: number,
+): ProofResult {
+  const producer = producers.get(artifactKey);
+  const detail = !producer
+    ? `needs "${artifactKey}", which no spec produced in this run — select the producing spec too`
+    : producer.outcome === "unproven"
+      ? `needs "${artifactKey}" from "${producer.label}", which was not proven this run — nothing here is evidence about this tool`
+      : `needs "${artifactKey}" from "${producer.label}", which did not pass — the defect is on that line, not this one`;
+  return { label, outcome: "unproven", stage, seconds, detail };
+}
+
 async function postJson(path: string, body: unknown) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
@@ -936,6 +1007,41 @@ async function postJson(path: string, body: unknown) {
     body: JSON.stringify(body),
   });
   return { res, body: (await res.json().catch(() => ({}))) as ApiResponse };
+}
+
+/**
+ * Map a refused POST to the outcome it licenses (see proof-outcome.ts): the
+ * deployment's own policy refusing the run is UNPROVEN, everything else FAIL.
+ */
+function refusalResult(
+  label: string,
+  stage: string,
+  seconds: number,
+  res: Response,
+  body: ApiResponse,
+): ProofResult {
+  const verdict = refusalVerdict({
+    status: res.status,
+    code: body.error?.code ?? null,
+    message: body.error?.message ?? null,
+  });
+  if (verdict.outcome === "unproven") {
+    return {
+      label,
+      outcome: "unproven",
+      seconds,
+      stage:
+        verdict.via === "spend-ceiling" ? "spend ceiling" : "policy refusal",
+      detail: verdict.reason,
+    };
+  }
+  return {
+    label,
+    outcome: "failed",
+    seconds,
+    stage,
+    detail: `HTTP ${res.status} ${JSON.stringify(body).slice(0, 240)}`,
+  };
 }
 
 async function runSpec(spec: ProofSpec): Promise<ProofResult> {
@@ -950,12 +1056,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       ? carried.get(spec.from)
       : Buffer.from(await spec.make!());
     if (!bytes) {
-      return {
-        label,
-        ok: false,
-        stage: "input",
-        detail: `no carried "${spec.from}"`,
-      };
+      return missingDependency(label, spec.from!, "input", seconds());
     }
     const up = await postJson("/api/uploads", {
       tool: spec.tool,
@@ -964,19 +1065,13 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       ],
     });
     if (!up.res.ok) {
-      return {
-        label,
-        ok: false,
-        seconds: seconds(),
-        stage: "uploads",
-        detail: `HTTP ${up.res.status} ${JSON.stringify(up.body).slice(0, 200)}`,
-      };
+      return refusalResult(label, "uploads", seconds(), up.res, up.body);
     }
     const slot = up.body.slots?.[0];
     if (!slot) {
       return {
         label,
-        ok: false,
+        outcome: "failed",
         seconds: seconds(),
         stage: "uploads",
         detail: "the upload session returned no slot",
@@ -991,7 +1086,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     if (!put.ok) {
       return {
         label,
-        ok: false,
+        outcome: "failed",
         seconds: seconds(),
         stage: "storage PUT",
         detail: `HTTP ${put.status}`,
@@ -1010,20 +1105,19 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   else if (spec.optionsFrom) {
     const prior = carried.get(spec.optionsFrom.artifact);
     if (!prior) {
-      return {
+      return missingDependency(
         label,
-        ok: false,
-        seconds: seconds(),
-        stage: "options",
-        detail: `no carried "${spec.optionsFrom.artifact}"`,
-      };
+        spec.optionsFrom.artifact,
+        "options",
+        seconds(),
+      );
     }
     try {
       request.options = await spec.optionsFrom.build(prior);
     } catch (error) {
       return {
         label,
-        ok: false,
+        outcome: "failed",
         seconds: seconds(),
         stage: "options",
         detail: (error as Error).message,
@@ -1033,20 +1127,20 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
 
   const created = await postJson("/api/jobs", request);
   if (!created.res.ok) {
-    return {
+    return refusalResult(
       label,
-      ok: false,
-      seconds: seconds(),
-      stage: "create job",
-      detail: `HTTP ${created.res.status} ${JSON.stringify(created.body).slice(0, 240)}`,
-    };
+      "create job",
+      seconds(),
+      created.res,
+      created.body,
+    );
   }
 
   const jobId = created.body.jobId ?? created.body.id;
   if (!jobId) {
     return {
       label,
-      ok: false,
+      outcome: "failed",
       seconds: seconds(),
       stage: "create job",
       detail: "the job was accepted but carried no id",
@@ -1063,7 +1157,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   if (job.status !== "completed") {
     return {
       label,
-      ok: false,
+      outcome: "failed",
       seconds: seconds(),
       stage: `job ${job.status ?? "timeout"}`,
       detail: job.error
@@ -1074,7 +1168,12 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
 
   const artifact = job.artifacts?.[0];
   if (!artifact)
-    return { label, ok: false, seconds: seconds(), stage: "no artifact" };
+    return {
+      label,
+      outcome: "failed",
+      seconds: seconds(),
+      stage: "no artifact",
+    };
 
   const download = await fetch(`${BASE}/api/artifacts/${artifact.artifactId}`, {
     redirect: "follow",
@@ -1083,7 +1182,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   if (!download.ok) {
     return {
       label,
-      ok: false,
+      outcome: "failed",
       seconds: seconds(),
       stage: "artifact download",
       detail: `HTTP ${download.status}`,
@@ -1092,7 +1191,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   if (!spec.expect(buf)) {
     return {
       label,
-      ok: false,
+      outcome: "failed",
       seconds: seconds(),
       stage: "artifact shape",
       detail: `wanted ${spec.want}, got ${buf.length}B starting ${JSON.stringify(buf.subarray(0, 8).toString("latin1"))}`,
@@ -1111,7 +1210,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     if (!outcome.ok) {
       return {
         label,
-        ok: false,
+        outcome: "failed",
         seconds: seconds(),
         stage: "artifact contents",
         detail: outcome.detail,
@@ -1122,13 +1221,98 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   if (spec.keepArtifactAs) carried.set(spec.keepArtifactAs, buf);
   return {
     label,
-    ok: true,
+    outcome: "proven",
     seconds: seconds(),
     detail: `${artifact.filename} — ${buf.length}B ${spec.want}${verified}`,
   };
 }
 
+// ─────────────────────── the AI set, and the proof ledger ────────────────────
+
+/**
+ * Whether a spec's job spends the free AI allowance — the SAME predicate
+ * `POST /api/jobs` applies before charging `ai.run` (`capabilityForMode(...)
+ * === "ai"`), imported rather than restated as a slug list, so a tool that
+ * becomes (or stops being) AI moves this harness with it. A hand-typed list
+ * here would be a set that cannot see a tool it does not name.
+ */
+function isAiSpec(spec: ProofSpec): boolean {
+  const tool = getToolBySlug(spec.tool);
+  return tool ? capabilityForMode(tool.processing) === "ai" : false;
+}
+
+/**
+ * Where each deployment's "last proven" record lives. Local to the operator's
+ * machine on purpose: the ledger informs THIS operator's rotation and report;
+ * it is not a shared claim about the deployment (a different machine proves
+ * for itself). Keyed by deployment origin so proving staging never marks
+ * production proven.
+ */
+const LEDGER_PATH = path.resolve(
+  process.cwd(),
+  ".worker-prove-tools-ledger.json",
+);
+
+interface LedgerFile {
+  version: 1;
+  deployments: Record<string, DeploymentProofLedger>;
+}
+
+/**
+ * Load the ledger. A missing file is a normal first run; an unreadable one is
+ * loud and makes this run NON-persisting, so a corrupt history is never
+ * silently overwritten — the operator inspects or deletes it deliberately
+ * (a control needs a copy, not a clobber).
+ */
+function loadLedger(): { file: LedgerFile; writable: boolean; note?: string } {
+  if (!existsSync(LEDGER_PATH)) {
+    return { file: { version: 1, deployments: {} }, writable: true };
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(LEDGER_PATH, "utf8")) as LedgerFile;
+    if (parsed?.deployments && typeof parsed.deployments === "object") {
+      return {
+        file: { version: 1, deployments: parsed.deployments },
+        writable: true,
+      };
+    }
+  } catch {
+    // fall through to the non-persisting report below
+  }
+  return {
+    file: { version: 1, deployments: {} },
+    writable: false,
+    note:
+      `the proof ledger at ${LEDGER_PATH} is unreadable; running WITHOUT it ` +
+      `and leaving the file untouched — inspect or delete it, then rerun`,
+  };
+}
+
+const OUTCOME_TOKEN: Record<ProofOutcome, string> = {
+  proven: "PASS",
+  failed: "FAIL",
+  unproven: "UNPROVEN",
+};
+
 async function main(): Promise<number> {
+  // The harness's own corpus, bounded before anything runs (a blind predicate
+  // reports the strongest possible pass): the AI predicate must match some
+  // spec — this product ships AI tools, and an empty match means the predicate
+  // broke, not that AI left the catalog — and spec keys must be unique, or two
+  // proofs would share one ledger entry and the rotation would misread both.
+  const keys = SPECS.map(specKey);
+  if (new Set(keys).size !== keys.length) {
+    throw new Error(
+      "duplicate spec keys in SPECS — give the duplicates distinct labels",
+    );
+  }
+  if (SPECS.filter(isAiSpec).length === 0) {
+    throw new Error(
+      "the AI-spec predicate matched nothing — capabilityForMode or the " +
+        "catalog changed shape; fix the predicate before trusting this run",
+    );
+  }
+
   const missing = unspecifiedWorkerTools();
   const selected = SPECS.filter(
     (s) =>
@@ -1138,35 +1322,94 @@ async function main(): Promise<number> {
   );
   if (selected.length === 0) {
     console.log(`No spec matches ${ONLY.join(", ")}.`);
-    return 1;
+    return EXIT_DEFECT;
   }
 
-  console.log(`Proving ${selected.length} tool run(s) against ${BASE}\n`);
+  const ledgerState = loadLedger();
+  const deployment = (() => {
+    try {
+      return new URL(BASE).origin;
+    } catch {
+      return BASE;
+    }
+  })();
+  const ledger: DeploymentProofLedger =
+    ledgerState.file.deployments[deployment] ?? {};
+  if (ledgerState.note) console.log(`WARNING: ${ledgerState.note}\n`);
+
+  // Least-recently-proven AI tools first, so a partial allowance is spent on
+  // whatever has gone longest without proof rather than on SPECS order.
+  const ordered = orderSpecsForAllowance(selected, isAiSpec, ledger);
+
+  console.log(`Proving ${ordered.length} tool run(s) against ${BASE}\n`);
   const results: ProofResult[] = [];
-  for (const spec of selected) {
+  for (const spec of ordered) {
     let result: ProofResult;
     try {
       result = await runSpec(spec);
     } catch (error) {
       result = {
         label: spec.label ?? spec.tool,
-        ok: false,
+        outcome: "failed",
         stage: "threw",
         detail: (error as Error).message,
       };
     }
     results.push(result);
+    if (spec.keepArtifactAs) producers.set(spec.keepArtifactAs, result);
     console.log(
-      `${result.ok ? "PASS" : "FAIL"}  ${result.label.padEnd(24)} ` +
+      `${OUTCOME_TOKEN[result.outcome].padEnd(8)}  ${result.label.padEnd(24)} ` +
         `${String(result.seconds ?? "-") + "s"}`.padStart(5) +
-        `  ${result.ok ? result.detail : `[${result.stage}] ${result.detail ?? ""}`}`,
+        `  ${
+          result.outcome === "proven"
+            ? result.detail
+            : `[${result.stage}] ${result.detail ?? ""}`
+        }`,
     );
   }
 
-  const passed = results.filter((r) => r.ok).length;
+  const byOutcome = (o: ProofOutcome) => results.filter((r) => r.outcome === o);
+  const proven = byOutcome("proven").length;
+  const failed = byOutcome("failed").length;
+  const unproven = byOutcome("unproven");
+
   console.log(
-    `\n${passed}/${results.length} proven end to end against ${BASE}`,
+    `\n${proven}/${results.length} proven end to end against ${BASE}`,
   );
+  if (failed > 0) console.log(`${failed} FAILED — evidence of a defect.`);
+  if (unproven.length > 0) {
+    console.log(
+      `${unproven.length} UNPROVEN — refused by the deployment's own policy, ` +
+        `which is not evidence about the tools: ${unproven
+          .map((r) => r.label)
+          .join(", ")}`,
+    );
+  }
+
+  // Record this run's passes for the AI rotation, then say when every AI
+  // proof last passed — the harness's answer to "when was each tool last
+  // proven", printed every run so staleness is visible before it matters.
+  const provenNow = new Date().toISOString();
+  const aiKeys = new Set(SPECS.filter(isAiSpec).map(specKey));
+  for (const r of byOutcome("proven")) {
+    if (aiKeys.has(r.label)) ledger[r.label] = { lastProvenAt: provenNow };
+  }
+  if (ledgerState.writable) {
+    ledgerState.file.deployments[deployment] = ledger;
+    writeFileSync(
+      LEDGER_PATH,
+      `${JSON.stringify(ledgerState.file, null, 2)}\n`,
+    );
+  }
+  console.log(`\nAI proofs — last proven against ${deployment}:`);
+  for (const spec of SPECS.filter(isAiSpec)) {
+    const at = ledger[specKey(spec)]?.lastProvenAt;
+    console.log(
+      `  ${specKey(spec).padEnd(28)} ${
+        at ? `${at}${at === provenNow ? "  (this run)" : ""}` : "never"
+      }`,
+    );
+  }
 
   // Only meaningful on a full run — a filtered run says nothing about coverage.
   if (ONLY.length === 0 && missing.length > 0) {
@@ -1175,9 +1418,20 @@ async function main(): Promise<number> {
         `\nAdd one to SPECS in this file — an unproven tool is one nobody has checked works.`,
     );
   }
-  return passed === results.length && !(ONLY.length === 0 && missing.length > 0)
-    ? 0
-    : 1;
+
+  const code = harnessExitCode({
+    outcomes: results.map((r) => r.outcome),
+    unspecifiedToolCount: missing.length,
+    fullRun: ONLY.length === 0,
+  });
+  if (code === EXIT_INCOMPLETE) {
+    console.log(
+      `\nExit 2: incomplete, not failing — nothing failed, but not every ` +
+        `selected proof could run. Rerun after the allowance resets; the ` +
+        `rotation will spend it on the stalest AI proofs first.`,
+    );
+  }
+  return code;
 }
 
 main()
