@@ -32,6 +32,7 @@ import { RATE_LIMITS } from "@/lib/jobs/types";
 import {
   TRANSLATE_EXTRACTOR_DIVERGENCE,
   TRANSLATE_EXTRACTOR_DIVERGENCE_SHIPPED,
+  TRANSLATE_EXTRACTOR_DIVERGENCE_VERTICAL,
   TRANSLATE_EXTRACTOR_HEADROOM,
   extractorHorizontalRatioBound,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -46,16 +47,24 @@ beforeEach(() => {
 });
 
 describe("the daily budget is derived, never typed", () => {
-  it("is exactly today's effective capacity", () => {
+  it("is exactly today's effective capacity, in the worker's unit", () => {
     // Three factors, all derived, none typed: the per-call ceiling, the runs it
-    // replaces, and the extractor headroom. A typed `61_548` would go on
+    // replaces, and the extractor headroom. A typed number would go on
     // describing a tool that had changed underneath it.
     //
     // THE HEADROOM DOES NOT MAKE ANYONE RICHER, which is the part that reads
     // wrong at a glance. A reservation is `count × h` against a budget of
     // `ceiling × runs × h`, so documents per day is `ceiling × runs / count` —
-    // `h` cancels. Capacity is still 30,774 browser-characters; the factor only
-    // decides how often a reservation falls short of what the worker finds.
+    // `h` cancels. Capacity is 30,774 browser-characters whatever `h` is; the
+    // factor only decides how often a reservation falls short of what the
+    // worker finds.
+    //
+    // ⚠️ THIS NUMBER IS NOT THE ONE WE PUBLISH, and an earlier version of this
+    // file asserted it was. The bucket is in worker-extracted characters; the
+    // copy quotes `AI_CHARACTER_ALLOWANCE_DELIVERED`, which is what a visitor
+    // can measure. See `ratelimit/allowance-unit.test.ts` — the assertion here
+    // is about the LIMITER, and saying it out loud is what stops the two being
+    // conflated again.
     expect(AI_CHARACTER_ALLOWANCE).toBe(
       Math.floor(
         TRANSLATE_MAX_INPUT_CHARS *
@@ -63,7 +72,6 @@ describe("the daily budget is derived, never typed", () => {
           TRANSLATE_EXTRACTOR_HEADROOM,
       ),
     );
-    expect(AI_CHARACTER_ALLOWANCE).toBe(61_548);
   });
 });
 
@@ -154,17 +162,64 @@ describe("a job reserves the characters it will actually use", () => {
  * document's honest owner at ~63% of their own file.
  */
 describe("the extractor headroom", () => {
-  it("is DERIVED and below 2 for every page, never sampled from a table", () => {
+  it("bounds the HORIZONTAL term at 2, and is deliberately larger than that", () => {
     // After collapsing, the worker emits at most `n items + (n-1) spaces + 1
     // newline` per line where the browser emits at least `n + 1`. So the ratio
-    // is 2n/(n+1), which rises toward 2 and never reaches it.
+    // is 2n/(n+1), which rises toward 2 and never reaches it. That derivation
+    // is real, and it is complete for the term it covers.
     for (const n of [1, 2, 8, 16, 24, 40, 1_000, 100_000]) {
       expect(extractorHorizontalRatioBound(n)).toBeLessThan(2);
     }
     expect(extractorHorizontalRatioBound(1)).toBeCloseTo(1, 6);
-    // The supremum is what the constant is, so nothing a page can do exceeds it
-    // on the horizontal term.
-    expect(TRANSLATE_EXTRACTOR_HEADROOM).toBe(2);
+
+    /**
+     * INVERTED, NOT DELETED. This line used to read
+     * `expect(TRANSLATE_EXTRACTOR_HEADROOM).toBe(2)` and the comment above it
+     * said "the supremum is what the constant is, so nothing a page can do
+     * exceeds it". **The second half was false**, and the test pinned it: the
+     * bound covers the horizontal term only, `-layout` also emits blank lines
+     * for vertical gaps, and that term multiplies this one. Measured on the
+     * shipped binary the same week — 2.071 at 24 columns with a 40pt line gap,
+     * 2.043 at 40 columns — so a page CAN exceed 2, and this assertion would
+     * have gone on certifying that it could not.
+     *
+     * The constant is now a chosen margin above the derived bound. Kept as an
+     * inequality rather than a new equality, because the next honest change to
+     * it is another increase and an equality would have to be edited again to
+     * permit the very thing it exists to permit.
+     */
+    expect(
+      TRANSLATE_EXTRACTOR_HEADROOM,
+      "the headroom is back at the horizontal supremum, which measurement " +
+        "already exceeded on the shipped binary",
+    ).toBeGreaterThan(2);
+    for (const ratio of Object.values(
+      TRANSLATE_EXTRACTOR_DIVERGENCE_VERTICAL.collapsed,
+    )) {
+      expect(
+        ratio,
+        "a measured vertical ratio is at or above the headroom, so an honest " +
+          "document of that shape would be truncated",
+      ).toBeLessThan(TRANSLATE_EXTRACTOR_HEADROOM);
+    }
+  });
+
+  it("records the vertical term as SAMPLES, never as a bound", () => {
+    // The distinction the constant's docblock rests on. These figures justify
+    // "2 was too small" — a claim samples can support — and are deliberately
+    // not the source of the replacement, because deriving a constant from a
+    // sampled maximum of an unbounded term is exactly how 1.2031 happened.
+    const vertical = TRANSLATE_EXTRACTOR_DIVERGENCE_VERTICAL;
+    expect(vertical.binary).toMatch(/poppler/i);
+    expect(vertical.measuredOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const worst = Math.max(...Object.values(vertical.collapsed));
+    expect(
+      worst,
+      "no recorded vertical ratio exceeds 2 any more — if that is real the " +
+        "headroom could shrink, but re-read why this test exists first",
+    ).toBeGreaterThan(2);
+    // And the replacement is NOT that maximum, rounded or otherwise.
+    expect(TRANSLATE_EXTRACTOR_HEADROOM).not.toBeCloseTo(worst, 1);
   });
 
   it("matches the SHIPPED binary to four significant figures", () => {

@@ -311,49 +311,86 @@ export function extractorHorizontalRatioBound(itemsPerLine: number): number {
 }
 
 /**
+ * The VERTICAL term, measured on the shipped binary — the one the derivation
+ * below explicitly does not cover.
+ *
+ * `-layout` emits blank lines for vertical gaps and `collapseLayoutPadding`
+ * only touches runs of spaces and tabs, so newlines pass through untouched.
+ * That term multiplies the horizontal one, and the horizontal supremum of 2 was
+ * shipped as a headroom while this was neither bounded nor measured.
+ *
+ * MEASURED 2026-08-21, poppler 22.12.0, worker box, `-layout` + collapse. Two
+ * of the three exceed 2:
+ *
+ * ```
+ *   24 columns, 10pt line gap   1,000 → 1,921   1.921
+ *   24 columns, 40pt line gap   1,000 → 2,071   2.071   exceeds 2
+ *   40 columns, 40pt line gap   1,640 → 3,351   2.043   exceeds 2
+ * ```
+ *
+ * ⚠️ THESE ARE SAMPLES OF AN UNBOUNDED TERM, NOT A BOUND. Nothing here limits
+ * how much blank space a page may hold, so the largest observed ratio is a
+ * lower bound on the worst case and nothing more. They are recorded as evidence
+ * that 2 was too small — which is a claim a sample CAN support — and
+ * deliberately NOT used to derive the replacement, because deriving a constant
+ * from a sampled maximum is the exact mistake that produced 1.2031.
+ */
+export const TRANSLATE_EXTRACTOR_DIVERGENCE_VERTICAL = {
+  measuredOn: "2026-08-21",
+  binary: "poppler-22.12.0",
+  /** `columns × line gap` → worker length ÷ drawn length. */
+  collapsed: {
+    twentyFourColumnTenPointGap: 1.921,
+    twentyFourColumnFortyPointGap: 2.071,
+    fortyColumnFortyPointGap: 2.043,
+  },
+} as const;
+
+/**
  * How much more text the WORKER may find than the browser reported.
  *
- * The browser under-counts, and the docblock above establishes why with
- * arithmetic that closes to within one character: pdfjs concatenates adjacent
- * text items with nothing between them, so it reads `North1200` as eleven
- * characters where any reader sees twelve. The surplus is one space per
- * inter-column gap per line — a property of PAGE GEOMETRY, not of length.
+ * **A CHOSEN MARGIN. Not a derivation, and the distinction is the whole point
+ * of this docblock** — a number this size, sitting under a page of measured
+ * tables, reads as though it came from data. It did not.
  *
- * WHY A MARGIN IS RIGHT HERE AND WRONG FOR THE CEILING. The docblock above says
- * plainly that "a margin is still not the answer" — and for the ceiling it is
- * not: under-margining there truncates a document, and over-margining bills a
- * user for a call the model cannot answer. Both directions are expensive.
+ * WHAT IS ACTUALLY DERIVED. {@link extractorHorizontalRatioBound} proves the
+ * HORIZONTAL term is under 2 for every page, and poppler agrees to four
+ * significant figures. That bound is real and it is complete — for the term it
+ * covers. It says nothing about the vertical term, which multiplies it, has no
+ * bound at all, and is measured above at up to 2.071 on its own.
  *
- * For a per-client ALLOWANCE the two directions are not symmetric. Under-
- * reserving would truncate an honest caller's own document; over-reserving
- * costs a little capacity. The uncertainty lands on the cheap side, which is
- * what makes this a chosen margin rather than a guessed constant.
+ * SO WHY NOT DERIVE THE PRODUCT. Because there is nothing to derive it from:
+ * blank lines are unbounded, so any figure taken from the vertical
+ * measurements would be a sampled maximum wearing a derivation's clothes. That
+ * is precisely how the first version of this constant became **1.2031** —
+ * `Math.max` over an Xpdf table — against a spreadsheet that reaches 1.9514 on
+ * the binary we ship, which would have truncated that document's honest owner
+ * at ~63% of their own file. Repeating the mistake one layer up, with better
+ * arithmetic in front of it, would be harder to spot rather than less wrong.
  *
- * IT IS DERIVED, NOT SAMPLED — and the first version of it was sampled, which
- * is the mistake worth keeping. `Math.max` over the Xpdf table gave **1.2031**,
- * and poppler on the shipped binary reaches **1.9514** on a wide table of short
- * cells: any spreadsheet exported to PDF. That headroom would have truncated
- * such a document's honest owner at ~63% of their own file — not a tail case,
- * a common input.
+ * SO THE JUSTIFICATION IS THAT IT COSTS NOTHING, and that is a complete
+ * argument rather than a shrug:
  *
- * So the constant is the supremum of {@link extractorHorizontalRatioBound},
- * which is proven rather than observed and checked against poppler to four
- * significant figures.
+ *  - **To an honest caller, nothing at all.** A reservation is `count × h`
+ *    drawn from a budget of `deliverable × h`, so documents per day is
+ *    `deliverable / count` — `h` cancels. The published allowance is
+ *    {@link AI_CHARACTER_ALLOWANCE_DELIVERED}, which does not contain `h` at
+ *    all, so raising it changes no number any visitor is told.
+ *  - **To a liar, less than nothing.** A lie reserves `declared × h` and is
+ *    delivered `declared × h`, and a liar wants `declared` small. Declaring
+ *    one character buys four characters at h=4 instead of two at h=2. Both are
+ *    nothing; the larger `h` is marginally worse for them.
+ *  - **What it buys is truncation avoided.** The only cost of a small `h` is
+ *    cutting an honest document short, and 4 is twice the highest ratio either
+ *    binary has produced (2.071) and clear of the 3.28 composition that the
+ *    worst horizontal and worst vertical terms together would imply.
  *
- * **AND IT COSTS NOTHING, which is why the size is not worth arguing about.**
- * With budget `B = ceiling × runs × h` and a reservation of `count × h`, a
- * client's documents per day is `B / (count × h) = ceiling × runs / count` —
- * **`h` cancels.** Capacity is 30,774 browser-characters whatever `h` is;
- * raising it changes only how often the reservation falls short. There is no
- * honest-user cost to trade against, so a tight headroom buys nothing and a
- * loose one gives nothing away.
- *
- * ⚠️ WHAT THIS BOUND DOES NOT COVER, written here because a reader will
- * otherwise assume it does. It bounds the HORIZONTAL term only. `-layout` also
- * emits **blank lines** for vertical gaps, and `collapseLayoutPadding` does not
- * touch newlines — that term is neither bounded nor measured. A page of widely
- * separated blocks can therefore still exceed this. That is precisely why the
- * reservation is backed by a delivery cap: an exceeded reservation has to be
- * **visible**, as a positioned gap, rather than a silently short translation.
+ * WHAT IT IS STILL NOT. It is not a proof that no document exceeds it. The
+ * vertical term remains unbounded, so a sufficiently sparse page can still
+ * breach this — which is why the reservation is backed by a DELIVERY CAP that
+ * reports the bound it hit. An exceeded headroom then arrives as a positioned
+ * gap saying “the remaining pages held more text than this job reserved”,
+ * which is evidence this number is too small, rather than as a silently short
+ * translation, which is not evidence of anything.
  */
-export const TRANSLATE_EXTRACTOR_HEADROOM = 2;
+export const TRANSLATE_EXTRACTOR_HEADROOM = 4;

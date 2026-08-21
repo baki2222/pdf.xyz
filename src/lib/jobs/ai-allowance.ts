@@ -104,15 +104,46 @@ import {
  * persisted recently. Revise it from `results.ai.usage` rows and record the date
  * here in the same commit.
  */
+/**
+ * WHAT A CLIENT CAN ACTUALLY TRANSLATE IN A DAY — the number we publish.
+ *
+ * Browser-counted characters: the quantity the panel measures before it
+ * uploads, and the only one a visitor holding a document could ever check.
+ *
+ * ⚠️ THE HEADROOM IS NOT IN IT, AND THE FIRST VERSION OF THIS PUT IT IN.
+ * The bucket below is `this × h`, and the copy quoted the BUCKET — so the
+ * product advertised 61,548 characters at h=2 while a client could translate
+ * 30,774 of their own text, and would have advertised 123,096 at h=4. The
+ * number was right; it was in a unit nobody outside this file can measure,
+ * which is the defect `AI_INPUT_LIMITS` (a cap named for reading, enforced on
+ * writing) and `TRANSLATE_CALIBRATION` (one bracket recorded in two units) each
+ * cost us already. Caught before it shipped, by `ratelimit/allowance-unit.test.ts`,
+ * which spends the budget the way the route spends it instead of asserting that
+ * a sentence contains a constant.
+ */
+export const AI_CHARACTER_ALLOWANCE_DELIVERED =
+  TRANSLATE_MAX_INPUT_CHARS * RATE_LIMITS.aiRunsPerDayPerClient;
+
+/**
+ * THE BUCKET THE LIMITER DEBITS, in worker-extracted characters.
+ *
+ * A job reserves `declared × h` because the worker finds more text than the
+ * browser reported, so the budget those reservations are drawn from has to be
+ * in the same unit or an honest caller would be cut off early. It is derived
+ * from the published figure rather than beside it, so the two cannot drift and
+ * the relationship between them stays visible: **this is that figure, expressed
+ * in the worker's unit.** `h` therefore cancels out of capacity entirely — which
+ * is exactly why its size is free, and why raising it changes nothing a visitor
+ * is told.
+ */
 export const AI_CHARACTER_ALLOWANCE = Math.floor(
-  TRANSLATE_MAX_INPUT_CHARS *
-    RATE_LIMITS.aiRunsPerDayPerClient *
-    TRANSLATE_EXTRACTOR_HEADROOM,
+  AI_CHARACTER_ALLOWANCE_DELIVERED * TRANSLATE_EXTRACTOR_HEADROOM,
 );
 
 /** Where the figure came from, so its age is visible rather than implicit. */
 export const AI_CHARACTER_ALLOWANCE_BASIS = {
   measuredOn: "provisional",
+  /** The PUBLISHED figure. The bucket is this times the extractor headroom. */
   derivedFrom: "TRANSLATE_MAX_INPUT_CHARS × aiRunsPerDayPerClient",
   /** Why pages lost: the measured density spread this budget maps onto. */
   pagesAtDensest: 5,
@@ -120,7 +151,7 @@ export const AI_CHARACTER_ALLOWANCE_BASIS = {
   pageSpread: 3.58,
 } as const;
 
-export const AI_ALLOWANCE_RUNS = `${AI_CHARACTER_ALLOWANCE.toLocaleString("en-US")} free characters of AI text`;
+export const AI_ALLOWANCE_RUNS = `${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} free characters of AI text`;
 
 /**
  * The offer's clause: the quantity plus its cadence.

@@ -26,7 +26,7 @@ import {
   AI_ALLOWANCE_FACT,
   AI_ALLOWANCE_RUNS,
   AI_ALLOWANCE_USED_MESSAGE,
-  AI_CHARACTER_ALLOWANCE,
+  AI_CHARACTER_ALLOWANCE_DELIVERED,
 } from "@/lib/jobs/ai-allowance";
 import { flattenForPhraseSearch, withoutComments } from "./copy-surface";
 
@@ -106,8 +106,14 @@ describe("the words match the enforced policy", () => {
     //
     // A `toContain` on a single digit is satisfiable by accident by almost any
     // number. It now derives the whole rendered figure, which cannot be.
+    //
+    // AMENDED A THIRD TIME: it derived the whole figure, and derived it from
+    // the wrong one. `AI_CHARACTER_ALLOWANCE` is the limiter's bucket in
+    // worker-extracted characters; this sentence is read by someone holding a
+    // document, who can only count what the browser counts. Deriving is not
+    // sufficient — the constant also has to be in the reader's unit.
     expect(AI_ALLOWANCE_FACT).toContain(
-      AI_CHARACTER_ALLOWANCE.toLocaleString("en-US"),
+      AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US"),
     );
     expect(AI_ALLOWANCE_FACT).toMatch(/characters/i);
   });
