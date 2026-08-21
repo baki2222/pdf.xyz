@@ -140,6 +140,50 @@ Three things follow, each bought:
   answering an easier question. **Loading a module is not running a function**,
   and a guard that conflates them proves reachability while selling execution.
 
+**5. Every guard above verifies the AUTHOR'S artifact. The defects that
+survive are found at the POINT OF CONSUMPTION.**
+
+Rules 1–4 are about making a check honest. This one is about where the check
+stands. On 2026-08-21 the expensive instruments — derived corpora, mutation
+controls, AST walks, a call-graph reachability guard — all earned their place,
+and all of them certified as fine two features that were **not** fine:
+
+| certified green by every structural guard | what the reader actually got                |
+| ----------------------------------------- | ------------------------------------------- |
+| the FAQ describing chunked translation    | a worker nine days old that refused the job |
+| a build fingerprint computed in 65 ms     | a publisher that discarded it, silently     |
+
+Both were caught by exactly two instruments, neither of them clever: **reading
+the wire** (the heartbeat as published, not as serialised) and **running a real
+job** (a 12-page document through production, not 500 generated plans).
+
+The developer's formulation, and it is the sharpest sentence this programme has
+produced:
+
+> A correct value, computed cheaply, with a good reason for every choice, that
+> reaches nobody, is worth exactly as much as no value at all.
+> **I checked the thing I had built, not the thing a reader receives.**
+
+That names _which_ adjacent thing the easy measurement always is. It is not
+random adjacency — it is **the author's own artifact instead of the consumer's**,
+every time. `writeSpendProbe` (written, never read), `ready:true` (wired, never
+run), a FAQ true of `main` and false of the running image, a fingerprint correct
+at computation and absent at the wire.
+
+- **Merging is not shipping** for anything the worker does. The web tier
+  auto-deploys; the worker image is built by hand. Verify at the tier that
+  serves the claim, and remember it may not be the tier that ships the code.
+- **A guard on N-1 of N hops is a guard on the easy hops.** Three functions
+  rebuilt the heartbeat field by field; the guard covered the last two.
+  TypeScript could not help — excess-property checking does not fire on
+  conditional spreads, which is the idiom used for every optional field.
+- **The mutation needs its own health check.** Four times in one day a
+  neutering landed on the wrong line, the wrong file, or died on its own
+  `ReferenceError`. The symptom is _a green that should have been red_, and
+  from outside, "the guard is thin" and "my mutation never landed" are
+  indistinguishable. Grep the mutated line back before trusting the result.
+- **Find the test by its assertion string**, not by where you assume it lives.
+
 ## Commands
 
 - Install: `pnpm install`
