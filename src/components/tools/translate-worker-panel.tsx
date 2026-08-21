@@ -37,6 +37,7 @@ import {
   translateTooLongMessage,
 } from "@/lib/jobs/translate-limits";
 import { TruncationNotice } from "./truncation-notice";
+import { DeliveryNotice, deliverySummary } from "./delivery-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
@@ -428,15 +429,32 @@ function TranslateBuilder() {
 
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
-        <ResultCard announce="Your AI translation package is ready.">
+        <ResultCard
+          announce={
+            /*
+             * THE COMPLETION STATE, not a fixed sentence.
+             *
+             * "Your AI translation package is ready" is true in the narrow
+             * sense that the job finished, and a reader takes the broad one.
+             * When pages were withheld, the announcement — which is what a
+             * screen reader speaks — has to say so, or the surface asserts
+             * something the record contradicts.
+             */
+            outcome.job?.results?.ai?.delivery
+              ? deliverySummary(outcome.job.results.ai.delivery) +
+                " The rest is marked in place in the package."
+              : "Your AI translation package is ready."
+          }
+        >
           <TruncationNotice
             job={outcome.job}
             consequence="The rest of the document was not translated — this package covers those pages only."
           />
+          <DeliveryNotice job={outcome.job} />
           <p className="text-ok text-sm">
-            Your AI translation package is ready — the translation in Markdown
-            and plain text, plus a manifest recording the model and honest
-            scope.
+            {outcome.job?.results?.ai?.delivery
+              ? "The pages that were translated are in the package — Markdown and plain text, plus a manifest recording the model and honest scope."
+              : "Your AI translation package is ready — the translation in Markdown and plain text, plus a manifest recording the model and honest scope."}
           </p>
           <DownloadCta
             onClick={() =>
