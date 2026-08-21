@@ -132,6 +132,25 @@ describe("the 2026-08-12 worker, as it actually was", () => {
     ).toBe("blocked");
     expect(row?.detail).toContain("chunked translation");
     expect(row?.detail).toContain("delivery cap");
+
+    /**
+     * AND IT CANNOT SAY WHICH BUILD, WHICH IS ALSO THE REAL STATE.
+     *
+     * That image predates the fingerprint field entirely, so it publishes none
+     * — and an image old enough to lack the field is itself the signal. The
+     * row must say that rather than leave a blank, because a blank reads as
+     * "nothing to report" and the last time this question came up it cost an
+     * ssh session and a grep, answered wrongly on the first attempt.
+     *
+     * Asserted HERE, on the historical record, rather than only on a
+     * constructed one: this is the single place that describes the state we
+     * were actually in, and it should describe all of it.
+     */
+    expect(
+      row?.detail,
+      "the 2026-08-12 worker's row does not say it could not read a build " +
+        "fingerprint — the absence is information and it is being dropped",
+    ).toMatch(/no build fingerprint/i);
   });
 
   it("and is NOT reported as merely unknown", () => {
