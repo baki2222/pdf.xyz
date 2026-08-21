@@ -21,6 +21,7 @@ import {
   aiPagesAtDensest,
   aiPagesAtSparsest,
 } from "@/lib/jobs/types";
+import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { toolFaq } from "./tool-facts";
 import { getToolBySlug } from "./index";
 
@@ -87,13 +88,16 @@ describe("the page range in copy is derived, and survives being checked", () => 
     expect(aiPagesAtDensest).toBeLessThan(aiPagesAtSparsest);
   });
 
-  it("states the cap on every AI tool page, before the upload", () => {
-    for (const slug of [
-      "summarize-pdf",
-      "translate-pdf",
-      "ai-extract",
-      "chat-with-pdf",
-    ]) {
+  it("states the cap on every READ-bound AI tool page, before the upload", () => {
+    // INVERTED 2026-08-21, history kept: until then this loop included
+    // "translate-pdf" and demanded the SHARED figure on its page — this test
+    // PINNED the 49x overstatement. Translate's FAQ said 500,000 characters
+    // while its engine refuses at TRANSLATE_MAX_INPUT_CHARS, and this guard
+    // held the door: fixing the copy turned this test red. Green meant the
+    // test agreed with the bug. Translate now has its own assertion below;
+    // `ai-ceiling-surfaces.test.ts` derives the full page-vs-engine
+    // relationship for every AI tool rather than naming slugs.
+    for (const slug of ["summarize-pdf", "ai-extract", "chat-with-pdf"]) {
       const tool = getToolBySlug(slug);
       expect(tool, `${slug} is missing from the catalogue`).toBeDefined();
       const answers = toolFaq(tool!).map((entry) => entry.answer);
@@ -108,6 +112,38 @@ describe("the page range in copy is derived, and survives being checked", () => 
       // something a reader can hold their own document up against.
       expect(stated.join(" ")).toContain(String(aiPagesAtDensest));
     }
+  });
+
+  it("translate's page states ITS ceiling — and never the shared one", () => {
+    // The OUTPUT-bound tool: its ceiling is what the model may write, not
+    // what it may read. The relationship (stated figure === the figure the
+    // engine enforces, page floors re-derived from it) is guarded in
+    // `ai-ceiling-surfaces.test.ts`; this assertion is the inversion of the
+    // pin above, kept HERE so the file that once demanded the false figure
+    // now refuses it.
+    const tool = getToolBySlug("translate-pdf");
+    expect(tool, "translate-pdf is missing from the catalogue").toBeDefined();
+    const answers = toolFaq(tool!).map((entry) => entry.answer);
+    const stated = answers.filter((a) =>
+      a.includes(TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")),
+    );
+    expect(
+      stated.length,
+      "translate-pdf's page never states the ceiling a reader meets before uploading",
+    ).toBeGreaterThan(0);
+    // Pages, not only characters — from ITS ceiling at the measured densities.
+    expect(stated.join(" ")).toContain(
+      String(
+        Math.floor(
+          TRANSLATE_MAX_INPUT_CHARS / AI_INPUT_LIMITS.sparsestCharactersPerPage,
+        ),
+      ),
+    );
+    expect(
+      answers.join(" "),
+      "translate-pdf's page states the shared READING cap, which its engine " +
+        "will not honour — the 49x defect this file used to pin",
+    ).not.toContain(AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US"));
   });
 
   it("does not state the cap on a tool that has none", () => {
