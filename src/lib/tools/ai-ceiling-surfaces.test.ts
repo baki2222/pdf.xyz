@@ -512,6 +512,13 @@ describe("the third surface someone adds next month", () => {
         .map(([, file]) => relative(file)),
     );
     attributed.add("src/lib/tools/tool-facts.ts");
+    // The allowance module derives the DAILY BUDGET from the per-call ceiling; it
+    // does not state the ceiling itself. Its two sentences are attributed — and
+    // checked in both directions — by `ratelimit/allowance-copy.test.ts`, whose
+    // corpus imports AI_ALLOWANCE_FACT and AI_ALLOWANCE_USED_MESSAGE directly.
+    // Listed here so this guard keeps its teeth for a genuinely NEW ceiling
+    // surface rather than firing on the one place the budget is defined.
+    attributed.add("src/lib/jobs/ai-allowance.ts");
     const offenders = copyFiles()
       .filter((file) => {
         const source = withoutComments(read(file));

@@ -62,6 +62,7 @@
  * becomes a pointer to it rather than a warning about its absence.
  */
 import { RATE_LIMITS } from "./types";
+import { TRANSLATE_MAX_INPUT_CHARS } from "./translate-limits";
 
 /**
  * The quantity, shared by both sentences — and the only part that can go stale,
@@ -73,7 +74,47 @@ import { RATE_LIMITS } from "./types";
  * surfaces must never disagree about is the NUMBER and what it counts, so that
  * is what they share.
  */
-export const AI_ALLOWANCE_RUNS = `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs`;
+/**
+ * The free daily allowance, in CHARACTERS of document text.
+ *
+ * DERIVED FROM BOTH FACTORS, never typed: it is exactly today's effective
+ * capacity — the largest document one run could translate, times the runs a
+ * client got — so nothing becomes more expensive by accident, and the figure
+ * moves if either factor does. A typed `30_774` would go on describing a tool
+ * that had changed underneath it, which is this codebase's most-repeated defect.
+ *
+ * WHY NOT PAGES, WHICH WERE RULED FIRST. Measured against the density figures
+ * taken on 2026-08-10: this budget is 5.00 pages of dense text or 17.91 of
+ * sparse — a **3.58× spread**. Five pages a day would cut sparse documents to
+ * 0.28× of today's capacity; eighteen would hand dense ones 3.60×. A page is a
+ * unit of layout, not of cost, and the conversion carries an error bar the
+ * number itself would never show.
+ *
+ * WHAT A CHARACTER BUDGET GIVES BACK. Pages were chosen to be *countable before
+ * uploading*, and characters satisfy that more exactly: the panel already
+ * extracts the text before it uploads anything (it must, for the per-call
+ * ceiling), so it can state what THIS document will cost rather than an average
+ * that is wrong by 3.58× in one direction or the other.
+ *
+ * ⚠️ PROVISIONAL, like `AI_SPEND_CEILING.measuredOn`. It preserves today's
+ * capacity; it is not yet informed by real per-job usage, which only began being
+ * persisted recently. Revise it from `results.ai.usage` rows and record the date
+ * here in the same commit.
+ */
+export const AI_CHARACTER_ALLOWANCE =
+  TRANSLATE_MAX_INPUT_CHARS * RATE_LIMITS.aiRunsPerDayPerClient;
+
+/** Where the figure came from, so its age is visible rather than implicit. */
+export const AI_CHARACTER_ALLOWANCE_BASIS = {
+  measuredOn: "provisional",
+  derivedFrom: "TRANSLATE_MAX_INPUT_CHARS × aiRunsPerDayPerClient",
+  /** Why pages lost: the measured density spread this budget maps onto. */
+  pagesAtDensest: 5,
+  pagesAtSparsest: 17,
+  pageSpread: 3.58,
+} as const;
+
+export const AI_ALLOWANCE_RUNS = `${AI_CHARACTER_ALLOWANCE.toLocaleString("en-US")} free characters of AI text`;
 
 /**
  * The offer's clause: the quantity plus its cadence.
@@ -103,4 +144,4 @@ export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection —
  * "shared across everyone using pdf.xyz", which claimed one bucket for the whole
  * product and was false for every visitor.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include runs made by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include text translated by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;

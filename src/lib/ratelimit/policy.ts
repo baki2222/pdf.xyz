@@ -12,6 +12,7 @@
  */
 
 import { RATE_LIMITS } from "@/lib/jobs";
+import { AI_CHARACTER_ALLOWANCE } from "@/lib/jobs/ai-allowance";
 import { AI_SPEND_DAILY_TOKEN_CEILING } from "@/lib/jobs/ai-spend-ceiling";
 import type { RateLimitAction, RateLimitPolicy } from "./types";
 import { RATE_LIMIT_ACTIONS } from "./types";
@@ -110,6 +111,27 @@ export const RATE_LIMIT_POLICIES: Record<RateLimitAction, RateLimitPolicy> = {
     id: "ai.run",
     action: "ai.run",
     limit: RATE_LIMITS.aiRunsPerDayPerClient,
+    windowSeconds: DAY,
+  },
+  // THE SAME FAIRNESS DEVICE, DENOMINATED IN CHARACTERS. A "run" priced a job
+  // correctly while every job was one provider call; chunked translation makes
+  // one run up to thirty, so three runs a day both refuses a long document and
+  // charges three short ones the whole day.
+  //
+  // PAGES WERE RULED FIRST AND THE MEASUREMENT REFUSED THEM. Today's capacity is
+  // 30,774 characters; in pages that is 5.00 dense or 17.91 sparse — a 3.58x
+  // spread, so no single pages/day figure preserves it (five cuts sparse
+  // documents to 0.28x, eighteen hands dense ones 3.60x). Characters have no
+  // such error bar: they are the quantity the ceiling already bounds.
+  //
+  // It is still a FAIRNESS device and still not a cost control — `ai.spend`
+  // above is the cost control. The unit was chosen to be legible to the person
+  // about to spend it, and the panel extracts the text before uploading, so it
+  // can name the real figure for the real file rather than an average.
+  "ai.characters": {
+    id: "ai.characters",
+    action: "ai.characters",
+    limit: AI_CHARACTER_ALLOWANCE,
     windowSeconds: DAY,
   },
   // THE GLOBAL DAILY TOKEN CEILING, and the only policy here that is a COST

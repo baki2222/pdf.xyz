@@ -37,6 +37,7 @@ export type RateLimitAction =
   | "worker.operations" // GET /api/worker/operations — ops/SLO snapshot
   | "interest.note" // POST /api/interest — count a gated-tool "notify me" click
   | "ai.run" // POST /api/jobs with an AI-capability tool — the free daily AI allowance
+  | "ai.characters" // the free daily allowance, denominated in CHARACTERS
   | "ai.spend"; // the GLOBAL daily token ceiling — a cost control, not a fairness device
 
 /** Every action, in a stable order, for exhaustive iteration in tests/docs. */
@@ -50,6 +51,7 @@ export const RATE_LIMIT_ACTIONS = [
   "worker.operations",
   "interest.note",
   "ai.run",
+  "ai.characters",
   "ai.spend",
 ] as const satisfies readonly RateLimitAction[];
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RATE_LIMITS } from "@/lib/jobs";
+import { AI_CHARACTER_ALLOWANCE } from "@/lib/jobs/ai-allowance";
 import {
   RATE_LIMITED_MESSAGE,
   rateLimitErrorResult,
@@ -37,9 +38,15 @@ describe("rateLimitErrorResult", () => {
       action: "ai.run",
       policyId: "ai.run",
     });
+    // AMENDED when the allowance stopped being denominated in runs. The
+    // property is unchanged — the refusal names the true reason and derives its
+    // number from the constant, never a typed literal — but the unit is now
+    // characters, because a run stopped pricing a job once one job became up to
+    // thirty provider calls.
     expect(result.body.error.message).toContain(
-      `${RATE_LIMITS.aiRunsPerDayPerClient} free AI runs`,
+      AI_CHARACTER_ALLOWANCE.toLocaleString("en-US"),
     );
+    expect(result.body.error.message).toMatch(/free characters/i);
     expect(result.body.error.message).toMatch(/resets daily/i);
     // Every other action keeps the generic content-free message.
     expect(rateLimitErrorResult(deny(42)).body.error.message).toBe(
