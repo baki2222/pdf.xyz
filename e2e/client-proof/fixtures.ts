@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { Page } from "@playwright/test";
+import { embedRasterImage } from "../../src/lib/pdf/pdf-lib";
 
 /**
  * Fixture generators for the in-browser tool proofs. Every input is synthesized
@@ -134,7 +135,7 @@ export async function makeImageBearingPdf(label: string): Promise<{
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([320, 240]);
   page.drawText(pageMarker(label, 1), { x: 20, y: 210, size: 12, font });
-  const image = await doc.embedPng(png);
+  const image = await embedRasterImage(doc, png, "png");
   page.drawImage(image, { x: 40, y: 60, width: 192, height: 128 });
   return { pdf: await doc.save(), imageWidth: width, imageHeight: height };
 }
@@ -152,6 +153,12 @@ export async function makeImageBearingPdf(label: string): Promise<{
  * breaks, while the larger red/blue one is allocated outright and works. So the
  * same helper passed in one case and failed in another, and the error named the
  * image rather than the allocator. `Buffer.alloc` never uses the pool.
+ *
+ * TASK-75 moved the real fix to the boundary — `embedRasterImage` normalizes
+ * the offset for every embed in the repo, so this is no longer load-bearing for
+ * the embed. It stays because a fixture that OWNS its bytes is independently
+ * worth having: these buffers are written to temp files and handed to a
+ * browser, and a view into a shared pool is a footgun in both places.
  */
 function detached(bytes: Buffer): Buffer {
   const owned = Buffer.alloc(bytes.length);
@@ -261,7 +268,7 @@ export async function makeRasterizedPdf(
   size: [number, number],
 ): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  const image = await doc.embedJpg(jpeg);
+  const image = await embedRasterImage(doc, jpeg, "jpg");
   for (let i = 0; i < pages; i++) {
     const page = doc.addPage(size);
     page.drawImage(image, { x: 0, y: 0, width: size[0], height: size[1] });

@@ -1,4 +1,4 @@
-import { loadPdfLib } from "./pdf-lib";
+import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import {
@@ -163,7 +163,7 @@ export async function signPdf(
   if (input.kind === "image") {
     let image;
     try {
-      image = await doc.embedPng(input.png);
+      image = await embedRasterImage(doc, input.png, "png");
     } catch {
       throw new PdfEngineError(
         "That signature image couldn't be read. Use a PNG image.",

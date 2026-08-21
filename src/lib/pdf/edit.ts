@@ -1,5 +1,5 @@
 import type { PDFFont, PDFImage, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
-import { loadPdfLib } from "./pdf-lib";
+import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import {
   arrowHeadSegments,
   clampOpacity,
@@ -550,10 +550,7 @@ export async function editPdf(
     if (op.type === "image") {
       let image: PDFImage;
       try {
-        image =
-          op.format === "png"
-            ? await doc.embedPng(op.bytes)
-            : await doc.embedJpg(op.bytes);
+        image = await embedRasterImage(doc, op.bytes, op.format);
       } catch {
         throw new PdfEngineError(
           `An inserted image on page ${op.page} couldn't be decoded as a ${op.format === "png" ? "PNG" : "JPG"}.`,

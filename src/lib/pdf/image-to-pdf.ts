@@ -1,4 +1,4 @@
-import { loadPdfLib } from "./pdf-lib";
+import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 
@@ -102,10 +102,7 @@ export async function imagesToPdf(
   for (const file of files) {
     let image;
     try {
-      image =
-        kind === "jpg"
-          ? await doc.embedJpg(file.bytes)
-          : await doc.embedPng(file.bytes);
+      image = await embedRasterImage(doc, file.bytes, kind);
     } catch {
       throw new PdfEngineError(
         `"${file.name}" could not be decoded as a ${kind === "jpg" ? "JPG" : "PNG"} image.`,

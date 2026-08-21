@@ -61,6 +61,7 @@ import JSZip from "jszip";
 import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
@@ -216,7 +217,7 @@ async function imagePdf(): Promise<Buffer> {
   // change proves the image pipeline ran rather than a metadata rewrite.
   const raw = Buffer.alloc(size * size * 3);
   for (let i = 0; i < raw.length; i++) raw[i] = (i * 7919) % 251;
-  const img = await doc.embedPng(encodePng(raw, size, size));
+  const img = await embedRasterImage(doc, encodePng(raw, size, size), "png");
   page.drawImage(img, { x: 60, y: 400, width: 400, height: 400 });
   page.drawRectangle({
     x: 60,
