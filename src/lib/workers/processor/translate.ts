@@ -206,6 +206,11 @@ export function createTranslateProcessor(deps: TranslateDeps): Processor {
           ai: {
             truncation: run.meta.window,
             ...(run.meta.usage ? { usage: run.meta.usage } : {}),
+            // Carried to the job record so the PANEL can tell a complete
+            // delivery from a partial one. The positioned gap in the artifact
+            // is read by someone who opens it; the completion state is read by
+            // everyone.
+            ...(run.meta.delivery ? { delivery: run.meta.delivery } : {}),
           },
         },
       );

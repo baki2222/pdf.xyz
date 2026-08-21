@@ -33,7 +33,7 @@ import {
   translateTooLongMessage,
 } from "@/lib/jobs/translate-limits";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
-import type { AiUsageMeta } from "@/lib/jobs/ai-results";
+import type { AiDeliveryMeta, AiUsageMeta } from "@/lib/jobs/ai-results";
 import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
 
 /**
@@ -135,6 +135,14 @@ export interface TranslateMeta {
    * Carried to the job record so an AI run's cost is measurable after the fact.
    */
   usage?: AiUsageMeta;
+  /**
+   * What the delivery cap withheld, when it withheld anything.
+   *
+   * Absent means the whole document was delivered. It is carried on the meta
+   * — not left only in the artifact's positioned gap — because the panel says
+   * "completed" and a surface may not assert something the system contradicts.
+   */
+  delivery?: AiDeliveryMeta;
 }
 
 export type TranslateFailureKind =
@@ -761,6 +769,15 @@ export async function runTranslate(
       truncated,
       truncationNotice: userTruncationNotice(window) || null,
       window,
+      ...(withheld
+        ? {
+            delivery: {
+              deliveredPages: translatedPages.length,
+              withheldPages: withheld.pages.length,
+              boundBy: capped!.boundBy!,
+            },
+          }
+        : {}),
     },
   };
 }
