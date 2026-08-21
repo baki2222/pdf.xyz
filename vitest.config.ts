@@ -29,6 +29,16 @@ export default defineConfig({
     // Run on the threads pool WITHOUT isolation so files sharing a worker reuse the
     // module cache — the tests are pure/content-free and carry no cross-file module
     // state, so this is safe and cuts the full-suite wall-clock by ~3×.
+    //
+    // THAT LAST CLAIM IS NOW CHECKED RATHER THAN ASSERTED, because it stopped
+    // being true and a comment cannot fail. A test file mocked a module and
+    // evaluated a route that binds to it; the route stayed in this shared cache
+    // bound to the stub, so the next file in the same worker ran against it.
+    // Green everywhere except Linux CI — file-to-worker assignment follows the
+    // CPU count, so only some machines put the two files in one thread.
+    // `src/tests/mock-isolation.test.ts` is the guard. It carries the two probes
+    // that established the mechanism, and its own exit condition is this line:
+    // restore isolation and it should be deleted, not relaxed.
     pool: "threads",
     isolate: false,
   },

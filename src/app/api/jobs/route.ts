@@ -11,6 +11,7 @@
 
 import {
   capabilityForMode,
+  deliveryCapFor,
   parseCreateJobRequest,
   type JobDeliveryCap,
 } from "@/lib/jobs";
@@ -102,32 +103,25 @@ export async function POST(request: Request): Promise<Response> {
      * this field existed (three such jobs a day), so a direct API caller keeps
      * working and simply pays the maximum until it declares.
      */
-    const declared = parsed.value.declaredCharacters;
-    const reserved = Math.ceil(
-      (declared ?? TRANSLATE_MAX_INPUT_CHARS) * TRANSLATE_EXTRACTOR_HEADROOM,
-    );
-    const aiLimit = await enforceAiCharacterAllowance(reserved, request);
-    if (!aiLimit.allowed) return respondRateLimited(aiLimit);
-
     /**
-     * THE SAME NUMBER, TRAVELLING TO THE PLACE THAT SPENDS IT.
+     * ONE OBJECT, CHARGED AND THEN ENFORCED — never two expressions that
+     * happen to agree.
      *
-     * `reserved` is what the client's allowance was just debited. Handing it to
-     * the worker as a delivery bound is what makes the debit true: without it
-     * the reservation is a number the system takes and does not honour in
-     * either direction — the caller pays it and receives whatever the document
-     * happens to hold.
-     *
-     * It is built from `reserved` rather than recomputed, so the two can never
-     * drift. A second `declared × headroom` written here would be correct today
-     * and is exactly the shape that goes stale when the multiplier moves.
+     * `delivery.characters` is what the allowance is debited below and what the
+     * worker is later bound to deliver. Handing that same value to the adapter
+     * is what makes the debit true in both directions: without it the
+     * reservation is a number the system takes and does not honour, and the
+     * caller pays it and receives whatever the document happens to hold.
      */
-    delivery = {
-      characters: reserved,
-      ...(parsed.value.declaredTextPages !== undefined
-        ? { pages: parsed.value.declaredTextPages }
-        : {}),
-    };
+    delivery = deliveryCapFor(parsed.value, {
+      fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
+      headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+    });
+    const aiLimit = await enforceAiCharacterAllowance(
+      delivery.characters,
+      request,
+    );
+    if (!aiLimit.allowed) return respondRateLimited(aiLimit);
   }
 
   const adapter = await getWorkerAdapter();

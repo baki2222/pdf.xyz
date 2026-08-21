@@ -119,3 +119,44 @@ export function readDeliveryCap(
     },
   };
 }
+
+/**
+ * The cap an AI job is submitted under, derived from what the caller declared.
+ *
+ * ── WHY THIS IS A FUNCTION AND NOT FOUR LINES IN THE ROUTE ──────────────────
+ *
+ * The route CHARGES the allowance and the worker SPENDS it, and those two
+ * numbers have to be the same number. Written inline they were the same
+ * expression written once and read twice, which is fine until someone edits one
+ * reading. Written here they are one value: the route debits
+ * `deliveryCapFor(...).characters` and hands the very same object to the
+ * adapter, so a drift between what was charged and what may be delivered is not
+ * expressible.
+ *
+ * It is also the only part of the route's create path that can be tested
+ * without standing up an adapter — see the note in
+ * `workers/delivery-cap.chain.test.ts` about why mocking the adapter module is
+ * not available to us.
+ *
+ * ── THE FALLBACK IS NOT A PENALTY ───────────────────────────────────────────
+ *
+ * An undeclared job reserves a whole call's worth, because a direct API caller
+ * has bytes and not extracted text and genuinely cannot count. That is exactly
+ * the behaviour every caller had before the field existed, and it keeps the
+ * rule intact for them: you are delivered what you reserved.
+ */
+export function deliveryCapFor(
+  request: {
+    readonly declaredCharacters?: number;
+    readonly declaredTextPages?: number;
+  },
+  limits: { readonly fallbackCharacters: number; readonly headroom: number },
+): JobDeliveryCap {
+  const declared = request.declaredCharacters ?? limits.fallbackCharacters;
+  return {
+    characters: Math.ceil(declared * limits.headroom),
+    ...(request.declaredTextPages !== undefined
+      ? { pages: request.declaredTextPages }
+      : {}),
+  };
+}
