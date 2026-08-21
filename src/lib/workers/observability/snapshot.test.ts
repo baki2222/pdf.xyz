@@ -422,3 +422,81 @@ describe("worker operations snapshot — abuse-guard rate-limit posture", () => 
     expect(text).not.toContain("envVars");
   });
 });
+
+describe("advertised capabilities — the deploy gap becomes a reported state", () => {
+  /**
+   * Measured 2026-08-21: the running worker image had been built before the
+   * chunked-translate engine existed, while the FAQ described chunking to
+   * users. Nine days, every other subsystem green, no signal anywhere. This is
+   * the state that was silently true.
+   */
+  const capabilityRow = (live: HeartbeatLiveness) =>
+    collectWebOperationsSnapshot(DRAINABLE_ENV, {
+      daemonLiveness: live,
+    }).subsystems.find((s) => s.id === "worker-capability");
+
+  const caps = (extra: Record<string, boolean>) => ({
+    deepCompression: false,
+    ocr: false,
+    ocrLanguages: [] as string[],
+    malwareScan: false,
+    atomicQueue: false,
+    chunkedTranslate: false,
+    deliveryCap: false,
+    ...extra,
+  });
+
+  it("reports BLOCKED, naming the capability, when the image lacks it", () => {
+    const row = capabilityRow(
+      liveness("observed", {
+        capabilities: caps({ chunkedTranslate: false, deliveryCap: true }),
+      }),
+    );
+    expect(row?.health).toBe("blocked");
+    expect(
+      row?.detail,
+      "the row does not name WHICH capability is missing, so an operator has " +
+        "a red light and nowhere to look",
+    ).toContain("chunked translation");
+    expect(
+      row?.detail,
+      "the row does not say what the product promises on the strength of it, " +
+        "which is the half that makes a red light worth acting on",
+    ).toMatch(/split at page boundaries/i);
+  });
+
+  it("reports OK only when every advertised capability is proven", () => {
+    const row = capabilityRow(
+      liveness("observed", {
+        capabilities: caps({ chunkedTranslate: true, deliveryCap: true }),
+      }),
+    );
+    expect(row?.health).toBe("ok");
+  });
+
+  it("reports UNKNOWN — and says so — when no worker answered", () => {
+    // The honesty that matters most here. An unobserved worker must not read
+    // as healthy: "nobody answered" was indistinguishable from "fine" for the
+    // whole nine days.
+    for (const state of ["unknown", "stale", "disabled"] as const) {
+      const row = capabilityRow(liveness(state));
+      expect(row?.health, `${state} did not read as unknown`).toBe("unknown");
+      expect(
+        row?.detail,
+        `${state} did not say that unknown is not the same as healthy`,
+      ).toMatch(/not the same as healthy/i);
+    }
+  });
+
+  it("a stale beat carrying capabilities is still UNKNOWN, not OK", () => {
+    // The trap the OCR path already documents: a capability is only trusted
+    // from a beat that was genuinely observed. A worker that died an hour ago
+    // saying "I can chunk" is not evidence that anything can chunk now.
+    const row = capabilityRow(
+      liveness("stale", {
+        capabilities: caps({ chunkedTranslate: true, deliveryCap: true }),
+      }),
+    );
+    expect(row?.health).toBe("unknown");
+  });
+});

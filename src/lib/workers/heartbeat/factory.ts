@@ -246,5 +246,7 @@ export function emptyCapabilities(): HeartbeatCapabilities {
     ocrLanguages: [],
     malwareScan: false,
     atomicQueue: false,
+    chunkedTranslate: false,
+    deliveryCap: false,
   };
 }

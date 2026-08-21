@@ -48,6 +48,10 @@ import {
   type HeartbeatPublisher,
 } from "@/lib/workers/heartbeat";
 import { queueSupportsAtomicTransitions } from "@/lib/workers/queue/redis-config";
+import {
+  provesChunkedTranslate,
+  provesDeliveryCap,
+} from "@/lib/workers/translate/capability";
 import { writeSpendProbe } from "@/lib/ratelimit/guard";
 import { shouldWriteSpendProbe } from "@/lib/ratelimit/spend-probe";
 import {
@@ -132,6 +136,11 @@ function buildHeartbeatPublisher(
       ocrLanguages: runtime.ocr.languages,
       malwareScan: runtime.scanner.active,
       atomicQueue: queueSupportsAtomicTransitions(process.env),
+      // RUN, not asserted. These execute the real planner over a synthetic
+      // document; an image that predates the feature cannot answer at all, and
+      // its silence is read as `false` on the other side.
+      chunkedTranslate: provesChunkedTranslate(),
+      deliveryCap: provesDeliveryCap(),
     },
     ...(release !== undefined ? { release } : {}),
   });

@@ -129,6 +129,37 @@ export type HealthClass = "ok" | "warn" | "blocked" | "unknown";
 /** Whether an engine/proof could be confirmed here (never a path, version, or value). */
 export type ProofAvailability = "available" | "unavailable" | "unknown";
 
+/**
+ * The capabilities the product's COPY promises and a worker must therefore
+ * prove — the corpus this subsystem is asked about.
+ *
+ * Each entry pairs the flag a worker publishes with the promise that depends on
+ * it, so the reason a red line matters is in the same place as the line. The
+ * pairing is what makes this more than a list: `copy-surface`-style guards can
+ * require that a sentence making one of these promises has an entry here, and
+ * that an entry here is promised by some sentence — a corpus in both
+ * directions, rather than a list that grows and never shrinks.
+ */
+export const ADVERTISED_WORKER_CAPABILITIES = [
+  {
+    key: "chunkedTranslate",
+    label: "chunked translation",
+    promise:
+      "a document longer than one pass is split at page boundaries rather than refused",
+  },
+  {
+    key: "deliveryCap",
+    label: "delivery cap",
+    promise:
+      "a job delivers only what its reservation paid for, and names the bound that stopped it",
+  },
+] as const;
+
+/** What the running worker proved, keyed by {@link ADVERTISED_WORKER_CAPABILITIES}. */
+export type ProvenWorkerCapabilities = Readonly<
+  Record<(typeof ADVERTISED_WORKER_CAPABILITIES)[number]["key"], boolean>
+>;
+
 /** A subsystem the snapshot classifies into an SLO health class. */
 export type SnapshotSubsystemId =
   | "drainability"
@@ -145,6 +176,18 @@ export type SnapshotSubsystemId =
    * reported healthy.
    */
   | "ai-spend"
+  /**
+   * Whether the RUNNING worker image proves the capabilities the product's copy
+   * promises — a different subsystem from `drainability` on purpose.
+   *
+   * A worker can be perfectly drainable, healthy on every other facet, and
+   * still be an image built before a feature landed. That is not a degraded
+   * mode, it is the product describing something it cannot do: measured
+   * 2026-08-21, the FAQ promised chunked translation for nine days while the
+   * running image had been built before the engine existed, and every other
+   * subsystem read green throughout.
+   */
+  | "worker-capability"
   | "lifecycle"
   | "lifecycle-verification"
   | "cleanup-evidence"
@@ -634,6 +677,18 @@ export interface OperationsSnapshotInput {
    * observe the worker's OCR at all, so the OCR subsystem stays `unknown`.
    */
   readonly ocrEnabled?: boolean;
+  /**
+   * What the RUNNING worker proved it can do, from its liveness heartbeat.
+   *
+   * `undefined` ⇒ no worker heartbeat was observed, so nothing can be said and
+   * the subsystem is `unknown`. **`unknown` here must never be read as fine** —
+   * it is the state the deploy gap sat in, and an absence that reads as health
+   * is how nine days pass.
+   *
+   * Present ⇒ a live worker answered, and each flag is that worker's own PROOF
+   * (it ran the code path), never a declaration.
+   */
+  readonly workerCapabilities?: ProvenWorkerCapabilities;
   /** The evaluated production guardrails, when known. Omit ⇒ guardrails `unknown`. */
   readonly guardrails?: GuardrailReport;
   /** A supplied lifecycle verification verdict (checked evidence). Omit ⇒ `unknown`. */
@@ -721,6 +776,7 @@ export const SUBSYSTEM_LABEL: Record<SnapshotSubsystemId, string> = {
   "malware-scan": "Malware scanning",
   "rate-limit": "Rate limiting",
   "ai-spend": "AI spend ceiling",
+  "worker-capability": "Advertised capabilities",
   lifecycle: "Lifecycle backstop",
   "lifecycle-verification": "Lifecycle verification",
   "cleanup-evidence": "Cleanup evidence",
@@ -826,6 +882,43 @@ function buildSubsystems(
     detail: string,
   ): SnapshotSubsystem => ({ id, label: SUBSYSTEM_LABEL[id], health, detail });
 
+  /**
+   * Advertised capabilities: does the image that is RUNNING carry what the copy
+   * promises?
+   *
+   * `blocked` rather than `warn` when something is missing, and the choice is
+   * deliberate. A missing capability is not the product working less well — it
+   * is the product describing a thing it cannot do, to users, in copy that is
+   * live. A `warn` beside eleven green rows is what nine days of that looked
+   * like.
+   *
+   * ⚠️ READ IT AS "DID NOT PROVE", NOT "CANNOT". A worker image built after the
+   * feature landed but before it published this flag can do the work and still
+   * answer `false` — it has nothing to answer with. That is the safe direction
+   * (we under-claim about ourselves) and it clears on the next deploy, but the
+   * prose must not say "cannot" when what was observed is silence.
+   */
+  const proven = input.workerCapabilities;
+  const missing = proven
+    ? ADVERTISED_WORKER_CAPABILITIES.filter((cap) => !proven[cap.key])
+    : [];
+  const capabilityHealth: HealthClass = !proven
+    ? "unknown"
+    : missing.length === 0
+      ? "ok"
+      : "blocked";
+  const capabilityDetail = !proven
+    ? "No worker heartbeat was observed, so what the running image can do is unknown from here. This is not the same as healthy."
+    : missing.length === 0
+      ? "The running worker proved every capability the product's copy promises."
+      : `The running worker did not prove: ${missing
+          .map((cap) => cap.label)
+          .join(", ")}. The product's copy promises ${missing
+          .map((cap) => cap.promise)
+          .join(
+            "; and ",
+          )}. Either the image predates the feature, or it does not publish the proof — rebuild and redeploy the worker, then re-check.`;
+
   // OCR: `ready` is healthy; `not-configured` means probed-and-absent — a caveat only
   // when OCR is actually opted into (else "off" is a fine choice); not observable from
   // the web (no runtime health) ⇒ `unknown`.
@@ -839,6 +932,7 @@ function buildSubsystems(
         : "unknown";
 
   return [
+    sub("worker-capability", capabilityHealth, capabilityDetail),
     sub(
       "drainability",
       readiness.drainable ? "ok" : "blocked",
@@ -1254,6 +1348,32 @@ export function engineHealthFromTools(
  * the shared broker when the feature is enabled); with none, the web keeps its honest
  * "confirm a worker out-of-band" residual. `env` is injectable.
  */
+/**
+ * What the running worker PROVED, read off its liveness heartbeat.
+ *
+ * Only from an OBSERVED beat, and only as `=== true`. A stale or absent beat
+ * returns `undefined`, which the subsystem reports as `unknown` — never as
+ * capable, and never as incapable either. The distinction matters: "no worker
+ * answered" and "a worker answered no" are different operator problems and the
+ * second one is the deploy gap.
+ *
+ * The keys come from {@link ADVERTISED_WORKER_CAPABILITIES}, so adding a
+ * capability to that list wires it through here without an edit — a list that
+ * has to be updated in two places is a list that will be updated in one.
+ */
+function provenCapabilitiesFrom(
+  liveness: HeartbeatLiveness | undefined,
+): ProvenWorkerCapabilities | undefined {
+  if (!liveness?.observed || !liveness.capabilities) return undefined;
+  const published = liveness.capabilities as unknown as Record<string, unknown>;
+  return Object.fromEntries(
+    ADVERTISED_WORKER_CAPABILITIES.map((capability) => [
+      capability.key,
+      published[capability.key] === true,
+    ]),
+  ) as ProvenWorkerCapabilities;
+}
+
 export function collectWebOperationsSnapshot(
   env: EnvSource = process.env,
   opts: {
@@ -1296,6 +1416,9 @@ export function collectWebOperationsSnapshot(
     rateLimit,
     ...(opts.aiSpend ? { aiSpend: opts.aiSpend } : {}),
     ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
+    ...(provenCapabilitiesFrom(opts.daemonLiveness)
+      ? { workerCapabilities: provenCapabilitiesFrom(opts.daemonLiveness)! }
+      : {}),
     ...(opts.cleanupEvidence ? { cleanupEvidence: opts.cleanupEvidence } : {}),
     // No `ocrEnabled`: the web can't observe the worker's OCR, so OCR stays `unknown`.
   });
@@ -1396,6 +1519,9 @@ export function collectOperatorProbeSnapshot(
     ocrEnabled: runtime.ocr.enabled,
     guardrails: runtime.guardrails,
     ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
+    ...(provenCapabilitiesFrom(opts.daemonLiveness)
+      ? { workerCapabilities: provenCapabilitiesFrom(opts.daemonLiveness)! }
+      : {}),
     ...(opts.cleanupEvidence ? { cleanupEvidence: opts.cleanupEvidence } : {}),
     ...(opts.aiSpend ? { aiSpend: opts.aiSpend } : {}),
   });

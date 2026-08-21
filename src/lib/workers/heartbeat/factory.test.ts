@@ -112,6 +112,8 @@ describe("createHeartbeatPublisher", () => {
         ocrLanguages: [],
         malwareScan: false,
         atomicQueue: true,
+        chunkedTranslate: true,
+        deliveryCap: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -147,6 +149,8 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             ocrLanguages: [],
             malwareScan: false,
             atomicQueue: true,
+            chunkedTranslate: true,
+            deliveryCap: true,
           },
           at: now,
         }),

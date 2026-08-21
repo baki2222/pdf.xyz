@@ -127,6 +127,13 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     ocrLanguages: ocrLanguagesOf(src.ocrLanguages),
     malwareScan: boolOf(src.malwareScan),
     atomicQueue: boolOf(src.atomicQueue),
+    // ABSENT PARSES AS FALSE, and that is the load-bearing case rather than a
+    // defensive nicety: a worker image built before these capabilities existed
+    // publishes no such key, and reading that absence as `false` is what makes
+    // "the running image cannot do this" observable without the old image
+    // knowing anything about the question.
+    chunkedTranslate: boolOf(src.chunkedTranslate),
+    deliveryCap: boolOf(src.deliveryCap),
   };
 }
 
@@ -170,6 +177,8 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       ocrLanguages: [...hb.capabilities.ocrLanguages],
       malwareScan: hb.capabilities.malwareScan,
       atomicQueue: hb.capabilities.atomicQueue,
+      chunkedTranslate: hb.capabilities.chunkedTranslate,
+      deliveryCap: hb.capabilities.deliveryCap,
     },
     at: hb.at,
   });

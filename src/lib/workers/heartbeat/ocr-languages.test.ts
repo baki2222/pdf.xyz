@@ -32,6 +32,8 @@ const BEAT: WorkerHeartbeat = {
     ocrLanguages: ["eng", "ben"],
     malwareScan: false,
     atomicQueue: true,
+    chunkedTranslate: true,
+    deliveryCap: true,
   },
   at: 1_700_000_000_000,
 };
