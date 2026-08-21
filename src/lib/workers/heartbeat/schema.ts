@@ -21,6 +21,7 @@
  * whole classification is unit-tested with no real Redis, network, or timers.
  */
 
+import { FINGERPRINT_PATTERN } from "../build-fingerprint";
 import { OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
 import {
   WORKER_HEARTBEAT_SCHEMA_VERSION,
@@ -92,6 +93,19 @@ export function coarseRelease(raw: string | undefined): string | undefined {
   return match ? `${match[1]}.${match[2]}` : undefined;
 }
 
+/**
+ * Normalize a build fingerprint, or drop it.
+ *
+ * Bounded BY SHAPE, not by trimming: exactly twelve lowercase hex or nothing.
+ * The field is the one high-cardinality value in this record, so the parser is
+ * what keeps it from becoming somewhere to put a hostname.
+ */
+function fingerprintOf(value: unknown): string | undefined {
+  return typeof value === "string" && FINGERPRINT_PATTERN.test(value)
+    ? value
+    : undefined;
+}
+
 /** Normalize a value to a strict boolean (only literal `true` is true). */
 function boolOf(value: unknown): boolean {
   return value === true;
@@ -143,6 +157,8 @@ export interface BuildHeartbeatInput {
   readonly capabilities: HeartbeatCapabilities;
   /** Raw release; coarsened to `major.minor` (or dropped) before storage. */
   readonly release?: string;
+  /** The image's source fingerprint; dropped unless it is exactly 12 hex. */
+  readonly fingerprint?: string;
   /** Publish wall-clock time (ms). */
   readonly at: number;
 }
@@ -154,10 +170,12 @@ export interface BuildHeartbeatInput {
  */
 export function buildHeartbeat(input: BuildHeartbeatInput): WorkerHeartbeat {
   const release = coarseRelease(input.release);
+  const fingerprint = fingerprintOf(input.fingerprint);
   return {
     v: WORKER_HEARTBEAT_SCHEMA_VERSION,
     role: HEARTBEAT_ROLE,
     ...(release ? { release } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
     mode: input.mode,
     capabilities: capabilitiesOf(input.capabilities),
     at: input.at,
@@ -170,6 +188,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
     v: hb.v,
     role: hb.role,
     ...(hb.release ? { release: hb.release } : {}),
+    ...(hb.fingerprint ? { fingerprint: hb.fingerprint } : {}),
     mode: hb.mode,
     capabilities: {
       deepCompression: hb.capabilities.deepCompression,
@@ -217,10 +236,12 @@ export function parseHeartbeat(raw: unknown): WorkerHeartbeat | null {
   const release = coarseRelease(
     typeof src.release === "string" ? src.release : undefined,
   );
+  const fingerprint = fingerprintOf(src.fingerprint);
   return {
     v: WORKER_HEARTBEAT_SCHEMA_VERSION,
     role: HEARTBEAT_ROLE,
     ...(release ? { release } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
     mode: src.mode as HeartbeatMode,
     capabilities: capabilitiesOf(src.capabilities),
     at: src.at,
@@ -258,6 +279,7 @@ export function disabledLiveness(
     lastSeen: null,
     mode: null,
     capabilities: null,
+    fingerprint: null,
     detail: LIVENESS_DETAIL.disabled,
   };
 }
@@ -292,6 +314,7 @@ export function classifyLiveness(
       lastSeen: null,
       mode: null,
       capabilities: null,
+      fingerprint: null,
       detail: LIVENESS_DETAIL.unknown,
     };
   }
@@ -305,6 +328,7 @@ export function classifyLiveness(
     lastSeen: ageBucket(ageMs),
     mode: record.mode,
     capabilities: record.capabilities,
+    fingerprint: record.fingerprint ?? null,
     detail: LIVENESS_DETAIL[state],
   };
 }

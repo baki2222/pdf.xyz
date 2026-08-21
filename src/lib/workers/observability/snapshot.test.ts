@@ -26,6 +26,7 @@ function liveness(
     lastSeen: null,
     mode: null,
     capabilities: null,
+    fingerprint: null,
     detail: "content-free-liveness-detail",
     ...extra,
   };

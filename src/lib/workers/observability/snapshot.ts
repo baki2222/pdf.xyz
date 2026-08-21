@@ -689,6 +689,18 @@ export interface OperationsSnapshotInput {
    * (it ran the code path), never a declaration.
    */
   readonly workerCapabilities?: ProvenWorkerCapabilities;
+  /**
+   * The source fingerprint the running worker published — twelve hex, or absent
+   * when the image predates the field.
+   *
+   * DIAGNOSTIC, never a verdict. Nothing classifies on it, because the web tier
+   * auto-deploys on every merge and the worker is rebuilt deliberately, so the
+   * two are unequal by design most of the time and a check on equality would
+   * fire constantly. It rides along with the capability row so that the moment
+   * that row goes red, the next question — *which build is that?* — is already
+   * answered. Settling it took an ssh session and a grep the last time.
+   */
+  readonly workerFingerprint?: string;
   /** The evaluated production guardrails, when known. Omit ⇒ guardrails `unknown`. */
   readonly guardrails?: GuardrailReport;
   /** A supplied lifecycle verification verdict (checked evidence). Omit ⇒ `unknown`. */
@@ -907,11 +919,21 @@ function buildSubsystems(
     : missing.length === 0
       ? "ok"
       : "blocked";
+  /**
+   * Appended to whatever the row says. Present or absent, it is stated: an
+   * image too old to publish a fingerprint is exactly the kind this subsystem
+   * exists to catch, so "did not say" is information rather than a blank.
+   */
+  const buildNote = !proven
+    ? ""
+    : input.workerFingerprint
+      ? ` Running build ${input.workerFingerprint}.`
+      : " That worker published no build fingerprint, so which build it is cannot be read from here — an image old enough to lack the field is itself a signal.";
   const capabilityDetail = !proven
     ? "No worker heartbeat was observed, so what the running image can do is unknown from here. This is not the same as healthy."
     : missing.length === 0
-      ? "The running worker proved every capability the product's copy promises."
-      : `The running worker did not prove: ${missing
+      ? `The running worker proved every capability the product's copy promises.${buildNote}`
+      : `${buildNote.trim()} The running worker did not prove: ${missing
           .map((cap) => cap.label)
           .join(", ")}. The product's copy promises ${missing
           .map((cap) => cap.promise)
@@ -1418,6 +1440,9 @@ export function collectWebOperationsSnapshot(
     ...(opts.daemonLiveness ? { daemonLiveness: opts.daemonLiveness } : {}),
     ...(provenCapabilitiesFrom(opts.daemonLiveness)
       ? { workerCapabilities: provenCapabilitiesFrom(opts.daemonLiveness)! }
+      : {}),
+    ...(opts.daemonLiveness?.observed && opts.daemonLiveness.fingerprint
+      ? { workerFingerprint: opts.daemonLiveness.fingerprint }
       : {}),
     ...(opts.cleanupEvidence ? { cleanupEvidence: opts.cleanupEvidence } : {}),
     // No `ocrEnabled`: the web can't observe the worker's OCR, so OCR stays `unknown`.
