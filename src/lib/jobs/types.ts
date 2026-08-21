@@ -229,6 +229,21 @@ export interface CreateJobRequest {
   inputNames?: string[];
   /** Tool-specific options (compression level, target language, url, …). */
   options?: Record<string, unknown>;
+  /**
+   * Characters of selectable text the CLIENT counted, when it could count them.
+   *
+   * The route reserves against this instead of a whole per-call ceiling, so a
+   * short document costs a short amount of the daily allowance. It is a CLAIM,
+   * not a measurement: it arrives from a browser and a browser can lie. Two
+   * things bound the damage — the reservation is multiplied by a derived
+   * extractor headroom, and the worker caps delivery at what was reserved, so
+   * under-reporting buys exactly the translation it paid for.
+   *
+   * Absent is fully supported and is not an error: a caller that cannot count
+   * reserves the maximum a single call could need, which is the behaviour every
+   * caller had before this field existed.
+   */
+  declaredCharacters?: number;
   /** Optional idempotency key so retries don't double-run or double-charge. */
   idempotencyKey?: string;
 }

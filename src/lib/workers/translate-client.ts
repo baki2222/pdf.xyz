@@ -30,6 +30,17 @@ export interface TranslateWorkerInput {
   sourceLanguage: TranslateSourceLanguage;
   /** Optional free-text directive steering the translation. */
   instructions?: string;
+  /**
+   * Characters of selectable text this document holds, as the BROWSER counted
+   * them — the figure the route reserves against.
+   *
+   * REQUIRED, not optional, and that is the point. The route falls back to
+   * reserving a whole per-call ceiling when nothing is declared, which is a
+   * correct default and a silent one: a caller that stopped declaring would
+   * simply get three jobs a day again, with nothing failing. Making it required
+   * means the one caller that can count cannot quietly stop.
+   */
+  declaredCharacters: number;
 }
 
 export function runWorkerTranslate(
@@ -48,6 +59,7 @@ export function runWorkerTranslate(
     input.bytes,
     jobOptions,
     options,
+    input.declaredCharacters,
   );
 }
 

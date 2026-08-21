@@ -12,7 +12,15 @@
 import { capabilityForMode, parseCreateJobRequest } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
-import { enforceRateLimit, peekAiSpendCeiling } from "@/lib/ratelimit/guard";
+import {
+  enforceAiCharacterAllowance,
+  enforceRateLimit,
+  peekAiSpendCeiling,
+} from "@/lib/ratelimit/guard";
+import {
+  TRANSLATE_EXTRACTOR_HEADROOM,
+  TRANSLATE_MAX_INPUT_CHARS,
+} from "@/lib/jobs/translate-limits";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
 import { apiError } from "@/lib/jobs/responses";
 import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
@@ -61,7 +69,30 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const aiLimit = await enforceRateLimit("ai.run", request);
+    /**
+     * The free daily allowance, reserved in CHARACTERS.
+     *
+     * A "run" priced a job while every job was one provider call; chunked
+     * translation makes one job up to thirty, so three runs a day both refused
+     * a long document and charged three short ones the whole day.
+     *
+     * THE RESERVATION CARRIES HEADROOM, and it is not generosity: the browser
+     * counts with pdfjs and the worker reads with `pdftotext -layout`, and the
+     * browser under-counts — it concatenates adjacent text items with nothing
+     * between them. Reserving the raw claim would truncate an HONEST caller's
+     * own document. The factor is derived (see the constant) rather than
+     * sampled, and it cancels out of a client's documents-per-day entirely.
+     *
+     * AN UNDECLARED JOB RESERVES A WHOLE CALL'S WORTH. That is not a penalty
+     * and not an error — it is exactly the behaviour every caller had before
+     * this field existed (three such jobs a day), so a direct API caller keeps
+     * working and simply pays the maximum until it declares.
+     */
+    const declared = parsed.value.declaredCharacters;
+    const reserved = Math.ceil(
+      (declared ?? TRANSLATE_MAX_INPUT_CHARS) * TRANSLATE_EXTRACTOR_HEADROOM,
+    );
+    const aiLimit = await enforceAiCharacterAllowance(reserved, request);
     if (!aiLimit.allowed) return respondRateLimited(aiLimit);
   }
 

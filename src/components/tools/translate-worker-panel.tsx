@@ -300,6 +300,12 @@ function TranslateBuilder() {
         targetLanguage,
         sourceLanguage,
         ...(trimmed ? { instructions: trimmed } : {}),
+        // The count this panel already extracted, declared so the job reserves
+        // what it will use instead of a whole per-call ceiling. Required by the
+        // client's type rather than optional: the route's fallback is correct
+        // and silent, so the one caller that can count must not be able to stop
+        // quietly.
+        declaredCharacters: extracted.characterCount,
       });
       setOutcome(result);
     } catch {
