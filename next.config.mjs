@@ -163,6 +163,24 @@ const nextConfig = {
           },
         ],
       },
+      {
+        // The Noto faces the text tools embed, copied into public/ under a
+        // version-stamped path by scripts/copy-noto-fonts.ts. Same argument as
+        // above, with a much bigger number attached: the Chinese face is
+        // 10.5 MB, and Next's default for public/ is
+        // `max-age=0, must-revalidate` — so without this rule a user who
+        // watermarks two Chinese documents pays a revalidation round-trip on
+        // every one, and any cache in front of us re-fetches the whole file on
+        // a stale 200. The version is in the URL, so the bytes at a given path
+        // never change.
+        source: "/fonts/:version/:file*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
     ];
   },
 };

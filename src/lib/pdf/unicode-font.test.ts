@@ -24,6 +24,22 @@
  *
  * The subset-equals-unsubset row is the control that matters: subsetting is
  * supposed to change the file size and nothing else.
+ *
+ * AND ONCE THROUGH THE SHIPPED PRODUCT, because everything above and everything
+ * below runs in Node, and "webpack's browser build of fontkit works" was
+ * otherwise an assumption. A real Chromium, driving the real `/tools/watermark-
+ * pdf` page of a real `next start` build: pick a PDF, type the text, click the
+ * button, save the download, rasterise it. Zero console errors, one request for
+ * `/fonts/0.4.4/NotoSansBengali_400Regular.ttf`, and at 3x:
+ *
+ *   watermark text        base-page ink   watermark ink
+ *   "গোপনীয় নথি"             1,408          44,057
+ *   "机密文件"                 1,408          36,621
+ *   "CONFIDENTIAL"           1,408          79,204   (standard font, no fetch)
+ *
+ * The identical base-page figure is the control: the page underneath did not
+ * move, so the difference is the stamp. Before this change the first two rows
+ * were not smaller — they did not exist, because the tool refused.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
@@ -41,6 +57,7 @@ import {
 } from "./unicode-font";
 import { readNotoTtf } from "./noto-source";
 import { proveGlyphs, useNodeFontSource } from "@/tests/unicode-fonts";
+import { BROKEN_CJK_SUBSET_PDF_BASE64 } from "@/tests/fixtures-broken-subset";
 
 /** A blank one-page PDF to stamp. */
 async function blankPdf(pages = 1): Promise<Uint8Array> {
@@ -170,6 +187,33 @@ describe("the proof can tell a drawn page from a blank one", () => {
     const proof = await proveGlyphs(out);
     expect(proof.embeddedFonts).toBe(0);
     expect(proof.outlineCommands).toBe(0);
+  });
+
+  it("goes RED on the real defect, not just on a synthetic one", async () => {
+    // The strongest control available: an actual file produced by
+    // `@pdf-lib/fontkit`, which renders "机密文件测试" as the single character 件
+    // in Chromium and raised no error at any point in making it. If this ever
+    // comes back clean, the proof above has stopped discriminating and every
+    // green in this file means nothing.
+    const bytes = Uint8Array.from(
+      Buffer.from(BROKEN_CJK_SUBSET_PDF_BASE64, "base64"),
+    );
+    const proof = await proveGlyphs(bytes);
+
+    // Everything a shallower check would look at is FINE on this file: a font
+    // is embedded, glyphs are drawn, none of them is .notdef, and the text
+    // extracts perfectly. That is exactly why "it did not throw" proves nothing.
+    expect(proof.embeddedFonts).toBe(1);
+    expect(proof.glyphIds.length).toBeGreaterThan(0);
+    expect(proof.notdefIds).toEqual([]);
+    expect(proof.extractedText).toBe("机密文件测试");
+
+    // And the chain still catches it, at the hop that matters: the embedded
+    // subset cannot resolve the glyph ids its own content stream references.
+    expect(
+      [...proof.unreadableIds, ...proof.emptyOutlineIds].length,
+      "the negative control passed — proveGlyphs no longer detects the defect it was written for",
+    ).toBeGreaterThan(0);
   });
 });
 
