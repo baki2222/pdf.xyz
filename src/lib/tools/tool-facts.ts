@@ -26,6 +26,7 @@ import {
   aiPagesAtDensest,
   aiPagesAtSparsest,
 } from "@/lib/jobs/types";
+import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
