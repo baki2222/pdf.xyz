@@ -1,3 +1,4 @@
+import JSZip from "jszip";
 import { expect, type Page } from "@playwright/test";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
 import {
@@ -7,18 +8,22 @@ import {
 } from "../../src/lib/pdf/pdf-to-image";
 import { fileInput, waitForHydration } from "../helpers";
 import {
+  makeBlankImageInPage,
   makeFormPdf,
   makeImageBearingPdf,
   makeJpegFixtureInPage,
   makePngFixture,
+  makeRasterizedPdf,
   makeTextPdf,
   pageMarker,
   writeTempFixture,
 } from "./fixtures";
 import {
   captureDownload,
+  decodeEmbeddedJpegs,
   decodeImageInPage,
   expectMagic,
+  normalizeText,
   pdfCropBoxes,
   pdfFormSnapshot,
   pdfImages,
@@ -40,10 +45,19 @@ import {
  *     runner, the proof fails instead of silently testing the wrong thing.
  *  2. `assert` inspects the DOWNLOADED bytes for content that would change if
  *     the engine were wrong — never just "no error appeared".
- *  3. `control` returns bytes the assertion MUST reject (by default the
- *     unmodified input — the "engine that does nothing"). A proof that cannot
+ *  3. `control` returns bytes the assertion MUST reject. A proof that cannot
  *     fail when the feature is removed is not a proof; this is the per-case
- *     positive control that keeps every assertion falsifiable.
+ *     positive control that keeps every assertion falsifiable, and it is
+ *     required by the type rather than defaulted, because the obvious default
+ *     (hand back the unmodified input) is the WEAKEST possible control
+ *     wherever the tool changes container — a PDF fed to a "did we get a PNG"
+ *     assertion is rejected by the magic bytes alone, which proves nothing
+ *     about the engine. Read each case's control comment for what it varies.
+ *
+ * Measured 2026-08-21: with four engines neutered (merge, crop, watermark, and
+ * the shared rasterizer blanked to model the pdfjs wasmUrl defect), exactly the
+ * seven dependent cases went red, each on its own content assertion, and the
+ * other twenty-three stayed green.
  */
 
 export interface CaseContext {
@@ -59,8 +73,21 @@ export interface ToolCase {
   run: (ctx: CaseContext) => Promise<Buffer>;
   /** Content assertion over the downloaded bytes. */
   assert: (buf: Buffer, ctx: CaseContext) => Promise<void>;
-  /** Bytes `assert` must reject — defaults to the primary input fixture. */
-  control?: (ctx: CaseContext) => Promise<Buffer>;
+  /**
+   * Bytes `assert` MUST reject — one buffer, or several, each rejected on its
+   * own. Required, not optional: a case without a positive control is a proof
+   * that has never been shown capable of failing, and the type is the only
+   * place that can make adding one unavoidable.
+   *
+   * Prefer a control that differs from the true artifact ONLY in the property
+   * the assertion claims to check. A control of a different container type is
+   * rejected by the container check alone, which proves far less — those are
+   * called out case by case below. Where an assertion claims TWO independent
+   * properties (grayscale: "the page was really rendered" AND "the colour was
+   * removed"), return one control per property; a single control leaves the
+   * other half unfalsified.
+   */
+  control: (ctx: CaseContext) => Promise<Buffer | Buffer[]>;
 }
 
 /* ------------------------------------------------------------------ *
@@ -124,6 +151,40 @@ const input = (ctx: CaseContext, key: string): Buffer => {
 /** Marker helper bound to a fixture file name. */
 const marker = (name: string, page: number) => pageMarker(name, page);
 
+/**
+ * US Letter, in points. Several runners default to stamp sizes scaled for a
+ * real page (the watermark is 60pt), and a fixture smaller than the tool's own
+ * defaults fails for reasons that have nothing to do with the engine.
+ */
+const LETTER: [number, number] = [612, 792];
+
+/** The raster scale the pdf-to-image runner uses at its default resolution. */
+const rasterScale = (): number =>
+  rasterScaleForDpi(resolutionById(DEFAULT_RESOLUTION_ID).dpi);
+
+/**
+ * Assert a rendered raster matches the source page's geometry.
+ *
+ * Within one pixel, not exactly equal: the renderer FLOORS the viewport
+ * dimensions (`Math.max(1, Math.floor(viewport.width))`), so a 320pt page at
+ * the default scale lands on 666, while `Math.round(320 * scale)` is 667. The
+ * first version of this assertion recomputed the expectation with `round` and
+ * failed on a perfectly correct render. Recomputing it with the engine's own
+ * helper instead would have "fixed" it by agreeing with whatever the engine
+ * does — so the tolerance is stated here, and the aspect ratio (which no
+ * rounding can move) is pinned exactly.
+ */
+function expectRasterSize(
+  stats: { width: number; height: number },
+  pageWidthPt: number,
+  pageHeightPt: number,
+): void {
+  const scale = rasterScale();
+  expect(Math.abs(stats.width - pageWidthPt * scale)).toBeLessThanOrEqual(1);
+  expect(Math.abs(stats.height - pageHeightPt * scale)).toBeLessThanOrEqual(1);
+  expect(stats.width / stats.height).toBeCloseTo(pageWidthPt / pageHeightPt, 2);
+}
+
 /* ------------------------------------------------------------------ *
  *  The cases
  * ------------------------------------------------------------------ */
@@ -185,7 +246,15 @@ export const CASES: Record<string, ToolCase> = {
         marker("quarters.pdf", 3),
       );
     },
-    control: async (ctx) => input(ctx, "quarters.pdf"),
+    // A ZIP, not the input PDF: handing this assertion a PDF proves only that
+    // the download was an archive. This control IS an archive — of one
+    // untouched 4-page document — so the entry count and the per-part page
+    // counts are what has to reject it.
+    control: async (ctx) => {
+      const zip = new JSZip();
+      zip.file("quarters.pdf", input(ctx, "quarters.pdf"));
+      return zip.generateAsync({ type: "nodebuffer" });
+    },
   },
 
   "rotate-pdf": {
@@ -368,8 +437,11 @@ export const CASES: Record<string, ToolCase> = {
       );
     },
     assert: async (buf, ctx) => {
-      expect((await pdfPageTexts(buf)).join(" ")).toContain(
-        String(ctx.data.body),
+      // Normalized: pdfjs returned this line as "the quick brown   fox",
+      // splitting one drawn string into separate positioned runs. The claim is
+      // that the typed text reached the page, not that the kerning survived.
+      expect(normalizeText((await pdfPageTexts(buf)).join(" "))).toContain(
+        normalizeText(String(ctx.data.body)),
       );
     },
     // No input file exists; the control is a valid PDF without the typed text.
@@ -384,9 +456,7 @@ export const CASES: Record<string, ToolCase> = {
       const body = "markdown-body-proof-line";
       ctx.data.heading = heading;
       ctx.data.body = body;
-      await ctx.page
-        .locator("textarea")
-        .fill(`# ${heading}\n\n${body}`);
+      await ctx.page.locator("textarea").fill(`# ${heading}\n\n${body}`);
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -395,9 +465,9 @@ export const CASES: Record<string, ToolCase> = {
       );
     },
     assert: async (buf, ctx) => {
-      const text = (await pdfPageTexts(buf)).join(" ");
-      expect(text).toContain(String(ctx.data.heading));
-      expect(text).toContain(String(ctx.data.body));
+      const text = normalizeText((await pdfPageTexts(buf)).join(" "));
+      expect(text).toContain(normalizeText(String(ctx.data.heading)));
+      expect(text).toContain(normalizeText(String(ctx.data.body)));
     },
     control: async () => Buffer.from(await makeTextPdf("unrelated.pdf")),
   },
@@ -431,7 +501,14 @@ export const CASES: Record<string, ToolCase> = {
       expect(embedded.width).toBe(Number(ctx.data.imageWidth));
       expect(embedded.height).toBe(Number(ctx.data.imageHeight));
     },
-    control: async (ctx) => input(ctx, "photo.jpg"),
+    // Two PDFs that are NOT the source JPEG converted: one with no image at
+    // all, one carrying a different image (96x64, Flate-coded) at the wrong
+    // size. Handing this assertion the source JPEG would let the PDF magic
+    // check do all the work and prove nothing about what was embedded.
+    control: async () => [
+      Buffer.from(await makeTextPdf("no-image.pdf")),
+      Buffer.from((await makeImageBearingPdf("other-image.pdf")).pdf),
+    ],
   },
 
   "png-to-pdf": {
@@ -461,7 +538,10 @@ export const CASES: Record<string, ToolCase> = {
       expect(embedded.width).toBe(Number(ctx.data.imageWidth));
       expect(embedded.height).toBe(Number(ctx.data.imageHeight));
     },
-    control: async (ctx) => input(ctx, "art.png"),
+    control: async () => [
+      Buffer.from(await makeTextPdf("no-image.pdf")),
+      Buffer.from((await makeImageBearingPdf("other-image.pdf")).pdf),
+    ],
   },
 
   "pdf-to-jpg": {
@@ -479,14 +559,22 @@ export const CASES: Record<string, ToolCase> = {
     assert: async (buf, ctx) => {
       expectMagic(buf, "jpg");
       const stats = await decodeImageInPage(ctx.page, buf, "image/jpeg");
-      const scale = rasterScaleForDpi(resolutionById(DEFAULT_RESOLUTION_ID).dpi);
-      expect(stats.width).toBe(Math.round(320 * scale));
-      expect(stats.height).toBe(Math.round(240 * scale));
+      expectRasterSize(stats, 320, 240);
       // The fixture's black rectangle covers ~17% of the page. A well-formed
       // but BLANK render (the wasmUrl defect class) fails here.
       expect(stats.inkPixels / stats.totalPixels).toBeGreaterThan(0.1);
     },
-    control: async (ctx) => input(ctx, "poster.pdf"),
+    // A blank JPEG at the RIGHT size, not the input PDF: the container check
+    // would reject a PDF on its own, which would prove only that the download
+    // was a JPEG. This control differs from a correct artifact in exactly one
+    // property — whether the page was actually drawn.
+    control: async (ctx) =>
+      makeBlankImageInPage(
+        ctx.page,
+        "image/jpeg",
+        Math.round(320 * rasterScale()),
+        Math.round(240 * rasterScale()),
+      ),
   },
 
   "pdf-to-png": {
@@ -504,12 +592,16 @@ export const CASES: Record<string, ToolCase> = {
     assert: async (buf, ctx) => {
       expectMagic(buf, "png");
       const stats = await decodeImageInPage(ctx.page, buf, "image/png");
-      const scale = rasterScaleForDpi(resolutionById(DEFAULT_RESOLUTION_ID).dpi);
-      expect(stats.width).toBe(Math.round(320 * scale));
-      expect(stats.height).toBe(Math.round(240 * scale));
+      expectRasterSize(stats, 320, 240);
       expect(stats.inkPixels / stats.totalPixels).toBeGreaterThan(0.1);
     },
-    control: async (ctx) => input(ctx, "plate.pdf"),
+    control: async (ctx) =>
+      makeBlankImageInPage(
+        ctx.page,
+        "image/png",
+        Math.round(320 * rasterScale()),
+        Math.round(240 * rasterScale()),
+      ),
   },
 
   "page-numbers": {
@@ -536,7 +628,16 @@ export const CASES: Record<string, ToolCase> = {
     kind: "watermark",
     artifact: "pdf",
     run: async (ctx) => {
-      await uploadTextPdf(ctx, "stamped.pdf", { pages: 2 });
+      // LETTER, not the 320x240 default. The runner's own default watermark is
+      // 60pt "CONFIDENTIAL" — about 480pt wide — so on the small fixture it
+      // hangs off both edges, and pdfjs omits glyphs that fall outside the page
+      // box from getTextContent. Measured: 320x240 tilt 45 extracts
+      // "NFIDENTIAL", tilt 0 extracts "ONFIDENTIA", 612x792 extracts the whole
+      // word. That is a FIXTURE too small for the tool's defaults, not an
+      // engine defect — and the trap it sets is that the obvious "fix" is to
+      // assert the truncated string, which would pin the wrong behaviour
+      // forever.
+      await uploadTextPdf(ctx, "stamped.pdf", { pages: 2, size: LETTER });
       // Default watermark text is CONFIDENTIAL; the fixture never contains it.
       return runAndDownload(
         ctx,
@@ -547,8 +648,15 @@ export const CASES: Record<string, ToolCase> = {
     },
     assert: async (buf) => {
       const texts = await pdfPageTexts(buf);
-      expect(texts[0]).toContain("CONFIDENTIAL");
-      expect(texts[1]).toContain("CONFIDENTIAL");
+      expect(texts.length).toBe(2);
+      // Every page, whole word — a watermark that lands on page 1 only is the
+      // likeliest way for this engine to be wrong.
+      for (const [index, text] of texts.entries()) {
+        expect(normalizeText(text), `page ${index + 1}`).toContain(
+          "CONFIDENTIAL",
+        );
+        expect(normalizeText(text)).toContain(marker("stamped.pdf", index + 1));
+      }
     },
     control: async (ctx) => input(ctx, "stamped.pdf"),
   },
@@ -686,7 +794,10 @@ export const CASES: Record<string, ToolCase> = {
     kind: "grayscale",
     artifact: "pdf",
     run: async (ctx) => {
-      await uploadTextPdf(ctx, "colorful.pdf", { pages: 2 });
+      // A COLOUR fixture. With the default black-ink fixture "the output has
+      // no colour" is already true of the input, so the assertion would pass
+      // on an engine that did nothing to the pixels.
+      await uploadTextPdf(ctx, "colorful.pdf", { pages: 2, colorful: true });
       return runAndDownload(
         ctx,
         /convert to grayscale/i,
@@ -694,7 +805,7 @@ export const CASES: Record<string, ToolCase> = {
         /download grayscale pdf/i,
       );
     },
-    assert: async (buf) => {
+    assert: async (buf, ctx) => {
       expect(await pdfPageCount(buf)).toBe(2);
       // Genuinely rasterized: page content became embedded images and the
       // input's selectable text is gone.
@@ -702,8 +813,44 @@ export const CASES: Record<string, ToolCase> = {
       expect(images.length).toBeGreaterThanOrEqual(2);
       const texts = await pdfPageTexts(buf);
       expect(texts.join("").trim()).toBe("");
+
+      // The pixels, not just the structure. "Contains images and no text" is
+      // equally true of two blank white pages — which is exactly what the
+      // pdfjs wasmUrl defect produced through this same rasterizer.
+      const stats = await decodeEmbeddedJpegs(ctx.page, buf);
+      expect(stats.length).toBeGreaterThanOrEqual(2);
+      for (const page of stats) {
+        // Ink: the drawn blocks cover ~35% of the page and go mid-grey.
+        expect(
+          (page.totalPixels - page.whitePixels) / page.totalPixels,
+          "the rendered page is blank",
+        ).toBeGreaterThan(0.1);
+        // And it is grey: the red and blue blocks must have lost their hue.
+        expect(
+          (page.redPixels + page.bluePixels) / page.totalPixels,
+          "saturated colour survived a grayscale conversion",
+        ).toBeLessThan(0.01);
+      }
     },
-    control: async (ctx) => input(ctx, "colorful.pdf"),
+    // Two controls, one per claimed property: a rasterized output that
+    // rendered nothing, and a rasterized output that kept its colour.
+    control: async (ctx) => {
+      const size: [number, number] = [320, 240];
+      const colour = await makeJpegFixtureInPage(
+        ctx.page,
+        "colour-control.jpg",
+        320,
+        240,
+      );
+      return [
+        await makeRasterizedPdf(
+          await makeBlankImageInPage(ctx.page, "image/jpeg", 320, 240),
+          2,
+          size,
+        ),
+        await makeRasterizedPdf(colour.bytes, 2, size),
+      ];
+    },
   },
 
   "redact-pdf": {
@@ -724,15 +871,39 @@ export const CASES: Record<string, ToolCase> = {
         /download redacted pdf/i,
       );
     },
-    assert: async (buf) => {
+    assert: async (buf, ctx) => {
       expect(await pdfPageCount(buf)).toBe(2);
       // Redaction rasterizes: no selectable text may survive (that is the
       // guarantee), and each page must carry a real rendered image.
       const texts = await pdfPageTexts(buf);
       expect(texts.join("").trim()).toBe("");
       expect((await pdfImages(buf)).length).toBeGreaterThanOrEqual(2);
+
+      // "No text and some images" is also a perfect description of two blank
+      // pages, and a blank page is a redaction tool's most flattering failure:
+      // it satisfies the guarantee by destroying the document. Check that the
+      // page was actually rendered, and that the redaction box is real ink.
+      const stats = await decodeEmbeddedJpegs(ctx.page, buf);
+      expect(stats.length).toBeGreaterThanOrEqual(2);
+      for (const page of stats) {
+        expect(
+          (page.totalPixels - page.whitePixels) / page.totalPixels,
+          "the redacted page is blank — nothing was rendered under the box",
+        ).toBeGreaterThan(0.1);
+        expect(
+          page.inkPixels / page.totalPixels,
+          "no dark pixels at all: neither the page content nor the redaction box survived",
+        ).toBeGreaterThan(0.05);
+      }
     },
-    control: async (ctx) => input(ctx, "secret.pdf"),
+    // A rasterized 2-page output that rendered nothing: structurally identical
+    // to a correct redaction, and the only failure mode this tool has had.
+    control: async (ctx) =>
+      makeRasterizedPdf(
+        await makeBlankImageInPage(ctx.page, "image/jpeg", 320, 240),
+        2,
+        [320, 240],
+      ),
   },
 
   "fill-forms": {
@@ -858,7 +1029,15 @@ export const CASES: Record<string, ToolCase> = {
       expect(stats.redPixels / stats.totalPixels).toBeGreaterThan(0.3);
       expect(stats.bluePixels / stats.totalPixels).toBeGreaterThan(0.3);
     },
-    control: async (ctx) => input(ctx, "gallery.pdf"),
+    // A PNG of the right size carrying nothing — the extracted-but-blank case.
+    // The input PDF would be rejected by the PNG magic check alone.
+    control: async (ctx) =>
+      makeBlankImageInPage(
+        ctx.page,
+        "image/png",
+        Number(ctx.data.imageWidth),
+        Number(ctx.data.imageHeight),
+      ),
   },
 
   "compare-pdf": {
@@ -893,21 +1072,92 @@ export const CASES: Record<string, ToolCase> = {
       expect(report).not.toContain("%PDF-");
       expect(report).toContain("left.pdf");
       expect(report).toContain("right.pdf");
-      // The one line that differs must be flagged in the report body.
-      expect(report).toContain("only-in-right-line");
+      // The differing line must be flagged AS AN ADDITION. Without the "+" the
+      // assertion is satisfied by a report that merely echoes both documents'
+      // text, which is what a diff that found nothing would also produce.
+      expect(report).toMatch(/^\+ .*only-in-right-line/m);
+      expect(report).toContain("Selectable text identical: no");
+      expect(report).not.toContain("No selectable-text differences found.");
     },
-    control: async (ctx) => input(ctx, "left.pdf"),
+    // A report-shaped control that names both files and finds nothing. The
+    // input PDF would be rejected by the container check alone, proving only
+    // that the download was text.
+    control: async () =>
+      Buffer.from(
+        [
+          "PDF comparison: left.pdf vs right.pdf",
+          "Selectable text identical: yes",
+          "Changed lines: 0 (0 added, 0 removed)",
+          "Diff:",
+          "No selectable-text differences found.",
+        ].join("\n"),
+        "utf8",
+      ),
   },
 };
 
 /**
- * Tools with an in-browser runner that this harness does NOT yet prove.
+ * Tools with an in-browser runner that this harness does NOT prove AT ALL.
  * An entry here is a loud, reviewed exception — the spec fails if a registry
  * slug is missing from BOTH tables, and also fails if an entry goes stale
  * (names a slug the registry no longer carries).
+ *
+ * It is currently empty, and that is a real result rather than an omission:
+ * every one of the 30 registered in-browser tools is driven end to end and
+ * checked on its downloaded bytes. The gaps that DO exist are narrower than a
+ * whole tool — they are input modes inside a tool that a headless run cannot
+ * reach — and they are enumerated in `PROOF_LIMITS` below.
  */
 export const UNPROVEN: Record<string, string> = {
   // (empty) — every registered in-browser tool currently has a proof case.
+};
+
+/**
+ * What the proofs above do NOT cover, per tool.
+ *
+ * An empty `UNPROVEN` would otherwise read as "30/30, everything is proven",
+ * and that would be the same presence-only claim this whole suite exists to
+ * stop making: each case proves ONE path through a runner that often offers
+ * several. Every entry here is a mode a green tick above does not cover.
+ *
+ * These are not TODOs to be silently closed. A pointer-driven mode reached
+ * through a real drag is worth adding; deleting the line because the tool "is
+ * tested" is the failure this table prevents. The spec fails if an entry names
+ * a slug that has no proof case, so the list cannot outlive its subject.
+ */
+export const PROOF_LIMITS: Record<string, string> = {
+  "sign-pdf":
+    "Only the TYPED signature source is exercised. The drawn-signature path (signature-pad.tsx) needs real pointer strokes on a canvas, and the uploaded-image source is untested.",
+  "annotate-pdf":
+    "Only the Note markup type, added through the form controls. Freehand/highlight/shape markups placed by dragging on the page canvas are not exercised, and neither is placement accuracy.",
+  "edit-pdf":
+    "Only a text insertion at the default position through the form controls. Image insertion and drag-positioning on the page canvas are not exercised.",
+  "redact-pdf":
+    "Only the default draft area added via the Add area button. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven.",
+  "fill-forms":
+    "Only a text field is written. Checkboxes, radio groups, dropdowns and the appearance-stream regeneration those need are not exercised.",
+  "create-forms":
+    "Only the default single text-field draft. Adding several fields, other field types, and dragged placement are not exercised.",
+  "crop-pdf":
+    "Only the default uniform margins applied to every page. Per-page selection and the drag-to-crop preview are not exercised.",
+  "compare-pdf":
+    "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Comparison of scanned/image-only PDFs (the 'no comparable text' branch) is not exercised.",
+  "compress-pdf":
+    "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-worker step this tool offers is a server path and is covered by worker:prove-tools, not here.",
+  "split-pdf":
+    "Only the default even split into two ranges. Custom ranges, per-page splitting and the single-output (no ZIP) branch are not exercised.",
+  "organize-pages":
+    "Only the Reverse bulk action. Drag reordering, duplication and per-page rotation inside the organizer are not exercised.",
+  "pdf-to-jpg":
+    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
+  "pdf-to-png":
+    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
+  "extract-images":
+    "Only a single Flate-coded RGB PNG. JPEG2000 and JBIG2 embedded images — the formats the wasmUrl defect blanked — are not exercised here; e2e/pdfjs-decoders.spec.ts covers those decoders separately.",
+  "grayscale-pdf":
+    "Only the default DPI preset. The screen/print preset difference is not exercised.",
+  "watermark-pdf":
+    "Only the default text, size, tilt and opacity on a Letter page. Note that the tool's own 60pt default overflows a small page and pdfjs then omits the off-page glyphs from extraction — so a watermark's VISUAL placement is not what this proof checks.",
 };
 
 /** Where a temp file is still needed (upload via path), reuse this. */

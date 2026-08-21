@@ -33,12 +33,24 @@ export interface TextPdfOptions {
   bodyLines?: string[];
   /** Save without object streams (bloats the file so a repack shrinks it). */
   unoptimized?: boolean;
+  /**
+   * Draw saturated red and blue blocks instead of the black one. Required by
+   * the grayscale proof: the default fixture is already achromatic, so
+   * "the output has no colour" would be true of it before the tool ran.
+   */
+  colorful?: boolean;
 }
 
 /** A valid multi-page PDF with per-page marker text and an ink rectangle. */
 export async function makeTextPdf(
   label: string,
-  { pages = 2, size = [320, 240], bodyLines = [], unoptimized }: TextPdfOptions = {},
+  {
+    pages = 2,
+    size = [320, 240],
+    bodyLines = [],
+    unoptimized,
+    colorful,
+  }: TextPdfOptions = {},
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -54,14 +66,32 @@ export async function makeTextPdf(
     bodyLines.forEach((line, j) => {
       page.drawText(line, { x: 20, y: h - 64 - j * 16, size: 10, font });
     });
-    // Ink for raster assertions: a solid black block, ~1/5 of the page.
-    page.drawRectangle({
-      x: w * 0.1,
-      y: h * 0.15,
-      width: w * 0.5,
-      height: h * 0.35,
-      color: rgb(0, 0, 0),
-    });
+    // Ink for raster assertions: a solid block, ~1/5 of the page. In colour
+    // mode it is split red/blue so a desaturation can be measured.
+    if (colorful) {
+      page.drawRectangle({
+        x: w * 0.1,
+        y: h * 0.15,
+        width: w * 0.35,
+        height: h * 0.5,
+        color: rgb(1, 0, 0),
+      });
+      page.drawRectangle({
+        x: w * 0.5,
+        y: h * 0.15,
+        width: w * 0.35,
+        height: h * 0.5,
+        color: rgb(0, 0, 1),
+      });
+    } else {
+      page.drawRectangle({
+        x: w * 0.1,
+        y: h * 0.15,
+        width: w * 0.5,
+        height: h * 0.35,
+        color: rgb(0, 0, 0),
+      });
+    }
   }
   return doc.save(unoptimized ? { useObjectStreams: false } : undefined);
 }
@@ -107,6 +137,26 @@ export async function makeImageBearingPdf(label: string): Promise<{
   const image = await doc.embedPng(png);
   page.drawImage(image, { x: 40, y: 60, width: 192, height: 128 });
   return { pdf: await doc.save(), imageWidth: width, imageHeight: height };
+}
+
+/**
+ * Copy bytes into a Buffer that OWNS its ArrayBuffer.
+ *
+ * `Buffer.from(string, "base64")` serves small results out of Node's shared
+ * 8 KB pool, so the returned view has a non-zero `byteOffset`. pdf-lib 1.17.1's
+ * JpegEmbedder then does `new DataView(data.buffer)` — dropping the offset — and
+ * reads the pool's first two bytes instead of the image's, failing with
+ * "SOI not found in JPEG" on a perfectly valid JPEG.
+ *
+ * The nasty part is that it depends on SIZE: a ~1 KB blank JPEG is pooled and
+ * breaks, while the larger red/blue one is allocated outright and works. So the
+ * same helper passed in one case and failed in another, and the error named the
+ * image rather than the allocator. `Buffer.alloc` never uses the pool.
+ */
+function detached(bytes: Buffer): Buffer {
+  const owned = Buffer.alloc(bytes.length);
+  bytes.copy(owned);
+  return owned;
 }
 
 /** Write bytes to a fresh temp file and return its absolute path. */
@@ -197,6 +247,91 @@ export function makePngFixture(
 }
 
 /**
+ * A PDF of `pages` pages, each covered edge to edge by the supplied JPEG.
+ *
+ * This is the shape every rasterizing tool here produces (grayscale-pdf,
+ * redact-pdf), so it can stand in as their control: hand it a BLANK jpeg and
+ * it is "a rasterized output that rendered nothing"; hand it a COLOUR jpeg and
+ * it is "a rasterized output that forgot to desaturate". Both are structurally
+ * indistinguishable from a correct artifact, which is the point.
+ */
+export async function makeRasterizedPdf(
+  jpeg: Buffer,
+  pages: number,
+  size: [number, number],
+): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const image = await doc.embedJpg(jpeg);
+  for (let i = 0; i < pages; i++) {
+    const page = doc.addPage(size);
+    page.drawImage(image, { x: 0, y: 0, width: size[0], height: size[1] });
+  }
+  return Buffer.from(await doc.save());
+}
+
+/**
+ * A blank white image of exactly the given size, encoded by the browser.
+ *
+ * This is the positive control for every raster proof: it is well formed, it
+ * has the right magic bytes and the right dimensions, and it contains nothing.
+ * That is precisely what the pdfjs `wasmUrl` defect shipped — pages that
+ * decoded to an empty raster while the tool reported success — so a raster
+ * assertion that accepts this is blind to the one defect the raster path has
+ * actually had.
+ */
+export async function makeBlankImageInPage(
+  page: Page,
+  mime: "image/png" | "image/jpeg",
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ([w, h, type]) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w as number;
+      canvas.height = h as number;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("2d context unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w as number, h as number);
+      return canvas.toDataURL(type as string, 0.92);
+    },
+    [width, height, mime] as const,
+  );
+  const base64 = dataUrl.split(",")[1];
+  if (!base64) throw new Error("canvas.toDataURL returned no payload");
+  const bytes = detached(Buffer.from(base64, "base64"));
+  assertEncodedAs(bytes, mime, dataUrl);
+  return bytes;
+}
+
+/**
+ * A fixture that is not the format it claims is a silent hole: it makes the
+ * control it feeds unrepresentative, and the failure surfaces far away as a
+ * parse error inside pdf-lib. Check it where it is made, and say what arrived.
+ */
+function assertEncodedAs(
+  bytes: Buffer,
+  mime: "image/png" | "image/jpeg",
+  dataUrl: string,
+): void {
+  const ok =
+    mime === "image/jpeg"
+      ? bytes[0] === 0xff && bytes[1] === 0xd8
+      : bytes
+          .subarray(0, 8)
+          .equals(
+            Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+          );
+  if (!ok) {
+    throw new Error(
+      `the browser was asked for ${mime} but returned ${dataUrl.slice(0, 32)}… ` +
+        `(first bytes ${[...bytes.subarray(0, 4)].map((b) => b.toString(16)).join(" ")})`,
+    );
+  }
+}
+
+/**
  * A generated JPEG, encoded by the browser under test via a canvas — no JPEG
  * encoder dependency in Node, and the bytes are still synthesized per run.
  * Runs inside the already-loaded tool page, so the CSP in force is the
@@ -225,6 +360,7 @@ export async function makeJpegFixtureInPage(
   );
   const base64 = dataUrl.split(",")[1];
   if (!base64) throw new Error("canvas.toDataURL returned no payload");
-  const bytes = Buffer.from(base64, "base64");
+  const bytes = detached(Buffer.from(base64, "base64"));
+  assertEncodedAs(bytes, "image/jpeg", dataUrl);
   return { path: writeTempFixture(name, bytes), bytes, width, height };
 }

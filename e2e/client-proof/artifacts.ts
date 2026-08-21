@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import JSZip from "jszip";
 import { PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
-import { expect, type Download, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  type Download,
+  type Locator,
+  type Page,
+} from "@playwright/test";
+import { PDFJS_DOCUMENT_DEFAULTS } from "../../src/lib/pdf/wasm-assets";
 
 /**
  * Artifact inspection for the in-browser tool proofs. Everything here reads
@@ -43,36 +52,39 @@ export async function captureDownload(
 
 export type ArtifactKind = "pdf" | "png" | "jpg" | "zip" | "text";
 
+const PDF_MAGIC = Buffer.from("%PDF-", "latin1");
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
+/** Local file header. A one-byte "is it P?" test is not a ZIP test: the
+ *  compare report opens with "PDF comparison:", and the first spelling of this
+ *  check rejected it as a leaked archive. Every signature below is matched at
+ *  full length for that reason. */
+const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+
+const startsWith = (buf: Buffer, magic: Buffer): boolean =>
+  buf.subarray(0, magic.length).equals(magic);
+
 /** Assert the artifact's container type from its leading bytes. */
 export function expectMagic(buf: Buffer, kind: ArtifactKind): void {
-  const head = buf.subarray(0, 8);
   switch (kind) {
     case "pdf":
-      expect(buf.subarray(0, 5).toString("latin1"), "PDF magic").toBe("%PDF-");
+      expect(startsWith(buf, PDF_MAGIC), "PDF magic").toBe(true);
       break;
     case "png":
-      expect(
-        head.equals(
-          Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-        ),
-        "PNG magic",
-      ).toBe(true);
+      expect(startsWith(buf, PNG_MAGIC), "PNG magic").toBe(true);
       break;
     case "jpg":
-      expect(buf[0], "JPEG SOI 0xFF").toBe(0xff);
-      expect(buf[1], "JPEG SOI 0xD8").toBe(0xd8);
+      expect(startsWith(buf, JPEG_MAGIC), "JPEG SOI").toBe(true);
       break;
     case "zip":
-      expect(buf[0], "ZIP magic P").toBe(0x50);
-      expect(buf[1], "ZIP magic K").toBe(0x4b);
+      expect(startsWith(buf, ZIP_MAGIC), "ZIP local file header").toBe(true);
       break;
     case "text":
-      // A text artifact must NOT be a PDF/ZIP/PNG that leaked through — the
-      // check that makes the identity control meaningful for text outputs.
-      expect(buf.subarray(0, 5).toString("latin1"), "text, not PDF").not.toBe(
-        "%PDF-",
-      );
-      expect(buf[0], "text, not ZIP").not.toBe(0x50 as never);
+      // A text artifact must NOT be a binary container that leaked through —
+      // the check that makes an identity control meaningful for text outputs.
+      expect(startsWith(buf, PDF_MAGIC), "text artifact is a PDF").toBe(false);
+      expect(startsWith(buf, ZIP_MAGIC), "text artifact is a ZIP").toBe(false);
+      expect(startsWith(buf, PNG_MAGIC), "text artifact is a PNG").toBe(false);
       break;
   }
 }
@@ -117,7 +129,9 @@ export async function pdfFormSnapshot(buf: Buffer): Promise<PdfFormSnapshot> {
   const textValues: Record<string, string | undefined> = {};
   for (const field of fields) {
     if (field.constructor.name === "PDFTextField") {
-      textValues[field.getName()] = form.getTextField(field.getName()).getText();
+      textValues[field.getName()] = form
+        .getTextField(field.getName())
+        .getText();
     }
   }
   return { fieldNames: fields.map((f) => f.getName()), textValues };
@@ -128,6 +142,8 @@ export interface PdfImageInfo {
   height: number;
   filter: string | undefined;
   colorSpace: string | undefined;
+  /** The image XObject's raw stream bytes, before any PDF-level filter. */
+  bytes: Buffer;
 }
 
 /**
@@ -152,14 +168,91 @@ export async function pdfImages(buf: Buffer): Promise<PdfImageInfo[]> {
       height: num("Height"),
       filter: dict.get(PDFName.of("Filter"))?.toString(),
       colorSpace: dict.get(PDFName.of("ColorSpace"))?.toString(),
+      bytes: Buffer.from(obj.getContents()),
     });
   }
   return images;
 }
 
+/**
+ * Decode the JPEG page images a rasterizing tool embedded, and report their
+ * pixel statistics.
+ *
+ * This exists because "the output contains images and no selectable text" is
+ * satisfied by a page of pure white. That is not a hypothetical: it is exactly
+ * what the pdfjs `wasmUrl` defect produced — a well-formed render with nothing
+ * in it — and grayscale-pdf and redact-pdf both run through the same
+ * `rasterizePdf` path that defect lived in. A structural assertion cannot see
+ * it; only the pixels can.
+ */
+export async function decodeEmbeddedJpegs(
+  page: Page,
+  buf: Buffer,
+): Promise<DecodedImageStats[]> {
+  const images = await pdfImages(buf);
+  const jpegs = images.filter((image) => image.filter?.includes("DCTDecode"));
+  expect(
+    jpegs.length,
+    "no DCTDecode image XObjects to decode — this artifact was not rasterized the way the assertion assumes",
+  ).toBeGreaterThan(0);
+  const stats: DecodedImageStats[] = [];
+  for (const jpeg of jpegs) {
+    stats.push(await decodeImageInPage(page, jpeg.bytes, "image/jpeg"));
+  }
+  return stats;
+}
+
+/**
+ * Collapse runs of whitespace. pdfjs emits one text item per positioned run,
+ * so a line the engine drew as one string can come back split — the
+ * text-to-pdf proof read back `"the quick brown   fox"`. The property those
+ * assertions claim is "this content reached the page", not "the kerning is
+ * unchanged", so they compare normalized.
+ *
+ * Deliberately NOT applied to the per-page `pageMarker` assertions: those carry
+ * no spaces, so a split there would be a real defect and must stay visible.
+ */
+export function normalizeText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 /* ------------------------------------------------------------------ *
  *  PDF text (pdfjs, in the test process)
  * ------------------------------------------------------------------ */
+
+/**
+ * Local overrides for the TEST-SIDE pdfjs reader.
+ *
+ * `PDFJS_DOCUMENT_DEFAULTS` IS spread below — deliberately, so this reader
+ * inherits every future option the app adds — but two of its values cannot
+ * survive the move: `wasmUrl` and `cMapUrl` are same-origin HTTP paths served
+ * by the Next app, and this reader runs in the Node test process where those
+ * resolve to nothing. Dropping them silently is exactly the shape of defect
+ * that module exists to prevent (a reader with no decoders returns a blank page
+ * and no error), so they are re-derived from the installed package, pointing at
+ * the very files `scripts/copy-pdfjs-wasm.ts` copies into `public/`.
+ *
+ * Note for whoever widens `src/lib/pdf/wasm-assets.test.ts`: that guard walks
+ * `src` and `scripts` only, so this call site sits outside the set it searches.
+ */
+const pdfjsAssetOptions = (): {
+  wasmUrl: string;
+  cMapUrl: string;
+  cMapPacked: true;
+} => {
+  // Resolved from the project root rather than from `import.meta.url`:
+  // Playwright transpiles specs to CommonJS, where `import.meta` is a syntax
+  // error at load time. `process.cwd()` is the config's root directory — the
+  // same anchor `e2e/global-setup.ts` uses to find `.next`.
+  const require = createRequire(join(process.cwd(), "package.json"));
+  const dir = dirname(require.resolve("pdfjs-dist/package.json"));
+  const dirUrl = (name: string) => `${pathToFileURL(join(dir, name)).href}/`;
+  return {
+    wasmUrl: dirUrl("wasm"),
+    cMapUrl: dirUrl("cmaps"),
+    cMapPacked: true,
+  };
+};
 
 /** Extract per-page text with pdfjs (no worker; independent of the browser). */
 export async function pdfPageTexts(buf: Buffer): Promise<string[]> {
@@ -168,25 +261,23 @@ export async function pdfPageTexts(buf: Buffer): Promise<string[]> {
   const task = pdfjs.getDocument({
     data: new Uint8Array(buf),
     useWorkerFetch: false,
-    isEvalSupported: false,
     disableFontFace: true,
-    verbosity: 0,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...pdfjsAssetOptions(),
   });
-  const doc = await task.promise;
   try {
+    const doc = await task.promise;
     const texts: string[] = [];
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
       texts.push(
-        content.items
-          .map((item) => ("str" in item ? item.str : ""))
-          .join(" "),
+        content.items.map((item) => ("str" in item ? item.str : "")).join(" "),
       );
     }
     return texts;
   } finally {
-    await doc.destroy();
+    await task.destroy();
   }
 }
 
@@ -194,9 +285,7 @@ export async function pdfPageTexts(buf: Buffer): Promise<string[]> {
  *  ZIP
  * ------------------------------------------------------------------ */
 
-export async function zipEntries(
-  buf: Buffer,
-): Promise<Map<string, Buffer>> {
+export async function zipEntries(buf: Buffer): Promise<Map<string, Buffer>> {
   expectMagic(buf, "zip");
   const zip = await JSZip.loadAsync(buf);
   const out = new Map<string, Buffer>();
@@ -220,6 +309,13 @@ export interface DecodedImageStats {
   /** Pixels where red clearly dominates blue, and the reverse. */
   redPixels: number;
   bluePixels: number;
+  /**
+   * Near-white pixels. `inkPixels` alone cannot see a mid-grey render: a
+   * grayscale conversion turns saturated red into ~0x4c and blue into ~0x1d,
+   * both of which happen to be dark — but a lighter colour would not be, and
+   * "not white" is the property those proofs actually mean by "drawn".
+   */
+  whitePixels: number;
   totalPixels: number;
 }
 
@@ -248,6 +344,7 @@ export async function decodeImageInPage(
       let ink = 0;
       let red = 0;
       let blue = 0;
+      let white = 0;
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i] as number;
         const g = data[i + 1] as number;
@@ -255,6 +352,7 @@ export async function decodeImageInPage(
         if (r < 128 && g < 128 && b < 128) ink++;
         if (r > 160 && b < 96) red++;
         if (b > 160 && r < 96) blue++;
+        if (r > 240 && g > 240 && b > 240) white++;
       }
       return {
         width: canvas.width,
@@ -262,6 +360,7 @@ export async function decodeImageInPage(
         inkPixels: ink,
         redPixels: red,
         bluePixels: blue,
+        whitePixels: white,
         totalPixels: canvas.width * canvas.height,
       };
     },
