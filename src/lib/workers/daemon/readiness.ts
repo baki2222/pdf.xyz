@@ -5,11 +5,18 @@
  *
  * This is the honest seam that keeps `/api/worker/status` truthful about a subtle
  * distinction: a deployment can have a *drainable* queue + storage (so a worker
- * daemon COULD run) while the web app itself still processes nothing. The web app
- * can never observe whether a separate worker process is actually deployed and
- * running, so this reports only what it can know — that the providers a daemon
- * would drain are (or aren't) configured — and states plainly that the daemon is
- * out-of-band.
+ * daemon COULD run) while the web app itself still processes nothing.
+ *
+ * Configuration is answered from the environment; LIVENESS is
+ * not derivable from it, so it is PASSED IN — the caller already holds the
+ * worker's own heartbeat verdict.
+ *
+ * That parameter exists because the sentence here used to end "whether a worker
+ * daemon is actually running is out-of-band and not observable here", which was
+ * true when written and false by the time heartbeats shipped: the very same
+ * `/api/worker/status` payload derives `ocr.available` and `scan.active` from an
+ * observed heartbeat, two fields above. The caller had `workerObserved` on the
+ * line before this one and did not pass it.
  *
  * Node-free (it reuses the same presence-only config checks the status layer
  * already uses), so it is safe to import from the `/api/worker/status` route and
@@ -38,7 +45,8 @@ export interface DaemonReadiness {
   /**
    * Whether THIS process runs the draining daemon. Always `false`: the daemon is
    * a separate, out-of-band process and the web app never becomes it. Honest by
-   * construction — the app cannot see whether a worker is actually deployed.
+   * construction. Whether one is deployed AND alive is a separate question,
+   * answered by the heartbeat the caller passes in, not by this flag.
    */
   runsInThisProcess: false;
   /** One-line, client-safe explanation. Never names a variable, URL, or value. */
@@ -50,12 +58,16 @@ function describe(
   drainable: boolean,
   queueConfigured: boolean,
   storageConfigured: boolean,
+  observed: boolean,
 ): string {
   if (mode === "local-dev") {
     return "In local-dev mode the in-process worker runs supported jobs on this machine; a separate worker daemon is not used. Production runs an out-of-band daemon that drains a configured queue and storage.";
   }
+  if (drainable && observed) {
+    return "The job queue and object storage are configured, and a worker daemon's liveness heartbeat is being observed right now, so jobs are being claimed and completed out-of-band. This app still processes nothing itself.";
+  }
   if (drainable) {
-    return "The job queue and object storage are configured, so a separately deployed worker daemon can claim, run, and complete jobs by draining the queue. This app never processes jobs itself, and whether a worker daemon is actually running is out-of-band and not observable here.";
+    return "The job queue and object storage are configured, so a separately deployed worker daemon can claim, run, and complete jobs by draining the queue. This app never processes jobs itself, and no worker daemon's liveness heartbeat is being observed right now.";
   }
   if (queueConfigured) {
     return "The job queue is configured, but object storage is not, so a worker daemon has nowhere to read inputs from or write artifacts to yet; jobs stay queued.";
@@ -75,6 +87,7 @@ function describe(
  */
 export function resolveDaemonReadiness(
   env: EnvSource = process.env,
+  observed?: boolean,
 ): DaemonReadiness {
   const mode = resolveWorkerMode(env);
   const storageConfigured = resolveStorageCapability(env) !== null;
@@ -86,6 +99,12 @@ export function resolveDaemonReadiness(
     storageConfigured,
     drainable,
     runsInThisProcess: false,
-    detail: describe(mode, drainable, queueConfigured, storageConfigured),
+    detail: describe(
+      mode,
+      drainable,
+      queueConfigured,
+      storageConfigured,
+      observed === true,
+    ),
   };
 }

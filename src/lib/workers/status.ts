@@ -220,7 +220,11 @@ export function buildWorkerStatus(
   // so local-dev status reflects it without any extra wiring.
   const security = buildSecurityCapability(mode, securityQpdf ?? tools?.qpdf);
   const providers = getProviderReadiness(mode, env, workerObserved);
-  const daemon = resolveDaemonReadiness(env);
+  // `workerObserved` is the same heartbeat verdict `ocr` and `scan` above are
+  // derived from. It sat on the line before this one while `daemon` told readers
+  // its liveness was "not observable here" — a sentence that was true before
+  // heartbeats existed and false after, inside a payload that disproved it.
+  const daemon = resolveDaemonReadiness(env, workerObserved === true);
   // Mode-independent, like `daemon`: the AI tools always run on the out-of-band
   // worker, so what matters is whether this deployment declares a provider at all.
   const ai = resolveAiReadiness(env);
