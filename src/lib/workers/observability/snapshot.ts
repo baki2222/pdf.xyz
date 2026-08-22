@@ -77,8 +77,16 @@ import { buildScanCapability } from "../scan/capability";
 // The one VALUE imported from the heartbeat seam, and the reason is the whole
 // point of this module's capability corpus: `emptyCapabilities()` is the single
 // runtime enumeration of what a worker publishes, so the set is derived from it
-// rather than retyped here. Node-free, like everything else this file composes.
-import { emptyCapabilities } from "../heartbeat/factory";
+// rather than retyped here.
+//
+// From `../heartbeat/capabilities` and NOT from `../heartbeat/factory`, which
+// re-exports the same function. This file is reachable from a `"use client"`
+// bundle (operations-dashboard → operations-ui → alert-posture → observability
+// barrel → here), and `factory` reaches `node:crypto`/`node:fs`/`node:path`
+// through `./schema` → `../build-fingerprint`. Importing the factory for its key
+// set failed the client build with `UnhandledSchemeError: Reading from
+// "node:fs"`. The leaf has a type-only import and nothing else.
+import { emptyCapabilities } from "../heartbeat/capabilities";
 import {
   DISABLED_CLEANUP_EVIDENCE_POSTURE,
   type CleanupEvidencePosture,
