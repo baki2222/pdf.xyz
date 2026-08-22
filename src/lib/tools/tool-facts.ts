@@ -21,7 +21,6 @@
  */
 import {
   AI_INPUT_LIMITS,
-  JOB_LIMITS,
   DEFAULT_RETENTION,
   aiPagesAtDensest,
   aiPagesAtSparsest,
@@ -30,6 +29,7 @@ import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
+import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
 /* ------------------------------------------------------------------ *
@@ -46,7 +46,14 @@ import {
 
 export { MAX_IMAGE_BYTES, MAX_IMAGE_MB, MAX_SOURCE_BYTES, MAX_SOURCE_MB };
 
-const MAX_FILE_MB = JOB_LIMITS.maxFileBytes / (1024 * 1024);
+/*
+ * `MAX_FILE_MB` used to sit here — `JOB_LIMITS.maxFileBytes` in megabytes, the
+ * one figure every "How large can my file be?" answer was built from. It is
+ * gone rather than kept beside the per-tool ceiling: a module-level number
+ * spelling out ONE tier's cap is exactly what the FAQ reached for when it
+ * needed a cap for a tool of another tier. `toolFileCeilingMb(tool)` cannot be
+ * reached for without naming which tool is being answered about.
+ */
 
 /**
  * Translate's page floors, derived from ITS ceiling at the same measured
@@ -264,9 +271,29 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
       question: `What happens to my file after ${tool.name} runs?`,
       answer: `The file is processed on an encrypted, isolated worker. Inputs are wiped when the job finishes, the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
     });
+  }
+
+  /*
+   * The size question, asked of every tool that takes a file — and answered
+   * from THAT tool's ceiling.
+   *
+   * It used to live inside the `else` above, answered from one global
+   * `JOB_LIMITS.maxFileBytes`, which made it wrong in two directions at once.
+   * It was never asked of an in-browser tool at all, and measured on the
+   * rendered markup on 2026-08-22, twenty-five of the fifty tool pages stated
+   * no ceiling anywhere a reader meets before picking a file; meanwhile the
+   * number it did state was the worker's, so the moment a tool with a smaller
+   * engine cap reached this branch the page would have advertised 100 MB
+   * against a gate that refuses at 2 MB. Deriving it per tool
+   * closes both: `toolFileCeilingMb` reads the constant the tool's own runner
+   * (or the worker upload gate) compares against, and returns `null` only for a
+   * tool with no file input at all, whose page must not state a per-file cap.
+   */
+  const ceilingMb = toolFileCeilingMb(tool);
+  if (ceilingMb !== null) {
     entries.push({
       question: `How large can my file be?`,
-      answer: `Up to ${MAX_FILE_MB} MB per file.`,
+      answer: `Up to ${ceilingMb} MB per file.`,
     });
   }
 
@@ -370,4 +397,3 @@ export { AI_ALLOWANCE_FACT };
 
 export const OCR_ADVERTISED_LANGUAGES = OCR_LANGUAGES;
 export const OCR_MAX_PICK = MAX_OCR_LANGUAGES;
-export { MAX_FILE_MB };

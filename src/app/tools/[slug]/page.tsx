@@ -1,4 +1,3 @@
-import { JOB_LIMITS } from "@/lib/jobs/types";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -13,6 +12,7 @@ import {
 import { getAllToolSlugs, getRelatedTools, getToolBySlug } from "@/lib/tools";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
+import { stagingHint } from "@/lib/tools/file-ceilings";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { Container } from "@/components/ui/container";
 import { ToolIcon } from "@/components/ui/tool-icon";
@@ -106,6 +106,20 @@ export default async function ToolPage({
   const facts = toolFacts(tool.slug);
   const faq = toolFaq(tool);
   const runnerKind = getRunnerKind(tool.slug);
+  /*
+   * THIS TOOL's ceiling, not the worker's. The staging hint below interpolated
+   * `JOB_LIMITS.maxFileBytes` — 100 MB — for whatever tool rendered it, while
+   * `image-to-pdf` refuses at 25 MB and `text-to-pdf` at 2 MB.
+   *
+   * Measured on 2026-08-22 before the change: that branch renders for a tool
+   * that is `processing: "client"` AND has no runner, and the intersection of
+   * those two sets is EMPTY — 29 client tools, 20 runner-less tools, 0 in both
+   * — so the wrong number reached no reader. It was a loaded gun rather than a
+   * live defect: removing any one runner would have shipped 100 MB on a page
+   * whose gate refuses at 2 MB. `file-ceilings.test.ts` renders all fifty pages
+   * and would fail on that the moment it happened.
+   */
+  const hint = stagingHint(tool);
 
   const breadcrumbs = [
     { name: "All tools", path: "/tools" },
@@ -304,7 +318,7 @@ export default async function ToolPage({
                   <UploadZone
                     ctaLabel={`Run ${tool.name}`}
                     ctaHref={`/workspace?tool=${tool.slug}`}
-                    hint={`Accepts ${tool.accept.join(", ")} · Max ${JOB_LIMITS.maxFileBytes / (1024 * 1024)} MB per file`}
+                    hint={hint}
                   />
                 </div>
               ) : tool.slug === "ocr-pdf" ? (
