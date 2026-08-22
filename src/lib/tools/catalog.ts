@@ -148,7 +148,7 @@ export const tools: Tool[] = [
     how: [
       "Add your PDF — it's analyzed privately, right in your browser.",
       "Review the size breakdown and download a lossless-optimized copy.",
-      "For image-heavy files, deep compression runs on a secure worker (coming soon).",
+      "For image-heavy files, deep image compression runs on a secure, auto-deleting worker — the page checks one is available before anything leaves your device.",
     ],
   },
   {
