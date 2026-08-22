@@ -9,9 +9,9 @@ import {
   getAnnotatePageSizes,
   isValidHexColor,
   isWinAnsiEncodable,
+  nonWinAnsiCharacters,
   parseHexColor,
   sanitizeNoteText,
-  unsupportedNoteCharacters,
   validateAnnotations,
   wrapText,
   type Annotation,
@@ -83,23 +83,43 @@ describe("isWinAnsiEncodable / sanitizeNoteText", () => {
     expect(sanitizeNoteText("a\nb")).toBe("a\nb");
   });
 
-  it("REFUSES text it cannot draw, instead of substituting ?", () => {
-    // This assertion previously ran the other way — it required "日本語" to
-    // become "???" and the export to succeed. It was pinning the defect: a
-    // user annotating a contract in Chinese was told "Markups applied" and
-    // downloaded a PDF of question marks. Silent corruption is worse than
-    // refusal, so the expectation is inverted rather than deleted.
-    expect(() => sanitizeNoteText("日本語")).toThrow(/can't be drawn/i);
-    expect(() => sanitizeNoteText("emoji 😀 test")).toThrow(/can't be drawn/i);
-    // The message names what it could not draw, so the user can fix the input.
-    expect(() => sanitizeNoteText("Привет")).toThrow(/П/);
+  it("passes non-WinAnsi text through UNCHANGED — it neither substitutes nor refuses", () => {
+    // THIRD STATE OF THIS ASSERTION. Kept in one place so the history is
+    // legible rather than archaeology:
+    //
+    //   1. Originally it required `sanitizeNoteText("日本語")` to return "???"
+    //      and the export to succeed. It was pinning the defect: a user
+    //      annotating a contract in Chinese was told "Markups applied" and
+    //      downloaded a PDF of question marks.
+    //   2. On 2026-08-10 it was inverted to require a THROW — silent corruption
+    //      is worse than refusal.
+    //   3. Now the throw is gone from here, because the alphabet limit is gone.
+    //      A real Noto face is embedded by `embedStampFont`, so "日本語" is
+    //      drawn rather than refused, and the refusal that remains — for the
+    //      scripts we still cannot draw — belongs to the one place that knows
+    //      what the fonts can do. Keeping a second, narrower refusal here would
+    //      have meant Bengali notes rejected by a check that never noticed the
+    //      fonts arrived.
+    //
+    // What survived all three: this function NEVER substitutes. That is the
+    // invariant, and it is asserted directly.
+    expect(sanitizeNoteText("日本語")).toBe("日本語");
+    expect(sanitizeNoteText("গোপনীয়")).toBe("গোপনীয়");
+    expect(sanitizeNoteText("Привет")).toBe("Привет");
+    expect(sanitizeNoteText("emoji 😀 test")).toBe("emoji 😀 test");
+    // The character that started it all must never appear from nowhere.
+    expect(sanitizeNoteText("日本語")).not.toContain("?");
   });
 
-  it("reports unsupported characters before any work is committed", () => {
-    expect(unsupportedNoteCharacters("Hello — “world”")).toEqual([]);
-    expect(unsupportedNoteCharacters("a\tb\nc")).toEqual([]);
+  it("still reports which characters need a downloaded face", () => {
+    // Renamed from `unsupportedNoteCharacters`: the predicate is unchanged but
+    // the WORD was wrong the moment a Unicode face could be embedded. "語" is
+    // not unsupported; it is not WinAnsi, which is a statement about the
+    // built-in fonts and a routing decision, not a refusal.
+    expect(nonWinAnsiCharacters("Hello — “world”")).toEqual([]);
+    expect(nonWinAnsiCharacters("a\tb\nc")).toEqual([]);
     // Distinct characters only, so a long CJK note does not produce a wall.
-    expect(unsupportedNoteCharacters("語語語")).toEqual(["語"]);
+    expect(nonWinAnsiCharacters("語語語")).toEqual(["語"]);
   });
 });
 

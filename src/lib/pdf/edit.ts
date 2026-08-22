@@ -534,8 +534,17 @@ export async function editPdf(
     );
   }
 
-  // Embed the font lazily — an image/shape-only edit needs no font.
-  let font: PDFFont | null = null;
+  // Embed the font ONCE, up front, from every text op in the batch — not lazily
+  // at the first one. Two reasons, both about order rather than correctness:
+  // a Bengali caption on page nine must pick the face even when page one is
+  // ASCII, and the refusal for a script we cannot draw has to arrive before any
+  // image has been embedded or any rectangle drawn. An image/shape-only edit
+  // still costs nothing: `texts` is empty, WinAnsi answers, and the standard
+  // face embeds without a download.
+  const texts = list
+    .filter((op) => op.type === "text")
+    .map((op) => sanitizeNoteText((op as { text: string }).text));
+  const font: PDFFont = await embedStampFont(doc, texts);
   const counts: Record<EditOpType, number> = {
     text: 0,
     rect: 0,
@@ -568,7 +577,6 @@ export async function editPdf(
     }
 
     if (op.type === "text") {
-      if (font === null) font = await embedStampFont(doc);
       drawTextOp(page, op, font, rgb);
       counts.text += 1;
       continue;

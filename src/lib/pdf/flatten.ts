@@ -1,6 +1,8 @@
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";
+import { loadPdfLib } from "./pdf-lib";
+import { assertFormFieldTextDrawable } from "./unicode-font";
 
 /**
  * Flatten a PDF's fillable AcroForm fields into static page content, entirely
@@ -44,6 +46,20 @@ export async function flattenPdf(bytes: Uint8Array): Promise<FlattenResult> {
   const fieldCount = form.getFields().length;
 
   if (fieldCount > 0) {
+    // Flattening renders each field's CURRENT value into the page using the
+    // form's own font, so a PDF someone else filled with Bengali or Chinese
+    // fails here — inside `form.flatten()`, with pdf-lib's raw
+    // `WinAnsi cannot encode`. The generic catch below would then blame the
+    // user's file for "features we can't render", which is true of the field
+    // and false about the file. Say what it actually is, first.
+    const { PDFTextField } = await loadPdfLib();
+    assertFormFieldTextDrawable(
+      form
+        .getFields()
+        .map((field) =>
+          field instanceof PDFTextField ? (field.getText() ?? "") : "",
+        ),
+    );
     try {
       form.flatten();
     } catch {

@@ -54,7 +54,8 @@ export async function addWatermark(
   const color = toRgb(rgb, options.color ?? WATERMARK_INK);
 
   const doc = await loadPdf(bytes);
-  const font = await embedStampFont(doc, "bold");
+  // One string, drawn on every page — the whole corpus this document stamps.
+  const font = await embedStampFont(doc, [value], "bold");
   const textWidth = font.widthOfTextAtSize(value, fontSize);
   const textHeight = font.heightAtSize(fontSize);
 

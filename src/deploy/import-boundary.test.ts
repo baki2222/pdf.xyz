@@ -29,6 +29,12 @@ const FORBIDDEN = [
   "pdf-text/native",
   "daemon/runtime",
   "node:child_process",
+  // Resolves the Noto TTFs out of node_modules for the copy step, the coverage
+  // generator and the guards. Reads `node:fs`, so an eager import from a
+  // component would drag the filesystem into the client bundle — the exact
+  // regression the pdf-lib dynamic boundary exists to prevent. The browser
+  // fetches these faces from `public/`; it never resolves a package.
+  "pdf/noto-source",
 ] as const;
 
 /**
@@ -68,6 +74,12 @@ const ALLOWED = new Set(
     // `tsx scripts/worker-*.ts` binary end-to-end. Node-only by design and pulled
     // in exclusively by smoke-test helpers, never by a web route/component/barrel.
     "src/tests/run-worker-cli.ts",
+    // Reads the shipped Noto TTFs so a test embeds the same bytes a browser
+    // would have downloaded. Test-side only: `setup.ts` is vitest's setupFile
+    // and `unicode-fonts.ts` is pulled in by `*.test.ts` files. Neither is
+    // reachable from a route, a component or a barrel.
+    "src/tests/unicode-fonts.ts",
+    "src/tests/setup.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 

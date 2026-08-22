@@ -11,6 +11,7 @@ import {
   type RGB,
   type StampPosition,
 } from "./stamp";
+import { embedDrawingFont } from "./unicode-font";
 
 /**
  * Apply a *visual* electronic signature to a PDF page, fully in-browser. A
@@ -183,11 +184,14 @@ export async function signPdf(
     page.drawImage(image, { x, y, width: boxWidth, height: boxHeight });
   } else {
     const text = input.text.trim();
-    const { StandardFonts } = await loadPdfLib();
-    const font = await doc.embedFont(
-      input.style === "signature"
-        ? StandardFonts.TimesRomanItalic
-        : StandardFonts.Helvetica,
+    // A typed signature is a person's name. Refusing to draw it because the
+    // name is written in Bengali or Korean was the sharpest edge of the WinAnsi
+    // ceiling: a signature tool that cannot spell the signer. Western names
+    // still take Times-Italic or Helvetica and download nothing.
+    const font = await embedDrawingFont(
+      doc,
+      [text],
+      input.style === "signature" ? "serif-italic" : "sans",
     );
     const size = fontSizeForWidth(font.widthOfTextAtSize(text, 1), targetWidth);
     const boxWidth = font.widthOfTextAtSize(text, size);

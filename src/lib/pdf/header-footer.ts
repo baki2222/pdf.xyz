@@ -98,9 +98,22 @@ export async function addHeaderFooter(
   ];
 
   const doc = await loadPdf(bytes);
-  const font = await embedStampFont(doc);
   const pages = doc.getPages();
   const total = pages.length;
+
+  // Every slot on every page, tokens already substituted. `{date}` is supplied
+  // by the runner as a locale string, so a Bengali or Japanese date can arrive
+  // in a header whose template is pure ASCII — the font has to be chosen from
+  // what will be DRAWN, not from what was typed.
+  const drawn: string[] = [];
+  pages.forEach((_page, index) => {
+    const tokens = { n: index + 1, total, date: options.date };
+    for (const slot of slots) {
+      const text = applyTokens(slot.text, tokens);
+      if (text.trim().length > 0) drawn.push(text);
+    }
+  });
+  const font = await embedStampFont(doc, drawn);
 
   pages.forEach((page, index) => {
     const tokens = { n: index + 1, total, date: options.date };

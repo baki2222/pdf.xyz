@@ -38,6 +38,11 @@ import {
   flattenForPhraseSearch,
   withoutComments,
 } from "./copy-surface";
+// The pattern list lives in a plain module, NOT here, so that
+// `guard-wrap-controls.test.ts` can share it without one test file importing
+// another — which under `isolate: false` empties this file's suite. The full
+// mechanism is written down at the definition.
+import { FORBIDDEN } from "./transmission-claims";
 
 const ROOT = process.cwd();
 
@@ -126,27 +131,6 @@ describe("the document really is re-sent on every turn", () => {
     expect(provider.calls[0]?.system).toContain(DOCUMENT_MARKER);
   });
 });
-
-/**
- * Claims that a follow-up avoids sending the document again.
- *
- * NOTE these are phrased as negations on purpose, and this rule deliberately
- * does NOT use `marketing-honesty`'s denial classifier. There, the offence was a
- * promise and a negation made it innocent. Here the offence IS the negation —
- * running it through a "skip anything negated" filter would skip every single
- * one. Same repository, opposite polarity; a shared helper applied without
- * thinking would have emptied this guard on day one.
- */
-export const FORBIDDEN = [
-  /does\s?n'?t resend/i,
-  /does not resend/i,
-  /without resending/i,
-  /never resent/i,
-  /is not sent again/i,
-  /only sent once/i,
-  /sent (?:just |only )?once/i,
-  /no need to resend/i,
-];
 
 /** Every forbidden transmission claim in `source`, near a chat/follow-up subject. */
 function transmissionClaimsIn(source: string): string[] {

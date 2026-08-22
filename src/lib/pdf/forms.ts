@@ -9,6 +9,7 @@ import {
   type PDFField,
 } from "pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
+import { assertFormFieldTextDrawable } from "./unicode-font";
 
 /**
  * Pure, in-browser AcroForm filling built on pdf-lib only — no uploads, no
@@ -383,6 +384,17 @@ export async function applyFormValues(
       field.getName(),
       { field, info: describeField(field) },
     ]),
+  );
+
+  // Before anything is written. A field value outside the built-in alphabet
+  // does not fail where it is set — it fails inside `doc.save()`, where pdf-lib
+  // regenerates the field's appearance from the form's own Helvetica and throws
+  // the raw string `WinAnsi cannot encode "গ" (0x0997)`. Correct refusal, no
+  // usable message, and only after every other field has already been applied.
+  assertFormFieldTextDrawable(
+    Object.values(values).map((value) =>
+      typeof value === "string" ? value : "",
+    ),
   );
 
   const outcomes: FieldApplyOutcome[] = [];
