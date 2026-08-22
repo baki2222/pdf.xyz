@@ -72,6 +72,7 @@ import type {
   HeartbeatMode,
   HeartbeatSource,
 } from "../heartbeat/types";
+import { buildScanCapability } from "../scan/capability";
 import {
   DISABLED_CLEANUP_EVIDENCE_POSTURE,
   type CleanupEvidencePosture,
@@ -875,6 +876,73 @@ export function cleanupEvidenceHealth(
   }
 }
 
+/**
+ * Whether the RUNNING WORKER reports an active malware scanner, read off its own
+ * liveness heartbeat.
+ *
+ * Byte-for-byte the derivation `/api/worker/status` performs for the pipeline copy
+ * it serves users, and deliberately so: only `=== true` on an OBSERVED beat counts,
+ * because an unverified security control must read as absent, never as present.
+ */
+function scanningObservedOnWorker(liveness: HeartbeatLiveness | undefined) {
+  return liveness?.observed === true && liveness.capabilities?.malwareScan;
+}
+
+/**
+ * The malware-scan row — and the one subsystem whose answer depends on WHICH TIER
+ * IS ASKING, because only one of them scans.
+ *
+ * On the **worker** vantage this process IS the scanner, so its own configuration
+ * is the fact: `ready` ⇒ inputs are scanned, `unavailable` (selected but its
+ * endpoint is malformed) is the caveat worth a `warn`, and off is a fine choice.
+ *
+ * On the **web** vantage it is not. Measured on production 2026-08-22, this row
+ * read the web process's own scanner environment — legitimately unconfigured,
+ * because the web tier scans nothing — and published it as a system-wide sentence
+ * about user uploads: "uploads are not scanned", in the same minute that
+ * `/api/worker/status` correctly reported a live scanning worker. It was wrong in
+ * the safe direction, which is why it survived; an operator reading it during an
+ * incident would still have been wrong about a security control.
+ *
+ * So the web vantage answers from the same place the user-facing surface does —
+ * {@link buildScanCapability} over the worker's heartbeat — rather than from a
+ * second, independent derivation that merely happened to agree at review time.
+ * Two surfaces that compute the same claim two ways will eventually disagree; one
+ * function of one input cannot.
+ *
+ * The cost is deliberate and named: in `local-dev` the web app IS the in-process
+ * worker and publishes no heartbeat, so a real scanner configured there now reads
+ * as "not scanning" here. That is the SAFE direction, and it is already exactly
+ * what `/api/worker/status` has always reported in that mode — the two agreeing
+ * on an under-claim is the honest outcome, not a new defect.
+ */
+function scanSubsystem(
+  input: OperationsSnapshotInput,
+  sub: (
+    id: SnapshotSubsystemId,
+    health: HealthClass,
+    detail: string,
+  ) => SnapshotSubsystem,
+): SnapshotSubsystem {
+  if (input.vantage === "web") {
+    // No `warn` arm: from here, "scanning" and "not scanning" are both honest
+    // states of an optional control, and this tier has no scanner of its own that
+    // could be misconfigured. The health class carries no claim the detail does not.
+    return sub(
+      "malware-scan",
+      "ok",
+      buildScanCapability(scanningObservedOnWorker(input.daemonLiveness))
+        .detail,
+    );
+  }
+  const scan = input.deployment.malwareScan;
+  return sub(
+    "malware-scan",
+    scan.state === "unavailable" ? "warn" : "ok",
+    scan.detail,
+  );
+}
+
 /** Build the per-subsystem SLO breakdown. Pure; reuses the facets' own prose. */
 function buildSubsystems(
   input: OperationsSnapshotInput,
@@ -886,7 +954,6 @@ function buildSubsystems(
   const { readiness, deployment } = input;
   const engineState = facetOf(deployment, "engine")?.state;
   const ocrState = facetOf(deployment, "ocr")?.state;
-  const scan = deployment.malwareScan;
 
   const sub = (
     id: SnapshotSubsystemId,
@@ -992,15 +1059,7 @@ function buildSubsystems(
         : (facetOf(deployment, "ocr")?.detail ??
             "OCR availability is unknown."),
     ),
-    sub(
-      "malware-scan",
-      scan.state === "ready"
-        ? "ok"
-        : scan.state === "unavailable"
-          ? "warn"
-          : "ok",
-      scan.detail,
-    ),
+    scanSubsystem(input, sub),
     // Same shape as malware-scan one line up: an optional request gate where
     // "not selected" is a fine choice (ok) and "selected but not doing its job"
     // is the caveat (warn). The posture's own code disambiguates why.
@@ -1172,7 +1231,16 @@ function deriveVerdict(
   }
 
   // 5. A scanner is selected but misconfigured (would silently not scan).
-  if (deployment.malwareScan.state === "unavailable") {
+  //
+  // Only where the scanner would actually run. `fix-scanner`'s prose says "inputs
+  // would not be scanned" — a statement about uploads — so raising it from the web
+  // vantage republished the same contradiction the malware-scan row was just fixed
+  // for, one field over in the same payload: `recommendedActionDetail` and the
+  // alert built from it both said uploads went unscanned while a live worker was
+  // scanning them. The web tier's own scanner setting is inert; a malformed one is
+  // not a fact about uploads, and telling an operator to fix it during an incident
+  // sends them at the wrong tier.
+  if (vantage !== "web" && deployment.malwareScan.state === "unavailable") {
     return { health: "warn", action: "fix-scanner" };
   }
 
