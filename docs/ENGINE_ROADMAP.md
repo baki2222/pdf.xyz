@@ -143,7 +143,7 @@ AI features must be explicitly opt-in and should display model/data handling cle
 - ✅ Added secure-worker preview UI for worker/AI/hybrid tool pages with expected inputs, outputs, retention, lifecycle stages, and “not yet enabled” status.
 - ✅ Documented queue/storage/sandbox/retention/security details in `docs/WORKER_ARCHITECTURE.md`.
 
-### Phase 7 — first real secure worker (in progress)
+### Phase 7 — first real secure worker (shipped)
 
 - ✅ Added a mode-gated **worker adapter** (`src/lib/workers/`) that the API routes
   delegate to. Modes are presence-only: `disabled` (default → `503`),
@@ -165,11 +165,45 @@ AI features must be explicitly opt-in and should display model/data handling cle
   the Compress tool UI**: on-device lossless analysis always, plus the
   secure-worker deep path where configured — labeled honestly (including
   "local-dev only" and "no native engine installed").
-- ⏳ Remaining for production: direct-to-storage uploads, queue-backed execution,
-  signed downloads, lifecycle-enforced deletion, an explicit signed "delete now",
-  and a native `deep` processor deployed behind the same adapter contract. OCR is
-  next: its contract, capability mapping, UX, and browser client shipped in
-  **Phase 11** (below); only the native processor remains.
+- ✅ **Every item this phase left open has since landed**, each in a later phase
+  below. Checked against the phases and against production on 2026-08-22, item by
+  item rather than in aggregate — one of the six did not ship as written, and
+  saying so is the point of this list:
+  - _direct-to-storage uploads_ → **Phase 14**. The browser PUTs to the bucket
+    over a short-lived signed URL; bytes never pass through the app server.
+  - _queue-backed execution_ → **Phase 15** (broker) + **Phase 16** (daemon), with
+    **Phase 21** making the claim/lease/finalize transitions atomic compare-and-set
+    scripts so a stolen or expired lease cannot resurrect a job.
+  - _lifecycle-enforced deletion_ → **Phase 41**: the retention window is signed
+    onto the object as content-free metadata and evaluated **before a byte is
+    read**, so a logically-expired artifact is `410 Gone` even while the bucket
+    still holds it. **Phases 42–44** add the offline evidence tools that check the
+    bytes actually went. Note the honest seam that remains: the app never inspects
+    the bucket, so the lifecycle _rule_ stays operator-declared — production reads
+    `lifecycle: ok` (asserted) and `lifecycle-verification: unknown` (unproven
+    from that vantage) at the same time, and those are two different statements.
+  - _an explicit signed "delete now"_ → `DELETE /api/jobs/:id`, with the executor
+    wiping inputs on every terminal path; production reports `deleteNow: true`.
+  - _a native `deep` processor behind the same adapter contract_ → **Phase 17**
+    (path proven end-to-end) and **Phase 24** (the worker image installs
+    Ghostscript/qpdf/mutool while the web image ships none). Whether a _given_
+    deployment has the engines is probed, never assumed: the web tier cannot see
+    the worker's binaries and says so — `proofs.compressionDeep` reads
+    `unknown` from `/api/worker/operations`, which is honest rather than green.
+  - _signed downloads_ — **this one shipped as something else, deliberately.**
+    **Phase 39** streams the bucket bytes back through the app server behind an
+    opaque artifact route, and **no signed object-store URL is ever handed to the
+    client**; **Phase 40** then re-asserts `Content-Length` from the actual bytes
+    and refuses a truncated or over-declared object rather than streaming it under
+    a header that lies. A reader who assumed "shipped" meant the original wording
+    would have the mechanism exactly backwards.
+- ✅ OCR is no longer "next". The contract, capability mapping, UX and browser
+  client shipped in **Phase 11**; the native processor followed in **Phase 23**,
+  the engine packaging in **Phase 24**, deterministic recognition in **Phase 25**,
+  and the image-only → searchable-PDF proof in **Phase 27**. Production's
+  `/api/worker/status` answers `ocr.available: true` from the worker's own
+  liveness heartbeat, and lists the recognition packs that worker actually has
+  installed rather than the ones the catalogue would like it to have.
 
 ### Phase 8 — account and workspace
 

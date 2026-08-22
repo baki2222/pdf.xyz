@@ -126,12 +126,21 @@ downloaded artifact, never in a log, status field, or job record. Inputs are wip
 right after recognition and outputs auto-delete on their TTL, exactly like every other
 job (`DEFAULT_RETENTION`). See [`OCR_BACKEND.md`](./OCR_BACKEND.md) for the full envelope.
 
-**Planned AI tools:** chat with PDF, summarize, translate, extract tables/data.
+**AI tools** — chat with PDF, summarize, translate, and structured extraction —
+are shipped, not planned. Each resolves to its own worker processor, and one
+shared gate offers them only when the deployment is not local-dev-only, declares
+an AI provider, and has a drainable pipeline; with any of the three missing the
+tool page names the missing piece and never takes the document. Asking a reader
+to hand over a private PDF for work that provably cannot happen is the failure
+this gate exists to prevent.
 
-When workers ship they will follow the plan in
-[`docs/ENGINE_ROADMAP.md`](ENGINE_ROADMAP.md): short-lived encrypted
-storage, isolated per-job sandboxes, malware scanning, strict egress limits,
-automatic deletion within minutes, and **no document contents in logs**.
+They run inside the same envelope as every other worker job
+([`docs/ENGINE_ROADMAP.md`](ENGINE_ROADMAP.md)): short-lived encrypted storage,
+isolated per-job processing, strict egress limits, inputs wiped as soon as the job
+ends, outputs dropped on their retention TTL (`DEFAULT_RETENTION`), and **no
+document contents in logs**. Malware scanning is the one item that is _not_
+universal: it is optional and off unless an operator configures a scanner, and an
+unscanned upload is never reported as scanned.
 
 ## Server API contract (secure workers)
 
