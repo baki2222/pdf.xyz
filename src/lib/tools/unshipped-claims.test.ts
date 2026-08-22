@@ -22,7 +22,7 @@
  * carried the identical claim — found only by searching for the SHAPE of the
  * defect across every tracked markdown file instead of opening the files someone
  * had listed. A named list cannot see a file it does not name, so the corpus
- * here is DISCOVERED: every `.md` under the repo, minus build output.
+ * here is DISCOVERED: every `.md` git TRACKS — see `markdownFiles`.
  *
  * WHAT IT CHECKS, precisely, so nobody mistakes its silence for a broader
  * clearance: a line that carries an unshipped MARKER must not also name a
@@ -50,7 +50,8 @@
  * now exist to prove the predicate can still fire. Delete them and the live-tree
  * assertion below becomes `[] ⊆ X` — vacuously, silently green.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tools, getAllToolSlugs } from "@/lib/tools";
@@ -65,29 +66,36 @@ import type { ToolCapability } from "@/lib/jobs/types";
 const ROOT = process.cwd();
 
 /* ------------------------------------------------------------------ *
- *  1. The corpus: every markdown file in the tree. Walked, never named.
+ *  1. The corpus: every markdown file git tracks. Derived, never named.
  * ------------------------------------------------------------------ */
 
-const SKIP_DIRS = new Set([
-  "node_modules",
-  ".next",
-  ".git",
-  "coverage",
-  "out",
-  "build",
-]);
-
-function markdownFiles(dir = ROOT): string[] {
-  const found: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
-      found.push(...markdownFiles(path.join(dir, entry.name)));
-    } else if (entry.name.endsWith(".md")) {
-      found.push(path.join(dir, entry.name));
-    }
-  }
-  return found;
+/**
+ * The corpus is what git TRACKS, not what the filesystem happens to hold.
+ *
+ * This walked the directory tree with a hand-typed skip list — `node_modules`,
+ * `.next`, `.git`, `coverage`, `out`, `build` — and a skip list cannot see a
+ * directory it does not name. It did not name `.claude/worktrees/`, so on any
+ * machine with an agent worktree checked out the walk swallowed a whole second
+ * copy of the repository: 40 duplicate documents from other branches, and the
+ * guard went red for a claim nobody had shipped. CI never saw it, because CI
+ * has no worktrees — which is the worst version of this bug, a guard that is
+ * green exactly where nobody can debug it.
+ *
+ * `git ls-files` is the derivation that cannot drift: an untracked file is by
+ * definition not shipped, so it cannot make a shipped claim, and every ignored
+ * path disappears without anyone maintaining a list. Rule 4 cuts both ways —
+ * widening the set is a defect too.
+ */
+function markdownFiles(): string[] {
+  const out = execFileSync("git", ["ls-files", "-z", "--", "*.md"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  return out
+    .split("\0")
+    .filter(Boolean)
+    .map((rel) => path.join(ROOT, rel));
 }
 
 /* ------------------------------------------------------------------ *
