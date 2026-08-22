@@ -41,6 +41,7 @@ import {
   uncoveredCodePoints,
 } from "./font-coverage";
 import { installedPackageVersion, notoTtfPath } from "./noto-source";
+import { copyNotoFonts } from "../../../scripts/copy-noto-fonts";
 
 /**
  * A real phrase per advertised OCR language — "confidential document", the
@@ -206,17 +207,68 @@ describe("the pack table describes the files that actually ship", () => {
     expect(FONT_PACKS.map((p) => p.id)).toEqual(bySize.map((p) => p.id));
   });
 
-  it("serves every face the copy step wrote, at the URL the browser asks for", () => {
-    // The chain a fetch depends on: FONT_PACKS -> copy-noto-fonts.ts ->
-    // public/. Reading the table alone would not notice the copy step never
-    // running; this walks to the file.
-    const missing = FONT_PACKS.filter(
-      (pack) =>
-        !existsSync(path.join(process.cwd(), "public", fontPackUrl(pack))),
-    ).map((pack) => fontPackUrl(pack));
+  /**
+   * The chain a fetch depends on: FONT_PACKS -> copy-noto-fonts.ts -> public/.
+   *
+   * THIS RUNS THE COPY STEP RATHER THAN ASSERTING SOMEBODY ELSE DID. The first
+   * spelling checked `existsSync(public/<fontPackUrl>)` and was red on every CI
+   * run of PR #130 — `pnpm test` runs BEFORE `pnpm build`, and only `dev` and
+   * `build` invoke the copy step, so the files were legitimately absent. That
+   * red said something true about the workflow's ORDER and nothing at all about
+   * the product; a developer running `npx vitest` from a fresh clone got it
+   * too. Calling `copyNotoFonts()` makes the guard order-independent and moves
+   * it onto the question worth asking.
+   *
+   * That question is BOTH DIRECTIONS of one claim: the path the copy step
+   * WRITES and the URL `unicode-font.ts` FETCHES are the same string. They are
+   * computed independently — `path.join("public", "fonts", version, file)` on
+   * one side, a template literal on the other — so this is a real tie and not a
+   * restatement. A face written somewhere the browser never asks for, or asked
+   * for at a URL nothing writes, fails here.
+   *
+   * ── AND IT IS STILL THE AUTHOR'S ARTIFACT ───────────────────────────────────
+   *
+   * What this proves is that bytes reached a directory on the machine running
+   * the tests. It does NOT prove they are SERVED. `next.config.mjs` could stop
+   * emitting `public/`, a header rule could break the immutable caching, a
+   * rewrite could shadow `/fonts/*` — and every assertion here would stay
+   * green while every Bengali watermark in production failed with a fetch
+   * error. The reader's artifact is the HTTP response, and the only thing that
+   * reads it is `e2e/unicode-fonts.spec.ts`, which runs against a real server
+   * in the Playwright CI job (which does build first) and requires a 200 of the
+   * right length starting with a TrueType signature.
+   */
+  it("the copy step writes exactly the URLs the browser is sent to", () => {
+    const written = copyNotoFonts();
+
+    // Health check: bound the corpus's own size before comparing sets, because
+    // two empty lists are equal and that would be the strongest possible pass.
+    expect(FONT_PACKS.length).toBeGreaterThanOrEqual(5);
+    expect(written.length).toBe(FONT_PACKS.length);
+
+    // Direction 1: every URL the fetch path builds was written by the copy step.
+    // Direction 2: every path the copy step wrote is one the fetch path builds.
+    // `toEqual` on two sorted arrays is both at once, and names the offenders.
+    expect(
+      written.map((face) => face.servedAt).sort(),
+      "the copy step's destinations and fontPackUrl() have drifted apart — one of them is now writing or fetching a path the other never mentions",
+    ).toEqual(FONT_PACKS.map(fontPackUrl).sort());
+
+    // And walk to the file, at the URL, with the size the table records — the
+    // copy step's own return value is its report on itself, so it cannot be the
+    // only witness.
+    const missing: string[] = [];
+    for (const pack of FONT_PACKS) {
+      const onDisk = path.join(process.cwd(), "public", fontPackUrl(pack));
+      if (!existsSync(onDisk)) {
+        missing.push(fontPackUrl(pack));
+        continue;
+      }
+      expect(statSync(onDisk).size, fontPackUrl(pack)).toBe(pack.bytes);
+    }
     expect(
       missing,
-      "these faces are not in public/ — run `pnpm fonts:copy` (dev and build do it automatically). Without them every non-Latin stamp fails with a fetch error",
+      "these faces are not in public/ after the copy step ran. Without them every non-Latin stamp fails with a fetch error",
     ).toEqual([]);
   });
 

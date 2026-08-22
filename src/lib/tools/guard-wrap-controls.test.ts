@@ -11,9 +11,13 @@
  *
  * `flattenForPhraseSearch` closes it, and this file is the evidence that it does
  * — for the patterns that are actually shipped, not for a regex re-typed here.
- * `FORBIDDEN` is imported from the transmission guard itself, so if that list
- * changes, this control follows it. A control that re-derives the rule proves
- * only that the author can repeat themselves.
+ * `FORBIDDEN` is the shipped list the transmission guard runs on, imported from
+ * `./transmission-claims` rather than re-typed here, so if that list changes
+ * this control follows it. A control that re-derives the rule proves only that
+ * the author can repeat themselves. (It used to be imported from
+ * `transmission-honesty.test.ts` directly; that made this file evaluate a test
+ * file and emptied its suite under `isolate: false` — see the module for the
+ * mechanism.)
  *
  * WHAT THIS DOES NOT COVER, stated rather than left to be discovered:
  *
@@ -38,7 +42,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { flattenForPhraseSearch } from "./copy-surface";
-import { FORBIDDEN } from "./transmission-honesty.test";
+import { FORBIDDEN } from "./transmission-claims";
 
 /** Marketing's own promise patterns, as that guard spells them. */
 const LAYOUT_PROMISES = [

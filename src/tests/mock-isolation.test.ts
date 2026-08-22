@@ -422,3 +422,86 @@ describe("no mock is observable by another test file", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * The same shared cache, one hop over, with no mock involved.
+ *
+ * `findMockLeaks` asks about modules evaluated WHILE A MOCK WAS ACTIVE. That is
+ * a real question and it is not the only one: a test file that statically
+ * imports ANOTHER TEST FILE is evaluated by it, and under `isolate: false` the
+ * second file's own turn is then a module-cache hit. Its `describe()` blocks
+ * never re-register and vitest kills the run with
+ *
+ *     Error: No test suite found in file …
+ *
+ * Found on 2026-08-22 while rescuing PR #130, in 2 of 7 local full runs, and it
+ * had nothing to do with that branch: `guard-wrap-controls.test.ts` imported a
+ * pattern list from `transmission-honesty.test.ts`. Order-dependent, so it is
+ * intermittent, and it reproduces on demand from the two files alone —
+ *
+ *     npx vitest run --no-file-parallelism --sequence.shuffle.files \
+ *       --sequence.seed=2 src/lib/tools/guard-wrap-controls.test.ts \
+ *       src/lib/tools/transmission-honesty.test.ts
+ *
+ * The corpus is the one above — every tracked and untracked source file, edges
+ * from their real import statements — so this cannot go stale against a file it
+ * does not name. The fix at the time was to move the shared list into
+ * `src/lib/tools/transmission-claims.ts`; the general rule is that shared
+ * fixtures belong in a module, not in a file vitest also collects.
+ */
+describe("no test file is imported by another test file", () => {
+  it("holds across every tracked test file", () => {
+    const files = trackedSources();
+    expect(
+      files.length,
+      "the source listing is implausibly small — the corpus, not the code, is what failed",
+    ).toBeGreaterThan(500);
+
+    const graph = new Map<string, Parsed>();
+    for (const file of files) graph.set(file, parse(file));
+
+    const testFiles = files.filter(isTestFile);
+    expect(
+      testFiles.length,
+      "no test files were found, so this guard is asking nothing",
+    ).toBeGreaterThan(300);
+
+    // POSITIVE CONTROL: the detection is `an edge whose TARGET is a test file`.
+    // Prove that predicate can fire at all before trusting it to report none —
+    // run it over a graph that contains exactly the edge this guard exists for.
+    const control = graphOf({
+      "a.test.ts": { imports: ["b.test.ts"] },
+      "b.test.ts": { imports: ["helper.ts"] },
+    });
+    expect(
+      importedTestFiles(control, ["a.test.ts", "b.test.ts"]),
+      "the detection cannot see a test-file import even when handed one",
+    ).toEqual(["a.test.ts -> b.test.ts"]);
+
+    expect(
+      importedTestFiles(graph, testFiles),
+      "a test file statically imports another test file. Under `isolate: false` " +
+        "the imported file is evaluated by the importer, so when vitest runs it " +
+        "on its own the module cache answers and no suite registers: " +
+        "`No test suite found in file …`. Move whatever is shared into a plain " +
+        "module — a file vitest collects is not a fixture library.",
+    ).toEqual([]);
+  });
+});
+
+/** Every `importer -> imported` edge whose target is itself a test file. */
+function importedTestFiles(
+  graph: ReadonlyMap<string, Parsed>,
+  testFiles: readonly string[],
+): string[] {
+  const isTest = new Set(testFiles);
+  const edges: string[] = [];
+  for (const importer of testFiles) {
+    for (const target of graph.get(importer)?.imports ?? []) {
+      if (target !== importer && isTest.has(target)) {
+        edges.push(`${importer} -> ${target}`);
+      }
+    }
+  }
+  return edges.sort();
+}
