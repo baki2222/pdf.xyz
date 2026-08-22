@@ -1,5 +1,5 @@
 /**
- * Node-free public surface of the secure-worker **liveness heartbeat** (Phase 30).
+ * Public surface of the secure-worker **liveness heartbeat** (Phase 30).
  *
  * It lets an out-of-band worker daemon publish a bounded, content-free liveness
  * record to the shared job-queue broker, and lets the web app read it back to
@@ -8,9 +8,13 @@
  * any infrastructure identifier or pretending a worker is alive on stale evidence.
  *
  * Safe to import from the `/api/worker/operations` route (the reader) and reused by
- * the Node-only daemon CLI (the publisher); it builds only on the node-free Redis
- * `fetch` transport and the node-free queue config, so it never pulls a Node
- * built-in or a hosted dependency of its own.
+ * the Node-only daemon CLI (the publisher) — both SERVER tiers. It is not safe
+ * from a client bundle, and the sentence here used to claim it "never pulls a
+ * Node built-in": `./schema` imports `FINGERPRINT_PATTERN` from
+ * `../build-fingerprint`, which reads `node:crypto`, `node:fs` and `node:path`.
+ *
+ * A client tier that wants the capability key set takes the leaf
+ * `./capabilities` directly; this barrel is not the door for it.
  */
 
 export * from "./types";

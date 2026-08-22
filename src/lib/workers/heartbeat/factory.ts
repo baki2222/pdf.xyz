@@ -14,10 +14,17 @@
  * meaningful `unknown`. The read side never touches the network when disabled, so
  * the no-config path stays offline and deterministic.
  *
- * Node-free: it composes only the node-free queue config parser and the node-free
- * `RedisClient` transport, so `readWorkerHeartbeatLiveness` is safe to call from the
- * `/api/worker/operations` route, and `createHeartbeatPublisher` is called by the
- * Node-only daemon CLI.
+ * Safe from a SERVER route — `readWorkerHeartbeatLiveness` is called by
+ * `/api/worker/operations`, and `createHeartbeatPublisher` by the Node-only
+ * daemon CLI — but NOT from a client bundle. This docblock used to say
+ * "Node-free", and had been wrong ever since `./schema` started importing
+ * `FINGERPRINT_PATTERN`: that edge reaches `../build-fingerprint`, which reads
+ * `node:crypto`, `node:fs` and `node:path`. A `"use client"` module that imports
+ * anything from here fails the webpack build with `UnhandledSchemeError`.
+ *
+ * The one thing a client tier legitimately wants from this seam is the
+ * capability enumeration, so that lives in the leaf `./capabilities` and is
+ * merely re-exported below.
  */
 
 import type { FieldError } from "@/lib/jobs";
@@ -39,15 +46,25 @@ import {
   type HeartbeatPublishSpec,
   type HeartbeatRedisDeps,
 } from "./redis";
+import { emptyCapabilities } from "./capabilities";
 import { HEARTBEAT_ROLE } from "./types";
 import type {
-  HeartbeatCapabilities,
   HeartbeatCapability,
   HeartbeatLiveness,
   HeartbeatPublisher,
   HeartbeatReader,
   HeartbeatSource,
 } from "./types";
+
+/**
+ * Re-exported, not defined here. It lives in the leaf `./capabilities` because
+ * this module is NOT node-free — it reaches `node:crypto`/`node:fs`/`node:path`
+ * through `./schema` → `../build-fingerprint` — and the operations dashboard
+ * derives its capability corpus from this enumeration from inside a
+ * `"use client"` bundle. See that file's header for the import chain that broke
+ * the client build.
+ */
+export { emptyCapabilities };
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -246,17 +263,4 @@ export function readWorkerHeartbeatLiveness(
   deps: HeartbeatRedisDeps = {},
 ): Promise<HeartbeatLiveness> {
   return createHeartbeatReader(env, deps).read();
-}
-
-/** All-false capabilities — the safe default when a caller has nothing to report. */
-export function emptyCapabilities(): HeartbeatCapabilities {
-  return {
-    deepCompression: false,
-    ocr: false,
-    ocrLanguages: [],
-    malwareScan: false,
-    atomicQueue: false,
-    chunkedTranslate: false,
-    deliveryCap: false,
-  };
 }

@@ -5,6 +5,7 @@ import { resolveDeploymentReadiness } from "../deploy";
 import { LIFECYCLE_ENV } from "../lifecycle";
 import type { HeartbeatLiveness } from "../heartbeat";
 import {
+  ADVERTISED_WORKER_CAPABILITIES,
   collectRuntimeOperationsSnapshot,
   collectWebOperationsSnapshot,
   engineHealthFromTools,
@@ -447,6 +448,28 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     ...extra,
   });
 
+  /**
+   * A worker that proves EVERYTHING, derived from the corpus rather than typed.
+   *
+   * The literal version of this fixture is what pinned the defect: the "reports
+   * OK only when every advertised capability is proven" test below set two
+   * flags and left five at `false`, and it went green — because the subsystem
+   * asked about exactly those two. The fixture agreed with the bug, which is
+   * the cheap direction.
+   *
+   * Derived, it cannot agree again: a capability added to the wire lands here
+   * automatically, and the value it needs is whatever that capability's own
+   * proof rule accepts (an array for the language list, `true` for the flags),
+   * so the coercion the read side avoids is not reintroduced by the fixture.
+   */
+  const allProven = (): Record<string, unknown> =>
+    Object.fromEntries(
+      ADVERTISED_WORKER_CAPABILITIES.map((capability) => [
+        capability.key,
+        capability.key === "ocrLanguages" ? ["eng"] : true,
+      ]),
+    );
+
   it("reports BLOCKED, naming the capability, when the image lacks it", () => {
     const row = capabilityRow(
       liveness("observed", {
@@ -469,10 +492,60 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
   it("reports OK only when every advertised capability is proven", () => {
     const row = capabilityRow(
       liveness("observed", {
-        capabilities: caps({ chunkedTranslate: true, deliveryCap: true }),
+        capabilities:
+          allProven() as unknown as HeartbeatLiveness["capabilities"],
       }),
     );
     expect(row?.health).toBe("ok");
+    expect(row?.detail).toContain("proved every capability");
+  });
+
+  it("EVERY published capability can turn the row red, one at a time", () => {
+    /**
+     * The corpus check at the point of consumption — the reader's row, not the
+     * array that feeds it. Measured 2026-08-22 before the fix: this loop went
+     * red for `deepCompression`, `ocr`, `ocrLanguages`, `malwareScan` and
+     * `atomicQueue`, because the subsystem asked about two of the seven
+     * capabilities a worker publishes and printed "proved every capability the
+     * product's copy promises" over the other five. `malwareScan` is the one
+     * that mattered most: the privacy page states the scan plainly.
+     *
+     * A capability that cannot turn this row red is not being checked, however
+     * many places name it.
+     */
+    // BOUND THE CORPUS: `for` over an empty list is the strongest possible pass.
+    expect(
+      ADVERTISED_WORKER_CAPABILITIES.length,
+      "the advertised corpus is implausibly small — the corpus, not the row, " +
+        "is what failed",
+    ).toBeGreaterThanOrEqual(7);
+
+    for (const capability of ADVERTISED_WORKER_CAPABILITIES) {
+      const quiet = allProven();
+      // Whatever "did not prove it" looks like for this capability's own shape.
+      quiet[capability.key] = capability.key === "ocrLanguages" ? [] : false;
+      const row = capabilityRow(
+        liveness("observed", {
+          capabilities: quiet as unknown as HeartbeatLiveness["capabilities"],
+        }),
+      );
+      expect(
+        row?.health,
+        `a worker publishing ${capability.key} as unproven still reads as ` +
+          "healthy — this capability is named in the corpus and checked by " +
+          "nothing",
+      ).toBe("blocked");
+      expect(
+        row?.detail,
+        `the row does not name ${capability.key} (${capability.label}), so an ` +
+          "operator has a red light and nowhere to look",
+      ).toContain(capability.label);
+      expect(
+        row?.detail,
+        `the row does not say what the product promises on the strength of ` +
+          `${capability.key}, which is the half that makes a red light worth acting on`,
+      ).toContain(capability.promise);
+    }
   });
 
   it("reports UNKNOWN — and says so — when no worker answered", () => {
@@ -493,9 +566,12 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     // The trap the OCR path already documents: a capability is only trusted
     // from a beat that was genuinely observed. A worker that died an hour ago
     // saying "I can chunk" is not evidence that anything can chunk now.
+    // Fully proving, and still unknown — the strongest version of this: even a
+    // worker that answered every question is not evidence once the beat is old.
     const row = capabilityRow(
       liveness("stale", {
-        capabilities: caps({ chunkedTranslate: true, deliveryCap: true }),
+        capabilities:
+          allProven() as unknown as HeartbeatLiveness["capabilities"],
       }),
     );
     expect(row?.health).toBe("unknown");

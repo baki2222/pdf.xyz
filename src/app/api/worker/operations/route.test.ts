@@ -7,6 +7,8 @@ import {
   type WorkerHeartbeat,
 } from "@/lib/workers/heartbeat";
 import type { WorkerOperationsSnapshot } from "@/lib/workers/observability";
+import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability";
+import type { HeartbeatCapabilities } from "@/lib/workers/heartbeat";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
 import { RATE_LIMIT_REDIS_ENV } from "@/lib/ratelimit/redis-config";
 import {
@@ -24,6 +26,25 @@ async function json(res: Response): Promise<unknown> {
 /** Next always passes the request to a route handler; unit calls supply a bare one. */
 function opsReq(): Request {
   return new Request("http://localhost/api/worker/operations");
+}
+
+/**
+ * A worker that proves EVERY advertised capability — the "healthy image" these
+ * fixtures mean when they say a fresh beat should read `ok`.
+ *
+ * Derived from the corpus, not written out. Written out, these fixtures said
+ * `ocr: false, ocrLanguages: [], malwareScan: false` and still asserted an `ok`
+ * posture, because until 2026-08-22 the subsystem only asked about
+ * `chunkedTranslate` and `deliveryCap`. The fixture and the guard agreed with
+ * each other and both were wrong about the same five capabilities.
+ */
+function provingCapabilities(): HeartbeatCapabilities {
+  return Object.fromEntries(
+    ADVERTISED_WORKER_CAPABILITIES.map((capability) => [
+      capability.key,
+      capability.key === "ocrLanguages" ? ["eng"] : true,
+    ]),
+  ) as unknown as HeartbeatCapabilities;
 }
 
 describe("GET /api/worker/operations", () => {
@@ -125,15 +146,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
     stubBrokerHeartbeat(
       buildHeartbeat({
         mode: "loop",
-        capabilities: {
-          deepCompression: true,
-          ocr: false,
-          ocrLanguages: [],
-          malwareScan: false,
-          atomicQueue: true,
-          chunkedTranslate: true,
-          deliveryCap: true,
-        },
+        capabilities: provingCapabilities(),
         at: Date.now(),
       }),
     );
@@ -261,15 +274,7 @@ describe("GET /api/worker/operations — attached alert posture (Phase 31)", () 
             result: serializeHeartbeat(
               buildHeartbeat({
                 mode: "loop",
-                capabilities: {
-                  deepCompression: true,
-                  ocr: false,
-                  ocrLanguages: [],
-                  malwareScan: false,
-                  atomicQueue: true,
-                  chunkedTranslate: true,
-                  deliveryCap: true,
-                },
+                capabilities: provingCapabilities(),
                 at: Date.now(),
               }),
             ),

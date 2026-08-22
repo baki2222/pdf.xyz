@@ -68,11 +68,25 @@ import {
 import type {
   DaemonLivenessState,
   HeartbeatAgeBucket,
+  HeartbeatCapabilities,
   HeartbeatLiveness,
   HeartbeatMode,
   HeartbeatSource,
 } from "../heartbeat/types";
 import { buildScanCapability } from "../scan/capability";
+// The one VALUE imported from the heartbeat seam, and the reason is the whole
+// point of this module's capability corpus: `emptyCapabilities()` is the single
+// runtime enumeration of what a worker publishes, so the set is derived from it
+// rather than retyped here.
+//
+// From `../heartbeat/capabilities` and NOT from `../heartbeat/factory`, which
+// re-exports the same function. This file is reachable from a `"use client"`
+// bundle (operations-dashboard → operations-ui → alert-posture → observability
+// barrel → here), and `factory` reaches `node:crypto`/`node:fs`/`node:path`
+// through `./schema` → `../build-fingerprint`. Importing the factory for its key
+// set failed the client build with `UnhandledSchemeError: Reading from
+// "node:fs"`. The leaf has a type-only import and nothing else.
+import { emptyCapabilities } from "../heartbeat/capabilities";
 import {
   DISABLED_CLEANUP_EVIDENCE_POSTURE,
   type CleanupEvidencePosture,
@@ -130,35 +144,197 @@ export type HealthClass = "ok" | "warn" | "blocked" | "unknown";
 /** Whether an engine/proof could be confirmed here (never a path, version, or value). */
 export type ProofAvailability = "available" | "unavailable" | "unknown";
 
+/* ------------------------------------------------------------------ *
+ *  Advertised worker capabilities — the corpus, derived from the wire
+ * ------------------------------------------------------------------ */
+
+/** Every field a worker can publish about itself. The corpus, at the type level. */
+export type WorkerCapabilityKey = keyof HeartbeatCapabilities;
+
+/**
+ * How one published capability value is read into "this image PROVED it".
+ *
+ * Declared per capability rather than assumed, because the published values are
+ * not all the same shape and coercing the odd one out is the quiet kind of
+ * wrong. `ocrLanguages` is an array; `value === true` is `false` for every array
+ * ever published, so a single boolean rule would have produced a permanently red
+ * row that reads exactly like a finding.
+ */
+export type CapabilityProof = (published: unknown) => boolean;
+
+/** Published as a strict boolean: only a literal `true` counts as proof. */
+const provenByFlag: CapabilityProof = (published) => published === true;
+
+/**
+ * Published as a list of recognition packs, where NON-EMPTY is the whole test.
+ *
+ * Non-empty because that is the exact condition the reader's side already keys
+ * on: `/api/worker/status` trusts the list only when it has length, and falls
+ * back to the entire advertised catalogue when it is empty. An empty list is
+ * therefore precisely the state in which the sentence on the OCR tool page —
+ * *"The worker reports the packs it actually has installed, and the page's live
+ * status reflects that report"* — stops being true. Same predicate, same
+ * meaning, on both sides of the wire.
+ *
+ * Deliberately NOT "the list covers every advertised code". That is a different
+ * claim, the copy does not make it (the menu narrows to what the worker
+ * reports, so a partial image stays honest to the reader), and the Dockerfile
+ * drift guard `src/deploy/ocr-languages.test.ts` already owns it at build time.
+ */
+const provenByReportedLanguages: CapabilityProof = (published) =>
+  Array.isArray(published) && published.length > 0;
+
+/** What one capability promises a reader, and how a worker proves it. */
+export interface WorkerCapabilityPromise {
+  /** Short human name for the row (never a variable or field name). */
+  readonly label: string;
+  /** The reader-facing promise that fails if the running image lacks this. */
+  readonly promise: string;
+  /** How this capability's published value is read into a proof verdict. */
+  readonly proves: CapabilityProof;
+}
+
+/**
+ * One entry per field a worker can publish — **and the type is the enforcement**.
+ *
+ * ⚠️ THE BUG THIS SHAPE EXISTS TO PREVENT. Until 2026-08-22 the corpus was a
+ * hand-typed array of two entries sitting two files from `emptyCapabilities()`,
+ * which already enumerates the true set. The heartbeat published seven
+ * capabilities; this subsystem asked about two, and printed *"The running worker
+ * proved every capability the product's copy promises"* over the other five.
+ * Measured, at the point of consumption, on a record saying `malwareScan: false`:
+ *
+ * ```
+ *   ASKED ABOUT : chunkedTranslate, deliveryCap
+ *   PUBLISHED   : deepCompression, ocr, ocrLanguages, malwareScan,
+ *                 atomicQueue, chunkedTranslate, deliveryCap
+ *   ROW HEALTH  : ok
+ *   ROW DETAIL  : The running worker proved every capability the product's
+ *                 copy promises.
+ * ```
+ *
+ * The guard was not weak, it was NARROW, and its output was phrased as though it
+ * were total — house rule 1 in the place it is hardest to see, because a typed
+ * corpus cannot see a capability it does not name.
+ *
+ * `Record<WorkerCapabilityKey, …>` is what stops that recurring: the key set is
+ * the heartbeat's own type, so a capability added to {@link HeartbeatCapabilities}
+ * does not compile until someone writes what it promises a reader. A default
+ * promise string would put the bug straight back — a row that names a capability
+ * and cannot say why it matters is a red light with nowhere to look — so there
+ * is no default, in either the type or {@link buildAdvertisedCapabilities}.
+ */
+const WORKER_CAPABILITY_PROMISES: Record<
+  WorkerCapabilityKey,
+  WorkerCapabilityPromise
+> = {
+  deepCompression: {
+    label: "deep compression",
+    promise:
+      "an image-heavy PDF is downsampled by a native engine on the worker, not merely repacked losslessly in the browser",
+    proves: provenByFlag,
+  },
+  ocr: {
+    label: "OCR",
+    promise:
+      "a scanned PDF comes back with a searchable, copyable text layer added by a real recognition engine",
+    proves: provenByFlag,
+  },
+  ocrLanguages: {
+    label: "reported OCR languages",
+    promise:
+      "the language menu offers the packs the running image actually holds, rather than falling back to the whole advertised catalogue",
+    proves: provenByReportedLanguages,
+  },
+  malwareScan: {
+    label: "malware scanning",
+    promise:
+      "an uploaded file is scanned for malware before it is processed — the privacy page states that plainly, with no hedge and no condition",
+    proves: provenByFlag,
+  },
+  atomicQueue: {
+    label: "atomic queue transitions",
+    promise:
+      "a queued job is claimed by exactly one worker, so an upload is processed once and deleted on the published timetable",
+    proves: provenByFlag,
+  },
+  chunkedTranslate: {
+    label: "chunked translation",
+    promise:
+      "a document longer than one pass is split at page boundaries rather than refused",
+    proves: provenByFlag,
+  },
+  deliveryCap: {
+    label: "delivery cap",
+    promise:
+      "a job delivers only what its reservation paid for, and names the bound that stopped it",
+    proves: provenByFlag,
+  },
+};
+
+/** One capability the subsystem asks the running worker about. */
+export interface AdvertisedWorkerCapability extends WorkerCapabilityPromise {
+  readonly key: WorkerCapabilityKey;
+}
+
+/**
+ * Pair a published key set with its promises, refusing anything it cannot explain.
+ *
+ * Exported so the failure path has somewhere to be exercised: a guard whose exit
+ * condition nobody has watched fire is a guard nobody has watched fire.
+ *
+ * Both refusals are the PROPERTY, not a mechanism. An unexplained key is the
+ * silently-defaulted promise the type above exists to prevent, arriving by a
+ * route the type cannot see (a cast, a spread, a JS caller). An empty key set is
+ * the vacuous pass: every `for` loop downstream would assert nothing and the row
+ * would report the strongest possible green.
+ */
+export function buildAdvertisedCapabilities(
+  publishedKeys: readonly string[],
+  promises: Readonly<
+    Record<string, WorkerCapabilityPromise | undefined>
+  > = WORKER_CAPABILITY_PROMISES,
+): readonly AdvertisedWorkerCapability[] {
+  if (publishedKeys.length === 0) {
+    throw new Error(
+      "advertised worker capabilities: the published key set is empty, so this " +
+        "subsystem would ask a live worker nothing and report every image healthy",
+    );
+  }
+  return publishedKeys.map((key) => {
+    const promise = promises[key];
+    if (!promise) {
+      throw new Error(
+        `advertised worker capabilities: a worker publishes "${key}" and nothing ` +
+          "here says what it promises a reader. Add an entry — a capability with " +
+          "no promise is a red light with nowhere to look.",
+      );
+    }
+    return { key: key as WorkerCapabilityKey, ...promise };
+  });
+}
+
 /**
  * The capabilities the product's COPY promises and a worker must therefore
  * prove — the corpus this subsystem is asked about.
  *
- * Each entry pairs the flag a worker publishes with the promise that depends on
- * it, so the reason a red line matters is in the same place as the line. The
- * pairing is what makes this more than a list: `copy-surface`-style guards can
- * require that a sentence making one of these promises has an entry here, and
- * that an entry here is promised by some sentence — a corpus in both
- * directions, rather than a list that grows and never shrinks.
+ * DERIVED FROM THE WIRE, never typed. `emptyCapabilities()` is the single
+ * runtime enumeration of what a worker publishes: its return type pins it to
+ * {@link HeartbeatCapabilities} in both directions (a missing field will not
+ * compile, an extra one will not either), and `heartbeat/schema.test.ts` already
+ * pins that same key set through `serializeHeartbeat` → `parseHeartbeat`, which
+ * is the value this subsystem actually reads. So the set here cannot drift from
+ * the set on the wire without something else going red first.
+ *
+ * Each entry pairs the field a worker publishes with the promise that depends on
+ * it, so the reason a red line matters is in the same place as the line.
  */
-export const ADVERTISED_WORKER_CAPABILITIES = [
-  {
-    key: "chunkedTranslate",
-    label: "chunked translation",
-    promise:
-      "a document longer than one pass is split at page boundaries rather than refused",
-  },
-  {
-    key: "deliveryCap",
-    label: "delivery cap",
-    promise:
-      "a job delivers only what its reservation paid for, and names the bound that stopped it",
-  },
-] as const;
+export const ADVERTISED_WORKER_CAPABILITIES: readonly AdvertisedWorkerCapability[] =
+  buildAdvertisedCapabilities(Object.keys(emptyCapabilities()));
 
 /** What the running worker proved, keyed by {@link ADVERTISED_WORKER_CAPABILITIES}. */
 export type ProvenWorkerCapabilities = Readonly<
-  Record<(typeof ADVERTISED_WORKER_CAPABILITIES)[number]["key"], boolean>
+  Record<WorkerCapabilityKey, boolean>
 >;
 
 /** A subsystem the snapshot classifies into an SLO health class. */
@@ -1006,7 +1182,7 @@ function buildSubsystems(
           .map((cap) => cap.promise)
           .join(
             "; and ",
-          )}. Either the image predates the feature, or it does not publish the proof — rebuild and redeploy the worker, then re-check.`;
+          )}. Either the image predates the feature, it does not publish the proof, or that capability is switched off on this worker — rebuild and redeploy the worker, or turn the capability on, then re-check.`;
 
   // OCR: `ready` is healthy; `not-configured` means probed-and-absent — a caveat only
   // when OCR is actually opted into (else "off" is a fine choice); not observable from
@@ -1447,9 +1623,10 @@ export function engineHealthFromTools(
  * answered" and "a worker answered no" are different operator problems and the
  * second one is the deploy gap.
  *
- * The keys come from {@link ADVERTISED_WORKER_CAPABILITIES}, so adding a
- * capability to that list wires it through here without an edit — a list that
- * has to be updated in two places is a list that will be updated in one.
+ * The keys come from {@link ADVERTISED_WORKER_CAPABILITIES}, which is itself
+ * derived from the heartbeat's own key set, so a capability added to the wire
+ * arrives here without an edit — a list that has to be updated in two places is
+ * a list that will be updated in one, and for five capabilities it was.
  */
 function provenCapabilitiesFrom(
   liveness: HeartbeatLiveness | undefined,
@@ -1459,7 +1636,10 @@ function provenCapabilitiesFrom(
   return Object.fromEntries(
     ADVERTISED_WORKER_CAPABILITIES.map((capability) => [
       capability.key,
-      published[capability.key] === true,
+      // Each capability reads its OWN published shape. `=== true` here would be
+      // correct for six of the seven and permanently `false` for `ocrLanguages`,
+      // which is an array — a red row that reads like a finding.
+      capability.proves(published[capability.key]),
     ]),
   ) as ProvenWorkerCapabilities;
 }

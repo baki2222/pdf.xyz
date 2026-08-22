@@ -225,13 +225,44 @@ describe("the 2026-08-12 worker, as it actually was", () => {
       "the vendored key set is not what that commit emitted",
     ).toEqual([...OLD_CAPABILITY_KEYS].sort());
 
-    // And the gap itself: that worker could not have published these.
-    for (const capability of ADVERTISED_WORKER_CAPABILITIES) {
+    /**
+     * ── THIS ASSERTION USED TO PIN THE DEFECT ─────────────────────────────────
+     *
+     * It read: for EVERY advertised capability, that commit could not publish
+     * it. True of a corpus that was exactly the two capabilities added after
+     * that commit — and it silently required the corpus to stay that way, since
+     * the five capabilities `a7a49a5` already published would each have failed
+     * it. A test whose green depends on a corpus never growing is a test that
+     * argues against growing it.
+     *
+     * Inverted on 2026-08-22 rather than deleted, into the two propositions the
+     * old one conflated:
+     *
+     *  - the deploy gap is still the one being tested — at least one advertised
+     *    capability was NOT publishable at that commit, or this file is
+     *    describing some other worker's problem;
+     *  - the corpus did not lose anyone — every capability that commit already
+     *    published is still asked about today. That direction is new, and it is
+     *    the one that was missing while five of them went unasked.
+     */
+    const unpublishable = ADVERTISED_WORKER_CAPABILITIES.filter(
+      (capability) => !keys.includes(capability.key),
+    ).map((capability) => capability.key);
+    expect(
+      unpublishable,
+      `every advertised capability was already publishable at ${OLD_IMAGE_COMMIT}, ` +
+        "so the deploy gap this guard exists for is not the one being tested",
+    ).not.toHaveLength(0);
+
+    const advertised = ADVERTISED_WORKER_CAPABILITIES.map((c) => c.key);
+    for (const key of keys) {
       expect(
-        keys,
-        `${capability.key} was already publishable at ${OLD_IMAGE_COMMIT}, so ` +
-          "the deploy gap this guard exists for is not the one being tested",
-      ).not.toContain(capability.key);
+        advertised,
+        `${key} was publishable at ${OLD_IMAGE_COMMIT} and is not in today's ` +
+          "corpus — the subsystem stopped asking about a capability workers " +
+          "have been answering for months, and will report every image healthy " +
+          "without it",
+      ).toContain(key);
     }
   });
 });
