@@ -27,7 +27,11 @@ import {
 import { BatchPanel } from "./batch-panel";
 import type { WorkspaceToolSummary } from "./summary";
 import { SuggestedTools } from "./suggested-tools";
-import { MAX_FILE_MB, useWorkspace } from "./use-workspace";
+import { useWorkspace } from "./use-workspace";
+import {
+  acceptAttribute,
+  acceptHint,
+} from "@/components/upload/accepted-kinds";
 
 const FAMILY_LABEL: Record<FileFamily, string> = {
   pdf: "PDF",
@@ -50,8 +54,7 @@ const FAMILY_ICON: Record<FileFamily, typeof FileText> = {
   other: File,
 };
 
-const ACCEPT =
-  ".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv";
+const ACCEPT = acceptAttribute();
 
 /** Compact relative time for the activity log (client-only, post-hydration). */
 function formatRelative(at: number, now: number): string {
@@ -161,10 +164,7 @@ export function WorkspaceClient({
                     browse
                   </span>
                 </span>
-                <span className="text-muted text-sm">
-                  PDF, images, Word, Excel, PowerPoint, text · Max {MAX_FILE_MB}{" "}
-                  MB per file
-                </span>
+                <span className="text-muted text-sm">{acceptHint()}</span>
               </span>
             </label>
 
