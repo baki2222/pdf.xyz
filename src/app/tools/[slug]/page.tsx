@@ -13,6 +13,7 @@ import { getAllToolSlugs, getRelatedTools, getToolBySlug } from "@/lib/tools";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import { stagingHint } from "@/lib/tools/file-ceilings";
+import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { Container } from "@/components/ui/container";
 import { ToolIcon } from "@/components/ui/tool-icon";
@@ -204,7 +205,14 @@ export default async function ToolPage({
             <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
               <div className="text-ok flex items-center gap-2 text-sm">
                 <ShieldCheck className="size-4" aria-hidden />
-                {tool.processing === "hybrid"
+                {/* Gated on the PROPERTY (can this file leave the device?),
+                    not on `=== "hybrid"`. The fallback branch here is the
+                    STRONG claim — "never leaves your device" — so a mode the
+                    condition did not anticipate defaulted into a promise
+                    rather than out of one. `modeUploadsFiles` is exhaustive
+                    over ProcessingMode by construction, so a new mode is a
+                    compile error instead of a false promise. */}
+                {modeUploadsFiles(tool.processing)
                   ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
                   : "Runs in your browser — your file never leaves your device."}
               </div>
@@ -303,8 +311,8 @@ export default async function ToolPage({
             </div>
 
             <div className="lg:sticky lg:top-24">
-              {tool.processing === "client" ? (
-                /* Client tool without a runner yet: stage files locally. */
+              {!modeUploadsFiles(tool.processing) ? (
+                /* Never-upload tool without a runner yet: stage files locally. */
                 <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
                   <div className="flex flex-col gap-1">
                     <h2 className="text-fg text-lg font-semibold">

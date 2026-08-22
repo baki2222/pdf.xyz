@@ -34,6 +34,7 @@ import {
   type WorkspaceFile,
   type WorkspaceState,
 } from "@/lib/workspace";
+import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { indexSummaries, type WorkspaceToolSummary } from "./summary";
 
 /** In-browser tools never load files larger than this. Exported so the copy
@@ -357,7 +358,10 @@ export function useWorkspace(
         return summary
           ? {
               live: summary.live,
-              usesWorker: summary.processing !== "client",
+              // Was `summary.processing !== "client"`: the fifth private copy
+              // of "does this upload", and the one that decides what the batch
+              // planner tells a user before their files move.
+              usesWorker: modeUploadsFiles(summary.processing),
               handoff: summary.handoffMode,
             }
           : undefined;

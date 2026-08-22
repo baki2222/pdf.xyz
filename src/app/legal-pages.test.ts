@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 import { tools } from "@/lib/tools";
+import { processingSplit } from "@/lib/tools/processing-split";
 
 const ROOT = process.cwd();
 const PRIVACY = path.join(ROOT, "src", "app", "privacy", "page.tsx");
@@ -110,13 +111,19 @@ describe("the policy pages derive their facts rather than restating them", () =>
     }
   });
 
-  it("privacy derives its tool counts from the catalogue", () => {
+  it("privacy derives its tool counts from the shared catalogue split", () => {
+    // WAS `toContain("tools.reduce")`, and it passed for two months while the
+    // page disagreed with the homepage. Reducing the catalogue here IS
+    // deriving — it was never a literal — so this assertion could only ever
+    // see that the page did arithmetic, not that it did the SAME arithmetic as
+    // every other surface. The mechanism was the exit condition; the property
+    // is "one function over the catalogue", so that is what it names now.
     const source = read(PRIVACY);
-    expect(source).toContain("tools.reduce");
+    expect(source).toContain("processingSplit");
     // The split it describes must be the real one.
-    const client = tools.filter((t) => t.processing === "client").length;
-    expect(client).toBeGreaterThan(0);
-    expect(client).toBeLessThan(tools.length);
+    const { neverUploads } = processingSplit();
+    expect(neverUploads.length).toBeGreaterThan(0);
+    expect(neverUploads.length).toBeLessThan(tools.length);
   });
 
   it("terms derives the file size cap", () => {

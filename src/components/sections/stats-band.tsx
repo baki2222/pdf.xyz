@@ -1,4 +1,5 @@
-import { categories, tools, toolCount } from "@/lib/tools";
+import { categories, toolCount } from "@/lib/tools";
+import { processingSplit } from "@/lib/tools/processing-split";
 import { Container } from "@/components/ui/container";
 
 /**
@@ -7,14 +8,21 @@ import { Container } from "@/components/ui/container";
  * boxed cells were the funding-round version of this information.
  */
 export function StatsBand() {
-  const inBrowser = tools.filter(
-    (t) => t.processing === "client" || t.processing === "hybrid",
-  ).length;
+  /**
+   * WAS `client + hybrid` counted here, labelled "Tools that run in-browser" —
+   * 30, one more than the 29 `/privacy` and `/status` state, because the one
+   * hybrid tool has a local path AND an upload path. Read in a strip whose
+   * next cell is "0 files stored after processing", "run in-browser" is a
+   * privacy claim, so it takes the privacy partition. The label now names the
+   * property the number actually has rather than leaving the reader to guess
+   * which of the two questions this cell answered.
+   */
+  const neverUploads = processingSplit().neverUploads.length;
 
   const stats = [
     { value: String(toolCount), label: "PDF tools in one place" },
     { value: String(categories.length), label: "Focused categories" },
-    { value: String(inBrowser), label: "Tools that run in-browser" },
+    { value: String(neverUploads), label: "Tools that never upload your file" },
     { value: "0", label: "Files stored after processing" },
   ];
 

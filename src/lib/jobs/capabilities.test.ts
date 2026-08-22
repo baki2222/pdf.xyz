@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
 import type { ProcessingMode } from "@/lib/tools/types";
+import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import {
   CAPABILITY_BY_MODE,
   capabilityForMode,
@@ -121,8 +122,16 @@ describe("catalog ↔ capability integrity", () => {
     for (const tool of tools) {
       const capability = capabilityForMode(tool.processing);
       expect(describeCapability(capability).id).toBe(capability);
-      // A worker capability iff the tool is not a pure client tool.
-      expect(usesWorkerBackend(capability)).toBe(tool.processing !== "client");
+      // The two booleans in this layer are written independently —
+      // `usesWorkerBackend` is `capability !== "in-browser"`, while
+      // `uploadsFiles` is a field set by hand on each descriptor — and the
+      // copy surfaces now read the descriptor one. If they ever disagree, a
+      // page promising "never leaves your device" and a validator deciding
+      // where the job runs would be answering the same question differently.
+      // (Was `tool.processing !== "client"`, a third spelling of the rule.)
+      expect(usesWorkerBackend(capability)).toBe(
+        modeUploadsFiles(tool.processing),
+      );
     }
   });
 });

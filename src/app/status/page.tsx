@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Activity } from "lucide-react";
-import { getToolBySlug } from "@/lib/tools";
+import { processingSplit } from "@/lib/tools/processing-split";
 import { supportedToolSlugs } from "@/lib/pdf/registry";
 import { CAPABILITY_DESCRIPTORS, type ToolCapability } from "@/lib/jobs";
 import { Container } from "@/components/ui/container";
@@ -30,14 +30,24 @@ export const metadata: Metadata = buildMetadata({
  * also has a secure-worker path that uploads — which the same page says a few
  * hundred pixels further down. A tool whose files CAN leave the browser cannot
  * appear under a promise that they never do.
+ *
+ * The `processing !== "client"` test that used to encode that rule is now
+ * `processingSplit().neverUploads`, the same group `/privacy` and the homepage
+ * count. The rule was right and privately held: reclassifying a tool moved
+ * this page and left the others where they were, which is exactly how the
+ * homepage came to advertise 30 in-browser tools against this page's 29.
+ *
+ * INTERSECTED, not equal, and deliberately so. This page reports on THIS
+ * environment, so it counts the never-upload tools that actually ship a
+ * runner; `/privacy` counts the catalogue. They agree today (all
+ * {@link supportedToolSlugs} minus the hybrid tool) and they are allowed to
+ * disagree if a runner is withdrawn — a live-status page saying fewer is
+ * honest, saying more is not. `processing-split.test.ts` asserts the subset
+ * direction rather than equality for that reason.
  */
-const localTools: LocalToolRef[] = supportedToolSlugs
-  .map((slug) => {
-    const tool = getToolBySlug(slug);
-    if (!tool || tool.processing !== "client") return null;
-    return { slug, name: tool.name };
-  })
-  .filter((entry): entry is LocalToolRef => entry !== null);
+const localTools: LocalToolRef[] = processingSplit()
+  .neverUploads.filter((tool) => supportedToolSlugs.includes(tool.slug))
+  .map((tool) => ({ slug: tool.slug, name: tool.name }));
 
 /** Order the capability explainer from most-private to most-powerful. */
 const CAPABILITY_ORDER: ToolCapability[] = [

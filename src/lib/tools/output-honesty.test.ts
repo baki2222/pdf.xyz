@@ -27,6 +27,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getToolBySlug, tools } from "./index";
+import { modeUploadsFiles } from "./processing-split";
 
 /** Tools whose downloadable artifact is a ZIP bundle, and the engine that writes it. */
 const BUNDLE_TOOLS: readonly { slug: string; engine: string }[] = [
@@ -97,7 +98,9 @@ describe("a tool's advertised outputs match what its engine writes", () => {
     // for them. (All four already declare ZIP correctly; the drift was only ever in
     // the worker tools, whose output lived a repo away from its description.)
     const claimed = tools
-      .filter((t) => t.processing !== "client" && t.outputs.includes("ZIP"))
+      .filter(
+        (t) => modeUploadsFiles(t.processing) && t.outputs.includes("ZIP"),
+      )
       .map((t) => t.slug);
     const covered = new Set(BUNDLE_TOOLS.map((t) => t.slug));
     expect(claimed.filter((slug) => !covered.has(slug))).toEqual([]);
