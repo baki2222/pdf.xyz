@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { toolCount } from "@/lib/tools";
+import { processingSplit } from "@/lib/tools/processing-split";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { buttonVariants } from "@/components/ui/button";
@@ -20,11 +21,27 @@ import { buttonVariants } from "@/components/ui/button";
  * bearing: the nav and footer link to `/#pricing` (src/lib/site.ts).
  */
 
+/**
+ * The examples and the count, both from the never-upload group.
+ *
+ * WAS a hand-written "Merge, split, compress, rotate, convert and more", and
+ * the third verb was false: `compress-pdf` is the browser-first tool, so the
+ * one tool that CAN upload was named by hand inside the sentence "your files
+ * never leave it". Found by reading the built HTML, not the source — the
+ * counts on this page were being fixed at the time and this sentence carries
+ * no number, so no census could see it.
+ *
+ * Filtering `featured` out of `neverUploads` means the examples can only ever
+ * be tools the promise is true of: while Compress PDF is browser-first it
+ * cannot appear here however it is badged.
+ */
+const local = processingSplit().neverUploads;
+const localExamples = local.filter((tool) => tool.featured).map((t) => t.name);
+
 const groups = [
   {
     name: "In your browser",
-    summary:
-      "Merge, split, compress, rotate, convert and more run entirely on your device — your files never leave it.",
+    summary: `${localExamples.join(", ")} and ${local.length - localExamples.length} more run entirely on your device — your files never leave it.`,
     points: [
       "No account and no card, ever",
       "Unlimited local tasks",

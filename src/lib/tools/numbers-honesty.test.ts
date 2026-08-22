@@ -37,6 +37,7 @@ import { DEFAULT_RETENTION, JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
 import { MAX_OCR_LANGUAGES, OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { toolCount } from "@/lib/tools";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
+import { processingSplit } from "./processing-split";
 
 const ROOT = process.cwd();
 
@@ -77,6 +78,24 @@ const OWNED: { value: number; units: readonly string[]; source: string }[] = [
     value: toolCount,
     units: ["tools", "tool"],
     source: "toolCount",
+  },
+  // The two answers to "how many tools run in my browser". Registered here on
+  // 2026-08-22 so a hand-written one is reported with its OWNER rather than as
+  // an anonymous unowned figure: three surfaces stated these counts and two of
+  // them stated a different one, and the census could only ever have said "no
+  // constant owns 29 tools" — true, unhelpful, and silent about which of the
+  // two numbers the writer meant. Both are `tools`-unit figures, so a literal
+  // was already a finding; what changes is that the message now names the
+  // group and therefore the proposition.
+  {
+    value: processingSplit().neverUploads.length,
+    units: ["tools", "tool"],
+    source: "processingSplit().neverUploads (tools that never upload)",
+  },
+  {
+    value: processingSplit().mayUpload.length,
+    units: ["tools", "tool"],
+    source: "processingSplit().mayUpload (tools that may upload)",
   },
   {
     value: OCR_LANGUAGES.length,

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { getRunnerKind, supportedToolSlugs } from "../../src/lib/pdf/registry";
-import { tools } from "../../src/lib/tools/catalog";
+import { processingSplit } from "../../src/lib/tools/processing-split";
 import { attachConsoleGuard } from "../helpers";
 import { expectMagic } from "./artifacts";
 import {
@@ -70,12 +70,15 @@ const DERIVED = [...supportedToolSlugs].sort();
  * A constant has no relationships to constrain, and neither does a single list.
  * These two are written by different people for different reasons and must
  * agree exactly.
+ *
+ * `hasBrowserPath` is the named union for that question — "does a local path
+ * exist", which is what this proof drives — as opposed to `neverUploads`, the
+ * question the privacy surfaces count. Spelling the filter out here a second
+ * time is how the two answers came to be confused on the marketing pages; the
+ * union carries its own name so this one cannot quietly become that one.
  */
-const CATALOGUE_IN_BROWSER = tools
-  .filter(
-    (tool) => tool.processing === "client" || tool.processing === "hybrid",
-  )
-  .map((tool) => tool.slug)
+const CATALOGUE_IN_BROWSER = processingSplit()
+  .hasBrowserPath.map((tool) => tool.slug)
   .sort();
 
 /**

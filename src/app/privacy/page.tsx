@@ -4,6 +4,7 @@ import { buildMetadata } from "@/lib/seo";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { tools } from "@/lib/tools";
+import { processingSplit } from "@/lib/tools/processing-split";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 
 export const metadata: Metadata = buildMetadata({
@@ -25,14 +26,22 @@ export const metadata: Metadata = buildMetadata({
  * existed, and a homepage claiming layout-preserving translation the engine
  * explicitly disclaims. Deriving the figures means a change to the behaviour
  * changes this page, instead of silently contradicting it.
+ *
+ * The counts moved to the shared `processingSplit` on 2026-08-22. They were
+ * already derived and already correct; what they were not was the SAME
+ * derivation the homepage ran. This page reduced the catalogue itself and
+ * counted `client` (29) against `server + ai + hybrid` (21); the homepage
+ * counted `client + hybrid` (30) at its own call site. Two partitions, both
+ * true, and a reader who saw both was told 30 tools run in-browser and 21
+ * upload — 51 of 50. Deriving is necessary and not sufficient: it has to be
+ * the same derivation, or the surfaces drift while every one of them can show
+ * its work.
  */
-const counts = tools.reduce<Record<string, number>>((acc, tool) => {
-  acc[tool.processing] = (acc[tool.processing] ?? 0) + 1;
-  return acc;
-}, {});
-
-const inBrowser = counts.client ?? 0;
-const onWorker = (counts.server ?? 0) + (counts.ai ?? 0) + (counts.hybrid ?? 0);
+const split = processingSplit();
+const inBrowser = split.neverUploads.length;
+const onWorker = split.mayUpload.length;
+/** The browser-first tools, counted so the sentence below can name them. */
+const browserFirst = split.browserFirst.length;
 
 /**
  * Number and unit as ONE expression.
@@ -55,11 +64,11 @@ export default function PrivacyPage() {
           <strong className="text-fg font-semibold">The short version.</strong>{" "}
           {inBrowser} of our {tools.length} tools do their work entirely inside
           your browser — those files are never uploaded, so we never receive
-          them. The remaining {onWorker} send your file to a processing worker,
-          which deletes it when the job ends and stops serving the result after{" "}
-          {outputWindow}. There are no accounts, no advertising, and no sale or
-          sharing of personal information. Each tool&apos;s page says which kind
-          it is before you upload anything.
+          them. The remaining {onWorker} can send your file to a processing
+          worker, which deletes it when the job ends and stops serving the
+          result after {outputWindow}. There are no accounts, no advertising,
+          and no sale or sharing of personal information. Each tool&apos;s page
+          says which kind it is before you upload anything.
         </>
       }
     >
@@ -116,6 +125,29 @@ export default function PrivacyPage() {
           control, scanned for malware, processed, and then removed on this
           timetable:
         </p>
+        {/* The reconciliation sentence, and the reason the two groups above do
+            not simply add up wherever else you meet them. It renders only while
+            a browser-first tool exists, and both the count and the names come
+            from the catalogue, so retiring the hybrid tool removes the sentence
+            instead of leaving a dangling "0 of these". */}
+        {browserFirst > 0 && (
+          <p>
+            <strong className="text-fg font-semibold">
+              {/* One expression, for the reason recorded above `inputWindow`:
+                  split across a JSX line break the space is eaten and the page
+                  renders "1of 21". And phrased about the GROUP rather than the
+                  tool, so the sentence stays grammatical whatever its size. */}
+              {`Counted here, but browser-first (${browserFirst} of ${onWorker}).`}
+            </strong>{" "}
+            This group — {split.browserFirst.map((t) => t.name).join(", ")} —
+            runs in your browser first and uploads only when the local attempt
+            cannot finish the job. Because an upload <em>can</em> happen, it is
+            counted with the worker tools above rather than with the {inBrowser}{" "}
+            that never upload. That is why a count of tools with an in-browser
+            mode is larger than the count that never send anything — same
+            catalogue, two different questions.
+          </p>
+        )}
         {/*
           This says "scanned for malware" plainly, and may do so, because the claim
           no longer depends on configuration. PDFXYZ_WORKER_REQUIRE_SCAN arms a

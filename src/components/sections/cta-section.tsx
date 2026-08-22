@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { toolCount, tools } from "@/lib/tools";
+import { toolCount } from "@/lib/tools";
+import { processingSplit } from "@/lib/tools/processing-split";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -12,15 +13,25 @@ import { buttonVariants } from "@/components/ui/button";
  */
 export function CtaSection() {
   /**
-   * Derived the same way the spec strip derives it, from the catalog itself
-   * — never typed. And deliberately "run in-browser", the label the product
-   * already uses for client+hybrid tools, NOT "entirely in your browser":
-   * hybrid tools have a server fallback, so "entirely" would trade one false
-   * sentence for another.
+   * WAS `client + hybrid`, counted here — 30 — and the hedge that came with
+   * it: deliberately "run in-browser" and NOT "entirely in your browser",
+   * because a hybrid tool has a server fallback and "entirely" would have
+   * traded one false sentence for another.
+   *
+   * The hedge was the right call for that number and the wrong number for
+   * this sentence. `/privacy` counts the other partition — 29 that never
+   * upload, 21 that may — so a reader who came from here was handed 30
+   * in-browser and 21 uploading, 51 tools out of 50, with nothing on either
+   * page saying `compress-pdf` is in both sets. Two true numbers, read as one
+   * claim, and the arithmetic gave the reader no way to tell.
+   *
+   * Under a sentence that sells privacy, the number is the conservative one.
+   * `neverUploads` is the group with no server path at all, so the strong
+   * wording the hedge was avoiding is now simply true — and it moves with the
+   * catalogue, from the same function `/privacy`, `/status` and the spec strip
+   * read. See `@/lib/tools/processing-split`.
    */
-  const inBrowser = tools.filter(
-    (t) => t.processing === "client" || t.processing === "hybrid",
-  ).length;
+  const neverUploads = processingSplit().neverUploads.length;
 
   return (
     <section className="theme-ink bg-canvas">
@@ -35,8 +46,8 @@ export function CtaSection() {
                 behind. These numbers the page can prove — both derived from
                 the catalog, neither typed. */}
             Edit, convert, and sign documents without giving up your privacy:{" "}
-            {toolCount} tools, {inBrowser} of them running in-browser, and no
-            sign-up to start.
+            {toolCount} tools, {neverUploads} of them running entirely in your
+            browser with nothing uploaded, and no sign-up to start.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:col-span-4 lg:justify-end lg:pb-2">
