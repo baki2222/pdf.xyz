@@ -3,9 +3,9 @@
 import { useCallback, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { FileText, UploadCloud, X } from "lucide-react";
-import { JOB_LIMITS } from "@/lib/jobs/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
+import { acceptAttribute, acceptHint } from "./accepted-kinds";
 import { useEarlyFilePick } from "./use-early-file-pick";
 
 type StagedFile = { id: string; name: string; size: number };
@@ -16,11 +16,11 @@ type StagedFile = { id: string; name: string; size: number };
  * This keeps the privacy promise literal, even in the demo flow.
  */
 export function UploadZone({
-  accept = "application/pdf",
+  accept = acceptAttribute(),
   multiple = true,
   ctaLabel = "Open in workspace",
   ctaHref = "/workspace",
-  hint = `PDF, images, Word, and more · Max ${JOB_LIMITS.maxFileBytes / (1024 * 1024)} MB per file`,
+  hint = acceptHint(),
   className,
 }: {
   accept?: string;
