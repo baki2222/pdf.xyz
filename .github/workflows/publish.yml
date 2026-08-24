@@ -126,7 +126,13 @@ jobs:
             if curl -fsS -o /tmp/body http://127.0.0.1:3000/ 2>/dev/null; then break; fi
             sleep 1
           done
-          curl -fsS -D /tmp/headers -o /tmp/body http://127.0.0.1:3000/
+          if ! curl -fsS -D /tmp/headers -o /tmp/body http://127.0.0.1:3000/; then
+            echo "::error::web container never answered; its own logs follow"
+            echo "---- docker ps -a ----";    docker ps -a
+            echo "---- docker logs ----";     docker logs web-smoke 2>&1 | tail -60
+            echo "---- docker inspect ----";  docker inspect web-smoke --format "exit={{.State.ExitCode}} oom={{.State.OOMKilled}} err={{.State.Error}}"
+            exit 7
+          fi
           grep -qi "pdf.xyz" /tmp/body || { echo "::error::homepage body does not mention pdf.xyz"; exit 1; }
           if ! grep -i "content-security-policy" /tmp/headers | grep -q "r2.cloudflarestorage.com"; then
             echo "::error::served CSP is missing the storage origin — the build arg did not reach the wire"
