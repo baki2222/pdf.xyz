@@ -126,17 +126,32 @@ jobs:
             if curl -fsS -o /tmp/body http://127.0.0.1:3000/ 2>/dev/null; then break; fi
             sleep 1
           done
-          curl -fsS -D /tmp/headers -o /tmp/body http://127.0.0.1:3000/
+          if ! curl -fsS -D /tmp/headers -o /tmp/body http://127.0.0.1:3000/; then
+            echo "::error::web container never answered; its own logs follow"
+            echo "---- docker ps -a ----";    docker ps -a
+            echo "---- docker logs ----";     docker logs web-smoke 2>&1 | tail -60
+            echo "---- docker inspect ----";  docker inspect web-smoke --format "exit={{.State.ExitCode}} oom={{.State.OOMKilled}} err={{.State.Error}}"
+            exit 7
+          fi
           grep -qi "pdf.xyz" /tmp/body || { echo "::error::homepage body does not mention pdf.xyz"; exit 1; }
           if ! grep -i "content-security-policy" /tmp/headers | grep -q "r2.cloudflarestorage.com"; then
             echo "::error::served CSP is missing the storage origin — the build arg did not reach the wire"
             grep -i "content-security-policy" /tmp/headers || echo "(no CSP header at all)"
             exit 1
           fi
+          # public/ must be INSIDE the image: next start serves it from disk,
+          # and the image shipped without it until 2026-08-24 (Vercel serves
+          # public/ itself, so nothing upstream could notice). dk.txt is a
+          # tracked file in public/, so a 404 here means the COPY is gone.
+          curl -fsS -o /tmp/dk http://127.0.0.1:3000/dk.txt || { echo "::error::/dk.txt 404 — public/ did not reach the web image"; exit 1; }
+          if grep -qi "<!DOCTYPE" /tmp/dk; then echo "::error::/dk.txt served the HTML 404 page, not the file"; exit 1; fi
           docker rm -f web-smoke
-          echo "web image serves 200 with the storage origin in its CSP"
+          echo "web image serves 200, CSP carries the storage origin, public/ is present"
 
+      # Branch dispatches validate the full pipeline WITHOUT publishing; only
+      # main may move the tags a deployment pulls.
       - name: Push both images
+        if: github.ref == 'refs/heads/main'
         run: |
           docker push ${WEB_IMAGE}:latest
           docker push ${WEB_IMAGE}:${{ github.sha }}
