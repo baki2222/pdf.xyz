@@ -48,6 +48,16 @@ RUN pnpm install --frozen-lockfile
 # `.dockerignore` keeps secrets and the `.claude-*.md` prompts out of the copy.
 # --------------------------------------------------------------------------- #
 FROM deps AS build
+# NEXT_PUBLIC_* values are BAKED at `pnpm build` — runtime env cannot supply
+# them. The one that matters is the CSP connect-src extension for the storage
+# origin: built without it, every browser→R2 upload is blocked by the page's
+# own Content-Security-Policy, and nothing fails until a real visitor picks a
+# file. `publish.yml` passes it and then asserts the served CSP actually
+# carries the origin before pushing; `container.yml` builds without it on
+# purpose (its contract is no secrets, no publishing — a blank arg keeps that
+# build byte-stable).
+ARG NEXT_PUBLIC_STORAGE_CONNECT_SRC=""
+ENV NEXT_PUBLIC_STORAGE_CONNECT_SRC=${NEXT_PUBLIC_STORAGE_CONNECT_SRC}
 COPY . .
 RUN pnpm build
 

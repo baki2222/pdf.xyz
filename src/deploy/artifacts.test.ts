@@ -540,8 +540,38 @@ describe("deployment artifacts carry no real-looking secrets", () => {
     });
 
     it(`${rel}: exposes no server-only provider secret via NEXT_PUBLIC_`, () => {
-      // A comment MAY state the "never NEXT_PUBLIC_" rule; no instruction may set one.
-      expect(stripHashComments(read(rel))).not.toContain("NEXT_PUBLIC_");
+      /**
+       * The property has always been the one in this test's NAME: no
+       * server-only SECRET may reach the client bundle by wearing a
+       * NEXT_PUBLIC_ prefix. The mechanism used to be wider — ban the
+       * substring outright — which was indistinguishable from the property
+       * for as long as no legitimate public value existed in a deployment
+       * file. The first one arrived 2026-08-24: the CSP connect-src origin
+       * (`NEXT_PUBLIC_STORAGE_CONNECT_SRC`), which is served to every visitor
+       * in a response header and is therefore public BY DESIGN. A ban list
+       * meeting its first honest counterexample gets narrowed to the
+       * property, not decorated with an exemption for one spelling.
+       *
+       * So: every NEXT_PUBLIC_ assignment must have a name that is not
+       * secret-shaped (same SECRETISH corpus as the sibling test — one
+       * definition, two guards) and a value that is empty, an interpolation,
+       * or a placeholder — never an inline literal, because a literal secret
+       * with an innocent-looking name is exactly the smuggle this exists to
+       * stop.
+       */
+      for (const { name, value } of assignments(stripHashComments(read(rel)))) {
+        if (!name.startsWith("NEXT_PUBLIC_")) continue;
+        expect(
+          SECRETISH.test(name.slice("NEXT_PUBLIC_".length)),
+          `${rel}: ${name} pairs a secret-shaped name with a client-bundle prefix`,
+        ).toBe(false);
+        const safe =
+          value === "" || value.includes("${") || PLACEHOLDER.test(value);
+        expect(
+          safe,
+          `${rel}: ${name} carries an inline literal ("${value}") — a NEXT_PUBLIC_ value in a deployment file must be empty, interpolated, or a placeholder`,
+        ).toBe(true);
+      }
     });
   }
 
