@@ -73,13 +73,28 @@ RUN groupadd --system --gid 1001 nodejs \
  && useradd --system --uid 1001 --gid nodejs nextjs
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
+# `next start` serves `public/` straight from disk. The build stage's copy is
+# the complete one — `pnpm build` runs the pdfjs-wasm and Noto-font copy steps
+# before `next build` — and this image shipped WITHOUT it until 2026-08-24,
+# because nothing had ever run the image: every font, wasm decoder, and static
+# file would have 404'd on the first non-Vercel deployment (Vercel serves
+# `public/` itself, which is why the gap was invisible there).
+COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.mjs ./next.config.mjs
 USER nextjs
 # `next start` honors PORT; no worker secrets are needed to serve the site.
 ENV PORT=3000
 EXPOSE 3000
-CMD ["pnpm", "start"]
+# Invoke `next` directly: the runtime needs Node, not a package manager. The
+# first boot of this image died on `CMD ["pnpm", "start"]` — corepack's first
+# run tries to download pnpm into the invoking user's cache, and the system
+# user `nextjs` has no writable home (`useradd --system` creates none), so the
+# container exited EACCES before serving a byte. The worker stage solved the
+# same trap with a COREPACK_HOME + mkdir dance (see below) because its runtime
+# genuinely needs pnpm scripts; the web runtime does not, so it drops the
+# package manager instead of accommodating it.
+CMD ["node_modules/.bin/next", "start"]
 
 # --------------------------------------------------------------------------- #
 # worker — the out-of-band secure-worker daemon runtime. Installs the native
