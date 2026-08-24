@@ -150,8 +150,24 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
 
   it("the web image serves the site and ships no worker daemon or native engines", () => {
     const web = stageInstructions(stages, "web");
-    expect(web).toMatch(/CMD\s*\[\s*"pnpm",\s*"start"\s*\]/);
-    expect(web).toContain("PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false");
+    /**
+     * This pinned `CMD ["pnpm", "start"]` until 2026-08-24 — the day the
+     * image was RUN for the first time and exited EACCES before serving a
+     * byte: corepack's first run downloads pnpm into the invoking user's
+     * cache, and the system user `nextjs` has no writable home. The web
+     * runtime needs Node, not a package manager, so the CMD now invokes
+     * `next` directly, and this asserts BOTH halves: the direct invocation is
+     * present, and no `pnpm` CMD sneaks back in — reintroducing one without
+     * the worker stage's COREPACK_HOME dance recreates the crash exactly.
+     */
+    expect(web).toMatch(
+      /CMD\s*\[\s*"node_modules\/\.bin\/next",\s*"start"\s*\]/,
+    );
+    expect(web).not.toMatch(/CMD\s*\[\s*"pnpm"/);
+    // next start serves public/ from disk; an image without it 404s every
+    // font and wasm asset — found on the same first boot, invisible on
+    // Vercel, which serves public/ outside the image.
+    expect(web).toMatch(/COPY\s+--from=build\s+\/app\/public\s+\.\/public/);
     expect(web).not.toContain("worker:daemon");
     expect(web).not.toContain("apt-get install");
     // Neither the deep-compression engines, Chromium, LibreOffice, the OCR stack, NOR the proof-only pdftotext
