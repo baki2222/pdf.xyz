@@ -1,0 +1,144 @@
+name: Publish images
+
+# Pushes the same two Dockerfile targets `container.yml` builds — `web` and
+# `worker` — to GHCR, so a deployment PULLS a prebuilt image instead of
+# building on the box (the production web host has ONE vCPU; a Next.js build
+# there is slow at best and OOM at worst).
+#
+# This lives in its own workflow on purpose. `container.yml`'s no-secrets /
+# never-publishes contract is load-bearing and stated in its header; extending
+# it with a push step would quietly break the sentence every reviewer of that
+# file relies on. The two workflows share BuildKit cache scopes, so the second
+# build of the same commit is mostly cache hits.
+#
+# Images: ghcr.io/baki2222/pdfxyz-web, ghcr.io/baki2222/pdfxyz-worker —
+# tagged `latest` and the commit SHA. The OCI source label links them to this
+# repository, which also makes them PRIVATE by inheritance.
+#
+# Both images are smoked BEFORE the push, at the point of consumption:
+# the worker must keep its no-config honesty contract, and the web image must
+# actually SERVE — including the CSP header carrying the storage origin the
+# build arg exists for. An image that fails either is never published.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  # Never cancel a publish mid-push: a superseded run finishing late only
+  # moves `latest` forward again; a canceled run can leave a half-pushed pair.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Smoke + push web and worker images to GHCR
+    runs-on: ubuntu-latest
+    env:
+      WEB_IMAGE: ghcr.io/baki2222/pdfxyz-web
+      WORKER_IMAGE: ghcr.io/baki2222/pdfxyz-worker
+      # Repository VARIABLE (not a secret — production serves this string in
+      # every response's CSP header). Read once here so the guard below and the
+      # build arg cannot drift apart.
+      STORAGE_CONNECT_SRC: ${{ vars.NEXT_PUBLIC_STORAGE_CONNECT_SRC }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Fail LOUDLY before spending build minutes: an empty value would bake a
+      # CSP without the storage origin, and nothing else fails until a real
+      # visitor's upload is refused by their own browser.
+      - name: Refuse to bake a blank storage CSP origin
+        run: |
+          if [ -z "${STORAGE_CONNECT_SRC}" ]; then
+            echo "::error::repository variable NEXT_PUBLIC_STORAGE_CONNECT_SRC is unset; the web image would block browser→storage uploads via its own CSP"
+            exit 1
+          fi
+          echo "baking connect-src extension: ${STORAGE_CONNECT_SRC}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          load: true
+          push: false
+          tags: |
+            ${{ env.WEB_IMAGE }}:latest
+            ${{ env.WEB_IMAGE }}:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_STORAGE_CONNECT_SRC=${{ env.STORAGE_CONNECT_SRC }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/baki2222/pdf.xyz
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: |
+            type=gha,scope=pdfxyz-web
+            type=gha,scope=pdfxyz-worker
+          cache-to: type=gha,mode=max,scope=pdfxyz-web
+
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          load: true
+          push: false
+          tags: |
+            ${{ env.WORKER_IMAGE }}:latest
+            ${{ env.WORKER_IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/baki2222/pdf.xyz
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: |
+            type=gha,scope=pdfxyz-worker
+            type=gha,scope=pdfxyz-web
+          cache-to: type=gha,mode=max,scope=pdfxyz-worker
+
+      # ---- smoke BEFORE push — an image that fails here is never published ----
+
+      # The worker's headline honesty contract, same as container.yml runs.
+      - name: Worker no-config honesty smoke
+        run: docker run --rm ${WORKER_IMAGE}:latest pnpm worker:smoke
+
+      # The web image must SERVE, and the served CSP must carry the storage
+      # origin the build arg was for. This is the check that can actually fail
+      # on "the arg never reached the wire" — asserting the env var was passed
+      # cannot.
+      - name: Web image serves, and its CSP carries the storage origin
+        run: |
+          docker run -d --name web-smoke -p 3000:3000 ${WEB_IMAGE}:latest
+          for i in $(seq 1 30); do
+            if curl -fsS -o /tmp/body http://127.0.0.1:3000/ 2>/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS -D /tmp/headers -o /tmp/body http://127.0.0.1:3000/
+          grep -qi "pdf.xyz" /tmp/body || { echo "::error::homepage body does not mention pdf.xyz"; exit 1; }
+          if ! grep -i "content-security-policy" /tmp/headers | grep -q "r2.cloudflarestorage.com"; then
+            echo "::error::served CSP is missing the storage origin — the build arg did not reach the wire"
+            grep -i "content-security-policy" /tmp/headers || echo "(no CSP header at all)"
+            exit 1
+          fi
+          docker rm -f web-smoke
+          echo "web image serves 200 with the storage origin in its CSP"
+
+      - name: Push both images
+        run: |
+          docker push ${WEB_IMAGE}:latest
+          docker push ${WEB_IMAGE}:${{ github.sha }}
+          docker push ${WORKER_IMAGE}:latest
+          docker push ${WORKER_IMAGE}:${{ github.sha }}
