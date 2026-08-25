@@ -175,18 +175,30 @@ export function createRedisRateLimitProvider(
     const count = Array.isArray(reply) ? toInt(reply[0]) : null;
     if (count === null) return onBackendError();
 
+    // The window's remaining life travels on EVERY verdict, not only denials:
+    // the character-allowance guard refuses on `used + claim > limit` on top
+    // of an allowing verdict, and without this it had nothing to put in
+    // Retry-After (production served `Retry-After: 0` against a daily window,
+    // 2026-08-25). The script returns PTTL either way; -1/-2/malformed ⇒ omit.
+    const pttl = Array.isArray(reply) ? toInt(reply[1]) : null;
+    const resetAfterSeconds =
+      pttl !== null && pttl > 0 ? Math.ceil(pttl / 1000) : undefined;
+
     if (count <= policy.limit)
-      return { allowed: true, retryAfterSeconds: 0, used: count };
+      return {
+        allowed: true,
+        retryAfterSeconds: 0,
+        used: count,
+        ...(resetAfterSeconds !== undefined ? { resetAfterSeconds } : {}),
+      };
 
     // Over budget ⇒ deliberate deny. Prefer the store's remaining TTL for retry-after;
     // fall back to the full window if PTTL was unavailable (-1/-2) or malformed.
-    const pttl = Array.isArray(reply) ? toInt(reply[1]) : null;
-    const retryAfterSeconds =
-      pttl !== null && pttl > 0 ? Math.ceil(pttl / 1000) : policy.windowSeconds;
     return {
       allowed: false,
-      retryAfterSeconds: Math.max(1, retryAfterSeconds),
+      retryAfterSeconds: Math.max(1, resetAfterSeconds ?? policy.windowSeconds),
       used: count,
+      ...(resetAfterSeconds !== undefined ? { resetAfterSeconds } : {}),
     };
   }
 

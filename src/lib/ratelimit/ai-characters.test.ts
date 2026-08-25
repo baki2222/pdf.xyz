@@ -119,6 +119,35 @@ describe("a job reserves the characters it will actually use", () => {
     expect(huge.allowed).toBe(false);
   });
 
+  it("a refusal's Retry-After is the window's remaining life, never zero", async () => {
+    // FOUND ON PRODUCTION 2026-08-25, by the end-to-end allowance proof: the
+    // fourth undeclared job of the day was refused with the honest message —
+    // and `Retry-After: 0`, an instruction to retry immediately against a
+    // DAILY window. The seam: peek answers "is the store itself over?" and
+    // says `allowed, retryAfterSeconds: 0` while there is still room, the
+    // guard refuses on `used + characters > limit`, and `?? windowSeconds`
+    // does not guard a present zero. Each unit defensible; the join drops the
+    // reset time.
+    const spendMost = await enforceAiCharacterAllowance(
+      AI_CHARACTER_ALLOWANCE - 1_000,
+      req(),
+      LOCAL,
+      T0,
+    );
+    expect(spendMost.allowed).toBe(true);
+    // One hour into the accounting day, a job that does not fit the remainder:
+    const oneHourIn = T0 + 3_600_000;
+    const refused = await enforceAiCharacterAllowance(
+      41_032,
+      req(),
+      LOCAL,
+      oneHourIn,
+    );
+    expect(refused.allowed).toBe(false);
+    // 23 hours of the window remain — that is what the header must carry.
+    expect(refused.retryAfterSeconds).toBe(86_400 - 3_600);
+  });
+
   it("resets on its own daily clock", async () => {
     await enforceAiCharacterAllowance(AI_CHARACTER_ALLOWANCE, req(), LOCAL, T0);
     expect(

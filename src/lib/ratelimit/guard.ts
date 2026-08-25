@@ -294,10 +294,18 @@ export async function enforceAiCharacterAllowance(
     ): Promise<RateLimitDecision> => {
       const used = peekVerdict.used ?? 0;
       if (used + characters > policy.limit) {
+        // This refusal happens ON TOP of an allowing peek (the store is not
+        // over; the store plus THIS claim would be), so the peek's
+        // `retryAfterSeconds` is a present `0` that `??` would pass straight
+        // through to the Retry-After header — measured on production
+        // 2026-08-25: an honest daily-allowance message under `Retry-After: 0`.
+        // The window's remaining life is what the caller must wait.
+        const windowRemaining =
+          peekVerdict.resetAfterSeconds ?? peekVerdict.retryAfterSeconds;
         return enforcedDecision(action, policy.id, backend, {
           allowed: false,
           retryAfterSeconds:
-            peekVerdict.retryAfterSeconds ?? policy.windowSeconds,
+            windowRemaining > 0 ? windowRemaining : policy.windowSeconds,
         });
       }
       await spend();

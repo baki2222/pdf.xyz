@@ -214,6 +214,20 @@ export interface RateLimiterVerdict {
    * Optional because a backend may not have it cheaply; never a promise.
    */
   readonly used?: number;
+  /**
+   * Whole seconds until the current window resets, reported even when
+   * `allowed` is true.
+   *
+   * `retryAfterSeconds` cannot carry this: it is `0` by contract on an allow,
+   * and the character-allowance guard refuses on `used + claim > limit` ON TOP
+   * of an allowing peek — so its refusal had nothing to put in Retry-After and
+   * production served `Retry-After: 0` against a daily window (observed
+   * 2026-08-25, fourth undeclared AI job of the day). Both backends already
+   * know the number: redis's window script returns PTTL on every call, and the
+   * memory window stores `resetAtMs`. Optional because a fresh window may not
+   * exist yet; never a promise.
+   */
+  readonly resetAfterSeconds?: number;
 }
 
 /** Map an exact retry-after (seconds) to its coarse, content-free bucket. */
