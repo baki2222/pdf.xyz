@@ -145,6 +145,57 @@ describe("default CI workflow gates every PR (no Docker, no secrets)", () => {
 });
 
 // --------------------------------------------------------------------------- //
+// The publish workflow's deploy step: after pushing, the same run must make
+// something RUN the images — and must not trust Coolify's 200, which means
+// "queued". These pins exist because the property they guard was LOST once
+// already: the Vercel exit on 2026-08-24 silently ended auto-deploy for both
+// tiers, and nothing red appeared anywhere.
+// --------------------------------------------------------------------------- //
+describe("publish workflow deploys what it pushed, and verifies at the wire", () => {
+  const publish = read(".github/workflows/publish.yml");
+
+  it("gates the deploy exactly like the push — main only, and both exist", () => {
+    // A branch dispatch must validate the pipeline without touching
+    // production; count the gates rather than trusting step prose.
+    const gates = publish.match(/if:\s*github\.ref == 'refs\/heads\/main'/g);
+    expect(publish).toContain("Push both images");
+    expect(publish).toContain("Deploy both tiers");
+    expect(gates?.length).toBe(2);
+  });
+
+  it("the worker rides the Service restart endpoint with latest=true — never the generic /deploy", () => {
+    // The generic /deploy on a compose Service calls StartService without
+    // pullLatestImages (Coolify 4.3.10, DeployController.php:571): it answers
+    // 200 while restarting the OLD image. The restart endpoint with
+    // latest=true is the one that pulls (verified by a docker `image pull`
+    // event on the worker host, 2026-08-25).
+    const restart = publish.match(
+      /\/api\/v1\/services\/([a-z0-9]+)\/restart\?latest=true/,
+    );
+    expect(restart, "worker restart?latest=true call is missing").toBeTruthy();
+    const workerUuid = restart![1]!;
+    expect(publish).not.toMatch(new RegExp(`/deploy\\?uuid=${workerUuid}`));
+  });
+
+  it("reads expected identities from the built images, never the checkout", () => {
+    // The image tree is the .dockerignore-filtered one; a checkout-computed
+    // fingerprint measures a different set (measured: they differ).
+    expect(publish).toMatch(/docker run [^\n]*cat \.next\/BUILD_ID/);
+    expect(publish).toMatch(/build-fingerprint/);
+  });
+
+  it("holds until the wire serves both identities, and fails loudly otherwise", () => {
+    // Equality against served values — not "the deploy API said 200", and not
+    // "the value changed" (a full-cache rebuild legitimately changes nothing).
+    expect(publish).toMatch(
+      /_next\/static\/\$\{WEB_BUILD_ID\}\/_buildManifest\.js/,
+    );
+    expect(publish).toMatch(/Running build \$\{WORKER_FP\}/);
+    expect(publish).toMatch(/::error::deploy did not reach the wire/);
+  });
+});
+
+// --------------------------------------------------------------------------- //
 // Secret hygiene — no workflow may carry a real-looking credential, and any
 // secret-ish env must come from a `${{ secrets.* }}` reference, never a literal.
 // --------------------------------------------------------------------------- //
