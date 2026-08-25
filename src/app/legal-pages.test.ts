@@ -241,6 +241,39 @@ describe("the policy pages do not promise what the product does not do", () => {
       instead:
         "inputs are actively deleted at job end; outputs are denied at read time and erased later — one sentence cannot honestly cover both",
     },
+    // ------------------------------------------------------------------ //
+    // The three entries below were TRUE sentences on this very page until
+    // 2026-08-25, when consent-gated Google Analytics shipped (owner's call,
+    // matching the market leader). They are pinned here INVERTED, per house
+    // rule, so a later edit cannot resurrect a formerly-true absolute: each
+    // pattern was checked against the removed sentence it used to describe.
+    // ------------------------------------------------------------------ //
+    // Every gap in these three is \s+ (and the wildcard [\s\S]), because the
+    // scan runs on JSX SOURCE, where prose wraps mid-phrase: the very sentence
+    // the second pattern exists for was committed as "…a consent\n banner",
+    // and the single-space version of that pattern read the old page as clean
+    // on its first corpus run. A phrase search has a hole at every wrap.
+    {
+      // Caught: "There is no analytics vendor, no advertising pixel, and…"
+      pattern: /\bno\s+analytics\s+vendor\b/i,
+      instead:
+        "Google Analytics is a consent-gated vendor since 2026-08-25; describe the gate (nothing loads before an explicit yes), not an absence",
+    },
+    {
+      // Caught: "…which is why you are not being asked to dismiss a consent banner."
+      pattern: /\bnot\s+being\s+asked\s+to\s+dismiss\s+a\s+consent\s+banner\b/i,
+      instead:
+        "a consent banner exists now; the honest sentence is what pressing each button does",
+    },
+    {
+      // Caught: "We use no advertising cookies, no analytics cookies, and…"
+      // The honest CONDITIONAL denial ("decline and no analytics cookie is
+      // ever set") must never trip this, so only the unconditional "we use
+      // no … analytics cookies" form is banned.
+      pattern: /\bwe\s+use\s+no\s+[\s\S]{0,40}analytics\s+cookies\b/i,
+      instead:
+        "analytics cookies exist after consent; say when they are set and that declining sets none",
+    },
   ];
 
   it.each([

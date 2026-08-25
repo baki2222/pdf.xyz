@@ -6,6 +6,7 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
+import { AnalyticsChoices } from "@/components/analytics/analytics-choices";
 
 export const metadata: Metadata = buildMetadata({
   title: "Privacy Policy",
@@ -273,13 +274,24 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="text-fg font-semibold">
-              No product analytics leave your device.
+              Product analytics — only after you say yes.
             </strong>{" "}
-            The site counts things like which tools get used, and that counting
-            goes nowhere: in the shipped build it is wired to a sink that
-            discards it. There is no analytics vendor, no advertising pixel, and
-            no error-tracking SDK anywhere in the site. The whole dependency
-            list is ten packages, none of them a tracker.
+            We use Google Analytics to count visits and see which tools are
+            used, and it is loaded only after you choose &ldquo;Allow
+            analytics&rdquo; in the banner. Until then — and always, if you
+            decline — no analytics code loads and nothing is sent to Google.
+            When allowed, Google receives the pages you view, the names of tools
+            you use, coarse browser and device information, and an approximate
+            location derived from your IP address, acting as our processor. It
+            never sees your documents: analytics events are stripped of
+            filenames, links, and query strings before they are sent, and file
+            contents never pass through this channel at all. There is no
+            advertising pixel and no error-tracking SDK, and you can change your
+            decision at any time in the{" "}
+            <a href="#cookies" className="text-fg underline underline-offset-2">
+              cookies section
+            </a>{" "}
+            below.
           </li>
           <li>
             <strong className="text-fg font-semibold">
@@ -318,21 +330,32 @@ export default function PrivacyPage() {
 
       <LegalSection id="cookies" heading="5. Cookies and browser storage">
         <p>
-          We use no advertising cookies, no analytics cookies, and no cross-site
-          trackers, which is why you are not being asked to dismiss a consent
-          banner.
+          We use no advertising cookies and no cross-site trackers. The one kind
+          of cookie on this site belongs to Google Analytics, and it is set only
+          after you allow analytics in the consent banner: Google then stores
+          its measurement cookies (the <code>_ga</code> family) to tell
+          returning browsers apart. Decline — or never answer — and no analytics
+          cookie is ever set.
         </p>
+        <p>
+          Your consent decision itself is kept in your browser&rsquo;s local
+          storage, so we ask once instead of on every visit. You can change it
+          here:
+        </p>
+        <AnalyticsChoices />
         <p>
           Some tools keep information inside your browser so a feature can work
           — for example, holding files you added to the workspace so you can
           carry them to another tool. That data stays on your device and is not
           transmitted to us. Clearing your browser storage for this site removes
-          it.
+          it, along with your analytics decision.
         </p>
       </LegalSection>
 
       <LegalSection id="why" heading="6. Why we are allowed to do this">
-        <p>Under UK and EU data protection law we rely on two lawful bases:</p>
+        <p>
+          Under UK and EU data protection law we rely on three lawful bases:
+        </p>
         <ul className="ml-5 flex list-disc flex-col gap-1.5">
           <li>
             <strong className="text-fg font-semibold">
@@ -349,6 +372,12 @@ export default function PrivacyPage() {
             understanding aggregate performance. We have considered your rights
             in reaching that balance, which is why these signals carry no
             identifiers and no document contents.
+          </li>
+          <li>
+            <strong className="text-fg font-semibold">Consent</strong> — Google
+            Analytics runs only after you opt in, and you can withdraw that
+            consent at any time in the cookies section above; withdrawing is as
+            easy as giving it.
           </li>
         </ul>
       </LegalSection>

@@ -52,14 +52,22 @@ describe("the interest counter never exists without its disclosures", () => {
     expect(button).toContain("JSON.stringify({ slug: tool.slug })");
   });
 
-  it("the passive-analytics claim the disclosure sits beside is still present", () => {
-    // The ruling kept the original bullet BECAUSE it stays true for passive
-    // analytics. If someone deletes it, the new bullet loses its context and
-    // this pairing needs re-deciding — loudly, not by drift.
+  it("the analytics claim the disclosure sits beside is still present", () => {
+    // The pairing this pins was RE-DECIDED on 2026-08-25, exactly the way the
+    // previous comment demanded — loudly, when this test fired on the edit.
+    // Until then the neighbour bullet read "No product analytics leave your
+    // device." and the interest beacon drew its contrast from that absolute.
+    // Consent-gated Google Analytics replaced the absolute, and the contrast
+    // survives inverted: the analytics bullet describes the one channel that
+    // needs consent, and the interest beacon remains the one channel that
+    // does not — because it is user-initiated, first-party, and carries a
+    // single public dimension (the tool slug). If the headline below changes
+    // again, both halves of that contrast need re-reading, not just this
+    // string.
     const privacy = readFileSync(
       path.join(ROOT, "src", "app", "privacy", "page.tsx"),
       "utf8",
     );
-    expect(privacy).toContain("No product analytics leave your device.");
+    expect(privacy).toContain("Product analytics — only after you say yes.");
   });
 });

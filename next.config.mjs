@@ -54,10 +54,20 @@ function storageConnectSrc() {
 }
 
 function contentSecurityPolicy() {
+  // Consent-gated Google Analytics (src/lib/analytics). The CSP allows these
+  // origins on every response, but nothing CONTACTS them until the visitor
+  // presses "Allow analytics" — the gtag script is injected only then. A CSP
+  // cannot express "after consent", so the gate lives in code and this list
+  // merely stops being the thing that breaks it.
+  const gtagScriptOrigin = "https://www.googletagmanager.com";
+  const gaCollectOrigins =
+    "https://*.google-analytics.com https://*.analytics.google.com";
+
   const scriptSrc = [
     "'self'",
     "'unsafe-inline'",
     "'wasm-unsafe-eval'",
+    gtagScriptOrigin,
     isDev ? "'unsafe-eval'" : "",
   ]
     .filter(Boolean)
@@ -69,6 +79,8 @@ function contentSecurityPolicy() {
   const connectSrc = [
     "'self'",
     storageConnectSrc(),
+    gaCollectOrigins,
+    gtagScriptOrigin,
     isDev ? "ws: wss:" : "",
     telemetryConnectSrc(),
   ]
@@ -83,7 +95,10 @@ function contentSecurityPolicy() {
     `form-action 'self'`,
     `script-src ${scriptSrc}`,
     `style-src 'self' 'unsafe-inline'`,
-    `img-src 'self' data: blob:`,
+    // The GA origins appear here too: gtag falls back to image pings where
+    // fetch/beacon is unavailable, and a fallback the CSP blocks would drop
+    // consented measurements silently.
+    `img-src 'self' data: blob: ${gaCollectOrigins}`,
     `font-src 'self' data:`,
     `worker-src 'self' blob:`,
     `media-src 'self' blob:`,
