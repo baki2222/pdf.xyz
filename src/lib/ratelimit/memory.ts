@@ -132,17 +132,24 @@ export function createMemoryRateLimiter(
             };
       }
 
+      const resetAfterSeconds = Math.max(
+        1,
+        Math.ceil((existing.resetAtMs - nowMs) / 1000),
+      );
       if (existing.count >= policy.limit) {
         return {
           allowed: false,
-          retryAfterSeconds: Math.max(
-            1,
-            Math.ceil((existing.resetAtMs - nowMs) / 1000),
-          ),
+          retryAfterSeconds: resetAfterSeconds,
           used: existing.count,
+          resetAfterSeconds,
         };
       }
-      return { allowed: true, retryAfterSeconds: 0, used: existing.count };
+      return {
+        allowed: true,
+        retryAfterSeconds: 0,
+        used: existing.count,
+        resetAfterSeconds,
+      };
     },
 
     spend(
