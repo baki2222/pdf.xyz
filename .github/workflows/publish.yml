@@ -19,6 +19,10 @@ name: Publish images
 # the worker must keep its no-config honesty contract, and the web image must
 # actually SERVE — including the CSP header carrying the storage origin the
 # build arg exists for. An image that fails either is never published.
+#
+# After the push, the same run tells Coolify to deploy BOTH tiers and holds
+# until the public wire serves the identities of the images it just built —
+# merged is shipped, and this run is what proves it.
 
 on:
   push:
@@ -157,3 +161,82 @@ jobs:
           docker push ${WEB_IMAGE}:${{ github.sha }}
           docker push ${WORKER_IMAGE}:latest
           docker push ${WORKER_IMAGE}:${{ github.sha }}
+
+      # ---- deploy: the push above moves :latest; this makes something RUN it ----
+      #
+      # Restores the property the Vercel exit silently dropped on 2026-08-24:
+      # merging to main SHIPS. Between the migration and this step, every
+      # deployment was a human clicking Coolify (its queue recorded all of them
+      # as is_webhook=false, is_api=false).
+      #
+      # Two decisions here are load-bearing:
+      #
+      #   * The worker MUST use `POST /services/{uuid}/restart?latest=true`.
+      #     The generic `/deploy` endpoint on a compose Service calls
+      #     StartService WITHOUT pullLatestImages, so it answers 200 while
+      #     restarting the OLD image — read in the running Coolify 4.3.10
+      #     (DeployController.php:571), and the correct endpoint's pull was
+      #     verified via a docker `image pull` event on the worker host.
+      #     The web Application's `/deploy` DOES pull :latest before recreating.
+      #
+      #   * A 200 from Coolify means "queued", not "running", so the step holds
+      #     until the PUBLIC wire serves identity values read from the images
+      #     built above — never from the checkout: the image tree is the
+      #     .dockerignore-filtered one and the two fingerprints differ.
+      - name: Deploy both tiers via Coolify, and hold until the wire serves THIS build
+        if: github.ref == 'refs/heads/main'
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          if [ -z "${COOLIFY_TOKEN}" ]; then
+            echo "::error::COOLIFY_TOKEN secret is unset — images were pushed but nothing will run them"
+            exit 1
+          fi
+
+          # Expected identities, read from the artifacts a reader will receive.
+          WEB_BUILD_ID=$(docker run --rm ${WEB_IMAGE}:latest cat .next/BUILD_ID)
+          cat > /tmp/fp.ts <<'TS'
+          import { computeBuildFingerprint } from "./src/lib/workers/build-fingerprint";
+          console.log(computeBuildFingerprint());
+          TS
+          WORKER_FP=$(docker run --rm -v /tmp/fp.ts:/app/fp.ts ${WORKER_IMAGE}:latest node_modules/.bin/tsx fp.ts)
+          echo "expecting web BUILD_ID=${WEB_BUILD_ID} worker fingerprint=${WORKER_FP}"
+          # A poll for a malformed value would wait ten minutes to report a
+          # parse bug as a deploy failure — refuse it up front.
+          case "${WEB_BUILD_ID}" in
+            *[!A-Za-z0-9_-]*|"") echo "::error::web BUILD_ID did not parse"; exit 1;;
+          esac
+          if ! echo "${WORKER_FP}" | grep -qE '^[0-9a-f]{12}$'; then
+            echo "::error::worker fingerprint did not parse (${WORKER_FP})"
+            exit 1
+          fi
+
+          # Web (Application): a Coolify redeploy pulls :latest, then recreates.
+          curl -fsS -X POST -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            "https://coolify.pdf.xyz/api/v1/deploy?uuid=7fqm2t0y1yxjf9gkcmado5vn"
+          echo ""
+          # Worker (Service): the restart endpoint, latest=true — see header.
+          curl -fsS -X POST -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            "https://coolify.pdf.xyz/api/v1/services/r9fkr9muiynnw0rcgbnuh7nn/restart?latest=true"
+          echo ""
+
+          # Hold until BOTH tiers serve this run's identities. An unknown
+          # BUILD_ID manifest is a 404 (measured in both directions), and the
+          # worker heartbeat publishes its image's source fingerprint.
+          web_ok=""; worker_ok=""
+          for i in $(seq 1 60); do
+            if [ -z "${web_ok}" ] && curl -fsS -o /dev/null "https://pdf.xyz/_next/static/${WEB_BUILD_ID}/_buildManifest.js" 2>/dev/null; then
+              web_ok=yes; echo "web serves BUILD_ID ${WEB_BUILD_ID} (t=$((i*10))s)"
+            fi
+            if [ -z "${worker_ok}" ] && curl -fsS "https://pdf.xyz/api/worker/operations" 2>/dev/null | grep -q "Running build ${WORKER_FP}"; then
+              worker_ok=yes; echo "worker heartbeat publishes ${WORKER_FP} (t=$((i*10))s)"
+            fi
+            if [ -n "${web_ok}" ] && [ -n "${worker_ok}" ]; then break; fi
+            sleep 10
+          done
+          if [ -z "${web_ok}" ] || [ -z "${worker_ok}" ]; then
+            echo "::error::deploy did not reach the wire in 10 minutes (web=${web_ok:-no} worker=${worker_ok:-no}); the wire currently says:"
+            curl -sS "https://pdf.xyz/api/worker/operations" | grep -o "Running build [a-f0-9]*" || true
+            exit 1
+          fi
+          echo "both tiers serve the build this run pushed — merged IS shipped"
