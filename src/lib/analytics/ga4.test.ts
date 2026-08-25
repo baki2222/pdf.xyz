@@ -45,9 +45,7 @@ describe("enableGa4", () => {
 
   it("declares consent defaults before config, with every ad signal denied", () => {
     enableGa4();
-    const calls = win.dataLayer!.map((entry) =>
-      Array.from(entry as unknown[]),
-    );
+    const calls = win.dataLayer!.map((entry) => Array.from(entry as unknown[]));
     const consentIndex = calls.findIndex((call) => call[0] === "consent");
     const configIndex = calls.findIndex((call) => call[0] === "config");
     expect(consentIndex).toBeGreaterThanOrEqual(0);
@@ -64,10 +62,14 @@ describe("enableGa4", () => {
   it("routes track() events to gtag with the redacted payload", () => {
     enableGa4();
     const before = win.dataLayer!.length;
-    track({ name: "gated_tool_interest", toolSlug: "translate-pdf", capability: "ai" });
-    const pushed = win.dataLayer!.slice(before).map((entry) =>
-      Array.from(entry as unknown[]),
-    );
+    track({
+      name: "gated_tool_interest",
+      toolSlug: "translate-pdf",
+      capability: "ai",
+    });
+    const pushed = win
+      .dataLayer!.slice(before)
+      .map((entry) => Array.from(entry as unknown[]));
     expect(pushed).toEqual([
       [
         "event",
@@ -89,7 +91,11 @@ describe("disableGa4", () => {
     expect(updates).toEqual([
       ["consent", "update", { analytics_storage: "denied" }],
     ]);
-    track({ name: "gated_tool_interest", toolSlug: "translate-pdf", capability: "ai" });
+    track({
+      name: "gated_tool_interest",
+      toolSlug: "translate-pdf",
+      capability: "ai",
+    });
     expect(win.dataLayer!.length).toBe(afterDisable);
   });
 

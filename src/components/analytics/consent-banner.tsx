@@ -49,7 +49,7 @@ export function ConsentBanner() {
         declining changes nothing about how the site works.{" "}
         <Link
           href="/privacy#cookies"
-          className="text-muted underline underline-offset-2 hover:text-fg"
+          className="text-muted hover:text-fg underline underline-offset-2"
         >
           Details in the privacy policy
         </Link>

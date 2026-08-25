@@ -280,18 +280,15 @@ export default function PrivacyPage() {
             used, and it is loaded only after you choose &ldquo;Allow
             analytics&rdquo; in the banner. Until then — and always, if you
             decline — no analytics code loads and nothing is sent to Google.
-            When allowed, Google receives the pages you view, the names of
-            tools you use, coarse browser and device information, and an
-            approximate location derived from your IP address, acting as our
-            processor. It never sees your documents: analytics events are
-            stripped of filenames, links, and query strings before they are
-            sent, and file contents never pass through this channel at all.
-            There is no advertising pixel and no error-tracking SDK, and you
-            can change your decision at any time in the{" "}
-            <a
-              href="#cookies"
-              className="text-fg underline underline-offset-2"
-            >
+            When allowed, Google receives the pages you view, the names of tools
+            you use, coarse browser and device information, and an approximate
+            location derived from your IP address, acting as our processor. It
+            never sees your documents: analytics events are stripped of
+            filenames, links, and query strings before they are sent, and file
+            contents never pass through this channel at all. There is no
+            advertising pixel and no error-tracking SDK, and you can change your
+            decision at any time in the{" "}
+            <a href="#cookies" className="text-fg underline underline-offset-2">
               cookies section
             </a>{" "}
             below.
@@ -333,12 +330,12 @@ export default function PrivacyPage() {
 
       <LegalSection id="cookies" heading="5. Cookies and browser storage">
         <p>
-          We use no advertising cookies and no cross-site trackers. The one
-          kind of cookie on this site belongs to Google Analytics, and it is
-          set only after you allow analytics in the consent banner: Google
-          then stores its measurement cookies (the <code>_ga</code> family) to
-          tell returning browsers apart. Decline — or never answer — and no
-          analytics cookie is ever set.
+          We use no advertising cookies and no cross-site trackers. The one kind
+          of cookie on this site belongs to Google Analytics, and it is set only
+          after you allow analytics in the consent banner: Google then stores
+          its measurement cookies (the <code>_ga</code> family) to tell
+          returning browsers apart. Decline — or never answer — and no analytics
+          cookie is ever set.
         </p>
         <p>
           Your consent decision itself is kept in your browser&rsquo;s local
@@ -356,7 +353,9 @@ export default function PrivacyPage() {
       </LegalSection>
 
       <LegalSection id="why" heading="6. Why we are allowed to do this">
-        <p>Under UK and EU data protection law we rely on three lawful bases:</p>
+        <p>
+          Under UK and EU data protection law we rely on three lawful bases:
+        </p>
         <ul className="ml-5 flex list-disc flex-col gap-1.5">
           <li>
             <strong className="text-fg font-semibold">
