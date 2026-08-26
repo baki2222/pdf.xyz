@@ -26,7 +26,7 @@ export function SiteHeader() {
 
   return (
     <header className="bg-canvas border-line sticky top-0 z-50 border-b">
-      <Container className="flex h-14 items-center justify-between gap-4">
+      <Container className="flex h-[var(--sf-header-h)] items-center justify-between gap-4">
         <Logo />
 
         <nav className="hidden items-center gap-6 md:flex" aria-label="Primary">

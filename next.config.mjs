@@ -50,7 +50,13 @@ function storageConnectSrc() {
           /^https:\/\/([*.a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/.test(value),
         )
     : [];
-  return ["https://*.r2.cloudflarestorage.com", ...configured].join(" ");
+  // Deduped: the configured value legitimately repeats the built-in R2
+  // wildcard (production sets exactly that string), and a CSP listing an
+  // origin twice is valid but reads as a mistake to anyone auditing the
+  // header — which is the audience this directive exists for.
+  return [
+    ...new Set(["https://*.r2.cloudflarestorage.com", ...configured]),
+  ].join(" ");
 }
 
 function contentSecurityPolicy() {
