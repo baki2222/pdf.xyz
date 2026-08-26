@@ -185,6 +185,24 @@
   html {
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
+
+    /* The sticky header height, declared ONCE and consumed by both the header
+       itself (`h-[var(--sf-header-h)]`) and the scroll padding below. A number
+       typed in two places is a number that drifts in one. */
+    --sf-header-h: 3.5rem;
+
+    /* Anything scrolled into view — an anchor, a control the keyboard focused,
+       a `scrollIntoView` result — lands UNDER `position: sticky` chrome unless
+       the scroll port reserves room. That is survey item 4, and it was observed
+       before it was fixed: #51's contrast audit had to occlusion-test every
+       text run because elements scrolled into view kept landing beneath this
+       header, and it measured the header's own gradient as their background.
+       A keyboard user hits the same thing without the instrument.
+
+       `scroll-padding-top` on the scroll port covers EVERY target at once; the
+       per-anchor `scroll-mt-*` classes cover only the sections someone
+       remembered to annotate. The extra 1rem is breathing room, not slack. */
+    scroll-padding-top: calc(var(--sf-header-h) + 1rem);
   }
 
   body {

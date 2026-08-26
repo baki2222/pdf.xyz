@@ -19,6 +19,7 @@
  * So the two files must agree: smooth scrolling in the stylesheet requires the
  * attribute in the layout.
  */
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -51,5 +52,63 @@ describe("smooth scrolling and the App Router", () => {
     expect(css.slice(css.indexOf("prefers-reduced-motion"))).toMatch(
       /scroll-behavior:\s*auto/,
     );
+  });
+});
+
+/**
+ * The sticky header and everything that gets scrolled under it.
+ *
+ * Survey item 4, observed rather than inferred: #51's contrast audit had to
+ * occlusion-test every text run because elements scrolled into view landed
+ * beneath `header.sticky.top-0` and it measured the HEADER's background as
+ * theirs. A keyboard user meets the same defect without the instrument — Tab
+ * to a control below the fold and the browser parks it under the chrome.
+ *
+ * The fix is one `scroll-padding-top` on the scroll port, and the thing worth
+ * guarding is not the declaration but the RELATIONSHIP: the padding has to
+ * track the header's real height. Both now read one token, so a header that
+ * grows moves the padding with it. A test that only asserted "some padding
+ * exists" would pass through the exact drift it exists to prevent.
+ */
+describe("nothing lands underneath the sticky header", () => {
+  const header = readFileSync(
+    path.join(ROOT, "src/components/layout/site-header.tsx"),
+    "utf8",
+  );
+
+  it("declares the header height as a token, once", () => {
+    expect(css).toMatch(/--sf-header-h:\s*[\d.]+rem/);
+  });
+
+  it("sizes the header FROM that token, not from a literal", () => {
+    // `h-14` and `--sf-header-h: 3.5rem` are the same number written twice;
+    // this is what makes them the same number written once.
+    expect(header).toContain("h-[var(--sf-header-h)]");
+    expect(header).not.toMatch(/Container className="[^"]*\bh-\d+\b/);
+  });
+
+  it("reserves scroll room DERIVED from the same token", () => {
+    const padding = /scroll-padding-top:\s*calc\(var\(--sf-header-h\)/;
+    expect(
+      padding.test(css),
+      "scroll-padding-top must be computed from --sf-header-h; a typed length " +
+        "silently stops matching the header the day the header changes",
+    ).toBe(true);
+  });
+
+  it("keeps the per-anchor scroll margins that predate it", () => {
+    // `scroll-padding-top` covers every target; the section anchors' own
+    // `scroll-mt-*` is additive and harmless. Removing them is a separate
+    // decision, not a side effect of this one — pinned so it stays deliberate.
+    const anchors = execSync(
+      "git ls-files src/components src/app | grep -E '\.tsx$'",
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean)
+      .filter((file) =>
+        readFileSync(path.join(ROOT, file), "utf8").includes("scroll-mt-"),
+      );
+    expect(anchors.length).toBeGreaterThan(0);
   });
 });
