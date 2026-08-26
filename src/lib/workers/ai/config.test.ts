@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   AI_ENV,
-  AI_MAX_OUTPUT_TOKENS_BOUNDS,
   DEFAULT_AI_MODEL,
   nativeAiCapability,
   resolveAiConfig,
@@ -80,9 +79,13 @@ describe("resolveAiConfig", () => {
       expect(r.config.provider).toBe("anthropic");
       expect(r.config.model).toBe(DEFAULT_AI_MODEL.anthropic);
       expect(r.config.hasApiKey).toBe(true);
-      expect(r.config.maxOutputTokens).toBe(
-        AI_MAX_OUTPUT_TOKENS_BOUNDS.default,
-      );
+      // INVERTED 2026-08-25. This used to assert the resolved config carried
+      // `maxOutputTokens: AI_MAX_OUTPUT_TOKENS_BOUNDS.default` — true, and
+      // true about a field NOTHING read: no native.ts ever passed it into an
+      // engine's limits. The assertion made an inert knob look wired, which is
+      // how it survived. The knob is deleted; this pins its absence so a future
+      // "resolve it now, consume it later" cannot re-enter quietly.
+      expect(r.config).not.toHaveProperty("maxOutputTokens");
     }
   });
 
@@ -123,14 +126,21 @@ describe("resolveAiConfig", () => {
   });
 
   it("clamps out-of-range numeric bounds to an invalid config, naming the variable", () => {
+    // RETARGETED 2026-08-25, from PDFXYZ_AI_MAX_OUTPUT_TOKENS to the timeout.
+    // The bounds check itself is worth keeping — a misconfigured deployment
+    // must fail loudly and be told which variable — but it was demonstrated on
+    // the ONE variable whose value nothing consumed, so the only thing that
+    // knob could still do was break a boot. `timeoutMs` is read on every
+    // provider call (native.ts `shared`), so this now exercises the rule on a
+    // variable that matters.
     const r = resolveAiConfig({
       ...ENABLED,
-      [AI_ENV.maxOutputTokens]: "999999",
+      [AI_ENV.timeoutMs]: "999999999",
     });
     expect(r.enabled).toBe(false);
     if (!r.enabled) {
       expect(r.reason).toBe("invalid");
-      expect(r.error?.field).toBe(AI_ENV.maxOutputTokens);
+      expect(r.error?.field).toBe(AI_ENV.timeoutMs);
     }
   });
 });
