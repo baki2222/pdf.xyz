@@ -65,7 +65,6 @@ export const AI_ENV = {
   /** Optional `https:` endpoint override (a proxy / self-host). Non-secret. */
   baseUrl: "PDFXYZ_AI_BASE_URL",
   timeoutMs: "PDFXYZ_AI_TIMEOUT_MS",
-  maxOutputTokens: "PDFXYZ_AI_MAX_OUTPUT_TOKENS",
 } as const;
 
 /** Hard bounds so a misconfigured deployment can never ask for unbounded work. */
@@ -73,11 +72,6 @@ export const AI_TIMEOUT_MS_BOUNDS = {
   min: 1_000,
   max: 600_000, // 10 min — a generous ceiling for a long document completion.
   default: 120_000, // 2 min.
-} as const;
-export const AI_MAX_OUTPUT_TOKENS_BOUNDS = {
-  min: 256,
-  max: 16_000,
-  default: 4_000,
 } as const;
 
 /** A shape-safe model token: lowercase alphanumerics, dots, and hyphens; bounded. */
@@ -146,7 +140,6 @@ export interface AiConfig {
   /** True only when the API-key variable is present and non-empty. */
   hasApiKey: boolean;
   timeoutMs: number;
-  maxOutputTokens: number;
 }
 
 /** The resolved AI configuration state — a validated config, or an honest reason it is off. */
@@ -258,15 +251,6 @@ export function resolveAiConfig(
   if (!timeout.ok)
     return { enabled: false, reason: "invalid", error: timeout.error };
 
-  const maxOutput = parseBoundedInt(
-    env[AI_ENV.maxOutputTokens],
-    AI_ENV.maxOutputTokens,
-    AI_MAX_OUTPUT_TOKENS_BOUNDS,
-  );
-  if (!maxOutput.ok) {
-    return { enabled: false, reason: "invalid", error: maxOutput.error };
-  }
-
   return {
     enabled: true,
     config: {
@@ -275,7 +259,6 @@ export function resolveAiConfig(
       ...(baseUrl ? { baseUrl } : {}),
       hasApiKey: true,
       timeoutMs: timeout.value,
-      maxOutputTokens: maxOutput.value,
     },
   };
 }

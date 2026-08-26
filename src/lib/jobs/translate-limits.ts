@@ -76,7 +76,8 @@
  * UNIT is unrecorded is a defect even when its value is right, because the next
  * person compares it to something. `AI_INPUT_LIMITS` named reading while
  * translate was bound by writing; `AI_MAX_OUTPUT_TOKENS_BOUNDS.default` named a
- * budget nothing consumed; this named a document while the code weighed an
+ * budget nothing consumed (that knob was deleted on 2026-08-25); this named a
+ * document while the code weighed an
  * extraction.
  */
 export const TRANSLATE_CALIBRATION = {
@@ -154,12 +155,18 @@ export function translateTooLongMessage(
  * It lives here rather than in the engine so the published ceiling and the
  * request that produces it cannot disagree — the engine imports it back.
  *
- * NOTE, and it is a finding rather than a design: `PDFXYZ_AI_MAX_OUTPUT_TOKENS`
- * (bounded, defaulting to 4,000 in `workers/ai/config.ts`) is resolved and then
- * read by NOTHING. No `native.ts` passes `maxOutputTokens` into an engine's
- * limits, so all four AI engines fall back to their own hardcoded defaults and
- * the configured value is inert. Wiring it up would change what three other
- * tools send, so it is reported rather than done here.
+ * THE ENV KNOB THAT USED TO SHADOW THIS IS GONE (2026-08-25).
+ * `PDFXYZ_AI_MAX_OUTPUT_TOKENS` was resolved, bounds-checked, and read by
+ * NOTHING — no `native.ts` passed `maxOutputTokens` into an engine's limits.
+ * Wiring it was considered and REFUSED BY MEASUREMENT: its default was 4,000
+ * against this constant's 8,000, so a deployment that set nothing would have
+ * halved the published ceiling below — a figure the FAQ states and tests pin.
+ * One global number cannot serve four engines whose outputs differ by purpose
+ * (chat 2,000 · extract 4,000 · translate 8,000 per chunk), and its only real
+ * effect was that an out-of-bounds value FAILED config resolution: it could
+ * break a deployment while never doing anything. Deleted instead, and
+ * `workers/ai/env-consumption.test.ts` now fails any future knob that is
+ * declared and never consumed.
  */
 export const TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS = 8_000;
 
