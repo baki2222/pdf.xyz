@@ -1,35 +1,63 @@
 # Deployment
 
-pdf.xyz deploys to **Vercel** and serves from the **pdf.xyz** domain. This guide
-covers first-time setup, the environment policy, and the day-to-day
-preview → production workflow.
+pdf.xyz runs on its own infrastructure and serves from the **pdf.xyz** domain.
+This guide covers the pipeline, the environment policy, and the day-to-day
+merge → production workflow.
+
+> **This document described Vercel until 2026-08-28.** The site moved to
+> self-hosting on 2026-08-24 and the guide did not move with it — the failure
+> mode the rest of this repository spends its guards on: prose that was true
+> when written. If a step below does not match what you observe, trust the
+> observation and fix the step.
 
 > The app is a standard Next.js App Router project. Nothing here requires
 > secrets today — every live tool runs in the browser.
 
 ---
 
-## 1. Prerequisites
+## 1. The pipeline
 
-- A Vercel account with access to the target team.
-- The GitHub repo connected to Vercel (`baki2222/pdf.xyz`).
-- Node ≥ 20 and pnpm locally (pnpm is pinned via `packageManager` in
-  `package.json`, so Vercel and CI use the same version).
+Both tiers ship from one workflow. Merging to `main` runs
+[`publish.yml`](../.github/workflows/publish.yml), which:
 
-## 2. Create the Vercel project
+1. builds the `web` and `worker` targets from the single [`Dockerfile`](../Dockerfile);
+2. **smokes both before pushing** — the worker's no-config honesty contract, and
+   the web image must actually SERVE, with the storage origin present in its CSP
+   and `public/` inside the image;
+3. pushes `ghcr.io/baki2222/pdfxyz-web` and `…-worker` (`latest` + the commit sha);
+4. tells Coolify to deploy both, then **holds until the public wire serves the
+   identities of the images it just built** — the web image's `.next/BUILD_ID`
+   manifest and the worker heartbeat's source fingerprint. A deploy that does not
+   reach the wire in ten minutes fails the run.
 
-1. **New Project → Import** the GitHub repository.
-2. Framework preset: **Next.js** (auto-detected).
-3. Build & install commands: taken from [`vercel.json`](../vercel.json) —
-   - Install: `pnpm install --frozen-lockfile`
-   - Build: `pnpm build`
-4. Node.js version: **20.x or 22.x** (Project → Settings → General).
-5. Leave the output/root defaults; there is no custom output directory.
+That last step exists because between the Vercel exit and 2026-08-25 nothing
+connected the registry to the servers: merging stopped meaning shipping, and
+nothing anywhere was red.
 
-`vercel.json` also sets sensible CDN cache headers for `robots.txt`,
-`sitemap.xml`, and the manifest. All **security headers and the CSP** are
-defined in `next.config.mjs` so they apply identically in local `next start`,
-preview, and production.
+**Hosts.** The web app and Coolify itself run on `162.35.173.191`; the worker
+runs on `13.140.139.65` as a Coolify-managed compose service. Coolify's own
+dashboard is `https://coolify.pdf.xyz`.
+
+**Two endpoints, and they are not interchangeable.** The web app is an
+Application: `POST /api/v1/deploy?uuid=…` pulls `:latest` and recreates. The
+worker is a compose **Service**, and that same endpoint restarts it _without
+pulling_ — it answers 200 while running the old image. The worker must use
+`POST /api/v1/services/{uuid}/restart?latest=true`.
+
+## 2. Prerequisites
+
+- Node ≥ 20 and pnpm locally (pinned via `packageManager` in `package.json`,
+  so local, CI, and the images all use the same version).
+- For deploys: nothing by hand. The pipeline needs `COOLIFY_TOKEN` — a
+  deploy-ability token — as a repository secret, which is already set.
+
+All **security headers, the CSP, and the CDN cache rules** for `robots.txt`,
+`sitemap.xml`, and the manifest live in [`next.config.mjs`](../next.config.mjs),
+so they apply identically in local `next start` and in production. Those cache
+rules used to live in `vercel.json` and silently stopped applying at the
+migration — measured 2026-08-28, `/sitemap.xml` was serving `max-age=0` with
+`cf-cache-status: DYNAMIC` — which is why that file is gone and the rules are
+here.
 
 ## 3. Environment variables
 
@@ -48,7 +76,8 @@ preview, and production.
   (`PDFXYZ_WORKER_HEARTBEAT`, `PDFXYZ_LIFECYCLE_*`).
 - **Secure-worker storage (optional, Phase 14):** object storage can be wired
   independently of the queue/processor by setting server-only S3-compatible
-  variables in Vercel. This enables real signed upload/download URL minting.
+  variables in the deployment's environment. This enables real signed
+  upload/download URL minting.
 - **Secure-worker queue (optional, Phase 15):** the job queue can be wired
   independently of storage/processor by setting server-only Redis/Upstash REST
   variables. This enables real queue-backed job creation, status, cancel/expire,
@@ -57,8 +86,9 @@ preview, and production.
   it** — a created job stays `queued`, and the status endpoint says so. Never claim
   remote processing is live on this basis alone.
 - **When remaining secure workers / AI land:** add their keys in
-  **Vercel → Project → Settings → Environment Variables**, scoped to the right
-  environment (Production / Preview / Development). Server-only secrets must
+  **Coolify → the application → Environment Variables** for the web tier, and
+  `/opt/pdfxyz/.env.production` on the worker host for the worker tier (read at
+  container CREATE, so recreate rather than restart). Server-only secrets must
   **not** be prefixed `NEXT_PUBLIC_` (that prefix exposes a value to the
   browser). Keep worker/AI credentials server-side only.
 - **OCR (and every secure-worker tool) is disabled by default.** `/tools/ocr-pdf`
@@ -185,23 +215,28 @@ Notes specific to this feature:
 - **CSP is handled for you.** If the endpoint is cross-origin, `next.config.mjs`
   adds exactly that origin to `connect-src` at build time; a same-origin path is
   already covered by `connect-src 'self'`. No manual CSP edit is needed.
-- **These vars are build-time inlined.** Set them **before** the build (in the
-  Vercel environment for the target deployment) — changing them requires a
-  rebuild to take effect.
+- **These vars are build-time inlined.** Set them **before** the build — for
+  this deployment that means a repository VARIABLE that `publish.yml` passes as
+  a build arg, the way `NEXT_PUBLIC_STORAGE_CONNECT_SRC` is. Setting one in the
+  running container does nothing: the value was baked when the image was built,
+  and the only way to change it is a rebuild.
 - We ship **no** ingest endpoint. Bring your own (a serverless route, a
   collector, or a third-party sink). Absent one, leave these unset.
 
 ## 4. Custom domain (pdf.xyz)
 
-1. **Project → Settings → Domains → Add** `pdf.xyz` and `www.pdf.xyz`.
-2. Set the redirect so one is canonical (recommend `pdf.xyz` apex as canonical,
-   `www` → apex).
-3. Configure DNS at the registrar as Vercel instructs, typically:
-   - Apex `pdf.xyz`: `A` → `76.76.21.21` **or** an `ALIAS`/`ANAME` to
-     `cname.vercel-dns.com` (registrar-dependent).
-   - `www`: `CNAME` → `cname.vercel-dns.com`.
-4. Vercel provisions TLS automatically.
-5. Confirm `siteConfig.url` in `../src/lib/site.ts` is `https://pdf.xyz` — it is the
+1. In **Coolify → the application → Domains**, list the hostnames it serves.
+2. In **Cloudflare DNS**, point them at the web host:
+   - apex `pdf.xyz`: `A` → `162.35.173.191`, **Proxied**;
+   - `www`: `CNAME` → `pdf.xyz`, **Proxied**.
+     Proxied is deliberate: it hides the origin IP and gives a valid edge
+     certificate immediately. SSL/TLS mode is **Full** — the origin presents a
+     self-signed certificate, which Full accepts and Full (strict) would not.
+3. `beta.pdf.xyz` also resolves here and is marked **noindex** per-domain in
+   Coolify. That pairing is watched hourly by
+   [`check-public-surface.mjs`](../scripts/check-public-surface.mjs) in both
+   directions: beta must stay hidden, the apex must stay indexable.
+4. Confirm `siteConfig.url` in `../src/lib/site.ts` is `https://pdf.xyz` — it is the
    `metadataBase` for canonical/OG URLs, robots, and the sitemap.
 
 **HSTS note:** the app sends `Strict-Transport-Security` with `preload` in
@@ -212,7 +247,7 @@ HTTPS.
 
 ## 5. Preview → production workflow
 
-- **Pull requests** get an automatic **Preview Deployment** with a unique URL.
+- **Pull requests** run CI only; there is no preview deployment.
   CI (`../.github/workflows/ci.yml`) runs typecheck, lint, unit tests, the worker
   no-config honesty smoke, build, and the Playwright smoke suite on every PR. A
   second workflow (`../.github/workflows/container.yml`) builds both the `web` and
@@ -222,8 +257,11 @@ HTTPS.
 - Branch model: feature work happens on `phase-*` branches (e.g.
   `phase-4-production-hardening`). Open a PR into `main`; **do not** deploy
   straight to production from a feature branch.
-- **Rollback:** Vercel keeps every deployment. Use
-  **Deployments → ⋯ → Promote/Rollback** for an instant revert.
+- **Rollback:** every publish also pushes an image tagged with its commit sha,
+  so a revert is either `git revert` + merge — which re-runs the whole pipeline,
+  wire hold included — or, faster, pointing the Coolify resource at the previous
+  sha tag and redeploying. Prefer the revert: it leaves `main` and the running
+  image agreeing with each other.
 
 ## 6. Post-deploy checklist
 
@@ -465,8 +503,9 @@ one process that actually drains the queue; the Next.js app never becomes it.
 ## Phase 19 worker container & deployment artifacts
 
 Phase 19 makes the split between the **web app** and the **worker daemon**
-concrete infrastructure. The web app deploys to Vercel as before; the worker is a
-separate, sandboxed process you build and run yourself. The artifacts:
+concrete infrastructure. Both tiers now ship as images from the same pipeline
+(§1), but they remain separate processes on separate hosts: the web app never
+runs the daemon, and the worker image never carries the site. The artifacts:
 
 | File                                                              | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

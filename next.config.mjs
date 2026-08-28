@@ -169,6 +169,29 @@ const nextConfig = {
     return [
       { source: "/:path*", headers: securityHeaders() },
       {
+        // The three files crawlers fetch and users never see. This rule lived
+        // in `vercel.json` and stopped applying the moment the site left
+        // Vercel — silently, because a dropped cache header changes nothing a
+        // visitor can see. Measured on production 2026-08-28, before this:
+        // `/sitemap.xml` and `/manifest.webmanifest` served
+        // `max-age=0, must-revalidate` with `cf-cache-status: DYNAMIC`, so
+        // every crawler hit reached a one-vCPU origin that had already
+        // rendered the same bytes.
+        //
+        // `max-age=0` keeps browsers honest while `s-maxage` lets the edge
+        // hold it for a day, and `stale-while-revalidate` means a rebuild
+        // never makes a crawler wait. Same values the Vercel file carried, now
+        // expressed where the platform we actually run can read them.
+        source: "/(robots.txt|sitemap.xml|manifest.webmanifest)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value:
+              "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
+      {
         // pdfjs's image decoders AND character maps, copied into public/ under a
         // version-stamped
         // path by scripts/copy-pdfjs-wasm.ts. The version is IN the URL, so the
