@@ -59,6 +59,16 @@ migration — measured 2026-08-28, `/sitemap.xml` was serving `max-age=0` with
 `cf-cache-status: DYNAMIC` — which is why that file is gone and the rules are
 here.
 
+**The header alone was not enough, and that is worth knowing before you
+measure.** Vercel's edge honoured `s-maxage` on any response; Cloudflare only
+caches what its own rules consider eligible, and `.xml`/`.webmanifest` are not
+eligible by default. So the origin header was correct and `cf-cache-status`
+still read `DYNAMIC`. A **Cache Rule** on the zone —
+`http.request.uri.path in {"/sitemap.xml" "/manifest.webmanifest"
+"/robots.txt"}` → _Eligible for cache_, Edge TTL deliberately UNSET so the
+origin's `s-maxage` still governs — is what turned it into `HIT`. Two systems,
+one behaviour: change the duration in `next.config.mjs`, never in Cloudflare.
+
 ## 3. Environment variables
 
 **Policy: never commit secrets, and never read `.env*` files into the client.**
