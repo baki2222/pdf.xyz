@@ -47,3 +47,18 @@ jobs:
       - name: Check public surface
         if: always()
         run: node scripts/check-public-surface.mjs
+
+      # The backup, asked from OUTSIDE Coolify. Its own notifier cannot report
+      # the failure mode that matters most — the scheduler simply stopping —
+      # because nothing fails when nothing runs. This reads the bucket instead:
+      # is there a recent object, large enough to be a real dump? The token is
+      # object-read-only on that one bucket, so the watcher cannot damage what
+      # it watches.
+      - name: Check backup freshness
+        if: always()
+        env:
+          R2_BACKUP_ENDPOINT: ${{ vars.R2_BACKUP_ENDPOINT }}
+          R2_BACKUP_BUCKET: ${{ vars.R2_BACKUP_BUCKET }}
+          R2_BACKUP_KEY_ID: ${{ secrets.R2_BACKUP_KEY_ID }}
+          R2_BACKUP_SECRET: ${{ secrets.R2_BACKUP_SECRET }}
+        run: node scripts/check-backup-freshness.mjs
