@@ -3,9 +3,12 @@ import { processingSplit } from "@/lib/tools/processing-split";
 import { Container } from "@/components/ui/container";
 
 /**
- * A spec strip, not a stats band: the same four true numbers, set in mono
- * against hairlines like a data sheet. The gradient-filled 5xl numerals in
- * boxed cells were the funding-round version of this information.
+ * A spec strip set like a measured drawing: four true numbers on one rule,
+ * each with a dimension end-cap at its origin. The counts are DERIVED from
+ * the catalogue, so a figure that was measured also reads as measured. The
+ * gradient-filled 5xl numerals in boxed cells were the funding-round
+ * version of this information; the hairline-cell data sheet was the
+ * broadsheet version. This is the drawing-office version.
  */
 export function StatsBand() {
   /**
@@ -29,14 +32,18 @@ export function StatsBand() {
   return (
     <section className="border-line bg-wash border-b">
       <Container>
-        <dl className="grid grid-cols-2 lg:grid-cols-4">
+        {/* Set like a measured drawing: each figure sits on the strip rule
+            with a dimension end-cap at its origin, so a number that WAS
+            measured (the counts are derived from the catalogue) also reads
+            as measured. The cap is the mark cyan — decoration, never text. */}
+        <dl className="border-line-strong/50 grid grid-cols-2 border-t lg:grid-cols-4">
           {stats.map((stat, i) => (
             <div
               key={stat.label}
               className={
-                "border-line-strong/50 flex flex-col gap-1 py-7 " +
-                (i > 0 ? "lg:border-l lg:pl-8 " : "") +
-                (i % 2 === 1 ? "max-lg:border-l max-lg:pl-6" : "")
+                "dim-cap flex flex-col gap-1 py-7 pl-4 " +
+                (i > 0 ? "lg:pl-8 " : "") +
+                (i % 2 === 1 ? "max-lg:pl-6" : "")
               }
             >
               <dd className="text-fg order-1 font-mono text-3xl font-medium tracking-tight tabular-nums sm:text-4xl">

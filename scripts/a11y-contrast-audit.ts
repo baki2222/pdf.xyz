@@ -525,6 +525,19 @@ async function main(): Promise<number> {
         content:
           "globalThis.__name = globalThis.__name || function (f) { return f; };",
       });
+      // The consent banner is a fixed light-canvas overlay that renders until
+      // a decision is stored. Left in place it PARKS ITSELF OVER whatever the
+      // sweep scrolls to the bottom of the viewport, and the sampler then
+      // reads the banner back as that text run background — measured
+      // 2026-08-28: two stable "failures" whose real paint was the dark ink
+      // band, both reporting the banner canvas #f4f6f8 behind them. Seeding
+      // a stored decision is also the honest steady state: every visitor
+      // after the first pageview has one. The banner own surface uses the
+      // same canvas/fg tokens this audit already measures everywhere else.
+      await context.addInitScript({
+        content:
+          'try { localStorage.setItem("pdfxyz.analytics-consent", "denied"); } catch {}',
+      });
       for (const route of routes) {
         const result = await auditRoute(page, route, viewport.name);
         findings.push(...result.findings);

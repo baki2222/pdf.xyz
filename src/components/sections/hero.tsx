@@ -12,10 +12,13 @@ const trust = [
 ];
 
 /**
- * Editorial hero: headline column left, the working object — a real drop
- * zone — right. No badge pill, no gradient text, no glow; the kicker is a
- * mono catalogue line, the headline is set in the serif with the promise
- * italicised in the accent, and the trust items sit on a hairline rule.
+ * Prepress hero: headline column left, the working object — a real drop
+ * zone — right. No badge pill, no gradient text, no glow. The kicker is a
+ * mono spec line, the headline is the grotesque with the promise carried on
+ * a process-cyan sweep (the mark at 22% — text stays fg, so the line can
+ * never fail contrast), and the sheet on the right wears the crop marks:
+ * the one place the trim-room device appears on this screen, because it is
+ * the one place a real page will actually be.
  */
 export function Hero() {
   const popular = getPopularTools(6);
@@ -28,9 +31,9 @@ export function Hero() {
             Privacy-first PDF platform · {toolCount} tools
           </p>
 
-          <h1 className="font-display text-fg mt-6 text-5xl leading-[1.04] font-medium tracking-tight text-balance sm:text-6xl lg:text-[4.25rem]">
+          <h1 className="font-display text-fg mt-6 text-5xl leading-[1.02] font-bold tracking-[-0.02em] text-balance sm:text-6xl lg:text-[4.25rem]">
             Every PDF tool.{" "}
-            <em className="text-accent italic">Private by design.</em>
+            <span className="mark-sweep">Private by design.</span>
           </h1>
 
           <p className="text-muted mt-6 max-w-xl text-base leading-relaxed text-pretty sm:text-lg">
@@ -61,7 +64,7 @@ export function Hero() {
                 key={label}
                 className="text-muted inline-flex items-center gap-2 text-[13px]"
               >
-                <span className="bg-accent size-1 shrink-0" aria-hidden />
+                <span className="bg-mark size-1.5 shrink-0" aria-hidden />
                 {label}
               </li>
             ))}
@@ -75,13 +78,13 @@ export function Hero() {
           <div className="relative mt-2">
             <div
               aria-hidden
-              className="border-line bg-panel absolute -top-2.5 right-4 left-4 h-16 rounded-[4px] border"
+              className="border-line bg-panel absolute -top-2.5 right-4 left-4 h-16 border"
             />
             <div
               aria-hidden
-              className="border-line bg-panel absolute -top-[5px] right-2 left-2 h-16 rounded-[4px] border"
+              className="border-line bg-panel absolute -top-[5px] right-2 left-2 h-16 border"
             />
-            <div className="border-line bg-panel relative rounded-[4px] border p-4 shadow-[0_28px_48px_-32px_rgba(28,25,23,0.4)] sm:p-5">
+            <div className="border-line bg-panel crop-marks relative border p-4 shadow-[0_28px_48px_-32px_rgba(12,18,26,0.45)] sm:p-5">
               <UploadZone />
             </div>
           </div>
