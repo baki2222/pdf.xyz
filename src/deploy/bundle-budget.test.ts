@@ -141,9 +141,16 @@ function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
  */
 const BUDGETS = [
   { name: "homepage", html: "index.html", kb: 700 },
-  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 1200 },
-  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 1200 },
-  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 1200 },
+  // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
+  // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
+  // every page via the static import in src/lib/pdf/browser.ts, now fetched
+  // at first ZIP-producing run — see loadJsZip there). Measured with weigh()
+  // over both artifacts: 1176 → 1060 KB. The tighter figure is the guard:
+  // under the old 1200, a static jszip import could have quietly returned
+  // (1060 + 129 = 1189 fits); under 1100 it cannot.
+  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 1100 },
+  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 1100 },
+  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 1100 },
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
   // runner into a route whose job is prose.
