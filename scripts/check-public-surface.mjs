@@ -36,11 +36,14 @@ const BETA = process.env.SURFACE_BETA ?? "https://beta.pdf.xyz";
 const TIMEOUT_MS = 20_000;
 
 /**
- * The sitemap lists 50 tool pages plus a handful of top-level routes. A
- * sitemap that suddenly holds a dozen URLs is itself the alarm — without this,
- * a shrunken corpus reports the strongest possible pass (`[] ⊆ X`).
+ * The sitemap lists 50 tool pages, the guides, and a handful of top-level
+ * routes — 66 URLs when the guides section shipped (2026-09-17). A sitemap
+ * that suddenly holds a dozen URLs is itself the alarm — without this, a
+ * shrunken corpus reports the strongest possible pass (`[] ⊆ X`). Raised
+ * 40 → 60 with the guides: a floor 26 under the real count would have let
+ * the entire guides section vanish without a word from the watcher.
  */
-const MIN_SITEMAP_URLS = 40;
+const MIN_SITEMAP_URLS = 60;
 
 /** How many derived tool pages to sample, spread evenly across the sitemap. */
 const SAMPLE = 6;
@@ -130,6 +133,7 @@ const sampled = Array.from(
 const always = [
   `${BASE}/`,
   `${BASE}/tools`,
+  `${BASE}/guides`,
   `${BASE}/privacy`,
   `${BASE}/terms`,
 ];

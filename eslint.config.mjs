@@ -14,6 +14,12 @@ const eslintConfig = [
     ignores: [
       ".next/**",
       "node_modules/**",
+      // The desktop app parks per-session git worktrees here (each a full
+      // checkout with its own eslint.config.mjs whose imports resolve against
+      // a node_modules that may not exist there). `eslint .` descending into
+      // one crashes the whole run with ERR_MODULE_NOT_FOUND — hit 2026-09-17.
+      // Nothing under .claude is source this repo lints.
+      ".claude/**",
       // pdfjs's own decoder assets, copied verbatim out of the package by
       // scripts/copy-pdfjs-wasm.ts. Vendor bundles we neither wrote nor edit —
       // linting them reported 83 errors that no one could act on.

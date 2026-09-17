@@ -306,6 +306,10 @@ describe("the policy pages do not promise what the product does not do", () => {
       // JSON-LD — the same channel that carried the fabricated pricing and
       // the retention lie to crawlers.
       path.join(ROOT, "src", "lib", "tools", "tool-facts.ts"),
+      // The guides catalogue, added the same way on 2026-09-17 — before its
+      // first article was written. Guides state retention and privacy facts
+      // as a matter of course, which is exactly this list's vocabulary.
+      path.join(ROOT, "src", "lib", "guides", "catalog.ts"),
       ...readdirSync(sectionsDir)
         .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."))
         .map((f) => path.join(sectionsDir, f)),

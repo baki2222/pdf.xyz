@@ -63,6 +63,22 @@ test.describe("unknown routes answer 404", () => {
     expect(res.headers()["content-type"]).toContain("image/png");
   });
 
+  test("a real guide slug is still 200", async ({ request }) => {
+    // The control for the guides census, same reason as the tools one above.
+    const res = await request.get("/guides/how-to-merge-pdf-files");
+    expect(res.status()).toBe(200);
+  });
+
+  test("an unknown guide slug is 404, not a 200 that says 404", async ({
+    request,
+  }) => {
+    // /guides/[slug] exports `dynamicParams = false` for exactly the reason
+    // documented on the tool page: without it, Next renders the unknown slug
+    // on demand and serves the not-found body with a 200.
+    const res = await request.get(`/guides/${UNKNOWN_SLUG}`);
+    expect(res.status()).toBe(404);
+  });
+
   test("a path outside /tools is 404", async ({ request }) => {
     const res = await request.get("/no-such-page-at-all");
     expect(res.status()).toBe(404);

@@ -144,6 +144,10 @@ const BUDGETS = [
   { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 1200 },
   { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 1200 },
   { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 1200 },
+  // A content page. The homepage-class budget is deliberate and does double
+  // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
+  // runner into a route whose job is prose.
+  { name: "a guide page", html: "guides/how-to-merge-pdf-files.html", kb: 700 },
 ] as const;
 
 describe("client bundle budget", () => {

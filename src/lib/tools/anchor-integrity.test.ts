@@ -19,6 +19,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getAllToolSlugs } from "@/lib/tools";
+import { getAllGuideSlugs } from "@/lib/guides";
 
 const ROOT = process.cwd();
 
@@ -87,6 +88,24 @@ describe("every internal link resolves to something that renders", () => {
     expect(
       offenders,
       `these tool links 404 (the slug is not in the catalogue):\n  ${offenders.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  it("every /guides/<slug> link names a guides-catalogue slug", () => {
+    // Mirror of the /tools census above, added with the /guides section: the
+    // bare-route check below is single-segment only, so a concrete guide link
+    // would otherwise be the one internal href nothing validates.
+    const slugs = new Set(getAllGuideSlugs());
+    const offenders: string[] = [];
+    for (const [file, body] of bodies) {
+      for (const m of body.matchAll(/href="\/guides\/([a-z0-9-]+)"/gi)) {
+        if (!slugs.has(m[1]!))
+          offenders.push(`${relative(file)} → /guides/${m[1]}`);
+      }
+    }
+    expect(
+      offenders,
+      `these guide links 404 (the slug is not in the guides catalogue):\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
   });
 
