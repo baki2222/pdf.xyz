@@ -42,6 +42,10 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/components/tools/translate-worker-panel.tsx",
       "src/components/tools/chat-with-pdf-worker-panel.tsx",
       "src/components/tools/ai-extract-worker-panel.tsx",
+      // The guides catalogue — added with the /guides section on 2026-09-17,
+      // before its first article was written. It ships HowTo + FAQPage JSON-LD,
+      // the channel the pricing and retention lies once travelled.
+      "src/lib/guides/catalog.ts",
     ]) {
       expect(
         files,

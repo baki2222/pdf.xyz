@@ -143,6 +143,37 @@ export function toolApplicationSchema(tool: Tool): Json {
   };
 }
 
+/**
+ * A how-to guide, described as a TechArticle published by the organization.
+ * Dates come from the guide's own `published`/`updated` fields and the body
+ * text is the same prose the page renders — nothing speculative ships, per
+ * the house rule the builders above already follow.
+ */
+export function articleSchema(guide: {
+  slug: string;
+  title: string;
+  description: string;
+  published: string;
+  updated: string;
+}): Json {
+  const url = abs(`/guides/${guide.slug}`);
+  return {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "@id": `${url}#article`,
+    headline: guide.title,
+    description: guide.description,
+    url,
+    mainEntityOfPage: url,
+    datePublished: guide.published,
+    dateModified: guide.updated,
+    inLanguage: "en-US",
+    isPartOf: { "@id": WEBSITE_ID },
+    publisher: { "@id": ORG_ID },
+    author: { "@id": ORG_ID },
+  };
+}
+
 export function breadcrumbSchema(
   crumbs: { name: string; path: string }[],
 ): Json {
