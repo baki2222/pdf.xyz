@@ -87,7 +87,15 @@ async function get(url) {
 const isNoindex = (value) => /noindex/i.test(value);
 
 // ---- the sitemap, which is both a check and the source of the corpus ----
-const sitemapUrl = `${BASE}/sitemap.xml`;
+// Cache-busted, deliberately: /sitemap.xml carries `s-maxage=86400`, so for up
+// to a day after a deploy that GROWS the sitemap, some Cloudflare colos still
+// serve the old one — and this check then fails its own shrink bound against a
+// perfectly healthy origin (measured 2026-09-17: one runner read 67 URLs, the
+// next read 55, eight minutes apart, straddling the guides launch). The corpus
+// must be the origin's current truth; the query string gives the edge a key it
+// has never cached. The SAMPLED pages below stay un-busted on purpose — for
+// them, what the edge serves IS what a crawler receives.
+const sitemapUrl = `${BASE}/sitemap.xml?corpus=${Date.now()}`;
 const sitemap = await get(sitemapUrl);
 if (sitemap.status !== 200 || !/xml/i.test(sitemap.contentType)) {
   fail([
