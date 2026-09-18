@@ -1,12 +1,24 @@
-# Rate limiting — turning it on
+# Rate limiting — how it is configured
 
-Everything is built. The guard, its policies, the Redis provider, the boot
-hook, and their tests all exist and pass. It is **switched off**, because
-`PDFXYZ_RATE_LIMIT_PROVIDER` is unset and unset means `disabled`.
+> **This file described a switched-OFF feature on Vercel and Upstash until
+> 2026-09-18, and both halves of that were false.** Rate limiting has been
+> **LIVE since 2026-08-09** (proven by being refused: a real `429` with a real
+> `Retry-After`, and the store's command counter moving), and the store moved
+> off Upstash to self-hosted Redis on 2026-08-28. A runbook that tells an
+> operator to open a console nobody owns is worse than no runbook, because it
+> is followed during an incident. The steps below are the CURRENT topology;
+> the paragraphs marked as history are kept because they record defects this
+> system paid for.
 
-Turning it on is three environment variables and a redeploy. Two of them are
-secrets, so they have to be pasted by a person with the Upstash account — no
-part of this repository or its tooling reads, stores, or transmits them.
+**It is ON.** `PDFXYZ_RATE_LIMIT_PROVIDER=redis` is set on the web tier, and
+the guard enforces every policy in the table below. The store is **our own
+Redis**, not a vendor: `redis:7-alpine` plus the Upstash-REST-compatible shim
+`serverless-redis-http` at `/opt/pdfxyz-redis/docker-compose.yml` on the
+Coolify box. The web tier reaches it in-cluster at `http://pdfxyz-srh:80`; the
+worker reaches the same store through Cloudflare at `https://redis.pdf.xyz`.
+
+The two secret values live in Coolify's environment for each tier — no part
+of this repository or its tooling reads, stores, or transmits them.
 
 ---
 
@@ -35,44 +47,54 @@ A refused request gets `429` with a `Retry-After`, not a silent drop.
 
 ---
 
-## Step 1 — create an Upstash Redis database
+## Step 1 — the store (already running)
 
-<https://console.upstash.com> → **Create Database**. The free tier is ample:
-these are short fixed windows holding one counter per bucket per policy — and
-see the note above about how few buckets there currently are.
+There is no console to open and no database to create. The store is a
+container we run: see `/opt/pdfxyz-redis/docker-compose.yml` on the Coolify
+box (`redis` + `srh`, both `restart: unless-stopped`, Redis started
+`--appendonly yes` so loss is bounded to about a second).
 
-Pick a **region close to the Vercel deployment** — every guarded request costs
-one round trip to this store, so distance here is latency on every API call.
+Two notes that are load-bearing if you ever touch that compose file:
 
-From the database page, copy the two values under **REST API**:
+- **Address containers by their unambiguous name.** The shim sits on the
+  shared `coolify` network as well as its own, and on that network the bare
+  name `redis` resolves to _Coolify's_ Redis, not ours — the symptom is
+  `NOAUTH Authentication required`, which reads like a token bug. Use
+  `pdfxyz-redis`.
+- **Pin `traefik.docker.network=coolify`.** Without it, Traefik picks one of
+  the shim's two networks non-deterministically on every config rebuild; on
+  2026-09-17 it picked the one it cannot reach and `redis.pdf.xyz` hung for
+  3.5 hours, taking the worker's heartbeat and queue with it.
 
-- `UPSTASH_REDIS_REST_URL`
-- `UPSTASH_REDIS_REST_TOKEN`
-
-Copy them straight from Upstash into Vercel. Do not paste them into a chat, a
-commit, a screenshot, or a file in this repository.
+The client speaks only the Redis-REST protocol, which is why the shim exists
+at all — "self-host Redis" stayed a URL change instead of a rewrite. Note
+that `upstash-redis` and `upstash` remain _accepted spellings_ of the generic
+REST provider in `redis-config.ts` and `ratelimit/config.ts`; seeing one of
+those words in a config value does **not** mean traffic goes to Upstash.
 
 ---
 
-## Step 2 — add three variables on Vercel
+## Step 2 — the three variables (already set, on Coolify)
 
-Project → **Settings** → **Environment Variables**. Set the scope to
-**Production only** — not Preview, not Development. (Preview builds share the
-production storage config; giving them the same rate-limit store would let
-preview traffic consume the production budget.)
+Coolify → the `pdfxyz-web` application → **Environment Variables**, and for
+the worker tier the `env_file` on its own box. They are read at container
+CREATE, not at restart.
 
-| Name                                 | Value                  |
-| ------------------------------------ | ---------------------- |
-| `PDFXYZ_RATE_LIMIT_PROVIDER`         | `redis`                |
-| `PDFXYZ_RATE_LIMIT_REDIS_REST_URL`   | the Upstash REST URL   |
-| `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` | the Upstash REST token |
+| Name                                 | Value                             |
+| ------------------------------------ | --------------------------------- |
+| `PDFXYZ_RATE_LIMIT_PROVIDER`         | `redis`                           |
+| `PDFXYZ_RATE_LIMIT_REDIS_REST_URL`   | `http://pdfxyz-srh:80` (web tier) |
+| `PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN` | the shim's bearer token           |
 
-Only the first is written out here because only the first is not a secret.
+Only the token is secret. The worker tier uses `https://redis.pdf.xyz` for
+the same store, because it runs on a different host.
 
 **Optional, and deliberately left alone:**
 
-- `PDFXYZ_RATE_LIMIT_KEY_PREFIX` — defaults to `pdfxyz`. Set it only if the same
-  Upstash database is shared with something else.
+- `PDFXYZ_RATE_LIMIT_KEY_PREFIX` — defaults to `pdfxyz`. It is load-bearing
+  now that one Redis holds both concerns: the queue writes under `prod:` and
+  the limiter under `pdfxyz:`, and those namespaces were audited as disjoint
+  before the two were collapsed onto one instance.
 - `PDFXYZ_RATE_LIMIT_FAIL_MODE` — defaults to `open`. **Leave it.** See below.
 - `PDFXYZ_RATE_LIMIT_KEY_SALT` — **required for per-client limits.** A secret,
   identical on every instance, that salts the bucket keys so they are not a
@@ -100,9 +122,11 @@ Only the first is written out here because only the first is not a secret.
 
 ## Step 3 — redeploy
 
-Environment variables are read at boot. An existing deployment will not pick
-them up: trigger a new Production deployment (Vercel → Deployments →
-**Redeploy**, or push any commit).
+Environment variables are read at boot, and the worker's `env_file` is read at
+container CREATE — a `docker restart` does **not** re-read it. Web: redeploy
+the `pdfxyz-web` application in Coolify (or merge to `main`, which deploys
+both tiers and holds until the wire serves the new build). Worker: recreate
+the container (`docker rm -f` then start the service), never just restart it.
 
 ---
 
@@ -200,8 +224,8 @@ fine" only once you know something is counting.
 
 ## Safety, and how to undo it
 
-**Enabling this cannot lock users out.** The fail mode defaults to `open`: if the
-Upstash store is unreachable or the credentials are wrong, the guard allows the
+**This cannot lock users out.** The fail mode defaults to `open`: if the Redis
+store is unreachable or the credentials are wrong, the guard allows the
 request and records the degrade rather than refusing traffic. The worst outcome
 of a bad value is that rate limiting does nothing — and since 2026-08-09 that
 state is no longer silent: `GET /api/worker/operations` folds the guard's own
