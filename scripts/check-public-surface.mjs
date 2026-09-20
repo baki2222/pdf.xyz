@@ -31,6 +31,8 @@
  * the defect this repository exists to prevent.
  */
 
+import { readFile } from "node:fs/promises";
+
 const BASE = process.argv[2] ?? process.env.SURFACE_BASE ?? "https://pdf.xyz";
 const BETA = process.env.SURFACE_BETA ?? "https://beta.pdf.xyz";
 const TIMEOUT_MS = 20_000;
@@ -80,6 +82,11 @@ async function get(url) {
     status: res.status,
     robots: res.headers.get("x-robots-tag") ?? "",
     contentType: res.headers.get("content-type") ?? "",
+    // WAS DISCARDED. Every other header this response carries was dropped
+    // here, which is why the only production assertions this file could make
+    // were about two of them — and why the security headers below had never
+    // been checked anywhere except a LOCAL `next start`.
+    headers: res.headers,
     body: await res.text(),
   };
 }
@@ -191,7 +198,94 @@ if (broken.length || wronglyHidden.length || betaVisible) {
   ]);
 }
 
+// ---- the security headers, checked where they are actually served ----
+/**
+ * `next.config.mjs` defines seven response headers — CSP, HSTS, COOP,
+ * Permissions-Policy, Referrer-Policy, X-Content-Type-Options, X-Frame-Options.
+ * Until now NOTHING asserted them in production. The only check was
+ * `e2e/smoke.spec.ts`, which runs against a local `next start`, and
+ * `Strict-Transport-Security` is emitted under `if (!isDev)` — so the one
+ * header that cannot be observed locally was also the one nobody fetched
+ * remotely.
+ *
+ * This repo has already paid for exactly that gap once, and said so in
+ * `next.config.mjs` itself: the CDN cache rule "lived in `vercel.json` and
+ * stopped applying the moment the site left Vercel — silently." A header block
+ * is the same kind of thing: config that only means something at the tier that
+ * serves it.
+ *
+ * Measured 2026-09-20 before writing this: all seven were present on
+ * `https://pdf.xyz/`. The gap was in the checking, not in the site — which is
+ * exactly when a guard is cheapest to add and least likely to be believed
+ * later.
+ *
+ * THE NAMES ARE DERIVED from `next.config.mjs`, never typed here. Add a header
+ * there and this demands it in production; delete one deliberately and this
+ * stops asking, in the same commit. A typed list could do neither.
+ */
+const configSource = await readFile(
+  new URL("../next.config.mjs", import.meta.url),
+  "utf8",
+).catch((err) => {
+  // This runs from an `actions/checkout` working tree, so the file is there.
+  // If it ever is not, say so in this file's own voice rather than exiting on
+  // a raw ENOENT that reads like the site is down.
+  fail([
+    "CANNOT READ next.config.mjs — the header list has no source",
+    `  ${err instanceof Error ? err.message : String(err)}`,
+    "  This check derives the expected headers from that file; without it",
+    "  it would silently expect nothing, which is the vacuous pass.",
+  ]);
+  return "";
+});
+// `securityHeaders()` — NOT `async headers()`, which is where the parse was
+// pointed first and found nothing: the list is a const built ABOVE the config
+// object and merely referenced from it. The health check below caught that,
+// which is the whole reason it is above the assertion instead of after it.
+const headersStart = configSource.indexOf("function securityHeaders()");
+const headersBlock =
+  headersStart === -1 ? "" : configSource.slice(headersStart);
+const expectedHeaders = [
+  ...new Set(
+    [...headersBlock.matchAll(/key:\s*"([A-Za-z-]+)"/g)].map((m) =>
+      m[1].toLowerCase(),
+    ),
+  ),
+].filter((name) => name !== "cache-control");
+
+// Health check, before the assertion that depends on it. A parse that found
+// nothing would make the loop below vacuously true — `[] ⊆ X`, the strongest
+// possible pass — and a parse that swallowed the whole file would fail for a
+// reason nobody could act on.
+if (expectedHeaders.length < 5 || expectedHeaders.length > 20) {
+  fail([
+    `SECURITY HEADER LIST DID NOT PARSE — found ${expectedHeaders.length}`,
+    `  ${expectedHeaders.join(", ") || "(none)"}`,
+    "  next.config.mjs's `async headers()` block is the source of this list.",
+    "  If its shape changed, fix the parse — do not delete the check.",
+  ]);
+}
+
+const home = await get(`${BASE}/?headers=${Date.now()}`);
+const missingHeaders = expectedHeaders.filter(
+  (name) => !home.headers.get(name),
+);
+if (missingHeaders.length > 0) {
+  fail([
+    "SECURITY HEADERS MISSING IN PRODUCTION —",
+    ...missingHeaders.map(
+      (name) => `    ${name} is defined in next.config.mjs and not served`,
+    ),
+    "",
+    "  These are emitted by the Next app, so the usual cause is that the",
+    "  response never reached it: a proxy, a cached error object, or a tier",
+    "  serving static bytes. Check Coolify and the Cloudflare rules.",
+    `  expected ${expectedHeaders.length}: ${expectedHeaders.join(", ")}`,
+  ]);
+}
+
 console.log(
   `ok — ${targets.length} pages serve 200 and stay indexable ` +
-    `(from ${locs.length} sitemap URLs), beta stays noindex`,
+    `(from ${locs.length} sitemap URLs), beta stays noindex, ` +
+    `${expectedHeaders.length} security headers served`,
 );
