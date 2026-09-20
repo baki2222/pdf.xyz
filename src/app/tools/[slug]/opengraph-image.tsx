@@ -1,9 +1,14 @@
 import { ImageResponse } from "next/og";
 import { siteConfig } from "@/lib/site";
-import { OG_BACKGROUND_IMAGE, OgWordmark, loadCardFonts } from "@/lib/og";
+import {
+  CARD,
+  CARD_CHIP,
+  OG_BACKGROUND_IMAGE,
+  OgWordmark,
+  loadCardFonts,
+} from "@/lib/og";
 import { getAllToolSlugs, getToolBySlug, getCategory } from "@/lib/tools";
 import { getProcessingMeta } from "@/lib/tools/processing";
-import type { ProcessingMode } from "@/lib/tools/types";
 
 /**
  * Per-tool share card.
@@ -42,32 +47,12 @@ export function generateStaticParams(): { slug: string }[] {
  */
 export const dynamicParams = false;
 
-/** Satori has no Tailwind, so the chip tones are restated as literal colours. */
-const PROCESSING_TONE: Record<
-  ProcessingMode,
-  { text: string; border: string; background: string }
-> = {
-  client: {
-    text: "#6ee7b7",
-    border: "rgba(52,211,153,0.32)",
-    background: "rgba(52,211,153,0.12)",
-  },
-  server: {
-    text: "#93c5fd",
-    border: "rgba(96,165,250,0.32)",
-    background: "rgba(96,165,250,0.12)",
-  },
-  hybrid: {
-    text: "#67e8f9",
-    border: "rgba(34,211,238,0.32)",
-    background: "rgba(34,211,238,0.12)",
-  },
-  ai: {
-    text: "#c4b5fd",
-    border: "rgba(167,139,250,0.32)",
-    background: "rgba(167,139,250,0.12)",
-  },
-};
+/**
+ * REMOVED: a `PROCESSING_TONE` table restating all four mode hues as literal
+ * colours, under a comment explaining that Satori has no Tailwind. True, and
+ * it is the reason the hue belongs in `processing.ts` with both syntaxes
+ * beside each other — not the reason to keep a third copy here.
+ */
 
 export default async function ToolOpengraphImage({
   params,
@@ -87,7 +72,7 @@ export default async function ToolOpengraphImage({
   const tagline = tool.tagline;
   const category = getCategory(tool.category);
   const processing = getProcessingMeta(tool.processing);
-  const tone = PROCESSING_TONE[tool.processing];
+  const tone = processing.hue.card;
 
   // Long tool names would otherwise overflow the card and clip mid-word.
   const nameFontSize = name.length > 22 ? 72 : name.length > 15 ? 88 : 104;
@@ -108,8 +93,8 @@ export default async function ToolOpengraphImage({
         height: "100%",
         padding: "72px 80px",
         backgroundImage: OG_BACKGROUND_IMAGE,
-        color: "#ffffff",
-        fontFamily: "Inter",
+        color: CARD.fg,
+        fontFamily: "Geist",
       }}
     >
       <OgWordmark />
@@ -124,7 +109,7 @@ export default async function ToolOpengraphImage({
               fontWeight: 700,
               letterSpacing: 4,
               textTransform: "uppercase",
-              color: "#a5b4fc",
+              color: CARD.accent,
             }}
           >
             {category.name}
@@ -145,7 +130,7 @@ export default async function ToolOpengraphImage({
           style={{
             display: "flex",
             fontSize: 32,
-            color: "#94a3b8",
+            color: CARD.muted,
             maxWidth: 940,
           }}
         >
@@ -180,10 +165,10 @@ export default async function ToolOpengraphImage({
               alignItems: "center",
               padding: "12px 22px",
               borderRadius: 9999,
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: "rgba(255,255,255,0.05)",
+              border: `1px solid ${CARD_CHIP.border}`,
+              background: CARD_CHIP.background,
               fontSize: 24,
-              color: "#e2e8f0",
+              color: CARD.fg,
             }}
           >
             {chip}

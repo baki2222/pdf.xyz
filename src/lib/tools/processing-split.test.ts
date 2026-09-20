@@ -235,7 +235,7 @@ const SHIPPED_RESTATEMENTS: { where: string; code: string }[] = [
  * is caught although only the other order has been written here. `TALLIED`
  * requires the ASSIGNMENT — `acc[tool.processing] =` — which is what makes it a
  * classification, and is why the legitimate mode-keyed style and copy lookups
- * (`PROCESSING_TONE[tool.processing]`, `processingMeta[mode]`) are reads and
+ * (`processingMeta[mode].hue`, `processingMeta[mode]`) are reads and
  * pass straight through.
  */
 const BANNED: { name: string; pattern: RegExp }[] = [

@@ -1,6 +1,12 @@
 import { ImageResponse } from "next/og";
 import { siteConfig } from "@/lib/site";
-import { OG_BACKGROUND_IMAGE, OgWordmark, loadCardFonts } from "@/lib/og";
+import {
+  CARD,
+  CARD_CHIP,
+  OG_BACKGROUND_IMAGE,
+  OgWordmark,
+  loadCardFonts,
+} from "@/lib/og";
 import { categories, toolCount } from "@/lib/tools";
 
 /**
@@ -36,8 +42,8 @@ export default async function ToolsOpengraphImage() {
         height: "100%",
         padding: "72px 80px",
         backgroundImage: OG_BACKGROUND_IMAGE,
-        color: "#ffffff",
-        fontFamily: "Inter",
+        color: CARD.fg,
+        fontFamily: "Geist",
       }}
     >
       <OgWordmark />
@@ -50,7 +56,7 @@ export default async function ToolsOpengraphImage() {
             fontWeight: 700,
             letterSpacing: 4,
             textTransform: "uppercase",
-            color: "#a5b4fc",
+            color: CARD.accent,
           }}
         >
           The complete toolkit
@@ -70,7 +76,7 @@ export default async function ToolsOpengraphImage() {
           style={{
             display: "flex",
             fontSize: 32,
-            color: "#94a3b8",
+            color: CARD.muted,
             maxWidth: 940,
           }}
         >
@@ -96,10 +102,10 @@ export default async function ToolsOpengraphImage() {
               alignItems: "center",
               padding: "10px 20px",
               borderRadius: 9999,
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: "rgba(255,255,255,0.05)",
+              border: `1px solid ${CARD_CHIP.border}`,
+              background: CARD_CHIP.background,
               fontSize: 22,
-              color: "#e2e8f0",
+              color: CARD.fg,
             }}
           >
             {category.name}

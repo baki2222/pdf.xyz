@@ -41,7 +41,8 @@
     "format:check": "prettier --check .",
     "pdfjs:wasm": "tsx scripts/copy-pdfjs-wasm.ts",
     "fonts:copy": "tsx scripts/copy-noto-fonts.ts",
-    "fonts:coverage": "tsx scripts/generate-font-coverage.ts"
+    "fonts:coverage": "tsx scripts/generate-font-coverage.ts",
+    "icon:favicon": "tsx scripts/build-favicon.ts"
   },
   "packageManager": "pnpm@11.9.0",
   "engines": {
