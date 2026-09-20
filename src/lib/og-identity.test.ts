@@ -237,6 +237,11 @@ const METADATA_BASENAMES = new Set([
   "twitter-image",
   "icon",
   "apple-icon",
+  // A binary, and in the corpus BECAUSE it is one: on 2026-09-20 it was the
+  // only surface still painting the retired mark in full, precisely because
+  // no source guard can open it. It is excluded from the colour rules below
+  // and bound instead to the test that decodes it.
+  "favicon",
 ]);
 
 function walk(dir: string): string[] {
@@ -254,7 +259,7 @@ function cardSurfaces(): string[] {
   for (const full of walk(APP_DIR)) {
     const rel = path.relative(ROOT, full).split(path.sep).join("/");
     const base = path.basename(full);
-    const stem = base.replace(/\.(tsx|ts|svg)$/, "");
+    const stem = base.replace(/\.(tsx|ts|svg|ico)$/, "");
     const byConvention =
       stem !== base && METADATA_BASENAMES.has(stem) && !base.endsWith(".d.ts");
     const byImport =
@@ -265,6 +270,13 @@ function cardSurfaces(): string[] {
   }
   return [...found].sort();
 }
+
+/**
+ * Surfaces whose colours are not in their text: `icon.svg` IS a drawing (it
+ * cannot import, so its literals are checked against the palette above), and
+ * `favicon.ico` is a binary (checked by decoding, in `favicon-ico.test.ts`).
+ */
+const BINARY_OR_DRAWN = [".svg", ".ico"];
 
 /** Colour written into a file rather than imported, in any syntax Satori takes. */
 function colourLiterals(source: string): string[] {
@@ -304,7 +316,7 @@ describe("the corpus is every surface that carries the mark", () => {
     for (const rel of surfaces) {
       // `icon.svg` is a drawing, not a module: it cannot import, so its
       // literals are checked against the palette instead, above.
-      if (rel.endsWith(".svg")) continue;
+      if (BINARY_OR_DRAWN.some((ext) => rel.endsWith(ext))) continue;
       const literals = colourLiterals(
         readFileSync(path.join(ROOT, rel), "utf8"),
       );
@@ -353,6 +365,33 @@ describe("the corpus is every surface that carries the mark", () => {
       missing,
       "these cards are rendered by nothing that looks at the result:\n  " +
         missing.join("\n  "),
+    ).toEqual([]);
+  });
+
+  it("every binary surface is bound to a test that decodes it", () => {
+    // The colour rules above SKIP these, so without this they would be in the
+    // corpus and exempt from all of it — a membership that proves nothing.
+    // `favicon.ico` was exactly that shape: present in the repo, excluded from
+    // every guard by being a file type no guard could read, and wrong.
+    const decoders = [
+      "src/app/favicon-ico.test.ts",
+      "src/app/card-pixels.test.ts",
+    ]
+      .map((rel) => read(rel))
+      .join(String.fromCharCode(10));
+
+    const binaries = surfaces.filter((rel) =>
+      BINARY_OR_DRAWN.some((ext) => rel.endsWith(ext)),
+    );
+    expect(binaries.length, "no binary surfaces discovered").toBeGreaterThan(0);
+
+    const unread = binaries.filter(
+      (rel) => !decoders.includes(path.basename(rel)),
+    );
+    expect(
+      unread,
+      "these surfaces are in the corpus and exempt from every rule in it: " +
+        unread.join(", "),
     ).toEqual([]);
   });
 
@@ -416,7 +455,7 @@ describe("the card palette is the site's palette", () => {
 
     const offenders: string[] = [];
     for (const rel of cardSurfaces()) {
-      if (rel.endsWith(".svg")) continue;
+      if (BINARY_OR_DRAWN.some((ext) => rel.endsWith(ext))) continue;
       const code = withoutComments(readFileSync(path.join(ROOT, rel), "utf8"));
       for (const match of code.matchAll(/fontFamily: "([^"]+)"/g)) {
         const family = match[1] ?? "";
