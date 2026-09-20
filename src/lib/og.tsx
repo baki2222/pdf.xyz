@@ -15,6 +15,57 @@ export const OG_SIZE = { width: 1200, height: 630 } as const;
 export const OG_CONTENT_TYPE = "image/png";
 
 /**
+ * Every colour a card paints, restated once.
+ *
+ * Satori has no Tailwind and no CSS custom properties, so a card cannot read
+ * `--sf-*`; the values have to be literal somewhere. The defect is not that
+ * they are literal, it is that they were literal in FIVE places — this file
+ * and each of the four card routes — and the routes were the copies nobody
+ * looked at. On 2026-09-20 `/opengraph-image`, the card behind every link to
+ * the site's front page, was still painting the violet gradient tile the
+ * header retired, because it never called `OgWordmark` at all. The library was
+ * correct and the reader got the old mark.
+ *
+ * So: a card route may contain NO colour literal of its own. Brand chrome
+ * comes from here, category hues come from `processing.ts`, and
+ * `og-identity.test.ts` walks the app tree and fails any metadata route that
+ * writes a hex, `rgb(` or `hsl(` itself. Values below are the dark scheme from
+ * `globals.css`, and that test binds each one to the stylesheet, so editing
+ * the site's palette without editing the cards is red.
+ */
+export const CARD = {
+  /** `--sf-canvas`, dark: the ground the whole card sits on. */
+  ground: "#0c1014",
+  /** `--sf-panel`, dark: the lighter corner of the background sweep. */
+  panel: "#131920",
+  /** `--sf-fg`, dark: headline and any text that must carry the card. */
+  fg: "#e8edf1",
+  /** `--sf-muted`, dark: the sentence under the headline. */
+  muted: "#a8b3bd",
+  /** `--sf-faint`, dark: the quietest line on the card. */
+  faint: "#909ba6",
+  /** `--sf-accent`, dark: the mark square, `.xyz`, and the second headline. */
+  accent: "#53c1ee",
+  /** `--sf-ok`, dark: the one line on a card that is a privacy claim. */
+  ok: "#34d399",
+  /**
+   * `--sf-invert`, LIGHT: the ink tile the accent square sits on.
+   *
+   * Only the favicon and the app icons use it. The site's own lockup is a bare
+   * accent square beside the wordmark with no tile at all (`logo.tsx`), and the
+   * cards render it that way too; an icon cannot, because a 32px square on
+   * transparency is not a mark.
+   */
+  tile: "#10151a",
+} as const;
+
+/** Hairline and fill for the pill chips, derived from `CARD.fg` at low alpha. */
+export const CARD_CHIP = {
+  border: "rgba(232,237,241,0.14)",
+  background: "rgba(232,237,241,0.05)",
+} as const;
+
+/**
  * The card background: base wash plus the two brand glows, as one value.
  *
  * Satori is not a browser. It does not resolve `radial-gradient(closest-side,
@@ -28,103 +79,10 @@ export const OG_CONTENT_TYPE = "image/png";
  * Shared from here so the site-wide card and the per-tool cards cannot drift.
  */
 export const OG_BACKGROUND_IMAGE = [
-  "radial-gradient(circle at 12% 8%, rgba(139,92,246,0.40) 0%, rgba(139,92,246,0.14) 32%, rgba(139,92,246,0) 58%)",
-  "radial-gradient(circle at 88% 6%, rgba(59,130,246,0.34) 0%, rgba(59,130,246,0.12) 30%, rgba(59,130,246,0) 55%)",
-  "linear-gradient(135deg, #0b0b1e 0%, #060611 55%)",
+  "radial-gradient(circle at 12% 8%, rgba(83,193,238,0.22) 0%, rgba(83,193,238,0.07) 32%, rgba(83,193,238,0) 58%)",
+  "radial-gradient(circle at 88% 6%, rgba(47,180,234,0.16) 0%, rgba(47,180,234,0.06) 30%, rgba(47,180,234,0) 55%)",
+  `linear-gradient(135deg, ${CARD.panel} 0%, ${CARD.ground} 55%)`,
 ].join(", ");
-
-/**
- * Fonts for the page cards (`/tools`, `/tools/[slug]`, `/workspace`).
- *
- * Read from `src/assets/fonts` rather than fetched, so a card renders identically
- * offline and at build time. Kept here so a new card cannot quietly pick a
- * different typeface than the ones beside it — the site-wide brand card is a
- * deliberate exception and loads Geist on its own.
- */
-export async function loadCardFonts() {
-  const dir = join(process.cwd(), "src/assets/fonts");
-  const [bold, regular] = await Promise.all([
-    readFile(join(dir, "Inter-Bold.woff")),
-    readFile(join(dir, "Inter-Regular.woff")),
-  ]);
-  return [
-    {
-      name: "Inter",
-      data: bold,
-      weight: 700 as const,
-      style: "normal" as const,
-    },
-    {
-      name: "Inter",
-      data: regular,
-      weight: 400 as const,
-      style: "normal" as const,
-    },
-  ];
-}
-
-/**
- * The wordmark lockup every page card opens with.
- *
- * Drawn with divs rather than the shared SVG data URI because Satori renders the
- * two slightly differently at this size, and three cards drifting apart is exactly
- * what this file exists to prevent.
- */
-export function OgWordmark() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 72,
-          height: 72,
-          borderRadius: 20,
-          background: "linear-gradient(135deg, #8b5cf6, #6366f1 55%, #3b82f6)",
-          boxShadow: "0 12px 40px rgba(99,102,241,0.45)",
-        }}
-      >
-        <div
-          style={{
-            width: 34,
-            height: 43,
-            borderRadius: 6,
-            background: "#ffffff",
-          }}
-        />
-      </div>
-      <div style={{ display: "flex", fontSize: 38, fontWeight: 700 }}>
-        <span>pdf</span>
-        <span style={{ color: "#a5b4fc" }}>.xyz</span>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The pdf.xyz mark: a gradient rounded square + document glyph. Kept in sync
- * with `src/app/icon.svg` (the static favicon) so every surface reads the same.
- */
-const BRAND_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#8b5cf6"/>
-      <stop offset="0.5" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#3b82f6"/>
-    </linearGradient>
-  </defs>
-  <rect width="32" height="32" rx="8" fill="url(#g)"/>
-  <g transform="translate(4 4)" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M6 2.75h7L18.25 8v11.5a1.75 1.75 0 0 1-1.75 1.75h-9.5A1.75 1.75 0 0 1 5.25 19.5V4.5A1.75 1.75 0 0 1 6 2.75Z"/>
-    <path d="M13 3v5h5"/>
-    <path d="M8.5 13.5h5M8.5 16.5h3"/>
-  </g>
-</svg>`;
-
-const BRAND_MARK_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(
-  BRAND_MARK_SVG,
-).toString("base64")}`;
 
 function toArrayBuffer(buffer: Buffer): ArrayBuffer {
   const copy = new ArrayBuffer(buffer.byteLength);
@@ -132,13 +90,27 @@ function toArrayBuffer(buffer: Buffer): ArrayBuffer {
   return copy;
 }
 
-/** Load Geist (the brand font) from node_modules — never fetched over the wire. */
-async function loadBrandFonts() {
-  const dir = join(process.cwd(), "node_modules/geist/dist/fonts/geist-sans");
-  const [regular, semibold, bold] = await Promise.all([
-    readFile(join(dir, "Geist-Regular.ttf")),
-    readFile(join(dir, "Geist-SemiBold.ttf")),
-    readFile(join(dir, "Geist-Bold.ttf")),
+/**
+ * The faces every card is set in — Geist Sans for the headline, Geist Mono for
+ * the wordmark. Read from `node_modules/geist` at build time, never fetched, so
+ * a card renders identically offline.
+ *
+ * WAS Inter, loaded from `src/assets/fonts`, for the three page cards, while
+ * the site-wide card loaded Geist "as a deliberate exception". Inter is a
+ * typeface this site does not ship on a single page: the header wordmark is
+ * Geist Mono, body copy is Geist Sans, headlines are Bricolage Grotesque. The
+ * exception was the only card set in the right family, and the rule was the
+ * drift. There is now one loader, so a new card cannot pick a face the site
+ * does not use without deleting this function first.
+ */
+export async function loadCardFonts() {
+  const sans = join(process.cwd(), "node_modules/geist/dist/fonts/geist-sans");
+  const mono = join(process.cwd(), "node_modules/geist/dist/fonts/geist-mono");
+  const [regular, semibold, bold, monoSemibold] = await Promise.all([
+    readFile(join(sans, "Geist-Regular.ttf")),
+    readFile(join(sans, "Geist-SemiBold.ttf")),
+    readFile(join(sans, "Geist-Bold.ttf")),
+    readFile(join(mono, "GeistMono-SemiBold.ttf")),
   ]);
   return [
     {
@@ -159,74 +131,171 @@ async function loadBrandFonts() {
       weight: 700 as const,
       style: "normal" as const,
     },
+    {
+      name: "Geist Mono",
+      data: toArrayBuffer(monoSemibold),
+      weight: 600 as const,
+      style: "normal" as const,
+    },
   ];
 }
 
-/** Render the 1200×630 social card used for Open Graph and Twitter. */
-export async function renderSocialImage(): Promise<ImageResponse> {
-  const fonts = await loadBrandFonts();
-  return new ImageResponse(
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        padding: "72px 80px",
-        fontFamily: "Geist",
-        color: "#f8fafc",
-        background:
-          "radial-gradient(1100px 620px at 8% -20%, #2b1d6b 0%, rgba(6,6,17,0) 55%), radial-gradient(900px 620px at 108% 8%, #123a6b 0%, rgba(6,6,17,0) 52%), #060611",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
-        <img src={BRAND_MARK_DATA_URI} width={76} height={76} alt="" />
-        <div style={{ display: "flex", fontSize: 40, fontWeight: 700 }}>
-          <span>pdf</span>
-          <span style={{ color: "#8ab4ff" }}>.xyz</span>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div
-          style={{
-            display: "flex",
-            fontSize: 82,
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-          }}
-        >
-          Every PDF tool.
-        </div>
-        <div
-          style={{
-            display: "flex",
-            fontSize: 82,
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            color: "#a5b4fc",
-          }}
-        >
-          Private by design.
-        </div>
-      </div>
-
+/**
+ * The lockup every card opens with: the site's own, not a card-shaped variant.
+ *
+ * `logo.tsx` renders a bare accent square beside a mono wordmark, `pdf` in the
+ * foreground and `.xyz` muted. This restates those proportions at card scale —
+ * the header sets a 10px square against 17px text, so a 40px wordmark takes a
+ * 24px square — and `og-identity.test.ts` reads the classes off `logo.tsx` to
+ * check the two still agree about which part is the accent.
+ *
+ * WAS a 72px rounded tile with the square inside it and `.xyz` in the accent:
+ * a lockup that existed on no page of the site.
+ */
+export function OgWordmark() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 23 }}>
+      <div style={{ width: 24, height: 24, background: CARD.accent }} />
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          fontSize: 27,
-          color: "#94a3b8",
+          fontFamily: "Geist Mono",
+          fontSize: 40,
+          fontWeight: 600,
+          letterSpacing: "-0.02em",
+          color: CARD.fg,
         }}
       >
-        <div style={{ display: "flex" }}>
-          {toolCount}+ tools · merge, split, compress, convert, sign, AI
+        <span>pdf</span>
+        <span style={{ color: CARD.muted }}>.xyz</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The pdf.xyz mark: an ink tile, trim-mark corner ticks, and the accent square
+ * the header wordmark uses. Kept in sync with `src/app/icon.svg` (the static
+ * favicon) so every surface reads the same.
+ *
+ * IT WAS NOT, AND "KEPT IN SYNC" WAS THE WHOLE PROBLEM. The sentence above was
+ * true of this file and icon.svg and false of the product: the header retired
+ * the violet gradient tile and its document glyph — logo.tsx calls it
+ * "everyone's mark" — while these two copies went on rendering it into the
+ * browser tab, the installed icon and every social preview. Two files agreeing
+ * with each other is not the same as agreeing with the site, and no test could
+ * tell the difference: the e2e check asserts only that the card returns 200
+ * with an image content-type. `src/lib/og-identity.test.ts` now binds the mark
+ * to the palette and to icon.svg.
+ */
+const BRAND_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="${CARD.tile}"/>
+  <g stroke="${CARD.accent}" stroke-width="1.15" fill="none" stroke-linecap="square">
+    <path d="M6.5 6.5 H10 M6.5 6.5 V10"/>
+    <path d="M25.5 6.5 H22 M25.5 6.5 V10"/>
+    <path d="M6.5 25.5 H10 M6.5 25.5 V22"/>
+    <path d="M25.5 25.5 H22 M25.5 25.5 V22"/>
+  </g>
+  <rect x="12.25" y="12.25" width="7.5" height="7.5" fill="${CARD.accent}"/>
+</svg>`;
+
+const BRAND_MARK_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(
+  BRAND_MARK_SVG,
+).toString("base64")}`;
+
+/**
+ * The site-wide social card: every link to pdf.xyz that anyone pastes anywhere.
+ *
+ * WAS INLINED IN `src/app/opengraph-image.tsx`, with its own font loading, its
+ * own palette, and its own hand-drawn wordmark — a violet gradient tile with a
+ * white document glyph, the mark `logo.tsx` retired as "everyone's mark". This
+ * function existed the whole time, already on the new identity, and NOTHING
+ * CALLED IT. The route had a copy, so the library was decoration: correct,
+ * cheap, well-reasoned, and reaching nobody.
+ *
+ * The layout below is the route's (eyebrow, two-line headline, three chips),
+ * because that is the card that has actually been shipping. Only the identity
+ * and the palette changed. The route is now three lines of delegation, which is
+ * the fix that cannot drift again — there is no second copy left to forget.
+ */
+export async function renderSocialImage(): Promise<ImageResponse> {
+  const fonts = await loadCardFonts();
+  const chips = [`${toolCount} tools`, "Runs in your browser", "No sign-up"];
+
+  return new ImageResponse(
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        width: "100%",
+        height: "100%",
+        padding: "72px 80px",
+        backgroundImage: OG_BACKGROUND_IMAGE,
+        fontFamily: "Geist",
+        color: CARD.fg,
+      }}
+    >
+      <OgWordmark />
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <div
+          style={{
+            display: "flex",
+            fontFamily: "Geist Mono",
+            fontSize: 21,
+            fontWeight: 600,
+            letterSpacing: 3,
+            textTransform: "uppercase",
+            color: CARD.accent,
+          }}
+        >
+          Privacy-first PDF platform
         </div>
-        <div style={{ display: "flex", color: "#34d399", fontWeight: 600 }}>
-          Runs in your browser
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            fontSize: 82,
+            fontWeight: 700,
+            lineHeight: 1.02,
+            letterSpacing: "-0.025em",
+          }}
+        >
+          <span>Every PDF tool.</span>
+          <span style={{ color: CARD.accent }}>Private by design.</span>
         </div>
+        <div
+          style={{
+            display: "flex",
+            fontSize: 30,
+            color: CARD.muted,
+            maxWidth: 900,
+          }}
+        >
+          Merge, split, compress, convert, edit, sign, and run AI — most tools
+          run entirely in your browser.
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        {chips.map((chip) => (
+          <div
+            key={chip}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "12px 22px",
+              borderRadius: 9999,
+              border: `1px solid ${CARD_CHIP.border}`,
+              background: CARD_CHIP.background,
+              fontSize: 24,
+              color: CARD.fg,
+            }}
+          >
+            {chip}
+          </div>
+        ))}
       </div>
     </div>,
     { ...OG_SIZE, fonts },

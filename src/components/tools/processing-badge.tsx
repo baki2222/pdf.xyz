@@ -5,22 +5,23 @@ import { cn } from "@/lib/utils";
 /**
  * Non-text status dot per mode. These are semantic (where does my file go?),
  * not decoration, so they keep distinct hues — but the words moved to plain
- * mono text so the chip stopped being a coloured pill. Copy still comes from
- * the single source of truth in `processing.ts`; only its `tone` classes are
- * no longer consumed here, because they hardcode the legacy dark palette and
- * this component now renders inside any theme scope.
+ * mono text so the chip stopped being a coloured pill.
+ *
+ * WAS A LOCAL `dotByMode` TABLE, with a docblock explaining that
+ * `processing.ts`'s `tone` field was not consumed here because it held the
+ * legacy dark palette. That was true and it was the wrong fix: it left the
+ * abandoned field in place, still reading as the source of truth, while this
+ * file and the per-tool share card each grew a copy. The field now holds the
+ * hue in both syntaxes — `dot` for here, `card` for Satori — so the site and
+ * the card cannot disagree about what "AI-assisted" looks like.
  */
-const dotByMode: Record<ProcessingMode, string> = {
-  client: "bg-emerald-600",
-  server: "bg-blue-600",
-  hybrid: "bg-cyan-600",
-  ai: "bg-violet-600",
-};
-
 function ProcessingDot({ mode }: { mode: ProcessingMode }) {
   return (
     <span
-      className={cn("size-1.5 shrink-0 rounded-full", dotByMode[mode])}
+      className={cn(
+        "size-1.5 shrink-0 rounded-full",
+        getProcessingMeta(mode).hue.dot,
+      )}
       aria-hidden
     />
   );

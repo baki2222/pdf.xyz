@@ -43,10 +43,21 @@ import {
  * at 16, 32 and 48 px and packed as three PNGs in one ICO container. It is a
  * committed binary rather than a generated route because Next gives the favicon
  * convention no dynamic form (again: `extensions: ["ico"]`, and unlike every
- * other metadata image the page extensions are not appended), so nothing here
- * can regenerate it. The size assertions below are what tie those bytes back to
- * the mark; if the brand mark changes, this file does not notice, and that is a
- * known gap rather than an oversight.
+ * other metadata image the page extensions are not appended).
+ *
+ * THE PARAGRAPH THAT USED TO END HERE said "nothing here can regenerate it …
+ * if the brand mark changes, this file does not notice, and that is a known
+ * gap rather than an oversight". Both halves were true and the second one was
+ * the defect: the mark changed, and on 2026-09-20 these bytes were still the
+ * retired violet tile — 1,783 indigo pixels and zero accent pixels at 48px —
+ * while every other icon surface had moved. Writing the hole down is what made
+ * it feel managed. A comment is not a guard.
+ *
+ * So `pnpm icon:favicon` (`scripts/build-favicon.ts`) now regenerates them
+ * from `renderBrandMark`, and `src/app/favicon-ico.test.ts` decodes the
+ * committed bytes and fails if they stop being the mark. This file keeps the
+ * half it can see: that the route serves them, with the right type, at three
+ * sizes, small.
  */
 
 /**
@@ -281,8 +292,10 @@ test.describe("icon routes", () => {
 
     // The other half of the defect was transfer, not just the status line: the
     // 404 page this replaces was 45,008 bytes locally and 46,057 in production,
-    // sent on every cold visit. A cushion above the 3,412 bytes measured here,
-    // low enough that re-introducing a page-sized response fails.
+    // sent on every cold visit. A cushion above the 1,373 bytes measured here
+    // (3,412 while the mark was the violet gradient — the prepress mark is
+    // flat colour and compresses far better), low enough that re-introducing a
+    // page-sized response fails.
     expect(body.length, `/favicon.ico is ${body.length} bytes`).toBeLessThan(
       16_384,
     );

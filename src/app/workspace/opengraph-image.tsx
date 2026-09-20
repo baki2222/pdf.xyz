@@ -1,6 +1,14 @@
 import { ImageResponse } from "next/og";
 import { siteConfig } from "@/lib/site";
-import { OG_BACKGROUND_IMAGE, OgWordmark, loadCardFonts } from "@/lib/og";
+import { CARD, OG_BACKGROUND_IMAGE, OgWordmark, loadCardFonts } from "@/lib/og";
+import { getProcessingMeta } from "@/lib/tools/processing";
+
+/**
+ * The workspace card's green chip and its green clause are the "runs in your
+ * browser" claim, so they take the `client` mode's hue rather than a green
+ * this file picked. Same table the site's status dot reads.
+ */
+const CLIENT_TONE = getProcessingMeta("client").hue.card;
 
 /**
  * Share card for the workspace.
@@ -36,8 +44,8 @@ export default async function WorkspaceOpengraphImage() {
         height: "100%",
         padding: "72px 80px",
         backgroundImage: OG_BACKGROUND_IMAGE,
-        color: "#ffffff",
-        fontFamily: "Inter",
+        color: CARD.fg,
+        fontFamily: "Geist",
       }}
     >
       <OgWordmark />
@@ -50,7 +58,7 @@ export default async function WorkspaceOpengraphImage() {
             fontWeight: 700,
             letterSpacing: 4,
             textTransform: "uppercase",
-            color: "#a5b4fc",
+            color: CARD.accent,
           }}
         >
           Workspace
@@ -66,13 +74,13 @@ export default async function WorkspaceOpengraphImage() {
           }}
         >
           <span>Your files never</span>
-          <span style={{ color: "#6ee7b7" }}>leave the browser.</span>
+          <span style={{ color: CARD.ok }}>leave the browser.</span>
         </div>
         <div
           style={{
             display: "flex",
             fontSize: 32,
-            color: "#94a3b8",
+            color: CARD.muted,
             maxWidth: 940,
           }}
         >
@@ -91,11 +99,11 @@ export default async function WorkspaceOpengraphImage() {
               padding: "12px 24px",
               borderRadius: 9999,
               // The green the product uses everywhere for "runs in your browser".
-              border: "1px solid rgba(52,211,153,0.32)",
-              background: "rgba(52,211,153,0.12)",
+              border: `1px solid ${CLIENT_TONE.border}`,
+              background: CLIENT_TONE.background,
               fontSize: 24,
               fontWeight: 700,
-              color: "#6ee7b7",
+              color: CLIENT_TONE.text,
             }}
           >
             {chip}
