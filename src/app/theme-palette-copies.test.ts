@@ -29,9 +29,10 @@
  * scheme. Nothing here hard-codes a colour, so a future palette change moves
  * all three or fails here.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { withoutComments } from "@/lib/tools/copy-surface";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -105,7 +106,7 @@ const MIRRORED = [
   "fg-invert",
 ] as const;
 
-describe("the palette's three copies agree", () => {
+describe("the palette's named copies agree", () => {
   it("the stylesheet really defines both schemes (health check)", () => {
     // `[] ⊆ X` is vacuously true: a parser that returned nothing would make
     // every assertion below pass while comparing empty sets.
@@ -207,5 +208,129 @@ describe("the palette's three copies agree", () => {
     expect(RETIRED.some((hex) => `background: ${hex};`.includes(hex))).toBe(
       true,
     );
+  });
+});
+
+/**
+ * ── THE FOURTH COPY ─────────────────────────────────────────────────────────
+ *
+ * Everything above names its copies: globals.css, layout.tsx, global-error.tsx.
+ * "The palette's three copies agree" was true and there were four. Written
+ * 2026-09-20; on the same day `src/app/manifest.ts` still declared
+ * `background_color` and `theme_color` as `#060611`, the retired near-black,
+ * so installing the PWA gave a splash screen in a colour the site paints
+ * nowhere. A guard that enumerates its subjects cannot see the one it forgot.
+ *
+ * So this discovers them by the PROPERTY, not the path: any file under `src/`
+ * that declares browser chrome — `themeColor`, `theme_color`,
+ * `background_color` — has to agree with `--sf-canvas`. A new surface joins
+ * the corpus by doing the thing the corpus is about.
+ */
+const CHROME_KEYS = ["themeColor", "theme_color", "background_color"] as const;
+
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sourceFiles(full));
+    else if (/\.(ts|tsx)$/.test(entry.name) && !entry.name.includes(".test."))
+      out.push(full);
+  }
+  return out;
+}
+
+/**
+ * Every `#rrggbb` inside the VALUE of a chrome property.
+ *
+ * Scans to the end of the value expression rather than to the end of the line.
+ * The line-based version of this function found `manifest.ts`, where the value
+ * is a string on the same line, and MISSED `layout.tsx`, where `themeColor` is
+ * an array of `{ media, color }` objects spanning four lines — so its health
+ * check reported a corpus of one. A phrase search has a hole wherever the
+ * source happens to wrap, and this file's whole subject is a value that lives
+ * in more than one place.
+ */
+function declaredChromeColours(source: string): string[] {
+  const code = withoutComments(source);
+  const out: string[] = [];
+  for (const key of CHROME_KEYS) {
+    let from = code.indexOf(key + ":");
+    while (from !== -1) {
+      let depth = 0;
+      let end = from + key.length + 1;
+      for (; end < code.length; end += 1) {
+        const ch = code[end];
+        if (ch === "[" || ch === "{" || ch === "(") depth += 1;
+        else if (ch === "]" || ch === ")") depth -= 1;
+        else if (ch === "}") {
+          if (depth === 0) break;
+          depth -= 1;
+        } else if (ch === "," && depth === 0) break;
+      }
+      for (const hex of code.slice(from, end).match(/#[0-9a-fA-F]{6}\b/g) ?? [])
+        out.push(hex);
+      from = code.indexOf(key + ":", end);
+    }
+  }
+  return out;
+}
+
+describe("browser chrome, wherever it is declared", () => {
+  const declarers = sourceFiles(path.join(ROOT, "src"))
+    .map((full) => ({
+      rel: path.relative(ROOT, full).split(path.sep).join("/"),
+      colours: declaredChromeColours(readFileSync(full, "utf8")),
+    }))
+    .filter((file) => file.colours.length > 0);
+
+  it("finds the files that declare it (health check)", () => {
+    // Bounded both ways: zero declarers makes every assertion below vacuous,
+    // and a walk that matched everything is just as blind as one that matched
+    // nothing. These two are proof the discovery works, not the corpus.
+    const names = declarers.map((file) => file.rel);
+    expect(names, "chrome declarers found: " + names.join(", ")).toContain(
+      "src/app/layout.tsx",
+    );
+    expect(names).toContain("src/app/manifest.ts");
+    expect(declarers.length).toBeLessThan(10);
+
+    // Positive control through the same predicate.
+    expect(declaredChromeColours('theme_color: "#abcdef",')).toEqual([
+      "#abcdef",
+    ]);
+    // The case the first version of this function could not see: the value is
+    // an array and the colours are three lines below the key.
+    expect(
+      declaredChromeColours(
+        [
+          "themeColor: [",
+          '  { media: "(prefers-color-scheme: light)", color: "#abcdef" },',
+          '  { media: "(prefers-color-scheme: dark)", color: "#123456" },',
+          "],",
+        ].join(String.fromCharCode(10)),
+      ),
+    ).toEqual(["#abcdef", "#123456"]);
+    expect(declaredChromeColours('someOther: "#abcdef",')).toEqual([]);
+    expect(declaredChromeColours('// theme_color: "#abcdef",')).toEqual([]);
+  });
+
+  it("declares nothing but a canvas value", () => {
+    const canvases = new Set([
+      token("light", "canvas"),
+      token("dark", "canvas"),
+    ]);
+    const offenders: string[] = [];
+    for (const file of declarers) {
+      for (const hex of file.colours) {
+        if (!canvases.has(hex.toLowerCase()))
+          offenders.push(file.rel + ": " + hex);
+      }
+    }
+    expect(
+      offenders,
+      "browser chrome that is not `--sf-canvas` in either scheme — the PWA " +
+        "manifest carried the retired #060611 this way: " +
+        offenders.join(", "),
+    ).toEqual([]);
   });
 });

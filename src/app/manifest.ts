@@ -16,8 +16,19 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "portrait-primary",
-    background_color: "#060611",
-    theme_color: "#060611",
+    // The installed app's splash and title-bar chrome. These MUST track
+    // `--sf-canvas` in globals.css — the LIGHT value, because the site is
+    // paper-first and a manifest gets one colour, not a media query.
+    //
+    // WERE `#060611`, the retired near-black of the pre-prepress dark theme,
+    // for as long as the redesign has been live: install the PWA and the
+    // splash was a colour the site no longer paints anywhere. Nothing caught
+    // it — `theme-palette-copies.test.ts` was written the same day and named
+    // its three copies by hand; this was the fourth. It now discovers them by
+    // the PROPERTY NAME instead, so a file declaring browser chrome cannot
+    // opt out by not being on a list.
+    background_color: "#f4f6f8",
+    theme_color: "#f4f6f8",
     categories: ["productivity", "utilities", "business"],
     lang: "en-US",
     dir: "ltr",
