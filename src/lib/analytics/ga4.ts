@@ -32,11 +32,38 @@ let enabled = false;
 
 function gtagOn(win: GtagWindow): (...args: unknown[]) => void {
   win.dataLayer = win.dataLayer ?? [];
-  win.gtag =
-    win.gtag ??
-    function gtag(...args: unknown[]) {
-      win.dataLayer!.push(args);
+  if (!win.gtag) {
+    /*
+     * THE PUSHED VALUE MUST BE AN `arguments` OBJECT, NOT AN ARRAY.
+     *
+     * gtag.js tells a COMMAND (`consent` / `js` / `config` / `event`) from an
+     * ordinary data push by that shape alone. The obvious modern spelling,
+     * `(...args) => dataLayer.push(args)`, pushes a real Array — which gtag.js
+     * files as data and never executes. Nothing throws. Nothing warns. The
+     * network stays silent.
+     *
+     * MEASURED ON PRODUCTION 2026-09-20, twenty-six days after this shipped:
+     * the tag was loaded (`gtag/js?id=G-6HV45S85DY` in the document,
+     * `google_tag_data` present) and our three commands were sitting in
+     * `dataLayer` — while `google_tag_data.tidr.destination` was EMPTY, not one
+     * `/g/collect` request had ever been made, and GA4 itself said "No data
+     * received from your website yet". Re-pushing the IDENTICAL `config` as an
+     * `arguments` object, in that same live page, fired
+     * `www.google-analytics.com/g/collect?v=2&tid=G-6HV45S85DY&gtm=...`
+     * immediately. Same command, same page, same session: one difference, the
+     * shape.
+     *
+     * Needing `arguments` is why this is a `function` and not an arrow, and why
+     * `ga4.test.ts` asserts the pushed value's shape rather than its contents —
+     * the test that shipped with the bug read every entry through
+     * `Array.from()`, which normalises an Array and an `arguments` object into
+     * the same thing and could not see the only difference that mattered.
+     */
+    win.gtag = function gtag() {
+      // eslint-disable-next-line prefer-rest-params -- see above: the shape IS the contract
+      win.dataLayer!.push(arguments);
     };
+  }
   return win.gtag;
 }
 
