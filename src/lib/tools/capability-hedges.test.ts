@@ -80,6 +80,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
+import { guides } from "@/lib/guides";
 import {
   buildHeartbeat,
   emptyCapabilities,
@@ -118,6 +119,28 @@ function catalogueCopy(): CopyEntry[] {
       at(`facts[${i}].value`, f.value);
     });
     toolFaq(tool).forEach((f, i) => {
+      at(`faq[${i}].question`, f.question);
+      at(`faq[${i}].answer`, f.answer);
+    });
+  }
+  // The guides catalogue, through its own accessors — the same idiom, added
+  // with the /guides section (2026-09-17). Guide steps and FAQ ship as
+  // HowTo/FAQPage JSON-LD exactly like the tool pages' do, so a hedge written
+  // there reaches crawlers with the same authority. Slugs are prefixed so the
+  // per-tool corpus bound below keeps counting only tool copy.
+  for (const guide of guides) {
+    const at = (where: string, text: string) =>
+      out.push({ slug: `guide:${guide.slug}`, where, text });
+    at("title", guide.title);
+    at("description", guide.description);
+    guide.keywords.forEach((k, i) => at(`keywords[${i}]`, k));
+    guide.intro.forEach((p, i) => at(`intro[${i}]`, p));
+    guide.steps.forEach((s, i) => at(`steps[${i}]`, s));
+    guide.sections.forEach((section, i) => {
+      at(`sections[${i}].heading`, section.heading);
+      section.body.forEach((p, j) => at(`sections[${i}].body[${j}]`, p));
+    });
+    guide.faq.forEach((f, i) => {
       at(`faq[${i}].question`, f.question);
       at(`faq[${i}].answer`, f.answer);
     });

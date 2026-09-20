@@ -65,9 +65,26 @@ caches what its own rules consider eligible, and `.xml`/`.webmanifest` are not
 eligible by default. So the origin header was correct and `cf-cache-status`
 still read `DYNAMIC`. A **Cache Rule** on the zone —
 `http.request.uri.path in {"/sitemap.xml" "/manifest.webmanifest"
-"/robots.txt"}` → _Eligible for cache_, Edge TTL deliberately UNSET so the
-origin's `s-maxage` still governs — is what turned it into `HIT`. Two systems,
-one behaviour: change the duration in `next.config.mjs`, never in Cloudflare.
+"/robots.txt" "/sitemap-index.xml"}` → _Eligible for cache_, Edge TTL
+deliberately UNSET so the origin's `s-maxage` still governs — is what turned
+it into `HIT`. Two systems, one behaviour: change the duration in
+`next.config.mjs`, never in Cloudflare.
+
+**ADDING A CRAWLER FILE IS TWO EDITS, AND ONLY ONE OF THEM IS IN THIS REPO.**
+Measured 2026-09-20, the day `/sitemap-index.xml` shipped: the `next.config.mjs`
+rule had been extended, `cdn-cache-rules.test.ts` was green on it — and the new
+file still served `cf-cache-status: DYNAMIC` while its three siblings served
+`HIT`, because the **Cloudflare** half is a dashboard rule no test in this
+repository can see. Every crawler fetch went to the one-vCPU origin. The fix
+was adding the path to that rule by hand (Caching → Cache Rules → "crawler
+files: edge-cacheable"), after which the file went `MISS` then `HIT`.
+
+So when you add a file to the `source` regex in `next.config.mjs`, add the same
+path to the zone's Cache Rule in the same sitting, and verify at the wire —
+`curl -sI https://pdf.xyz/<file> | grep cf-cache-status` twice, expecting
+`MISS` then `HIT`. A green test here proves the origin header, never the edge.
+(Watch the dashboard's chip editor: clicking near a chip's × deletes it. The
+rule must end with FOUR paths; re-read the expression preview before saving.)
 
 ## 3. Environment variables
 

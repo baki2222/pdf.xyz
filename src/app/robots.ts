@@ -10,7 +10,15 @@ import { siteConfig } from "@/lib/site";
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [{ userAgent: "*", allow: "/" }],
-    sitemap: new URL("/sitemap.xml", siteConfig.url).toString(),
+    // BOTH entry points. The index was added 2026-09-20 after Search
+    // Console reported the flat sitemap unreadable for four weeks while every
+    // measurement said it was fine (see src/app/sitemap-index.xml/route.ts);
+    // robots.txt advertising both means auto-discovery does not depend on
+    // which record a search engine happens to hold.
+    sitemap: [
+      new URL("/sitemap-index.xml", siteConfig.url).toString(),
+      new URL("/sitemap.xml", siteConfig.url).toString(),
+    ],
     host: siteConfig.url,
   };
 }

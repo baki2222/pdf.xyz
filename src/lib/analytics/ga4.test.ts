@@ -43,6 +43,51 @@ describe("enableGa4", () => {
     expect(GTAG_SRC).toContain(GA4_MEASUREMENT_ID);
   });
 
+  it("pushes COMMANDS as `arguments` objects — the shape gtag.js executes", () => {
+    /*
+     * The defect this exists for, measured on production 2026-09-20: every
+     * command we pushed was a plain Array, gtag.js files an Array as DATA and
+     * never executes it, and so twenty-six days of "GA4 is live" produced zero
+     * events — the tag loaded, `google_tag_data.tidr.destination` stayed empty,
+     * and no `/g/collect` request was ever made.
+     *
+     * The test that shipped alongside the bug asserted CONTENTS, through
+     * `Array.from(entry)` — which turns an Array and an `arguments` object into
+     * the same array and is therefore blind to the only difference that
+     * mattered. Contents were always right. Shape was always wrong.
+     *
+     * So this asserts the shape, at the same seam, for every entry the module
+     * pushes.
+     */
+    enableGa4();
+
+    const entries = win.dataLayer!;
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [index, entry] of entries.entries()) {
+      expect(
+        Object.prototype.toString.call(entry),
+        `dataLayer[${index}] is ${Object.prototype.toString.call(entry)}; gtag.js only executes [object Arguments]`,
+      ).toBe("[object Arguments]");
+    }
+  });
+
+  it("pushes product EVENTS with that same shape, through the telemetry seam", () => {
+    // The events arrive by a different path (configureTelemetry's sink), so
+    // the shape has to be proven there too — a fix applied to one and not the
+    // other would leave half the measurement silent, which is exactly how this
+    // defect stayed invisible.
+    enableGa4();
+    const before = win.dataLayer!.length;
+
+    win.gtag!("event", "shape_probe", { ok: true });
+
+    const pushed = win.dataLayer!.slice(before);
+    expect(pushed).toHaveLength(1);
+    expect(Object.prototype.toString.call(pushed[0])).toBe(
+      "[object Arguments]",
+    );
+  });
+
   it("declares consent defaults before config, with every ad signal denied", () => {
     enableGa4();
     const calls = win.dataLayer!.map((entry) => Array.from(entry as unknown[]));

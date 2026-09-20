@@ -1,12 +1,14 @@
 import type { MetadataRoute } from "next";
 import { siteConfig } from "@/lib/site";
 import { tools } from "@/lib/tools";
+import { guides } from "@/lib/guides";
 import { isToolSupported } from "@/lib/pdf/registry";
 
 /**
- * /sitemap.xml — the home page, the tool catalog, every tool page, and the
- * policy and status pages. /workspace is intentionally omitted: it is the one
- * route that declares `noindex, nofollow`.
+ * /sitemap.xml — the home page, the tool catalog, every tool page, the guides
+ * and every guide page, and the policy and status pages. /workspace is
+ * intentionally omitted: it is the one route that declares
+ * `noindex, nofollow`.
  *
  * Tools that already ship a live in-browser runner rank slightly higher than
  * the ones still showing an implementation-ready overview.
@@ -33,6 +35,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified,
       changeFrequency: "weekly",
       priority: 0.9,
+    },
+    {
+      url: url("/guides"),
+      lastModified,
+      changeFrequency: "weekly",
+      priority: 0.7,
     },
     // Indexed on purpose, and ranked above the policies: the privacy policy
     // sends readers here for the authoritative "which tools run where" list, so
@@ -70,5 +78,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: isToolSupported(tool.slug) ? 0.8 : 0.6,
   }));
 
-  return [...staticRoutes, ...toolRoutes];
+  // Derived from the same module `generateStaticParams` reads, so the sitemap
+  // and the route set cannot disagree about which guides exist.
+  const guideRoutes: MetadataRoute.Sitemap = guides.map((guide) => ({
+    url: url(`/guides/${guide.slug}`),
+    lastModified,
+    changeFrequency: "monthly",
+    priority: 0.7,
+  }));
+
+  return [...staticRoutes, ...toolRoutes, ...guideRoutes];
 }

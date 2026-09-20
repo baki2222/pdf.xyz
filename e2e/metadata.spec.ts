@@ -22,6 +22,12 @@ const ROUTES = [
   { path: "/tools/merge-pdf", title: "Merge PDF — pdf.xyz" },
   { path: "/tools/ocr-pdf", title: "OCR PDF — pdf.xyz" },
   { path: "/workspace", title: "Workspace — pdf.xyz" },
+  // The guides section — two shapes: the index and an article.
+  { path: "/guides", title: "PDF guides — pdf.xyz" },
+  {
+    path: "/guides/how-to-merge-pdf-files",
+    title: "How to merge PDF files — pdf.xyz",
+  },
 ];
 
 /** Title elements in source order, exactly as a non-JS consumer parses them. */

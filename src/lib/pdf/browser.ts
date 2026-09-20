@@ -1,4 +1,3 @@
-import JSZip from "jszip";
 import type { NamedBytes } from "./types";
 
 /**
@@ -6,6 +5,33 @@ import type { NamedBytes } from "./types";
  * bundling multiple outputs into a ZIP. Kept out of the engine (and the barrel)
  * so server components never pull DOM APIs into their bundle.
  */
+
+/*
+ * jszip ships `export =` typings, so `typeof import("jszip")` in a TYPE
+ * position is the class rather than the interop module shape the runtime
+ * `import()` actually resolves — hence the inferred types below instead of
+ * annotations.
+ */
+const importJsZip = () => import("jszip");
+let jszipModule: ReturnType<typeof importJsZip> | null = null;
+
+/**
+ * Load JSZip on first use. This module is statically imported by nearly every
+ * runner, so a static `import JSZip` here rode EVERY tool page's initial load
+ * — a 129 KB chunk, measured on the built artifact 2026-09-17 — while only a
+ * ZIP-producing RUN ever needs it. Same shape as `loadPdfLib`, for the same
+ * two reasons: the fetch belongs at first use, and a rejected load is
+ * forgotten rather than cached, so one offline blip cannot brick every later
+ * ZIP in the session. (`chat-with-pdf-conversation.ts` reached the same
+ * conclusion independently for reading these archives back.)
+ */
+function loadJsZip(): ReturnType<typeof importJsZip> {
+  jszipModule ??= importJsZip().catch((error: unknown) => {
+    jszipModule = null;
+    throw error;
+  });
+  return jszipModule;
+}
 
 // Re-export the pure naming helpers so existing call sites can keep importing
 // `baseName` from here; the canonical definitions live in "./files".
@@ -64,6 +90,7 @@ export async function zipFiles(
   files: NamedBytes[],
   { compression = "DEFLATE" }: ZipOptions = {},
 ): Promise<Blob> {
+  const { default: JSZip } = await loadJsZip();
   const zip = new JSZip();
   for (const file of files) {
     zip.file(file.name, toArrayBuffer(file.bytes));

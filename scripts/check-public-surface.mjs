@@ -36,11 +36,14 @@ const BETA = process.env.SURFACE_BETA ?? "https://beta.pdf.xyz";
 const TIMEOUT_MS = 20_000;
 
 /**
- * The sitemap lists 50 tool pages plus a handful of top-level routes. A
- * sitemap that suddenly holds a dozen URLs is itself the alarm — without this,
- * a shrunken corpus reports the strongest possible pass (`[] ⊆ X`).
+ * The sitemap lists 50 tool pages, the guides, and a handful of top-level
+ * routes — 66 URLs when the guides section shipped (2026-09-17). A sitemap
+ * that suddenly holds a dozen URLs is itself the alarm — without this, a
+ * shrunken corpus reports the strongest possible pass (`[] ⊆ X`). Raised
+ * 40 → 60 with the guides: a floor 26 under the real count would have let
+ * the entire guides section vanish without a word from the watcher.
  */
-const MIN_SITEMAP_URLS = 40;
+const MIN_SITEMAP_URLS = 60;
 
 /** How many derived tool pages to sample, spread evenly across the sitemap. */
 const SAMPLE = 6;
@@ -84,7 +87,15 @@ async function get(url) {
 const isNoindex = (value) => /noindex/i.test(value);
 
 // ---- the sitemap, which is both a check and the source of the corpus ----
-const sitemapUrl = `${BASE}/sitemap.xml`;
+// Cache-busted, deliberately: /sitemap.xml carries `s-maxage=86400`, so for up
+// to a day after a deploy that GROWS the sitemap, some Cloudflare colos still
+// serve the old one — and this check then fails its own shrink bound against a
+// perfectly healthy origin (measured 2026-09-17: one runner read 67 URLs, the
+// next read 55, eight minutes apart, straddling the guides launch). The corpus
+// must be the origin's current truth; the query string gives the edge a key it
+// has never cached. The SAMPLED pages below stay un-busted on purpose — for
+// them, what the edge serves IS what a crawler receives.
+const sitemapUrl = `${BASE}/sitemap.xml?corpus=${Date.now()}`;
 const sitemap = await get(sitemapUrl);
 if (sitemap.status !== 200 || !/xml/i.test(sitemap.contentType)) {
   fail([
@@ -130,6 +141,10 @@ const sampled = Array.from(
 const always = [
   `${BASE}/`,
   `${BASE}/tools`,
+  `${BASE}/guides`,
+  // The sitemap index, added 2026-09-20. It is a crawler entry point that no
+  // human ever opens, which is exactly the class of URL that breaks unwatched.
+  `${BASE}/sitemap-index.xml`,
   `${BASE}/privacy`,
   `${BASE}/terms`,
 ];

@@ -35,7 +35,7 @@ that keeps Node-only worker internals out of the web bundle.
 |                  | **web** service                                                                                                                          | **worker** service                                                                                                                                                                                                                                                                                                                                                                                    |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Image target     | `web` (`docker build --target web`)                                                                                                      | `worker` (`docker build --target worker`)                                                                                                                                                                                                                                                                                                                                                             |
-| Command          | `pnpm start` (or Vercel)                                                                                                                 | `pnpm worker:daemon`                                                                                                                                                                                                                                                                                                                                                                                  |
+| Command          | `pnpm start` (container `web` target)                                                                                                    | `pnpm worker:daemon`                                                                                                                                                                                                                                                                                                                                                                                  |
 | Native engines   | none                                                                                                                                     | Ghostscript, qpdf, `mutool` + OCRmyPDF/Tesseract (English OCR data); plus `pdftotext` (poppler-utils), which **is a runtime engine** — the selectable-text extractor behind summarize, translate, ai-extract, chat-with-pdf, the three PDF→Office exports and extract-tables (eight tools), as well as the OCR proofs. Omit it and those eight report themselves unavailable rather than failing jobs |
 | Serves HTTP      | yes (the site + API routes)                                                                                                              | **never**                                                                                                                                                                                                                                                                                                                                                                                             |
 | Responsibilities | Serve the site and in-browser tools; when storage **and** queue are wired, mint signed upload/download URLs and **record** `queued` jobs | Drain the queue, run processors against object storage, complete jobs; do deep compression when a native engine is present                                                                                                                                                                                                                                                                            |
@@ -151,8 +151,9 @@ docker push "$REGISTRY/pdfxyz-worker:$GIT_SHA"
 - **Registry auth stays out of source.** Authenticate the pusher with a short-lived
   registry token in your deploy environment; never commit it, and never place a
   provider secret behind `NEXT_PUBLIC_`.
-- **The web app** may instead deploy to Vercel from `main` (see
-  [`DEPLOYMENT.md`](DEPLOYMENT.md)); the worker is always the container above.
+- **Both tiers deploy this way** from `main` (see
+  [`DEPLOYMENT.md`](DEPLOYMENT.md)) — the web app is the same kind of
+  container as the worker, not a platform build.
 
 ### 3a. Deploying without a registry
 
@@ -401,8 +402,11 @@ The blueprints are intentionally provider-neutral and secret-free. They do not p
 
 ## 5. Rollback
 
-- **Web (Vercel):** **Deployments → ⋯ → Promote** the previous good deployment —
-  instant revert. **Web (container):** redeploy the previous image digest.
+- **Web:** redeploy the previous image digest in Coolify — every build is
+  pushed to GHCR tagged with its commit sha, so the previous good one is
+  addressable by name. (This step said "Vercel → Deployments → Promote" until
+  2026-09-18, three weeks after the site left Vercel: a rollback instruction
+  pointing at a dashboard nobody owns, read for the first time mid-incident.)
 - **Worker:** redeploy the previous image **digest**. This is safe by design:
   - **Cooperative shutdown.** `SIGTERM`/`SIGINT` lets the in-flight tick finish and
     the loop exit; a second signal forces stop. Drain before replacing when you can.

@@ -46,6 +46,7 @@ import {
   toolApplicationSchema,
 } from "@/lib/structured-data";
 import { howToSteps, toolFacts, toolFaq } from "@/lib/tools/tool-facts";
+import { guidesForTool } from "@/lib/guides";
 
 export function generateStaticParams() {
   return getAllToolSlugs().map((slug) => ({ slug }));
@@ -106,6 +107,9 @@ export default async function ToolPage({
   const steps = howToSteps(tool);
   const facts = toolFacts(tool.slug);
   const faq = toolFaq(tool);
+  // Discovered from each guide's own `tools` field — the band cannot link a
+  // guide that does not claim this tool back, and there is no href list here.
+  const toolGuides = guidesForTool(tool.slug);
   const runnerKind = getRunnerKind(tool.slug);
   /*
    * THIS TOOL's ceiling, not the worker's. The staging hint below interpolated
@@ -484,6 +488,42 @@ export default async function ToolPage({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {related.map((item) => (
                 <ToolCard key={item.slug} tool={item} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {toolGuides.length > 0 && (
+          <div className="border-line flex flex-col gap-6 border-t pt-10">
+            <div className="flex items-end justify-between gap-4">
+              <h2 className="font-display text-fg text-2xl font-medium tracking-tight">
+                Guides
+              </h2>
+              <Link
+                href="/guides"
+                className="group text-accent inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
+              >
+                All guides
+                <ArrowRight
+                  className="size-4 transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {toolGuides.map((guide) => (
+                <Link
+                  key={guide.slug}
+                  href={`/guides/${guide.slug}`}
+                  className="border-line bg-panel hover:border-line-strong flex flex-col gap-2 rounded-[4px] border p-5 transition-colors"
+                >
+                  <h3 className="text-fg text-sm font-semibold text-balance">
+                    {guide.title}
+                  </h3>
+                  <p className="text-muted text-sm leading-relaxed">
+                    {guide.description}
+                  </p>
+                </Link>
               ))}
             </div>
           </div>

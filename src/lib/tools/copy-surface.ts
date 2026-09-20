@@ -72,6 +72,14 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "components", "tools"),
     path.join(ROOT, "src", "app"),
     path.join(ROOT, "src", "lib", "tools"),
+    // The guides catalogue: long-form instructional prose a visitor reads at
+    // /guides/[slug], shipped to crawlers as HowTo + FAQPage JSON-LD. Joined
+    // 2026-09-17, BEFORE the first guide was written — the tool-facts lesson
+    // applied in order. A directory root, not a listed file, so a second
+    // guides module cannot land outside the wall. Its files must not carry
+    // trailing unit comments (`// 100 MB`): only full-line comments are
+    // stripped, by design — see withoutComments.
+    path.join(ROOT, "src", "lib", "guides"),
   ];
   const out: string[] = [
     path.join(ROOT, "src", "lib", "faq.ts"),

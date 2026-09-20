@@ -186,11 +186,20 @@ dev-relaxed) and are asserted by the Playwright suite. Details in
 
 ## Deployment
 
-Target host is **Vercel** on the **pdf.xyz** domain. Full setup, env policy, and
-the preview → production workflow are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+Both tiers run as containers under **Coolify**, on the **pdf.xyz** domain
+behind Cloudflare. Merging to `main` builds both images, pushes them to GHCR,
+deploys them, and **holds until the public wire serves that exact build** —
+the web tier's `BUILD_ID` and the worker's source fingerprint, each read out
+of the image that was just pushed. Full setup, env policy, and rollback are in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-The secure worker is a **separate process**, never a Vercel function on the
-request path. A multi-stage [`Dockerfile`](Dockerfile) exposes two independent
+(Until 2026-08-24 this line said the target host was Vercel. It stopped being
+true at the DNS cutover and stayed on the page for three weeks — which is the
+defect class this repository's guards exist for, appearing in the file a new
+reader opens first.)
+
+The secure worker is a **separate process**, never a serverless function on
+the request path. A multi-stage [`Dockerfile`](Dockerfile) exposes two independent
 targets — `web` (the site, `pnpm start`) and `worker` (the daemon with
 Ghostscript/qpdf/mutool **and** the OCRmyPDF/Tesseract OCR stack, `pnpm
 worker:daemon`) — with an example

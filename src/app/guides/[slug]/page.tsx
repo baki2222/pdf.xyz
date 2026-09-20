@@ -1,0 +1,246 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { getAllGuideSlugs, getGuideBySlug } from "@/lib/guides";
+import { getToolBySlug } from "@/lib/tools";
+import type { Tool } from "@/lib/tools/types";
+import { Container } from "@/components/ui/container";
+import { ToolCard } from "@/components/tools/tool-card";
+import { buildMetadata } from "@/lib/seo";
+import { JsonLd } from "@/components/seo/json-ld";
+import {
+  articleSchema,
+  breadcrumbSchema,
+  faqPageSchema,
+  howToSchema,
+} from "@/lib/structured-data";
+
+export function generateStaticParams() {
+  return getAllGuideSlugs().map((slug) => ({ slug }));
+}
+
+/**
+ * Same reasoning as /tools/[slug], where the defect was measured: with
+ * `dynamicParams` at its default an unknown slug renders the not-found body
+ * with a **200** — a soft 404 crawlers index. The guides catalogue is compiled
+ * in, so `generateStaticParams` above is the complete and only source of valid
+ * slugs, and everything outside it must be refused with a real 404 status.
+ */
+export const dynamicParams = false;
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const guide = getGuideBySlug(slug);
+  if (!guide) {
+    return buildMetadata({ title: "Guide not found", noIndex: true });
+  }
+  return buildMetadata({
+    title: guide.title,
+    description: guide.description,
+    path: `/guides/${guide.slug}`,
+    keywords: [...guide.keywords],
+    // The site-wide share card, deliberately: buildMetadata always sets
+    // explicit openGraph images, so no per-guide image route exists to shadow.
+  });
+}
+
+export default async function GuidePage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  const guide = getGuideBySlug(slug);
+  if (!guide) notFound();
+
+  // Resolved through the catalogue accessor, and a dead slug is a test
+  // failure in the guides catalogue suite before it can be a dead link here.
+  const guideTools = guide.tools
+    .map((toolSlug) => getToolBySlug(toolSlug))
+    .filter((tool): tool is Tool => tool !== undefined);
+  const primary = guideTools[0];
+
+  const breadcrumbs = [
+    { name: "Home", path: "/" },
+    { name: "Guides", path: "/guides" },
+    { name: guide.title, path: `/guides/${guide.slug}` },
+  ];
+
+  return (
+    <div className="bg-canvas text-fg py-10 sm:py-14">
+      <JsonLd
+        data={[
+          articleSchema(guide),
+          breadcrumbSchema(breadcrumbs),
+          howToSchema(guide.title, guide.steps),
+          ...(guide.faq.length > 0
+            ? [
+                faqPageSchema(
+                  guide.faq.map((entry) => ({
+                    q: entry.question,
+                    a: entry.answer,
+                  })),
+                ),
+              ]
+            : []),
+        ]}
+      />
+      <Container className="flex flex-col gap-10">
+        <nav
+          aria-label="Breadcrumb"
+          className="text-muted flex items-center gap-2 text-sm"
+        >
+          <Link
+            href="/guides"
+            className="hover:text-fg inline-flex items-center gap-1.5 transition-colors"
+          >
+            <ArrowLeft className="size-3.5" aria-hidden />
+            All guides
+          </Link>
+          {primary && (
+            <>
+              <span aria-hidden>/</span>
+              <Link
+                href={`/tools/${primary.slug}`}
+                className="hover:text-fg transition-colors"
+              >
+                {primary.name}
+              </Link>
+            </>
+          )}
+        </nav>
+
+        <article className="mx-auto flex w-full max-w-3xl flex-col gap-10">
+          <header className="flex flex-col gap-4">
+            {primary && (
+              <span className="text-accent font-mono text-xs font-medium tracking-[0.18em] uppercase">
+                {primary.name}
+              </span>
+            )}
+            <h1 className="font-display text-fg text-3xl font-medium tracking-tight text-balance sm:text-4xl">
+              {guide.title}
+            </h1>
+            <p className="text-muted text-xs">
+              Updated{" "}
+              <time dateTime={guide.updated} className="font-mono">
+                {guide.updated}
+              </time>
+            </p>
+          </header>
+
+          <div className="flex flex-col gap-4">
+            {guide.intro.map((paragraph) => (
+              <p key={paragraph} className="text-muted text-sm leading-relaxed">
+                {paragraph}
+              </p>
+            ))}
+            {primary && (
+              <Link
+                href={`/tools/${primary.slug}`}
+                className="group text-accent inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
+              >
+                Open {primary.name}
+                <ArrowRight
+                  className="size-4 transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </Link>
+            )}
+          </div>
+
+          <section
+            id="steps"
+            className="border-line bg-panel flex scroll-mt-24 flex-col gap-4 rounded-[4px] border p-5 sm:p-7"
+          >
+            <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
+              Step by step
+            </h2>
+            <ol className="flex flex-col gap-3">
+              {guide.steps.map((step, index) => (
+                <li key={step} className="flex items-start gap-3">
+                  <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
+                    {index + 1}
+                  </span>
+                  <span className="text-muted text-sm leading-relaxed">
+                    {step}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          {guide.sections.map((section) => (
+            <section
+              key={section.id}
+              id={section.id}
+              className="flex scroll-mt-24 flex-col gap-3"
+            >
+              <h2 className="text-fg text-lg font-semibold">
+                {section.heading}
+              </h2>
+              {section.body.map((paragraph) => (
+                <p
+                  key={paragraph}
+                  className="text-muted text-sm leading-relaxed"
+                >
+                  {paragraph}
+                </p>
+              ))}
+            </section>
+          ))}
+
+          {guide.faq.length > 0 && (
+            <section
+              id="faq"
+              className="border-line bg-panel flex scroll-mt-24 flex-col gap-4 rounded-[4px] border p-5 sm:p-7"
+            >
+              <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
+                Common questions
+              </h2>
+              {guide.faq.map((entry) => (
+                <div key={entry.question} className="flex flex-col gap-1.5">
+                  <h3 className="text-fg text-sm font-semibold">
+                    {entry.question}
+                  </h3>
+                  <p className="text-muted text-sm leading-relaxed">
+                    {entry.answer}
+                  </p>
+                </div>
+              ))}
+            </section>
+          )}
+        </article>
+
+        {guideTools.length > 0 && (
+          <div className="border-line flex flex-col gap-6 border-t pt-10">
+            <div className="flex items-end justify-between gap-4">
+              <h2 className="font-display text-fg text-2xl font-medium tracking-tight">
+                Tools used in this guide
+              </h2>
+              <Link
+                href="/tools"
+                className="group text-accent inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
+              >
+                All tools
+                <ArrowRight
+                  className="size-4 transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {guideTools.map((tool) => (
+                <ToolCard key={tool.slug} tool={tool} />
+              ))}
+            </div>
+          </div>
+        )}
+      </Container>
+    </div>
+  );
+}

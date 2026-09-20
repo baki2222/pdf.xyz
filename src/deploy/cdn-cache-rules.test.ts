@@ -27,11 +27,20 @@ import { describe, expect, it } from "vitest";
 const ROOT = process.cwd();
 const config = readFileSync(path.join(ROOT, "next.config.mjs"), "utf8");
 
-/** The three paths only crawlers and installers fetch. */
-const CRAWLER_PATHS = ["robots.txt", "sitemap.xml", "manifest.webmanifest"];
+/**
+ * The paths only crawlers and installers fetch. `sitemap-index.xml` joined on
+ * 2026-09-20 with the sitemap index itself — a crawler entry point that is not
+ * edge-cached is the same defect this file was written for, one file over.
+ */
+const CRAWLER_PATHS = [
+  "robots.txt",
+  "sitemap.xml",
+  "sitemap-index.xml",
+  "manifest.webmanifest",
+];
 
 describe("the crawler-facing files stay edge-cacheable", () => {
-  it("names all three in one rule", () => {
+  it("names every crawler file in one rule", () => {
     const rule = config.match(/source:\s*"\/\(([^)]+)\)"/);
     expect(
       rule,

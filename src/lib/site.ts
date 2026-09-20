@@ -77,6 +77,7 @@ export const footerNav: { title: string; items: FooterNavItem[] }[] = [
   {
     title: "Resources",
     items: [
+      { label: "Guides", href: "/guides" },
       { label: "Help center", href: "/#faq" },
       // Announced, not built. Rendered as plain text rather than a link that
       // goes nowhere — a dead nav item reads as neglect, which is expensive on

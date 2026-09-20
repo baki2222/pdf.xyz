@@ -143,6 +143,12 @@ function copyFiles(): string[] {
     // the copy states, outside the list, and nothing would have said so. The
     // reach-proof below pins the members that must stay in view.
     path.join(ROOT, "src", "lib", "tools"),
+    // The guides catalogue — long-form how-to prose that states caps, windows,
+    // and counts more often than any other surface. Joined 2026-09-17, before
+    // the first guide shipped, per the same in-order rule as tool-facts. The
+    // shared copy walk gained it the same day; these two surfaces are
+    // deliberately separate, so each registers on its own.
+    path.join(ROOT, "src", "lib", "guides"),
   ];
   const out: string[] = [
     // Outside every walked root — the reason a list entry is allowed at all.
@@ -294,6 +300,7 @@ describe("user-facing copy does not hand-write figures the code owns", () => {
       "src/lib/tools/tool-facts.ts",
       "src/lib/tools/limits.ts",
       "src/lib/faq.ts",
+      "src/lib/guides/catalog.ts",
     ]) {
       expect(
         files,
