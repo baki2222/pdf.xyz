@@ -239,4 +239,20 @@ jobs:
             curl -sS "https://pdf.xyz/api/worker/operations" | grep -o "Running build [a-f0-9]*" || true
             exit 1
           fi
-          echo "both tiers serve the build this run pushed — merged IS shipped"
+          # WAS "both tiers serve the build this run pushed — merged IS shipped".
+          # The web half earns that: BUILD_ID is the build's own identity. The
+          # worker half does not. Its fingerprint is a hash of the source the
+          # IMAGE CARRIES, and the image carries no Dockerfile, no
+          # pnpm-lock.yaml and no docker-compose.worker.yml — so a change
+          # confined to those is byte-identical to the running image, this hold
+          # passes instantly against the OLD one, and the line below would have
+          # called it shipped. Not hypothetical: the repo's OCR drift was
+          # exactly that shape, tesseract packs in the Dockerfile against a
+          # language list in src/.
+          #
+          # src/lib/workers/build-fingerprint.test.ts now derives the worker
+          # stage's COPY list and fails if the image gains anything the
+          # fingerprint cannot see, so the residue is bounded and written down
+          # rather than silent.
+          echo "web serves this build's BUILD_ID; worker publishes this build's source fingerprint"
+          echo "note: the worker fingerprint cannot see the Dockerfile, the lockfile or the compose file"

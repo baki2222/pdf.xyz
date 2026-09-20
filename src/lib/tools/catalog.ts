@@ -142,7 +142,7 @@ export const tools: Tool[] = [
     badge: "popular",
     featured: true,
     accept: ["PDF"],
-    outputs: ["PDF"],
+    outputs: ["PDF", "ZIP"],
     keywords: ["compress pdf", "reduce size", "shrink pdf", "optimize size"],
     related: ["optimize-web", "grayscale-pdf", "repair-pdf"],
     how: [
