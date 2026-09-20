@@ -59,10 +59,36 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /** Directories that hold the code an image ships. Derived by walking, not listed per-file. */
-const ROOTS = ["src", "scripts"] as const;
+export const ROOTS = ["src", "scripts"] as const;
 
-/** Source extensions. A `.json` or an asset changing is not a code change. */
-const SOURCE = /\.(ts|tsx|mts|cts)$/;
+/**
+ * Executable source the image carries. WAS `ts|tsx|mts|cts` only, which left
+ * eight tracked files the image runs outside the hash: five `scripts/*.sh`
+ * (the worker smoke, engine and OCR proofs) and three `scripts/*.mjs` (the
+ * hourly posture, public-surface and backup checks). A shell script is code by
+ * any definition that matters here — it runs in the image — and the fingerprint
+ * could not see one change.
+ *
+ * Assets stay out, and that is still deliberate: a `.css`, `.svg` or `.ico`
+ * changing is a web-tier fact, and folding it in would make the WORKER's
+ * identity move for a design edit it does not run.
+ */
+const SOURCE = /\.(ts|tsx|mts|cts|mjs|cjs|sh)$/;
+
+/**
+ * Files outside the roots that nonetheless determine what runs, hashed when
+ * present. Both are copied into the worker image explicitly — Dockerfile:
+ * `COPY --from=build /app/package.json ./package.json` and the `tsconfig.json`
+ * line beside it — so CI and the image see the same bytes. A dependency
+ * version moving in `package.json` is a change in what executes, and until now
+ * it produced an identical fingerprint.
+ *
+ * `pnpm-lock.yaml`, the `Dockerfile` and `docker-compose.worker.yml` are NOT
+ * here, and cannot be: the image does not carry them, so hashing them would
+ * make CI and the image disagree forever and hang the deploy hold. See the
+ * limitation recorded at the top of this file.
+ */
+export const EXTRA_FILES = ["package.json", "tsconfig.json"] as const;
 
 /**
  * The published length. Twelve hex characters is ~48 bits — far past any
@@ -102,6 +128,15 @@ export function computeBuildFingerprint(
 ): string | null {
   const files: string[] = [];
   for (const root of ROOTS) collect(path.join(cwd, root), files);
+  for (const extra of EXTRA_FILES) {
+    const full = path.join(cwd, extra);
+    try {
+      readFileSync(full);
+      files.push(full);
+    } catch {
+      // Absent in this tree: contributes nothing, exactly as a missing root does.
+    }
+  }
   if (files.length === 0) return null;
 
   const relative = files
