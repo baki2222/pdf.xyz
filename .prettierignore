@@ -4,3 +4,12 @@ pnpm-lock.yaml
 coverage
 out
 build
+
+# The desktop app parks a full git worktree per Code session under
+# .claude/worktrees/. They are other checkouts of this repo, not source, and
+# they are not tracked — so CI never sees them while `pnpm format:check` ran
+# over every file in every one of them and failed on code nobody was editing.
+# Measured 2026-09-20: 13 warnings, all from one stale worktree. The same
+# blind spot crashed `eslint .` outright the same day (see eslint.config.mjs).
+# A local gate that fails for reasons CI cannot reproduce stops being read.
+.claude

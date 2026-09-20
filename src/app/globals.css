@@ -8,30 +8,50 @@
  *  and the surrounding theme scope decides what that resolves to.
  *
  *  Scopes:
- *    :root / .theme-paper — the editorial paper theme, and since
- *                    2026-08-16 the DEFAULT: warm paper, near-black ink,
- *                    one vermilion accent. `:root` shares the block so
- *                    html-level styling (the viewport scrollbar, the
- *                    canvas behind an overscrolled body) resolves the
- *                    same tokens; `body` carries the class as the
- *                    visible application point. The legacy dark values
- *                    that used to live on `:root` retired with the last
- *                    legacy routes (/status, /privacy, /terms, the
- *                    error pages).
+ *    :root / .theme-paper — since 2026-08-28 the PREPRESS theme, and the
+ *                    DEFAULT: a bright document-white sheet on a cool
+ *                    bench, near-black ink, process-cyan marks. The name
+ *                    `.theme-paper` is kept — a page is still the
+ *                    subject — but the paper is now the one in a
+ *                    prepress shop, not a novel. The 2026-08-16 warm
+ *                    cream + serif + terracotta system it replaces had
+ *                    converged on the most common AI-generated look
+ *                    (the owner spotted it unprompted); this direction
+ *                    is drawn from where PDFs actually come from —
+ *                    trim marks, process colour, the A-series sheet.
+ *                    `:root` shares the block so html-level styling
+ *                    resolves the same tokens; `body` carries the class.
  *    .theme-ink    — the inverted colophon band used inside paper pages.
  *
  *  The paper and ink scopes each carry a `prefers-color-scheme: dark`
- *  variant: dark paper is a warm charcoal (never the legacy navy), and
+ *  variant: dark paper is a cool graphite (the unlit light table), and
  *  the colophon — defined as "the inverted ground" — flips to a light
  *  band in dark scheme, so the relationship, not the colour, is the
- *  design. Verified by `pnpm a11y:contrast` in BOTH schemes.
+ *  design. Verified by `pnpm a11y:contrast` in BOTH schemes — 3,274 text
+ *  runs per scheme, 0 below AA, measured 2026-09-20 against the built site
+ *  (the served HTML was checked for `mark-sweep` first, so the numbers came
+ *  from THIS build and not a stale one on the port).
+ *
+ *  THAT NUMBER IS ONLY AS GOOD AS ITS ROUTE SET, and the set was wrong until
+ *  the day of the merge. The audit's routes were a hand-typed list written
+ *  before the /guides section existed, so twelve pages main had already
+ *  shipped were outside every run that produced the ratios below — a clean
+ *  bill of health over the wrong corpus (CLAUDE.md rule 4). The list now
+ *  DERIVES its guide route from the guides catalogue and refuses to run if
+ *  that catalogue is empty, and the figure above is the re-measurement with
+ *  the guides inside it.
+ *
+ *  TWO ACCENT ROLES, deliberately split. `accent` is TEXT-GRADE (deep
+ *  process cyan, AA on every ground it sits on); `mark` is the bright
+ *  process cyan of trim marks. No text may be set in mark and focus may
+ *  not rely on it — it is 2.9:1 on the sheet, which is fine for the
+ *  decoration it exists for and for nothing else.
  *
  *  Every fg/bg pairing here was checked against WCAG 2.1 AA with
  *  `src/lib/a11y/contrast.ts` before it was committed:
- *    paper:      ink 16.07:1 · muted 7.01:1 · faint 5.05:1 · accent 6.71:1
- *    dark paper: fg 13.19:1 · muted 7.15:1 · faint 5.42:1 · accent 6.47:1
+ *    paper:      ink 15.60:1 · muted 7.20:1 · faint 5.20:1 · accent 6.81:1
+ *    dark paper: fg 13.62:1 · muted 7.53:1 · faint 5.68:1 · accent 7.82:1
  *                (each vs the LIGHTEST ground it can sit on — the wash)
- *    ink band:   fg 16.07:1 · muted 6.93:1 · accent 6.99:1
  * ------------------------------------------------------------------ */
 @theme {
   --font-sans:
@@ -40,13 +60,28 @@
   --font-mono:
     var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
   --font-display:
-    var(--font-newsreader), Georgia, Cambria, "Times New Roman", serif;
+    var(--font-display-face), var(--font-geist-sans), ui-sans-serif, system-ui,
+    sans-serif;
 
   /* Radii. The system is near-square: controls use --radius-ctl, panels
-     use --radius-panel. The larger legacy steps retired with the legacy
+     use --radius-panel.
+
+     NOT YET ADOPTED, AND THAT IS A MEASUREMENT, NOT A GUESS. As of
+     2026-09-20 there are ZERO `rounded-ctl` / `rounded-panel` call sites in
+     src/; the tree hard-codes its corners instead — rounded-[4px] x181,
+     [3px] x67, [2px] x13, [1px] x2. So these two values reach only the hero
+     panel this redesign edits by hand, and the site ships a square hero
+     beside 4px guide cards, tool cards and workspace panels. The tokens are
+     the vocabulary for a later sweep, not a description of what renders
+     today; do not read them as one, and do not quote them as evidence that
+     the site is square-cornered.
+
+     The larger legacy steps retired with the legacy
      routes; Tailwind's own rounded-* scale still exists for one-offs. */
-  --radius-ctl: 3px;
-  --radius-panel: 4px;
+  /* A sheet has square corners; an instrument is handled. Panels are the
+     sheet (0); controls are the instrument (6px). The contrast is the point. */
+  --radius-ctl: 6px;
+  --radius-panel: 0px;
 
   /* Motion */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -68,6 +103,7 @@
   --color-line: var(--sf-line);
   --color-line-strong: var(--sf-line-strong);
   --color-accent: var(--sf-accent);
+  --color-mark: var(--sf-mark);
 
   /* Status roles for stateful surfaces (runner results, errors, warnings,
      worker/info accents). Tints are taken with slash-opacity at the call
@@ -86,43 +122,45 @@
 .theme-paper {
   color-scheme: light;
 
-  --sf-canvas: #f7f5f2;
+  --sf-canvas: #f4f6f8;
   --sf-panel: #ffffff;
-  --sf-wash: #efece6;
-  --sf-invert: #1c1917;
-  --sf-fg: #1c1917;
-  --sf-muted: #57534e;
-  --sf-faint: #6e6862;
-  --sf-fg-invert: #f7f5f2;
-  --sf-muted-invert: #a8a29e;
-  --sf-line: #1c191724;
-  --sf-line-strong: #1c191747;
-  --sf-accent: #9a3412;
-  --sf-ok: #065f46;
-  --sf-warn: #92400e;
-  --sf-err: #b91c1c;
-  --sf-info: #1d4ed8;
+  --sf-wash: #e9edf1;
+  --sf-invert: #10151a;
+  --sf-fg: #10151a;
+  --sf-muted: #454e57;
+  --sf-faint: #59636e;
+  --sf-fg-invert: #f4f7f9;
+  --sf-muted-invert: #9aa7b1;
+  --sf-line: #10151a24;
+  --sf-line-strong: #10151a47;
+  --sf-accent: #07567a;
+  --sf-mark: #00a2e0;
+  --sf-ok: #056a4e;
+  --sf-warn: #8a4a0b;
+  --sf-err: #bb1d2c;
+  --sf-info: #245bc4;
 }
 
 .theme-ink {
   color-scheme: dark;
 
-  --sf-canvas: #1c1917;
-  --sf-panel: #262220;
+  --sf-canvas: #10151a;
+  --sf-panel: #171e25;
   --sf-wash: #ffffff0d;
-  --sf-invert: #f7f5f2;
-  --sf-fg: #f7f5f2;
-  --sf-muted: #b8b2ac;
-  --sf-faint: #a8a29e;
-  --sf-fg-invert: #1c1917;
-  --sf-muted-invert: #57534e;
-  --sf-line: #f7f5f224;
-  --sf-line-strong: #f7f5f247;
-  --sf-accent: #e09070;
+  --sf-invert: #f4f7f9;
+  --sf-fg: #f4f7f9;
+  --sf-muted: #aeb9c3;
+  --sf-faint: #97a2ad;
+  --sf-fg-invert: #10151a;
+  --sf-muted-invert: #55606b;
+  --sf-line: #f4f7f924;
+  --sf-line-strong: #f4f7f947;
+  --sf-accent: #53c1ee;
+  --sf-mark: #2fb4ea;
   --sf-ok: #34d399;
   --sf-warn: #fbbf24;
   --sf-err: #f87171;
-  --sf-info: #60a5fa;
+  --sf-info: #7ca5f5;
 }
 
 /* Dark scheme, by system preference. Paper becomes a warm charcoal — the
@@ -134,43 +172,45 @@
   .theme-paper {
     color-scheme: dark;
 
-    --sf-canvas: #171412;
-    --sf-panel: #201c19;
-    --sf-wash: #242019;
-    --sf-invert: #ece7e1;
-    --sf-fg: #ece7e1;
-    --sf-muted: #b3aba2;
-    --sf-faint: #9c948b;
-    --sf-fg-invert: #171412;
-    --sf-muted-invert: #57534e;
-    --sf-line: #ece7e121;
-    --sf-line-strong: #ece7e142;
-    --sf-accent: #e0906e;
+    --sf-canvas: #0c1014;
+    --sf-panel: #131920;
+    --sf-wash: #1a222b;
+    --sf-invert: #e8edf1;
+    --sf-fg: #e8edf1;
+    --sf-muted: #a8b3bd;
+    --sf-faint: #909ba6;
+    --sf-fg-invert: #0c1014;
+    --sf-muted-invert: #55606b;
+    --sf-line: #e8edf121;
+    --sf-line-strong: #e8edf142;
+    --sf-accent: #53c1ee;
+    --sf-mark: #2fb4ea;
     --sf-ok: #34d399;
     --sf-warn: #fbbf24;
     --sf-err: #f87171;
-    --sf-info: #60a5fa;
+    --sf-info: #7ca5f5;
   }
 
   .theme-ink {
     color-scheme: light;
 
-    --sf-canvas: #f7f5f2;
+    --sf-canvas: #f4f6f8;
     --sf-panel: #ffffff;
-    --sf-wash: #efece6;
-    --sf-invert: #1c1917;
-    --sf-fg: #1c1917;
-    --sf-muted: #57534e;
-    --sf-faint: #6e6862;
-    --sf-fg-invert: #f7f5f2;
-    --sf-muted-invert: #a8a29e;
-    --sf-line: #1c191724;
-    --sf-line-strong: #1c191747;
-    --sf-accent: #9a3412;
-    --sf-ok: #065f46;
-    --sf-warn: #92400e;
-    --sf-err: #b91c1c;
-    --sf-info: #1d4ed8;
+    --sf-wash: #e9edf1;
+    --sf-invert: #10151a;
+    --sf-fg: #10151a;
+    --sf-muted: #454e57;
+    --sf-faint: #59636e;
+    --sf-fg-invert: #f4f7f9;
+    --sf-muted-invert: #9aa7b1;
+    --sf-line: #10151a24;
+    --sf-line-strong: #10151a47;
+    --sf-accent: #07567a;
+    --sf-mark: #00a2e0;
+    --sf-ok: #056a4e;
+    --sf-warn: #8a4a0b;
+    --sf-err: #bb1d2c;
+    --sf-info: #245bc4;
   }
 }
 
@@ -215,7 +255,7 @@
   }
 
   ::selection {
-    background: color-mix(in oklab, var(--sf-accent) 30%, transparent);
+    background: color-mix(in oklab, var(--sf-mark) 32%, transparent);
   }
 
   :focus-visible {
@@ -271,5 +311,88 @@
   }
   html {
     scroll-behavior: auto;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Prepress signature
+ *
+ *  Two devices, both drawn from the trim room, both carrying meaning:
+ *
+ *  `.crop-marks` — the four corner ticks a press sheet carries so the
+ *  cutter knows where the page really is. Applied to the surfaces that
+ *  hold a REAL document (the drop zone sheet, a preview) — never as
+ *  generic decoration on arbitrary cards, or the device stops meaning
+ *  "a page is here".
+ *
+ *  `.dim-cap` — the end-tick of an engineering dimension
+ *  line. The stats strip uses it so a measured figure LOOKS measured.
+ * ------------------------------------------------------------------ */
+@layer components {
+  .crop-marks {
+    --cm-len: 12px;
+    --cm-w: 1.5px;
+    --cm-c: var(--sf-mark);
+    position: relative;
+  }
+  .crop-marks::before,
+  .crop-marks::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-repeat: no-repeat;
+  }
+  /* Horizontal ticks (top-left, top-right, bottom-left, bottom-right) */
+  .crop-marks::before {
+    background-image:
+      linear-gradient(var(--cm-c), var(--cm-c)),
+      linear-gradient(var(--cm-c), var(--cm-c)),
+      linear-gradient(var(--cm-c), var(--cm-c)),
+      linear-gradient(var(--cm-c), var(--cm-c));
+    background-size: var(--cm-len) var(--cm-w);
+    background-position:
+      left top,
+      right top,
+      left bottom,
+      right bottom;
+  }
+  /* Vertical ticks */
+  .crop-marks::after {
+    background-image:
+      linear-gradient(var(--cm-c), var(--cm-c)),
+      linear-gradient(var(--cm-c), var(--cm-c)),
+      linear-gradient(var(--cm-c), var(--cm-c)),
+      linear-gradient(var(--cm-c), var(--cm-c));
+    background-size: var(--cm-w) var(--cm-len);
+    background-position:
+      left top,
+      right top,
+      left bottom,
+      right bottom;
+  }
+
+  /* The dimension-line end cap: a short vertical tick on the strip's rule. */
+  .dim-cap {
+    position: relative;
+  }
+  .dim-cap::before {
+    content: "";
+    position: absolute;
+    top: -5px;
+    left: 0;
+    width: 1.5px;
+    height: 10px;
+    background: var(--sf-mark);
+  }
+
+  /* The highlighted promise: a process-cyan text sweep, like the selection
+     a reader drags across the one line that matters. Text stays fg (AA);
+     the sweep is the mark at low opacity, so it can never fail contrast. */
+  .mark-sweep {
+    background: color-mix(in oklab, var(--sf-mark) 22%, transparent);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    padding-inline: 0.08em;
   }
 }

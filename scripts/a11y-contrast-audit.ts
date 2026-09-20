@@ -33,6 +33,7 @@
  *   pnpm build && pnpm start --port 3100
  *   pnpm a11y:contrast                          # default route sample
  *   pnpm a11y:contrast --all-tools              # every /tools/<slug> too
+ *   pnpm a11y:contrast --all-guides             # every /guides/<slug> too
  *   BASE=http://127.0.0.1:3100 pnpm a11y:contrast --json report.json
  *   A11Y_SCHEME=dark pnpm a11y:contrast         # audit the dark colour scheme
  *
@@ -65,6 +66,7 @@ import {
 } from "../src/lib/a11y/contrast";
 import { decodePng } from "../src/lib/a11y/png";
 import { getAllToolSlugs } from "../src/lib/tools";
+import { getAllGuideSlugs } from "../src/lib/guides";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:3100";
 
@@ -85,13 +87,31 @@ const option = (name: string) => {
 };
 
 /**
- * A representative sample rather than all 57 routes by default: the marketing
- * surfaces, the workspace, the status page, the legal pages, and one tool page
- * per processing mode. `--all-tools` widens it to every slug.
+ * A representative sample rather than every route: the marketing surfaces, the
+ * workspace, the status page, the legal pages, one tool page per processing
+ * mode, and the guides. `--all-tools` / `--all-guides` widen it.
+ *
+ * THE GUIDES ENTRY IS DERIVED, AND THAT IS THE POINT. This list was hand-typed
+ * and therefore could not see a route it did not name: the /guides section
+ * shipped on 2026-09-17, three weeks into the redesign branch's life, and the
+ * audit that gates "no text below AA" was still measuring twelve routes that
+ * predated it — a clean bill of health over the wrong corpus (CLAUDE.md
+ * rule 4). Taking the first slug from the catalogue means a renamed or removed
+ * guide moves the audit with it, and a sixteenth guide is covered the day it
+ * exists.
  */
+const FIRST_GUIDE = getAllGuideSlugs()[0];
+if (!FIRST_GUIDE) {
+  throw new Error(
+    "the guides catalogue is empty — refusing to audit a surface set that silently lost a section",
+  );
+}
+
 const DEFAULT_ROUTES = [
   "/",
   "/tools",
+  "/guides",
+  `/guides/${FIRST_GUIDE}`,
   "/workspace",
   "/status",
   "/privacy",
@@ -495,12 +515,21 @@ async function auditRoute(
 }
 
 async function main(): Promise<number> {
-  const routes = flag("all-tools")
-    ? [
-        ...DEFAULT_ROUTES.filter((r) => !r.startsWith("/tools/")),
-        ...getAllToolSlugs().map((slug) => `/tools/${slug}`),
-      ]
-    : DEFAULT_ROUTES;
+  // Widening is per-section and composable: each flag replaces its own
+  // sampled member with the whole catalogue, and neither can shadow the other.
+  let routes = DEFAULT_ROUTES;
+  if (flag("all-tools")) {
+    routes = [
+      ...routes.filter((r) => !r.startsWith("/tools/")),
+      ...getAllToolSlugs().map((slug) => `/tools/${slug}`),
+    ];
+  }
+  if (flag("all-guides")) {
+    routes = [
+      ...routes.filter((r) => !r.startsWith("/guides/")),
+      ...getAllGuideSlugs().map((slug) => `/guides/${slug}`),
+    ];
+  }
 
   const browser = await chromium.launch();
   const findings: Finding[] = [];
@@ -524,6 +553,19 @@ async function main(): Promise<number> {
       await context.addInitScript({
         content:
           "globalThis.__name = globalThis.__name || function (f) { return f; };",
+      });
+      // The consent banner is a fixed light-canvas overlay that renders until
+      // a decision is stored. Left in place it PARKS ITSELF OVER whatever the
+      // sweep scrolls to the bottom of the viewport, and the sampler then
+      // reads the banner back as that text run background — measured
+      // 2026-08-28: two stable "failures" whose real paint was the dark ink
+      // band, both reporting the banner canvas #f4f6f8 behind them. Seeding
+      // a stored decision is also the honest steady state: every visitor
+      // after the first pageview has one. The banner own surface uses the
+      // same canvas/fg tokens this audit already measures everywhere else.
+      await context.addInitScript({
+        content:
+          'try { localStorage.setItem("pdfxyz.analytics-consent", "denied"); } catch {}',
       });
       for (const route of routes) {
         const result = await auditRoute(page, route, viewport.name);

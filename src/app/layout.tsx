@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Newsreader } from "next/font/google";
+import { Bricolage_Grotesque } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { siteConfig } from "@/lib/site";
@@ -14,14 +14,16 @@ import { cn } from "@/lib/utils";
 import "./globals.css";
 
 /**
- * The display voice of the redesign: an editorial serif for headlines,
- * paired against Geist Sans for UI and Geist Mono for data. Self-hosted
- * at build time by next/font, so no runtime font request leaves the page.
+ * The display voice of the prepress redesign: a grotesque with real bone
+ * structure for headlines, against Geist Sans for UI and Geist Mono for the
+ * data and annotations. The serif retired with the cream palette — a PDF is
+ * a produced artefact, not a novel. Self-hosted at build time by next/font,
+ * so no runtime font request leaves the page.
  */
-const newsreader = Newsreader({
+const displayFace = Bricolage_Grotesque({
   subsets: ["latin"],
-  style: ["normal", "italic"],
-  variable: "--font-newsreader",
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-display-face",
   display: "swap",
 });
 
@@ -61,10 +63,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  // The paper canvas, per scheme. Every route renders on it since 2026-08-16.
+  // The canvas tokens, per scheme — the prepress bench since 2026-08-28.
+  // These MUST track --sf-canvas in globals.css: the browser paints this
+  // colour behind overscroll and in the tab strip, and a mismatched pair
+  // reads as a flash of the previous design on every rubber-band scroll.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f7f5f2" },
-    { media: "(prefers-color-scheme: dark)", color: "#171412" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f6f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c1014" },
   ],
   width: "device-width",
   initialScale: 1,
@@ -79,7 +84,7 @@ export default function RootLayout({
       className={cn(
         GeistSans.variable,
         GeistMono.variable,
-        newsreader.variable,
+        displayFace.variable,
       )}
       /**
        * We ship `html { scroll-behavior: smooth }` for in-page anchor links.
