@@ -182,7 +182,8 @@ const nextConfig = {
         // hold it for a day, and `stale-while-revalidate` means a rebuild
         // never makes a crawler wait. Same values the Vercel file carried, now
         // expressed where the platform we actually run can read them.
-        source: "/(robots.txt|sitemap.xml|manifest.webmanifest)",
+        source:
+          "/(robots.txt|sitemap.xml|sitemap-index.xml|manifest.webmanifest)",
         headers: [
           {
             key: "Cache-Control",

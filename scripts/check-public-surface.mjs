@@ -142,6 +142,9 @@ const always = [
   `${BASE}/`,
   `${BASE}/tools`,
   `${BASE}/guides`,
+  // The sitemap index, added 2026-09-20. It is a crawler entry point that no
+  // human ever opens, which is exactly the class of URL that breaks unwatched.
+  `${BASE}/sitemap-index.xml`,
   `${BASE}/privacy`,
   `${BASE}/terms`,
 ];
