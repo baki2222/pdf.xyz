@@ -275,9 +275,21 @@ describe("routes, the sitemap, and the robots directives agree", () => {
       .filter((p) => disallowed.some((rule) => p.startsWith(rule)));
     expect(blocked).toEqual([]);
 
-    // And the sitemap it points crawlers at is the one this module generates.
-    expect(directives.sitemap).toBe(
+    // And the sitemap it points crawlers at is the one this module
+    // generates. robots.txt may advertise SEVERAL entry points (it gained the
+    // sitemap index on 2026-09-20), so the property is membership plus
+    // same-origin — not a single string, which would have failed here for the
+    // right reason and been "fixed" by deleting the check.
+    const declared = Array.isArray(directives.sitemap)
+      ? directives.sitemap
+      : [directives.sitemap];
+    expect(declared).toContain(
       new URL("/sitemap.xml", siteConfig.url).toString(),
     );
+    for (const advertised of declared) {
+      expect(new URL(String(advertised)).origin).toBe(
+        new URL(siteConfig.url).origin,
+      );
+    }
   });
 });
