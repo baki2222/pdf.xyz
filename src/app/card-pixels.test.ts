@@ -30,7 +30,7 @@ import RootCard from "./opengraph-image";
 import ToolCard from "./tools/[slug]/opengraph-image";
 import ToolsIndexCard from "./tools/opengraph-image";
 import WorkspaceCard from "./workspace/opengraph-image";
-import { CARD } from "@/lib/og";
+import { CARD, renderBrandMark } from "@/lib/og";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import {
   colourDistance,
@@ -206,6 +206,38 @@ describe.each(CARDS)("$name", ({ render: renderCard }) => {
       expect(countNear(png, hexToRgb(hex), 12)).toBe(0);
     },
   );
+});
+
+describe("the square mark, as apple-icon and the PWA icons render it", () => {
+  /**
+   * `renderBrandMark` is the other renderer: `apple-icon.tsx` calls it at 180,
+   * the two `manifest-icon-*.png` handlers at 192 and 512, and
+   * `scripts/build-favicon.ts` at 16/32/48.
+   *
+   * `favicon-ico.test.ts` decodes the COMMITTED bytes, which is the right
+   * check for a file someone has to remember to rebuild — and it is the wrong
+   * check for this. Change `renderBrandMark` to paint violet and those bytes
+   * do not move: the committed favicon stays green while every icon the
+   * browser generates on demand turns violet. The stale artifact would be the
+   * thing vouching for the live one.
+   */
+  it.each([180, 512])("at %i px is the accent on ink", async (size) => {
+    const png = await render(renderBrandMark(size));
+    expect([png.width, png.height]).toEqual([size, size]);
+
+    const accent = countNear(png, hexToRgb(CARD.accent), 24);
+    expect(accent, "no accent anywhere in the mark").toBeGreaterThan(
+      (size * size) / 80,
+    );
+    expect(
+      countNear(png, hexToRgb(CARD.tile), 24),
+      "no ink tile",
+    ).toBeGreaterThan((size * size) / 4);
+
+    for (const [name, hex] of Object.entries(RETIRED)) {
+      expect(countNear(png, hexToRgb(hex), 12), name).toBe(0);
+    }
+  });
 });
 
 describe("what pixels cannot decide", () => {
