@@ -226,7 +226,18 @@ if (broken.length || wronglyHidden.length || betaVisible) {
 const configSource = await readFile(
   new URL("../next.config.mjs", import.meta.url),
   "utf8",
-);
+).catch((err) => {
+  // This runs from an `actions/checkout` working tree, so the file is there.
+  // If it ever is not, say so in this file's own voice rather than exiting on
+  // a raw ENOENT that reads like the site is down.
+  fail([
+    "CANNOT READ next.config.mjs — the header list has no source",
+    `  ${err instanceof Error ? err.message : String(err)}`,
+    "  This check derives the expected headers from that file; without it",
+    "  it would silently expect nothing, which is the vacuous pass.",
+  ]);
+  return "";
+});
 // `securityHeaders()` — NOT `async headers()`, which is where the parse was
 // pointed first and found nothing: the list is a const built ABOVE the config
 // object and merely referenced from it. The health check below caught that,
