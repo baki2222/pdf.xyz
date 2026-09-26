@@ -19,7 +19,7 @@ import {
   zipOutputName,
   type RasterFormat,
 } from "@/lib/pdf/pdf-to-image";
-import { downloadBlob, downloadBytes, zipFiles } from "@/lib/pdf/browser";
+import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -34,6 +34,7 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { useZipDownload } from "./use-zip-download";
 
 /** Cap on how many page previews render in the grid; the ZIP still holds all. */
 const PREVIEW_LIMIT = 24;
@@ -225,7 +226,7 @@ function ImageResult({
   const label = format.toUpperCase();
   const mime = RASTER_MIME[format];
   const pageCount = result.pages.length;
-  const [zipping, setZipping] = useState(false);
+  const { zipping, zipError, downloadZip } = useZipDownload();
 
   // Object URLs for the (capped) preview grid, revoked on change/unmount. URLs
   // are created in a deferred microtask (never a synchronous setState in the
@@ -264,19 +265,14 @@ function ImageResult({
       if (first) downloadOne(first);
       return;
     }
-    setZipping(true);
-    try {
-      const blob = await zipFiles(
-        result.pages.map((page) => ({
-          name: pageImageName(pdf.file.name, page.index, pageCount, format),
-          bytes: page.bytes,
-        })),
-        { compression: "STORE" },
-      );
-      downloadBlob(blob, zipOutputName(pdf.file.name, format));
-    } finally {
-      setZipping(false);
-    }
+    await downloadZip(
+      result.pages.map((page) => ({
+        name: pageImageName(pdf.file.name, page.index, pageCount, format),
+        bytes: page.bytes,
+      })),
+      zipOutputName(pdf.file.name, format),
+      { compression: "STORE" },
+    );
   };
 
   const hiddenCount = pageCount - previews.length;
@@ -331,6 +327,7 @@ function ImageResult({
             Change resolution
           </button>
         </div>
+        {zipError && <ErrorNote message={zipError} />}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {previews.map((url, i) => {
