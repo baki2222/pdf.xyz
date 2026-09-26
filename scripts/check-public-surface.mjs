@@ -152,6 +152,11 @@ const always = [
   // The sitemap index, added 2026-09-20. It is a crawler entry point that no
   // human ever opens, which is exactly the class of URL that breaks unwatched.
   `${BASE}/sitemap-index.xml`,
+  // The index's child since 2026-09-27 — the one URL Google has actually read
+  // pages from (Search Console: Success, 67 discovered, on first submission,
+  // after /sitemap.xml failed for a month). Added only once production
+  // served it, so the hourly run could not alarm during the deploy window.
+  `${BASE}/sitemaps/pages.xml`,
   `${BASE}/privacy`,
   `${BASE}/terms`,
 ];
