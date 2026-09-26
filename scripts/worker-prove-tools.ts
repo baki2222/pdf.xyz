@@ -63,6 +63,7 @@ import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
@@ -410,7 +411,10 @@ const ISOLATION_LEAKS: readonly { marker: RegExp; what: string }[] = [
 
 async function pdfPlainText(bytes: Buffer): Promise<string> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+  const task = pdfjs.getDocument({
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    data: new Uint8Array(bytes),
+  });
   const doc = await task.promise;
   let text = "";
   for (let i = 1; i <= doc.numPages; i++) {
