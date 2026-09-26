@@ -50,7 +50,7 @@ export const tools: Tool[] = [
     how: [
       "Pick the PDF you want to split — it stays on your device.",
       "Choose page ranges or a split-every-N-pages rule.",
-      "Download the resulting files as a ZIP.",
+      "Download the result — a single piece saves as a PDF, and several arrive together as one ZIP.",
     ],
   },
   {

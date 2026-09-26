@@ -7,7 +7,7 @@ const pillars = [
   {
     icon: Cpu,
     title: "In-browser by default",
-    body: "Most tools run with WebAssembly on your own device. Those tools never upload your files.",
+    body: "Most tools run in your browser, on your own device. Those tools never upload your files.",
   },
   {
     icon: Lock,

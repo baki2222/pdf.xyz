@@ -51,7 +51,7 @@ export const CAPABILITY_DESCRIPTORS: Record<
     id: "in-browser",
     label: "In-browser",
     summary:
-      "Runs entirely on your device with WebAssembly and browser APIs. Files are never uploaded.",
+      "Runs entirely on your device, in your browser. Files are never uploaded.",
     uploadsFiles: false,
   },
   "secure-worker": {
