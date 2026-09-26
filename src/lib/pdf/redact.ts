@@ -23,8 +23,10 @@ import {
  * is exactly what makes the redaction permanent.
  *
  * The geometry (validation + point→pixel mapping) is pure so it can be unit
- * tested with plain numbers; only {@link getRedactPageSizes}/{@link redactPdf}
- * touch pdf-lib/pdfjs and must run in the browser.
+ * tested with plain numbers. Only the pdfjs page render inside
+ * {@link rasterizePdf} needs a browser: {@link getRedactPageSizes} runs in Node,
+ * and so does {@link redactPdf} when handed a rasterizer, which is how
+ * `redact-paint.test.ts` reads the painted bitmap the encoder receives.
  */
 
 const PRODUCER = "pdf.xyz";

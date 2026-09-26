@@ -93,6 +93,55 @@ export interface ToolCase {
    * other half unfalsified.
    */
   control: (ctx: CaseContext) => Promise<Buffer | Buffer[]>;
+  /**
+   * WHY each control must be rejected: for control N, a fragment of the
+   * assertion message it must fail on. Optional, but set it wherever a case
+   * returns one control per property — "rejected" alone accepts any throw,
+   * including a precondition (a region that shrank to nothing, a page count)
+   * that fires before the check the control exists to falsify. redact-pdf's
+   * blank control was rejected exactly that way, so its "page 2 is blank"
+   * check had never been shown able to fail. Share the fragment with the
+   * assertion through one constant, so rewording one cannot orphan the other.
+   */
+  rejectsBecause?: string[];
+}
+
+/**
+ * Run one control through its case's assertion and require the assertion to
+ * reject it — and, where the case declares `rejectsBecause`, to reject it with
+ * the message of the check that control exists for. Exported so the spec and
+ * any offline replay of a case run the same verdict.
+ */
+export async function expectControlRejected(
+  slug: string,
+  proof: ToolCase,
+  controls: Buffer[],
+  index: number,
+  ctx: CaseContext,
+): Promise<void> {
+  if (proof.rejectsBecause) {
+    expect(
+      proof.rejectsBecause.length,
+      `"${slug}" declares ${proof.rejectsBecause.length} rejection reasons for ${controls.length} controls — every control needs exactly one`,
+    ).toBe(controls.length);
+  }
+  let reason: string | null = null;
+  try {
+    await proof.assert(controls[index]!, ctx);
+  } catch (error) {
+    reason = error instanceof Error ? error.message : String(error);
+  }
+  expect(
+    reason,
+    `the content assertion for "${slug}" ACCEPTED control #${index + 1}. It cannot distinguish a correct artifact from that one, so a green result here means nothing.`,
+  ).not.toBeNull();
+  const want = proof.rejectsBecause?.[index];
+  if (want !== undefined) {
+    expect(
+      reason,
+      `"${slug}" rejected control #${index + 1} for the wrong reason: the check it exists to falsify never ran, so that check has never been shown able to fail`,
+    ).toContain(want);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -158,6 +207,20 @@ const marker = (name: string, page: number) => pageMarker(name, page);
 
 /** The redact proof's page size, in points: makeTextPdf's default. */
 const REDACT_PAGE: [number, number] = [320, 240];
+
+/**
+ * The redact proof's pixel checks, by the message each fails with. One
+ * definition, read by the assertion AND by `rejectsBecause`, so each control
+ * is pinned to the check it falsifies rather than to any throw.
+ */
+const REDACT_FAILS = {
+  blankRender: "page 2 (no box) is blank — nothing was rendered",
+  noInkUnderBox:
+    "page 2 has no ink under the box's position — the white check on page 1 would prove nothing",
+  unpainted: "the redaction box is not painted — the content under it survived",
+  overpainted:
+    "ink OUTSIDE the box is gone on page 1 — the redaction destroyed more than the box",
+} as const;
 
 function intersect(a: PointRect, b: PointRect): PointRect | null {
   const x0 = Math.max(a.x, b.x);
@@ -979,11 +1042,11 @@ export const CASES: Record<string, ToolCase> = {
           second.whole.totalPixels - second.whole.whitePixels,
           second.whole,
         ),
-        "page 2 (no box) is blank — nothing was rendered",
+        REDACT_FAILS.blankRender,
       ).toBeGreaterThan(0.1);
       expect(
         ratio(second.regions[1]!.inkPixels, second.regions[1]!),
-        "page 2 has no ink under the box's position — the white check on page 1 would prove nothing",
+        REDACT_FAILS.noInkUnderBox,
       ).toBeGreaterThan(0.9);
 
       // (a) The box: on page 1 it is the chosen fill, over ink that page 2
@@ -991,7 +1054,7 @@ export const CASES: Record<string, ToolCase> = {
       const onBox = first.regions[0]!;
       expect(
         ratio(onBox.whitePixels, onBox),
-        "the redaction box is not painted — the content under it survived",
+        REDACT_FAILS.unpainted,
       ).toBeGreaterThan(0.98);
 
       // (c) Only the box changed: the fixture's block, where it sticks out of
@@ -1000,7 +1063,7 @@ export const CASES: Record<string, ToolCase> = {
       const outside = first.regions[2]!;
       expect(
         ratio(outside.inkPixels, outside),
-        "ink OUTSIDE the box is gone on page 1 — the redaction destroyed more than the box",
+        REDACT_FAILS.overpainted,
       ).toBeGreaterThan(0.9);
     },
     // One control per property, each run through the assertion above:
@@ -1009,10 +1072,17 @@ export const CASES: Record<string, ToolCase> = {
     //     a no-op paint, and what the old whole-page ink checks accepted;
     //  3. page 1 whitewashed entirely (box "painted" over everything), page 2
     //     faithful — (a) and page 2's checks pass, so only (c) can reject it.
-    // Each carries one image PER PAGE, like the real output. The previous
-    // blank control shared one image across both pages, so the "at least two
-    // images" check rejected it before any pixel was read: the control was
-    // rejected, but for a reason that says nothing about rendering.
+    // Each carries one image PER PAGE, like the real output, at the real
+    // output's px/pt scale. Both were once wrong, and both times the control
+    // was still "rejected" — for a reason that says nothing about rendering:
+    //  - one image shared across both pages tripped the "at least two
+    //    images" check before any pixel was read;
+    //  - then a 320x240 px blank for a 320x240 pt page (1 px/pt) left the
+    //    12pt band of region (c) at 12 px, which the 8px inset on each side
+    //    shrinks to nothing, so decodePageRegions threw "covers no pixels"
+    //    and the page-2 blank check below it never ran.
+    // `rejectsBecause` now pins each control to its check's message, so a
+    // control that dies on a precondition is red, not "rejected".
     control: async (ctx) => {
       const scale = 150 / 72;
       const unpainted = await makeRasterPageInPage(
@@ -1027,18 +1097,19 @@ export const CASES: Record<string, ToolCase> = {
         scale,
         [],
       );
-      const blank = await makeBlankImageInPage(
-        ctx.page,
-        "image/jpeg",
-        320,
-        240,
-      );
+      // A well-formed render of nothing: the same all-white page as
+      // `whitewashed`, on BOTH pages, so page 2's own checks must reject it.
       return [
-        await makeRasterizedPdf([blank, blank], 2, REDACT_PAGE),
+        await makeRasterizedPdf([whitewashed, whitewashed], 2, REDACT_PAGE),
         await makeRasterizedPdf([unpainted, unpainted], 2, REDACT_PAGE),
         await makeRasterizedPdf([whitewashed, unpainted], 2, REDACT_PAGE),
       ];
     },
+    rejectsBecause: [
+      REDACT_FAILS.blankRender,
+      REDACT_FAILS.unpainted,
+      REDACT_FAILS.overpainted,
+    ],
   },
 
   "fill-forms": {
@@ -1268,7 +1339,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "edit-pdf":
     "Only a text insertion at the default position through the form controls. Image insertion and drag-positioning on the page canvas are not exercised.",
   "redact-pdf":
-    "Proves, on the decoded page images, that the default area added via the Add area button is painted with the WHITE fill over the fixture's ink on page 1, that the same spot on page 2 (no box) keeps its ink, and that fixture ink outside the box survives. Only the White fill is proven here: the fixture's black block sits under the default box, so a Black fill cannot be told from an unpainted one in this browser proof, and its paint is pinned only by the unit test src/lib/pdf/redact-paint.test.ts. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven, and rotated (/Rotate 90) pages are not exercised.",
+    "Proves, on the decoded page images, that the default area added via the Add area button is painted with the WHITE fill over the fixture's ink on page 1, that the same spot on page 2 (no box) keeps its ink, and that fixture ink outside the box survives — sampled only in the fixture block's band ABOVE the box, so white paint spilling left of or below the box is not seen here (the unit test's outside-the-box tally covers that). Only the White fill is proven here: the fixture's black block sits under the default box, so a Black fill cannot be told from an unpainted one in this browser proof, and its paint is pinned only by the unit test src/lib/pdf/redact-paint.test.ts. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven, and rotated (/Rotate 90) pages are not exercised.",
   "fill-forms":
     "Only a text field is written. Checkboxes, radio groups, dropdowns and the appearance-stream regeneration those need are not exercised.",
   "create-forms":

@@ -7,8 +7,8 @@ import {
   CASES,
   PROOF_LIMITS,
   UNPROVEN,
+  expectControlRejected,
   type CaseContext,
-  type ToolCase,
 } from "./cases";
 
 /**
@@ -242,19 +242,6 @@ test.describe("client tool proof — the derived set", () => {
  */
 const CASE_TIMEOUT_MS = 120_000;
 
-async function assertionRejects(
-  proof: ToolCase,
-  bytes: Buffer,
-  ctx: CaseContext,
-): Promise<boolean> {
-  try {
-    await proof.assert(bytes, ctx);
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 if (PROVEN.length === 0) {
   // Never silently generate an empty suite. The describe block above explains
   // why; this makes sure the file cannot look like it ran.
@@ -305,11 +292,11 @@ for (const slug of PROVEN) {
       controls.length,
       `"${slug}" declared no control bytes — its assertion has never been shown capable of failing`,
     ).toBeGreaterThan(0);
-    for (const [index, control] of controls.entries()) {
-      expect(
-        await assertionRejects(proof, control, ctx),
-        `the content assertion for "${slug}" ACCEPTED control #${index + 1}. It cannot distinguish a correct artifact from that one, so a green result here means nothing.`,
-      ).toBe(true);
+    //    Where the case says WHY each control must fail, the rejection must
+    //    carry that check's message: any other throw means the check the
+    //    control exists for never ran.
+    for (const index of controls.keys()) {
+      await expectControlRejected(slug, proof, controls, index, ctx);
     }
 
     // 4. The production CSP was in force throughout — a blocked worker, wasm
