@@ -170,12 +170,12 @@ function MarkdownToPdfEditor({
           <InfoTile
             icon={Hash}
             title="Structured"
-            body="Headings, lists, blockquotes, links, and code fences are rendered into a readable PDF."
+            body="Headings, nested lists, tables, quotes, rules, and code blocks keep their structure in the PDF."
           />
           <InfoTile
             icon={ListChecks}
             title="Honest"
-            body="This is a clean document renderer, not a full HTML/CSS publishing engine."
+            body="Bold and italic print as plain text, links print as the label with its URL, and images as their alt text and URL. Not an HTML/CSS engine."
           />
         </div>
       </RunnerSection>

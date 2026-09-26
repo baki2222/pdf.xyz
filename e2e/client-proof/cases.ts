@@ -453,10 +453,31 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       const heading = "Markdown Proof Heading";
-      const body = "markdown-body-proof-line";
+      // A snake_case word and an inline code span: the old inline stripper
+      // printed this line as "markdownbodyproof MAXSIZE line". What is
+      // expected is what a reader should see, not what was typed.
+      const body = "markdown_body_proof `MAX_SIZE` line";
       ctx.data.heading = heading;
-      ctx.data.body = body;
-      await ctx.page.locator("textarea").fill(`# ${heading}\n\n${body}`);
+      ctx.data.body = "markdown_body_proof MAX_SIZE line";
+      ctx.data.cellKey = "proof_cell_key";
+      ctx.data.cellValue = "proof_cell_value";
+      ctx.data.nested = "nested_proof_child";
+      await ctx.page
+        .locator("textarea")
+        .fill(
+          [
+            `# ${heading}`,
+            "",
+            body,
+            "",
+            "| Key | Value |",
+            "| --- | ----- |",
+            `| ${ctx.data.cellKey} | ${ctx.data.cellValue} |`,
+            "",
+            "- parent_proof_item",
+            `  - ${ctx.data.nested}`,
+          ].join("\n"),
+        );
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -468,6 +489,11 @@ export const CASES: Record<string, ToolCase> = {
       const text = normalizeText((await pdfPageTexts(buf)).join(" "));
       expect(text).toContain(normalizeText(String(ctx.data.heading)));
       expect(text).toContain(normalizeText(String(ctx.data.body)));
+      expect(text).toContain(String(ctx.data.cellKey));
+      expect(text).toContain(String(ctx.data.cellValue));
+      expect(text).toContain(String(ctx.data.nested));
+      // The table is drawn as a grid, not printed as its own syntax.
+      expect(text).not.toMatch(/\|\s*-{3,}|(?:^|\s)-{3,}(?:\s|$)/);
     },
     control: async () => Buffer.from(await makeTextPdf("unrelated.pdf")),
   },

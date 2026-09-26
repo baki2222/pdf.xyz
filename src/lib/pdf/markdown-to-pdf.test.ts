@@ -1,11 +1,35 @@
-import { PDFDocument } from "pdf-lib";
-import { describe, expect, it } from "vitest";
+// @vitest-environment node
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { inflateSync } from "node:zlib";
+import path from "node:path";
 import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFNumber,
+  PDFRawStream,
+  PDFRef,
+  StandardFonts,
+  type PDFFont,
+} from "pdf-lib";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  MARGIN,
+  PAGE_WIDTH,
   markdownPdfOutputName,
   markdownToPdf,
   parseMarkdownBlocks,
   validateMarkdownInput,
+  type MarkdownBlock,
 } from "./markdown-to-pdf";
+import { embedDrawingFont } from "./unicode-font";
+import { PdfEngineError } from "./engine";
+import { proveGlyphs, useNodeFontSource } from "@/tests/unicode-fonts";
+import { MAX_SOURCE_BYTES } from "@/lib/tools/limits";
+
+const ROOT = path.resolve(__dirname, "../../..");
 
 describe("markdown-to-pdf", () => {
   it("rejects empty markdown", () => {
@@ -74,4 +98,723 @@ describe("markdown-to-pdf", () => {
     expect(markdownPdfOutputName("README.md")).toBe("README-pdf.pdf");
     expect(markdownPdfOutputName("notes.markdown")).toBe("notes-pdf.pdf");
   });
+});
+
+/* ------------------------------------------------------------------ *
+ *  The corpus: every Markdown file this repository ships.
+ *
+ *  Derived from git's index rather than typed, so a new README joins the
+ *  corpus by existing. They are exactly the documents the tool's keyword
+ *  ("readme to pdf") is about: snake_case env vars, dunder files, tables,
+ *  nested bullets, fenced shell with long tokens.
+ * ------------------------------------------------------------------ */
+
+const MARKDOWN_FILES = execFileSync("git", ["ls-files", "-z", "*.md"], {
+  cwd: ROOT,
+  encoding: "utf8",
+})
+  .split("\0")
+  .filter(Boolean);
+
+function readRepoMarkdown(file: string): string {
+  return readFileSync(path.join(ROOT, file), "utf8");
+}
+
+/** Lines outside fenced code, found WITHOUT the parser under test. */
+function proseLines(markdown: string): string[] {
+  const out: string[] = [];
+  let fence: string | null = null;
+  for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) {
+      if (!fence) fence = marker;
+      else if (marker[0] === fence[0] && marker.length >= fence.length)
+        fence = null;
+      continue;
+    }
+    if (!fence) out.push(line);
+  }
+  return out;
+}
+
+function paragraphText(markdown: string): string {
+  const blocks = parseMarkdownBlocks(markdown);
+  expect(blocks, JSON.stringify(blocks)).toHaveLength(1);
+  const block = blocks[0]!;
+  expect(block.kind).not.toBe("rule");
+  expect(block.kind).not.toBe("table");
+  return (block as { text: string }).text;
+}
+
+describe("the markdown corpus (health check)", () => {
+  it("is the repository's Markdown, and plausibly all of it", () => {
+    // Bounded both ways: an empty list passes every assertion below, and a
+    // list that swallowed node_modules would be asking a different question.
+    expect(MARKDOWN_FILES.length).toBeGreaterThanOrEqual(15);
+    expect(MARKDOWN_FILES.length).toBeLessThan(200);
+    expect(MARKDOWN_FILES).toContain("README.md");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Finding: inline markup stripping deleted the user's own characters.
+ *
+ *  Before: "Set `MAX_UPLOAD_SIZE` and edit `__init__.py` in my_module_name."
+ *  printed as "Set MAXUPLOADSIZE and edit init.py in mymodulename.", and the
+ *  tool said "PDF created". The strip test above only fed it well-formed
+ *  `_em_`, so it was green over this; it pins correct behaviour and stays.
+ * ------------------------------------------------------------------ */
+
+describe("inline markup never deletes the user's characters", () => {
+  it.each([
+    [
+      "Set `MAX_UPLOAD_SIZE` and edit `__init__.py` in my_module_name.",
+      "Set MAX_UPLOAD_SIZE and edit __init__.py in my_module_name.",
+    ],
+    ["Compute 2 * 3 * 4 now.", "Compute 2 * 3 * 4 now."],
+    ["- use `a*b*c`", "use a*b*c"],
+    ["`\\*`", "\\*"],
+    [
+      "Keep ~/code and ABC~1\\x~2 as typed.",
+      "Keep ~/code and ABC~1\\x~2 as typed.",
+    ],
+    ["``a ` b``", "a ` b"],
+    ["` `` `", "``"],
+    ["An unclosed `tick stays", "An unclosed `tick stays"],
+    [
+      "See [the docs](https://x.dev/my_page_name_here).",
+      "See the docs (https://x.dev/my_page_name_here).",
+    ],
+    ["<https://x.dev/a_b_c>", "https://x.dev/a_b_c"],
+    ["A \\_literal\\_ underscore", "A _literal_ underscore"],
+    ["snake_case_word and a_b stay", "snake_case_word and a_b stay"],
+  ])("%j prints as %j", (source, expected) => {
+    expect(paragraphText(source)).toBe(expected);
+  });
+
+  it.each([
+    // Positive controls: the tokenizer is not a no-op. Each of these IS markup.
+    ["a *b* c", "a b c"],
+    ["__bold__ text", "bold text"],
+    ["**Important:** read this.", "Important: read this."],
+    ["_em_ and *em*", "em and em"],
+    ["~~gone~~ struck", "gone struck"],
+    ["***both***", "both"],
+    ["foo*bar*baz", "foobarbaz"],
+    ["`code` span", "code span"],
+    ['[label](https://e.com "title")', "label (https://e.com)"],
+    ["![alt text](img.png)", "alt text (img.png)"],
+  ])("control: %j is markup and prints as %j", (source, expected) => {
+    expect(paragraphText(source)).toBe(expected);
+  });
+
+  it("keeps every inline code span in the repository's Markdown verbatim", () => {
+    // Spans found by an independent pattern, not by the tokenizer under test.
+    const spans = new Set<string>();
+    for (const file of MARKDOWN_FILES) {
+      for (const line of proseLines(readRepoMarkdown(file))) {
+        for (const match of line.matchAll(/(?<!`)`([^`]+)`(?!`)/g)) {
+          spans.add(match[1]!);
+        }
+      }
+    }
+    expect(spans.size, "the span corpus is implausibly small").toBeGreaterThan(
+      200,
+    );
+    const wrong: string[] = [];
+    for (const span of spans) {
+      const expected =
+        span.length >= 2 &&
+        span.startsWith(" ") &&
+        span.endsWith(" ") &&
+        span.trim()
+          ? span.slice(1, -1)
+          : span;
+      const got = paragraphText(`Before \`${span}\` after`);
+      if (got !== `Before ${expected} after`) wrong.push(`${span} -> ${got}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("keeps every snake_case token in the repository's Markdown", () => {
+    const tokens = new Set<string>();
+    for (const file of MARKDOWN_FILES) {
+      const text = readRepoMarkdown(file);
+      for (const match of text.matchAll(
+        // Intraword underscores only. A prose `__init__` IS strong emphasis by
+        // CommonMark (GitHub shows a bold "init"); the dunder case this tool
+        // broke was inside a code span, and the span corpus above covers it.
+        /(?<![\w*~])[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+(?![\w*~])/g,
+      )) {
+        tokens.add(match[0]);
+      }
+    }
+    expect(
+      tokens.size,
+      "the token corpus is implausibly small",
+    ).toBeGreaterThan(50);
+    const lost = [...tokens].filter(
+      (token) => paragraphText(`Use ${token} here.`) !== `Use ${token} here.`,
+    );
+    expect(lost).toEqual([]);
+  });
+
+  it("reads ~~~ fences, and a ``` line inside one is content", () => {
+    expect(parseMarkdownBlocks("~~~\ntilde code\n~~~")).toEqual([
+      { kind: "code", text: "tilde code" },
+    ]);
+    expect(
+      parseMarkdownBlocks("~~~md\n```js\nx_y = 1\n```\n~~~\n\nafter"),
+    ).toEqual([
+      { kind: "code", language: "md", text: "```js\nx_y = 1\n```" },
+      { kind: "paragraph", text: "after" },
+    ]);
+    // A shorter closer does not close a longer fence.
+    expect(parseMarkdownBlocks("````\n```\nstill code\n````")).toEqual([
+      { kind: "code", text: "```\nstill code" },
+    ]);
+  });
+});
+
+describe("the inline tokenizer stays linear up to the source cap", () => {
+  // One paragraph, as large as the tool accepts. A scan that restarts per
+  // candidate is quadratic here: `[a](b` repeated took 19.5 s before the
+  // link-scan budget existed. Nothing in these inputs is markup, so each must
+  // also come back character for character.
+  const repeat = (unit: string) =>
+    unit.repeat(Math.floor(MAX_SOURCE_BYTES / unit.length));
+  it.each([
+    ["unmatched brackets", "["],
+    ["unmatched closers", "]"],
+    ["link candidates", "[a](b"],
+    ["angle destinations", "[a](<b"],
+    ["unterminated titles", '[a](b "t'],
+    ["openers only", "*a "],
+    ["closers only", "a* "],
+    ["underscores", "_a _b "],
+  ])("%s", (_label, unit) => {
+    const source = repeat(unit);
+    const started = performance.now();
+    const text = paragraphText(source);
+    const elapsed = performance.now() - started;
+    expect(text).toBe(source.trim());
+    expect(elapsed).toBeLessThan(5_000);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Reading what the reader receives: the text runs in the saved PDF.
+ *
+ *  Parsed out of the page content streams — font, size, position, and the
+ *  string each `Tj` shows — and measured with the metrics the FILE carries:
+ *  `/W` for an embedded face, the standard-14 AFM widths for a built-in one.
+ *  Nothing here asks the renderer what it meant to draw.
+ * ------------------------------------------------------------------ */
+
+interface DrawnRun {
+  page: number;
+  /** The paper's width, from the page's own MediaBox. */
+  pageWidth: number;
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+  width: number;
+}
+
+const winAnsi = new TextDecoder("windows-1252");
+
+function inflateMaybe(raw: Uint8Array): string {
+  try {
+    return inflateSync(Buffer.from(raw)).toString("latin1");
+  } catch {
+    return Buffer.from(raw).toString("latin1");
+  }
+}
+
+function contentOf(doc: PDFDocument, pageIndex: number): string {
+  const page = doc.getPages()[pageIndex]!;
+  const contents = doc.context.lookup(page.node.get(PDFName.of("Contents")));
+  const streams =
+    contents instanceof PDFArray
+      ? contents.asArray().map((ref) => doc.context.lookup(ref))
+      : [contents];
+  return streams
+    .filter((s): s is PDFRawStream => s instanceof PDFRawStream)
+    .map((s) =>
+      inflateMaybe((s as unknown as { contents: Uint8Array }).contents),
+    )
+    .join("\n");
+}
+
+interface FontMeasure {
+  decode(hex: string): string;
+  width(hex: string, size: number): number;
+}
+
+async function fontMeasure(
+  doc: PDFDocument,
+  dict: PDFDict,
+  scratch: PDFDocument,
+): Promise<FontMeasure> {
+  const subtype = dict.lookup(PDFName.of("Subtype"), PDFName).asString();
+  if (subtype === "/Type1") {
+    const base = dict.lookup(PDFName.of("BaseFont"), PDFName).decodeText();
+    const known = Object.values(StandardFonts) as string[];
+    if (!known.includes(base)) throw new Error(`not a standard face: ${base}`);
+    const font: PDFFont = await scratch.embedFont(base as StandardFonts);
+    const decode = (hex: string) => winAnsi.decode(Buffer.from(hex, "hex"));
+    return {
+      decode,
+      width: (hex, size) => font.widthOfTextAtSize(decode(hex), size),
+    };
+  }
+  if (subtype === "/Type0") {
+    const cid = dict
+      .lookup(PDFName.of("DescendantFonts"), PDFArray)
+      .lookup(0, PDFDict);
+    const widths = new Map<number, number>();
+    const w = cid.lookup(PDFName.of("W"), PDFArray);
+    const items = w.asArray().map((item) => doc.context.lookup(item) ?? item);
+    for (let i = 0; i < items.length;) {
+      const first = (items[i] as PDFNumber).asNumber();
+      const next = items[i + 1];
+      if (next instanceof PDFArray) {
+        next.asArray().forEach((n, k) => {
+          widths.set(first + k, (n as PDFNumber).asNumber());
+        });
+        i += 2;
+      } else {
+        const last = (next as PDFNumber).asNumber();
+        const value = (items[i + 2] as PDFNumber).asNumber();
+        for (let g = first; g <= last; g++) widths.set(g, value);
+        i += 3;
+      }
+    }
+    const dw = cid.lookup(PDFName.of("DW"));
+    const fallback = dw instanceof PDFNumber ? dw.asNumber() : 1000;
+    const unicode = new Map<number, string>();
+    const toUnicode = dict.lookup(PDFName.of("ToUnicode"));
+    if (toUnicode instanceof PDFRawStream) {
+      const text = inflateMaybe(
+        (toUnicode as unknown as { contents: Uint8Array }).contents,
+      );
+      const utf16 = (hex: string) =>
+        Buffer.from(hex, "hex").swap16().toString("utf16le");
+      for (const block of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+        for (const pair of block[1]!.matchAll(
+          /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
+        )) {
+          unicode.set(parseInt(pair[1]!, 16), utf16(pair[2]!));
+        }
+      }
+    }
+    const ids = (hex: string) =>
+      Array.from({ length: hex.length / 4 }, (_, i) =>
+        parseInt(hex.slice(i * 4, i * 4 + 4), 16),
+      );
+    return {
+      decode: (hex) =>
+        ids(hex)
+          .map((id) => unicode.get(id) ?? "�")
+          .join(""),
+      width: (hex, size) =>
+        (ids(hex).reduce((sum, id) => sum + (widths.get(id) ?? fallback), 0) /
+          1000) *
+        size,
+    };
+  }
+  throw new Error(`unexpected font subtype ${subtype}`);
+}
+
+async function drawnRuns(bytes: Uint8Array): Promise<DrawnRun[]> {
+  const doc = await PDFDocument.load(bytes);
+  const scratch = await PDFDocument.create();
+  const runs: DrawnRun[] = [];
+  for (const [index, page] of doc.getPages().entries()) {
+    const fonts = page.node.Resources()!.lookup(PDFName.of("Font"), PDFDict);
+    const measures = new Map<string, FontMeasure>();
+    for (const [name, ref] of fonts.entries()) {
+      const dict = doc.context.lookup(ref as PDFRef, PDFDict);
+      measures.set(name.asString(), await fontMeasure(doc, dict, scratch));
+    }
+    let font: FontMeasure | undefined;
+    let size = 0;
+    let x = NaN;
+    let y = NaN;
+    if (process.env.DEBUG_RUNS)
+      console.log(JSON.stringify(contentOf(doc, index).slice(0, 400)));
+    const ops = contentOf(doc, index).matchAll(
+      /(\/[^\s/]+)\s+([\d.]+)\s+Tf|[-\d.]+\s+[-\d.]+\s+[-\d.]+\s+[-\d.]+\s+([-\d.]+)\s+([-\d.]+)\s+Tm|<([0-9A-Fa-f]*)>\s*Tj|\[[^\]]*\]\s*TJ|\([^)]*\)\s*Tj/g,
+    );
+    for (const op of ops) {
+      if (op[1]) {
+        font = measures.get(op[1]);
+        size = Number(op[2]);
+        if (!font) throw new Error(`no resource for ${op[1]}`);
+      } else if (op[3] !== undefined) {
+        x = Number(op[3]);
+        y = Number(op[4]);
+      } else if (op[5] !== undefined) {
+        runs.push({
+          page: index,
+          pageWidth: page.getMediaBox().width,
+          text: font!.decode(op[5]),
+          x,
+          y,
+          size,
+          width: font!.width(op[5], size),
+        });
+      } else {
+        // A shape this reader does not measure would be a run it silently
+        // skipped — the one outcome a bounds check cannot afford.
+        throw new Error(`unmeasured text operator: ${op[0].slice(0, 40)}`);
+      }
+    }
+  }
+  return runs;
+}
+
+let corpusRender: Promise<{ file: string; runs: DrawnRun[] }[]> | null = null;
+
+/**
+ * Every repository Markdown file through the real converter, read back as
+ * drawn runs. Rendered once and shared: two guards read it.
+ */
+function renderedCorpus(): Promise<{ file: string; runs: DrawnRun[] }[]> {
+  corpusRender ??= (async () => {
+    const restore = useNodeFontSource();
+    try {
+      const out: { file: string; runs: DrawnRun[] }[] = [];
+      for (const file of MARKDOWN_FILES) {
+        let bytes: Uint8Array;
+        try {
+          bytes = await markdownToPdf(readRepoMarkdown(file), { title: file });
+        } catch (error) {
+          // An honest refusal (emoji, a script no shipped face can draw) is
+          // not a layout defect; anything else is.
+          if (error instanceof PdfEngineError) continue;
+          throw error;
+        }
+        out.push({ file, runs: await drawnRuns(bytes) });
+      }
+      // Bounded: if most files are refused, the guards below check nothing.
+      expect(
+        out.length,
+        "too few repository files rendered to mean anything",
+      ).toBeGreaterThanOrEqual(Math.ceil(MARKDOWN_FILES.length * 0.75));
+      for (const { file, runs } of out) {
+        expect(runs.length, `${file} drew nothing`).toBeGreaterThan(3);
+      }
+      return out;
+    } finally {
+      restore();
+    }
+  })();
+  return corpusRender;
+}
+
+/** Table delimiter rows, setext underlines and `---` rules, as printed text. */
+function leaksSyntax(text: string): boolean {
+  return /\|\s*:?-{3,}|={3,}|(?:^|\s)-{3,}(?:\s|$)/.test(text);
+}
+
+const EPSILON = 0.01;
+
+/**
+ * Runs outside the text column. The column is the PAPER (each page's
+ * MediaBox) less the margin, so the check is about what gets clipped, not
+ * about a constant the module under test hands us.
+ */
+function outOfBounds(runs: DrawnRun[]): string[] {
+  expect(
+    Number.isFinite(MARGIN) && MARGIN > 0,
+    "MARGIN is not a number; every bound below would be NaN and pass",
+  ).toBe(true);
+  return runs
+    .filter(
+      (run) =>
+        run.x < MARGIN - EPSILON ||
+        run.x + run.width > run.pageWidth - MARGIN + EPSILON,
+    )
+    .map(
+      (run) =>
+        `p${run.page + 1} x=${run.x.toFixed(1)} right=${(run.x + run.width).toFixed(1)} "${run.text.slice(0, 50)}"`,
+    );
+}
+
+describe("the run reader (controls)", () => {
+  let restore: () => void;
+  beforeEach(() => {
+    restore = useNodeFontSource();
+  });
+  afterEach(() => restore());
+
+  it.each([
+    [
+      "a built-in face",
+      "A standard-font line that is wider than nothing at all",
+    ],
+    // Chinese rather than Bengali: its ToUnicode maps glyphs one to one, so
+    // the decoded text can be compared exactly (Bengali reads back in visual
+    // order, with pre-base vowel signs first).
+    ["an embedded face", "机密文件 测试文档 页面"],
+  ])("measures %s exactly as the font that drew it", async (_label, text) => {
+    const doc = await PDFDocument.create();
+    const font = await embedDrawingFont(doc, [text], "sans");
+    doc.addPage([PAGE_WIDTH, 792]).drawText(text, {
+      x: 450,
+      y: 400,
+      size: 13,
+      font,
+    });
+    const runs = await drawnRuns(await doc.save());
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.text).toBe(text);
+    expect(runs[0]!.x).toBe(450);
+    expect(runs[0]!.width).toBeCloseTo(font.widthOfTextAtSize(text, 13), 2);
+    // And the predicate sees it: 450 + that width runs past the margin.
+    expect(outOfBounds(runs)).toHaveLength(1);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Finding: long words were drawn past the right edge of the paper.
+ *
+ *  The renderer's own wrapText only broke at whitespace, so a 112-char URL
+ *  at 11pt ended at x=639.9 on a 612pt page and a JWT in a code block at
+ *  780.2. Now every block wraps with text-to-pdf's wrapTextLine, which
+ *  splits a word wider than the column.
+ * ------------------------------------------------------------------ */
+
+const LONG_URL = `https://github.com/pdf-xyz/pdf.xyz/blob/main/src/lib/pdf/${"segment-".repeat(8)}markdown-to-pdf.ts`;
+const LONG_TOKEN = `eyJhbGciOiJIUzI1NiJ9.${"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo".repeat(4)}.sig`;
+
+const EDGE_DOCUMENT = [
+  `# ${LONG_TOKEN.slice(0, 90)}`,
+  "",
+  `See [the source](${LONG_URL}) for details.`,
+  "",
+  "```sh",
+  `curl -H "Authorization: Bearer ${LONG_TOKEN}" ${LONG_URL}`,
+  "```",
+  "",
+  `- ${LONG_URL}`,
+  "  - nested child",
+  "    - deeper still",
+  `      - ${LONG_TOKEN}`,
+  "",
+  `> ${LONG_URL}`,
+  "",
+  "| Key | Value | Notes |",
+  "| --- | ---: | :---: |",
+  `| token | ${LONG_TOKEN} | ${LONG_URL} |`,
+  "",
+  `###### ${LONG_URL}`,
+].join("\n");
+
+describe("every drawn line stays inside the text column", () => {
+  it("the edge document really does contain words wider than the column", async () => {
+    // Without this, a document of short words would pass the bounds check
+    // with any wrapper at all — including the one that caused the defect.
+    const doc = await PDFDocument.create();
+    const helvetica = await doc.embedFont(StandardFonts.Helvetica);
+    const courier = await doc.embedFont(StandardFonts.Courier);
+    const column = PAGE_WIDTH - MARGIN * 2;
+    expect(column).toBeGreaterThan(400);
+    expect(helvetica.widthOfTextAtSize(LONG_URL, 11)).toBeGreaterThan(column);
+    expect(courier.widthOfTextAtSize(LONG_TOKEN, 9)).toBeGreaterThan(column);
+  });
+
+  it("holds for long URLs, tokens, headings, nested lists, quotes and tables", async () => {
+    const title = `a-very-long-exported-file-name-${"x".repeat(160)}`;
+    const runs = await drawnRuns(await markdownToPdf(EDGE_DOCUMENT, { title }));
+    expect(runs.length).toBeGreaterThan(30);
+    // The margin the check uses is the one the page actually has.
+    expect(Math.min(...runs.map((run) => run.x))).toBeCloseTo(MARGIN, 2);
+    expect(outOfBounds(runs)).toEqual([]);
+    // Split, not dropped: every character of the long words is on the page.
+    const onPage = runs
+      .map((run) => run.text)
+      .join("")
+      .replace(/\s+/g, "");
+    expect(onPage).toContain(LONG_URL);
+    expect(onPage).toContain(LONG_TOKEN);
+  });
+
+  it("holds for every Markdown file in the repository", async () => {
+    const corpus = await renderedCorpus();
+    const problems = corpus.flatMap(({ file, runs }) =>
+      outOfBounds(runs).map((problem) => `${file}: ${problem}`),
+    );
+    expect(problems).toEqual([]);
+  }, 120_000);
+});
+
+/* ------------------------------------------------------------------ *
+ *  Finding: common Markdown structures printed as raw syntax.
+ *
+ *  Before: a GFM table became the paragraph "| Col A | Col B | |-------|...",
+ *  nested bullets lost their nesting, "Title\n=====" printed its underline,
+ *  "---" printed as "---", and indented code reflowed as prose.
+ * ------------------------------------------------------------------ */
+
+describe("block structure", () => {
+  it("setext headings take their underline", () => {
+    expect(
+      parseMarkdownBlocks("Setext Title\n============\n\nSub\n---"),
+    ).toEqual([
+      { kind: "heading", depth: 1, text: "Setext Title" },
+      { kind: "heading", depth: 2, text: "Sub" },
+    ]);
+  });
+
+  it.each(["---", "***", "* * *", "___", " - - -"])(
+    "%j is a thematic break, not text or an empty bullet",
+    (line) => {
+      expect(parseMarkdownBlocks(`above\n\n${line}\n\nbelow`)).toEqual([
+        { kind: "paragraph", text: "above" },
+        { kind: "rule" },
+        { kind: "paragraph", text: "below" },
+      ]);
+    },
+  );
+
+  it("indented code keeps its lines and its underscores", () => {
+    expect(
+      parseMarkdownBlocks(
+        "Intro:\n\n    my_var = 1\n      nested_call()\n\nafter",
+      ),
+    ).toEqual([
+      { kind: "paragraph", text: "Intro:" },
+      { kind: "code", text: "my_var = 1\n  nested_call()" },
+      { kind: "paragraph", text: "after" },
+    ]);
+  });
+
+  it("nested lists keep their depth", () => {
+    const items = parseMarkdownBlocks(
+      "- parent\n  - nested child\n    1. deep ordered\n- sibling\n continued lazily",
+    );
+    expect(items).toEqual([
+      { kind: "list-item", ordered: false, depth: 0, text: "parent" },
+      { kind: "list-item", ordered: false, depth: 1, text: "nested child" },
+      {
+        kind: "list-item",
+        ordered: true,
+        index: 1,
+        depth: 2,
+        text: "deep ordered",
+      },
+      {
+        kind: "list-item",
+        ordered: false,
+        depth: 0,
+        text: "sibling continued lazily",
+      },
+    ]);
+  });
+
+  it("GFM tables become rows and cells, with escaped pipes kept", () => {
+    expect(
+      parseMarkdownBlocks(
+        "| Col A | Col B |\n|:------|------:|\n| `a\\|b` | **2** |\n| short |",
+      ),
+    ).toEqual([
+      {
+        kind: "table",
+        align: ["left", "right"],
+        header: ["Col A", "Col B"],
+        rows: [
+          ["a|b", "2"],
+          ["short", ""],
+        ],
+      },
+    ]);
+  });
+
+  it("YAML front matter prints verbatim as code", () => {
+    expect(parseMarkdownBlocks("---\ntitle: My_Doc\n---\n\n# Body")).toEqual([
+      { kind: "code", text: "title: My_Doc" },
+      { kind: "heading", depth: 1, text: "Body" },
+    ]);
+  });
+
+  it("the drawn table is a grid: cells on one baseline, left to right, no delimiter row", async () => {
+    const runs = await drawnRuns(
+      await markdownToPdf(
+        "| Name | Size | Owner |\n|---|:-:|--:|\n| alpha | 12 | ops_team |",
+      ),
+    );
+    const texts = runs.map((run) => run.text);
+    for (const cell of ["Name", "Size", "Owner", "alpha", "12", "ops_team"]) {
+      expect(texts).toContain(cell);
+    }
+    const at = (text: string) => runs.find((run) => run.text === text)!;
+    expect(at("Size").y).toBe(at("Name").y);
+    expect(at("alpha").y).toBe(at("12").y);
+    expect(at("alpha").y).toBeLessThan(at("Name").y);
+    expect(at("Name").x).toBeLessThan(at("Size").x);
+    expect(at("Size").x).toBeLessThan(at("Owner").x);
+    expect(texts.join(" ")).not.toMatch(/\||---/);
+  });
+
+  it("nested items are drawn further right than their parents", async () => {
+    const runs = await drawnRuns(
+      await markdownToPdf("- parent\n  - child\n    - grandchild"),
+    );
+    const x = (text: string) => runs.find((run) => run.text === text)!.x;
+    expect(x("child")).toBeGreaterThan(x("parent"));
+    expect(x("grandchild")).toBeGreaterThan(x("child"));
+  });
+
+  it.each([
+    ["| Col A | Col B | |-------|-------| | 1 | 2 |", true],
+    ["Setext Title ============", true],
+    ["---", true],
+    ["above --- below", true],
+    ["Name", false],
+    ["a — b -- c", false],
+    ["x = y", false],
+  ])("the syntax-leak predicate reads %j as %s", (text, leaks) => {
+    // Its positive controls are the exact strings the old parser printed.
+    expect(leaksSyntax(text)).toBe(leaks);
+  });
+
+  it("no repository Markdown file leaves table or setext syntax on the page", async () => {
+    const tables = MARKDOWN_FILES.flatMap((file) =>
+      parseMarkdownBlocks(readRepoMarkdown(file)).filter(
+        (block: MarkdownBlock) => block.kind === "table",
+      ),
+    ).length;
+    expect(tables, "the corpus has no tables left to check").toBeGreaterThan(3);
+    const leaks: string[] = [];
+    for (const { file, runs } of await renderedCorpus()) {
+      // Code blocks (9pt mono) are verbatim by design; this reads the rest.
+      for (const run of runs.filter((r) => r.size !== 9)) {
+        if (leaksSyntax(run.text)) {
+          leaks.push(`${file}: "${run.text.slice(0, 60)}"`);
+        }
+      }
+    }
+    expect(leaks).toEqual([]);
+  }, 120_000);
+
+  it("a table in a script only its cells use still gets a face that can draw it", async () => {
+    // Table cells are part of the font corpus. Leave them out and the chooser
+    // sees an all-ASCII document, picks Helvetica, and the Bengali cell
+    // cannot be encoded at all.
+    const restore = useNodeFontSource();
+    try {
+      const out = await markdownToPdf(
+        "# Report\n\n| Name | Value |\n|---|---|\n| গোপনীয় | নথি |",
+      );
+      const proof = await proveGlyphs(out);
+      expect(proof.embeddedFonts).toBe(1);
+      expect(proof.notdefIds).toEqual([]);
+      expect(proof.emptyOutlineIds).toEqual([]);
+    } finally {
+      restore();
+    }
+  }, 30_000);
 });
