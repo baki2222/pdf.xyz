@@ -1,5 +1,6 @@
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import { visiblePageFrame, type PageRotation } from "./page-frame";
 import { clamp, loadPdf, stampProducer } from "./stamp";
 
 /**
@@ -13,6 +14,14 @@ import { clamp, loadPdf, stampProducer } from "./stamp";
  * and `bottom` insets move the origin inward while `right`/`top` only shrink
  * the size. We touch the CropBox rather than the MediaBox so the underlying
  * page geometry is preserved and downstream tools stay well-defined.
+ *
+ * The margins a user sets are in the frame a READER sees: the effective crop
+ * (CropBox clipped to MediaBox), turned clockwise by the page's `/Rotate`. On a
+ * `/Rotate 90` page the displayed top is the content's left edge, so the
+ * margins are mapped into content space ({@link toContentMargins}) before the
+ * box is inset, and page sizes are reported as displayed. The proof is not
+ * this mapping's own unit test — it is pdfjs reading the saved file, in
+ * `crop.test.ts` ("cropPdf as a viewer displays the result").
  */
 
 export interface Box {
@@ -62,18 +71,57 @@ export function insetBox(box: Box, margins: CropMargins): Box | null {
   return { x: box.x + left, y: box.y + bottom, width, height };
 }
 
+/**
+ * Map margins set against the DISPLAYED page into the page's unrotated content
+ * space. `/Rotate` turns the page clockwise for display, so at 90° the content's
+ * left edge is shown on top, its top on the right, and so on round.
+ */
+export function toContentMargins(
+  visual: CropMargins,
+  rotation: PageRotation,
+): CropMargins {
+  switch (rotation) {
+    case 90:
+      return {
+        top: visual.right,
+        right: visual.bottom,
+        bottom: visual.left,
+        left: visual.top,
+      };
+    case 180:
+      return {
+        top: visual.bottom,
+        right: visual.left,
+        bottom: visual.top,
+        left: visual.right,
+      };
+    case 270:
+      return {
+        top: visual.left,
+        right: visual.top,
+        bottom: visual.right,
+        left: visual.bottom,
+      };
+    default:
+      return { ...visual };
+  }
+}
+
 /** A sensible download name for a cropped document, derived from the source. */
 export function croppedOutputName(sourceName: string): string {
   return outputName(sourceName || "document", "cropped");
 }
 
-/** Read each page's displayed size (its CropBox), in document order (points). */
+/**
+ * Read each page's size AS DISPLAYED (effective crop, after `/Rotate`), in
+ * document order (points) — the frame the crop margins are expressed in.
+ */
 export async function getPageSizes(
   bytes: Uint8Array,
 ): Promise<{ width: number; height: number }[]> {
   const doc = await loadPdf(bytes);
   return doc.getPages().map((page) => {
-    const { width, height } = page.getCropBox();
+    const { width, height } = visiblePageFrame(page);
     return { width, height };
   });
 }
@@ -94,7 +142,8 @@ export interface CropOptions {
 }
 
 /**
- * Crop pages of a PDF by insetting each target page's crop box. Throws a typed,
+ * Crop pages of a PDF by insetting each target page's visible region by margins
+ * given in the displayed frame (see {@link toContentMargins}). Throws a typed,
  * user-facing error if the margins are empty, no valid page is selected, or the
  * inset would collapse a page.
  */
@@ -125,7 +174,8 @@ export async function cropPdf(
   for (const index of target) {
     const page = pages[index];
     if (!page) continue;
-    const next = insetBox(page.getCropBox(), margins);
+    const frame = visiblePageFrame(page);
+    const next = insetBox(frame.box, toContentMargins(margins, frame.rotation));
     if (!next) {
       throw new PdfEngineError(
         `The crop margins are larger than page ${index + 1}. Reduce them and try again.`,
