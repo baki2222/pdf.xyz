@@ -1,4 +1,4 @@
-import type { PDFDocument, PDFFont, RGB as PdfLibRGB } from "pdf-lib";
+import type { PDFDocument, PDFFont, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
 import { loadPdf } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
 
@@ -9,8 +9,10 @@ import { embedDrawingFont } from "./unicode-font";
  * functions so it can be unit-tested with plain numbers instead of brittle
  * visual assertions.
  *
- * Coordinate model: pdf-lib draws in the page's *unrotated* media-box space
- * (origin bottom-left, y up). A page may carry a `/Rotate` flag (0/90/180/270,
+ * Coordinate model: pdf-lib draws in the page's *unrotated* user space
+ * (origin bottom-left, y up), and a viewer shows only the page's VISIBLE box —
+ * {@link visibleBox}, the CropBox clipped to the MediaBox — which need not
+ * start at 0,0. A page may carry a `/Rotate` flag (0/90/180/270,
  * clockwise) that a viewer applies at display time. To make a stamp land where
  * the reader expects — a "bottom-center" footer at the visual bottom, reading
  * horizontally — `placeStamp` computes the anchor in the viewer's frame and
@@ -136,11 +138,63 @@ export interface StampPlacement {
   rotate: number;
 }
 
+/** A page's visible rectangle in user space: origin and size, unrotated. */
+export interface VisibleBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The rectangle a viewer actually shows: the CropBox clipped to the MediaBox.
+ *
+ * Stamps used to be placed from `page.getSize()` — the MediaBox's size,
+ * measured from 0,0. On a cropped page (Crop PDF's own output, print files
+ * with trim) that put a footer in the strip the crop hides: "Page numbers
+ * added", and nothing visible. On a page whose MediaBox does not start at 0,0
+ * the "footer" landed in the body text.
+ *
+ * pdf-lib's getCropBox() is not trusted as-is: it returns the raw array, so an
+ * inverted CropBox has a negative width and one larger than the MediaBox is
+ * not clipped. Both corners are normalised and the two boxes intersected; an
+ * empty intersection falls back to the MediaBox.
+ */
+export function visibleBox(page: PDFPage): VisibleBox {
+  const norm = (b: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => ({
+    x0: Math.min(b.x, b.x + b.width),
+    y0: Math.min(b.y, b.y + b.height),
+    x1: Math.max(b.x, b.x + b.width),
+    y1: Math.max(b.y, b.y + b.height),
+  });
+  const media = norm(page.getMediaBox());
+  const crop = norm(page.getCropBox());
+  const x0 = Math.max(media.x0, crop.x0);
+  const y0 = Math.max(media.y0, crop.y0);
+  const x1 = Math.min(media.x1, crop.x1);
+  const y1 = Math.min(media.y1, crop.y1);
+  const box = x1 > x0 && y1 > y0 ? { x0, y0, x1, y1 } : media;
+  return {
+    x: box.x0,
+    y: box.y0,
+    width: box.x1 - box.x0,
+    height: box.y1 - box.y0,
+  };
+}
+
 export interface PlaceStampInput {
-  /** Unrotated media-box width. */
+  /** Unrotated width of the page's visible box ({@link visibleBox}). */
   pageWidth: number;
-  /** Unrotated media-box height. */
+  /** Unrotated height of the page's visible box. */
   pageHeight: number;
+  /** Visible box origin in user space; 0 when the page starts at 0,0. */
+  boxX?: number;
+  boxY?: number;
   /** The page's `/Rotate` value in degrees (clockwise). */
   pageRotation: number;
   textWidth: number;
@@ -179,21 +233,27 @@ export function placeStamp(input: PlaceStampInput): StampPlacement {
 
   const w = input.pageWidth;
   const h = input.pageHeight;
+  const bx = input.boxX ?? 0;
+  const by = input.boxY ?? 0;
   switch (rot) {
     case 90:
-      return { x: w - vy, y: vx, rotate: 90 };
+      return { x: bx + w - vy, y: by + vx, rotate: 90 };
     case 180:
-      return { x: w - vx, y: h - vy, rotate: 180 };
+      return { x: bx + w - vx, y: by + h - vy, rotate: 180 };
     case 270:
-      return { x: vy, y: h - vx, rotate: 270 };
+      return { x: bx + vy, y: by + h - vx, rotate: 270 };
     default:
-      return { x: vx, y: vy, rotate: 0 };
+      return { x: bx + vx, y: by + vy, rotate: 0 };
   }
 }
 
 export interface PlaceCenteredInput {
+  /** Unrotated size of the page's visible box ({@link visibleBox}). */
   pageWidth: number;
   pageHeight: number;
+  /** Visible box origin in user space; 0 when the page starts at 0,0. */
+  boxX?: number;
+  boxY?: number;
   pageRotation: number;
   textWidth: number;
   textHeight: number;
@@ -210,8 +270,8 @@ export function placeCenteredStamp(input: PlaceCenteredInput): StampPlacement {
   const rot = normalizeRotation(input.pageRotation);
   const theta = rot + input.tilt;
   const rad = (theta * Math.PI) / 180;
-  const cx = input.pageWidth / 2;
-  const cy = input.pageHeight / 2;
+  const cx = (input.boxX ?? 0) + input.pageWidth / 2;
+  const cy = (input.boxY ?? 0) + input.pageHeight / 2;
   const halfW = input.textWidth / 2;
   const halfH = input.textHeight / 2;
   // anchor = center − R(theta)·(halfW, halfH) so the text's bounding-box center

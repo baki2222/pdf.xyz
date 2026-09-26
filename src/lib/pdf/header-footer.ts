@@ -8,6 +8,7 @@ import {
   INK,
   loadPdf,
   placeStamp,
+  visibleBox,
   stampProducer,
   toRgb,
   type HAlign,
@@ -117,7 +118,7 @@ export async function addHeaderFooter(
 
   pages.forEach((page, index) => {
     const tokens = { n: index + 1, total, date: options.date };
-    const { width, height } = page.getSize();
+    const box = visibleBox(page);
     const pageRotation = page.getRotation().angle;
 
     for (const slot of slots) {
@@ -127,8 +128,10 @@ export async function addHeaderFooter(
       const textWidth = font.widthOfTextAtSize(text, fontSize);
       const textHeight = font.heightAtSize(fontSize);
       const placement = placeStamp({
-        pageWidth: width,
-        pageHeight: height,
+        pageWidth: box.width,
+        pageHeight: box.height,
+        boxX: box.x,
+        boxY: box.y,
         pageRotation,
         textWidth,
         textHeight,

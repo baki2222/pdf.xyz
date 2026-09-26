@@ -8,6 +8,7 @@ import {
   INK,
   loadPdf,
   placeStamp,
+  visibleBox,
   resolveAlign,
   stampProducer,
   toRgb,
@@ -102,12 +103,14 @@ export async function addPageNumbers(
     const text = applyTokens(format, { n, total });
     if (text.trim().length === 0) return;
 
-    const { width, height } = page.getSize();
+    const box = visibleBox(page);
     const textWidth = font.widthOfTextAtSize(text, fontSize);
     const textHeight = font.heightAtSize(fontSize);
     const placement = placeStamp({
-      pageWidth: width,
-      pageHeight: height,
+      pageWidth: box.width,
+      pageHeight: box.height,
+      boxX: box.x,
+      boxY: box.y,
       pageRotation: page.getRotation().angle,
       textWidth,
       textHeight,

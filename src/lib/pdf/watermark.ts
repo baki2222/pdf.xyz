@@ -6,6 +6,7 @@ import {
   embedStampFont,
   loadPdf,
   placeCenteredStamp,
+  visibleBox,
   stampProducer,
   toRgb,
   WATERMARK_INK,
@@ -60,10 +61,12 @@ export async function addWatermark(
   const textHeight = font.heightAtSize(fontSize);
 
   for (const page of doc.getPages()) {
-    const { width, height } = page.getSize();
+    const box = visibleBox(page);
     const placement = placeCenteredStamp({
-      pageWidth: width,
-      pageHeight: height,
+      pageWidth: box.width,
+      pageHeight: box.height,
+      boxX: box.x,
+      boxY: box.y,
       pageRotation: page.getRotation().angle,
       textWidth,
       textHeight,
