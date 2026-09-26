@@ -54,28 +54,11 @@ export function isValidFileId(id: string): boolean {
  * layers stay deliberately distinct (intake is coarse + configurable; this is the
  * precise per-tool contract), but intake can never be *laxer* on known types.
  */
-export const MIME_BY_FORMAT: Record<string, readonly string[]> = {
-  PDF: ["application/pdf"],
-  DOC: ["application/msword"],
-  DOCX: [
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ],
-  XLS: ["application/vnd.ms-excel"],
-  XLSX: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
-  CSV: ["text/csv"],
-  PPT: ["application/vnd.ms-powerpoint"],
-  PPTX: [
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  ],
-  JPG: ["image/jpeg", "image/jpg"],
-  JPEG: ["image/jpeg", "image/jpg"],
-  PNG: ["image/png"],
-  HTML: ["text/html"],
-  HTM: ["text/html"],
-  MD: ["text/markdown", "text/plain"],
-  MARKDOWN: ["text/markdown", "text/plain"],
-  TXT: ["text/plain"],
-};
+// The table itself lives in a dependency-free leaf so the browser job clients
+// can DECLARE exactly what this validator accepts without importing it (and the
+// tool catalogue with it). Re-exported under the same name for existing callers.
+export { MIME_BY_FORMAT } from "./mime-by-format";
+import { MIME_BY_FORMAT } from "./mime-by-format";
 
 function allowedMimeTypesForTool(tool: Tool): Set<string> {
   const set = new Set<string>();

@@ -58,6 +58,7 @@
 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import JSZip from "jszip";
+import { declaredContentTypeFor } from "../src/lib/jobs/mime-by-format";
 import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -1081,10 +1082,26 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     if (!bytes) {
       return missingDependency(label, spec.from!, "input", seconds());
     }
+    // Declare what the BROWSER declares, not what this spec believes the type
+    // to be. Until 2026-09-27 this sent `spec.type`, hand-typed per fixture,
+    // and so reported Word, Excel, PowerPoint and HTML to PDF as PASS while
+    // the browser's shared job runner declared every file `application/pdf`
+    // and every real user was refused with 415. A proof that builds its own
+    // request proves the request it built.
+    const declared = declaredContentTypeFor(spec.name ?? "");
+    if (!declared) {
+      return {
+        label,
+        outcome: "failed",
+        stage: "uploads",
+        seconds: seconds(),
+        detail: `the browser client would refuse "${spec.name}" locally — no declared type for its extension`,
+      };
+    }
     const up = await postJson("/api/uploads", {
       tool: spec.tool,
       files: [
-        { filename: spec.name, contentType: spec.type, bytes: bytes.length },
+        { filename: spec.name, contentType: declared, bytes: bytes.length },
       ],
     });
     if (!up.res.ok) {
