@@ -48,7 +48,9 @@ import { describe, expect, it } from "vitest";
 import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
 import { AI_ALLOWANCE_USED_MESSAGE } from "./response";
 import { AI_ALLOWANCE_FACT } from "@/lib/tools/tool-facts";
-import { AI_DAILY_ALLOWANCE_NOTE } from "@/lib/workers/ai-tool-availability";
+import { aiDailyAllowanceNote } from "@/lib/workers/ai-tool-availability";
+import { tools } from "@/lib/tools";
+import { capabilityForMode } from "@/lib/jobs/capabilities";
 
 /** Two genuinely different callers, as a proxy/CDN would present them. */
 const headersFor = (address: string) =>
@@ -65,10 +67,15 @@ const COPY: { where: string; text: string }[] = [
     where: "tool-facts AI_ALLOWANCE_FACT (4 tool pages + FAQPage JSON-LD)",
     text: AI_ALLOWANCE_FACT,
   },
-  {
-    where: "ai-tool-availability AI_DAILY_ALLOWANCE_NOTE (the AI panels)",
-    text: AI_DAILY_ALLOWANCE_NOTE,
-  },
+  // Per tool since the allowance became per-tool copy: ONE panel note used to
+  // serve all four AI panels, quoting translate's character figure on the
+  // three tools charged per run. Walked from the catalogue, never listed.
+  ...tools
+    .filter((t) => capabilityForMode(t.processing) === "ai")
+    .map((t) => ({
+      where: `ai-tool-availability aiDailyAllowanceNote("${t.slug}") (its panel, its fact line, its FAQPage answer)`,
+      text: aiDailyAllowanceNote(t.slug),
+    })),
   { where: "the 429 body", text: AI_ALLOWANCE_USED_MESSAGE },
 ];
 

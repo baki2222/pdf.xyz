@@ -21,7 +21,7 @@ import {
 } from "@/lib/jobs/translate-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
 import {
@@ -139,7 +139,7 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {aiDailyAllowanceNote(tool.slug)}
           </p>
         )}
         {available ? (

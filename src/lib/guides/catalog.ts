@@ -21,7 +21,7 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import { HYBRID_WORKER_STEP } from "@/lib/tools/processing";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
-import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import { countWord } from "@/lib/tools/tool-facts";
 import {
   SIGNATURE_SOURCES,
@@ -955,7 +955,7 @@ export const guides: Guide[] = [
         heading: "Long documents, oversized pages, and the allowance",
         body: [
           "Each translation pass carries a bounded amount of selectable text, because translation writes roughly as much as it reads. The exact character figures, and the approximate page ranges they work out to, are stated on the Translate PDF page itself. A longer document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order, so the result reads front to back like the original.",
-          `Two limits can still show up in the output, and both announce themselves. A single page holding more text than one pass can carry cannot be translated at all — it is skipped, and the result says so in place, right where that page was. And the amount translated in a day is bounded by the free allowance. ${AI_ALLOWANCE_FACT} A document longer than the allowance covers is translated as far as the allowance reaches, with the rest marked in place and the reason named — nothing stops silently. Files themselves are capped at ${ceilingMb("translate-pdf")} MB.`,
+          `Two limits can still show up in the output, and both announce themselves. A single page holding more text than one pass can carry cannot be translated at all — it is skipped, and the result says so in place, right where that page was. And the amount translated in a day is bounded by the free allowance. ${aiAllowanceFactFor("translate-pdf")} A document longer than the allowance covers is translated as far as the allowance reaches, with the rest marked in place and the reason named — nothing stops silently. Files themselves are capped at ${ceilingMb("translate-pdf")} MB.`,
         ],
       },
       {
@@ -978,7 +978,7 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Can I translate a PDF for free?",
-        answer: `Yes, with no account. ${AI_ALLOWANCE_FACT} If a document needs more than the allowance has left, it is translated as far as the allowance reaches, and the untranslated remainder is marked in place with the reason named.`,
+        answer: `Yes, with no account. ${aiAllowanceFactFor("translate-pdf")} If a document needs more than the allowance has left, it is translated as far as the allowance reaches, and the untranslated remainder is marked in place with the reason named.`,
       },
       {
         question: "What happens to my PDF after it is translated?",

@@ -26,7 +26,7 @@ import {
   aiPagesAtSparsest,
 } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
-import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import { AI_ALLOWANCE_FACT, aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
 import { HYBRID_SUMMARY } from "./processing";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
@@ -296,25 +296,25 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "summarize-pdf": [
     {
       label: "Free allowance",
-      value: AI_ALLOWANCE_FACT,
+      value: aiAllowanceFactFor("summarize-pdf"),
     },
   ],
   "translate-pdf": [
     {
       label: "Free allowance",
-      value: AI_ALLOWANCE_FACT,
+      value: aiAllowanceFactFor("translate-pdf"),
     },
   ],
   "ai-extract": [
     {
       label: "Free allowance",
-      value: AI_ALLOWANCE_FACT,
+      value: aiAllowanceFactFor("ai-extract"),
     },
   ],
   "chat-with-pdf": [
     {
       label: "Free allowance",
-      value: AI_ALLOWANCE_FACT,
+      value: aiAllowanceFactFor("chat-with-pdf"),
     },
   ],
 };
@@ -441,7 +441,10 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
   if (capability === "ai") {
     entries.push({
       question: `Is ${tool.name} free?`,
-      answer: `Yes — ${AI_ALLOWANCE_FACT}`,
+      // Per tool: the character figure is translate's alone. Summarize, Chat
+      // and Extract declare no characters and are charged per run, and this
+      // answer said "30,774 free characters" on all four pages.
+      answer: `Yes. ${aiAllowanceFactFor(tool.slug)}`,
     });
     // The second limit these tools have, stated in the same place as the first.
     // "How large can my file be?" answered in megabytes only, and a 300-page

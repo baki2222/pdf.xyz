@@ -66,6 +66,7 @@ import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
 } from "./translate-limits";
+import { deliveryCapFor } from "./delivery-cap";
 
 /**
  * The quantity, shared by both sentences — and the only part that can go stale,
@@ -174,6 +175,61 @@ export const AI_CHARACTER_ALLOWANCE_BASIS = {
  */
 export const AI_ALLOWANCE_ACTION = "ai.characters";
 
+/**
+ * The limits `POST /api/jobs` reserves an AI job under — the route passes THIS
+ * object to `deliveryCapFor`, so the charge below and the charge the route makes
+ * are one expression, not two that happen to agree.
+ */
+export const AI_JOB_DELIVERY_LIMITS = {
+  fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
+  headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+} as const;
+
+/**
+ * What ONE job reserves when its client declares no character count: a whole
+ * call's worth, whatever the document holds. Summarize, Chat and Extract
+ * declare nothing, so this is the price of every summary, every question and
+ * every extraction.
+ */
+export const AI_UNDECLARED_JOB_CHARGE = deliveryCapFor(
+  {},
+  AI_JOB_DELIVERY_LIMITS,
+).characters;
+
+/**
+ * How many undeclared jobs the day's bucket holds. Floor, because the limiter
+ * refuses a job that does not fit whole.
+ */
+export const AI_UNDECLARED_RUNS_PER_DAY = Math.floor(
+  AI_CHARACTER_ALLOWANCE / AI_UNDECLARED_JOB_CHARGE,
+);
+
+/**
+ * The AI tools whose browser client DECLARES the characters a job holds, so the
+ * route charges it by length and the character figure is true for it.
+ *
+ * Typed, and checked against the code in both directions:
+ * `tools/ai-allowance-per-tool.test.ts` reads every `runSecurityJob` call with
+ * the TypeScript parser and fails if this set is not exactly the AI tools
+ * whose call passes `declaredCharacters`.
+ */
+export const AI_TOOLS_DECLARING_CHARACTERS: ReadonlySet<string> = new Set([
+  "translate-pdf",
+]);
+
+/** What one run of a per-run AI tool is called on its page. */
+const RUN_UNIT: Readonly<Record<string, { one: string; many: string }>> = {
+  "summarize-pdf": { one: "summary", many: "summaries" },
+  // Every question is its own job, uploaded and charged in full.
+  "chat-with-pdf": { one: "question", many: "questions" },
+  "ai-extract": { one: "extraction", many: "extractions" },
+};
+
+const GENERIC_RUN = { one: "run", many: "runs" } as const;
+
+const runsNoun = (unit: { one: string; many: string }, n: number) =>
+  n === 1 ? unit.one : unit.many;
+
 export const AI_ALLOWANCE_RUNS = `${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} free characters of AI text`;
 
 /**
@@ -186,8 +242,45 @@ export const AI_ALLOWANCE_RUNS = `${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleStr
  */
 export const AI_ALLOWANCE_CLAUSE = `${AI_ALLOWANCE_RUNS} a day`;
 
-/** What a visitor is offered, stated before they spend it. */
+/**
+ * What a visitor is offered, stated before they spend it — in the unit of the
+ * tool that DECLARES its characters (translate). Never publish this on a page
+ * whose jobs are charged per run: use {@link aiAllowanceFactFor}.
+ */
 export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection — the allowance resets daily.`;
+
+/**
+ * The allowance, stated for ONE tool in the unit the route charges that tool.
+ *
+ * WAS {@link AI_ALLOWANCE_FACT} on all four AI pages. That figure is
+ * translate's, true only for a job that declares its characters; a summary,
+ * question or extraction declares nothing and is charged
+ * {@link AI_UNDECLARED_JOB_CHARGE} whatever its length. So Summarize told a
+ * visitor with a 2,000-character memo to expect about fifteen summaries a day
+ * (they got three), and told one with a long report that "30,774 characters a
+ * day" could not cover it (it could, at the same price as the memo).
+ *
+ * Both sentences say the allowance is SHARED: every AI tool debits one bucket,
+ * so "3 summaries a day" alone would be false for anyone who translated first.
+ */
+export function aiAllowanceFactFor(slug: string): string {
+  if (AI_TOOLS_DECLARING_CHARACTERS.has(slug)) {
+    return `${AI_ALLOWANCE_FACT} The other AI tools draw on the same allowance, at a fixed share per run.`;
+  }
+  const unit = RUN_UNIT[slug] ?? GENERIC_RUN;
+  const n = AI_UNDECLARED_RUNS_PER_DAY;
+  return `Each ${unit.one} uses a fixed share of the free daily AI allowance for your connection, whatever the document's length — ${n} ${runsNoun(unit, n)} a day if nothing else draws on it. The allowance is shared with the other AI tools and resets daily.`;
+}
+
+/** "summaries, questions or extractions", from the same table the pages read. */
+const PER_RUN_UNITS = (() => {
+  const nouns = Object.values(RUN_UNIT).map((u) =>
+    runsNoun(u, AI_UNDECLARED_RUNS_PER_DAY),
+  );
+  return nouns.length <= 2
+    ? nouns.join(" or ")
+    : `${nouns.slice(0, -1).join(", ")} or ${nouns.at(-1)}`;
+})();
 
 /**
  * What a visitor is told when it runs out.
@@ -204,4 +297,11 @@ export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection —
  * "shared across everyone using pdf.xyz", which claimed one bucket for the whole
  * product and was false for every visitor.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include text translated by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;
+/*
+ * NOT TOOL-AWARE, so it states both units. It said "The 30,774 free characters
+ * of AI text for this connection are used up for today" — false for a visitor
+ * refused after three one-page summaries, who had used a few thousand. The 429
+ * is chosen from the decision's action alone, which names no tool, so the
+ * sentence names the allowance and what it covers in each unit.
+ */
+export const AI_ALLOWANCE_USED_MESSAGE = `The free AI allowance for this connection is used up for today. It covers ${AI_ALLOWANCE_RUNS} to translate, or ${AI_UNDECLARED_RUNS_PER_DAY} ${PER_RUN_UNITS}, shared across the AI tools. On a shared network that can include AI work by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;

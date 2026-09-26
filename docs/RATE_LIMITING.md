@@ -182,11 +182,11 @@ curl -sS -w '\n%{http_code}\n' \
 **Read the body, not the status.** `POST /api/jobs` returns `429` for two
 unrelated reasons and they are told apart only by the message:
 
-| you get                                                                                     | it means                                                          |
-| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `429` + _"The 30,774 free characters of AI text for this connection are used up for today"_ | the **allowance** is spent                                        |
-| `429` + _"Too many requests. This endpoint is rate-limited…"_                               | you hit `jobs.create` (60/hour); the allowance is unknown         |
-| anything else (`503`, `404`)                                                                | the allowance had room, and you just spent **4** characters of it |
+| you get                                                                                       | it means                                                          |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `429` + _"The free AI allowance for this connection is used up for today. It covers 30,774…"_ | the **allowance** is spent                                        |
+| `429` + _"Too many requests. This endpoint is rate-limited…"_                                 | you hit `jobs.create` (60/hour); the allowance is unknown         |
+| anything else (`503`, `404`)                                                                  | the allowance had room, and you just spent **4** characters of it |
 
 ### Why it costs almost nothing, and why the obvious version does not work
 

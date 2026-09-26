@@ -22,10 +22,7 @@ import {
   enforceRateLimit,
   peekAiSpendCeiling,
 } from "@/lib/ratelimit/guard";
-import {
-  TRANSLATE_EXTRACTOR_HEADROOM,
-  TRANSLATE_MAX_INPUT_CHARS,
-} from "@/lib/jobs/translate-limits";
+import { AI_JOB_DELIVERY_LIMITS } from "@/lib/jobs/ai-allowance";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
 import { apiError } from "@/lib/jobs/responses";
 import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
@@ -113,10 +110,10 @@ export async function POST(request: Request): Promise<Response> {
      * reservation is a number the system takes and does not honour, and the
      * caller pays it and receives whatever the document happens to hold.
      */
-    delivery = deliveryCapFor(parsed.value, {
-      fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
-      headroom: TRANSLATE_EXTRACTOR_HEADROOM,
-    });
+    // The limits object the published allowance is computed from, not a
+    // second literal of it: each AI page states how many of ITS jobs a day
+    // holds, and that number is `deliveryCapFor({}, AI_JOB_DELIVERY_LIMITS)`.
+    delivery = deliveryCapFor(parsed.value, AI_JOB_DELIVERY_LIMITS);
     const aiLimit = await enforceAiCharacterAllowance(
       delivery.characters,
       request,
