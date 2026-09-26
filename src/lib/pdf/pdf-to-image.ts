@@ -43,6 +43,26 @@ export const RASTER_RESOLUTIONS: readonly RasterResolution[] = [
   { id: "print", label: "Print", dpi: 300 },
 ];
 
+/** "a, b or c" — a reader's list. */
+function orList(items: readonly string[]): string {
+  return items.length <= 1
+    ? items.join("")
+    : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+}
+
+/**
+ * "Screen (96 DPI), High (150 DPI) or Print (300 DPI)" — the presets as the
+ * tool pages and guides name them, built from the list the runner renders.
+ */
+export const RASTER_RESOLUTION_CHOICES = orList(
+  RASTER_RESOLUTIONS.map((r) => `${r.label} (${r.dpi} DPI)`),
+);
+
+/** "96, 150 or 300" — the same presets, as numbers. */
+export const RASTER_RESOLUTION_DPIS = orList(
+  RASTER_RESOLUTIONS.map((r) => String(r.dpi)),
+);
+
 /** Default resolution id — a good balance of sharpness and file size. */
 export const DEFAULT_RESOLUTION_ID = "high";
 
@@ -60,6 +80,15 @@ export function rasterScaleForDpi(dpi: number): number {
   return dpi / 72;
 }
 
+/**
+ * Cap on either rendered dimension (px) for full-page rasterization. Higher
+ * than the thumbnail cap so print-DPI output stays crisp, but still bounds peak
+ * canvas memory (one page's bitmap is freed before the next renders). Lives
+ * here, beside the presets, because the tool pages state it: at Print, a page
+ * larger than about 16 inches on a side is rendered below the preset.
+ */
+export const RASTER_MAX_DEVICE_PX = 5000;
+
 /** Default JPEG quality (0..1) — high, visually near-lossless but compact. */
 export const DEFAULT_JPEG_QUALITY = 0.92;
 
@@ -68,6 +97,13 @@ export function clampJpegQuality(quality: number): number {
   if (!Number.isFinite(quality)) return DEFAULT_JPEG_QUALITY;
   return Math.min(1, Math.max(0.1, quality));
 }
+
+/**
+ * How many rendered pages get a preview — and with it, their own download
+ * button. The ZIP still holds every page. Here rather than in the runner
+ * because the tool page says which pages can be saved one by one.
+ */
+export const RASTER_PREVIEW_LIMIT = 24;
 
 /** More than one page is delivered as a ZIP; a single page downloads directly. */
 export function shouldZipPages(pageCount: number): boolean {

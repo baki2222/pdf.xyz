@@ -17,12 +17,33 @@
  */
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
-import { MAX_IMAGE_MB } from "@/lib/tools/limits";
+import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "@/lib/tools/limits";
+import {
+  IMAGE_PAGE_MARGIN_PT,
+  US_LETTER_LABEL,
+  inches,
+} from "@/lib/pdf/page-geometry";
 import { HYBRID_WORKER_STEP } from "@/lib/tools/processing";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
-import { countWord } from "@/lib/tools/tool-facts";
+import {
+  EVERY_OTHER_PAGE_EXAMPLE,
+  FONT_FETCH_EXCEPTION,
+  MARKDOWN_SYNTAX_FACT,
+  PAGE_REBUILD_KEEPS,
+  TEXT_PAGE_FACT,
+  countWord,
+} from "@/lib/tools/tool-facts";
+import {
+  DEFAULT_RESOLUTION_ID,
+  RASTER_MAX_DEVICE_PX,
+  RASTER_PREVIEW_LIMIT,
+  RASTER_RESOLUTION_CHOICES,
+  RASTER_RESOLUTION_DPIS,
+  pageImageName,
+  resolutionById,
+} from "@/lib/pdf/pdf-to-image";
 import {
   SIGNATURE_SOURCES,
   SIGNATURE_STYLE_LABEL,
@@ -36,6 +57,9 @@ import type { Guide } from "./types";
  * style and naming a "print-and-scan style" the runner does not have.
  */
 const signatureWays = countWord(SIGNATURE_SOURCES.length);
+
+/** The raster preset selected when PDF to JPG / PNG opens, by its label. */
+const DEFAULT_RESOLUTION_LABEL = resolutionById(DEFAULT_RESOLUTION_ID).label;
 const signatureStyles = SIGNATURE_STYLES.map((s) =>
   SIGNATURE_STYLE_LABEL[s].toLowerCase(),
 );
@@ -136,7 +160,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-split-a-pdf",
@@ -223,7 +247,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-compress-a-pdf",
@@ -305,7 +329,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-convert-pdf-to-word",
@@ -400,7 +424,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-jpg-to-pdf",
     title: "How to convert JPG to PDF",
     description:
-      "Combine JPG photos into one PDF right in your browser — your files never leave your device. Control page size, margins, and orientation. No account needed.",
+      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per page, in the order you set. No account needed.",
     tools: ["jpg-to-pdf", "png-to-pdf", "pdf-to-jpg"],
     keywords: [
       "jpg to pdf",
@@ -411,26 +435,27 @@ export const guides: Guide[] = [
       "turn pictures into pdf",
     ],
     intro: [
-      "To turn JPG photos into a single PDF, open the JPG to PDF tool on pdf.xyz, pick your images, and run the conversion right in your browser. The tool combines your JPGs into one tidy PDF and gives you control over page size, orientation, and margins along the way.",
+      "To turn JPG photos into a single PDF, open the JPG to PDF tool on pdf.xyz, pick your images, put them in order, and create the PDF right in your browser. Each photo becomes one page of the finished file.",
       "What sets this converter apart is where the work happens: entirely in your own browser. Nothing is sent to a server, so your photos stay on your device from the moment you pick them to the moment you save the finished PDF — and no account is needed.",
       `Each image can be up to ${MAX_IMAGE_MB} MB, and the output is one PDF assembled on your device. That makes the tool a natural fit for photographed receipts, scanned pages saved as JPGs, or any batch of pictures that belongs together in a single file.`,
     ],
     steps: [
       "Open the JPG to PDF tool.",
       "Pick the JPG or JPEG photos you want in the PDF — they stay on your device the whole time.",
-      "Set the page size for the finished PDF.",
-      "Choose the orientation, so pages run tall or wide to match your photos.",
-      "Adjust the margins to control how much space surrounds each image.",
-      "Run the conversion — it happens in your browser, not on a server.",
+      "Put them in page order with each photo's Move up and Move down buttons.",
+      "Create the PDF — it is assembled in your browser, not on a server.",
       "Save the finished PDF to your device.",
     ],
     sections: [
       {
-        id: "page-setup",
-        heading: "Page size, orientation, and margins",
+        id: "what-each-page-looks-like",
+        heading: "What each page looks like",
         body: [
-          "Three settings shape the finished PDF. Page size sets the dimensions of the pages your images are placed on. Orientation decides whether those pages run tall or wide — useful when some photos were shot sideways. Margins control the breathing room between each image and the edge of the page.",
-          "Set all three before you run the conversion. Because the result is a single PDF, a consistent page size and margin turns a stack of mismatched photos into something that reads like one coherent document rather than a loose pile of pictures.",
+          // This section used to be "Page size, orientation, and margins" —
+          // three settings the tool has never had. The page is fixed, and
+          // these sentences are built from the constants the engine draws with.
+          `Every photo goes on its own ${US_LETTER_LABEL} portrait page, centred with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin of white around it. A photo larger than that space is scaled down to fit, keeping its proportions; a smaller one is placed at its own size and never enlarged.`,
+          "There is no page-size, orientation or margin setting: the page is the same for every photo, which keeps a stack of mismatched pictures reading as one document. If a page needs turning afterwards, Rotate PDF does that in your browser too.",
         ],
       },
       {
@@ -459,7 +484,7 @@ export const guides: Guide[] = [
       {
         question: "Can I combine multiple JPG photos into one PDF?",
         answer:
-          "Yes — that is exactly what the tool does. It assembles your JPG images into a single PDF, with control over the page size, orientation, and margins of the result.",
+          "Yes — that is exactly what the tool does. Each photo becomes one page of a single PDF, in the order you set with the Move up and Move down buttons.",
       },
       {
         question: "How large can my JPG files be?",
@@ -477,7 +502,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",
@@ -559,7 +584,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-fill-out-a-pdf-form",
@@ -649,7 +674,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-sign-a-pdf",
@@ -738,7 +763,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-make-a-scanned-pdf-searchable",
@@ -1001,6 +1026,223 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-delete-pages-from-a-pdf",
+    title: "How to delete pages from a PDF",
+    description:
+      "Remove unwanted pages from a PDF by clicking thumbnails or typing a range — right in your browser, so the file never leaves your device. No account needed.",
+    tools: ["remove-pages", "extract-pages", "organize-pages"],
+    keywords: [
+      "delete pages from pdf",
+      "remove pages from pdf",
+      "delete a page in a pdf",
+      "remove blank pages from pdf",
+      "trim pdf pages",
+    ],
+    intro: [
+      "To delete pages from a PDF, open the Delete Pages tool, pick your file, select the pages you want gone, and download the trimmed copy. Every page appears as a thumbnail, so you can see exactly what you are removing before anything changes.",
+      "The work happens in your browser: the PDF stays on your device from start to finish, and there is no account to create. Your original file is never changed — the download is a new PDF without the pages you removed.",
+      "This guide covers the ways to select pages, what the trimmed file keeps, and when Extract Pages or Organize Pages is the better fit.",
+    ],
+    steps: [
+      "Open the Delete Pages tool.",
+      "Pick the PDF you want to trim — it stays on your device the whole time.",
+      "Click each page you want to delete. Hold Shift and click to select a whole run of pages at once.",
+      "Or type the pages as a list, such as 1-3, 5, and press Select.",
+      "Delete the selected pages. At least one page has to stay, so the tool will not remove every page.",
+      "Download the trimmed PDF.",
+    ],
+    sections: [
+      {
+        id: "selecting-pages",
+        heading: "Three ways to select pages",
+        body: [
+          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan.",
+          `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}.`,
+          "Select all, Clear and Invert work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
+        ],
+      },
+      {
+        id: "what-the-file-keeps",
+        heading: "What the trimmed file keeps",
+        body: [
+          `${PAGE_REBUILD_KEEPS} If you rely on either, keep the original alongside the trimmed copy.`,
+          "Your original is never modified. Deleting pages produces a new PDF, and the file you started from stays exactly as it was on your device — so a page removed by mistake is still there to go back to.",
+        ],
+      },
+      {
+        id: "related-tools",
+        heading: "When another tool fits better",
+        body: [
+          "If you want to keep a few pages rather than remove a few, Extract Pages is the mirror image: select the pages to keep and export them as a new PDF. Organize Pages lets you delete, reorder, rotate and duplicate pages on one board in a single pass.",
+          `Both run in your browser as well. Delete Pages accepts PDFs up to ${ceilingMb("remove-pages")} MB per file.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent to a server when I delete pages?",
+        answer:
+          "No. Delete Pages runs entirely in your browser, and the file stays on your device from start to finish.",
+      },
+      {
+        question: "Can I get a deleted page back?",
+        answer:
+          "Yes, from your original: it is never changed. The download is a new PDF, so every page you removed is still in the file on your device.",
+      },
+      {
+        question: "Does the trimmed PDF keep bookmarks and form fields?",
+        answer: `No. ${PAGE_REBUILD_KEEPS}`,
+      },
+      {
+        question: "How do I delete every other page?",
+        answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press Select; those pages are selected, and Delete removes them.`,
+      },
+      {
+        question: "How large can the PDF be?",
+        answer: `Up to ${ceilingMb("remove-pages")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-convert-pdf-to-jpg-or-png",
+    title: "How to convert PDF pages to JPG or PNG images",
+    description: `Turn every page of a PDF into a JPG or PNG image at ${RASTER_RESOLUTION_DPIS} DPI — rendered in your browser, so the file never leaves your device. No account needed.`,
+    tools: ["pdf-to-jpg", "pdf-to-png", "extract-images"],
+    keywords: [
+      "pdf to jpg",
+      "pdf to png",
+      "convert pdf to image",
+      "pdf page to image",
+      "pdf to jpg high resolution",
+    ],
+    intro: [
+      "To turn PDF pages into images, open PDF to JPG or PDF to PNG, pick your file, choose a resolution, and render. Every page becomes one image: a one-page PDF gives you a single file, and when there is more than one page they arrive as a ZIP holding every page.",
+      "Rendering happens in your browser, so the PDF stays on your device from start to finish, and there is no account to create.",
+      "This guide explains the resolutions, the difference between JPG and PNG, what you download, and when Extract Images is the better tool.",
+    ],
+    steps: [
+      "Open PDF to JPG, or PDF to PNG for lossless images.",
+      "Pick your PDF — it stays on your device the whole time.",
+      `Choose a resolution: ${RASTER_RESOLUTION_CHOICES}.`,
+      "Render — every page becomes one image, in your browser.",
+      "Download the result. More than one page arrives together as one ZIP, and a page can also be saved on its own from its preview.",
+    ],
+    sections: [
+      {
+        id: "choosing-a-resolution",
+        heading: "Choosing a resolution",
+        body: [
+          `DPI is how many image pixels each inch of the page becomes. The presets are ${RASTER_RESOLUTION_CHOICES}; ${DEFAULT_RESOLUTION_LABEL} is selected when you open the tool. A higher DPI gives sharper images and larger files — pick it for printing or zooming in, and a lower one for sharing on screen.`,
+          `Neither side of a rendered page may exceed ${RASTER_MAX_DEVICE_PX.toLocaleString("en-US")} pixels, which keeps the memory a page needs in check. A very large page, such as a poster or an engineering drawing, is rendered below the preset rather than failing.`,
+        ],
+      },
+      {
+        id: "jpg-or-png",
+        heading: "JPG or PNG?",
+        body: [
+          "JPG files are smaller and suit photographs and scanned pages. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.",
+          "Both are rendered on a white background, so any transparent areas of a page come out white.",
+        ],
+      },
+      {
+        id: "what-you-download",
+        heading: "What you download",
+        body: [
+          `A one-page PDF downloads as a single image named after your file. With more than one page, every page goes into one ZIP, named in reading order with zero-padded page numbers — ${pageImageName("report.pdf", 2, 12, "png")} — so the images sort correctly in any file browser. The first ${RASTER_PREVIEW_LIMIT} pages also get a preview with their own download button.`,
+          `If what you want is the pictures embedded inside the PDF rather than images of whole pages, Extract Images pulls them out at their original resolution. PDF to JPG and PDF to PNG accept PDFs up to ${ceilingMb("pdf-to-jpg")} MB per file.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent to a server when I convert it to images?",
+        answer:
+          "No. The pages are rendered entirely in your browser, and the file stays on your device from start to finish.",
+      },
+      {
+        question: "What resolution should I choose?",
+        answer: `The choices are ${RASTER_RESOLUTION_CHOICES}. Choose a higher DPI for printing or zooming in, and a lower one for smaller files.`,
+      },
+      {
+        question: "Can I convert just one page?",
+        answer: `Every page is rendered, and the first ${RASTER_PREVIEW_LIMIT} each get their own download button, so you can save only the page you need. When there are more pages than that, the rest are in the ZIP, which holds every page.`,
+      },
+      {
+        question: "How large can the PDF be?",
+        answer: `Up to ${ceilingMb("pdf-to-jpg")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-convert-markdown-to-pdf",
+    title: "How to convert Markdown to PDF",
+    description:
+      "Paste Markdown or pick a .md file and get a typeset PDF — headings, lists, quotes and code — made in your browser, so nothing leaves your device.",
+    tools: ["markdown-to-pdf", "text-to-pdf", "pdf-to-markdown"],
+    keywords: [
+      "markdown to pdf",
+      "md to pdf",
+      "convert markdown to pdf",
+      "readme to pdf",
+      "markdown pdf converter",
+    ],
+    intro: [
+      "To turn Markdown into a PDF, open the Markdown to PDF tool, paste your Markdown or pick a .md file, and create the PDF. Headings, lists, quotes and code blocks are typeset into pages right in your browser.",
+      "Nothing is sent to a server: the text stays on your device from start to finish, and there is no account to create.",
+      "This guide lists the Markdown the tool supports, what the finished page looks like, and when Text to PDF is the simpler choice.",
+    ],
+    steps: [
+      "Open the Markdown to PDF tool.",
+      "Paste your Markdown into the editor, or pick a .md file — it stays on your device.",
+      "Create the PDF — it is typeset in your browser.",
+      "Download the PDF.",
+    ],
+    sections: [
+      {
+        id: "supported-markdown",
+        heading: "The Markdown it supports",
+        body: [
+          MARKDOWN_SYNTAX_FACT,
+          "Headings run from # to ######, lists can be bulleted or numbered, and code inside triple-backtick fences is set in a fixed-width font with its line breaks kept.",
+        ],
+      },
+      {
+        id: "the-page",
+        heading: "What the PDF looks like",
+        body: [
+          `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
+          `Sources can be up to ${MAX_SOURCE_MB} MB. For plain notes without any Markdown, Text to PDF paginates the text as it is; to go the other way, PDF to Markdown turns a PDF's selectable text back into Markdown.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my Markdown sent to a server?",
+        answer:
+          "No. Markdown to PDF runs entirely in your browser, and the text stays on your device from start to finish.",
+      },
+      {
+        question: "Does it support tables?",
+        answer:
+          "Not as tables. A table's rows print as plain text, cell dividers included, so reformat a table as a list if its layout matters.",
+      },
+      {
+        question: "Can I choose the page size?",
+        answer: `No. ${TEXT_PAGE_FACT}`,
+      },
+      {
+        question: "Does Markdown to PDF work offline?",
+        answer: `Not fully. The page and its processing engine load over the network, with the engine fetched the first time you use the tool. After that, the typesetting runs on your device. ${FONT_FETCH_EXCEPTION}`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
   },
 ];

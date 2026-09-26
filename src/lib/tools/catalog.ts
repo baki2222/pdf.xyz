@@ -1,5 +1,10 @@
 import type { Tool } from "./types";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
+import { US_LETTER_LABEL } from "@/lib/pdf/page-geometry";
+import {
+  RASTER_RESOLUTION_CHOICES as RESOLUTION_CHOICES,
+  RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS,
+} from "@/lib/pdf/pdf-to-image";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -66,6 +71,12 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["organize pdf", "reorder pages", "rearrange pdf", "sort pages"],
     related: ["merge-pdf", "remove-pages", "rotate-pdf"],
+    how: [
+      "Pick your PDF — every page opens as a tile on a page board, and the file stays on your device.",
+      "Drag tiles into a new order, or use each tile's move buttons; rotate, duplicate or delete any page from its tile.",
+      "Change your mind with “Undo” and “Redo” (Ctrl/⌘+Z and Ctrl/⌘+Shift+Z), or start over with “Reset”.",
+      "Click “Apply & export”, then “Download organized PDF”.",
+    ],
   },
   {
     slug: "extract-pages",
@@ -94,6 +105,12 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["delete pages", "remove pages", "trim pdf", "cut pages"],
     related: ["extract-pages", "organize-pages", "split-pdf"],
+    how: [
+      "Pick your PDF — a thumbnail of every page appears, and the file stays on your device.",
+      "Click the pages to delete, Shift-click to select a run of pages, or type a list like 2-4, 9 and press “Select”.",
+      "Click “Delete” to remove them — at least one page has to stay.",
+      "Click “Download PDF” to save the trimmed copy.",
+    ],
   },
   {
     slug: "rotate-pdf",
@@ -108,6 +125,12 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["rotate pdf", "turn pages", "orientation", "landscape pdf"],
     related: ["organize-pages", "crop-pdf", "merge-pdf"],
+    how: [
+      "Pick your PDF — every page appears as a thumbnail, and the file stays on your device.",
+      "Select the pages to turn, or select none to turn them all; Shift-click selects a run.",
+      "Turn them with “Left”, “Right” or “180°”, or with the arrows on a single page.",
+      "Click “Apply rotation”, then “Download rotated PDF”.",
+    ],
   },
   {
     slug: "extract-images",
@@ -258,7 +281,10 @@ export const tools: Tool[] = [
     name: "JPG to PDF",
     tagline: "Images into a single tidy PDF.",
     description:
-      "Combine JPG images into a PDF with control over orientation, margins, and page size.",
+      // Was "with control over orientation, margins, and page size" — the
+      // engine has none of the three: every image goes on a fixed US Letter
+      // portrait page (src/lib/pdf/page-geometry.ts).
+      `Combine JPG photos into one PDF — one image per ${US_LETTER_LABEL} page, in the order you set, assembled right in your browser. Files stay on your device.`,
     category: "convert-to",
     icon: "jpg",
     processing: "client",
@@ -267,6 +293,12 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["jpg to pdf", "jpeg to pdf", "image to pdf", "photos to pdf"],
     related: ["png-to-pdf", "pdf-to-jpg", "merge-pdf"],
+    how: [
+      "Pick one or more JPG or JPEG photos — they stay on your device.",
+      "Put them in page order with each image's “Move up” and “Move down” buttons.",
+      "Click “Create PDF” — each image goes on its own page, assembled in your browser.",
+      "Click “Download PDF” to save it.",
+    ],
   },
   {
     slug: "png-to-pdf",
@@ -280,6 +312,12 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],
+    how: [
+      "Pick one or more PNG images — they stay on your device.",
+      "Put them in page order with each image's “Move up” and “Move down” buttons.",
+      "Click “Create PDF” — each image goes on its own page, assembled in your browser.",
+      "Click “Download PDF” to save it.",
+    ],
   },
   {
     slug: "html-to-pdf",
@@ -333,6 +371,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["markdown to pdf", "md to pdf", "readme to pdf", "docs to pdf"],
     related: ["pdf-to-markdown", "html-to-pdf", "text-to-pdf"],
+    how: [
+      "Paste Markdown into the editor, or pick a .md file — it stays on your device.",
+      "Click “Create PDF” — the Markdown is typeset into pages in your browser.",
+      "Click “Download PDF” to save it.",
+    ],
   },
   {
     slug: "text-to-pdf",
@@ -346,6 +389,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["text to pdf", "txt to pdf", "notes to pdf", "plain text pdf"],
     related: ["markdown-to-pdf", "word-to-pdf", "pdf-to-text"],
+    how: [
+      "Paste or type your text, or pick a .txt file — it stays on your device.",
+      "Click “Create PDF” — the text is paginated in your browser.",
+      "Click “Download PDF” to save it.",
+    ],
   },
 
   // ─────────────────────────────── Convert from PDF ───────────────────────
@@ -407,13 +455,21 @@ export const tools: Tool[] = [
     outputs: ["JPG", "ZIP"],
     keywords: ["pdf to jpg", "pdf to image", "pdf to jpeg", "convert pages"],
     related: ["jpg-to-pdf", "pdf-to-png", "extract-images"],
+    how: [
+      "Pick your PDF — it stays on your device.",
+      `Choose a resolution: ${RESOLUTION_CHOICES}.`,
+      "Click “Render” — every page becomes a JPG image, in your browser.",
+      "Download the result — several pages arrive together as one ZIP, and a page can also be saved on its own from its preview.",
+    ],
   },
   {
     slug: "pdf-to-png",
     name: "PDF to PNG",
     tagline: "Export pages as lossless PNGs.",
     description:
-      "Render PDF pages as crisp, lossless PNG images with a transparent or white background.",
+      // Was "with a transparent or white background": every page is rendered
+      // onto white (render.ts), and the runner offers no transparent option.
+      `Render PDF pages as crisp, lossless PNG images on a white background, at ${RESOLUTION_DPIS} DPI — right in your browser.`,
     category: "convert-from",
     icon: "png",
     processing: "client",
@@ -421,6 +477,12 @@ export const tools: Tool[] = [
     outputs: ["PNG", "ZIP"],
     keywords: ["pdf to png", "pdf to image", "lossless png", "convert pages"],
     related: ["png-to-pdf", "pdf-to-jpg", "extract-images"],
+    how: [
+      "Pick your PDF — it stays on your device.",
+      `Choose a resolution: ${RESOLUTION_CHOICES}.`,
+      "Click “Render” — every page becomes a PNG image, in your browser.",
+      "Download the result — several pages arrive together as one ZIP, and a page can also be saved on its own from its preview.",
+    ],
   },
   {
     slug: "pdf-to-pdfa",
@@ -835,7 +897,9 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["MD", "TXT", "ZIP"],
     keywords: ["translate pdf", "pdf translation", "ai translate", "language"],
-    related: ["summarize-pdf", "chat-with-pdf", "ocr-pdf"],
+    // Translate writes Markdown, so the tool that typesets Markdown into a PDF
+    // is the next step a reader needs; it had no link from here.
+    related: ["markdown-to-pdf", "summarize-pdf", "ocr-pdf"],
   },
   {
     slug: "ai-extract",

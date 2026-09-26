@@ -6,6 +6,7 @@ import {
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 import {
   DEFAULT_JPEG_QUALITY,
+  RASTER_MAX_DEVICE_PX,
   RASTER_MIME,
   clampJpegQuality,
   rasterScaleForDpi,
@@ -262,13 +263,6 @@ export async function renderFirstPage(
 /* ------------------------------------------------------------------ *
  *  Full-page rasterization (PDF → PNG / JPG)
  * ------------------------------------------------------------------ */
-
-/**
- * Cap on either rendered dimension (px) for full-page rasterization. Higher
- * than the thumbnail cap so print-DPI output stays crisp, but still bounds peak
- * canvas memory (one page's bitmap is freed before the next renders).
- */
-const RASTER_MAX_DEVICE_PX = 5000;
 
 /** One rendered page: encoded image bytes plus its bitmap dimensions. */
 export interface RasterPage {

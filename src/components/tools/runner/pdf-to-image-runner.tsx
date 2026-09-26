@@ -12,6 +12,7 @@ import { rasterizePdf, type RasterPage } from "@/lib/pdf/render";
 import {
   DEFAULT_RESOLUTION_ID,
   RASTER_MIME,
+  RASTER_PREVIEW_LIMIT as PREVIEW_LIMIT,
   RASTER_RESOLUTIONS,
   pageImageName,
   resolutionById,
@@ -34,9 +35,6 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
-
-/** Cap on how many page previews render in the grid; the ZIP still holds all. */
-const PREVIEW_LIMIT = 24;
 
 interface RasterResult {
   pages: RasterPage[];

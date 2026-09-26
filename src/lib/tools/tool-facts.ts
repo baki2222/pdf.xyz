@@ -42,6 +42,24 @@ import {
   SPLIT_MODE_FACT,
   SPLIT_MODES,
 } from "@/lib/pdf/offered-kinds";
+import {
+  IMAGE_PAGE_MARGIN_PT,
+  TEXT_PAGE_MARGIN_PT,
+  US_LETTER_LABEL,
+  inches,
+} from "@/lib/pdf/page-geometry";
+import {
+  RASTER_MAX_DEVICE_PX,
+  RASTER_PREVIEW_LIMIT,
+  RASTER_RESOLUTION_CHOICES,
+  pageImageName,
+  rasterFormatForSlug,
+} from "@/lib/pdf/pdf-to-image";
+import {
+  MARKDOWN_BLOCK_KINDS,
+  type MarkdownBlockKind,
+} from "@/lib/pdf/markdown-blocks";
+import { getRunnerKind } from "@/lib/pdf/registry";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
@@ -148,6 +166,47 @@ function countedFact<Id extends string>(
     label,
     value: `${word[0]!.toUpperCase()}${word.slice(1)} ${noun}: ${list}.`,
     counts: ids,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ *  Page and output facts for the in-browser converters, each built from
+ *  the constant the engine draws with (see src/lib/pdf/page-geometry.ts).
+ * ------------------------------------------------------------------ */
+
+/** Image to PDF's page, as the engine lays it out. */
+export const IMAGE_PAGE_FACT = `Each image goes on its own ${US_LETTER_LABEL} portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, centred. Larger images are scaled down to fit; smaller ones are never enlarged.`;
+
+/** Text and Markdown to PDF's page, as the engines lay it out. */
+export const TEXT_PAGE_FACT = `${US_LETTER_LABEL} portrait pages with ${inches(TEXT_PAGE_MARGIN_PT)} in margins and a page number (1 / N) at the foot of each page.`;
+
+/** What each block kind is called on the page. */
+const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
+  heading: "headings",
+  paragraph: "paragraphs",
+  "list-item": "bulleted and numbered lists",
+  quote: "block quotes",
+  code: "fenced code blocks",
+};
+
+/**
+ * The syntax Markdown to PDF typesets — every kind in MARKDOWN_BLOCK_KINDS,
+ * which cannot disagree with the renderer's own union (a compile check in
+ * markdown-to-pdf.ts). What it does NOT style is said too, because a reader
+ * pasting a README will have tables and bold in it.
+ */
+export const MARKDOWN_SYNTAX_FACT = (() => {
+  const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
+  const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. Tables, bold, italics and links print as plain text — a link keeps its address in parentheses.`;
+})();
+
+/** PDF to JPG / PNG: the presets, and what one page becomes. */
+function rasterFact(slug: string): ToolFact {
+  const ext = rasterFormatForSlug(slug).toUpperCase();
+  return {
+    label: "Resolutions",
+    value: `${RASTER_RESOLUTION_CHOICES} — every page becomes one ${ext} image, rendered in your browser.`,
   };
 }
 
@@ -260,25 +319,32 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       label: "Per-image limit",
       value: `Up to ${MAX_IMAGE_MB} MB per image, assembled into one PDF on your device.`,
     },
+    { label: "Page", value: IMAGE_PAGE_FACT },
   ],
   "png-to-pdf": [
     {
       label: "Per-image limit",
       value: `Up to ${MAX_IMAGE_MB} MB per image, assembled into one PDF on your device.`,
     },
+    { label: "Page", value: IMAGE_PAGE_FACT },
   ],
   "text-to-pdf": [
     {
       label: "Source limit",
       value: `Plain-text sources up to ${MAX_SOURCE_MB} MB, typeset in your browser.`,
     },
+    { label: "Page", value: TEXT_PAGE_FACT },
   ],
   "markdown-to-pdf": [
     {
       label: "Source limit",
       value: `Markdown sources up to ${MAX_SOURCE_MB} MB, rendered and typeset in your browser.`,
     },
+    { label: "Supported syntax", value: MARKDOWN_SYNTAX_FACT },
+    { label: "Page", value: TEXT_PAGE_FACT },
   ],
+  "pdf-to-jpg": [rasterFact("pdf-to-jpg")],
+  "pdf-to-png": [rasterFact("pdf-to-png")],
   "compress-pdf": [
     {
       // Was "Two paths": a count with no list behind it. The value names both.
@@ -336,6 +402,131 @@ export interface ToolFaqEntry {
   readonly answer: string;
 }
 
+/** The in-browser offline answer's one exception, said once. */
+export const FONT_FETCH_EXCEPTION =
+  "One exception: drawing text in a script outside the Western European alphabet fetches a matching font the first time it is needed, and that step needs a connection.";
+
+/** The list a reader types to pick every other page (parsed by `parsePageList`). */
+export const EVERY_OTHER_PAGE_EXAMPLE = "2, 4, 6, 8";
+
+/**
+ * What the page tools' exports keep. Organize, Rotate and Delete all rebuild
+ * the PDF with `PDFDocument.create()` + `copyPages` (`src/lib/pdf/engine.ts`),
+ * which copies each page as it is and nothing from the document around it —
+ * so the outline and the interactive form do not survive.
+ * `tool-page-substance.test.ts` runs those engines on a PDF that has both and
+ * holds this sentence to what comes out.
+ */
+export const PAGE_REBUILD_KEEPS =
+  "The pages themselves — text, images and drawings — are copied as they are, but the export is rebuilt from the pages alone, so the document's bookmarks and its fillable form are not carried over.";
+
+/**
+ * Questions only one runner can answer, keyed by the runner a tool mounts
+ * (`getRunnerKind`) so the two tools sharing a runner cannot drift apart.
+ * Every answer is either a constant the engine draws with or a behaviour a
+ * test runs the engine to confirm — never a description of a UI nobody built.
+ */
+function runnerFaq(tool: Tool): ToolFaqEntry[] {
+  switch (getRunnerKind(tool.slug)) {
+    case "organize":
+      return [
+        {
+          question: `Can I undo a change in ${tool.name}?`,
+          answer:
+            "Yes. “Undo” and “Redo” (Ctrl/⌘+Z and Ctrl/⌘+Shift+Z) step back and forward through your moves, rotations, duplicates and deletions before you export, and “Reset” returns the board to the file as you opened it. Your original file is never changed — the export is a new PDF.",
+        },
+        {
+          question: `Does ${tool.name} keep bookmarks and form fields?`,
+          answer: `No. ${PAGE_REBUILD_KEEPS}`,
+        },
+      ];
+    case "delete-pages":
+      return [
+        {
+          question: `Does ${tool.name} keep bookmarks and form fields?`,
+          answer: `No. ${PAGE_REBUILD_KEEPS}`,
+        },
+        {
+          question: "How do I delete every other page?",
+          answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”; those pages are selected, and “Delete” removes them.`,
+        },
+        {
+          question: "Can I get a deleted page back?",
+          answer:
+            "Yes, from your original: it is never changed. The download is a new PDF, so every page you removed is still in the file on your device.",
+        },
+      ];
+    case "rotate":
+      return [
+        {
+          question: `Does rotating reduce the quality of my PDF?`,
+          answer:
+            "No. The turn is saved as each page's orientation setting in the file; the page's text, images and drawings are copied as they are, not re-rendered.",
+        },
+        {
+          question: "Is the rotation permanent?",
+          answer:
+            "Yes — it is saved in the PDF you download, so every viewer shows the pages the way you turned them.",
+        },
+      ];
+    case "image-to-pdf":
+      return [
+        {
+          question: `What page size does ${tool.name} use?`,
+          answer: `${IMAGE_PAGE_FACT} There is no page-size, orientation or margin setting.`,
+        },
+        {
+          question: `Can I combine several images into one PDF?`,
+          answer:
+            "Yes — each image becomes one page, in the order shown. Use “Move up” and “Move down” to change it before you create the PDF.",
+        },
+        ...(tool.accept.includes("PNG")
+          ? [
+              {
+                question: "What happens to transparent areas of a PNG?",
+                answer:
+                  "They show as white: each page is filled white before the image is drawn on it.",
+              },
+            ]
+          : []),
+      ];
+    case "pdf-to-image": {
+      const format = rasterFormatForSlug(tool.slug);
+      const ext = format.toUpperCase();
+      return [
+        {
+          question: `What resolution are the ${ext} images?`,
+          answer: `You choose: ${RASTER_RESOLUTION_CHOICES}. Higher DPI gives sharper, larger files. Neither side of a rendered page may exceed ${RASTER_MAX_DEVICE_PX.toLocaleString("en-US")} pixels, so a very large page is rendered below the preset.`,
+        },
+        {
+          question: `Do I get one ${ext} or a ZIP?`,
+          answer: `A one-page PDF downloads as a single ${ext} named after your file. With more than one page, every page goes into one ZIP, named in reading order — for example ${pageImageName("report.pdf", 2, 12, format)} — and the first ${RASTER_PREVIEW_LIMIT} pages can also be saved one by one from their previews.`,
+        },
+      ];
+    }
+    case "text-to-pdf":
+      return [
+        {
+          question: `What does the PDF from ${tool.name} look like?`,
+          answer: `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
+        },
+      ];
+    case "markdown-to-pdf":
+      return [
+        {
+          question: "Which Markdown does it support?",
+          answer: MARKDOWN_SYNTAX_FACT,
+        },
+        {
+          question: `What does the PDF from ${tool.name} look like?`,
+          answer: `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
 export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
   const capability = capabilityForMode(tool.processing);
   const entries: ToolFaqEntry[] = [];
@@ -362,8 +553,14 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
         // Wording bounded by what ships today: the engine chunk is fetched on
         // first use (file pick / first run), so "page loaded" alone does NOT
         // make the work connection-proof — the earlier claim said it did.
-        answer:
-          "Not fully — the page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the processing itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+        //
+        // The exception is named because the engines that draw text fetch a
+        // font DURING the run for any script outside WinAnsi
+        // (`unicode-font.ts` → `fetch(fontPackUrl(pack))`), so "a dropped
+        // connection does not interrupt work in progress" was false for a
+        // Bengali text file on Text to PDF. `tool-page-substance.test.ts` keeps
+        // this sentence for as long as any engine calls `embedDrawingFont`.
+        answer: `Not fully — the page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the processing itself runs entirely on your device, and a dropped connection does not interrupt work in progress. ${FONT_FETCH_EXCEPTION}`,
       });
       break;
     }
@@ -486,6 +683,8 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
     }
   }
 
+  entries.push(...runnerFaq(tool));
+
   if (tool.slug === "ocr-pdf") {
     entries.push({
       question: "Which languages can OCR recognize?",
@@ -514,9 +713,12 @@ function defaultSteps(tool: Tool): readonly string[] {
     // from "upload your file" — so the steps take the words-free move (the
     // TASK-09 resolution) and the never-leaves fact lives in the page's mode
     // line, where the account guard's idiom already protects it.
+    // No "Choose your options." step, in any arm: it shipped as HowTo JSON-LD
+    // on 39 pages, most of them runners with no options at all (Text to PDF,
+    // PNG to PDF, Delete Pages). A tool with options says which in its own
+    // authored `how`; a default cannot know, so it does not claim.
     return [
       `Open the tool and pick your ${formats} file — it stays on your device.`,
-      "Choose your options.",
       "Run the tool in your browser.",
       "Save the result to your device.",
     ];
@@ -536,14 +738,12 @@ function defaultSteps(tool: Tool): readonly string[] {
     // an encrypted connection" — beside a pipeline that said the same.
     return [
       "Paste the address of a public web page.",
-      "Choose your options.",
       "A browser on our processing server loads the page and prints it to PDF.",
       `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ];
   }
   return [
     `Upload your ${formats} file over an encrypted connection.`,
-    "Choose your options.",
     "The secure worker processes the file and deletes the input when the job finishes.",
     `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ];
