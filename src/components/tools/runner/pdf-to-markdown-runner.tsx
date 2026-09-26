@@ -8,7 +8,7 @@ import {
   ScanText,
 } from "lucide-react";
 import { downloadBlob } from "@/lib/pdf/browser";
-import { extractPdfText } from "@/lib/pdf/text";
+import { extractPdfLines } from "@/lib/pdf/text";
 import {
   extractedTextToMarkdown,
   markdownOutputName,
@@ -47,7 +47,7 @@ function PdfToMarkdownEditor({
   const { busy, error, result, run } = useAsyncRun<PdfToMarkdownResult>();
   const onRun = () =>
     run(async () => {
-      const extracted = await extractPdfText(pdf.bytes);
+      const extracted = await extractPdfLines(pdf.bytes);
       return extractedTextToMarkdown(extracted, { sourceName: pdf.file.name });
     });
 

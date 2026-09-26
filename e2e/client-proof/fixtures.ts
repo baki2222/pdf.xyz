@@ -98,6 +98,174 @@ export async function makeTextPdf(
 }
 
 /**
+ * The document `makeStructuredProsePdf` draws on every page, and the Markdown
+ * each part must become. `lines` is what is drawn, one visual line each;
+ * `text` is the one block it must come out as.
+ *
+ * Written for the pdf-to-markdown proof. The fixture every other text proof
+ * uses draws ONE line per page, so a converter that collapsed each page to a
+ * single paragraph passed it: nothing on the page was a second block to lose.
+ * Drawn the way generators draw — single line breaks, a larger heading face,
+ * vertical gaps between paragraphs, a bullet glyph (U+2022) with a hanging indent — which
+ * pdfjs hands back with one EOL per line and NO blank lines at all.
+ */
+export const STRUCTURED_PROSE = {
+  heading: "Findings overview",
+  paragraphs: [
+    {
+      lines: [
+        "The first paragraph wraps across two",
+        "lines of body text on the page.",
+      ],
+      text: "The first paragraph wraps across two lines of body text on the page.",
+    },
+    {
+      lines: [
+        "A second paragraph follows a gap and has an exam-",
+        "ple of a word hyphenated at the break.",
+      ],
+      text: "A second paragraph follows a gap and has an example of a word hyphenated at the break.",
+    },
+  ],
+  bullets: [
+    { lines: ["First bullet item"], text: "First bullet item" },
+    {
+      lines: ["Second bullet item wraps onto a", "hanging line."],
+      text: "Second bullet item wraps onto a hanging line.",
+    },
+  ],
+  closing: "Closing paragraph after the list.",
+} as const;
+
+/** A multi-page PDF of `STRUCTURED_PROSE`, one page marker paragraph per page. */
+export async function makeStructuredProsePdf(
+  label: string,
+  { pages = 2 }: { pages?: number } = {},
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const BODY = 11;
+  const PITCH = 14; // inside a paragraph
+  const GAP = 24; // between blocks: 1.7x the pitch, as a word processor sets it
+  for (let i = 0; i < pages; i++) {
+    const page = doc.addPage([612, 792]);
+    let y = 720;
+    const line = (text: string, x = 72, size = BODY, face = font) =>
+      page.drawText(text, { x, y, size, font: face });
+
+    line(pageMarker(label, i + 1));
+    y -= GAP + 6;
+    line(STRUCTURED_PROSE.heading, 72, 16, bold);
+    y -= GAP;
+    for (const paragraph of STRUCTURED_PROSE.paragraphs) {
+      paragraph.lines.forEach((text, j) => {
+        if (j > 0) y -= PITCH;
+        line(text);
+      });
+      y -= GAP;
+    }
+    for (const bullet of STRUCTURED_PROSE.bullets) {
+      line("\u2022");
+      bullet.lines.forEach((text, j) => {
+        if (j > 0) y -= PITCH;
+        line(text, 86);
+      });
+      y -= PITCH;
+    }
+    y -= GAP - PITCH;
+    line(STRUCTURED_PROSE.closing);
+  }
+  return doc.save();
+}
+
+/** One block of Markdown as a reader's renderer would see it. */
+export interface MarkdownBlock {
+  kind: "heading" | "paragraph" | "item";
+  text: string;
+}
+
+/**
+ * Split Markdown into headings, paragraphs and list items — the structure a
+ * renderer shows, read from the downloaded text rather than from the
+ * converter's own data.
+ */
+export function markdownBlocks(markdown: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  for (const chunk of markdown.replace(/\r\n?/g, "\n").split(/\n{2,}/)) {
+    const lines = chunk.split("\n").filter((l) => l.trim().length > 0);
+    if (!lines.length) continue;
+    const heading = /^#{1,6}\s+(.*)$/.exec(lines[0] ?? "");
+    if (heading && lines.length === 1) {
+      blocks.push({ kind: "heading", text: heading[1] ?? "" });
+    } else if (lines.every((l) => /^(- |\d+[.)] )/.test(l))) {
+      for (const l of lines) {
+        blocks.push({ kind: "item", text: l.replace(/^(- |\d+[.)] )/, "") });
+      }
+    } else {
+      blocks.push({ kind: "paragraph", text: lines.join(" ") });
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Everything wrong with `markdown` as a conversion of a `pages`-page
+ * `makeStructuredProsePdf(label)`. Empty means right. A list rather than a
+ * boolean so a red proof says WHICH structure was lost.
+ */
+export function structuredProseProblems(
+  markdown: string,
+  label: string,
+  pages: number,
+): string[] {
+  const blocks = markdownBlocks(markdown);
+  const count = (kind: MarkdownBlock["kind"], text: string) =>
+    blocks.filter((b) => b.kind === kind && b.text === text).length;
+  const problems: string[] = [];
+  const expectEach = (kind: MarkdownBlock["kind"], text: string) => {
+    const n = count(kind, text);
+    if (n !== pages) {
+      problems.push(`expected ${pages} ${kind} block(s) "${text}", found ${n}`);
+    }
+  };
+  for (let n = 1; n <= pages; n++) {
+    if (count("paragraph", pageMarker(label, n)) !== 1) {
+      problems.push(
+        `page marker "${pageMarker(label, n)}" is not its own paragraph`,
+      );
+    }
+  }
+  expectEach("heading", STRUCTURED_PROSE.heading);
+  for (const p of STRUCTURED_PROSE.paragraphs) expectEach("paragraph", p.text);
+  for (const b of STRUCTURED_PROSE.bullets) expectEach("item", b.text);
+  expectEach("paragraph", STRUCTURED_PROSE.closing);
+  return problems;
+}
+
+/**
+ * The shape the converter produced before it read geometry: each page one
+ * paragraph of everything on it, bullets inline. `structuredProseProblems`
+ * must reject it — the positive control for the proof.
+ */
+export function collapsedStructuredProse(label: string, pages: number): string {
+  const sections = [`# ${label.replace(/\.pdf$/i, "")}`];
+  for (let n = 1; n <= pages; n++) {
+    sections.push(`## Page ${n}`);
+    sections.push(
+      [
+        pageMarker(label, n),
+        STRUCTURED_PROSE.heading,
+        ...STRUCTURED_PROSE.paragraphs.flatMap((p) => p.lines),
+        ...STRUCTURED_PROSE.bullets.flatMap((b) => ["\u2022", ...b.lines]),
+        STRUCTURED_PROSE.closing,
+      ].join(" "),
+    );
+  }
+  return sections.join("\n\n");
+}
+
+/**
  * A PDF carrying a fillable AcroForm: one text field (`e2e.name`, prefilled
  * "Ada Lovelace") and one checked checkbox (`e2e.agree`). The prefill matters:
  * the fill-forms proof writes a DIFFERENT value, so the assertion can tell the

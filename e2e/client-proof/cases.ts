@@ -8,14 +8,17 @@ import {
 } from "../../src/lib/pdf/pdf-to-image";
 import { fileInput, waitForHydration } from "../helpers";
 import {
+  collapsedStructuredProse,
   makeBlankImageInPage,
   makeFormPdf,
   makeImageBearingPdf,
   makeJpegFixtureInPage,
   makePngFixture,
   makeRasterizedPdf,
+  makeStructuredProsePdf,
   makeTextPdf,
   pageMarker,
+  structuredProseProblems,
   writeTempFixture,
 } from "./fixtures";
 import {
@@ -402,7 +405,17 @@ export const CASES: Record<string, ToolCase> = {
     kind: "pdf-to-markdown",
     artifact: "text",
     run: async (ctx) => {
-      await uploadTextPdf(ctx, "notes.pdf", { pages: 2 });
+      // Its own fixture, not `uploadTextPdf`: that one draws a single line per
+      // page, so a converter that collapsed every page into ONE paragraph
+      // passed this proof — there was no second block on the page to lose.
+      const bytes = Buffer.from(
+        await makeStructuredProsePdf("notes.pdf", { pages: 2 }),
+      );
+      ctx.data["notes.pdf"] = bytes;
+      await uploadPayloads(ctx.page, [
+        { name: "notes.pdf", mimeType: "application/pdf", buffer: bytes },
+      ]);
+      await expect(ctx.page.getByText("notes.pdf")).toBeVisible();
       return runAndDownload(
         ctx,
         /create markdown/i,
@@ -414,10 +427,17 @@ export const CASES: Record<string, ToolCase> = {
       const text = buf.toString("utf8");
       expect(text).not.toContain("%PDF-");
       expect(text).not.toContain("endstream");
-      expect(text).toContain(marker("notes.pdf", 1));
-      expect(text).toContain(marker("notes.pdf", 2));
+      // Every heading, paragraph and list item of both pages is its own
+      // block — read from the downloaded text the way a renderer splits it.
+      expect(structuredProseProblems(text, "notes.pdf", 2)).toEqual([]);
     },
-    control: async (ctx) => input(ctx, "notes.pdf"),
+    // The identity control fails on the container; the collapsed control is
+    // the pre-geometry output — every word present, every boundary gone —
+    // and fails only on structure.
+    control: async (ctx) => [
+      input(ctx, "notes.pdf"),
+      Buffer.from(collapsedStructuredProse("notes.pdf", 2)),
+    ],
   },
 
   "text-to-pdf": {
