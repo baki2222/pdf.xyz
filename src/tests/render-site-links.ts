@@ -1,7 +1,12 @@
 /**
  * Render every page in the sitemap — inside the header and footer the root
- * layout wraps it in — and print `{route: [internal link targets]}` as JSON on
- * stdout. Not a test: a subprocess entrypoint for
+ * layout wraps it in — and print `{site, content}` as JSON on stdout, each a
+ * `{route: [internal link targets]}` graph. `site` is what a crawler receives;
+ * `content` is the page alone, without the header and footer, for the
+ * questions that are about what a page says rather than what every page says
+ * (a guide linking its neighbours, `/tools` linking the guides). The footer
+ * links `/guides` from every page, so asked of `site`, "does /tools link the
+ * guides?" is answered yes by the chrome whatever the page does. Not a test: a subprocess entrypoint for
  * `src/app/internal-links.test.ts`, which builds the inbound-link graph from
  * what a crawler actually receives.
  *
@@ -85,28 +90,31 @@ async function main(): Promise<void> {
   }
 
   const graph: Record<string, string[]> = {};
+  const content: Record<string, string[]> = {};
   for (const route of [...wanted].sort()) {
     const { mod, params } = pages.get(route)!;
     const element = await mod.default({
       params: Promise.resolve(params),
       searchParams: Promise.resolve({}),
     });
-    const markup = renderToStaticMarkup(
-      createElement(
-        PathnameContext.Provider,
-        { value: route },
+    const inContext = (...children: ReactElement[]) =>
+      renderToStaticMarkup(
         createElement(
-          AppRouterContext.Provider,
-          { value: ROUTER },
-          createElement(SiteHeader),
-          element,
-          createElement(SiteFooter),
+          PathnameContext.Provider,
+          { value: route },
+          createElement(
+            AppRouterContext.Provider,
+            { value: ROUTER },
+            ...children,
+          ),
         ),
-      ),
+      );
+    graph[route] = linkTargets(
+      inContext(createElement(SiteHeader), element, createElement(SiteFooter)),
     );
-    graph[route] = linkTargets(markup);
+    content[route] = linkTargets(inContext(element));
   }
-  process.stdout.write(JSON.stringify(graph));
+  process.stdout.write(JSON.stringify({ site: graph, content }));
 }
 
 void main().catch((error: unknown) => {

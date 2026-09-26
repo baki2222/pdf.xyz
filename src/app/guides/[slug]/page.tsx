@@ -2,11 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { getAllGuideSlugs, getGuideBySlug } from "@/lib/guides";
+import { getAllGuideSlugs, getGuideBySlug, relatedGuides } from "@/lib/guides";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import { Container } from "@/components/ui/container";
 import { ToolCard } from "@/components/tools/tool-card";
+import { buttonVariants } from "@/components/ui/button";
+import { proseMeasure } from "@/components/ui/prose";
+import { cn } from "@/lib/utils";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import {
@@ -49,6 +52,26 @@ export async function generateMetadata({
   });
 }
 
+/**
+ * Body copy for the long-form parts of a guide: intro, steps, section bodies
+ * and FAQ answers. Was `text-sm` (14px) across the full 768px article column,
+ * well over 100 characters a line. See {@link proseMeasure}.
+ */
+const PROSE = cn("text-muted", proseMeasure);
+
+/** The guide's way into the tool it teaches: a real button, not a text link. */
+function OpenToolButton({ tool }: { tool: Tool }) {
+  return (
+    <Link
+      href={`/tools/${tool.slug}`}
+      className={buttonVariants({ variant: "primary", size: "lg" })}
+    >
+      Open {tool.name}
+      <ArrowRight className="size-4" aria-hidden />
+    </Link>
+  );
+}
+
 export default async function GuidePage({
   params,
 }: {
@@ -64,6 +87,7 @@ export default async function GuidePage({
     .map((toolSlug) => getToolBySlug(toolSlug))
     .filter((tool): tool is Tool => tool !== undefined);
   const primary = guideTools[0];
+  const moreGuides = relatedGuides(guide);
 
   const breadcrumbs = [
     { name: "Home", path: "/" },
@@ -135,24 +159,13 @@ export default async function GuidePage({
             </p>
           </header>
 
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col items-start gap-5">
             {guide.intro.map((paragraph) => (
-              <p key={paragraph} className="text-muted text-sm leading-relaxed">
+              <p key={paragraph} className={PROSE}>
                 {paragraph}
               </p>
             ))}
-            {primary && (
-              <Link
-                href={`/tools/${primary.slug}`}
-                className="group text-accent inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
-              >
-                Open {primary.name}
-                <ArrowRight
-                  className="size-4 transition-transform group-hover:translate-x-0.5"
-                  aria-hidden
-                />
-              </Link>
-            )}
+            {primary && <OpenToolButton tool={primary} />}
           </div>
 
           <section
@@ -168,13 +181,13 @@ export default async function GuidePage({
                   <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
                     {index + 1}
                   </span>
-                  <span className="text-muted text-sm leading-relaxed">
-                    {step}
-                  </span>
+                  <span className={PROSE}>{step}</span>
                 </li>
               ))}
             </ol>
           </section>
+
+          {primary && <OpenToolButton tool={primary} />}
 
           {guide.sections.map((section) => (
             <section
@@ -186,10 +199,7 @@ export default async function GuidePage({
                 {section.heading}
               </h2>
               {section.body.map((paragraph) => (
-                <p
-                  key={paragraph}
-                  className="text-muted text-sm leading-relaxed"
-                >
+                <p key={paragraph} className={PROSE}>
                   {paragraph}
                 </p>
               ))}
@@ -209,9 +219,7 @@ export default async function GuidePage({
                   <h3 className="text-fg text-sm font-semibold">
                     {entry.question}
                   </h3>
-                  <p className="text-muted text-sm leading-relaxed">
-                    {entry.answer}
-                  </p>
+                  <p className={PROSE}>{entry.answer}</p>
                 </div>
               ))}
             </section>
@@ -241,6 +249,54 @@ export default async function GuidePage({
               ))}
             </div>
           </div>
+        )}
+
+        {moreGuides.length > 0 && (
+          <nav
+            aria-labelledby="more-guides"
+            className="border-line flex flex-col gap-6 border-t pt-10"
+          >
+            <div className="flex items-end justify-between gap-4">
+              <h2
+                id="more-guides"
+                className="font-display text-fg text-2xl font-medium tracking-tight"
+              >
+                More guides
+              </h2>
+              <Link
+                href="/guides"
+                className="group text-accent inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
+              >
+                All guides
+                <ArrowRight
+                  className="size-4 transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </Link>
+            </div>
+            <ul className="border-line grid grid-cols-1 gap-x-10 border-t md:grid-cols-3">
+              {moreGuides.map((other) => {
+                const otherPrimary = getToolBySlug(other.tools[0] ?? "");
+                return (
+                  <li key={other.slug} className="border-line border-b">
+                    <Link
+                      href={`/guides/${other.slug}`}
+                      className="group hover:bg-wash flex h-full flex-col gap-0.5 py-4 pr-2 pl-1 transition-colors"
+                    >
+                      <span className="text-fg group-hover:text-accent text-[15px] font-medium transition-colors">
+                        {other.title}
+                      </span>
+                      {otherPrimary && (
+                        <span className="text-faint font-mono text-[11px] tracking-wide uppercase">
+                          {otherPrimary.name}
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
         )}
       </Container>
     </div>

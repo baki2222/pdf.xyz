@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
@@ -14,10 +14,33 @@ import { cn } from "@/lib/utils";
  * Masthead. Carries the paper theme scope itself because it renders outside
  * every page's own wrapper: an opaque paper band with a hairline rule, on
  * every route. No blur, no translucency — a masthead, not a glass strip.
+ *
+ * Below `md` the desktop `<nav>` is display:none, so the mobile menu is the
+ * page's primary navigation landmark and is a `<nav>` itself (it was a plain
+ * div, which left phones with no navigation landmark on most pages). It
+ * closes on Escape, returning focus to the toggle, and on any route change —
+ * including back/forward, which the per-link `onClick` never saw.
  */
 export function SiteHeader() {
-  const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  // Open FOR a pathname: the menu is open only while the route it was opened
+  // on is still the current one, so a navigation closes it with no effect
+  // and no setState-in-effect.
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const open = openOn !== null && openOn === pathname;
+  const setOpen = (next: boolean) => setOpenOn(next ? pathname : null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpenOn(null);
+      toggleRef.current?.focus();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   const current = activeNavHref(pathname);
   const isActive = (href: string) => href === current;
@@ -61,8 +84,9 @@ export function SiteHeader() {
         </div>
 
         <button
+          ref={toggleRef}
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => setOpen(!open)}
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
           aria-controls="mobile-menu"
@@ -77,8 +101,9 @@ export function SiteHeader() {
       </Container>
 
       {open && (
-        <div
+        <nav
           id="mobile-menu"
+          aria-label="Primary"
           className="bg-canvas border-line border-t md:hidden"
         >
           <Container className="flex flex-col gap-1 py-4">
@@ -110,7 +135,7 @@ export function SiteHeader() {
               </Link>
             </div>
           </Container>
-        </div>
+        </nav>
       )}
     </header>
   );
