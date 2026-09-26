@@ -39,8 +39,6 @@ export interface SignedPdfOptions {
   placement?: SignaturePlacement;
   /** How many signatures (each with its own field). Default 1. */
   count?: number;
-  /** Written into /Info /Creator. */
-  creator?: string;
 }
 
 export async function makeSignedPdf(
@@ -49,7 +47,6 @@ export async function makeSignedPdf(
   const placement = opts.placement ?? "field";
   const count = opts.count ?? 1;
   const doc = await PDFDocument.create();
-  if (opts.creator) doc.setCreator(opts.creator);
   const page = doc.addPage([300, 300]);
   const ctx = doc.context;
 
