@@ -50,6 +50,27 @@ function withoutComments(source: string): string {
 }
 
 /**
+ * Prose with every DERIVED value removed: template interpolations (`${...}`)
+ * and JSX expressions that are a bare name or member path (`{outputWindow}`,
+ * `{RETENTION_WINDOWS.jobRecord}`). Only those two shapes — stripping every
+ * `{...}` would also strip the object literal that holds the page's metadata
+ * description, and a description is prose a search engine shows.
+ */
+function withoutInterpolations(source: string): string {
+  return source
+    .replace(/\$\{[^{}]*\}/g, " ")
+    .replace(/\{\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\}/g, " ");
+}
+
+/**
+ * A duration written out: a quantity — digits, "a"/"an"/"one", "a few",
+ * "several", optionally after "~" — and a unit of time. Every gap is `\s+`:
+ * this scans JSX source, where prose wraps mid-phrase.
+ */
+const DURATION_SHAPE =
+  /(?:~\s*)?\b(?:\d+|an?|one|two|three|a\s+few|a\s+couple\s+of|several)\s+(?:minutes?|hours?|days?|weeks?)\b/gi;
+
+/**
  * WHERE THE MALWARE-SCANNING CLAIM IS GUARDED — deliberately not here.
  *
  * The privacy page states plainly that uploaded files are scanned. That is a
@@ -92,22 +113,74 @@ describe("the policy pages exist and are reachable", () => {
 });
 
 describe("the policy pages derive their facts rather than restating them", () => {
-  it("neither hard-codes the retention window", () => {
-    // `DEFAULT_RETENTION.inputTtlMinutes` is 60 today. A page that says "60
-    // minutes" in prose reads identically and becomes a false promise the moment
-    // the constant moves — with nothing failing.
+  it("neither hard-codes a duration, in any spelling", () => {
+    // WAS a ban on the one spelling /\b60\s*minutes\b/, and it was green while
+    // the privacy page told readers "we delete files within an hour" and
+    // described its own metadata as "after an hour" — the same figure one
+    // spelling over, and a false one besides (see legal-retention.test.tsx).
+    // A literal ban reports "no figure in the words I know". So the ban is on
+    // the SHAPE — a quantity and a unit of time — over the prose a reader
+    // gets, with every derived value (`${...}`, `{window}`) stripped first:
+    // a duration may appear on these pages only as an interpolation of the
+    // constant that owns it (`src/lib/retention-windows.ts`).
     for (const [name, file] of [
       ["privacy", PRIVACY],
       ["terms", TERMS],
     ] as const) {
       const source = read(file);
-      expect(source, `${name} should import the retention constants`).toContain(
-        "DEFAULT_RETENTION",
-      );
       expect(
-        /\b60\s*minutes\b/i.test(withoutComments(source)),
-        `${name} hard-codes a retention figure in prose instead of reading DEFAULT_RETENTION`,
-      ).toBe(false);
+        source,
+        `${name} should state its windows from the one shared derivation`,
+      ).toContain("RETENTION_WINDOWS");
+      const prose = withoutInterpolations(withoutComments(source));
+      // Health: the stripping must leave the page's prose, not eat it.
+      expect(prose.length, `${name}'s prose was stripped away`).toBeGreaterThan(
+        source.length / 2,
+      );
+      const found = [...prose.matchAll(DURATION_SHAPE)].map((m) => m[0]);
+      expect(
+        found,
+        `${name} hand-writes a duration instead of interpolating the constant that owns it:\n  ${found.join("\n  ")}`,
+      ).toEqual([]);
+    }
+  });
+
+  it("the duration ban catches every spelling that shipped, and spares what it must", () => {
+    // House rule 1, both directions. Each positive was on /privacy or /terms
+    // before 2026-09-27; each negative is true prose, or a derivation, that
+    // must never trip it.
+    const caught = [
+      "60 minutes",
+      "an hour",
+      "delete files within an hour",
+      "stops serving the result after an hour",
+      "a few hours longer than the link does",
+      "is kept\n              for about 24 hours",
+      "that job record for the same ~24 hours",
+      "about a day",
+    ];
+    for (const text of caught) {
+      expect(
+        [...text.matchAll(DURATION_SHAPE)],
+        `the ban no longer catches: ${text}`,
+      ).toHaveLength(1);
+    }
+    const spared = [
+      "that cache lasts minutes, not days",
+      "runs on a daily cycle",
+      "You must be at least 13 years old.",
+      "after {outputWindow}",
+      "after {RETENTION_WINDOWS.outputLink}",
+      "`stops serving the result after ${RETENTION_WINDOWS.outputLink}.`",
+      "`${DEFAULT_RETENTION.outputTtlMinutes} minutes`",
+    ];
+    for (const text of spared) {
+      expect(
+        [...withoutInterpolations(text).matchAll(DURATION_SHAPE)].map(
+          (m) => m[0],
+        ),
+        `the ban trips on honest text: ${text}`,
+      ).toEqual([]);
     }
   });
 
@@ -240,6 +313,27 @@ describe("the policy pages do not promise what the product does not do", () => {
         /\bdeletes? (?:the )?(?:input and|inputs? and) (?:the )?(?:result|output)s?\b/i,
       instead:
         "inputs are actively deleted at job end; outputs are denied at read time and erased later — one sentence cannot honestly cover both",
+    },
+    {
+      // Caught: "…and in any case within 60 minutes" (privacy §2, until
+      // 2026-09-27). Pinned INVERTED. The only code that deletes an upload runs
+      // for a claimed job; an upload that never becomes one lives until the
+      // daily lifecycle rule. Exit condition — the PROPERTY: every `inputs/`
+      // object older than the input TTL is deleted by code running in the
+      // production worker (published in its heartbeat, and an observed orphan
+      // upload gone after the window). A sweeper in source is not that.
+      pattern: /\bin\s+any\s+case\s+within\b/i,
+      instead:
+        "state what deletes an upload and when: at the job's end, or — for an upload that never becomes a job — by the daily storage rule after RETENTION_WINDOWS.inputStorageRule",
+    },
+    {
+      // Caught: "because we hold no accounts and delete files within an hour"
+      // (privacy §10, until 2026-09-27). Pinned INVERTED. Uploads, stored
+      // results and job records have three different clocks; one duration
+      // cannot cover them, and the one chosen covered none.
+      pattern: /\bdelete\s+(?:all\s+|your\s+|the\s+)?files\s+within\b/i,
+      instead:
+        "name each clock: uploads end with the job (or the daily rule), the link dies after RETENTION_WINDOWS.outputLink, the job record after RETENTION_WINDOWS.jobRecord",
     },
     // ------------------------------------------------------------------ //
     // The three entries below were TRUE sentences on this very page until

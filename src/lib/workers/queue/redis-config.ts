@@ -53,7 +53,13 @@ const ATTEMPTS_MAX = 20;
 const DEFAULT_MAX_ATTEMPTS = 5; // dead-letter after this many delivery attempts.
 const TTL_MIN_SECONDS = 300; // 5 min floor so a job survives its own lifecycle.
 const TTL_MAX_SECONDS = 604_800; // 7 days hard ceiling on any retained key.
-const DEFAULT_JOB_TTL_SECONDS = 86_400; // 24h: comfortably past the retention window.
+/**
+ * Default TTL (seconds) of every broker key, the job record included — and so
+ * the lifetime of the filename that record holds. Exported because the privacy
+ * policy states it (`src/lib/retention-windows.ts`): a figure a page states
+ * must be read from the code that enforces it, not typed beside it.
+ */
+export const DEFAULT_JOB_TTL_SECONDS = 86_400; // 24h: comfortably past the retention window.
 
 type EnvSource = Record<string, string | undefined>;
 

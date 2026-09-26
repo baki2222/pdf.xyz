@@ -36,6 +36,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_RETENTION, JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
 import { MAX_OCR_LANGUAGES, OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { toolCount } from "@/lib/tools";
+import { DEFAULT_JOB_TTL_SECONDS } from "@/lib/workers/queue/redis-config";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import { processingSplit } from "./processing-split";
 
@@ -78,6 +79,13 @@ const OWNED: { value: number; units: readonly string[]; source: string }[] = [
     value: toolCount,
     units: ["tools", "tool"],
     source: "toolCount",
+  },
+  {
+    // The job record's lifetime — and so the filename's — which the privacy
+    // page states. Owned by the queue's default key TTL since 2026-09-27.
+    value: DEFAULT_JOB_TTL_SECONDS / 3600,
+    units: ["hours", "hour"],
+    source: "DEFAULT_JOB_TTL_SECONDS (queue key TTL, via RETENTION_WINDOWS)",
   },
   // The two answers to "how many tools run in my browser". Registered here on
   // 2026-08-22 so a hand-written one is reported with its OWNER rather than as
@@ -203,17 +211,14 @@ function relative(file: string): string {
  * drift.
  */
 const ALLOWED: { file: string; literal: RegExp; reason: string }[] = [
-  {
-    // The privacy page's "24 hours"/"~24 hours" job-record window: the real TTL
-    // is the queue's env-configured jobTtlSeconds with no compile-time
-    // constant, and inventing one so a page can derive from it would be a
-    // constant that exists to satisfy a test rather than to govern behaviour
-    // (owner ruling, 2026-08-10). If a real default is ever exported, derive
-    // and delete this entry.
-    file: "src/app/privacy/page.tsx",
-    literal: /^24 hours?$/i,
-    reason: "queue job TTL is env-configured; no compile-time owner exists yet",
-  },
+  // EMPTY since 2026-09-27. Its one entry let the privacy page hand-write the
+  // job record's "24 hours"/"~24 hours", because the queue TTL had no exported
+  // default and inventing one to satisfy a test was ruled out (owner ruling,
+  // 2026-08-10). The entry's own exit condition — "if a real default is ever
+  // exported, derive and delete this entry" — was met: `DEFAULT_JOB_TTL_SECONDS`
+  // is the value the queue parser falls back to, now exported, and the page
+  // reads it through `RETENTION_WINDOWS.jobRecord`. It is registered in OWNED
+  // above, so a hand-written "24 hours" is now a must-derive finding.
 ];
 
 /**
