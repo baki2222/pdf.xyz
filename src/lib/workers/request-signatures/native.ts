@@ -1,3 +1,4 @@
+import { PdfEngineError, UNREADABLE_PDF_MESSAGE } from "@/lib/pdf/engine";
 import { loadPdf, stampProducer } from "@/lib/pdf/stamp";
 import type {
   PdfFieldPlacer,
@@ -15,10 +16,22 @@ import type {
  * worker entry point without pulling in a Node built-in.
  */
 
-/** Inspect the PDF's page geometry so fractional field boxes can be resolved to points. */
+/**
+ * Inspect the PDF's page geometry so fractional field boxes can be resolved to points.
+ *
+ * A trailer with no catalog LOADS and then throws a bare TypeError on the page
+ * walk; that is damage in the bytes, so it is reported as the loader reports
+ * damage (a {@link PdfEngineError}), not as a transient crash.
+ */
 const inspect: PdfInspector = async (bytes) => {
   const doc = await loadPdf(bytes);
-  const pageSizes = doc.getPages().map((page) => {
+  let pages;
+  try {
+    pages = doc.getPages();
+  } catch {
+    throw new PdfEngineError(UNREADABLE_PDF_MESSAGE);
+  }
+  const pageSizes = pages.map((page) => {
     const { width, height } = page.getSize();
     return { width, height };
   });

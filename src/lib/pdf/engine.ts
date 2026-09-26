@@ -25,6 +25,14 @@ export class PdfEngineError extends Error {
 const PRODUCER = "pdf.xyz";
 
 /**
+ * The loader's copy for bytes that are not a readable PDF. Exported so a caller
+ * that finds the damage AFTER a successful load (a trailer with no catalog loads
+ * fine and throws on the first page walk) reports it in the same words.
+ */
+export const UNREADABLE_PDF_MESSAGE =
+  "This file couldn't be read as a PDF — it may be corrupted or not a PDF.";
+
+/**
  * Load PDF bytes into a pdf-lib document, translating pdf-lib's raw failures
  * into typed, user-facing errors. Exported so text-stamping helpers (page
  * numbers, watermark, header/footer) share one loader and one set of messages.
@@ -40,9 +48,7 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
         "This PDF is password-protected. Unlock it first, then try again.",
       );
     }
-    throw new PdfEngineError(
-      "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
-    );
+    throw new PdfEngineError(UNREADABLE_PDF_MESSAGE);
   }
 }
 
