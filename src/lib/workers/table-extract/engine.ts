@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
 
 /**
  * Table extraction engine for the `extract-tables` tool.
@@ -96,7 +97,14 @@ export type TableExtractRun =
     }
   | {
       ok: false;
-      kind: "unsupported" | "no_text" | "no_tables" | "too_large" | "failed";
+      /** `cannot_open`: the PDF needs a password, or is not a readable PDF. */
+      kind:
+        | "unsupported"
+        | "no_text"
+        | "no_tables"
+        | "too_large"
+        | "cannot_open"
+        | "failed";
       limitBytes?: number;
       message: string;
     };
@@ -408,7 +416,11 @@ export async function runTableExtract(
         outputBytes: output.byteLength,
       },
     };
-  } catch {
+  } catch (err) {
+    // A file the extractor cannot OPEN is a fact about the file, not a fault:
+    // say which (password or damaged) instead of the generic failure.
+    const open = pdfTextOpenFailure(err);
+    if (open) return { ok: false, kind: open.kind, message: open.message };
     return {
       ok: false,
       kind: "failed",

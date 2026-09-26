@@ -55,6 +55,8 @@ function jobError(run: Failure): JobError {
         retryable: false,
       };
     case "no_text":
+    case "cannot_open":
+      // Both are facts about the file: retrying cannot change them.
       return {
         code: "unprocessable_entity",
         message: run.message,

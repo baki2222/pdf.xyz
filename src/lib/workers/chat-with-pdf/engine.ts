@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
   describeWindow,
@@ -129,6 +130,8 @@ export type ChatWithPdfFailureKind =
   | "unsupported"
   | "ai_unconfigured"
   | "no_text"
+  /** The PDF needs a password, or is not a readable PDF: a fact about the file. */
+  | "cannot_open"
   | "too_large"
   | "rate_limited"
   | "content_filtered"
@@ -385,7 +388,12 @@ export async function runChatWithPdf(
   let extracted: ExtractedPdfText;
   try {
     extracted = await extract(input);
-  } catch {
+  } catch (err) {
+    // A file the extractor cannot OPEN (it needs a password, or is not a
+    // readable PDF) gets its own reason, never the generic failure. No model
+    // has been called yet, so this failure has spent nothing.
+    const open = pdfTextOpenFailure(err);
+    if (open) return { ok: false, ...open };
     return {
       ok: false,
       kind: "failed",
