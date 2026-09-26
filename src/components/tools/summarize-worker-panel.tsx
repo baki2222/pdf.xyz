@@ -128,9 +128,10 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
             The worker extracts your PDF&apos;s selectable text and asks a
             configured AI model to summarize only that text, then returns a
             summary package — Markdown, plain text, and a manifest recording the
-            model and scope. It never fabricates a summary: with no AI model
-            configured, or a scanned PDF with no selectable text, it fails
-            honestly instead of guessing.
+            model and scope. With no AI model configured, or a scanned PDF with
+            no selectable text, the job fails instead of guessing. The model is
+            instructed to use only the document&apos;s text, but AI output can
+            still be wrong, so check important details against your PDF.
           </p>
         </div>
 
@@ -268,9 +269,10 @@ function SummaryBuilder() {
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker summarizes
-        only the PDF&apos;s selectable text with a configured AI model — it does
-        not read scanned images (run OCR first) and does not invent content.
+        Running this uses a private secure-worker job. The worker sends only the
+        PDF&apos;s selectable text to a configured AI model — it does not read
+        scanned images (run OCR first) — and the model is told to summarize only
+        that text. AI output can still be wrong.
       </p>
 
       {file ? (

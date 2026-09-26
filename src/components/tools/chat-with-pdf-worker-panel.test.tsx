@@ -473,3 +473,30 @@ describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
     expect(screen.queryByText(/could be read/)).not.toBeInTheDocument();
   });
 });
+
+describe("ChatWithPdfWorkerPanel — every answer carries its caveat", () => {
+  /**
+   * The chat bubble is the one surface every user reads, and the panel above
+   * it used to say the model "never invents an answer". The only safeguard is
+   * a prompt instruction, so each rendered answer carries a plain caveat —
+   * not conditional on citations, which an ungrounded answer does not have.
+   */
+  it("renders the caveat under each answer, one per answer", async () => {
+    const { AI_ANSWER_CAVEAT } = await import("./chat-with-pdf-worker-panel");
+    stubStatus();
+    runWorkerChatWithPdf
+      .mockImplementationOnce(() => workerSuccess("Q1?", "First [p.1]."))
+      .mockImplementationOnce(() => workerSuccess("Q2?", "Second [p.1]."));
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q1?");
+    expect(await screen.findByText("First [p.1].")).toBeInTheDocument();
+    expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(1);
+
+    await ask("Q2?");
+    expect(await screen.findByText("Second [p.1].")).toBeInTheDocument();
+    expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(2);
+    expect(AI_ANSWER_CAVEAT).toMatch(/AI-generated/);
+  });
+});

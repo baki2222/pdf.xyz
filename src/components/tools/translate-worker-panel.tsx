@@ -131,9 +131,11 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
             configured AI model to translate only that text into your target
             language, then returns a translation package — Markdown, plain text,
             and a manifest recording the model and scope. It produces translated
-            text (not a layout-preserving PDF) and never fabricates a
-            translation: with no AI model configured, or a scanned PDF with no
-            selectable text, it fails honestly instead of guessing.
+            text (not a layout-preserving PDF). With no AI model configured, or
+            a scanned PDF with no selectable text, the job fails instead of
+            guessing. The model is instructed to translate only the
+            document&apos;s text, but AI output can still be wrong, so check
+            important passages against your PDF.
           </p>
         </div>
 
@@ -334,9 +336,10 @@ function TranslateBuilder() {
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker translates
-        only the PDF&apos;s selectable text with a configured AI model — it does
-        not read scanned images (run OCR first) and does not invent content.
+        Running this uses a private secure-worker job. The worker sends only the
+        PDF&apos;s selectable text to a configured AI model — it does not read
+        scanned images (run OCR first) — and the model is told to translate only
+        that text. AI output can still be wrong.
       </p>
 
       {file ? (

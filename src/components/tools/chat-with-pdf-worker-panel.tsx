@@ -41,6 +41,15 @@ import { NotifyMe } from "./notify-me";
 
 type Phase = "loading" | "error" | "ready";
 
+/**
+ * Shown under every answer. The only safeguard against a wrong answer is an
+ * instruction in the prompt; nothing checks the answer against the text, so
+ * the chat bubble — the one surface everyone reads — must not read as a
+ * guarantee. Exported for its test.
+ */
+export const AI_ANSWER_CAVEAT =
+  "AI-generated. Check it against your PDF before relying on it.";
+
 function badgeFor(
   phase: Phase,
   status: WorkerStatus | null,
@@ -116,10 +125,11 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
             configured AI model to answer your question using only that text —
             with inline page citations when the document has page-level text —
             then returns an answer package (the model&apos;s answer, a
-            plain-text copy, and a manifest recording the model and scope). It
-            never fabricates answers: with no AI model configured, a scanned PDF
-            with no selectable text, or an empty model reply, it fails honestly
-            instead of guessing.
+            plain-text copy, and a manifest recording the model and scope). With
+            no AI model configured, a scanned PDF with no selectable text, or an
+            empty model reply, the job fails instead of guessing. The model is
+            instructed to use only the document&apos;s text, but AI answers can
+            still be wrong, so check important answers against your PDF.
           </p>
         </div>
 
@@ -343,9 +353,10 @@ function ChatBuilder() {
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker answers only
-        from the PDF&apos;s selectable text with a configured AI model — it does
-        not read scanned images (run OCR first) and never invents an answer.
+        Running this uses a private secure-worker job. The worker sends only the
+        PDF&apos;s selectable text to a configured AI model — it does not read
+        scanned images (run OCR first) — and the model is told to answer only
+        from that text. AI answers can still be wrong.
       </p>
 
       {file ? (
@@ -440,9 +451,16 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
           {entry.answer !== null ? (
             // The model's answer verbatim, exactly as shipped in the package — never a
             // paraphrase, and never anything the panel composed itself.
-            <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">
-              {entry.answer}
-            </p>
+            <>
+              <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">
+                {entry.answer}
+              </p>
+              {/* Under EVERY answer, and not conditional on citations: an
+                  ungrounded answer has none to point at. */}
+              <p className="text-muted text-xs leading-relaxed">
+                {AI_ANSWER_CAVEAT}
+              </p>
+            </>
           ) : (
             <p className="text-warn text-sm leading-relaxed">
               The answer package came back, but its answer could not be read

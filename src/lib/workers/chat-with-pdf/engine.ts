@@ -511,8 +511,8 @@ export async function runChatWithPdf(
       : {}),
     grounded,
     notice: grounded
-      ? "This answer was produced by an AI model from ONLY the SELECTABLE TEXT of the source PDF, with inline page-level citations ([p.N]). The model may still err — verify against the original before relying on it. Nothing was answered from outside the document."
-      : "This answer was produced by an AI model from ONLY the SELECTABLE TEXT of the source PDF. The extractor reported no page metadata, so the answer is grounded in the selectable text without page-level citations. The model may still err — verify against the original before relying on it. Nothing was answered from outside the document.",
+      ? "This answer was produced by an AI model instructed to use only the SELECTABLE TEXT of the source PDF, with inline page-level citations ([p.N]). The model may still err — verify against the original before relying on it. The model was instructed not to use outside knowledge."
+      : "This answer was produced by an AI model instructed to use only the SELECTABLE TEXT of the source PDF. The extractor reported no page metadata, so the answer comes without page-level citations. The model may still err — verify against the original before relying on it. The model was instructed not to use outside knowledge.",
   };
 
   const output = await buildPackage(options.question, answer, manifest);
