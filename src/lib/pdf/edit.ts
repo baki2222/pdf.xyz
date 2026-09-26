@@ -31,9 +31,11 @@ import { embedStampFont, loadPdf, stampProducer } from "./stamp";
  * covered content — use the redact tool when the data must actually be gone).
  *
  * Coordinate model: PDF points from the page's bottom-left corner, in the page's
- * *unrotated* content space (pdf-lib's draw space) — the same honest caveat the
- * overlay/annotate tools document. On the uncommon page carrying a `/Rotate`
- * flag, new content follows the content, not the viewer's rotation.
+ * *unrotated* content space (pdf-lib's draw space) — the same caveat the overlay
+ * tool documents. On a page carrying a `/Rotate` flag (every page the Rotate
+ * tool has touched), new content follows the content, not the viewer's
+ * rotation. Annotate no longer shares this: it maps from the displayed frame
+ * with `toContentSpace` in annotate.ts, which this tool could reuse.
  *
  * Geometry, color, wrapping, and validation are pure functions so they can be
  * unit-tested with plain numbers; only {@link getEditPageSizes} and
