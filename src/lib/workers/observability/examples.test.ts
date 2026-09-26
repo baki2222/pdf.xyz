@@ -2,11 +2,25 @@
 /**
  * Static, no-secret proof for the committed observability examples under
  * `docs/examples/observability/`. It pins each example to the metric schema — every
- * metric, label, and SLO id it references must be on the allowlist — and asserts each
- * file is content-free (no endpoint, host, bucket, key, filename, or secret). Offline:
- * it reads committed files only.
+ * metric, label, and SLO id it references must be on the allowlist — and asserts every
+ * file in the directory TREE is content-free (no endpoint, host, bucket, key, filename,
+ * or secret). Offline: it reads committed files only.
+ *
+ * History: the leak scan used to walk a hand-typed list of the 4 top-level files while
+ * this docblock claimed the directory. The tree holds 11: the six `healthcheck/*.json`
+ * were scanned by `ops-check/examples.test.ts`, but `healthcheck/README.md` was scanned
+ * by nothing, and any new example file would have been too. The set is now DISCOVERED
+ * by walking the tree, with a floor so a walk that quietly shrinks cannot pass.
  */
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { METRIC_NAMES, METRIC_SCHEMA, type WorkerMetricName } from "./metrics";
@@ -16,12 +30,36 @@ const DIR = join(process.cwd(), "docs", "examples", "observability");
 const read = (f: string): string => readFileSync(join(DIR, f), "utf8");
 const readJson = (f: string): unknown => JSON.parse(read(f));
 
-const FILES = [
+/** Every file under `root`, recursively, as sorted POSIX paths relative to `root`. */
+function walk(root: string, prefix = ""): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(join(root, prefix), {
+    withFileTypes: true,
+  })) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out.push(...walk(root, rel));
+    else if (entry.isFile()) out.push(rel);
+  }
+  return out.sort();
+}
+
+/** The scanned set: discovered from the tree, never typed. */
+const FILES = walk(DIR);
+
+/**
+ * The floor for the discovered set. Not the subjects (the walk supplies those) — a
+ * bound, so a walk that stops descending or a directory that moves fails LOUDLY
+ * instead of reporting the vacuous pass of scanning nothing. The four top-level
+ * files, plus the one nested doc no other test scanned before this walk existed.
+ */
+const MUST_SCAN = [
   "dashboard.json",
   "alerts.json",
   "alerts.prometheus.yml",
   "README.md",
+  "healthcheck/README.md",
 ];
+const MIN_FILES = 11;
 
 const FORBIDDEN = [
   "amazonaws",
@@ -35,13 +73,51 @@ const FORBIDDEN = [
   "bearer ",
 ];
 
+/** The FORBIDDEN entries `text` contains, case-insensitively. */
+function leaksIn(text: string): string[] {
+  const lower = text.toLowerCase();
+  return FORBIDDEN.filter((leak) => lower.includes(leak));
+}
+
+/** Every `file: leak` pair in the tree under `root` — the scan the test runs. */
+function scanTree(root: string): string[] {
+  return walk(root).flatMap((file) =>
+    leaksIn(readFileSync(join(root, file), "utf8")).map(
+      (leak) => `${file}: ${leak}`,
+    ),
+  );
+}
+
 describe("observability examples — content-free", () => {
-  it("no example leaks an endpoint, bucket, credential, or scheme", () => {
-    for (const file of FILES) {
-      const text = read(file).toLowerCase();
-      for (const leak of FORBIDDEN) {
-        expect(text, `${file} must not leak ${leak}`).not.toContain(leak);
-      }
+  it("the scanned set is discovered from the tree and cannot quietly shrink", () => {
+    for (const f of MUST_SCAN) expect(FILES, `the walk lost ${f}`).toContain(f);
+    expect(FILES.length).toBeGreaterThanOrEqual(MIN_FILES);
+    // It descends: at least one scanned file is nested below the top level.
+    expect(FILES.some((f) => f.includes("/"))).toBe(true);
+  });
+
+  it("no example anywhere in the tree leaks an endpoint, bucket, credential, or scheme", () => {
+    expect(scanTree(DIR)).toEqual([]);
+  });
+
+  it("positive control: every FORBIDDEN entry is caught, in any case, in a nested file", () => {
+    // Rule 1 in the other direction: a pattern nothing exercises is decoration.
+    for (const leak of FORBIDDEN) {
+      expect(leaksIn(`x ${leak.toUpperCase()} x`), leak).toContain(leak);
+    }
+    // And the composed walk + scan reaches a file two levels down.
+    const root = mkdtempSync(join(tmpdir(), "obs-examples-"));
+    try {
+      mkdirSync(join(root, "a", "b"), { recursive: true });
+      writeFileSync(join(root, "clean.md"), "worker_job_total{outcome=ok}\n");
+      writeFileSync(
+        join(root, "a", "b", "leak.md"),
+        "curl https://example.invalid\n",
+      );
+      expect(walk(root)).toEqual(["a/b/leak.md", "clean.md"]);
+      expect(scanTree(root)).toEqual(["a/b/leak.md: ://"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
