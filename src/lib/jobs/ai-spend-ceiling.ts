@@ -41,6 +41,12 @@ export const AI_SPEND_CEILING = {
    */
   measuredOn: "provisional",
   /**
+   * When the figure became provisional (bcce473). Bounded in age by
+   * `provisional-age.test.ts`: past the limit it is re-measured or renewed
+   * on purpose, never left to drift.
+   */
+  provisionalSince: "2026-08-11",
+  /**
    * ENFORCED, not estimated: the output budget translate actually sends, so it
    * is the most output tokens a single run can produce. Imported rather than
    * typed, so it cannot drift from the request that produces it.

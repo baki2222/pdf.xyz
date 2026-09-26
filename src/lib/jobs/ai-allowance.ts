@@ -140,9 +140,14 @@ export const AI_CHARACTER_ALLOWANCE = Math.floor(
   AI_CHARACTER_ALLOWANCE_DELIVERED * TRANSLATE_EXTRACTOR_HEADROOM,
 );
 
-/** Where the figure came from, so its age is visible rather than implicit. */
+/**
+ * Where the figure came from, and since when it has been provisional.
+ * `provisionalSince` is the commit that introduced it (3f17b0d). The age limit
+ * is enforced by `provisional-age.test.ts`, not by this comment.
+ */
 export const AI_CHARACTER_ALLOWANCE_BASIS = {
   measuredOn: "provisional",
+  provisionalSince: "2026-08-21",
   /** The PUBLISHED figure. The bucket is this times the extractor headroom. */
   derivedFrom: "TRANSLATE_MAX_INPUT_CHARS × aiRunsPerDayPerClient",
   /** Why pages lost: the measured density spread this budget maps onto. */
