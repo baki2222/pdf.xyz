@@ -176,6 +176,7 @@ describe("chat-with-pdf-client", () => {
           { role: "user", content: "hi" },
           { role: "assistant", content: "hello" },
         ],
+        declaration: { characters: 2_140, textPages: 3 },
       },
       { fetchImpl, sleep: async () => {} },
     );
@@ -190,6 +191,10 @@ describe("chat-with-pdf-client", () => {
         { role: "assistant", content: "hello" },
       ],
     });
+    // The document the panel measured travels beside the options, so the
+    // route reserves what this document uses instead of a whole call's worth.
+    expect(jobBody?.declaredCharacters).toBe(2_140);
+    expect(jobBody?.declaredTextPages).toBe(3);
   });
 
   it("omits context from the job body when none is provided", async () => {
@@ -250,11 +255,15 @@ describe("chat-with-pdf-client", () => {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
         question: "What is the total?",
+        declaration: null,
       },
       { fetchImpl, sleep: async () => {} },
     );
 
     expect(jobBody?.options).toEqual({ question: "What is the total?" });
+    // Uncounted means undeclared — never a zero, which the contract refuses.
+    expect(jobBody).not.toHaveProperty("declaredCharacters");
+    expect(jobBody).not.toHaveProperty("declaredTextPages");
   });
 
   it("surfaces the worker's honest error when no AI provider is configured", async () => {
@@ -301,6 +310,7 @@ describe("chat-with-pdf-client", () => {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
         question: "What is the total?",
+        declaration: null,
       },
       { fetchImpl, sleep: async () => {} },
     );

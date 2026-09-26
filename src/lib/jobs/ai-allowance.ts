@@ -203,5 +203,13 @@ export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection —
  * did. Naming the shared-network case answers that without reinstating the old
  * "shared across everyone using pdf.xyz", which claimed one bucket for the whole
  * product and was false for every visitor.
+ *
+ * TOOL-NEUTRAL, because the route cannot say which tool is refused: it is one
+ * constant, served by `rateLimitErrorResult` to every AI tool, and nothing
+ * passes the tool in. Until 2026-09-27 the middle sentence said "text
+ * translated by someone else" — false on the chat, summarize and extract pages,
+ * which is where the refusal was met most (a chat question used to cost a third
+ * of the day). `ratelimit/allowance-copy.test.ts` checks it against every AI
+ * tool in the catalogue.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include text translated by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include AI text used by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;

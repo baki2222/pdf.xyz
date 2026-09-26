@@ -150,11 +150,32 @@ export function deliveryCapFor(
     readonly declaredCharacters?: number;
     readonly declaredTextPages?: number;
   },
-  limits: { readonly fallbackCharacters: number; readonly headroom: number },
+  limits: {
+    readonly fallbackCharacters: number;
+    readonly headroom: number;
+    /**
+     * Characters the job also sends that BOTH ends count identically — chat's
+     * question and carried turns. Added after the headroom, because the
+     * headroom covers the two PDF extractors disagreeing and a request-body
+     * string has nothing to disagree about.
+     */
+    readonly exactCharacters?: number;
+    /**
+     * The most this job may reserve, whatever was declared. Chat caps at its
+     * undeclared reservation so that declaring never costs more than not
+     * declaring (`CHAT_MAX_CHARACTERS_PER_QUESTION`).
+     */
+    readonly maxCharacters?: number;
+  },
 ): JobDeliveryCap {
   const declared = request.declaredCharacters ?? limits.fallbackCharacters;
+  const reserved =
+    Math.ceil(declared * limits.headroom) + (limits.exactCharacters ?? 0);
   return {
-    characters: Math.ceil(declared * limits.headroom),
+    characters:
+      limits.maxCharacters !== undefined
+        ? Math.min(reserved, limits.maxCharacters)
+        : reserved,
     ...(request.declaredTextPages !== undefined
       ? { pages: request.declaredTextPages }
       : {}),

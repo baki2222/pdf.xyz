@@ -6,6 +6,8 @@ import {
 } from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
 import type { ChatTurn } from "@/lib/jobs/chat-with-pdf";
+import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { pageTextChunks } from "@/lib/pdf/text";
 
 /**
  * Browser-side driver for the secure-worker Chat with PDF flow (`chat-with-pdf`).
@@ -29,6 +31,75 @@ export interface ChatWithPdfWorkerInput {
   question: string;
   /** Optional prior conversation (complete user/assistant pairs) for a follow-up. */
   context?: ChatTurn[];
+  /**
+   * The document as the browser counted it, or `null` when it could not.
+   *
+   * **REQUIRED, and `null` has to be said out loud.** Until 2026-09-27 this
+   * client sent no count at all, so every question fell to the route's
+   * undeclared fallback and reserved a whole call's worth — a third of the
+   * day's allowance for a question about one page, and a three-message
+   * conversation per day. The fallback is correct and SILENT, so the one
+   * caller that can count must not be able to stop counting quietly: a
+   * missing field is a compile error here, not a quietly expensive job.
+   *
+   * Only the DOCUMENT is declared. The question and the carried turns are in
+   * the job's options, where the route counts them itself — exactly, with no
+   * extractor headroom (`chatReservationTerms`).
+   */
+  declaration: ChatDocumentCount | null;
+}
+
+/** What the panel measured about a PDF before uploading it. */
+export interface ChatDocumentCount {
+  /** Selectable-text characters, as pdfjs extracted them. Always > 0. */
+  characters: number;
+  /** Pages that carry text — the set both extractors agree on exactly. */
+  textPages: number;
+}
+
+export type ChatDocumentMeasurement =
+  | { kind: "counted"; count: ChatDocumentCount }
+  /** No selectable text: nothing to ask about until it has been OCR'd. */
+  | { kind: "no-text" }
+  /** The browser could not read the PDF; the job goes undeclared. */
+  | { kind: "uncounted" };
+
+/**
+ * Count a PDF the way the declaration needs it, once per file.
+ *
+ * `extract` is injected so the counting can be driven without a browser;
+ * the panel passes `extractPdfText`.
+ *
+ * THREE OUTCOMES, and each is honest in its own direction:
+ *  - `counted` — the job reserves what this document will use.
+ *  - `no-text` — the worker would refuse it anyway (`no_text`), and a zero
+ *    cannot be declared (the contract answers 400). The panel says so and
+ *    uploads nothing, so nothing is charged.
+ *  - `uncounted` — the browser's pdfjs could not parse what the worker's
+ *    `pdftotext` may well read. Refusing here would put a browser limitation
+ *    in front of a working tool, so the job goes undeclared and pays the
+ *    fallback — exactly the pre-declaration behaviour, never worse.
+ */
+export async function measureChatDocument(
+  bytes: Uint8Array,
+  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>,
+): Promise<ChatDocumentMeasurement> {
+  let extracted: ExtractedPdfText;
+  try {
+    extracted = await extract(bytes);
+  } catch {
+    return { kind: "uncounted" };
+  }
+  // PAGES WITH TEXT, from the same helper translate declares with: blank and
+  // image-only pages are dropped by both extractors before anything is sent.
+  const textPages = pageTextChunks(extracted.pages).length;
+  if (extracted.characterCount <= 0 || textPages === 0) {
+    return { kind: "no-text" };
+  }
+  return {
+    kind: "counted",
+    count: { characters: extracted.characterCount, textPages },
+  };
 }
 
 export function runWorkerChatWithPdf(
@@ -44,6 +115,8 @@ export function runWorkerChatWithPdf(
     input.bytes,
     jobOptions,
     options,
+    input.declaration?.characters,
+    input.declaration?.textPages,
   );
 }
 

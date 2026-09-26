@@ -9,12 +9,11 @@ import {
   Timer,
 } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
+import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
-  AI_INPUT_LIMITS,
-  DEFAULT_RETENTION,
-  JOB_LIMITS,
-} from "@/lib/jobs/types";
-import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
+  CHAT_MAX_CHARACTERS_PER_QUESTION,
+  MAX_QUESTION_CHARS,
+} from "@/lib/jobs/chat-with-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   AI_DAILY_ALLOWANCE_NOTE,
@@ -22,8 +21,11 @@ import {
 } from "@/lib/workers/ai-tool-availability";
 import {
   canRunChatWithPdf,
+  measureChatDocument,
   runWorkerChatWithPdf,
+  type ChatDocumentMeasurement,
 } from "@/lib/workers/chat-with-pdf-client";
+import { extractPdfText } from "@/lib/pdf/text";
 import {
   buildChatContext,
   readAnswerFromPackage,
@@ -125,7 +127,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {AI_DAILY_ALLOWANCE_NOTE} {CHAT_QUESTION_COST_NOTE}
           </p>
         )}
         {available ? (
@@ -187,13 +189,27 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters read`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters read per question`}
           />
         </div>
       </div>
     </div>
   );
 }
+
+/**
+ * What one question costs — the chat-specific half of the allowance.
+ *
+ * The shared allowance sentence says how much a connection gets; it cannot say
+ * what a chat question takes, and chat is the one AI tool whose cost repeats:
+ * the document is re-sent with every question. Stated from the same constant
+ * the route caps the reservation at and the worker caps the read at.
+ */
+const CHAT_QUESTION_COST_NOTE = `Each question counts this PDF's text, plus the question and the conversation sent with it, against the daily allowance — at most ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters a question, so a short document leaves room for many follow-ups.`;
+
+/** Shown instead of uploading a PDF the browser found no text in. */
+const NO_TEXT_MESSAGE =
+  "This PDF has no selectable text to ask about. It may be a scan or an image-only PDF — run OCR PDF first, then chat with the result. Nothing was uploaded, and nothing was charged to the daily AI allowance.";
 
 function SpecRow({
   icon: Icon,
@@ -273,6 +289,15 @@ function ChatBuilder() {
    * panel displays it as if it belonged to the file on screen.
    */
   const fileToken = useRef(0);
+  /**
+   * The document's measurement, ONCE per file — keyed by the same token, so a
+   * swapped PDF is measured afresh and a follow-up does not re-parse it. A
+   * promise rather than a value, so two quick questions share one parse.
+   */
+  const measurement = useRef<{
+    token: number;
+    result: Promise<ChatDocumentMeasurement>;
+  } | null>(null);
 
   const chooseFile = useCallback((next: File | null) => {
     fileToken.current += 1;
@@ -293,11 +318,29 @@ function ChatBuilder() {
     // forever with no error, recoverable only by reloading the page.
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
+      // MEASURED BEFORE ANYTHING IS SPENT, and declared with the job. Without
+      // the count every question reserved a whole call's worth — a third of
+      // the day for a question about one page.
+      if (measurement.current?.token !== startedFor) {
+        measurement.current = {
+          token: startedFor,
+          result: measureChatDocument(bytes, extractPdfText),
+        };
+      }
+      const measured = await measurement.current.result;
+      if (fileToken.current !== startedFor) {
+        return;
+      }
+      if (measured.kind === "no-text") {
+        setError(NO_TEXT_MESSAGE);
+        return;
+      }
       const result = await runWorkerChatWithPdf({
         filename: file.name,
         bytes,
         question: asked,
         ...(context.turns.length > 0 ? { context: context.turns } : {}),
+        declaration: measured.kind === "counted" ? measured.count : null,
       });
       // The document changed while this was running: the answer is about a file the user
       // has already replaced, so it belongs to no transcript on screen. Drop it rather

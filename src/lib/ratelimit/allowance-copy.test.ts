@@ -49,6 +49,8 @@ import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
 import { AI_ALLOWANCE_USED_MESSAGE } from "./response";
 import { AI_ALLOWANCE_FACT } from "@/lib/tools/tool-facts";
 import { AI_DAILY_ALLOWANCE_NOTE } from "@/lib/workers/ai-tool-availability";
+import { tools } from "@/lib/tools";
+import { capabilityForMode } from "@/lib/jobs/capabilities";
 
 /** Two genuinely different callers, as a proxy/CDN would present them. */
 const headersFor = (address: string) =>
@@ -246,5 +248,61 @@ describe("the AI allowance copy matches what the limiter can distinguish", () =>
         `${where} does not say what the allowance is counted against`,
       ).toMatch(/\bconnection\b/i);
     }
+  });
+});
+
+/**
+ * The refusal is ONE sentence served to EVERY AI tool.
+ *
+ * `rateLimitErrorResult` picks `AI_ALLOWANCE_USED_MESSAGE` by action, and the
+ * route passes no tool — so whatever the sentence says about how the allowance
+ * was spent, it says on the chat, summarize, translate and extract pages
+ * alike. Until 2026-09-27 it said "text translated by someone else", and the
+ * page it was met on most was Chat with PDF, where every question cost a third
+ * of the day.
+ *
+ * The corpus is DERIVED from the catalogue — every AI tool's action word, from
+ * its slug — so a fifth AI tool is checked the day it lands.
+ */
+describe("the allowance refusal is true on every AI tool's page", () => {
+  const aiTools = tools.filter(
+    (tool) => capabilityForMode(tool.processing) === "ai",
+  );
+  /** A tool's action, from its slug: `translate-pdf` → `transl`. */
+  const actionStems = (slug: string) =>
+    slug
+      .split("-")
+      .filter((word) => !["pdf", "with", "ai"].includes(word))
+      .map((word) => word.slice(0, 6));
+  const stems = aiTools.flatMap((tool) =>
+    actionStems(tool.slug).map((stem) => ({ slug: tool.slug, stem })),
+  );
+  const toolSpecific = (text: string) =>
+    stems.filter(({ stem }) => text.toLowerCase().includes(stem));
+
+  it("derives an action for every AI tool (vacuity bound: 4 known today)", () => {
+    expect(aiTools.length).toBeGreaterThanOrEqual(4);
+    for (const tool of aiTools) {
+      expect(
+        actionStems(tool.slug).length,
+        `${tool.slug} yielded no action word — the check below would skip it`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("POSITIVE CONTROL: catches the sentence that shipped until 2026-09-27", () => {
+    const shipped =
+      "The 30,774 free characters of AI text for this connection are used up for today. On a shared network that can include text translated by someone else.";
+    expect(toolSpecific(shipped).map(({ slug }) => slug)).toContain(
+      "translate-pdf",
+    );
+  });
+
+  it("names no single tool's action", () => {
+    expect(
+      toolSpecific(AI_ALLOWANCE_USED_MESSAGE),
+      "the refusal every AI tool serves describes one tool's use — false on " +
+        "the others' pages",
+    ).toEqual([]);
   });
 });
