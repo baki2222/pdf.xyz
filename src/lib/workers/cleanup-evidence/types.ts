@@ -168,12 +168,6 @@ export interface CleanupEvidencePosture {
   readonly detail: string;
 }
 
-/** Stable identity of the cleanup evidence monitoring policy — for docs/receipts/audit. */
-export const CLEANUP_EVIDENCE_POLICY_ID =
-  "pdfxyz-worker-cleanup-evidence-monitor";
-/** Bump when the posture/reason taxonomy or its resolution semantics change. */
-export const CLEANUP_EVIDENCE_POLICY_VERSION = 1;
-
 /** The default cleanup evidence posture: monitoring is OFF until a report path is configured. */
 export const DISABLED_CLEANUP_EVIDENCE_POSTURE: CleanupEvidencePosture = {
   state: "disabled",
