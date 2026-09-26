@@ -30,6 +30,8 @@ import {
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { PdfEngineError } from "@/lib/pdf/engine";
+import { isLikelyPdf } from "@/lib/pdf/files";
 import { extractPdfText, pageTextChunks } from "@/lib/pdf/text";
 import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import {
@@ -67,6 +69,30 @@ function badgeFor(
   return canRunTranslate(status)
     ? { tone: "ok", label: "Secure worker", pulse: false }
     : { tone: "muted", label: "Not enabled", pulse: false };
+}
+
+/**
+ * What the user reads when the run throws. The local text parse runs in the
+ * same `try` as the network job, and the catch used to call EVERY throw a lost
+ * connection — so a password-protected or damaged PDF, which never touches
+ * the network, told the user to check their network. The parse now throws a
+ * typed `PdfEngineError` with the same copy the other PDF tools use;
+ * `runWorkerTranslate` reports its own failures as a returned result, so what
+ * is left is genuinely a transport failure.
+ */
+export function translateFailureMessage(err: unknown): string {
+  if (err instanceof PdfEngineError) return err.message;
+  return "Lost the connection before the job finished. Check your network and try again.";
+}
+
+/** Why a picked file cannot be translated, or `null` when it is a PDF. */
+export function pickedFileProblem(file: {
+  name: string;
+  type: string;
+}): string | null {
+  return isLikelyPdf(file)
+    ? null
+    : `"${file.name}" isn't a PDF — choose a .pdf file.`;
 }
 
 export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
@@ -318,15 +344,8 @@ function TranslateBuilder() {
         declaredTextPages: textPages.length,
       });
       setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
+    } catch (err) {
+      setOutcome({ ok: false, message: translateFailureMessage(err) });
     } finally {
       setBusy(false);
     }
@@ -358,7 +377,14 @@ function TranslateBuilder() {
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          onFiles={(files) => {
+            // A drop is not filtered by `accept`, so a .docx dropped here would
+            // otherwise reach the local parse and fail there.
+            const picked = files[0] ?? null;
+            const reason = picked ? pickedFileProblem(picked) : null;
+            setOutcome(reason ? { ok: false, message: reason } : null);
+            setFile(reason ? null : picked);
+          }}
           accept="application/pdf,.pdf"
           multiple={false}
           compact

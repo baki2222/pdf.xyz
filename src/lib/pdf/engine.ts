@@ -67,6 +67,30 @@ export async function pdfLoadError(
   return new PdfEngineError(UNREADABLE_PDF_MESSAGE);
 }
 
+/** pdf.js's names for "this is not a readable PDF". */
+const PDFJS_UNREADABLE = new Set([
+  "InvalidPDFException",
+  "MissingPDFException",
+  "FormatError",
+]);
+
+/**
+ * The same translation for a pdf.js load failure (text extraction, layout).
+ * pdf.js already knows whether a password is needed, so no probe runs. A
+ * failure that is NOT about the file — a worker that failed to start, a chunk
+ * that did not load — is returned unchanged: calling it "not a PDF" would send
+ * the user to fix a file that is fine.
+ */
+export function pdfjsLoadError(err: unknown): unknown {
+  const name = (err as { name?: unknown } | null)?.name;
+  if (name === "PasswordException")
+    return new PdfEncryptedError("needs-password");
+  if (typeof name === "string" && PDFJS_UNREADABLE.has(name)) {
+    return new PdfEngineError(UNREADABLE_PDF_MESSAGE);
+  }
+  return err;
+}
+
 /**
  * Load PDF bytes into a pdf-lib document, translating pdf-lib's raw failures
  * into typed, user-facing errors. Exported so text-stamping helpers (page

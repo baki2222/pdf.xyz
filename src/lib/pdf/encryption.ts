@@ -62,11 +62,12 @@ export const ENCRYPTED_PDF_MESSAGES: readonly string[] = [
 ];
 
 /** The slice of pdf.js the probe needs. */
+type OpenDocument = (src: Record<string, unknown> & { data: Uint8Array }) => {
+  promise: Promise<unknown>;
+  destroy(): Promise<void>;
+};
 export interface PdfjsOpener {
-  getDocument(src: Record<string, unknown> & { data: Uint8Array }): {
-    promise: Promise<unknown>;
-    destroy(): Promise<void>;
-  };
+  getDocument: OpenDocument;
 }
 
 let workerConfigured = false;

@@ -1,3 +1,4 @@
+import { pdfjsLoadError } from "./engine";
 import { outputName } from "./files";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 
@@ -153,11 +154,25 @@ export function textOutputName(sourceName: string): string {
  */
 export async function extractPdfText(
   bytes: Uint8Array,
+  // Injectable so the load-failure mapping can be run under Node with the
+  // legacy build; the modern build needs `DOMMatrix`.
+  load: () => Promise<
+    Pick<typeof import("pdfjs-dist"), "getDocument">
+  > = loadPdfjs,
 ): Promise<ExtractedPdfText> {
-  const pdfjs = await loadPdfjs();
+  const pdfjs = await load();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
-  const doc = await loadingTask.promise;
+  let doc: Awaited<typeof loadingTask.promise>;
+  try {
+    doc = await loadingTask.promise;
+  } catch (err) {
+    await loadingTask.destroy().catch(() => {});
+    // A password-protected or unreadable file gets the same typed, user-facing
+    // copy the pdf-lib tools give — not pdf.js's raw "No password given", and
+    // never a caller's catch-all (Translate called it a lost connection).
+    throw pdfjsLoadError(err);
+  }
 
   try {
     const pages: ExtractedTextPage[] = [];
