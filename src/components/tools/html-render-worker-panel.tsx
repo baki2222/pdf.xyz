@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, FileCode, Globe, ShieldCheck, Timer } from "lucide-react";
+import {
+  Download,
+  FileCode,
+  Globe,
+  Info,
+  ShieldCheck,
+  Timer,
+} from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -11,6 +18,10 @@ import {
   runWorkerWebpageToPdf,
   type HtmlRenderWorkerResult,
 } from "@/lib/workers/html-render-client";
+import {
+  findUnbundledAssetsInHtml,
+  unbundledAssetsNote,
+} from "@/lib/workers/html-render/unbundled-assets";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
@@ -230,11 +241,46 @@ function HtmlRenderUnavailable({
   );
 }
 
+/**
+ * The note for linked files this one-file upload will not carry, read from the
+ * chosen file on this machine — nothing is uploaded to work it out. The worker
+ * renders only the file itself, so a sibling `logo.png` or `style.css` comes
+ * out as a broken image or an unstyled page while the job still succeeds.
+ */
+function useUnbundledAssetsNote(file: File | null): string | null {
+  const [note, setNote] = useState<{ file: File; text: string | null } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!file) return;
+    let active = true;
+    file
+      .text()
+      .then((html) => {
+        if (active)
+          setNote({
+            file,
+            text: unbundledAssetsNote(findUnbundledAssetsInHtml(html)),
+          });
+      })
+      .catch(() => {
+        // Unreadable here means unreadable for the upload too; the run
+        // reports that. A note we cannot compute is simply not shown.
+      });
+    return () => {
+      active = false;
+    };
+  }, [file]);
+  // A note belongs to the file it was computed for, never to the next one.
+  return note && note.file === file ? note.text : null;
+}
+
 function HtmlRenderRunArea({ mode }: { mode: Mode }) {
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("https://");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<HtmlRenderWorkerResult | null>(null);
+  const assetsNote = useUnbundledAssetsNote(mode === "html" ? file : null);
 
   const start = useCallback(async () => {
     setBusy(true);
@@ -274,7 +320,7 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
         Running this uses a private secure-worker job.{" "}
         {mode === "url"
           ? "Only public http(s) URLs are accepted; private/localhost targets are rejected."
-          : "The uploaded HTML is stored only for the short worker lifecycle and wiped after processing."}
+          : "The uploaded HTML is stored only for the short worker lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses."}
       </p>
 
       {mode === "url" ? (
@@ -288,18 +334,29 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
           placeholder="https://example.com"
         />
       ) : file ? (
-        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
-          <span className="truncate">{file.name}</span>
-          <button
-            type="button"
-            onClick={() => {
-              setFile(null);
-              setOutcome(null);
-            }}
-            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
-          >
-            Remove
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+            <span className="truncate">{file.name}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setFile(null);
+                setOutcome(null);
+              }}
+              className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
+            >
+              Remove
+            </button>
+          </div>
+          {assetsNote && (
+            <p
+              role="status"
+              className="text-muted flex items-start gap-1.5 text-xs leading-relaxed"
+            >
+              <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              <span>{assetsNote}</span>
+            </p>
+          )}
         </div>
       ) : (
         <Dropzone
