@@ -18,7 +18,6 @@ import {
   PDFName,
   PDFNumber,
   PDFString,
-  StandardFonts,
   type PDFRef,
 } from "pdf-lib";
 
@@ -51,9 +50,7 @@ export async function makeSignedPdf(
   const count = opts.count ?? 1;
   const doc = await PDFDocument.create();
   if (opts.creator) doc.setCreator(opts.creator);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([300, 300]);
-  page.drawText("Signed contract", { x: 20, y: 150, size: 14, font });
   const ctx = doc.context;
 
   const fieldRefs: PDFRef[] = [];
