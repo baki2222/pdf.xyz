@@ -317,7 +317,9 @@ export interface CompressionResultMeta {
    *
    * There is no `unverified` for an unreadable OUTPUT: we produced that file, so
    * our own parser failing on it is evidence against the artifact, not missing
-   * information. That case fails.
+   * information. That case fails. The one exception is the no-worse swap, where
+   * the "output" is the person's original returned unchanged: we did not
+   * produce it, and it is `unverified` exactly as its input count is.
    */
   pageCheck: "verified" | "unverified" | "not-applicable";
   /** Input page count when known; `null` when it could not be established. */
@@ -442,6 +444,8 @@ export async function runCompression(
   let pageCheck: CompressionResultMeta["pageCheck"] = "not-applicable";
   let pagesIn: number | null = null;
   let pagesOut: number | null = null;
+  // True when the no-worse policy below handed back the person's own bytes.
+  let returnedOriginal = false;
   if (isNative) {
     const validate = deps.validate ?? looksLikePdf;
     if (!(await validate(output))) {
@@ -463,6 +467,7 @@ export async function runCompression(
         };
       }
       output = input;
+      returnedOriginal = true;
     }
 
     // The page check runs on the FINAL artifact, after the swap above — the
@@ -474,16 +479,24 @@ export async function runCompression(
     pagesIn = countIn.ok ? countIn.count : null;
     pagesOut = countOut.ok ? countOut.count : null;
 
-    if (!countOut.ok) {
+    if (!countOut.ok && !returnedOriginal) {
       // We produced this file and `looksLikePdf` blessed it, and our own parser
       // cannot find its page tree. That is not missing information.
+      //
+      // Only when WE produced it. After the swap above the artifact is the
+      // person's own upload, byte for byte, and a failed count of it is the
+      // same unknown as a failed count of the input — not evidence against
+      // anything. Until 2026-09-27 this branch fired there too: a
+      // permissions-only PDF with object streams (pdf-lib cannot decrypt the
+      // stream that holds its page tree) that Ghostscript could not shrink was
+      // reported as "an unreadable PDF" — about the file the person uploaded.
       return {
         ok: false,
         kind: "failed",
         message: "The compression engine produced an unreadable PDF.",
       };
     }
-    if (countIn.ok) {
+    if (countIn.ok && countOut.ok) {
       if (countOut.count < countIn.count) {
         return {
           ok: false,
@@ -496,7 +509,9 @@ export async function runCompression(
       }
       pageCheck = "verified";
     } else {
-      // The input could not be counted. The file may ship; the CLAIM may not.
+      // The input could not be counted (and, when the original came back, nor
+      // could the output, which is the same bytes). The file may ship; the
+      // CLAIM may not.
       pageCheck = "unverified";
     }
   }

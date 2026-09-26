@@ -54,6 +54,71 @@ describe("encrypted fixtures (health check: pdf-lib must refuse them)", () => {
   });
 });
 
+describe("the object-stream layout (a modern producer's encrypted file)", () => {
+  // The oracle is pdf.js, which has its own implementation of object streams,
+  // cross-reference streams and the security handler. A layout bug here makes
+  // pdf.js refuse the file, and these fail.
+  it("pdf.js opens the owner-only file with its real page count, and refuses the user-password one", async () => {
+    const lib = await pdfjs();
+    const restricted = await encryptPdf(await plainPdf(4), {
+      userPassword: "",
+      ownerPassword: "owner-secret",
+      objectStreams: true,
+    });
+    expect(await classifyPdfAccess(restricted, lib)).toEqual({
+      kind: "restricted",
+      pageCount: 4,
+    });
+    const locked = await encryptPdf(await plainPdf(2), {
+      userPassword: "open-me",
+      ownerPassword: "owner-secret",
+      objectStreams: true,
+    });
+    expect(await classifyPdfAccess(locked, lib)).toEqual({
+      kind: "password-required",
+    });
+  });
+
+  it("pdf.js reads the page TEXT back through the decryption, not just the page count", async () => {
+    const bytes = await encryptPdf(await plainPdf(2), {
+      userPassword: "",
+      ownerPassword: "owner-secret",
+      objectStreams: true,
+    });
+    const lib = (await pdfjs()) as unknown as typeof import("pdfjs-dist");
+    const task = lib.getDocument({ data: bytes.slice() });
+    const doc = await task.promise;
+    const page = await doc.getPage(2);
+    const text = (await page.getTextContent()).items
+      .map((i) => ("str" in i ? i.str : ""))
+      .join("");
+    await task.destroy();
+    expect(text).toContain("Statement page 2");
+  });
+
+  it("is the shape pdf-lib cannot read even with ignoreEncryption — and the classic layout is not (control)", async () => {
+    // This is the property the layout exists for: the page tree is ciphertext.
+    const modern = await encryptPdf(await plainPdf(3), {
+      userPassword: "",
+      ownerPassword: "owner-secret",
+      objectStreams: true,
+    });
+    await expect(
+      PDFDocument.load(modern, { ignoreEncryption: true }).then((d) =>
+        d.getPageCount(),
+      ),
+    ).rejects.toThrow();
+    // Control: the classic layout keeps its dictionaries in plaintext, so
+    // pdf-lib counts it — which is why it could not see this failure.
+    const classic = await encryptPdf(await plainPdf(3), {
+      userPassword: "",
+      ownerPassword: "owner-secret",
+    });
+    const doc = await PDFDocument.load(classic, { ignoreEncryption: true });
+    expect(doc.getPageCount()).toBe(3);
+  });
+});
+
 describe("classifyPdfAccess", () => {
   it("an owner-password-only PDF is RESTRICTED: it opens, with its real page count", async () => {
     const bytes = await encryptPdf(await plainPdf(3), {

@@ -214,10 +214,18 @@ function CompressSingle({
  * Until 2026-09-27 every one of these read "This PDF is password-protected"
  * and dead-ended, including the owner-password-only files that open in every
  * viewer with no prompt. Those are RESTRICTED: the lossless repack still cannot
- * rewrite them (pdf-lib does not decrypt), but the secure worker opens them the
- * way a viewer does, so that path stays mounted. Only a file that really needs
- * a password to open is sent to Unlock — Unlock asks for that password, which
- * is exactly why it is no help to a file that has none.
+ * rewrite them (pdf-lib does not decrypt), so the secure worker is offered as
+ * the one path that might. Only a file that really needs a password to open is
+ * sent to Unlock — Unlock asks for that password, which is exactly why it is no
+ * help to a file that has none.
+ *
+ * "Might" is the claim, not "can". The first version of this notice said the
+ * worker "opens files the way a PDF viewer does"; nothing had run a restricted
+ * file through a worker, and the one composed test that later did found the
+ * no-shrink branch reporting the person's own file as "an unreadable PDF"
+ * (fixed in the compression engine). Whether Ghostscript on the production
+ * image compresses these files is still unproven, so the copy says the worker
+ * may not be able to — and the runner test pins that it says so.
  */
 function CompressLocked({
   locked,
@@ -270,10 +278,11 @@ function CompressLocked({
             This PDF has permission restrictions
           </h3>
           <p className="text-muted/90 text-sm">
-            {LOCKED_PDF_COPY.restricted} You can still send it to the secure
-            worker below, which opens files the way a PDF viewer does. Its
-            compressed copy is a new file, and the owner&apos;s restrictions may
-            not carry over to it.
+            {LOCKED_PDF_COPY.restricted} You can still try the secure worker
+            below, but it may not be able to process an encrypted file. If it
+            can&apos;t, it will say so, and your file stays as it is. If it can,
+            the compressed copy is a new file, and the owner&apos;s restrictions
+            may not carry over to it.
           </p>
         </div>
       </div>
