@@ -172,6 +172,29 @@ typed `unavailable` instead of silently falling back to unsafe read→write beha
 | `PDFXYZ_QUEUE_MAX_ATTEMPTS`    | Optional | Dead-letter cap on delivery attempts; default 5, must be 1–20.                                                |
 | `PDFXYZ_QUEUE_JOB_TTL_SECONDS` | Optional | Retention TTL applied to every broker key; default 86400, must be 300–604800.                                 |
 
+#### Sealing job passwords (Protect / Unlock)
+
+A Protect or Unlock job carries the user's PDF password in its options, and the
+queue stores options in the job's spec until the job finishes, is cancelled or
+expires (or the TTL above lapses, if no worker ever claims it). Unsealed, that
+is plaintext in the broker. `src/lib/workers/queue/sealed-options.ts` seals
+every password field to a worker-only X25519 key before the spec is written:
+
+| Variable                      | Where  | Notes                                                                    |
+| ----------------------------- | ------ | ------------------------------------------------------------------------ |
+| `PDFXYZ_JOB_SEAL_PRIVATE_KEY` | Worker | base64url raw 32-byte X25519 private key. Opens sealed options on claim. |
+| `PDFXYZ_JOB_SEAL_PUBLIC_KEY`  | Web    | base64url raw 32-byte X25519 public key. Seals options before storing.   |
+
+Generate a pair with
+`node -e "const k=require('crypto').generateKeyPairSync('x25519');console.log('PRIVATE',k.privateKey.export({format:'jwk'}).d);console.log('PUBLIC',k.publicKey.export({format:'jwk'}).x)"`.
+**Order matters:** set the private key on the worker and rebuild/redeploy the
+worker image FIRST (it opens sealed and plaintext options alike), then set the
+public key on the web tier. The other order fails every Protect/Unlock job
+closed (the job fails; the password is not stored in the clear). A malformed
+public key refuses password jobs rather than storing them unsealed. Verify with
+`pnpm worker:prove-tools`: its protect → unlock chain only passes when the
+worker could open what the web tier sealed.
+
 Queue readiness is presence-only in `/api/worker/status`: it can say the queue is
 ready and configured, but never names the endpoint, token, prefix, variable names,
 or key names. **Enabling the queue does not enable processing** — with no worker

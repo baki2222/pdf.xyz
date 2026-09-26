@@ -118,7 +118,7 @@ const COPY: Record<
     icon: Lock,
     badge: "Secure-worker encryption",
     blurb:
-      "Encrypting a PDF needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker rather than in your browser. Your password is sent to that worker only to encrypt the file, and the input is wiped right after.",
+      "Encrypting a PDF needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker rather than in your browser. Your password is used only to encrypt the file and is deleted from our job queue when the job ends; the input is wiped right after.",
     cta: "Encrypt on the worker",
     running: "Encrypting on the worker…",
   },
@@ -263,8 +263,9 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
           No account required. This runs on an isolated secure worker: files are
           encrypted in transit and at rest, processed in a temporary per-job
           folder that is erased when the job ends, and deleted automatically.
-          Your password is used only to perform the operation and is never
-          stored or logged.
+          Your password is never logged. It waits in our job queue only until
+          the job finishes or is cancelled (or, if no worker picks it up, until
+          the queue&apos;s retention lapses), then it is deleted.
         </p>
       </div>
     </div>
@@ -441,7 +442,7 @@ function SecurityRunArea({
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker — the file and password are processed in-process on this machine, not sent to any third party."
-          : "Running this uploads your file to the encrypted secure worker; your password is sent to it only to perform the operation."}
+          : "Running this uploads your file to the encrypted secure worker; your password travels with the job through our queue and is used only to perform the operation."}
       </p>
 
       {file ? (
