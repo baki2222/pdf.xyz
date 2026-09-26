@@ -56,6 +56,20 @@ export const RATE_LIMIT_ACTIONS = [
 ] as const satisfies readonly RateLimitAction[];
 
 /**
+ * Actions that keep a policy but that NOTHING ENFORCES any more.
+ *
+ * `ai.run` stays in the union because a deployed record may still carry it;
+ * the free AI allowance moved to `ai.characters` (see `AI_ALLOWANCE_ACTION`).
+ * This is the one definition of "superseded": the runbook's policy table is
+ * every action minus these, and `rate-limiting-doc.test.ts` checks this list
+ * against the call sites it discovers, so it cannot claim an action is dead
+ * while a route still enforces it, or live after its last caller is gone.
+ */
+export const SUPERSEDED_RATE_LIMIT_ACTIONS = [
+  "ai.run",
+] as const satisfies readonly RateLimitAction[];
+
+/**
  * A typed throttle policy for one action: at most `limit` requests per
  * `windowSeconds` fixed window, per client bucket. `id` is a stable, content-free
  * label (it names the policy, never a caller) echoed in the decision so a monitor

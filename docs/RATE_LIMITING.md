@@ -24,24 +24,40 @@ of this repository or its tooling reads, stores, or transmits them.
 
 ## What is already enforced the moment it is on
 
-| Policy              | Limit | Window     |
-| ------------------- | ----- | ---------- |
-| `uploads.create`    | 60    | per hour   |
-| `jobs.create`       | 60    | per hour   |
-| `jobs.delete`       | 60    | per hour   |
-| `jobs.status`       | 120   | per minute |
-| `artifacts.fetch`   | 120   | per minute |
-| `worker.status`     | 120   | per minute |
-| `worker.operations` | 120   | per minute |
-| `interest.note`     | 30    | per hour   |
-| `ai.run`            | 3     | per day    |
+| Policy              | Limit     | Window     |
+| ------------------- | --------- | ---------- |
+| `uploads.create`    | 60        | per hour   |
+| `jobs.create`       | 60        | per hour   |
+| `jobs.status`       | 120       | per minute |
+| `jobs.delete`       | 60        | per hour   |
+| `artifacts.fetch`   | 120       | per minute |
+| `worker.status`     | 120       | per minute |
+| `worker.operations` | 120       | per minute |
+| `interest.note`     | 30        | per hour   |
+| `ai.characters`     | 123,096   | per day    |
+| `ai.spend`          | 2,000,000 | per day    |
 
-**Read that table as a GLOBAL budget today, not a per-visitor one.** The
-limiter buckets by the token `deriveClientToken` returns, and that function
-returns the single shared token `"shared"` for every request unless
-`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is on (`src/lib/ratelimit/identity.ts:61`). So
-with the recommended configuration, `ai.run` is 3 runs per day for **everyone
-combined**, and `uploads.create` is 60 per hour in total — not 60 each.
+Every row counts requests except the last two. `ai.characters` is the free
+AI allowance, counted in **characters**: the limit is the bucket the limiter
+debits, in worker-extracted characters, which is larger than the figure a
+visitor is told they can translate — Step 5 gives both figures and how to
+probe the allowance without spending it. `ai.spend` counts provider
+**tokens**, and it is the only cost control here: it keys every AI job into
+ONE global bucket (`AI_SPEND_BUCKET`), whatever the identity settings below,
+so it is a daily ceiling for the whole product, never a per-visitor limit.
+
+Nothing generates this table, so a test checks it instead:
+`src/lib/ratelimit/rate-limiting-doc.test.ts` requires exactly the policies
+some call site enforces, at the limit and window the code uses. A policy that
+is defined but superseded does not belong here.
+
+**Read the other rows as a GLOBAL budget unless per-client keying is on.**
+The limiter buckets by the token `deriveClientToken`
+(`src/lib/ratelimit/identity.ts`) returns, and that function returns the
+single shared token `"shared"` for every request unless
+`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is on AND `PDFXYZ_RATE_LIMIT_KEY_SALT` is set.
+Without both, `uploads.create` is 60 per hour in total — not 60 each — and
+the character allowance is one allowance for everyone combined.
 
 A refused request gets `429` with a `Retry-After`, not a silent drop.
 
