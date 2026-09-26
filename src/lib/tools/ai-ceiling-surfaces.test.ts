@@ -400,29 +400,22 @@ const PER_QUESTION_PROBES: Record<
 };
 
 /**
- * Pages whose rendered copy is KNOWN to state a ceiling its engine no longer
- * honours, because the file that renders it belongs to another change.
+ * NO EXEMPTIONS. Every AI tool in the catalogue goes through every per-tool
+ * check below, with no list of slugs to leave out.
  *
- * NOT AN ALLOWLIST, and the difference is the test below it: each entry is
- * asserted to be STILL WRONG, so the day the copy is corrected this goes red
- * and the entry must be deleted — the full per-tool checks then cover the page.
- * The exit condition is the property ("the page states the honoured ceiling"),
- * never a date or a merge.
- *
- * chat-with-pdf (2026-09-27): the engine's reading ceiling fell from the shared
- * 500,000 to `CHAT_MAX_CHARACTERS_PER_QUESTION` when chat began honouring the
- * reservation it is charged; the panel states the new figure. The FAQ answer
- * "How much of my PDF does Chat with PDF read?" is built in
- * `src/lib/tools/tool-facts.ts`, owned by the copy lane — it still interpolates
- * `AI_INPUT_LIMITS.maxInputCharacters` for every non-translate AI tool, and
- * ships that figure as FAQPage JSON-LD.
+ * INVERTED 2026-09-27, history kept. For one commit this file carried a
+ * `PENDING_COPY` map that took chat-with-pdf out of both "states its own
+ * ceiling" checks, because chat's FAQ answer "How much of my PDF does Chat
+ * with PDF read?" is built in `tool-facts.ts` (owned by a separate copy
+ * change) and still said 500,000 characters after chat's engine began reading
+ * at most `CHAT_MAX_CHARACTERS_PER_QUESTION`. Each entry was asserted to be
+ * "still wrong", so it would go red when the copy was fixed. That did not make
+ * it safe: while the entry stood, the false answer shipped as FAQPage JSON-LD
+ * with every guard that could see it switched off for that page. A guard that
+ * exempts a defect lets it ship, and the exemption reads like an argument that
+ * it was fine. If a page's copy lags its engine, this file goes RED and the
+ * change waits for the copy. It does not carve the page out.
  */
-const PENDING_COPY: Record<string, string> = {
-  "chat-with-pdf":
-    "tool-facts.ts FAQ 'How much of my PDF does Chat with PDF read?' must " +
-    "state CHAT_MAX_CHARACTERS_PER_QUESTION and page floors derived from it",
-};
-const checkedAiTools = aiTools.filter((tool) => !(tool.slug in PENDING_COPY));
 
 /* ------------------------------------------------------------------ *
  *  The checks.
@@ -539,33 +532,8 @@ describe("the per-question engine reads exactly its ceiling (run, not read)", ()
   );
 });
 
-describe("pages whose copy is pending elsewhere are STILL pending", () => {
-  it("every pending entry names a real AI tool (bound: at most 1)", () => {
-    const slugs = Object.keys(PENDING_COPY);
-    expect(slugs.length).toBeLessThanOrEqual(1);
-    for (const slug of slugs) {
-      expect(aiTools.map((t) => t.slug)).toContain(slug);
-    }
-  });
-
-  it.each(Object.keys(PENDING_COPY))(
-    "%s's page still states a ceiling its engine does not honour — delete the entry when this fails",
-    (slug) => {
-      const tool = aiTools.find((t) => t.slug === slug)!;
-      const honoured = honouredCeiling(slug);
-      const claims = renderedStrings(tool).flatMap(characterClaims);
-      expect(
-        claims.some((claim) => claim !== honoured),
-        `${slug}'s page now states only its honoured ceiling ` +
-          `(${honoured.toLocaleString("en-US")}). The copy is fixed: delete ` +
-          `"${slug}" from PENDING_COPY so the full per-tool checks cover it.`,
-      ).toBe(true);
-    },
-  );
-});
-
 describe("every stated ceiling is the honoured one", () => {
-  it.each(checkedAiTools.map((tool) => [tool.slug, tool] as const))(
+  it.each(aiTools.map((tool) => [tool.slug, tool] as const))(
     "%s's rendered page states its own ceiling and no other",
     (slug, tool) => {
       const honoured = honouredCeiling(slug);
@@ -587,7 +555,7 @@ describe("every stated ceiling is the honoured one", () => {
     },
   );
 
-  it.each(checkedAiTools.map((tool) => [tool.slug, tool] as const))(
+  it.each(aiTools.map((tool) => [tool.slug, tool] as const))(
     "%s's page-range figures re-derive from ITS ceiling, not the shared one",
     (slug, tool) => {
       // A right number with a stale page range beside it is the same defect

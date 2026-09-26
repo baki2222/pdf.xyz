@@ -189,7 +189,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters read per question`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · up to ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters per question, conversation included`}
           />
         </div>
       </div>

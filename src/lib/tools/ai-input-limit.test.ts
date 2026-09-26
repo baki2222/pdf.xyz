@@ -139,9 +139,8 @@ describe("the page range in copy is derived, and survives being checked", () => 
     //
     // chat-with-pdf LEFT this loop 2026-09-27, for the same reason translate
     // did: its engine no longer reads to the shared cap, so demanding the
-    // shared figure on its page would pin a false claim. Its FAQ is pending in
-    // the copy lane; `ai-ceiling-surfaces.test.ts` (PENDING_COPY) holds it and
-    // goes red the day it is fixed.
+    // shared figure on its page would pin a false claim. It has its own
+    // assertion below, which demands ITS figure — not an exemption.
     for (const slug of ["summarize-pdf", "ai-extract"]) {
       const tool = getToolBySlug(slug);
       expect(tool, `${slug} is missing from the catalogue`).toBeDefined();
@@ -188,6 +187,36 @@ describe("the page range in copy is derived, and survives being checked", () => 
       answers.join(" "),
       "translate-pdf's page states the shared READING cap, which its engine " +
         "will not honour — the 49x defect this file used to pin",
+    ).not.toContain(AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US"));
+  });
+
+  it("chat's page states ITS per-question ceiling — and never the shared one", () => {
+    // The PER-QUESTION tool: its engine reads at most what one question is
+    // charged, CHAT_MAX_CHARACTERS_PER_QUESTION, so that is the figure its FAQ
+    // (which ships as FAQPage JSON-LD) must give, with page floors from the
+    // same number. Page floors are derived HERE at the measured densities,
+    // independently of whatever the copy computes.
+    const tool = getToolBySlug("chat-with-pdf");
+    expect(tool, "chat-with-pdf is missing from the catalogue").toBeDefined();
+    const answers = toolFaq(tool!).map((entry) => entry.answer);
+    const stated = answers.filter((a) =>
+      a.includes(CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")),
+    );
+    expect(
+      stated.length,
+      "chat-with-pdf's page never states the per-question ceiling its engine reads to",
+    ).toBeGreaterThan(0);
+    const floors = [
+      AI_INPUT_LIMITS.densestCharactersPerPage,
+      AI_INPUT_LIMITS.sparsestCharactersPerPage,
+    ].map((perPage) =>
+      String(Math.floor(CHAT_MAX_CHARACTERS_PER_QUESTION / perPage)),
+    );
+    for (const floor of floors) expect(stated.join(" ")).toContain(floor);
+    expect(
+      answers.join(" "),
+      "chat-with-pdf's page states the shared 500,000 reading cap, but its " +
+        "engine reads at most one question's charge",
     ).not.toContain(AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US"));
   });
 

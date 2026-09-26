@@ -443,7 +443,12 @@ export async function runChatWithPdf(
       // Before any provider call. The route adds the conversation to every
       // reservation it makes — even a declaration of one character reserves
       // the conversation plus four — so only a cap the route did not make
-      // reaches this.
+      // reaches this. That holds only while every conversation the API
+      // accepts is shorter than the route's per-question cap: the chat parser
+      // alone admits 50,000 characters, and it is the 8 KB options limit that
+      // keeps them under 41,032. `chat-with-pdf.conversation-bound.test.ts`
+      // runs the longest accepted conversation through the real request
+      // parser and reservation formula and fails if it leaves no room.
       return {
         ok: false,
         kind: "over_reservation",
