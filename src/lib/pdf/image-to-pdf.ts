@@ -21,20 +21,55 @@ export interface ImagePdfInput {
   bytes: Uint8Array;
 }
 
+/**
+ * The MIME types and extensions each format is recognised by. ONE table for
+ * both the pick-time check ({@link isImageAllowedForKind}) and the file
+ * picker's `accept` ({@link imagePickerAccept}): when they were written apart,
+ * the check took PNG and JPG on both tools while the picker still hid the
+ * other format, so only drag-and-drop got the fix.
+ */
+const IMAGE_FORMATS = {
+  png: { types: ["image/png"], extensions: [".png"] },
+  jpg: { types: ["image/jpeg", "image/jpg"], extensions: [".jpg", ".jpeg"] },
+} as const satisfies Record<
+  RasterImageFormat,
+  { types: readonly string[]; extensions: readonly string[] }
+>;
+
+function looksLike(
+  format: RasterImageFormat,
+  file: Pick<ImagePdfInput, "name" | "type">,
+): boolean {
+  const { types, extensions } = IMAGE_FORMATS[format];
+  const name = file.name.toLowerCase();
+  return (
+    (types as readonly string[]).includes(file.type) ||
+    extensions.some((ext) => name.endsWith(ext))
+  );
+}
+
 export function isLikelyJpeg(
   file: Pick<ImagePdfInput, "name" | "type">,
 ): boolean {
-  return (
-    file.type === "image/jpeg" ||
-    file.type === "image/jpg" ||
-    /\.(jpe?g)$/i.test(file.name)
-  );
+  return looksLike("jpg", file);
 }
 
 export function isLikelyPng(
   file: Pick<ImagePdfInput, "name" | "type">,
 ): boolean {
-  return file.type === "image/png" || /\.png$/i.test(file.name);
+  return looksLike("png", file);
+}
+
+/**
+ * The file picker's `accept` for an image tool: every format
+ * {@link isImageAllowedForKind} takes, the tool's own format first.
+ */
+export function imagePickerAccept(kind: ImagePdfKind): string {
+  const order: RasterImageFormat[] =
+    kind === "jpg" ? ["jpg", "png"] : ["png", "jpg"];
+  return order
+    .flatMap((f) => [...IMAGE_FORMATS[f].types, ...IMAGE_FORMATS[f].extensions])
+    .join(",");
 }
 
 /**

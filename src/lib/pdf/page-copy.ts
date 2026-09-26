@@ -44,13 +44,28 @@ import type { PdfLibModule } from "./pdf-lib";
  *  2. Semantic repair on the output: a Link or GoTo whose target was dropped is
  *     removed (it would point into nothing); a widget's field tree is pruned to
  *     the widgets on kept pages and published as the output's `/AcroForm`, so
- *     the form stays fillable; `/B` (article beads) is dropped, since the
- *     thread list lives in a catalog we do not copy.
- *  3. A backstop that does not depend on knowing every annotation shape: every
- *     edge still pointing at the sentinel, at a page object outside the tree,
- *     or at a page-tree node that is not ours is cut, and then every indirect
+ *     the form stays fillable; a SubmitForm / ResetForm action's `/Fields` and
+ *     a Hide action's `/T` lose the fields that are not in that pruned tree,
+ *     and an action whose whole target list went is removed (an emptied
+ *     "submit these" list would read as "submit everything"); `/B` (article
+ *     beads) is dropped, since the thread list lives in a catalog we do not
+ *     copy.
+ *  3. A backstop keyed on three KINDS of object that belong to pages — page
+ *     leaves, page-tree nodes and form-field nodes — rather than on the edges
+ *     that reach them: every edge still pointing at the sentinel, at a page
+ *     object outside the tree, at a page-tree node that is not ours, or at a
+ *     field node outside the kept field trees is cut, and then every indirect
  *     object the trailer cannot reach is DELETED from the context, because the
  *     writer would otherwise ship it.
+ *
+ * What this does NOT promise: that nothing else a kept page references came
+ * from elsewhere in the source. Field data needed its own kind in layer 3
+ * because a field's dictionary is not an annotation, so layer 1 cannot mark it,
+ * and an action on a kept widget that names it BY REFERENCE (Acrobat's "submit
+ * / reset selected fields") carried its `/V` across — measured at 7394803, a
+ * 1-page extract shipped the other pages' filled values. A new kind of
+ * page-scoped object needs a new kind here; `page-copy.test.ts` FIXTURES is
+ * where each one found so far is pinned.
  */
 
 /** One source document and the 0-based pages to take from it, in order. */
@@ -72,7 +87,8 @@ const MAX_FIELD_DEPTH = 64;
 
 /**
  * Copy `sources`' selected pages, in order, into a fresh document and return
- * it with nothing in the file but what the kept pages need.
+ * it with no page, page-tree node or form field in the file that is not part
+ * of the output, and nothing the trailer cannot reach.
  */
 export async function assemblePages(
   lib: PdfLibModule,
@@ -129,7 +145,10 @@ export async function assemblePages(
 
   const tree = pageTree(lib, out);
   const keptAnnots = repairAnnotations(lib, out, tree, sentinel);
-  const fields = pruneFieldTrees(lib, out, keptAnnots);
+  const { roots: fields, live } = pruneFieldTrees(lib, out, keptAnnots);
+  const deadField = (value: PDFObject) =>
+    isDeadField(lib, out.context, live, sentinel, value);
+  pruneFieldActions(lib, out.context, deadField);
 
   if (options.carryDocumentState && fields.length > 0 && formRoots[0]) {
     const { acroForm, copier } = formRoots[0];
@@ -142,7 +161,7 @@ export async function assemblePages(
     out.catalog.set(PDFName.of("AcroForm"), out.context.register(af));
   }
 
-  cutForeignEdges(lib, out, tree, sentinel);
+  cutForeignEdges(lib, out, tree, sentinel, deadField);
   collectGarbage(lib, out.context, tree);
   return { out, pages };
 }
@@ -496,7 +515,7 @@ function pruneFieldTrees(
   lib: PdfLibModule,
   out: PDFDocument,
   keptAnnots: Set<PDFObject>,
-): PDFRefT[] {
+): { roots: PDFRefT[]; live: Set<PDFObject> } {
   const { PDFName, PDFArray, PDFDict, PDFRef } = lib;
   const context = out.context;
   const live = new Set<PDFObject>();
@@ -553,7 +572,153 @@ function pruneFieldTrees(
       .filter((kid) => live.has(context.lookup(kid) as PDFObject));
     node.set(PDFName.of("Kids"), context.obj(keptKids));
   }
-  return roots;
+  return { roots, live };
+}
+
+/**
+ * A form-field dictionary, terminal or not: it has a field type, or — for a
+ * non-terminal node, which need not — a text-string name. Three other kinds
+ * of dictionary carry a `/T` and are NOT fields: a markup annotation (its
+ * author; it has `/Subtype`), a Hide action or a structure element (both have
+ * `/S`; a Hide's `/T` may be a field's NAME), and a bead (its `/T` is a ref).
+ * A widget that is not merged with its field is an annotation, which layer 1
+ * already handles; what carries a field's value is the field dictionary.
+ */
+function isFieldNode(lib: PdfLibModule, obj: PDFObject | undefined): boolean {
+  const { PDFDict, PDFName, PDFPageLeaf, PDFString, PDFHexString } = lib;
+  if (!(obj instanceof PDFDict) || obj instanceof PDFPageLeaf) return false;
+  if (obj.has(PDFName.of("FT"))) return true;
+  if (obj.has(PDFName.of("Subtype")) || obj.has(PDFName.of("S"))) return false;
+  const title = obj.get(PDFName.of("T"));
+  return title instanceof PDFString || title instanceof PDFHexString;
+}
+
+/** True when `value` names a field that did not survive `pruneFieldTrees`. */
+function isDeadField(
+  lib: PdfLibModule,
+  context: PDFContext,
+  live: Set<PDFObject>,
+  sentinel: PDFRefT,
+  value: PDFObject,
+): boolean {
+  if (value === sentinel) return true;
+  const target = value instanceof lib.PDFRef ? context.lookup(value) : value;
+  return isFieldNode(lib, target) && !live.has(target as PDFObject);
+}
+
+/** Every object the trailer reaches, each resolved once. */
+function reachableObjects(lib: PdfLibModule, context: PDFContext): PDFObject[] {
+  const { PDFDict, PDFArray, PDFStream, PDFRef } = lib;
+  const visited = new Set<PDFObject>();
+  const stack: PDFObject[] = trailerRoots(context);
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    const obj = current instanceof PDFRef ? context.lookup(current) : current;
+    if (!obj || visited.has(obj)) continue;
+    visited.add(obj);
+    const dict =
+      obj instanceof PDFStream ? obj.dict : obj instanceof PDFDict ? obj : null;
+    if (dict) for (const [, value] of dict.entries()) stack.push(value);
+    else if (obj instanceof PDFArray) stack.push(...obj.asArray());
+  }
+  return [...visited];
+}
+
+/** Actions whose `/Fields` names fields to act on. */
+const FIELD_LIST_ACTIONS = ["SubmitForm", "ResetForm"];
+/** SubmitForm / ResetForm `/Flags` bit 1: the list names fields to EXCLUDE. */
+const EXCLUDE_FLAG = 1;
+
+/**
+ * Take the fields that did not survive out of every action that names fields
+ * by reference, wherever the action hangs (`/A`, `/AA`, a `/Next` chain, a
+ * field's own `/AA`). An action whose list is emptied is removed rather than
+ * left with an empty list: "submit these fields" with none left means nothing
+ * to do, while an empty or absent `/Fields` means EVERY field to a viewer.
+ * An exclude-list that empties just loses `/Fields` — "all but none" is all.
+ * A removed action hands its place to whatever its `/Next` still runs.
+ */
+function pruneFieldActions(
+  lib: PdfLibModule,
+  context: PDFContext,
+  deadField: (value: PDFObject) => boolean,
+): void {
+  const { PDFDict, PDFArray, PDFName, PDFNumber, PDFRef } = lib;
+  const dead = new Set<PDFObject>();
+  /** Drop dead fields from `list`; true when that left it empty. */
+  const emptied = (list: PDFArrayT): boolean => {
+    let removed = false;
+    for (let i = list.size() - 1; i >= 0; i--) {
+      if (deadField(list.get(i))) {
+        list.remove(i);
+        removed = true;
+      }
+    }
+    return removed && list.size() === 0;
+  };
+  for (const obj of reachableObjects(lib, context)) {
+    if (!(obj instanceof PDFDict)) continue;
+    const kind = obj.get(PDFName.of("S"));
+    if (!(kind instanceof PDFName)) continue;
+    if (FIELD_LIST_ACTIONS.includes(kind.decodeText())) {
+      const list = obj.lookupMaybe(PDFName.of("Fields"), PDFArray);
+      if (!list || !emptied(list)) continue;
+      const flags = obj.lookupMaybe(PDFName.of("Flags"), PDFNumber);
+      if ((flags?.asNumber() ?? 0) & EXCLUDE_FLAG) {
+        obj.delete(PDFName.of("Fields"));
+      } else dead.add(obj);
+    } else if (kind === PDFName.of("Hide")) {
+      const target = obj.get(PDFName.of("T"));
+      if (target === undefined) continue;
+      const list = context.lookup(target);
+      if (list instanceof PDFArray ? emptied(list) : deadField(target)) {
+        dead.add(obj);
+      }
+    }
+  }
+  if (dead.size === 0) return;
+
+  const resolve = (v: PDFObject): PDFObject =>
+    v instanceof PDFRef ? (context.lookup(v) ?? v) : v;
+  /** The live actions a dead one hands on to through `/Next`, in order. */
+  const handOn = (action: PDFObject, depth = 0): PDFObject[] => {
+    const dict = resolve(action);
+    if (!(dict instanceof PDFDict) || depth > 32) return [];
+    const next = dict.get(PDFName.of("Next"));
+    if (next === undefined) return [];
+    const resolved = resolve(next);
+    const steps = resolved instanceof PDFArray ? resolved.asArray() : [next];
+    return steps.flatMap((step) =>
+      dead.has(resolve(step)) ? handOn(step, depth + 1) : [step],
+    );
+  };
+  for (const obj of reachableObjects(lib, context)) {
+    if (obj instanceof PDFArray) {
+      for (let i = obj.size() - 1; i >= 0; i--) {
+        if (!dead.has(resolve(obj.get(i)))) continue;
+        const steps = handOn(obj.get(i));
+        obj.remove(i);
+        steps.reverse().forEach((step) => obj.insert(i, step));
+      }
+    } else if (obj instanceof PDFDict) {
+      for (const [key, value] of obj.entries()) {
+        if (!dead.has(resolve(value))) continue;
+        const [first, ...rest] = handOn(value);
+        if (first === undefined) obj.delete(key);
+        else if (rest.length === 0) obj.set(key, first);
+        else if (key === PDFName.of("Next")) {
+          obj.set(key, context.obj([first, ...rest]));
+        } else {
+          // A trigger slot holds ONE action; the rest ride on its /Next.
+          const head = resolve(first);
+          if (head instanceof PDFDict && !head.has(PDFName.of("Next"))) {
+            head.set(PDFName.of("Next"), context.obj(rest));
+          }
+          obj.set(key, first);
+        }
+      }
+    }
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -562,18 +727,20 @@ function pruneFieldTrees(
 
 /**
  * Walk everything the trailer reaches and cut any edge that still points at a
- * dropped page, a foreign page-tree node, or the sentinel.
+ * dropped page, a foreign page-tree node, a field outside the kept field
+ * trees, or the sentinel.
  */
 function cutForeignEdges(
   lib: PdfLibModule,
   out: PDFDocument,
   tree: PageTree,
   sentinel: PDFRefT,
+  deadField: (value: PDFObject) => boolean,
 ): void {
   const { PDFDict, PDFArray, PDFStream, PDFRef } = lib;
   const context = out.context;
   const outside = (v: PDFObject) =>
-    pointsOutside(lib, context, tree, sentinel, v);
+    pointsOutside(lib, context, tree, sentinel, v) || deadField(v);
   const visited = new Set<PDFObject>();
   const stack: PDFObject[] = trailerRoots(context);
   while (stack.length > 0) {

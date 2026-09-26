@@ -13,6 +13,7 @@ import {
 import {
   imagesToPdf,
   imagePdfOutputName,
+  imagePickerAccept,
   isImageAllowedForKind,
   sniffRasterFormat,
   unsupportedImageMessage,
@@ -212,7 +213,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       )}
       <Dropzone
         onFiles={addFiles}
-        accept={kind === "jpg" ? "image/jpeg,.jpg,.jpeg" : "image/png,.png"}
+        accept={imagePickerAccept(kind)}
         multiple
         title={`Drop ${label} images here, or`}
         hint="One image per PDF page · converted locally in your browser"

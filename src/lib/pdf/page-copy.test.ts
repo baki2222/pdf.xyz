@@ -9,6 +9,7 @@ import {
   PDFName,
   PDFPageLeaf,
   PDFRawStream,
+  type PDFForm,
   PDFString,
   StandardFonts,
   decodePDFRawStream,
@@ -175,16 +176,21 @@ async function linkedDoc(): Promise<Uint8Array> {
   return doc.save();
 }
 
+const fieldName = (page: number) => `topmostSubform.Page${page}.f${page}`;
+
 /**
  * Three pages, one filled field per page under a shared non-terminal root, plus
- * one field whose two widgets sit on pages 1 and 3.
+ * one field whose two widgets sit on pages 1 and 3. `decorate` adds to it
+ * before saving.
  */
-async function formDoc(): Promise<Uint8Array> {
+async function formDoc(
+  decorate?: (doc: PDFDocument, form: PDFForm) => void,
+): Promise<Uint8Array> {
   const doc = await withBodies(3);
   doc.setTitle("Tax Form 2026");
   const form = doc.getForm();
   doc.getPages().forEach((page, i) => {
-    const field = form.createTextField(`topmostSubform.Page${i + 1}.f${i + 1}`);
+    const field = form.createTextField(fieldName(i + 1));
     field.setText(secretMarker(i + 1));
     field.addToPage(page, { x: 20, y: 40, width: 200, height: 24 });
   });
@@ -192,7 +198,177 @@ async function formDoc(): Promise<Uint8Array> {
   shared.setText("SHARED-VALUE");
   shared.addToPage(doc.getPage(0), { x: 20, y: 80, width: 200, height: 24 });
   shared.addToPage(doc.getPage(2), { x: 20, y: 80, width: 200, height: 24 });
+  decorate?.(doc, form);
   return doc.save();
+}
+
+/** The ref of a field's own dictionary — pdf-lib's fields are not merged. */
+const fieldRef = (form: PDFForm, name: string) => form.getField(name).ref;
+
+/**
+ * The Acrobat "Submit selected fields" shape: a button on page 1 whose action
+ * names fields BY REFERENCE, including the fields that live on pages 2 and 3.
+ * `flags` 0 = submit exactly these; 1 = submit everything EXCEPT these.
+ */
+function submitButton(names: string[], flags = 0) {
+  return (doc: PDFDocument, form: PDFForm) => {
+    const button = form.createButton("submit");
+    button.addToPage("Send", doc.getPage(0), {
+      x: 20,
+      y: 120,
+      width: 80,
+      height: 24,
+    });
+    button.acroField.getWidgets()[0]!.dict.set(
+      PDFName.of("A"),
+      doc.context.obj({
+        S: "SubmitForm",
+        F: { FS: "URL", F: PDFString.of("https://example.test/submit") },
+        Fields: names.map((n) => fieldRef(form, n)),
+        Flags: flags,
+      }),
+    );
+  };
+}
+
+/**
+ * Acrobat lets "submit selected fields" name a NON-terminal field, meaning all
+ * of its descendants: here the `topmostSubform.PageN` node of a dropped page,
+ * which has a name and kids but no field type and no value of its own.
+ */
+function submitSubform(page: number) {
+  return (doc: PDFDocument, form: PDFForm) => {
+    const subform = form
+      .getTextField(fieldName(page))
+      .acroField.dict.get(PDFName.of("Parent"));
+    const button = form.createButton("submit");
+    button.addToPage("Send", doc.getPage(0), {
+      x: 20,
+      y: 120,
+      width: 80,
+      height: 24,
+    });
+    button.acroField
+      .getWidgets()[0]!
+      .dict.set(
+        PDFName.of("A"),
+        doc.context.obj({ S: "SubmitForm", Fields: [subform!] }),
+      );
+  };
+}
+
+/**
+ * Two legal field shapes pdf-lib never writes, each carrying the value only
+ * ONE clause of the output's field-node test can see — pdf-lib's own fields
+ * have both a type and a name, so they cannot tell the two clauses apart:
+ *  - `untyped-parent`: a non-terminal field with a name and an inherited
+ *    `/V` but no `/FT` (the type lives on its kid);
+ *  - `unnamed-kid`: a terminal field with a type and a `/V` but no `/T` — the
+ *    spec's "same fully qualified name as its parent" shape.
+ * Both sit on page 3, and a submit button on kept page 1 names the node that
+ * holds the value.
+ */
+function handBuiltField(shape: "untyped-parent" | "unnamed-kid") {
+  return (doc: PDFDocument, form: PDFForm) => {
+    const ctx = doc.context;
+    const parentRef = ctx.nextRef();
+    const kidRef = ctx.nextRef();
+    const value = PDFString.of(secretMarker(3));
+    ctx.assign(
+      parentRef,
+      ctx.obj({
+        T: PDFString.of("handBuilt"),
+        Kids: [kidRef],
+        ...(shape === "untyped-parent" ? { V: value } : { FT: "Tx" }),
+      }),
+    );
+    const widgetRef = addAnnot(
+      doc,
+      2,
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Widget",
+        Rect: [20, 200, 220, 224],
+        Parent: kidRef,
+      }),
+    );
+    ctx.assign(
+      kidRef,
+      ctx.obj({
+        Parent: parentRef,
+        Kids: [widgetRef],
+        ...(shape === "untyped-parent"
+          ? { FT: "Tx", T: PDFString.of("kid") }
+          : { FT: "Tx", V: value }),
+      }),
+    );
+    const button = form.createButton("submit");
+    button.addToPage("Send", doc.getPage(0), {
+      x: 20,
+      y: 120,
+      width: 80,
+      height: 24,
+    });
+    button.acroField.getWidgets()[0]!.dict.set(
+      PDFName.of("A"),
+      ctx.obj({
+        S: "SubmitForm",
+        Fields: [shape === "untyped-parent" ? parentRef : kidRef],
+      }),
+    );
+  };
+}
+
+/**
+ * A key no layer-2 rule knows, on a kept widget, pointing at page 3's field:
+ * only layer 3 (cut every edge into a field outside the kept trees) sees it.
+ */
+function vendorKey(doc: PDFDocument, form: PDFForm) {
+  form
+    .getTextField(fieldName(1))
+    .acroField.getWidgets()[0]!
+    .dict.set(PDFName.of("XYZPrivateLink"), fieldRef(form, fieldName(3)));
+}
+
+/**
+ * The "Reset selected fields" shape and its relatives, each hung where Acrobat
+ * hangs them and each naming ONE field whose only widget is on a dropped page,
+ * so every owner is pinned on its own:
+ *  - `widget-aa`: a kept widget's trigger dictionary (/AA /Bl, on blur);
+ *  - `next-chain`: a Hide reached only through a kept action's /Next;
+ *  - `field-aa`: a kept FIELD's trigger dictionary (/AA /K), not its widget's.
+ */
+function resetTrigger(shape: "widget-aa" | "next-chain" | "field-aa") {
+  return (doc: PDFDocument, form: PDFForm) => {
+    const f1 = form.getTextField(fieldName(1));
+    const widget = f1.acroField.getWidgets()[0]!.dict;
+    if (shape === "widget-aa") {
+      widget.set(
+        PDFName.of("AA"),
+        doc.context.obj({
+          Bl: { S: "ResetForm", Fields: [fieldRef(form, fieldName(3))] },
+        }),
+      );
+    } else if (shape === "next-chain") {
+      widget.set(
+        PDFName.of("AA"),
+        doc.context.obj({
+          Fo: {
+            S: "ResetForm",
+            Fields: [fieldRef(form, fieldName(1))],
+            Next: { S: "Hide", T: fieldRef(form, fieldName(2)), H: true },
+          },
+        }),
+      );
+    } else {
+      f1.acroField.dict.set(
+        PDFName.of("AA"),
+        doc.context.obj({
+          K: { S: "ResetForm", Fields: [fieldRef(form, fieldName(2))] },
+        }),
+      );
+    }
+  };
 }
 
 /** An article thread whose beads run p1 → p3 → p1. */
@@ -266,6 +442,54 @@ const FIXTURES: {
   {
     name: "a form whose field tree spans every page",
     build: formDoc,
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept button that submits fields on dropped pages (/A SubmitForm /Fields)",
+    build: () =>
+      formDoc(
+        submitButton([
+          fieldName(1),
+          fieldName(2),
+          fieldName(3),
+          "topmostSubform.shared",
+        ]),
+      ),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept widget's /AA that resets a field on a dropped page",
+    build: () => formDoc(resetTrigger("widget-aa")),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept action whose /Next hides a field on a dropped page",
+    build: () => formDoc(resetTrigger("next-chain")),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept field's /AA that resets a field on a dropped page",
+    build: () => formDoc(resetTrigger("field-aa")),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept button that submits a dropped page's whole subform (a non-terminal field)",
+    build: () => formDoc(submitSubform(2)),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a vendor key on a kept widget pointing at a field on a dropped page (backstop only)",
+    build: () => formDoc(vendorKey),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept submit naming an untyped parent whose inherited value lives on a dropped page",
+    build: () => formDoc(handBuiltField("untyped-parent")),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept submit naming a typed, unnamed kid field on a dropped page",
+    build: () => formDoc(handBuiltField("unnamed-kid")),
     excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
   },
   {
@@ -478,21 +702,200 @@ describe("page tools keep a fillable form fillable", () => {
 });
 
 // --------------------------------------------------------------------------
+// Layer 2, on its own: the leak tests above pass with the layer-3 backstop
+// alone, which cuts a dead field out of an action's list but cannot tell what
+// the action MEANS without it. An emptied "submit these fields" list reads as
+// "submit every field" to a viewer, so the action has to go, not the entry.
+// --------------------------------------------------------------------------
+
+describe("form actions name only the fields the output still has", () => {
+  const load = (bytes: Uint8Array) => PDFDocument.load(bytes);
+  /** The action on the widget of the named field (or button), resolved. */
+  const actionOn = (doc: PDFDocument, name: string, key: string[]) => {
+    let value: PDFObject | undefined = doc
+      .getForm()
+      .getField(name)
+      .acroField.getWidgets()[0]!.dict;
+    for (const k of key) {
+      value =
+        value instanceof PDFDict
+          ? doc.context.lookup(value.get(PDFName.of(k)))
+          : undefined;
+    }
+    return value instanceof PDFDict ? value : undefined;
+  };
+  /** The names of the fields an action's /Fields lists, via the output form. */
+  const listed = (doc: PDFDocument, action: PDFDict | undefined) => {
+    const byRef = new Map(
+      doc
+        .getForm()
+        .getFields()
+        .map((f) => [f.ref, f.getName()]),
+    );
+    const list = action?.lookupMaybe(PDFName.of("Fields"), PDFArray);
+    return list?.asArray().map((ref) => byRef.get(ref as never) ?? "?");
+  };
+  const ALL = [
+    fieldName(1),
+    fieldName(2),
+    fieldName(3),
+    "topmostSubform.shared",
+  ];
+
+  it("POSITIVE CONTROL: with every page kept, the submit list is untouched", async () => {
+    const doc = await load(
+      await extractPages(await formDoc(submitButton(ALL)), [0, 1, 2]),
+    );
+    expect(listed(doc, actionOn(doc, "submit", ["A"]))).toEqual(ALL);
+  });
+
+  it("a submit list keeps the kept fields and loses the dropped ones", async () => {
+    const doc = await load(
+      await extractPages(await formDoc(submitButton(ALL)), [0]),
+    );
+    expect(listed(doc, actionOn(doc, "submit", ["A"]))).toEqual([
+      fieldName(1),
+      "topmostSubform.shared",
+    ]);
+  });
+
+  it("a submit whose every listed field was dropped is removed, not emptied", async () => {
+    const names = [fieldName(2), fieldName(3)];
+    const kept = await load(
+      await extractPages(await formDoc(submitButton(names)), [0, 1]),
+    );
+    // Control: while one listed field survives, the action does too.
+    expect(listed(kept, actionOn(kept, "submit", ["A"]))).toEqual([
+      fieldName(2),
+    ]);
+    const doc = await load(
+      await extractPages(await formDoc(submitButton(names)), [0]),
+    );
+    expect(actionOn(doc, "submit", ["A"])).toBeUndefined();
+  });
+
+  it("an EXCLUDE list that empties keeps the action and drops the list", async () => {
+    const doc = await load(
+      await extractPages(
+        await formDoc(submitButton([fieldName(2), fieldName(3)], 1)),
+        [0],
+      ),
+    );
+    const action = actionOn(doc, "submit", ["A"]);
+    expect(action?.get(PDFName.of("S"))).toBe(PDFName.of("SubmitForm"));
+    expect(action?.has(PDFName.of("Fields"))).toBe(false);
+  });
+
+  it("a trigger whose reset list emptied is removed; kept, it still names its field", async () => {
+    const bytes = await formDoc(resetTrigger("widget-aa"));
+    const kept = await load(await extractPages(bytes, [0, 2]));
+    expect(listed(kept, actionOn(kept, fieldName(1), ["AA", "Bl"]))).toEqual([
+      fieldName(3),
+    ]);
+    const doc = await load(await extractPages(bytes, [0]));
+    expect(actionOn(doc, fieldName(1), ["AA"])).toBeDefined();
+    expect(actionOn(doc, fieldName(1), ["AA", "Bl"])).toBeUndefined();
+  });
+
+  it("a removed step in a /Next chain drops out; the step before it stays", async () => {
+    const doc = await load(
+      await extractPages(await formDoc(resetTrigger("next-chain")), [0]),
+    );
+    const focus = actionOn(doc, fieldName(1), ["AA", "Fo"]);
+    expect(listed(doc, focus)).toEqual([fieldName(1)]);
+    expect(focus?.has(PDFName.of("Next"))).toBe(false);
+  });
+
+  it("a removed action hands its slot to the live actions it chained to", async () => {
+    const bytes = await formDoc((doc, form) => {
+      const step = (name: string) => ({
+        S: "ResetForm",
+        Fields: [fieldRef(form, name)],
+      });
+      form
+        .getTextField(fieldName(1))
+        .acroField.getWidgets()[0]!
+        .dict.set(
+          PDFName.of("A"),
+          doc.context.obj({
+            ...step(fieldName(3)),
+            Next: [step(fieldName(1)), step("topmostSubform.shared")],
+          }),
+        );
+    });
+    const doc = await load(await extractPages(bytes, [0]));
+    const head = actionOn(doc, fieldName(1), ["A"]);
+    expect(listed(doc, head)).toEqual([fieldName(1)]);
+    const next = head?.lookupMaybe(PDFName.of("Next"), PDFArray);
+    expect(next?.size()).toBe(1);
+    expect(listed(doc, doc.context.lookup(next!.get(0)) as PDFDict)).toEqual([
+      "topmostSubform.shared",
+    ]);
+  });
+
+  it("a Hide that names a kept field BY NAME survives (a string /T is not a field)", async () => {
+    const doc = await load(
+      await extractPages(
+        await formDoc((doc, form) => {
+          form
+            .getTextField(fieldName(1))
+            .acroField.getWidgets()[0]!
+            .dict.set(
+              PDFName.of("A"),
+              doc.context.obj({
+                S: "Hide",
+                T: PDFString.of("topmostSubform.shared"),
+              }),
+            );
+        }),
+        [0],
+      ),
+    );
+    const hide = actionOn(doc, fieldName(1), ["A"]);
+    expect(hide?.get(PDFName.of("S"))).toBe(PDFName.of("Hide"));
+    expect(hide?.lookup(PDFName.of("T"), PDFString).decodeText()).toBe(
+      "topmostSubform.shared",
+    );
+  });
+});
+
+// --------------------------------------------------------------------------
 // The set: a copy path that bypasses the clean assembler brings the defect back.
-// DISCOVERED by walking src, not named — a new tool that calls pdf-lib's
-// copyPages directly is exactly the one a list would not name.
+// DISCOVERED by walking the repository, not named — a new tool that calls
+// pdf-lib's copyPages directly is exactly the one a list would not name. It
+// used to walk src/ only, and the worker's entry points live in scripts/; the
+// health check below now derives what MUST be in the set from package.json.
 // --------------------------------------------------------------------------
 
 describe("no code path copies pages around the clean assembler", () => {
-  const SRC = join(__dirname, "..", "..");
+  const ROOT = join(__dirname, "..", "..", "..");
+  // Not ours, or not shipped: VCS/tool state, dependencies, and the e2e
+  // harness (test code, which may build fixtures however it likes).
+  const SKIP = (name: string) =>
+    name.startsWith(".") || name === "node_modules" || name === "e2e";
   const walk = (dir: string): string[] =>
     readdirSync(dir).flatMap((name) => {
+      if (SKIP(name)) return [];
       const path = join(dir, name);
       if (statSync(path).isDirectory()) return walk(path);
-      return /\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)
+      return /\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(name) &&
+        !/\.test\.tsx?$/.test(name)
         ? [path]
         : [];
     });
+  /** Every file a package.json script runs with tsx or node. */
+  const scriptEntryPoints = (): string[] => {
+    const pkg = JSON.parse(
+      readFileSync(join(ROOT, "package.json"), "utf8"),
+    ) as {
+      scripts: Record<string, string>;
+    };
+    return Object.values(pkg.scripts).flatMap((command) =>
+      [...command.matchAll(/\b(?:tsx|node)\s+(\S+\.(?:ts|mts|js|mjs))/g)].map(
+        (m) => join(ROOT, m[1]!),
+      ),
+    );
+  };
   const COPY_CALL = /\.copyPages\s*\(/;
   // Code, not prose: the assembler's docblock names the call it replaces, and
   // a guard that matches prose is guarding the wrong thing.
@@ -512,15 +915,17 @@ describe("no code path copies pages around the clean assembler", () => {
   });
 
   it("finds no direct copyPages call in shipped source", () => {
-    const files = walk(SRC);
+    const files = walk(ROOT);
     // Health check: the walk really read the codebase, not an empty directory.
     expect(files.length).toBeGreaterThan(200);
-    expect(files.map((f) => relative(SRC, f))).toContain(
-      join("lib", "pdf", "engine.ts"),
-    );
+    expect(files).toContain(join(ROOT, "src", "lib", "pdf", "engine.ts"));
+    // ...and every entry point package.json runs (the worker's among them).
+    const entries = scriptEntryPoints();
+    expect(entries.length).toBeGreaterThan(10);
+    expect(entries.filter((e) => !files.includes(e))).toEqual([]);
     const offenders = files
       .filter((f) => callsCopyPages(readFileSync(f, "utf8")))
-      .map((f) => relative(SRC, f));
+      .map((f) => relative(ROOT, f));
     expect(offenders).toEqual([]);
   });
 });

@@ -17,6 +17,7 @@ import { PdfToTextRunner } from "./pdf-to-text-runner";
 import { TextToPdfRunner } from "./text-to-pdf-runner";
 import { MarkdownToPdfRunner } from "./markdown-to-pdf-runner";
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
+import { isImageAllowedForKind } from "@/lib/pdf/image-to-pdf";
 import { HandoffLoadedBadge } from "./handoff-notice";
 
 /**
@@ -162,6 +163,57 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
       expect(screen.queryByRole("alert")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
       await screen.findByText(/^2 images · /, undefined, { timeout: 10_000 });
+    });
+  }
+
+  /** The HTML `accept` rule: `.ext` by name, `type/*` by prefix, else exact. */
+  const acceptAdmits = (accept: string, file: { name: string; type: string }) =>
+    accept
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .some((token) =>
+        token.startsWith(".")
+          ? file.name.toLowerCase().endsWith(token)
+          : token.endsWith("/*")
+            ? file.type.startsWith(token.slice(0, -1))
+            : file.type === token,
+      );
+
+  it("POSITIVE CONTROL: the accept rule reads names, wildcards and types", () => {
+    expect(acceptAdmits("image/png,.png", { name: "a.PNG", type: "" })).toBe(
+      true,
+    );
+    expect(acceptAdmits("image/*", { name: "a", type: "image/gif" })).toBe(
+      true,
+    );
+    expect(
+      acceptAdmits("image/png,.png", { name: "a.jpg", type: "image/jpeg" }),
+    ).toBe(false);
+  });
+
+  for (const kind of ["png", "jpg"] as const) {
+    it(`${kind.toUpperCase()} to PDF: the file picker offers exactly what a pick accepts`, () => {
+      // What the BROWSER is handed: the rendered input's accept attribute.
+      const { container } = renderRunner(<ImageToPdfRunner kind={kind} />);
+      const accept =
+        container
+          .querySelector<HTMLInputElement>('input[type="file"]')
+          ?.getAttribute("accept") ?? "";
+      const corpus = ["png", "PNG", "jpg", "JPG", "jpeg", "webp", "gif", "pdf"]
+        .flatMap((ext) => [
+          { name: `a.${ext}`, type: "" },
+          { name: "a", type: `image/${ext.toLowerCase()}` },
+        ])
+        .concat([{ name: "a", type: "application/pdf" }]);
+      const verdicts = corpus.map((file) => ({
+        file,
+        picker: acceptAdmits(accept, file),
+        check: isImageAllowedForKind(kind, file),
+      }));
+      // Health check: the corpus holds both answers, so equality is not vacuous.
+      expect(verdicts.filter((v) => v.check).length).toBeGreaterThan(3);
+      expect(verdicts.filter((v) => !v.check).length).toBeGreaterThan(3);
+      expect(verdicts.filter((v) => v.picker !== v.check)).toEqual([]);
     });
   }
 
