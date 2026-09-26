@@ -300,3 +300,20 @@ describe("product events: declared ⇔ sent", () => {
     ).toEqual([]);
   });
 });
+
+describe("docs/OBSERVABILITY.md lists the events the code declares", () => {
+  it("its event table is EVENT_NAMES, in both directions", () => {
+    const doc = readFileSync(resolve(ROOT, "docs/OBSERVABILITY.md"), "utf8");
+    const start = doc.indexOf("### The event schema");
+    const section = doc.slice(
+      start,
+      doc.indexOf("### Privacy by construction"),
+    );
+    expect(start, "the event-schema section is gone").toBeGreaterThan(-1);
+    const rows = [...section.matchAll(/^\| `([a-z_]+)`\s+\|/gm)].map(
+      (m) => m[1]!,
+    );
+    expect(rows.length, "no table rows were read").toBeGreaterThanOrEqual(4);
+    expect([...rows].sort()).toEqual([...EVENT_NAMES].sort());
+  });
+});
