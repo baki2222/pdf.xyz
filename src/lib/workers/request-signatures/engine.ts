@@ -34,13 +34,20 @@ import {
 export const REQUEST_SIGNATURES_TOOL = "request-signatures" as const;
 export const REQUEST_SIGNATURES_ENGINE = "pdf-lib-signature-request" as const;
 
-/** The page geometry of the input PDF: page count and each page's point size. */
+/**
+ * The page geometry of the input PDF: page count and each page's VISIBLE size in
+ * points — the CropBox as displayed, width and height swapped on a `/Rotate 90`
+ * or `270` page — so fractions scale against the axes the reader sees.
+ */
 export interface PdfGeometry {
   pageCount: number;
   pageSizes: { width: number; height: number }[];
 }
 
-/** A single field to add, already resolved to POINT coordinates (bottom-left origin). */
+/**
+ * A single field to add, resolved to POINTS in the page's visible frame (origin
+ * at the displayed page's bottom-left). The placer maps it into content space.
+ */
 export interface PlacedField {
   /** Unique AcroForm field name. */
   name: string;

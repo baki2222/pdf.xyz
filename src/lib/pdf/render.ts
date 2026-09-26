@@ -56,6 +56,12 @@ export interface RenderPageOptions {
   background?: string;
   /** Stop rendering promptly when this aborts. */
   signal?: AbortSignal;
+  /**
+   * `"base"` (default) renders the unrotated page for tiles that apply a
+   * rotation in CSS; `"displayed"` applies the page's own `/Rotate`, so the
+   * pixels are in the same frame as coordinates a reader would use.
+   */
+  orientation?: "base" | "displayed";
 }
 
 /**
@@ -118,14 +124,19 @@ export async function createThumbnailRenderer(
     if (signal) signal.addEventListener("abort", onAbort, { once: true });
 
     try {
-      const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
+      // Base orientation by default (the rotate/organize tiles turn it in CSS);
+      // "displayed" bakes the page's own /Rotate in, for overlays drawn in the
+      // frame a reader sees.
+      const orientation = options.orientation ?? base.orientation ?? "base";
+      const rotation = orientation === "displayed" ? page.rotate : 0;
+      const baseViewport = page.getViewport({ scale: 1, rotation });
       const dims = renderDimensions(
         baseViewport.width,
         baseViewport.height,
         options.targetWidth ?? base.targetWidth,
         options.pixelRatio ?? base.pixelRatio ?? 1,
       );
-      const viewport = page.getViewport({ scale: dims.scale, rotation: 0 });
+      const viewport = page.getViewport({ scale: dims.scale, rotation });
 
       const canvas = document.createElement("canvas");
       const width = Math.max(1, Math.floor(viewport.width));

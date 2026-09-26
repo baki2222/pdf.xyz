@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Download,
+  Lock,
   PenLine,
   Plus,
   ShieldCheck,
@@ -14,16 +16,27 @@ import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
   MAX_REQUEST_SIGNERS,
+  signatureBlockFields,
   type RequestSignatureField,
   type RequestSignatureRouting,
 } from "@/lib/jobs/request-signatures";
+import {
+  readPdfFrames,
+  type PdfFrames,
+  type VisiblePageFrame,
+} from "@/lib/pdf/page-frame";
+import {
+  createThumbnailRenderer,
+  type ThumbnailRenderer,
+} from "@/lib/pdf/render";
+import { clampPixelRatio } from "@/lib/pdf/render-utils";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunRequestSignatures,
   runWorkerRequestSignatures,
   type RequestSignaturesWorkerResult,
 } from "@/lib/workers/request-signatures-client";
-import { downloadBytes } from "@/lib/pdf/browser";
+import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
@@ -59,46 +72,121 @@ function badgeFor(
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Where a password-protected PDF gets unlocked; pinned to the catalog by the panel test. */
+export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
+
+/** Keep a requested page inside the document (or ≥ 1 while the count is unknown). */
+export function clampSignaturePage(
+  value: number,
+  pageCount: number | null,
+): number {
+  const whole = Math.floor(Number.isFinite(value) ? value : 1);
+  const upper = pageCount ?? Number.POSITIVE_INFINITY;
+  return Math.min(upper, Math.max(1, whole));
+}
+
+const FIELD_SHORT_LABEL: Record<RequestSignatureField["type"], string> = {
+  signature: "Signature",
+  initials: "Initials",
+  date: "Date",
+  text: "Text",
+};
+
 /**
- * Turn the draft signers into real placed fields: one signature field per signer
- * (plus an optional date field), laid out as a stacked signature block near the
- * bottom of the target page in fractional (0..1) coordinates. Deterministic and
- * always in-bounds, so the request the worker receives validates.
+ * The target page as the reader sees it, with the planned fields drawn on top.
+ *
+ * The request places fields blind — fractions of a page the user never looks at
+ * — so without this the first time anyone saw where the boxes went was in the
+ * downloaded PDF. The page is rendered in its DISPLAYED orientation (its own
+ * `/Rotate` applied) and sized to the visible frame, the same frame the worker
+ * resolves the fractions against, so a box drawn here is where the field lands.
+ * A render failure keeps a blank sheet: the overlay is still true.
  */
-function buildFields(
-  signerCount: number,
-  page: number,
-  includeDate: boolean,
-): RequestSignatureField[] {
-  const fields: RequestSignatureField[] = [];
-  const rowHeight = Math.min(0.11, 0.6 / Math.max(1, signerCount));
-  const boxHeight = rowHeight * 0.55;
-  for (let i = 0; i < signerCount; i += 1) {
-    const y = 0.06 + i * rowHeight;
-    fields.push({
-      signer: i,
-      page,
-      type: "signature",
-      x: 0.08,
-      y,
-      width: 0.4,
-      height: boxHeight,
-      required: true,
-    });
-    if (includeDate) {
-      fields.push({
-        signer: i,
-        page,
-        type: "date",
-        x: 0.56,
-        y,
-        width: 0.22,
-        height: boxHeight,
-        required: true,
-      });
-    }
-  }
-  return fields;
+function SignaturePagePreview({
+  bytes,
+  frame,
+  page,
+  fields,
+}: {
+  bytes: Uint8Array;
+  frame: VisiblePageFrame;
+  page: number;
+  fields: RequestSignatureField[];
+}) {
+  const [thumb, setThumb] = useState<{ page: number; url: string } | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let active = true;
+    let url: string | null = null;
+    let renderer: ThumbnailRenderer | null = null;
+    (async () => {
+      try {
+        renderer = await createThumbnailRenderer(bytes, {
+          orientation: "displayed",
+          pixelRatio: clampPixelRatio(window.devicePixelRatio || 1),
+          targetWidth: 280,
+        });
+        const rendered = await renderer.renderPage(page - 1);
+        if (!rendered) return;
+        if (!active) {
+          URL.revokeObjectURL(rendered.url);
+          return;
+        }
+        url = rendered.url;
+        setThumb({ page, url: rendered.url });
+      } catch {
+        // No preview image; the blank sheet and the overlay still render.
+      } finally {
+        await renderer?.destroy();
+      }
+    })();
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [bytes, page]);
+
+  const image = thumb?.page === page ? thumb.url : null;
+  return (
+    <figure className="flex flex-col items-center gap-2">
+      <div
+        data-testid="signature-page-preview"
+        className="relative w-full max-w-[220px] overflow-hidden rounded-[2px] bg-white shadow-md ring-1 ring-black/10"
+        style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
+      >
+        {image && (
+          // eslint-disable-next-line @next/next/no-img-element -- a blob: URL of a local render
+          <img
+            src={image}
+            alt=""
+            draggable={false}
+            className="absolute inset-0 size-full"
+          />
+        )}
+        {fields.map((field, index) => (
+          <span
+            key={index}
+            data-field-box=""
+            className="border-accent bg-accent/15 text-accent absolute flex items-start overflow-hidden rounded-[2px] border border-dashed px-0.5 text-[8px] leading-tight font-semibold"
+            style={{
+              left: `${field.x * 100}%`,
+              bottom: `${field.y * 100}%`,
+              width: `${field.width * 100}%`,
+              height: `${field.height * 100}%`,
+            }}
+            aria-hidden
+          >
+            {field.signer + 1} · {FIELD_SHORT_LABEL[field.type]}
+          </span>
+        ))}
+      </div>
+      <figcaption className="text-muted text-center text-xs">
+        Page {page} — where each signer&apos;s fields will be added.
+      </figcaption>
+    </figure>
+  );
 }
 
 export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
@@ -254,8 +342,15 @@ function SpecRow({
   );
 }
 
-function RequestBuilder() {
+/** What the browser learned about the picked PDF, or why it could not. */
+type PickedPdf =
+  | { status: "reading" }
+  | { status: "read"; bytes: Uint8Array; info: PdfFrames }
+  | { status: "unreadable"; bytes: Uint8Array | null };
+
+export function RequestBuilder() {
   const [file, setFile] = useState<File | null>(null);
+  const [picked, setPicked] = useState<PickedPdf | null>(null);
   const [signers, setSigners] = useState<SignerDraft[]>([
     { name: "", email: "" },
   ]);
@@ -275,7 +370,52 @@ function RequestBuilder() {
         .filter((s) => s.name.length > 0 && EMAIL_SHAPE.test(s.email)),
     [signers],
   );
-  const canRun = file != null && cleanSigners.length > 0 && !busy;
+  const pageCount =
+    picked?.status === "read" ? picked.info.frames.length : null;
+  const encrypted = picked?.status === "read" && picked.info.encrypted;
+  const reading = picked?.status === "reading";
+  // An encrypted PDF is refused by the worker (it cannot add fields to a locked
+  // file), so the run is blocked here and the unlock route offered instead.
+  const canRun =
+    file != null && cleanSigners.length > 0 && !busy && !reading && !encrypted;
+  // The exact layout the request will carry — the preview draws THIS, not a copy.
+  const fields = useMemo(
+    () => signatureBlockFields(cleanSigners.length, page, includeDate),
+    [cleanSigners.length, page, includeDate],
+  );
+
+  // Read the picked PDF in the browser (nothing is uploaded) for its page count
+  // and each page's visible frame. The signature page defaults to the LAST page —
+  // where a contract's signature block is — instead of the cover. A token drops
+  // a slow read that a newer pick has already replaced.
+  const pickToken = useRef(0);
+  const pickFile = useCallback((next: File | null) => {
+    pickToken.current += 1;
+    const token = pickToken.current;
+    setFile(next);
+    setOutcome(null);
+    if (!next) {
+      setPicked(null);
+      return;
+    }
+    setPicked({ status: "reading" });
+    void (async () => {
+      let bytes: Uint8Array | null = null;
+      try {
+        bytes = await readFileBytes(next);
+      } catch {
+        bytes = null;
+      }
+      const info = bytes ? await readPdfFrames(bytes) : null;
+      if (token !== pickToken.current) return;
+      if (bytes && info) {
+        setPicked({ status: "read", bytes, info });
+        setPage(info.frames.length);
+      } else {
+        setPicked({ status: "unreadable", bytes });
+      }
+    })();
+  }, []);
 
   const updateSigner = useCallback(
     (index: number, patch: Partial<SignerDraft>) => {
@@ -303,10 +443,12 @@ function RequestBuilder() {
     setBusy(true);
     try {
       setOutcome(null);
-      const fields = buildFields(cleanSigners.length, page, includeDate);
       const result = await runWorkerRequestSignatures({
         filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
+        bytes:
+          picked?.status === "read"
+            ? picked.bytes
+            : new Uint8Array(await file.arrayBuffer()),
         signers: cleanSigners,
         fields,
         routing,
@@ -325,7 +467,7 @@ function RequestBuilder() {
     } finally {
       setBusy(false);
     }
-  }, [file, cleanSigners, page, includeDate, routing, title]);
+  }, [file, picked, cleanSigners, fields, routing, title]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -339,26 +481,49 @@ function RequestBuilder() {
       {file ? (
         <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
           <span className="truncate">{file.name}</span>
-          <button
-            type="button"
-            onClick={() => {
-              setFile(null);
-              setOutcome(null);
-            }}
-            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
-          >
-            Remove
-          </button>
+          <span className="text-muted flex shrink-0 items-center gap-3 text-xs">
+            {reading
+              ? "Reading…"
+              : pageCount !== null
+                ? `${pageCount} ${pageCount === 1 ? "page" : "pages"}`
+                : null}
+            <button
+              type="button"
+              onClick={() => pickFile(null)}
+              className="text-muted hover:text-fg font-medium transition"
+            >
+              Remove
+            </button>
+          </span>
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          onFiles={(files) => pickFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}
           compact
           title="Add your PDF, or"
           hint="PDF to send for signature"
         />
+      )}
+
+      {encrypted && (
+        <p
+          role="alert"
+          className="border-err/40 bg-err/10 text-err flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+        >
+          <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            This PDF is password-protected, so fields can&apos;t be added to it.{" "}
+            <Link
+              href={UNLOCK_TOOL_HREF}
+              className="font-medium underline underline-offset-2"
+            >
+              Unlock it first
+            </Link>
+            , then add the unlocked file here.
+          </span>
+        </p>
       )}
 
       <div className="flex flex-col gap-2">
@@ -426,13 +591,16 @@ function RequestBuilder() {
           </select>
         </label>
         <label className="text-muted flex flex-col gap-1 text-xs">
-          Signature page
+          {pageCount !== null
+            ? `Signature page (of ${pageCount})`
+            : "Signature page"}
           <input
             type="number"
             min={1}
+            max={pageCount ?? undefined}
             value={page}
             onChange={(e) =>
-              setPage(Math.max(1, Math.floor(Number(e.target.value) || 1)))
+              setPage(clampSignaturePage(Number(e.target.value), pageCount))
             }
             className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
           />
@@ -457,6 +625,25 @@ function RequestBuilder() {
           Add a date field next to each signature
         </label>
       </div>
+
+      {picked?.status === "read" &&
+        !encrypted &&
+        (() => {
+          const frame = picked.info.frames[page - 1];
+          if (!frame) return null;
+          return cleanSigners.length > 0 ? (
+            <SignaturePagePreview
+              bytes={picked.bytes}
+              frame={frame}
+              page={page}
+              fields={fields}
+            />
+          ) : (
+            <p className="text-muted text-center text-xs">
+              Add a signer to preview where their fields go on page {page}.
+            </p>
+          );
+        })()}
 
       <WorkerRunButton
         onClick={start}
