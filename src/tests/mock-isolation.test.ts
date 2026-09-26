@@ -132,6 +132,12 @@ interface Parsed {
   imports: string[];
   /** Specifiers passed to `vi.mock` / `vi.doMock`, resolved. */
   mocks: string[];
+  /**
+   * Every `vi.mock` / `vi.doMock` call with a literal specifier, resolved or
+   * not: a package mock (`next/navigation`) runs the same detection as a
+   * local one. Only the health check reads it.
+   */
+  mockCalls?: number;
 }
 
 /**
@@ -163,11 +169,12 @@ function parse(file: string): Parsed {
   try {
     source = readFileSync(file, "utf8");
   } catch {
-    return { imports: [], mocks: [] };
+    return { imports: [], mocks: [], mockCalls: 0 };
   }
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const imports: string[] = [];
   const mocks: string[] = [];
+  let mockCalls = 0;
 
   const walk = (node: TS.Node): void => {
     if (
@@ -191,6 +198,7 @@ function parse(file: string): Parsed {
       if (receiver === "vi" && (name === "mock" || name === "doMock")) {
         const arg = node.arguments[0];
         if (arg && ts.isStringLiteral(arg)) {
+          mockCalls += 1;
           const target = resolveSpecifier(file, arg.text);
           if (target) mocks.push(target);
         }
@@ -207,7 +215,7 @@ function parse(file: string): Parsed {
     ts.forEachChild(node, walk);
   };
   walk(sf);
-  return { imports, mocks };
+  return { imports, mocks, mockCalls };
 }
 
 /** Every file reachable from `roots` through import edges. */
@@ -383,13 +391,23 @@ describe("no mock is observable by another test file", () => {
       `only ${reachesBarrel.length} test files reach the jobs barrel — the walk is broken, not the code`,
     ).toBeGreaterThan(20);
 
-    // And a mock must actually be FOUND, or the check below asks nothing.
-    const mockers = testFiles.filter(
-      (file) => (graph.get(file)?.mocks ?? []).length > 0,
+    // And vi.mock detection must be shown to WORK on the real tree, or the
+    // check below asks nothing. Until 2026-09-27 this counted test files that
+    // mock a LOCAL module. The last one (the Chat with PDF panel test) now
+    // hands its driver in as a prop, precisely so the panel is not left cached
+    // against a stub, so that count is 0 for the good reason, and its own
+    // message said so ("either that is true, or ..."). The property this check
+    // needs is "the parser sees a vi.mock call", and a package mock
+    // (`next/navigation`, `pdf-lib`) goes through exactly that code; resolving
+    // its specifier is the same `resolveSpecifier` the import graph is proven
+    // on above.
+    const mockCalls = testFiles.reduce(
+      (n, file) => n + (graph.get(file)?.mockCalls ?? 0),
+      0,
     );
     expect(
-      mockers.length,
-      "no test file mocks anything — either that is true, or vi.mock detection has stopped working and this guard is inert",
+      mockCalls,
+      "no vi.mock / vi.doMock call was found in any test file — detection has stopped working and this guard is inert",
     ).toBeGreaterThan(0);
 
     const violations = findMockLeaks(graph, testFiles);

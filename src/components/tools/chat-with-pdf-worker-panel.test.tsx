@@ -27,18 +27,13 @@ import { MAX_CONTEXT_TURNS } from "@/lib/jobs/chat-with-pdf";
 import type { AiProvider } from "@/lib/workers/ai/provider";
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
 import { resetTelemetry } from "@/lib/telemetry/track";
+import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
 
-const runWorkerChatWithPdf = vi.hoisted(() => vi.fn());
-
-vi.mock("@/lib/workers/chat-with-pdf-client", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@/lib/workers/chat-with-pdf-client")
-  >()),
-  runWorkerChatWithPdf,
-}));
-
-// Imported after the mock so the panel picks up the stubbed driver.
-const { ChatWithPdfWorkerPanel } = await import("./chat-with-pdf-worker-panel");
+// The job driver is handed to the panel as a prop. It used to be swapped in
+// with `vi.mock` on the client module, which left the panel cached bound to
+// this stub for any later test file in the same worker; the pick-refusal
+// guard renders every worker panel, so it would have been that file.
+const runWorkerChatWithPdf = vi.fn();
 
 const chatTool = getToolBySlug("chat-with-pdf")!;
 
@@ -189,7 +184,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
         workerSuccess(second, "It is due on 30 June 2026 [p.1]."),
       );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
 
     await ask(first);
@@ -216,7 +213,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       workerSuccess("Q one", "A one."),
     );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
     await ask("Q one");
 
@@ -239,7 +238,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       }))
       .mockImplementationOnce(() => workerSuccess("second", "Second answer."));
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
     await ask("What is the total?");
 
@@ -262,7 +263,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       workerSuccess("Q one", "A one."),
     );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
     await ask("Q one");
     expect(await screen.findByText("A one.")).toBeInTheDocument();
@@ -291,7 +294,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       return workerSuccess("Q about A", "A's answer.");
     });
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
     await ask("Q about A");
 
@@ -336,7 +341,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     const long = "y".repeat(6000);
     runWorkerChatWithPdf.mockImplementation(() => workerSuccess("Q one", long));
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
     await ask("Q one");
     await screen.findByText(/shortened/i);
@@ -362,7 +369,9 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       workerSuccess(input.question, `Answer to ${input.question}.`),
     );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
 
     const rounds = MAX_CONTEXT_TURNS / 2 + 2;
@@ -423,7 +432,9 @@ describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
       };
     });
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
     await ask(question);
 
@@ -464,7 +475,9 @@ describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
       };
     });
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
     await ask(question);
 
@@ -488,7 +501,9 @@ describe("ChatWithPdfWorkerPanel — every answer carries its caveat", () => {
       .mockImplementationOnce(() => workerSuccess("Q1?", "First [p.1]."))
       .mockImplementationOnce(() => workerSuccess("Q2?", "Second [p.1]."));
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
     await screen.findByRole("textbox");
     await ask("Q1?");
     expect(await screen.findByText("First [p.1].")).toBeInTheDocument();

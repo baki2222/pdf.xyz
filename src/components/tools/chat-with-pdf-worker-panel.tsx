@@ -64,7 +64,18 @@ function badgeFor(
     : { tone: "muted", label: "Not enabled", pulse: false };
 }
 
-export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
+/** The job driver. A prop, not a module mock, so a test can stub it without
+ * leaving this panel cached against a stub for the next test file (see
+ * src/tests/mock-isolation.test.ts). The page never passes it. */
+type RunChat = typeof runWorkerChatWithPdf;
+
+export function ChatWithPdfWorkerPanel({
+  tool,
+  runChat = runWorkerChatWithPdf,
+}: {
+  tool: Tool;
+  runChat?: RunChat;
+}) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState<WorkerStatus | null>(null);
 
@@ -140,7 +151,10 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         )}
         {available ? (
-          <ChatBuilder refuse={(file) => pickRefusal(tool, file)} />
+          <ChatBuilder
+            refuse={(file) => pickRefusal(tool, file)}
+            runChat={runChat}
+          />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -246,7 +260,13 @@ interface TranscriptEntry {
   job: Job;
 }
 
-function ChatBuilder({ refuse }: { refuse: PickRefusal }) {
+function ChatBuilder({
+  refuse,
+  runChat,
+}: {
+  refuse: PickRefusal;
+  runChat: RunChat;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -304,7 +324,7 @@ function ChatBuilder({ refuse }: { refuse: PickRefusal }) {
     // forever with no error, recoverable only by reloading the page.
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = await runWorkerChatWithPdf({
+      const result = await runChat({
         filename: file.name,
         bytes,
         question: asked,
@@ -348,7 +368,7 @@ function ChatBuilder({ refuse }: { refuse: PickRefusal }) {
     } finally {
       setBusy(false);
     }
-  }, [file, question, requestReady, context]);
+  }, [file, question, requestReady, context, runChat]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
