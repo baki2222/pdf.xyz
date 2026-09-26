@@ -1153,7 +1153,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "pdf-to-png":
     "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
   "extract-images":
-    "Only a single Flate-coded RGB PNG. JPEG2000 and JBIG2 embedded images — the formats the wasmUrl defect blanked — are not exercised. Note that e2e/pdfjs-decoders.spec.ts does NOT close this: it proves the decoder assets are SERVED, and says in its own docblock that it does not prove pdfjs decodes with them. Nothing in this repo yet renders a JPEG2000 or JBIG2 fixture end to end.",
+    "Only a single opaque Flate-coded RGB image. This tool never decodes JPEG 2000 or JBIG2 (nor goes through pdfjs at all): it deliberately lists them as skipped, and that skip disclosure is what is unexercised here, not decoding. Transparency (/SMask, /Mask, the PNG's alpha), palette (Indexed) images, inline-image disclosure and the saved-without-transparency caveat are covered only by unit tests — src/lib/pdf/extract-images.test.ts and src/components/tools/runner/extract-images-runner.test.tsx — not by this browser proof.",
   "grayscale-pdf":
     "Only the default DPI preset. The screen/print preset difference is not exercised.",
   "watermark-pdf":
