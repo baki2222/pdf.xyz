@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@fontsource-variable/bricolage-grotesque':
+        specifier: 5.3.0
+        version: 5.3.0
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -484,6 +487,9 @@ packages:
 
   '@expo-google-fonts/noto-sans@0.4.2':
     resolution: {integrity: sha512-zYD8G2ijWLxqmquoQgghNh/x9p0yxWwArD0oxO1oXY1qx5vOd4t0Kbhnu/Cx8RTy08OgA8RtxuULZFaXwVPnPw==}
+
+  '@fontsource-variable/bricolage-grotesque@5.3.0':
+    resolution: {integrity: sha512-TLi9Q4hJjS2UvoTMRSS2nHu6c4R56lAw60NR9QYtVRCHn0XtsFpiEhNffZ8Glsoxu6wEEwLKBP8lb94J52PNBA==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -3364,6 +3370,8 @@ snapshots:
   '@expo-google-fonts/noto-sans-sc@0.4.3': {}
 
   '@expo-google-fonts/noto-sans@0.4.2': {}
+
+  '@fontsource-variable/bricolage-grotesque@5.3.0': {}
 
   '@humanfs/core@0.19.2':
     dependencies:

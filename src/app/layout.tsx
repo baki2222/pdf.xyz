@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque } from "next/font/google";
+import localFont from "next/font/local";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { siteConfig } from "@/lib/site";
@@ -17,14 +17,33 @@ import "./globals.css";
  * The display voice of the prepress redesign: a grotesque with real bone
  * structure for headlines, against Geist Sans for UI and Geist Mono for the
  * data and annotations. The serif retired with the cream palette — a PDF is
- * a produced artefact, not a novel. Self-hosted at build time by next/font,
- * so no runtime font request leaves the page.
+ * a produced artefact, not a novel.
+ *
+ * WAS `next/font/google`, which the comment here described as "self-hosted at
+ * build time, so no runtime font request leaves the page" — true of the PAGE,
+ * and the reason nobody noticed what it cost the BUILD: every `next build`
+ * downloaded the face from fonts.googleapis.com. On 2026-09-27 the production
+ * publish for PR #162 failed inside `nextFontGoogleFontLoader` with
+ * `TypeError: Cannot read properties of null (reading '1')` — Google answered
+ * the runner with something other than the CSS Next's parser expects — and a
+ * merged, CI-green commit did not ship. Every deploy of this site depended on
+ * a third party answering one request correctly.
+ *
+ * Now read from `@fontsource-variable/bricolage-grotesque`, pinned in the
+ * lockfile like the Noto faces: the same Google Fonts face (Fontsource mirrors
+ * it; the Latin file is 40 KB, the same size production was fetching), one
+ * variable file covering every weight, and no network at build time.
+ * `layout-fonts.test.ts` fails if a `next/font/google` import comes back.
  */
-const displayFace = Bricolage_Grotesque({
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
+const displayFace = localFont({
+  src: "../../node_modules/@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-wght-normal.woff2",
+  weight: "200 800",
+  style: "normal",
   variable: "--font-display-face",
   display: "swap",
+  // The same fallback-metric adjustment next/font/google applied, so the swap
+  // from the fallback face does not reflow headlines.
+  adjustFontFallback: "Arial",
 });
 
 export const metadata: Metadata = {
