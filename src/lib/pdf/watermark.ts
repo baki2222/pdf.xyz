@@ -8,6 +8,7 @@ import {
   placeCenteredStamp,
   stampProducer,
   toRgb,
+  visibleBox,
   WATERMARK_INK,
   type RGB,
 } from "./stamp";
@@ -60,10 +61,8 @@ export async function addWatermark(
   const textHeight = font.heightAtSize(fontSize);
 
   for (const page of doc.getPages()) {
-    const { width, height } = page.getSize();
     const placement = placeCenteredStamp({
-      pageWidth: width,
-      pageHeight: height,
+      box: visibleBox(page),
       pageRotation: page.getRotation().angle,
       textWidth,
       textHeight,

@@ -9,8 +9,9 @@ import { embedDrawingFont } from "./unicode-font";
  * functions so it can be unit-tested with plain numbers instead of brittle
  * visual assertions.
  *
- * Coordinate model: pdf-lib draws in the page's *unrotated* media-box space
- * (origin bottom-left, y up). A page may carry a `/Rotate` flag (0/90/180/270,
+ * Coordinate model: pdf-lib draws in the page's *unrotated* user space
+ * (origin bottom-left, y up), but a reader sees only the page's visible box —
+ * CropBox ∩ MediaBox, whose origin need not be 0,0 ({@link visibleBox}). A page may carry a `/Rotate` flag (0/90/180/270,
  * clockwise) that a viewer applies at display time. To make a stamp land where
  * the reader expects — a "bottom-center" footer at the visual bottom, reading
  * horizontally — `placeStamp` computes the anchor in the viewer's frame and
@@ -127,6 +128,49 @@ export function applyTokens(template: string, tokens: StampTokens): string {
   return out;
 }
 
+/** An axis-aligned rectangle in unrotated user space (origin bottom-left). */
+export interface PageBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Corners in any order → a box with non-negative width and height. */
+function normalizeBox(box: PageBox): PageBox {
+  const x1 = Math.min(box.x, box.x + box.width);
+  const y1 = Math.min(box.y, box.y + box.height);
+  return {
+    x: x1,
+    y: y1,
+    width: Math.abs(box.width),
+    height: Math.abs(box.height),
+  };
+}
+
+/**
+ * The part of a page a reader actually sees: the CropBox clipped to the
+ * MediaBox (ISO 32000-1 §14.11.2), falling back to the MediaBox when the two do
+ * not overlap — which is exactly what pdf.js computes for `page.view`.
+ *
+ * `page.getSize()` is the MediaBox alone, and pdf-lib's `getCropBox()` is not
+ * clipped. Anchoring a stamp on either puts it in the cropped-away margin of
+ * any cropped page, where no viewer draws it.
+ */
+export function visibleBox(page: {
+  getMediaBox(): PageBox;
+  getCropBox(): PageBox;
+}): PageBox {
+  const media = normalizeBox(page.getMediaBox());
+  const crop = normalizeBox(page.getCropBox());
+  const x1 = Math.max(media.x, crop.x);
+  const y1 = Math.max(media.y, crop.y);
+  const x2 = Math.min(media.x + media.width, crop.x + crop.width);
+  const y2 = Math.min(media.y + media.height, crop.y + crop.height);
+  if (x2 <= x1 || y2 <= y1) return media;
+  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+}
+
 export interface StampPlacement {
   /** Draw x in content space. */
   x: number;
@@ -137,10 +181,13 @@ export interface StampPlacement {
 }
 
 export interface PlaceStampInput {
-  /** Unrotated media-box width. */
-  pageWidth: number;
-  /** Unrotated media-box height. */
-  pageHeight: number;
+  /**
+   * The page's VISIBLE box in unrotated user space — {@link visibleBox}, not
+   * `page.getSize()`. Required, origin included, because the defect it fixes
+   * was a width and height with an implied origin of 0,0: correct for a fresh
+   * page, and in the cropped-away margin of every cropped one.
+   */
+  box: PageBox;
   /** The page's `/Rotate` value in degrees (clockwise). */
   pageRotation: number;
   textWidth: number;
@@ -161,8 +208,9 @@ export interface PlaceStampInput {
 export function placeStamp(input: PlaceStampInput): StampPlacement {
   const rot = normalizeRotation(input.pageRotation);
   const swap = rot === 90 || rot === 270;
-  const visualW = swap ? input.pageHeight : input.pageWidth;
-  const visualH = swap ? input.pageWidth : input.pageHeight;
+  const { x: ox, y: oy, width: w, height: h } = input.box;
+  const visualW = swap ? h : w;
+  const visualH = swap ? w : h;
 
   const vx =
     input.h === "left"
@@ -177,23 +225,24 @@ export function placeStamp(input: PlaceStampInput): StampPlacement {
         ? visualH - input.margin - input.textHeight
         : (visualH - input.textHeight) / 2;
 
-  const w = input.pageWidth;
-  const h = input.pageHeight;
+  // Map within the box's own width and height, THEN translate by its origin:
+  // the rotation is about the visible box, so adding the origin before the
+  // mapping would mirror it on the 90/180/270 branches.
   switch (rot) {
     case 90:
-      return { x: w - vy, y: vx, rotate: 90 };
+      return { x: ox + w - vy, y: oy + vx, rotate: 90 };
     case 180:
-      return { x: w - vx, y: h - vy, rotate: 180 };
+      return { x: ox + w - vx, y: oy + h - vy, rotate: 180 };
     case 270:
-      return { x: vy, y: h - vx, rotate: 270 };
+      return { x: ox + vy, y: oy + h - vx, rotate: 270 };
     default:
-      return { x: vx, y: vy, rotate: 0 };
+      return { x: ox + vx, y: oy + vy, rotate: 0 };
   }
 }
 
 export interface PlaceCenteredInput {
-  pageWidth: number;
-  pageHeight: number;
+  /** The page's visible box ({@link visibleBox}); the stamp centres on it. */
+  box: PageBox;
   pageRotation: number;
   textWidth: number;
   textHeight: number;
@@ -202,16 +251,16 @@ export interface PlaceCenteredInput {
 }
 
 /**
- * Place a stamp centered on the page and tilted by `tilt` degrees in the
- * viewer's frame — the classic diagonal watermark. The page center is invariant
+ * Place a stamp centered on the visible page and tilted by `tilt` degrees in the
+ * viewer's frame — the classic diagonal watermark. The box center is invariant
  * under `/Rotate`, so only the tilt has to absorb the page's display rotation.
  */
 export function placeCenteredStamp(input: PlaceCenteredInput): StampPlacement {
   const rot = normalizeRotation(input.pageRotation);
   const theta = rot + input.tilt;
   const rad = (theta * Math.PI) / 180;
-  const cx = input.pageWidth / 2;
-  const cy = input.pageHeight / 2;
+  const cx = input.box.x + input.box.width / 2;
+  const cy = input.box.y + input.box.height / 2;
   const halfW = input.textWidth / 2;
   const halfH = input.textHeight / 2;
   // anchor = center − R(theta)·(halfW, halfH) so the text's bounding-box center
