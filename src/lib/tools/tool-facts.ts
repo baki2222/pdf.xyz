@@ -29,6 +29,7 @@ import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
+import { GRAYSCALE_DPI_PRESETS } from "@/lib/pdf/grayscale";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
@@ -72,6 +73,16 @@ const translatePagesAtSparsest = Math.floor(
 
 /** "1 page" / "5 pages" — the dense floor IS 1 today, so this is exercised. */
 const pluralPages = (n: number) => (n === 1 ? "page" : "pages");
+
+/**
+ * Grayscale's quality presets as the runner labels them — "Screen (96 DPI)" —
+ * built from the constant the runner's SegmentedControl renders from, so a
+ * changed preset changes the page's steps and facts with it
+ * (`derived-tool-copy.test.ts`).
+ */
+const grayscalePresetNames = GRAYSCALE_DPI_PRESETS.map(
+  (preset) => `${preset.label} (${preset.dpi} DPI)`,
+).join(" or ");
 
 /* ------------------------------------------------------------------ *
  *  Facts — each line's source is the runner constant or UI it names.
@@ -192,6 +203,64 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       value: `Markdown sources up to ${MAX_SOURCE_MB} MB, rendered and typeset in your browser.`,
     },
   ],
+  "grayscale-pdf": [
+    {
+      label: "Quality",
+      value: `Two presets: ${grayscalePresetNames} — the resolution each page is rendered at.`,
+    },
+    {
+      label: "Raster output",
+      // grayscale.ts renders every page to a grayscale JPEG and builds a NEW
+      // document from those images — nothing of the source's text layer,
+      // outline, links or form fields is copied across.
+      value:
+        "Every page becomes a grayscale image, so text is no longer selectable or searchable, and links, bookmarks and form fields are not carried over.",
+    },
+    {
+      label: "Undecodable images",
+      value:
+        "An image your browser cannot decode comes out blank, and the result says how many did.",
+    },
+  ],
+  "pdf-to-markdown": [
+    {
+      label: "Structure",
+      value:
+        "The file name becomes the # title, and a PDF with more than one page gets a ## Page N heading before each page's text.",
+    },
+    {
+      label: "Paragraphs and lists",
+      value:
+        "Lines that wrap are joined into paragraphs; a line that starts with a list marker (-, *, + or a number) stays a list item.",
+    },
+    {
+      label: "Not rebuilt",
+      value:
+        "Tables, images and text styling are not recreated — table rows come through as plain text. For tables, use Extract Tables.",
+    },
+  ],
+  "pdf-to-text": [
+    {
+      label: "Output",
+      value:
+        "The PDF's embedded text as a plain .txt file, previewed on the page before you download it.",
+    },
+  ],
+  "pdf-to-excel": [
+    {
+      label: "Cells",
+      // rows() in workers/pdf-office-export/engine.ts filters out empty
+      // cells, so a blank cell shifts the rest of its row left — measured on a
+      // decoded XLSX by claims-vs-capability.test.ts.
+      value:
+        "Every line of text becomes a row. Blank cells are dropped, so a value can shift left into the wrong column — there is no table detection.",
+    },
+    {
+      label: "Tables",
+      value:
+        "For tables detected by their layout, exported as CSV and Excel files, use Extract Tables.",
+    },
+  ],
   "compress-pdf": [
     {
       label: "Two paths",
@@ -247,6 +316,23 @@ export interface ToolFaqEntry {
   readonly question: string;
   readonly answer: string;
 }
+
+/**
+ * The tools that read only a PDF's EMBEDDED text — a scan gives them nothing.
+ * Typed because this module must stay light (the worker engine that proves
+ * membership for three of them imports JSZip), and CHECKED against the
+ * derivation in `derived-tool-copy.test.ts` — the runners that call
+ * `extractPdfText(`, plus the office engine run on a text-less PDF — in both
+ * directions, so this list cannot drift from the tools it describes.
+ */
+export const EMBEDDED_TEXT_ONLY: ReadonlySet<string> = new Set([
+  "pdf-to-text",
+  "pdf-to-markdown",
+  "compare-pdf",
+  "pdf-to-word",
+  "pdf-to-excel",
+  "pdf-to-powerpoint",
+]);
 
 export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
   const capability = capabilityForMode(tool.processing);
@@ -342,6 +428,21 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
     }
   }
 
+  if (EMBEDDED_TEXT_ONLY.has(tool.slug)) {
+    entries.push({
+      question: `Does ${tool.name} work on scanned PDFs?`,
+      answer: `Only once the scan has a text layer. ${tool.name} reads the text already embedded in a PDF, and a scanned page is a picture with none. Run the file through OCR PDF first, then use it here.`,
+    });
+  }
+
+  if (tool.slug === "pdf-to-markdown") {
+    entries.push({
+      question: `Does ${tool.name} keep tables and images?`,
+      answer:
+        "No. Images are not exported, and table rows come through as plain text rather than as Markdown tables. For tables, Extract Tables detects them by their layout and exports CSV and Excel files.",
+    });
+  }
+
   if (tool.slug === "ocr-pdf") {
     entries.push({
       question: "Which languages can OCR recognize?",
@@ -357,9 +458,29 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
  * ------------------------------------------------------------------ */
 
 /**
+ * Steps that interpolate a runner constant, so they cannot live in the plain
+ * catalogue (which may not import the engines). Consulted only when the tool
+ * has no authored `how`.
+ */
+const DERIVED_STEPS: Record<string, readonly string[]> = {
+  "grayscale-pdf": [
+    "Pick your PDF — it stays on your device.",
+    `Choose the output quality: ${grayscalePresetNames}.`,
+    "Select Convert to grayscale — every page is rendered as a grayscale image in your browser.",
+    "Download the grayscale PDF.",
+  ],
+};
+
+/**
  * Default steps per capability. The client default deliberately states that
  * the file never leaves the device — a HowTo for an in-browser tool that
  * said "upload" would ship a false claim as structured data.
+ *
+ * NO OPTIONS STEP. Both templates said "Choose your options." until
+ * 2026-09-27, and a template is written blind: it reached Google as HowToStep 2
+ * for html-to-pdf, pdf-to-text and every other tool with nothing to choose.
+ * A tool with settings worth a step authors its own `how`
+ * (`structured-steps.test.ts` pins that the defaults claim none).
  */
 function defaultSteps(tool: Tool): readonly string[] {
   const capability = capabilityForMode(tool.processing);
@@ -372,21 +493,20 @@ function defaultSteps(tool: Tool): readonly string[] {
     // line, where the account guard's idiom already protects it.
     return [
       `Open the tool and pick your ${formats} file — it stays on your device.`,
-      "Choose your options.",
       "Run the tool in your browser.",
       "Save the result to your device.",
     ];
   }
   return [
     `Upload your ${formats} file over an encrypted connection.`,
-    "Choose your options.",
     "The secure worker processes the file and deletes the input when the job finishes.",
     `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ];
 }
 
 export function howToSteps(tool: Tool): readonly string[] {
-  return tool.how && tool.how.length > 0 ? tool.how : defaultSteps(tool);
+  if (tool.how && tool.how.length > 0) return tool.how;
+  return DERIVED_STEPS[tool.slug] ?? defaultSteps(tool);
 }
 
 /** Referenced by facts/FAQ builders below; exported for the page template. */

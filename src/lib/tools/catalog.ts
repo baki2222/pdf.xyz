@@ -1,5 +1,6 @@
 import type { Tool } from "./types";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -28,7 +29,7 @@ export const tools: Tool[] = [
     related: ["split-pdf", "organize-pages", "compress-pdf"],
     how: [
       "Add two or more PDF files.",
-      "Drag pages or files into the order you want.",
+      "Drag files, or use each row's move buttons, to set the order you want.",
       "Merge and download your combined PDF.",
     ],
   },
@@ -199,7 +200,7 @@ export const tools: Tool[] = [
     name: "Grayscale PDF",
     tagline: "Convert to black & white to save ink.",
     description:
-      "Render each page to grayscale and rebuild a print-friendly PDF. This flattens selectable text and vectors into page images.",
+      "Convert a PDF to grayscale (black and white) for printing, right in your browser. Pages become images, so text is no longer selectable.",
     category: "optimize",
     icon: "grayscale",
     processing: "client",
@@ -258,7 +259,11 @@ export const tools: Tool[] = [
     name: "JPG to PDF",
     tagline: "Images into a single tidy PDF.",
     description:
-      "Combine JPG images into a PDF with control over orientation, margins, and page size.",
+      // The layout is FIXED by the engine (pdf/image-to-pdf.ts): one US Letter
+      // portrait page per image, a 36pt margin, no runner setting to change
+      // it. claims-vs-capability.test.ts decodes the output PDF and checks
+      // every paper size and margin this copy names.
+      "Combine JPG images into one PDF in your browser — each image centered on its own US Letter portrait page with a half-inch margin. The file stays on your device.",
     category: "convert-to",
     icon: "jpg",
     processing: "client",
@@ -286,7 +291,7 @@ export const tools: Tool[] = [
     name: "HTML to PDF",
     tagline: "Render HTML files as PDF.",
     description:
-      "Convert HTML files or snippets into PDF with a real Chromium rendering engine on a secure worker that deletes the input when the job finishes.",
+      "Convert an HTML file into PDF with a real Chromium rendering engine on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "html",
     processing: "server",
@@ -294,6 +299,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["html to pdf", "render html", "web to pdf", "markup to pdf"],
     related: ["webpage-to-pdf", "markdown-to-pdf", "word-to-pdf"],
+    how: [
+      "Upload one .html or .htm file over an encrypted connection.",
+      "Select Render PDF — Chromium renders it on a secure worker that deletes the input when the job finishes.",
+      `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
   },
   {
     slug: "webpage-to-pdf",
@@ -308,6 +318,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["webpage to pdf", "url to pdf", "website to pdf", "save page"],
     related: ["html-to-pdf", "markdown-to-pdf", "compress-pdf"],
+    how: [
+      "Paste a public http(s) URL.",
+      "Select Render PDF — Chromium captures the page on a secure worker.",
+      `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
   },
   {
     slug: "markdown-to-pdf",
@@ -352,9 +367,12 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-word",
     name: "PDF to Word",
-    tagline: "Editable DOCX from any PDF.",
+    tagline: "A PDF's text as an editable DOCX.",
     description:
-      "Convert PDFs into editable Word documents while preserving layout and text flow.",
+      // The engine writes one bare <w:p> per extracted line — no styles,
+      // images, tables or columns (workers/pdf-office-export/engine.ts).
+      // claims-vs-capability.test.ts decodes a real export against this copy.
+      "Convert a PDF’s selectable text into an editable Word DOCX, one paragraph per line. Images, fonts, tables and page layout are not recreated.",
     category: "convert-from",
     icon: "word",
     processing: "server",
@@ -368,9 +386,12 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-excel",
     name: "PDF to Excel",
-    tagline: "Extract tables into spreadsheets.",
+    tagline: "Selectable PDF text into an XLSX sheet.",
     description:
-      "Convert tables inside PDFs into editable Excel spreadsheets with rows and columns intact.",
+      // No table detection: every separator named here is one the engine
+      // splits on, and every one it splits on is named — checked on a decoded
+      // XLSX by claims-vs-capability.test.ts.
+      "Export a PDF’s selectable text to an XLSX sheet: one row per line, cells split at tabs, wide gaps and commas. Runs on a worker that deletes the input after the job.",
     category: "convert-from",
     icon: "excel",
     processing: "server",
@@ -382,9 +403,12 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-powerpoint",
     name: "PDF to PowerPoint",
-    tagline: "Turn PDFs into editable slides.",
+    tagline: "Each PDF page's text on its own slide.",
     description:
-      "Convert each PDF page into an editable PowerPoint slide, rebuilt from the page’s selectable text — on a secure worker that deletes the input when the job finishes.",
+      // Each slide is ONE unpositioned text box — no pictures, no layout.
+      // claims-vs-capability.test.ts decodes the slides and requires the
+      // "text only" qualifier for as long as that holds.
+      "Put each PDF page’s selectable text on its own editable PowerPoint slide. Text only: images, charts and page layout are not carried over.",
     category: "convert-from",
     icon: "powerpoint",
     processing: "server",
@@ -413,7 +437,9 @@ export const tools: Tool[] = [
     name: "PDF to PNG",
     tagline: "Export pages as lossless PNGs.",
     description:
-      "Render PDF pages as crisp, lossless PNG images with a transparent or white background.",
+      // The runner passes no background, so the rasterizer paints white;
+      // claims-vs-capability.test.ts goes red the day that changes.
+      "Render PDF pages as crisp, lossless PNG images on a white background — right in your browser, so the file stays on your device.",
     category: "convert-from",
     icon: "png",
     processing: "client",
@@ -455,13 +481,19 @@ export const tools: Tool[] = [
       "selectable text",
     ],
     related: ["markdown-to-pdf", "pdf-to-text", "extract-tables"],
+    how: [
+      "Pick your PDF — it stays on your device.",
+      "Select Create Markdown to convert its selectable text in your browser.",
+      "Preview the Markdown on the page.",
+      "Download the .md file.",
+    ],
   },
   {
     slug: "pdf-to-text",
     name: "PDF to Text",
-    tagline: "Grab plain text from any PDF.",
+    tagline: "Extract selectable text from a PDF to .txt.",
     description:
-      "Extract the raw text content of a PDF as a plain .txt file, right in your browser.",
+      "Extract a PDF’s selectable text as a plain .txt file, right in your browser — the file stays on your device. Scanned PDFs need OCR first.",
     category: "convert-from",
     icon: "align",
     processing: "client",
@@ -469,6 +501,12 @@ export const tools: Tool[] = [
     outputs: ["TXT"],
     keywords: ["pdf to text", "extract text", "pdf to txt", "copy text"],
     related: ["ocr-pdf", "pdf-to-markdown", "pdf-to-word"],
+    how: [
+      "Pick your PDF — it stays on your device.",
+      "Select Extract text.",
+      "Preview the extracted text on the page.",
+      "Download it as a .txt file.",
+    ],
   },
   {
     slug: "extract-tables",
@@ -556,9 +594,12 @@ export const tools: Tool[] = [
   {
     slug: "watermark-pdf",
     name: "Add Watermark",
-    tagline: "Stamp text or image watermarks.",
+    tagline: "Stamp a text watermark on every page.",
     description:
-      "Overlay a text or image watermark with adjustable opacity, rotation, and tiling.",
+      // Text only, drawn once per page (pdf/watermark.ts): no image input, no
+      // tiling. claims-vs-capability.test.ts reads WatermarkOptions and goes
+      // red the day an image or tile option lands, so the copy moves with it.
+      "Stamp a text watermark on every page of a PDF in your browser — set the text, opacity, angle, size and color. The file never leaves your device.",
     category: "edit",
     icon: "watermark",
     processing: "client",
@@ -640,16 +681,25 @@ export const tools: Tool[] = [
   {
     slug: "request-signatures",
     name: "Request Signatures",
-    tagline: "Collect legally-binding e-signatures.",
+    tagline: "Prepare a PDF for others to sign.",
     description:
-      "Send a document to others, track status, and collect audited e-signatures in order.",
+      // Preparation only: no e-signature provider is wired
+      // (workers/request-signatures/native.ts), so nothing is sent, tracked,
+      // collected or legally bound. claims-vs-capability.test.ts calls the
+      // production deps and goes red the day a delivery provider is wired.
+      "Add a fillable signature field (and an optional date) for each signer, then download a ZIP with the prepared PDF, a signer manifest and an audit trail. You send it.",
     category: "sign",
     icon: "requestSign",
     processing: "server",
     accept: ["PDF"],
     outputs: ["PDF", "JSON", "ZIP"],
-    keywords: ["request signature", "esignature workflow", "sign request"],
+    keywords: ["request signature", "prepare pdf for signing", "sign request"],
     related: ["sign-pdf", "fill-forms", "create-forms"],
+    how: [
+      "Upload the PDF over an encrypted connection.",
+      "Add each signer's name and email, choose the page for their signature fields, and choose whether to add a date field beside each signature.",
+      "Download the ZIP with the prepared PDF, manifest and audit trail, then send the PDF to your signers yourself — pdf.xyz does not email it or track who has signed.",
+    ],
   },
   {
     slug: "fill-forms",

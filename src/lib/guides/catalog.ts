@@ -61,7 +61,7 @@ export const guides: Guide[] = [
     steps: [
       "Open the Merge PDF tool.",
       "Add two or more PDF files — they stay on your device the entire time.",
-      "Drag pages or files into the order you want; the combined PDF follows your list from top to bottom.",
+      "Drag files into the order you want; the combined PDF follows your list from top to bottom.",
       "Use each row's move buttons to shift a file up or down instead of dragging.",
       "Double-check the order — the file at the top of the list becomes the opening pages of the result.",
       "Merge, then save the combined PDF to your device.",
@@ -119,7 +119,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-split-a-pdf",
@@ -304,7 +304,7 @@ export const guides: Guide[] = [
       "turn a pdf into word",
     ],
     intro: [
-      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion turns the PDF into an editable Word document while preserving layout and text flow, so you edit the text instead of retyping it.",
+      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The DOCX holds the PDF's selectable text as editable paragraphs, so you edit the words instead of retyping them — the formatting is not rebuilt.",
       `PDF to Word is a server tool: your PDF travels over an encrypted connection to an encrypted, isolated worker, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let the worker convert it, and save the DOCX before the link expires.`,
     ],
@@ -314,15 +314,15 @@ export const guides: Guide[] = [
       "Start the conversion.",
       "Wait while the secure worker converts the PDF into a Word document. The worker deletes the input when the job finishes.",
       `Download the DOCX. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
-      "Open the downloaded DOCX in Word and start editing — the conversion preserves layout and text flow.",
+      "Open the downloaded DOCX in Word and start editing.",
     ],
     sections: [
       {
         id: "what-you-get",
         heading: "What to expect from the converted document",
         body: [
-          "The output is a DOCX file, the standard editable Word format. The conversion preserves layout and text flow, so the document keeps its structure and reads the way the original did — but the text is live, so you can rewrite a paragraph, fix a date, or restructure a section directly in Word.",
-          "That is the point of converting rather than copying and pasting: pasted text loses its arrangement on the page, while the converted DOCX carries the layout with it.",
+          "The output is a DOCX file, the standard editable Word format. It holds the PDF's selectable text, one Word paragraph for each line of the original, and that text is live: rewrite a sentence, fix a date, or reuse a passage directly in Word.",
+          "What does not come across is the look. Images, fonts, tables and multi-column layout are not recreated, and a paragraph that wrapped across several lines in the PDF arrives as several short paragraphs. Expect to restyle the document; the conversion saves you the retyping, not the formatting.",
         ],
       },
       {
@@ -346,7 +346,7 @@ export const guides: Guide[] = [
         heading: "Scanned PDFs and neighboring tools",
         body: [
           "The tools listed beside PDF to Word cover the jobs next door. If your PDF is a scan — photographed or scanned pages rather than typed text — run it through the OCR PDF tool first, which recognizes the text in scanned pages so there is real text to carry into Word.",
-          "If you only need the words and not the formatting, PDF to Text pulls the plain text out. And when the editing is done, Word to PDF converts your finished document back in the other direction.",
+          "If you want the same text as a plain .txt file rather than a DOCX, PDF to Text pulls it out right in your browser. And when the editing is done, Word to PDF converts your finished document back in the other direction.",
         ],
       },
     ],
@@ -372,17 +372,17 @@ export const guides: Guide[] = [
       {
         question: "Will the Word document look like my original PDF?",
         answer:
-          "The conversion is built to preserve layout and text flow, so the DOCX follows the structure of the original while staying fully editable. If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.",
+          "No — it carries over the text, not the look. Each line of selectable text becomes a paragraph in Word; images, fonts, tables and multi-column layout are not recreated. If your PDF is a scanned image rather than typed text, run it through OCR PDF first so there is recognized text to convert.",
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
     title: "How to convert JPG to PDF",
     description:
-      "Combine JPG photos into one PDF right in your browser — your files never leave your device. Control page size, margins, and orientation. No account needed.",
+      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per US Letter page, no account needed.",
     tools: ["jpg-to-pdf", "png-to-pdf", "pdf-to-jpg"],
     keywords: [
       "jpg to pdf",
@@ -393,26 +393,24 @@ export const guides: Guide[] = [
       "turn pictures into pdf",
     ],
     intro: [
-      "To turn JPG photos into a single PDF, open the JPG to PDF tool on pdf.xyz, pick your images, and run the conversion right in your browser. The tool combines your JPGs into one tidy PDF and gives you control over page size, orientation, and margins along the way.",
+      "To turn JPG photos into a single PDF, open the JPG to PDF tool on pdf.xyz, pick your images, and run the conversion right in your browser. The tool combines your JPGs into one tidy PDF, one photo per page, in the order you set.",
       "What sets this converter apart is where the work happens: entirely in your own browser. It is built on WebAssembly and browser APIs, so your photos stay on your device from the moment you pick them to the moment you save the finished PDF — and no account is needed.",
       `Each image can be up to ${MAX_IMAGE_MB} MB, and the output is one PDF assembled on your device. That makes the tool a natural fit for photographed receipts, scanned pages saved as JPGs, or any batch of pictures that belongs together in a single file.`,
     ],
     steps: [
       "Open the JPG to PDF tool.",
       "Pick the JPG or JPEG photos you want in the PDF — they stay on your device the whole time.",
-      "Set the page size for the finished PDF.",
-      "Choose the orientation, so pages run tall or wide to match your photos.",
-      "Adjust the margins to control how much space surrounds each image.",
+      "Put the photos in order with each one's move buttons — the first photo becomes page one.",
       "Run the conversion — it happens in your browser, not on a server.",
       "Save the finished PDF to your device.",
     ],
     sections: [
       {
-        id: "page-setup",
-        heading: "Page size, orientation, and margins",
+        id: "page-layout",
+        heading: "How each photo is placed on the page",
         body: [
-          "Three settings shape the finished PDF. Page size sets the dimensions of the pages your images are placed on. Orientation decides whether those pages run tall or wide — useful when some photos were shot sideways. Margins control the breathing room between each image and the edge of the page.",
-          "Set all three before you run the conversion. Because the result is a single PDF, a consistent page size and margin turns a stack of mismatched photos into something that reads like one coherent document rather than a loose pile of pictures.",
+          "Every photo gets its own US Letter page in portrait orientation, centered with a half-inch white margin. A photo larger than that space is scaled down to fit, keeping its proportions; a smaller one is not enlarged, so it sits at its own size in the middle of the page.",
+          "The page size, orientation and margin are fixed — there is no setting to change them — so a stack of mismatched photos still comes out as one consistent document. A landscape photo is shrunk to the width of the portrait page, leaving white space above and below it. Photos are placed as their pixels are stored, so a phone photo that relies on a rotation tag to display upright may come out sideways; Rotate PDF can turn those pages afterward.",
         ],
       },
       {
@@ -441,7 +439,12 @@ export const guides: Guide[] = [
       {
         question: "Can I combine multiple JPG photos into one PDF?",
         answer:
-          "Yes — that is exactly what the tool does. It assembles your JPG images into a single PDF, with control over the page size, orientation, and margins of the result.",
+          "Yes — that is exactly what the tool does. It assembles your JPG images into a single PDF, one image per US Letter page, in the order you set.",
+      },
+      {
+        question: "Does JPG to PDF have page size or margin settings?",
+        answer:
+          "No. Every image goes on a US Letter portrait page with a half-inch margin, scaled down to fit if it is larger than that space.",
       },
       {
         question: "How large can my JPG files be?",
@@ -459,7 +462,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",
@@ -688,7 +691,7 @@ export const guides: Guide[] = [
         id: "when-someone-else-needs-to-sign",
         heading: "When someone else needs to sign",
         body: [
-          "Sign PDF covers self-signing: you create and place your own signature on a document you already have. When the signature you need is someone else's, use Request Signatures instead — it sends a document to others, tracks status, and collects audited e-signatures in order.",
+          "Sign PDF covers self-signing: you create and place your own signature on a document you already have. When the signature you need is someone else's, use Request Signatures instead. It prepares a copy of the PDF with a fillable signature field for each signer, plus a manifest and an audit trail. pdf.xyz does not email it or track who has signed: you send it and gather the signed copies yourself.",
           "And when the document is a form as much as it is a contract, pair signing with Fill Forms, which completes a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in your browser. Fill the fields in Fill Forms and export the completed PDF, then open that file in Sign PDF to add your signature.",
         ],
       },
@@ -716,11 +719,11 @@ export const guides: Guide[] = [
       {
         question: "Can I collect signatures from other people?",
         answer:
-          "Sign PDF handles your own signature. To collect signatures from others, use the Request Signatures tool, which sends a document to recipients, tracks status, and collects audited e-signatures in order.",
+          "Not automatically. Sign PDF handles your own signature. Request Signatures prepares a PDF with a signature field for each person, which you then send to them yourself; pdf.xyz does not deliver, track, or certify the signatures.",
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-make-a-scanned-pdf-searchable",
