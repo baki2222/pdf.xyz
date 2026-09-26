@@ -290,9 +290,36 @@ describe("each AI page publishes what the route lets that tool do", () => {
     expect(AI_ALLOWANCE_USED_MESSAGE).not.toMatch(
       /\bThe [\d,]+ free characters\b[^.]*\bare used up\b/,
     );
+    // The per-run clause, matched whole. This used to be
+    // `toContain(\`${AI_UNDECLARED_RUNS_PER_DAY} \`)` — i.e. "3 " — which any
+    // sentence with a 3 and a space satisfies. The nouns are read from what
+    // each per-run tool's own fact line says ("3 summaries a day"), so the
+    // refusal and the pages are held to each other, not to a typed list.
+    const n = AI_UNDECLARED_RUNS_PER_DAY;
+    const perRun = aiTools().filter(
+      (t) => !AI_TOOLS_DECLARING_CHARACTERS.has(t.slug),
+    );
+    expect(perRun.length, "positive control: per-run AI tools exist").toBe(
+      aiTools().length - AI_TOOLS_DECLARING_CHARACTERS.size,
+    );
+    expect(perRun.length).toBeGreaterThan(0);
+    const nouns = perRun.map((t) => {
+      const m = new RegExp(`\\b${n} ([a-z]+) a day\\b`).exec(
+        aiAllowanceFactFor(t.slug),
+      );
+      if (!m) throw new Error(`${t.slug}: fact line states no per-run count`);
+      return m[1]!;
+    });
+    // Every per-run tool names its own unit — the generic fallback is a
+    // missing entry, not a noun.
+    expect(nouns.filter((w) => w === "runs")).toEqual([]);
+    const clause = new RegExp(
+      `\\b${n} ([a-z]+(?:(?:, | or )[a-z]+)*), shared across the AI tools\\b`,
+    ).exec(AI_ALLOWANCE_USED_MESSAGE);
     expect(
-      AI_ALLOWANCE_USED_MESSAGE,
+      clause,
       "the refusal names no per-run count for the tools that are charged per run",
-    ).toContain(`${AI_UNDECLARED_RUNS_PER_DAY} `);
+    ).not.toBeNull();
+    expect(new Set(clause![1]!.split(/, | or /))).toEqual(new Set(nouns));
   });
 });

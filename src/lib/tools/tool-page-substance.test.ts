@@ -25,7 +25,7 @@
  *  - a ban on the two false promises, with the shipped sentences as corpus and
  *    a precondition that reads the runner (lift the ban by building the control).
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
@@ -60,7 +60,6 @@ import { guides } from "@/lib/guides/catalog";
 import { withoutComments } from "./copy-surface";
 import {
   EVERY_OTHER_PAGE_EXAMPLE,
-  FONT_FETCH_EXCEPTION,
   howToSteps,
   toolFacts,
   toolFaq,
@@ -415,6 +414,33 @@ function copyAbout(tool: Tool): string[] {
   ];
 }
 
+describe("a guide targets only searches its tool can answer", () => {
+  // The delete-pages guide targeted "remove blank pages from pdf" over a
+  // runner with no blank-page detection: the searcher lands on manual
+  // selection. A first draft of this guard let the keyword back "when the
+  // runner mentions blank" — and it passed with the keyword restored, because
+  // runner-kit's render-failure notice says pages "are blank in this output".
+  // A word in a file is not a detector, so there is no automatic exit: whoever
+  // builds blank-page detection lifts this ban in the same change, next to a
+  // test that runs the detector on a PDF with a blank page.
+  const BLANK_PAGE_INTENT = /\bblank pages?\b/i;
+  const SHIPPED = ["remove blank pages from pdf"];
+
+  it("no guide targets blank-page removal", () => {
+    for (const k of SHIPPED) expect(BLANK_PAGE_INTENT.test(k)).toBe(true);
+    const keywords = guides.flatMap((g) =>
+      g.keywords.map((k) => [g.slug, k] as const),
+    );
+    // Health: the corpus is every keyword of every guide, not a few.
+    expect(keywords.length).toBeGreaterThan(guides.length * 2);
+    expect(
+      keywords
+        .filter(([, k]) => BLANK_PAGE_INTENT.test(k))
+        .map(([g, k]) => `${g}: "${k}"`),
+    ).toEqual([]);
+  });
+});
+
 describe("the converters' pages describe the page they produce", () => {
   it("image to PDF offers no page setup while its runner has none", () => {
     for (const s of SHIPPED_PAGE_SETUP)
@@ -505,6 +531,31 @@ describe("the converters' pages describe the page they produce", () => {
     }
   });
 
+  it("a step that promises a single-page save says which pages have one", () => {
+    // Shipped: "…and a page can also be saved on its own from its preview."
+    // Only the first RASTER_PREVIEW_LIMIT pages get a preview (and so a
+    // button); the FAQ said so, the HowTo step did not.
+    const subjects = tools.filter(
+      (t) => getRunnerKind(t.slug) === "pdf-to-image",
+    );
+    const steps = [
+      ...subjects.flatMap((t) =>
+        page(t.slug).howTo.map((s) => [t.slug, s] as const),
+      ),
+      ...guides
+        .filter((g) => getRunnerKind(g.tools[0]!) === "pdf-to-image")
+        .flatMap((g) => g.steps.map((s) => [g.slug, s] as const)),
+    ];
+    const promising = steps.filter(([, s]) => /\bon its own\b/.test(s));
+    // Positive control: both tool pages and the guide carry the step.
+    expect(promising.length).toBeGreaterThanOrEqual(subjects.length + 1);
+    expect(
+      promising
+        .filter(([, s]) => !s.includes(`first ${RASTER_PREVIEW_LIMIT} pages`))
+        .map(([where]) => where),
+    ).toEqual([]);
+  });
+
   it("the Markdown syntax answer is what the parser produces", () => {
     const blocks = parseMarkdownBlocks(
       [
@@ -550,32 +601,8 @@ describe("the converters' pages describe the page they produce", () => {
   });
 });
 
-/* ------------------------------------------------------------------ *
- *  4. Offline: the font exception, for as long as an engine fetches fonts
- * ------------------------------------------------------------------ */
-
-describe("the offline answer names the font fetch", () => {
-  it("while any engine draws with a fetched font, every in-browser page says so", () => {
-    const pdfDir = path.join(ROOT, "src", "lib", "pdf");
-    const callers = readdirSync(pdfDir)
-      .filter((f) => /\.ts$/.test(f) && !f.includes(".test."))
-      .filter((f) =>
-        /\bembedDrawingFont\(/.test(
-          withoutComments(readFileSync(path.join(pdfDir, f), "utf8")),
-        ),
-      )
-      .filter((f) => f !== "unicode-font.ts");
-    expect(callers, "positive control: text-to-pdf draws with it").toContain(
-      "text-to-pdf.ts",
-    );
-    const missing = inBrowser()
-      .filter((t) => {
-        const offline = page(t.slug).faq.find((e) =>
-          /offline/.test(e.question),
-        );
-        return !offline || !offline.answer.includes(FONT_FETCH_EXCEPTION);
-      })
-      .map((t) => t.slug);
-    expect(missing).toEqual([]);
-  });
-});
+/*
+ * 4. Offline: moved to `offline-answer.test.ts`, which discovers every mid-run
+ *    fetch site (fonts AND pdfjs decoders/character maps) instead of only the
+ *    `embedDrawingFont` callers this section once walked.
+ */

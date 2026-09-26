@@ -3,6 +3,7 @@ import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
 import { US_LETTER_LABEL } from "@/lib/pdf/page-geometry";
 import {
   RASTER_RESOLUTION_CHOICES as RESOLUTION_CHOICES,
+  RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS,
 } from "@/lib/pdf/pdf-to-image";
 
@@ -459,7 +460,7 @@ export const tools: Tool[] = [
       "Pick your PDF — it stays on your device.",
       `Choose a resolution: ${RESOLUTION_CHOICES}.`,
       "Click “Render” — every page becomes a JPG image, in your browser.",
-      "Download the result — several pages arrive together as one ZIP, and a page can also be saved on its own from its preview.",
+      `Download the result — several pages arrive together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
     ],
   },
   {
@@ -481,7 +482,7 @@ export const tools: Tool[] = [
       "Pick your PDF — it stays on your device.",
       `Choose a resolution: ${RESOLUTION_CHOICES}.`,
       "Click “Render” — every page becomes a PNG image, in your browser.",
-      "Download the result — several pages arrive together as one ZIP, and a page can also be saved on its own from its preview.",
+      `Download the result — several pages arrive together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
     ],
   },
   {

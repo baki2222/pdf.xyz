@@ -59,7 +59,7 @@ import {
   MARKDOWN_BLOCK_KINDS,
   type MarkdownBlockKind,
 } from "@/lib/pdf/markdown-blocks";
-import { getRunnerKind } from "@/lib/pdf/registry";
+import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
@@ -402,9 +402,97 @@ export interface ToolFaqEntry {
   readonly answer: string;
 }
 
-/** The in-browser offline answer's one exception, said once. */
-export const FONT_FETCH_EXCEPTION =
-  "One exception: drawing text in a script outside the Western European alphabet fetches a matching font the first time it is needed, and that step needs a connection.";
+/**
+ * What an in-browser tool's offline answer says about the network — and what
+ * it must NOT say.
+ *
+ * It said "a dropped connection does not interrupt work in progress", on every
+ * in-browser page and six guides. Then it said that with "One exception" — the
+ * font a text-drawing engine fetches mid-run — which made the font fetch the
+ * ONLY mid-run dependency. It is not: every pdfjs `getDocument` spreads
+ * `PDFJS_DOCUMENT_DEFAULTS` (`src/lib/pdf/wasm-assets.ts`), so pdfjs fetches
+ * its JPEG 2000 / JBIG2 decoders and its CJK character maps from our origin
+ * the moment a page needs one — mid-render, mid-extraction. PDF to JPG, PDF to
+ * PNG, Grayscale, Redact, the text extractors and every thumbnail grid depend
+ * on that, and the page told readers and Google otherwise.
+ *
+ * So the answer makes no exclusivity claim at all. It says the engine arrives
+ * in parts, and then names each document-dependent fetch the tool's runner can
+ * actually reach. `tool-page-substance.test.ts` DISCOVERS the fetch sites (every
+ * `fetch(` and every `getDocument` in the code a runner calls) and walks each
+ * runner's call graph to them, so this table is held to the code in both
+ * directions, and a runner that reaches an unclassified fetch fails loudly.
+ */
+export type MidRunFetch = "drawing-font" | "image-decoder" | "character-map";
+
+export const MID_RUN_FETCH_SENTENCE: Readonly<Record<MidRunFetch, string>> = {
+  "drawing-font":
+    "Drawing text in a script outside the Western European alphabet fetches a matching font from our site the first time it is needed, and that step needs a connection.",
+  "image-decoder":
+    "Rendering a page that holds a JPEG 2000 or JBIG2 image, as scanned documents often do, fetches an image decoder from our site the first time it is needed, and that step needs a connection.",
+  "character-map":
+    "Chinese, Japanese or Korean text whose font is not embedded in the PDF needs a character map, fetched from our site the first time it is needed, and that step needs a connection.",
+};
+
+/**
+ * Per runner, the document-dependent fetches its call graph reaches. A full
+ * `Record` over `RunnerKind`, so a new runner is a compile error until someone
+ * decides — and the test then checks the decision against the code.
+ */
+export const RUNNER_MID_RUN_FETCHES: Readonly<
+  Record<RunnerKind, readonly MidRunFetch[]>
+> = {
+  merge: ["image-decoder", "character-map"],
+  split: [],
+  rotate: ["image-decoder", "character-map"],
+  "delete-pages": ["image-decoder", "character-map"],
+  "extract-pages": ["image-decoder", "character-map"],
+  organize: ["image-decoder", "character-map"],
+  compress: [],
+  "pdf-to-text": ["character-map"],
+  "pdf-to-markdown": ["character-map"],
+  "text-to-pdf": ["drawing-font"],
+  "markdown-to-pdf": ["drawing-font"],
+  "image-to-pdf": [],
+  "pdf-to-image": ["image-decoder", "character-map"],
+  "page-numbers": ["drawing-font"],
+  watermark: ["drawing-font"],
+  "header-footer": ["drawing-font"],
+  crop: [],
+  sign: ["drawing-font"],
+  flatten: [],
+  overlay: [],
+  grayscale: ["image-decoder", "character-map"],
+  redact: ["image-decoder", "character-map"],
+  "fill-forms": [],
+  "create-forms": [],
+  annotate: ["drawing-font"],
+  edit: ["drawing-font"],
+  "extract-images": [],
+  compare: ["character-map"],
+};
+
+/** The document-dependent fetches the tool behind `slug` can make mid-run. */
+export function midRunFetches(slug: string): readonly MidRunFetch[] {
+  const kind = getRunnerKind(slug);
+  if (!kind) throw new Error(`midRunFetches: ${slug} mounts no runner`);
+  return RUNNER_MID_RUN_FETCHES[kind];
+}
+
+/** How the engine arrives — true of every in-browser tool, exclusive of nothing. */
+export const ENGINE_ARRIVES_FACT =
+  "The page and its processing engine load over the network, and parts of the engine are fetched the first time a step needs them. The processing itself runs on your device.";
+
+/**
+ * The in-browser offline answer for one tool: how the engine arrives, then
+ * every fetch its runner can make because of what is in the document.
+ */
+export function offlineAnswer(slug: string): string {
+  return [
+    ENGINE_ARRIVES_FACT,
+    ...midRunFetches(slug).map((f) => MID_RUN_FETCH_SENTENCE[f]),
+  ].join(" ");
+}
 
 /** The list a reader types to pick every other page (parsed by `parsePageList`). */
 export const EVERY_OTHER_PAGE_EXAMPLE = "2, 4, 6, 8";
@@ -550,17 +638,12 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
       });
       entries.push({
         question: `Does ${tool.name} work offline?`,
-        // Wording bounded by what ships today: the engine chunk is fetched on
-        // first use (file pick / first run), so "page loaded" alone does NOT
-        // make the work connection-proof — the earlier claim said it did.
-        //
-        // The exception is named because the engines that draw text fetch a
-        // font DURING the run for any script outside WinAnsi
-        // (`unicode-font.ts` → `fetch(fontPackUrl(pack))`), so "a dropped
-        // connection does not interrupt work in progress" was false for a
-        // Bengali text file on Text to PDF. `tool-page-substance.test.ts` keeps
-        // this sentence for as long as any engine calls `embedDrawingFont`.
-        answer: `Not fully — the page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the processing itself runs entirely on your device, and a dropped connection does not interrupt work in progress. ${FONT_FETCH_EXCEPTION}`,
+        // Composed per tool from the fetches its runner reaches — see
+        // `offlineAnswer`. Two earlier answers were each false: "a dropped
+        // connection does not interrupt work in progress" (fonts, decoders
+        // and character maps are fetched mid-run), and then the same with
+        // "One exception" (the font), which denied the pdfjs fetches.
+        answer: `Not fully. ${offlineAnswer(tool.slug)}`,
       });
       break;
     }

@@ -29,11 +29,11 @@ import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import {
   EVERY_OTHER_PAGE_EXAMPLE,
-  FONT_FETCH_EXCEPTION,
   MARKDOWN_SYNTAX_FACT,
   PAGE_REBUILD_KEEPS,
   TEXT_PAGE_FACT,
   countWord,
+  offlineAnswer,
 } from "@/lib/tools/tool-facts";
 import {
   DEFAULT_RESOLUTION_ID,
@@ -121,7 +121,7 @@ export const guides: Guide[] = [
         heading: "Where the merge actually runs",
         body: [
           "Merge PDF is an in-browser tool. The processing runs on your own device, and your files stay there from start to finish — they are never sent to a server as part of the merge. That also means there is no account: the browser you already have does the work.",
-          "One honest nuance: the tool is not fully offline. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the merge itself runs entirely on your device, and a dropped connection does not interrupt work already in progress.",
+          `One honest nuance: the tool is not fully offline. ${offlineAnswer("merge-pdf")}`,
         ],
       },
       {
@@ -150,8 +150,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does merging PDFs work offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. From there, the merge runs entirely on your device, and a dropped connection does not interrupt work already in progress.",
+        answer: `Not fully. ${offlineAnswer("merge-pdf")}`,
       },
       {
         question: "How do I control the page order in the combined PDF?",
@@ -209,7 +208,7 @@ export const guides: Guide[] = [
         heading: "Where the split happens",
         body: [
           "Split PDF is an in-browser tool. The processing runs entirely on your device, and the file never leaves it — there is no server step in the path from picking a file to saving the result. That also means no account: nothing about the flow requires identifying yourself.",
-          "One honest nuance about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the split itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+          `One honest nuance: the tool is not fully offline. ${offlineAnswer("split-pdf")}`,
         ],
       },
       {
@@ -237,8 +236,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does Split PDF work offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the split runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+        answer: `Not fully. ${offlineAnswer("split-pdf")}`,
       },
       {
         question: "What if I only need a few specific pages?",
@@ -463,7 +461,7 @@ export const guides: Guide[] = [
         heading: "Your photos never leave your device",
         body: [
           "JPG to PDF is an in-browser tool. The conversion runs on your own machine, and your files stay on your device from start to finish — there is no server step in the path, and no account is needed.",
-          "One honest caveat about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the assembly itself runs entirely on your device, so a dropped connection does not interrupt work already in progress.",
+          `One honest caveat: the tool is not fully offline. ${offlineAnswer("jpg-to-pdf")}`,
         ],
       },
       {
@@ -492,8 +490,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does JPG to PDF work offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, with the engine fetched the first time you use the tool. After that, the conversion itself runs on your device, and a dropped connection does not interrupt work in progress.",
+        answer: `Not fully. ${offlineAnswer("jpg-to-pdf")}`,
       },
       {
         question: "Can I convert PNG images with this tool?",
@@ -545,7 +542,7 @@ export const guides: Guide[] = [
         heading: "Where the work happens",
         body: [
           "Create Fillable Forms is a client-side tool. The processing runs in your browser, not on a server — the PDF you pick stays on your device from start to finish. That is also why no account is required: there is nothing to set up before you start placing fields.",
-          "One honest note about connectivity: the page and its processing engine arrive over the network, and the engine is fetched the first time you use the tool. From there, the work itself happens on your device, so a connection that drops mid-build does not interrupt work already in progress.",
+          `One honest note: the tool is not fully offline. ${offlineAnswer("create-forms")}`,
         ],
       },
       {
@@ -574,8 +571,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I create a fillable PDF offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, with the engine fetched the first time you use the tool. After that, the processing itself runs on your device, and a dropped connection does not interrupt work already in progress.",
+        answer: `Not fully. ${offlineAnswer("create-forms")}`,
       },
       {
         question: "How do people fill out the form I made?",
@@ -627,7 +623,7 @@ export const guides: Guide[] = [
         heading: "Where the work happens",
         body: [
           "Fill Forms is an in-browser tool. It runs entirely on your device, and your PDF stays on your device from start to finish. The finished form does not pass through a server on its way back to you — you save the completed file straight to your device.",
-          "The page and its processing engine do load over the network, and the engine is fetched the first time you use the tool, so the very first run needs a connection. After that, the filling itself runs entirely on your device, and a dropped connection does not interrupt a run that is already underway. No account is needed at any point.",
+          `The tool is not fully offline. ${offlineAnswer("fill-forms")} No account is needed at any point.`,
         ],
       },
       {
@@ -655,8 +651,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I fill out a PDF form offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the filling itself runs entirely on your device, and a dropped connection does not interrupt a run that is already underway.",
+        answer: `Not fully. ${offlineAnswer("fill-forms")}`,
       },
       {
         question: "How large can the PDF form be?",
@@ -717,7 +712,7 @@ export const guides: Guide[] = [
         heading: "Your file stays on your device",
         body: [
           "Sign PDF is an in-browser tool. It runs entirely in your browser, which means the contract, lease, or offer letter you open never leaves your device — the file stays local from the moment you pick it to the moment you export. For the kind of paperwork that usually carries a signature, that is the difference that matters most.",
-          "One honest nuance about connectivity: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the processing itself runs on your device, and a dropped connection does not interrupt work in progress.",
+          `One honest nuance: the tool is not fully offline. ${offlineAnswer("sign-pdf")}`,
         ],
       },
       {
@@ -749,8 +744,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does Sign PDF work offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the processing runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+        answer: `Not fully. ${offlineAnswer("sign-pdf")}`,
       },
       {
         question: "How large can the PDF be?",
@@ -1038,7 +1032,6 @@ export const guides: Guide[] = [
       "delete pages from pdf",
       "remove pages from pdf",
       "delete a page in a pdf",
-      "remove blank pages from pdf",
       "trim pdf pages",
     ],
     intro: [
@@ -1130,7 +1123,7 @@ export const guides: Guide[] = [
       "Pick your PDF — it stays on your device the whole time.",
       `Choose a resolution: ${RASTER_RESOLUTION_CHOICES}.`,
       "Render — every page becomes one image, in your browser.",
-      "Download the result. More than one page arrives together as one ZIP, and a page can also be saved on its own from its preview.",
+      `Download the result. More than one page arrives together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
     ],
     sections: [
       {
@@ -1239,7 +1232,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does Markdown to PDF work offline?",
-        answer: `Not fully. The page and its processing engine load over the network, with the engine fetched the first time you use the tool. After that, the typesetting runs on your device. ${FONT_FETCH_EXCEPTION}`,
+        answer: `Not fully. ${offlineAnswer("markdown-to-pdf")}`,
       },
     ],
     published: "2026-09-27",
