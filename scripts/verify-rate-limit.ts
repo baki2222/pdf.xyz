@@ -20,11 +20,29 @@
  *   pnpm verify:rate-limit                      # against production
  *   BASE=http://127.0.0.1:3000 pnpm verify:rate-limit
  *
+ * THEN IT TRIES TO BUY A FRESH BUCKET. Once this client is refused, one more
+ * request goes out carrying every client-writable address header with a made-up
+ * value. It must be refused too. Until 2026-09 it was not: a spoofed
+ * `x-vercel-forwarded-for` (and `x-forwarded-for`) keyed a new bucket per value,
+ * so the 429 above proved enforcement while any caller could step around it.
+ * The first 429 is this check's positive control — a spoof probe against a
+ * limiter that never refuses anyone would pass vacuously.
+ *
+ * AND, WITH `ORIGIN_IP` SET, IT KNOCKS ON THE ORIGIN. The client address is
+ * only as trustworthy as the edge that writes it: if the origin answers a
+ * direct connection, a caller can skip Cloudflare and write
+ * `cf-connecting-ip` themselves. With `ORIGIN_IP=<address>` this connects to
+ * that address for the production hostname and expects NO HTTP answer.
+ *
  * EXIT CODES
- *   0  a 429 was observed — throttling is live
+ *   0  a 429 was observed, a spoofed address did not escape it (and, with
+ *      ORIGIN_IP, the origin refused a direct connection)
  *   1  the limit was never reached — throttling is NOT enforcing
  *   2  the run could not complete (network, unexpected status)
+ *   3  a client-written header bought a fresh bucket — identity is spoofable
+ *   4  the origin answered a direct connection — the edge can be bypassed
  */
+import https from "node:https";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
 
@@ -50,10 +68,22 @@ interface Observation {
   retryAfter: string | null;
 }
 
-async function attempt(): Promise<Observation> {
+/** Every address header a client can write; values from TEST-NET-2. */
+const SPOOFED: Record<string, string> = {
+  "x-vercel-forwarded-for": "198.51.100.91",
+  "x-forwarded-for": "198.51.100.92",
+  "x-real-ip": "198.51.100.93",
+  "cf-connecting-ip": "198.51.100.94",
+  "true-client-ip": "198.51.100.95",
+  forwarded: "for=198.51.100.96",
+};
+
+async function attempt(
+  extraHeaders: Record<string, string> = {},
+): Promise<Observation> {
   const res = await fetch(`${BASE}/api/uploads`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...extraHeaders },
     body: BODY,
   });
   // Drain the body so the connection is released promptly.
@@ -118,7 +148,75 @@ async function main(): Promise<number> {
       (denied?.retryAfter ? ` (Retry-After: ${denied.retryAfter}s)` : "") +
       `.\nThat is a real refusal from the server, not a configuration flag.`,
   );
+
+  let spoofed: Observation;
+  try {
+    spoofed = await attempt(SPOOFED);
+  } catch (error) {
+    console.error(`the spoof probe failed to complete: ${String(error)}`);
+    return 2;
+  }
+  if (spoofed.status !== 429) {
+    console.log(
+      `\nSPOOFABLE — with this client's budget spent, a request carrying made-up\n` +
+        `address headers got ${spoofed.status}, not 429: a client-written header\n` +
+        `chose the bucket. Check PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER (docs/RATE_LIMITING.md).`,
+    );
+    return 3;
+  }
+  console.log(
+    "A request carrying spoofed address headers was refused too: same bucket.",
+  );
+
+  const originIp = process.env.ORIGIN_IP;
+  if (originIp) {
+    const answered = await knockOnOrigin(originIp);
+    if (answered !== null) {
+      console.log(
+        `\nORIGIN REACHABLE — ${originIp} answered HTTP ${answered} for ${new URL(BASE).hostname}\n` +
+          `directly, so a caller can bypass the edge and write the client-IP header.`,
+      );
+      return 4;
+    }
+    console.log(`The origin ${originIp} refused a direct connection.`);
+  }
   return 0;
+}
+
+/** The HTTP status the origin answers directly with, or null if it does not. */
+function knockOnOrigin(originIp: string): Promise<number | null> {
+  const host = new URL(BASE).hostname;
+  const family = originIp.includes(":") ? 6 : 4;
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        host,
+        servername: host,
+        path: "/api/worker/status",
+        method: "GET",
+        timeout: 10_000,
+        // Connect to the origin address, whatever DNS says about the name.
+        lookup: ((
+          _host: string,
+          options: { all?: boolean },
+          cb: (...args: unknown[]) => void,
+        ) =>
+          options?.all
+            ? cb(null, [{ address: originIp, family }])
+            : cb(null, originIp, family)) as never,
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      },
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.on("error", () => resolve(null));
+    req.end();
+  });
 }
 
 main()

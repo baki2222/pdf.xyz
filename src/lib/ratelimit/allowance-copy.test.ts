@@ -52,11 +52,12 @@ import { AI_DAILY_ALLOWANCE_NOTE } from "@/lib/workers/ai-tool-availability";
 
 /** Two genuinely different callers, as a proxy/CDN would present them. */
 const headersFor = (address: string) =>
-  new Headers({ "x-forwarded-for": address });
+  new Headers({ "cf-connecting-ip": address });
 
 /** The configuration production runs: forwarded addresses trusted, salt set. */
 const PRODUCTION_SHAPED = {
   trustForwardedFor: true,
+  clientIpHeader: "cf-connecting-ip",
   keySalt: "a-shared-salt-of-sufficient-length-for-the-validator",
 };
 
@@ -165,6 +166,7 @@ describe("the AI allowance copy matches what the limiter can distinguish", () =>
     expect(
       deriveClientToken(headersFor("203.0.113.7"), {
         trustForwardedFor: true,
+        clientIpHeader: "cf-connecting-ip",
         keySalt: undefined,
       }),
     ).toBe(SHARED_BUCKET_TOKEN);

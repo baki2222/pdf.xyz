@@ -46,6 +46,7 @@ function clear(): void {
   clearRateLimitProviderForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
   delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+  delete process.env[RATE_LIMIT_ENV.clientIpHeader];
   delete process.env[RATE_LIMIT_ENV.keySalt];
 }
 
@@ -93,13 +94,14 @@ describe("rate-limit provider seam", () => {
   it("hands the backend only an opaque, address-free bucket token — even when trusted", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     const { provider, seenKeys } = fakeProvider();
     registerRateLimitProvider(provider);
 
     await enforceRateLimit(
       "jobs.create",
-      req({ "x-forwarded-for": "203.0.113.9" }),
+      req({ "cf-connecting-ip": "203.0.113.9" }),
     );
     expect(seenKeys).toHaveLength(1);
     const key = seenKeys[0] ?? "";
@@ -115,7 +117,7 @@ describe("rate-limit provider seam", () => {
 
     await enforceRateLimit(
       "jobs.create",
-      req({ "x-forwarded-for": "203.0.113.9" }),
+      req({ "cf-connecting-ip": "203.0.113.9" }),
     );
     expect(seenKeys[0]).toBe("shared");
   });
@@ -140,12 +142,13 @@ describe("rate-limit provider seam", () => {
   it("never leaks the request identity into a remote decision", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     const { provider } = fakeProvider();
     registerRateLimitProvider(provider);
 
     const hostile = {
-      "x-forwarded-for": "203.0.113.250",
+      "cf-connecting-ip": "203.0.113.250",
       "user-agent": "EvilBot/6.6",
       cookie: "session=TOPSECRET",
     };

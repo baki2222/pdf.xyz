@@ -39,7 +39,9 @@ of this repository or its tooling reads, stores, or transmits them.
 **Read that table as a GLOBAL budget today, not a per-visitor one.** The
 limiter buckets by the token `deriveClientToken` returns, and that function
 returns the single shared token `"shared"` for every request unless
-`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is on (`src/lib/ratelimit/identity.ts:61`). So
+`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is on, `PDFXYZ_RATE_LIMIT_KEY_SALT` is set AND
+`PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER` names the one header the edge writes
+(`src/lib/ratelimit/identity.ts`). So
 with the recommended configuration, `ai.run` is 3 runs per day for **everyone
 combined**, and `uploads.create` is 60 per hour in total — not 60 each.
 
@@ -117,6 +119,27 @@ the same store, because it runs on a different host.
   wrong about the consequence, and it is why every limit in the table above is
   currently global. The fix is not this flag; it is for identity to read the
   platform-set address. Until then, treat the numbers as a global budget.
+
+- `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER` — the ONE header the client address is
+  read from, e.g. `cf-connecting-ip` behind Cloudflare. No default and no
+  fallback list: unset (or not a header name) ⇒ the shared bucket, reported as
+  `remote-configured-shared`. Its whole value must be a single IP address; a
+  list (`a, b`) is refused rather than split, and an IPv6 client is keyed on
+  its /64. **History:** until 2026-09 identity walked `x-vercel-forwarded-for`
+  → `x-forwarded-for` → `x-real-ip` and took the leftmost hop. Nothing in
+  front of this site strips those, so any caller chose its own bucket —
+  measured on production, 130 requests with one spoofed value gave 120 × 400
+  - 10 × 429 and the next value got a fresh budget.
+
+  **Order, and it is not optional:** a header is only as trustworthy as the
+  edge that writes it. `cf-connecting-ip` is set by Cloudflare only for
+  requests that came through Cloudflare; if the origin answers a direct
+  connection, a caller can send it themselves. Lock the origin to Cloudflare
+  first (Authenticated Origin Pulls, a Tunnel, or a host firewall allowing only
+  Cloudflare's ranges), confirm from outside that a direct connection is
+  refused, THEN set this variable. `pnpm verify:rate-limit` checks both: it
+  exits 3 if a spoofed header escapes a spent bucket, and with
+  `ORIGIN_IP=<address>` it exits 4 if the origin answers directly.
 
 ---
 
@@ -251,11 +274,11 @@ removing.
   They are not a defence against a distributed attack, which belongs at the
   edge/WAF layer.
 - **They are not per-visitor today.** See the note under the policy table:
-  every request shares one bucket unless the forwarding header is trusted, and
-  trusting that header is itself evadable. Neither setting gives honest
-  per-client accounting; that needs BOTH the forwarding header trusted AND
-  `PDFXYZ_RATE_LIMIT_KEY_SALT` set. Setting one without the other lands in the
-  shared bucket and says so.
+  every request shares one bucket unless client identity is trusted.
+  Per-client accounting needs ALL THREE of `PDFXYZ_RATE_LIMIT_TRUST_PROXY`,
+  `PDFXYZ_RATE_LIMIT_KEY_SALT` and `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER`, on an
+  origin only the edge can reach. Any one missing lands in the shared bucket
+  and says so.
 
 <!-- gap-while-absent: /sliding[- ]?window/i in src/lib/ratelimit -->
 <!-- The marker above pins "fixed windows": if a sliding-window implementation

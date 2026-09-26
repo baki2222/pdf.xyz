@@ -36,6 +36,14 @@ export const RATE_LIMIT_ENV = {
    * weaker limit but effectively no limit. See `identity.ts`.
    */
   keySalt: "PDFXYZ_RATE_LIMIT_KEY_SALT",
+  /**
+   * The ONE request header that carries the client address, named by the
+   * operator — e.g. `cf-connecting-ip` behind Cloudflare. There is no default
+   * and no fallback list: a header is only trustworthy when the edge in front
+   * of this deployment overwrites it, and which edge that is is a fact about
+   * the deployment, not about this code. See `identity.ts`.
+   */
+  clientIpHeader: "PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER",
 } as const;
 
 /** Values that select the per-process in-memory dev limiter. */
@@ -75,6 +83,21 @@ export function readKeySalt(env: EnvSource): string | undefined {
   return value === "" ? undefined : value;
 }
 
+/** An HTTP header name: RFC 7230 token characters we accept, lower-cased. */
+const HEADER_NAME = /^[a-z0-9-]+$/;
+
+/**
+ * The configured client-address header, lower-cased, or `undefined` when unset,
+ * blank, or not a header name. Deliberately NOT defaulted (see
+ * {@link RATE_LIMIT_ENV.clientIpHeader}): unset lands in the shared bucket,
+ * which the posture names (`remote-configured-shared`).
+ */
+export function readClientIpHeader(env: EnvSource): string | undefined {
+  const raw = env[RATE_LIMIT_ENV.clientIpHeader];
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  return HEADER_NAME.test(value) ? value : undefined;
+}
+
 /** Truthy values for {@link RATE_LIMIT_ENV.trustForwardedFor}. */
 const TRUTHY = new Set(["1", "true", "yes", "on", "enabled"]);
 
@@ -97,6 +120,11 @@ export interface RateLimitConfig {
    * caller would land in a different bucket on each one.
    */
   readonly keySalt?: string;
+  /**
+   * The single header the client address is read from, or `undefined`. Per-client
+   * bucketing requires it — see {@link readClientIpHeader}.
+   */
+  readonly clientIpHeader?: string;
   /** Name-only diagnostic for an unrecognized provider value; server-side use. */
   readonly issue?: FieldError;
 }
@@ -134,6 +162,7 @@ export function resolveRateLimitConfig(
   const providerId = resolveRateLimitProviderId(env);
   const trustForwardedFor = isTrustForwardedFor(env);
   const keySalt = readKeySalt(env);
+  const clientIpHeader = readClientIpHeader(env);
 
   // Only a non-empty, unrecognized value is worth a diagnostic — it likely means
   // an operator meant to enable the guard but mistyped the provider name.
@@ -144,6 +173,7 @@ export function resolveRateLimitConfig(
     providerId,
     trustForwardedFor,
     ...(keySalt ? { keySalt } : {}),
+    ...(clientIpHeader ? { clientIpHeader } : {}),
     ...(unrecognized
       ? {
           issue: {

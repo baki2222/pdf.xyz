@@ -981,10 +981,11 @@ policy's budget is shared across the fleet instead of multiplied by the replica 
   open). Diagnostics name environment **variables** only, never a value or endpoint.
 
 **Client attribution is private and opt-in.** A limiter must bucket by some
-client identity. The guard derives one only from the proxy forwarding header
-(`x-forwarded-for` / `x-real-ip`) and only when `PDFXYZ_RATE_LIMIT_TRUST_PROXY`
-is truthy — because that header is client-spoofable unless a trusted edge
-overwrites it. Off (the default), every request keys into **one shared bucket**
+client identity. The guard derives one only from the single header named by
+`PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER` (e.g. `cf-connecting-ip`) and only when
+`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is truthy — because any header is
+client-spoofable unless a trusted edge overwrites it (and the origin cannot be
+reached around that edge). Off (the default), every request keys into **one shared bucket**
 (a coarse global throttle) rather than an attacker's rotating fake address. When
 on, the address is immediately **salted-hashed** (per-process random salt) and
 used only as an in-memory map key; the raw address is never retained, logged,
