@@ -34,8 +34,9 @@ import { embedStampFont, loadPdf, stampProducer } from "./stamp";
  * *unrotated* content space (pdf-lib's draw space) — the same caveat the overlay
  * tool documents. On a page carrying a `/Rotate` flag (every page the Rotate
  * tool has touched), new content follows the content, not the viewer's
- * rotation. Annotate no longer shares this: it maps from the displayed frame
- * with `toContentSpace` in annotate.ts, which this tool could reuse.
+ * rotation. Annotate and create-forms no longer share this: they map from the
+ * displayed frame with `pageFrame` + `toContentSpace` in page-frame.ts, which
+ * this tool could reuse.
  *
  * Geometry, color, wrapping, and validation are pure functions so they can be
  * unit-tested with plain numbers; only {@link getEditPageSizes} and
