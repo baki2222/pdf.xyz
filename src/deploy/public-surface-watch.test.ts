@@ -121,14 +121,22 @@ describe("the CSP storage origin list", () => {
   it("still carries a genuinely different configured origin", () => {
     // The dedupe must not become a filter: an operator adding a second storage
     // origin has to see it in the header.
-    const value = storageConnectSrc("https://cdn.example.org");
+    const value = storageConnectSrc(
+      "https://acct.r2.cloudflarestorage.com https://cdn.example.org",
+    );
     expect(value.split(/\s+/).filter(Boolean)).toEqual([
-      "https://*.r2.cloudflarestorage.com",
+      "https://acct.r2.cloudflarestorage.com",
       "https://cdn.example.org",
     ]);
   });
 
-  it("falls back to the built-in origin when nothing is configured", () => {
-    expect(storageConnectSrc()).toBe("https://*.r2.cloudflarestorage.com");
+  /*
+   * INVERTED 2026-09. This asserted the helper "falls back to the built-in
+   * origin" — `https://*.r2.cloudflarestorage.com`, i.e. every R2 account
+   * there is — when nothing was configured. The deployment names its own
+   * storage account now, and the helper adds nothing on its own.
+   */
+  it("adds no origin of its own when nothing is configured", () => {
+    expect(storageConnectSrc()).toBe("");
   });
 });
