@@ -32,6 +32,7 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import { Dropzone, ErrorNote, WorkerRunButton } from "./runner/runner-kit";
@@ -139,7 +140,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         )}
         {available ? (
-          <ChatBuilder />
+          <ChatBuilder refuse={(file) => pickRefusal(tool, file)} />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -245,7 +246,7 @@ interface TranscriptEntry {
   job: Job;
 }
 
-function ChatBuilder() {
+function ChatBuilder({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -372,6 +373,7 @@ function ChatBuilder() {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => chooseFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}

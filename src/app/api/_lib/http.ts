@@ -14,6 +14,7 @@ import {
   type ParseResult,
 } from "@/lib/jobs";
 import { JOB_LIMITS } from "@/lib/jobs";
+import { formatByteLimit } from "@/lib/uploads/byte-limit";
 import {
   rateLimitErrorResult,
   rateLimitHeaders,
@@ -82,7 +83,7 @@ export async function readJsonBody(
   ) {
     return errorResult(
       "payload_too_large",
-      `Request body exceeds the ${JOB_LIMITS.maxRequestBodyBytes}-byte limit.`,
+      `The request is larger than ${formatByteLimit(JOB_LIMITS.maxRequestBodyBytes)}, the most this endpoint accepts.`,
     );
   }
 
@@ -96,7 +97,7 @@ export async function readJsonBody(
   if (new TextEncoder().encode(text).length > JOB_LIMITS.maxRequestBodyBytes) {
     return errorResult(
       "payload_too_large",
-      `Request body exceeds the ${JOB_LIMITS.maxRequestBodyBytes}-byte limit.`,
+      `The request is larger than ${formatByteLimit(JOB_LIMITS.maxRequestBodyBytes)}, the most this endpoint accepts.`,
     );
   }
 

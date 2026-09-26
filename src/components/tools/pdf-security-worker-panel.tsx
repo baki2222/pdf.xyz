@@ -31,6 +31,7 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -212,7 +213,11 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Status-dependent action area */}
         {available && status ? (
-          <SecurityRunArea mode={mode} localDevOnly={status.localDevOnly} />
+          <SecurityRunArea
+            mode={mode}
+            localDevOnly={status.localDevOnly}
+            refuse={(file) => pickRefusal(tool, file)}
+          />
         ) : (
           <SecurityUnavailable
             phase={phase}
@@ -398,9 +403,11 @@ export function PasswordField({
 function SecurityRunArea({
   mode,
   localDevOnly,
+  refuse,
 }: {
   mode: Mode;
   localDevOnly: boolean;
+  refuse: PickRefusal;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
@@ -470,6 +477,7 @@ function SecurityRunArea({
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf"
           multiple={false}

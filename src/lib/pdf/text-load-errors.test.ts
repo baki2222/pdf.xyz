@@ -4,10 +4,9 @@ import {
   ownerOnlyEncryptedPdf,
   userPasswordEncryptedPdf,
 } from "@/tests/encrypted-pdf-fixture";
-import {
-  translateFailureMessage,
-  pickedFileProblem,
-} from "@/components/tools/translate-worker-panel";
+import { translateFailureMessage } from "@/components/tools/translate-worker-panel";
+import { getToolBySlug } from "@/lib/tools";
+import { pickRefusal } from "@/lib/uploads/pick-check";
 import { PDF_NEEDS_PASSWORD_MESSAGE } from "./encryption";
 import {
   PdfEncryptedError,
@@ -110,16 +109,27 @@ describe("Translate says what actually happened (the composed chain)", () => {
     );
   });
 
+  // Translate's own `pickedFileProblem` was replaced by the shared
+  // `pickRefusal` every worker panel's Dropzone runs (2026-09-27); the three
+  // cases it pinned are kept, against the function the panel now uses.
   it("a dropped non-PDF is refused at the pick, before any parse", () => {
+    const translate = getToolBySlug("translate-pdf")!;
     expect(
-      pickedFileProblem({
+      pickRefusal(translate, {
         name: "letter.docx",
         type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        size: 10,
       }),
     ).toMatch(/isn't a PDF/);
     expect(
-      pickedFileProblem({ name: "a.pdf", type: "application/pdf" }),
+      pickRefusal(translate, {
+        name: "a.pdf",
+        type: "application/pdf",
+        size: 10,
+      }),
     ).toBeNull();
-    expect(pickedFileProblem({ name: "scan.PDF", type: "" })).toBeNull();
+    expect(
+      pickRefusal(translate, { name: "scan.PDF", type: "", size: 10 }),
+    ).toBeNull();
   });
 });

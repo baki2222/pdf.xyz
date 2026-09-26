@@ -21,6 +21,7 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -161,7 +162,11 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available && status ? (
-          <StructureRunArea mode={mode} localDevOnly={status.localDevOnly} />
+          <StructureRunArea
+            mode={mode}
+            localDevOnly={status.localDevOnly}
+            refuse={(file) => pickRefusal(tool, file)}
+          />
         ) : (
           <StructureUnavailable
             phase={phase}
@@ -257,9 +262,11 @@ function StructureUnavailable({
 function StructureRunArea({
   mode,
   localDevOnly,
+  refuse,
 }: {
   mode: Mode;
   localDevOnly: boolean;
+  refuse: PickRefusal;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -316,6 +323,7 @@ function StructureRunArea({
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf"
           multiple={false}

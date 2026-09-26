@@ -4,10 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import {
-  fileOverCeilingMessage,
-  toolFileCeilingBytes,
-} from "@/lib/tools/file-ceilings";
+import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunOfficeConversion,
@@ -17,6 +14,7 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -227,7 +225,6 @@ function OfficeRunArea({
   accept: string;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [pickError, setPickError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<OfficeConversionWorkerResult | null>(
     null,
@@ -280,17 +277,12 @@ function OfficeRunArea({
         </div>
       ) : (
         <Dropzone
+          refuse={(file) => pickRefusal(catalogTool, file)}
           onFiles={(files) => {
-            // Refuse an over-ceiling file here, before it uploads, with the
-            // figure the page states — the converter would refuse it anyway,
-            // after the whole file had moved.
-            const picked = files[0] ?? null;
-            const tooBig = picked
-              ? fileOverCeilingMessage(catalogTool, picked.size)
-              : null;
-            setPickError(tooBig);
+            // An over-ceiling or wrong-format file never gets here: `refuse`
+            // turned it away at the pick, before it was read or uploaded.
             setOutcome(null);
-            setFile(tooBig ? null : picked);
+            setFile(files[0] ?? null);
           }}
           accept={accept}
           multiple={false}
@@ -308,7 +300,6 @@ function OfficeRunArea({
       >
         Convert to PDF
       </WorkerRunButton>
-      {pickError && <ErrorNote message={pickError} />}
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">

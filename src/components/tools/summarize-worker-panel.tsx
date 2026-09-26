@@ -29,6 +29,7 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -141,7 +142,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         )}
         {available ? (
-          <SummaryBuilder />
+          <SummaryBuilder refuse={(file) => pickRefusal(tool, file)} />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -227,7 +228,7 @@ function SpecRow({
   );
 }
 
-function SummaryBuilder() {
+function SummaryBuilder({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
   const [length, setLength] = useState<SummaryLength>(DEFAULT_SUMMARY_LENGTH);
   const [format, setFormat] = useState<SummaryFormat>(DEFAULT_SUMMARY_FORMAT);
@@ -291,6 +292,7 @@ function SummaryBuilder() {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}

@@ -39,6 +39,7 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -141,7 +142,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         )}
         {available ? (
-          <AiExtractBuilder />
+          <AiExtractBuilder refuse={(file) => pickRefusal(tool, file)} />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -230,7 +231,7 @@ function SpecRow({
 
 const EMPTY_FIELD: ExtractionField = { name: "", type: "string" };
 
-function AiExtractBuilder() {
+function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<ExtractionMode>("schema");
   const [prompt, setPrompt] = useState("");
@@ -311,6 +312,7 @@ function AiExtractBuilder() {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}

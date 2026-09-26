@@ -60,6 +60,7 @@ export function isValidFileId(id: string): boolean {
 export { MIME_BY_FORMAT } from "./mime-by-format";
 import { MIME_BY_FORMAT } from "./mime-by-format";
 import { workerEngineCeilingBytes } from "@/lib/tools/worker-engine-ceilings";
+import { formatByteLimit } from "@/lib/uploads/byte-limit";
 
 function allowedMimeTypesForTool(tool: Tool): Set<string> {
   const set = new Set<string>();
@@ -235,7 +236,7 @@ function parseFileDescriptor(
   }
   if (bytes > maxFileBytes) {
     return tooLarge(
-      `${field}.bytes exceeds the ${maxFileBytes}-byte per-file limit.`,
+      `A file is larger than ${formatByteLimit(maxFileBytes)}, the most this tool accepts.`,
       `${field}.bytes`,
     );
   }
@@ -296,7 +297,7 @@ export function parseCreateUploadSessionRequest(
   }
   if (totalBytes > JOB_LIMITS.maxTotalBytes) {
     return tooLarge(
-      `Combined size exceeds the ${JOB_LIMITS.maxTotalBytes}-byte session limit.`,
+      `These files add up to more than ${formatByteLimit(JOB_LIMITS.maxTotalBytes)}, the most one job can take.`,
       "files",
     );
   }
@@ -313,7 +314,7 @@ function parseOptions(value: unknown): ParseResult<Record<string, unknown>> {
   }
   if (byteLength(JSON.stringify(value)) > JOB_LIMITS.maxOptionsBytes) {
     return tooLarge(
-      `\`options\` exceeds the ${JOB_LIMITS.maxOptionsBytes}-byte limit.`,
+      `\`options\` is larger than ${formatByteLimit(JOB_LIMITS.maxOptionsBytes)}, the most a job's settings can be.`,
       "options",
     );
   }

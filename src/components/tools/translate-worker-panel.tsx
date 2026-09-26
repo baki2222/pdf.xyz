@@ -31,7 +31,6 @@ import {
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
-import { isLikelyPdf } from "@/lib/pdf/files";
 import {
   extractPdfText,
   pageTextChunks,
@@ -46,6 +45,7 @@ import { TruncationNotice } from "./truncation-notice";
 import { DeliveryNotice, deliverySummary } from "./delivery-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -87,16 +87,6 @@ function badgeFor(
 export function translateFailureMessage(err: unknown): string {
   if (err instanceof PdfEngineError) return err.message;
   return "Lost the connection before the job finished. Check your network and try again.";
-}
-
-/** Why a picked file cannot be translated, or `null` when it is a PDF. */
-export function pickedFileProblem(file: {
-  name: string;
-  type: string;
-}): string | null {
-  return isLikelyPdf(file)
-    ? null
-    : `"${file.name}" isn't a PDF — choose a .pdf file.`;
 }
 
 /** The local text parse the builder runs before anything is uploaded. */
@@ -187,7 +177,10 @@ export function TranslateWorkerPanel({
           </p>
         )}
         {available ? (
-          <TranslateBuilder extractText={extractText} />
+          <TranslateBuilder
+            extractText={extractText}
+            refuse={(file) => pickRefusal(tool, file)}
+          />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -278,7 +271,13 @@ function SpecRow({
   );
 }
 
-function TranslateBuilder({ extractText }: { extractText: ExtractText }) {
+function TranslateBuilder({
+  extractText,
+  refuse,
+}: {
+  extractText: ExtractText;
+  refuse: PickRefusal;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [targetLanguage, setTargetLanguage] =
     useState<TranslateLanguage>(DEFAULT_TARGET);
@@ -393,13 +392,12 @@ function TranslateBuilder({ extractText }: { extractText: ExtractText }) {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => {
-            // A drop is not filtered by `accept`, so a .docx dropped here would
-            // otherwise reach the local parse and fail there.
-            const picked = files[0] ?? null;
-            const reason = picked ? pickedFileProblem(picked) : null;
-            setOutcome(reason ? { ok: false, message: reason } : null);
-            setFile(reason ? null : picked);
+            // `refuse` has already turned away a non-PDF (a drop is not
+            // filtered by `accept`), so it never reaches the local parse.
+            setOutcome(null);
+            setFile(files[0] ?? null);
           }}
           accept="application/pdf,.pdf"
           multiple={false}

@@ -13,11 +13,9 @@ import {
 } from "@/lib/workers/html-render-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
-import {
-  fileOverCeilingMessage,
-  toolFileCeilingBytes,
-} from "@/lib/tools/file-ceilings";
+import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -235,7 +233,6 @@ function HtmlRenderUnavailable({
 
 function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const [file, setFile] = useState<File | null>(null);
-  const [pickError, setPickError] = useState<string | null>(null);
   const [url, setUrl] = useState("https://");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<HtmlRenderWorkerResult | null>(null);
@@ -307,16 +304,12 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         </div>
       ) : (
         <Dropzone
+          refuse={(file) => pickRefusal(tool, file)}
           onFiles={(files) => {
-            // Refuse an over-ceiling file before it uploads, with the figure
-            // the page states — the renderer would refuse it after the upload.
-            const picked = files[0] ?? null;
-            const tooBig = picked
-              ? fileOverCeilingMessage(tool, picked.size)
-              : null;
-            setPickError(tooBig);
+            // An over-ceiling or non-HTML file never gets here: `refuse`
+            // turned it away at the pick, before it was read or uploaded.
             setOutcome(null);
-            setFile(tooBig ? null : picked);
+            setFile(files[0] ?? null);
           }}
           accept="text/html,.html,.htm"
           multiple={false}
@@ -337,7 +330,6 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         Render PDF
       </WorkerRunButton>
 
-      {pickError && <ErrorNote message={pickError} />}
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">

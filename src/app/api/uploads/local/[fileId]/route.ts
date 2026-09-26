@@ -19,12 +19,13 @@ import {
 import { isLocalDevWorker } from "@/lib/workers";
 import { devWorkerStore } from "@/lib/workers/store";
 import { evaluateUploadedBytes, intakeErrorResult } from "@/lib/uploads/intake";
+import { formatByteLimit } from "@/lib/uploads/byte-limit";
 import { respond } from "../../../_lib/http";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const TOO_LARGE = `File exceeds the ${JOB_LIMITS.maxFileBytes}-byte per-file limit.`;
+const TOO_LARGE = `This file is larger than ${formatByteLimit(JOB_LIMITS.maxFileBytes)}, the most one file can be.`;
 
 export async function PUT(
   request: Request,

@@ -102,6 +102,7 @@ export function Dropzone({
   hint,
   compact = false,
   className,
+  refuse,
 }: {
   onFiles: (files: File[]) => void;
   accept?: string;
@@ -111,27 +112,45 @@ export function Dropzone({
   hint?: string;
   compact?: boolean;
   className?: string;
+  /**
+   * Why a picked file cannot be used, or `null` when it can. Runs on EVERY way
+   * a file arrives (drop, browse, a pick made before hydration) and before
+   * `onFiles`, so a refused file is never read or uploaded. A drop is not
+   * filtered by `accept`, which is why this exists. The worker panels pass
+   * `pickRefusal` from `@/lib/uploads/pick-check`.
+   */
+  refuse?: (file: File) => string | null;
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   const emit = useCallback(
     (list: FileList | null) => {
       if (!list || list.length === 0) return;
+      const kept: File[] = [];
+      let first: string | null = null;
+      for (const file of Array.from(list)) {
+        const why = refuse ? refuse(file) : null;
+        if (why === null) kept.push(file);
+        else first ??= why;
+      }
+      setRefusal(first);
+      if (kept.length === 0) return;
       // The engine downloads the moment files arrive (including a pre-hydration
       // pick adopted by useEarlyFilePick below), so by the time a hand reaches
       // the run button the pdf-lib chunk is usually already here. Fire-and-
       // forget; the operation's own await is the surface that reports failures.
       warmPdfLib();
-      onFiles(Array.from(list));
+      onFiles(kept);
     },
-    [onFiles],
+    [onFiles, refuse],
   );
 
   useEarlyFilePick(inputRef, emit);
 
-  return (
+  const zone = (
     <label
       htmlFor={inputId}
       onDragOver={(e) => {
@@ -190,6 +209,15 @@ export function Dropzone({
         {hint && <span className="text-muted text-xs">{hint}</span>}
       </span>
     </label>
+  );
+  // Without a refusal the zone renders exactly as before: no wrapper, so the
+  // runners' layouts (which never pass `refuse`) are untouched.
+  if (!refusal) return zone;
+  return (
+    <>
+      {zone}
+      <ErrorNote message={refusal} />
+    </>
   );
 }
 
