@@ -14,6 +14,8 @@ import {
   imagesToPdf,
   imagePdfOutputName,
   isImageAllowedForKind,
+  sniffRasterFormat,
+  unsupportedImageMessage,
   type ImagePdfKind,
 } from "@/lib/pdf/image-to-pdf";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
@@ -78,7 +80,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         if (!isImageAllowedForKind(kind, file)) {
           rejected.push({
             name: file.name,
-            reason: `Choose ${label} images only.`,
+            reason: "Choose PNG or JPG images.",
           });
         } else if (file.size <= 0) {
           rejected.push({ name: file.name, reason: "File is empty." });
@@ -96,21 +98,41 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       setRejections(rejected);
       if (!accepted.length) return;
       setLoading((n) => n + accepted.length);
-      const loaded = await Promise.all(
+      const read = await Promise.all(
         accepted.map(async (file) => ({
-          id: `${Date.now()}-${idRef.current++}`,
-          name: file.name,
-          type: file.type || (kind === "jpg" ? "image/jpeg" : "image/png"),
-          size: file.size,
+          file,
           bytes: await readFileBytes(file),
-          previewUrl: URL.createObjectURL(file),
         })),
       );
+      // Decide by the bytes, now, rather than after the user has arranged
+      // every image: a ".png" saved from the web is often a JPEG (fine) or a
+      // WebP (not), and the name cannot tell those apart.
+      const loaded: ImageItem[] = [];
+      const unreadable: Rejection[] = [];
+      for (const { file, bytes } of read) {
+        const format = sniffRasterFormat(bytes);
+        if (!format) {
+          unreadable.push({
+            name: file.name,
+            reason: unsupportedImageMessage(file.name, bytes),
+          });
+          continue;
+        }
+        loaded.push({
+          id: `${Date.now()}-${idRef.current++}`,
+          name: file.name,
+          type: format === "png" ? "image/png" : "image/jpeg",
+          size: file.size,
+          bytes,
+          previewUrl: URL.createObjectURL(file),
+        });
+      }
+      if (unreadable.length) setRejections([...rejected, ...unreadable]);
       loaded.forEach((item) => previewUrls.current.add(item.previewUrl));
       setItems((prev) => [...prev, ...loaded]);
       setLoading((n) => Math.max(0, n - accepted.length));
     },
-    [kind, label],
+    [kind],
   );
 
   useEffect(() => {

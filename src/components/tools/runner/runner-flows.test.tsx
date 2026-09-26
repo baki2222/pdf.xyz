@@ -17,6 +17,7 @@ import { PdfToTextRunner } from "./pdf-to-text-runner";
 import { TextToPdfRunner } from "./text-to-pdf-runner";
 import { MarkdownToPdfRunner } from "./markdown-to-pdf-runner";
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
+import { HandoffLoadedBadge } from "./handoff-notice";
 
 /**
  * Whole runners, driven the way a person drives them: pick a file, press the
@@ -147,4 +148,49 @@ describe('"Start over" returns to the input, not to the finished result', () => 
       expect(screen.queryByText(/notes\.txt/)).toBeNull();
     });
   }
+});
+
+describe("the image tools take a mixed batch, and judge files by their bytes", () => {
+  for (const kind of ["png", "jpg"] as const) {
+    it(`${kind.toUpperCase()} to PDF converts a PNG and a JPG together`, async () => {
+      const { container } = renderRunner(<ImageToPdfRunner kind={kind} />);
+      pick(container, [
+        fileOf(PNG_1X1, "shot.png", "image/png"),
+        fileOf(JPG_1X1, "photo.jpg", "image/jpeg"),
+      ]);
+      await screen.findByText(/2 images$/);
+      expect(screen.queryByRole("alert")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
+      await screen.findByText(/^2 images · /, undefined, { timeout: 10_000 });
+    });
+  }
+
+  it("a WebP named .png is refused when it is picked, by its real format", async () => {
+    const { container } = renderRunner(<ImageToPdfRunner kind="png" />);
+    const webp = new Uint8Array([
+      ...Buffer.from("RIFF"),
+      0x1a,
+      0,
+      0,
+      0,
+      ...Buffer.from("WEBPVP8 "),
+      0,
+      0,
+    ]);
+    pick(container, [new File([webp], "pic.png", { type: "image/png" })]);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/"pic\.png" is a WebP image/);
+    expect(screen.queryByText(/1 image$/)).toBeNull();
+  });
+});
+
+describe("the hand-off badge names what was skipped truthfully for every tool", () => {
+  it('does not call a skipped PDF "non-PDF" on a tool that takes images or text', () => {
+    render(<HandoffLoadedBadge count={1} skipped={2} />);
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain(
+      "2 files this tool can't open were skipped.",
+    );
+    expect(status.textContent).not.toMatch(/non-PDF/);
+  });
 });
