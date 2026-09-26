@@ -204,4 +204,4 @@ export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection —
  * "shared across everyone using pdf.xyz", which claimed one bucket for the whole
  * product and was false for every visitor.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include text translated by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include AI tools used by someone else. The allowance resets daily.`;

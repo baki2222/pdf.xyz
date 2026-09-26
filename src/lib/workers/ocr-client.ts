@@ -20,10 +20,10 @@
 // browser module never pulls the server-side validators or the tools catalog
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
-import type { ApiError } from "@/lib/jobs/responses";
 import type { OcrOptions } from "@/lib/jobs/ocr";
 import { pollJobToTerminal } from "./job-polling";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
+import { readWorkerError } from "./read-error";
 
 const OCR_TOOL = "ocr-pdf";
 const DEFAULT_POLL_INTERVAL_MS = 800;
@@ -76,6 +76,8 @@ export type FetchLike = (
   status: number;
   json: () => Promise<unknown>;
   arrayBuffer: () => Promise<ArrayBuffer>;
+  /** Optional so stubs need not carry it; read for a 429's `Retry-After`. */
+  headers?: { get(name: string): string | null };
 }>;
 
 export interface OcrWorkerOptions {
@@ -104,30 +106,12 @@ function jsonBody(value: unknown): ArrayBuffer {
   return toArrayBuffer(new TextEncoder().encode(JSON.stringify(value)));
 }
 
-function isApiError(value: unknown): value is ApiError {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "error" in value &&
-    typeof (value as { error: unknown }).error === "object" &&
-    (value as { error: unknown }).error !== null
-  );
-}
-
-/** Pull an honest message + code out of a non-OK response body. */
+/** Pull an honest message + code out of a non-OK response (see `./read-error`). */
 async function readError(
   res: Awaited<ReturnType<FetchLike>>,
   fallback: string,
 ): Promise<OcrWorkerFailure> {
-  try {
-    const body = await res.json();
-    if (isApiError(body)) {
-      return { ok: false, message: body.error.message, code: body.error.code };
-    }
-  } catch {
-    // Non-JSON error body — fall through to the generic message.
-  }
-  return { ok: false, message: fallback };
+  return readWorkerError(res, fallback);
 }
 
 /**
