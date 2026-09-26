@@ -1,6 +1,13 @@
 import JSZip from "jszip";
 import { expect, type Page } from "@playwright/test";
+import { PDFDocument } from "pdf-lib";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
+import { organizePages } from "../../src/lib/pdf/engine";
+import {
+  addDocumentStructure,
+  lostStructure,
+  readDocumentStructure,
+} from "../../src/tests/fixtures-structured-pdf";
 import {
   DEFAULT_RESOLUTION_ID,
   rasterScaleForDpi,
@@ -261,7 +268,20 @@ export const CASES: Record<string, ToolCase> = {
     kind: "rotate",
     artifact: "pdf",
     run: async (ctx) => {
-      await uploadTextPdf(ctx, "spin.pdf", { pages: 3 });
+      // A document with something to lose: bookmarks, a filled form field,
+      // Title/Author, page labels, /Lang and tag markers. The plain text PDF
+      // this case used to upload had none of them, so it stayed green while
+      // the tool rebuilt every file and deleted all of them.
+      const doc = await PDFDocument.load(
+        await makeTextPdf("spin.pdf", { pages: 3 }),
+      );
+      await addDocumentStructure(doc);
+      const bytes = Buffer.from(await doc.save());
+      ctx.data["spin.pdf"] = bytes;
+      await uploadPayloads(ctx.page, [
+        { name: "spin.pdf", mimeType: "application/pdf", buffer: bytes },
+      ]);
+      await expect(ctx.page.getByText("spin.pdf")).toBeVisible();
       // All pages are selected by default; one "Right" rotates them all 90°.
       await ctx.page.getByRole("button", { name: /^right$/i }).click();
       return runAndDownload(
@@ -271,10 +291,30 @@ export const CASES: Record<string, ToolCase> = {
         /download rotated pdf/i,
       );
     },
-    assert: async (buf) => {
+    assert: async (buf, ctx) => {
       expect(await pdfRotations(buf)).toEqual([90, 90, 90]);
+      const before = await readDocumentStructure(input(ctx, "spin.pdf"));
+      // Health check: the upload carried structure, so "nothing lost" means
+      // something rather than holding over an empty walk.
+      expect(before.catalog.size).toBeGreaterThanOrEqual(6);
+      expect(before.fields.size).toBe(1);
+      expect(
+        lostStructure(before, await readDocumentStructure(buf)),
+        "members of the uploaded PDF missing from the rotated download",
+      ).toEqual([]);
     },
-    control: async (ctx) => input(ctx, "spin.pdf"),
+    // Two properties, two controls. The untouched input has every member but
+    // no rotation. The rebuild the tool used to ship has the right rotation
+    // and lost the structure — it differs from a correct artifact ONLY in
+    // what it dropped, so it is what keeps the structure half falsifiable.
+    control: async (ctx) => {
+      const original = input(ctx, "spin.pdf");
+      const rebuilt = await organizePages(
+        original,
+        [0, 1, 2].map((sourceIndex) => ({ sourceIndex, rotation: 90 })),
+      );
+      return [original, Buffer.from(rebuilt)];
+    },
   },
 
   "remove-pages": {

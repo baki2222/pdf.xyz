@@ -10,9 +10,18 @@ import {
   organizePages,
   PdfEngineError,
   rotatePages,
+  setPageRotations,
   splitPdf,
 } from "./engine";
 import { buildSplitParts, rangesPerPage } from "./ranges";
+import type { Rotation } from "./types";
+import {
+  lostStructure,
+  makeStructuredPdf,
+  readDocumentStructure,
+  STRUCTURED_FIELD_NAME,
+  STRUCTURED_FIELD_VALUE,
+} from "@/tests/fixtures-structured-pdf";
 
 /**
  * Build a PDF where each page has a unique width — (index + 1) * 10 — so tests
@@ -198,5 +207,93 @@ describe("organizePages", () => {
       { sourceIndex: 99, rotation: 0 },
     ]);
     expect(await widths(out)).toEqual([10]);
+  });
+});
+
+describe("setPageRotations", () => {
+  /*
+   * The rotate tool's engine. It used to be `organizePages`, which rebuilds the
+   * file with `PDFDocument.create()` + `copyPages` and so keeps page objects
+   * only: bookmarks, AcroForm, Title/Author, PageLabels, /Lang and the tag
+   * tree were deleted from every document rotated, and the download looked
+   * right. The existing proofs could not see it because their inputs carried
+   * nothing to lose — hence the structured fixture, and the control below
+   * proving that fixture CAN see the loss.
+   */
+  it("sets absolute rotations and keeps every document-level member", async () => {
+    const input = await makeStructuredPdf(3);
+    const before = await readDocumentStructure(input);
+
+    // Health check: the fixture really carries what the claim is about. A
+    // fixture with nothing to lose makes `lostStructure` vacuously empty.
+    expect([...before.catalog.keys()]).toEqual(
+      expect.arrayContaining([
+        "/AcroForm",
+        "/Lang",
+        "/MarkInfo",
+        "/Outlines",
+        "/PageLabels",
+        "/StructTreeRoot",
+        "/ViewerPreferences",
+      ]),
+    );
+    expect(before.info.get("/Title")).toBe(JSON.stringify("Quarterly Report"));
+    expect(before.fields.get(STRUCTURED_FIELD_NAME)).toBe(
+      STRUCTURED_FIELD_VALUE,
+    );
+    expect(before.pages[0]!.has("/Annots")).toBe(true);
+
+    const out = await setPageRotations(input, [90, 0, 270]);
+    const after = await readDocumentStructure(out);
+    expect(after.rotations).toEqual([90, 0, 270]);
+    expect(lostStructure(before, after)).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the rebuild path it replaced is caught by the same predicate", async () => {
+    const input = await makeStructuredPdf(3);
+    const before = await readDocumentStructure(input);
+    const rebuilt = await organizePages(input, [
+      { sourceIndex: 0, rotation: 90 },
+      { sourceIndex: 1, rotation: 0 },
+      { sourceIndex: 2, rotation: 270 },
+    ]);
+    const after = await readDocumentStructure(rebuilt);
+    // Same rotations — so the ONLY thing separating it from the output above
+    // is what it dropped, and the predicate has to name those members.
+    expect(after.rotations).toEqual([90, 0, 270]);
+    expect(lostStructure(before, after)).toEqual(
+      expect.arrayContaining([
+        "catalog/Outlines",
+        "catalog/AcroForm",
+        "catalog/Lang",
+        "catalog/PageLabels",
+        "catalog/StructTreeRoot",
+        "field/customer.name",
+      ]),
+    );
+  });
+
+  it("keeps a page's existing rotation when asked for the same angle", async () => {
+    const input = await rotatePages(await makePdf(2), [1], 180);
+    const out = await setPageRotations(input, [0, 180]);
+    expect(await getPageRotations(out)).toEqual([0, 180]);
+    expect(await widths(out)).toEqual([10, 20]);
+  });
+
+  it("snaps and wraps angles like the rest of the engine", async () => {
+    // Out-of-type angles, as a caller holding raw degrees would pass them.
+    const raw = [-90, 450] as unknown as Rotation[];
+    const out = await setPageRotations(await makePdf(2), raw);
+    expect(await getPageRotations(out)).toEqual([270, 90]);
+  });
+
+  it("refuses a plan that does not cover every page exactly once", async () => {
+    const pdf = await makePdf(3);
+    await expect(setPageRotations(pdf, [90, 90])).rejects.toBeInstanceOf(
+      PdfEngineError,
+    );
+    await expect(
+      setPageRotations(pdf, [90, 90, 90, 90]),
+    ).rejects.toBeInstanceOf(PdfEngineError);
   });
 });

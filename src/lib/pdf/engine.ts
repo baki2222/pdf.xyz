@@ -177,6 +177,37 @@ export async function rotatePages(
   return src.save();
 }
 
+/**
+ * Set every page's ABSOLUTE rotation, in place — one angle per page, in
+ * document order. This is the rotate tool's engine.
+ *
+ * In place is the whole point. The tool used to route through
+ * {@link organizePages}, which builds a new document and copies page objects
+ * into it, and a page object is all that survives: bookmarks, the AcroForm,
+ * Title/Author, page labels, `/Lang` and the tag tree were deleted from every
+ * file rotated, while the download looked right. Rotation touches one key per
+ * page dictionary; nothing else in the file has any reason to change.
+ * `rotate-runner.test.tsx` holds that property against the downloaded bytes.
+ */
+export async function setPageRotations(
+  bytes: Uint8Array,
+  rotations: readonly Rotation[],
+): Promise<Uint8Array> {
+  const { degrees } = await loadPdfLib();
+  const doc = await load(bytes);
+  const pages = doc.getPages();
+  if (rotations.length !== pages.length) {
+    throw new PdfEngineError(
+      "The rotation plan doesn't match this PDF's pages — reload the file and try again.",
+    );
+  }
+  pages.forEach((page, i) => {
+    page.setRotation(degrees(normalizeAngle(rotations[i]!)));
+  });
+  stamp(doc);
+  return doc.save();
+}
+
 /** Split a PDF into several documents, one per part. */
 export async function splitPdf(
   bytes: Uint8Array,
