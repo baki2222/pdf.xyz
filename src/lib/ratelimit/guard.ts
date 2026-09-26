@@ -239,6 +239,34 @@ export async function enforceRateLimit(
 }
 
 /**
+ * A reservation of the free daily AI allowance, and the one way to undo it.
+ *
+ * `decision` is what the route answers with. `release` gives the characters
+ * back, and exists because the charge happens BEFORE the job does: the route
+ * reserves, then asks the adapter to create the job, and a creation that fails
+ * produced nothing the caller could ever receive — no job id, so no result. On
+ * 67e8d0f nothing gave the charge back, so three failed creations of an
+ * undeclared job (a third of the day each) locked a connection out of AI until
+ * tomorrow with nothing to show for it.
+ *
+ * The bucket token is captured in the closure and never surfaced, so the
+ * handle carries no identity — the same no-leak rule as the decision.
+ */
+export interface AiAllowanceReservation {
+  readonly decision: RateLimitDecision;
+  /**
+   * Give the reserved characters back. Resolves `true` only when a refund was
+   * actually recorded; `false` when there was nothing to refund (a refused,
+   * unenforced, or fail-open decision — none of those spent anything), when it
+   * already ran, or when the backend could not record it. Never throws.
+   * Idempotent: a second call is a no-op, so a caller cannot refund twice.
+   */
+  release(nowMs?: number): Promise<boolean>;
+}
+
+const NOTHING_TO_RELEASE = async (): Promise<boolean> => false;
+
+/**
  * Reserve `characters` of a client's free daily AI allowance.
  *
  * Its own entry point rather than a `cost` parameter on {@link enforceRateLimit},
@@ -260,19 +288,28 @@ export async function enforceRateLimit(
  *
  * A claim that is not a positive finite count is REFUSED, never treated as free
  * and never as unlimited: the caller has to say what it intends to use.
+ *
+ * The returned {@link AiAllowanceReservation.release} undoes the spend when the
+ * work it paid for never happened. A release that straddles a window reset
+ * gives the characters back to the NEW window (clamped at zero): the gap is the
+ * latency of one `createJob`, and the direction is toward the caller.
  */
-export async function enforceAiCharacterAllowance(
+export async function reserveAiCharacterAllowance(
   characters: number,
   request: Request,
   env: EnvSource = process.env,
   nowMs: number = Date.now(),
-): Promise<RateLimitDecision> {
+): Promise<AiAllowanceReservation> {
   // The shared constant, so the message this refusal produces cannot drift
   // from the policy it is refused under. See AI_ALLOWANCE_ACTION.
   const action = AI_ALLOWANCE_ACTION;
   const policy = policyFor(action);
+  const nothing = (decision: RateLimitDecision): AiAllowanceReservation => ({
+    decision,
+    release: NOTHING_TO_RELEASE,
+  });
   if (!Number.isFinite(characters) || characters <= 0) {
-    return {
+    return nothing({
       allowed: false,
       enforced: true,
       action,
@@ -280,18 +317,19 @@ export async function enforceAiCharacterAllowance(
       provider: "local-memory",
       retryAfterSeconds: 1,
       retryAfterBucket: retryAfterBucket(1),
-    };
+    });
   }
   try {
     const config = resolveRateLimitConfig(env);
     if (config.providerId === "disabled")
-      return allowUnenforced(action, policy.id, "disabled");
+      return nothing(allowUnenforced(action, policy.id, "disabled"));
 
     const spendIfItFits = async (
       peekVerdict: RateLimiterVerdict,
       spend: () => void | Promise<void>,
+      refund: (at: number) => void | Promise<void>,
       backend: "local-memory" | "remote",
-    ): Promise<RateLimitDecision> => {
+    ): Promise<AiAllowanceReservation> => {
       const used = peekVerdict.used ?? 0;
       if (used + characters > policy.limit) {
         // This refusal happens ON TOP of an allowing peek (the store is not
@@ -302,24 +340,43 @@ export async function enforceAiCharacterAllowance(
         // The window's remaining life is what the caller must wait.
         const windowRemaining =
           peekVerdict.resetAfterSeconds ?? peekVerdict.retryAfterSeconds;
-        return enforcedDecision(action, policy.id, backend, {
-          allowed: false,
-          retryAfterSeconds:
-            windowRemaining > 0 ? windowRemaining : policy.windowSeconds,
-        });
+        return nothing(
+          enforcedDecision(action, policy.id, backend, {
+            allowed: false,
+            retryAfterSeconds:
+              windowRemaining > 0 ? windowRemaining : policy.windowSeconds,
+          }),
+        );
       }
       await spend();
-      return enforcedDecision(action, policy.id, backend, {
-        allowed: true,
-        retryAfterSeconds: 0,
-      });
+      // Only a reservation that SPENT can be released — every other return in
+      // this function hands back NOTHING_TO_RELEASE.
+      let released = false;
+      return {
+        decision: enforcedDecision(action, policy.id, backend, {
+          allowed: true,
+          retryAfterSeconds: 0,
+        }),
+        async release(at: number = Date.now()): Promise<boolean> {
+          if (released) return false;
+          released = true;
+          try {
+            await refund(at);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      };
     };
 
     if (config.providerId === "remote-unimplemented") {
       const provider = providerFor(env);
       if (provider === null || !provider.peek || !provider.spend) {
         noteFailOpen("provider-unreachable");
-        return allowUnenforced(action, policy.id, "remote-unimplemented");
+        return nothing(
+          allowUnenforced(action, policy.id, "remote-unimplemented"),
+        );
       }
       const token = deriveClientToken(request.headers, config);
       try {
@@ -327,11 +384,18 @@ export async function enforceAiCharacterAllowance(
         return await spendIfItFits(
           peeked,
           () => provider.spend!(policy, token, nowMs, characters),
+          async (at) => {
+            // A backend that predates refunds keeps the charge — the
+            // behaviour every caller had before this existed — and says so
+            // by resolving `false`.
+            if (!provider.refund) throw new Error("refund unsupported");
+            await provider.refund(policy, token, at, characters);
+          },
           "remote",
         );
       } catch {
         noteFailOpen("store-error");
-        return allowUnenforced(action, policy.id, "remote-error");
+        return nothing(allowUnenforced(action, policy.id, "remote-error"));
       }
     }
 
@@ -340,11 +404,26 @@ export async function enforceAiCharacterAllowance(
     return await spendIfItFits(
       peeked,
       () => limiter().spend(policy, token, nowMs, characters),
+      (at) => limiter().refund(policy, token, at, characters),
       "local-memory",
     );
   } catch {
-    return allowUnenforced(action, policy.id, "disabled");
+    return nothing(allowUnenforced(action, policy.id, "disabled"));
   }
+}
+
+/**
+ * {@link reserveAiCharacterAllowance} for a caller that will never give the
+ * characters back — the decision alone.
+ */
+export async function enforceAiCharacterAllowance(
+  characters: number,
+  request: Request,
+  env: EnvSource = process.env,
+  nowMs: number = Date.now(),
+): Promise<RateLimitDecision> {
+  return (await reserveAiCharacterAllowance(characters, request, env, nowMs))
+    .decision;
 }
 
 /* ------------------------------------------------------------------ *

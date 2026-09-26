@@ -18,9 +18,10 @@ import {
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
 import {
-  enforceAiCharacterAllowance,
   enforceRateLimit,
   peekAiSpendCeiling,
+  reserveAiCharacterAllowance,
+  type AiAllowanceReservation,
 } from "@/lib/ratelimit/guard";
 import {
   TRANSLATE_EXTRACTOR_HEADROOM,
@@ -72,6 +73,12 @@ export async function POST(request: Request): Promise<Response> {
    * `undefined` means this job is not AI-capability and has no cap.
    */
   let delivery: JobDeliveryCap | undefined;
+  /**
+   * The allowance this request reserved, held until the job exists. See the
+   * release below the adapter call — the charge is taken BEFORE the fork and
+   * so must be settled on BOTH of its branches.
+   */
+  let reservation: AiAllowanceReservation | undefined;
   if (tool && capabilityForMode(tool.processing) === "ai") {
     // The GLOBAL ceiling first, and it is not a 429. A spent cost control is
     // OUR limit, not this caller's quota — answering it as a rate limit would
@@ -117,15 +124,38 @@ export async function POST(request: Request): Promise<Response> {
       fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
       headroom: TRANSLATE_EXTRACTOR_HEADROOM,
     });
-    const aiLimit = await enforceAiCharacterAllowance(
+    reservation = await reserveAiCharacterAllowance(
       delivery.characters,
       request,
     );
-    if (!aiLimit.allowed) return respondRateLimited(aiLimit);
+    if (!reservation.decision.allowed)
+      return respondRateLimited(reservation.decision);
   }
 
+  /**
+   * A JOB THAT WAS NOT CREATED COSTS NOTHING.
+   *
+   * The allowance is charged above, before the job exists, and on 67e8d0f
+   * nothing gave it back: a queue outage, storage not ready, a broker error —
+   * each returned its honest error AND kept a third of the caller's day. Three
+   * of those and the connection was refused AI until tomorrow, with no job to
+   * show for it. The guard was correct; the defect was that the success branch
+   * was the only branch anyone had thought about.
+   *
+   * Every failure is released, including an ambiguous broker error that might
+   * have recorded the job: the caller never receives a job id, so can never
+   * receive its result, and the money bound is `ai.spend`, recorded by the
+   * worker on what it actually runs — not this fairness counter.
+   */
   const adapter = await getWorkerAdapter();
-  const outcome = await adapter.createJob(parsed.value, delivery);
+  let outcome: Awaited<ReturnType<typeof adapter.createJob>>;
+  try {
+    outcome = await adapter.createJob(parsed.value, delivery);
+  } catch (error) {
+    await reservation?.release();
+    throw error;
+  }
+  if (!outcome.ok) await reservation?.release();
   return respond(
     outcome.ok
       ? { status: outcome.status, body: outcome.value }

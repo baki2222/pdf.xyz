@@ -186,7 +186,8 @@ unrelated reasons and they are told apart only by the message:
 | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `429` + _"The 30,774 free characters of AI text for this connection are used up for today"_ | the **allowance** is spent                                        |
 | `429` + _"Too many requests. This endpoint is rate-limited…"_                               | you hit `jobs.create` (60/hour); the allowance is unknown         |
-| anything else (`503`, `404`)                                                                | the allowance had room, and you just spent **4** characters of it |
+| `202`                                                                                       | the allowance had room, and you just spent **4** characters of it |
+| anything else (`503`, `500`)                                                                | no job was created, so nothing was charged                        |
 
 ### Why it costs almost nothing, and why the obvious version does not work
 
@@ -200,10 +201,16 @@ reservation it refuses without recording anything, so asking "am I out?" while
 you are out does not push your reset further away. Asking twice returns the same
 `Retry-After`.
 
+**A job that is not created costs nothing.** The allowance is reserved before
+the route asks the adapter to create the job, and a creation that fails (the
+queue or storage is not configured, or the broker errors) gives the reservation
+back — the caller never receives a job id, so could never receive a result.
+
 **The file id must be well-formed and may be imaginary.** `f_` plus ten or more
 `[A-Za-z0-9_-]` is all the contract checks — existence is the _worker's_
-problem, and the request never reaches a worker. Nothing is uploaded, no job is
-created, no AI provider is called.
+problem. Nothing is uploaded and no AI provider is called, but on a configured
+deployment a job IS queued (`202`): the worker later fails it because the file
+does not exist, and the **4** characters stay spent.
 
 **Do not use a malformed id.** _"Send an invalid file id, the guard refuses
 before validation"_ is the intuitive version and it answers the wrong question:
