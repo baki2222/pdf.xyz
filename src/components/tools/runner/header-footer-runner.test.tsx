@@ -119,12 +119,16 @@ describe("header-footer runner: {date} in a locale we cannot draw", () => {
       const previewed = pill.textContent!;
 
       fireEvent.click(screen.getByRole("button", { name: /add header/i }));
-      await screen.findByRole(
-        "heading",
-        { name: /header & footer added/i },
-        { timeout: 5000 },
+      // Either outcome settles within the wait; a refusal is reported by its
+      // own text rather than as a bare timeout.
+      await waitFor(
+        () => {
+          const alert = screen.queryByRole("alert");
+          if (alert) throw new Error(`Run was refused: ${alert.textContent}`);
+          screen.getByRole("heading", { name: /header & footer added/i });
+        },
+        { timeout: 3000 },
       );
-      expect(screen.queryByRole("alert")).toBeNull();
 
       fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
       expect(downloaded, "the download button produced no file").not.toBeNull();

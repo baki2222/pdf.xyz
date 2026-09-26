@@ -10,6 +10,7 @@ import {
   validateHeaderFooter,
 } from "./header-footer";
 import { canDrawInOneFace } from "./unicode-font";
+import { allWinAnsi } from "./winansi";
 import { readAsViewer } from "@/tests/pdfjs-viewer";
 
 async function blankPdf(pages: number): Promise<Uint8Array> {
@@ -196,6 +197,23 @@ describe("header-footer {date} draws in every locale", () => {
         `Printed ${date}`,
       );
     }
+  });
+
+  it("strips the invisible bidi marks, so a Latin-digit date keeps the built-in face", () => {
+    const FORMAT_CONTROL = /\p{Cf}/u;
+    // Positive control: the corpus contains a raw date carrying such a mark
+    // (`ar` wraps its Latin-digit separators in U+200F).
+    const marked = locales.filter((l) => FORMAT_CONTROL.test(beforeFix(l)));
+    expect(marked).toContain("ar");
+    const leaked = locales.flatMap((l) =>
+      stampDateCandidates(NOW, l)
+        .filter((d) => FORMAT_CONTROL.test(d))
+        .map((d) => `${l}: ${JSON.stringify(d)}`),
+    );
+    expect(leaked).toEqual([]);
+    // What the stripping buys: an all-Latin date stays on WinAnsi, the free
+    // built-in face, instead of a downloaded Unicode one.
+    expect(allWinAnsi(stampDateCandidates(NOW, "ar"))).toBe(true);
   });
 
   it("chooses the date against the WHOLE run: one face must draw every slot", async () => {
