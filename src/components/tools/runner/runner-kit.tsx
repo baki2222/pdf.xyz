@@ -546,12 +546,18 @@ export function ResultPanel({
   onReset,
   resetLabel = "Start over",
   announcement,
+  tone = "ok",
 }: {
   title: string;
   summary?: ReactNode;
   children: ReactNode;
   onReset: () => void;
   resetLabel?: string;
+  /**
+   * `warn` for an outcome that finished but did not give the user what they
+   * came for (a PDF with no selectable text), so it does not read as success.
+   */
+  tone?: "ok" | "warn";
   /**
    * What to say when focus cannot be moved. Defaults to `title`, which is right
    * for most tools; override where the title alone is thin out of context
@@ -568,11 +574,26 @@ export function ResultPanel({
       {...outcome}
       role="group"
       aria-labelledby={summary ? `${id}-t ${id}-s` : `${id}-t`}
-      className="animate-float-up border-ok/30 bg-ok/10 focus-visible:ring-ok/50 flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2"
+      data-tone={tone}
+      className={cn(
+        "animate-float-up flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2",
+        tone === "warn"
+          ? "border-warn/40 bg-warn/10 focus-visible:ring-warn/50"
+          : "border-ok/30 bg-ok/10 focus-visible:ring-ok/50",
+      )}
     >
       <div className="flex items-start gap-3">
-        <span className="bg-ok/15 text-ok grid size-10 shrink-0 place-items-center rounded-[3px]">
-          <CheckCircle2 className="size-5" aria-hidden />
+        <span
+          className={cn(
+            "grid size-10 shrink-0 place-items-center rounded-[3px]",
+            tone === "warn" ? "bg-warn/15 text-warn" : "bg-ok/15 text-ok",
+          )}
+        >
+          {tone === "warn" ? (
+            <AlertTriangle className="size-5" aria-hidden />
+          ) : (
+            <CheckCircle2 className="size-5" aria-hidden />
+          )}
         </span>
         <div className="flex flex-col gap-1">
           <h3 id={`${id}-t`} className="text-fg text-base font-semibold">

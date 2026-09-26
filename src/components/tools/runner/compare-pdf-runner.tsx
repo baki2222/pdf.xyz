@@ -35,6 +35,7 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import { NoSelectableTextNote } from "./no-text-note";
 
 interface CompareItem {
   id: string;
@@ -170,8 +171,15 @@ function ComparePdfEditor({
     return (
       <ResultPanel
         title={
-          result.identicalText ? "Selectable text matches" : "Differences found"
+          !result.hasComparableText
+            ? "No selectable text to compare"
+            : result.identicalText
+              ? "Selectable text matches"
+              : "Differences found"
         }
+        // Two scanned PDFs "match" only in having no text; that is not a
+        // success a reader should see in green.
+        tone={result.hasComparableText ? "ok" : "warn"}
         summary={
           result.hasComparableText
             ? `${result.summary.changedLines} changed lines · pages ${result.leftPageCount} vs ${result.rightPageCount}`
@@ -180,6 +188,7 @@ function ComparePdfEditor({
         onReset={() => window.location.reload()}
       >
         <div className="flex flex-col gap-4">
+          {!result.hasComparableText && <NoSelectableTextNote />}
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric
               label="Pages"
