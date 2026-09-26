@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { inflateSync } from "node:zlib";
 import JSZip from "jszip";
 import { PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import {
@@ -142,6 +143,7 @@ export interface PdfImageInfo {
   height: number;
   filter: string | undefined;
   colorSpace: string | undefined;
+  bitsPerComponent: number;
   /** The image XObject's raw stream bytes, before any PDF-level filter. */
   bytes: Buffer;
 }
@@ -168,6 +170,7 @@ export async function pdfImages(buf: Buffer): Promise<PdfImageInfo[]> {
       height: num("Height"),
       filter: dict.get(PDFName.of("Filter"))?.toString(),
       colorSpace: dict.get(PDFName.of("ColorSpace"))?.toString(),
+      bitsPerComponent: num("BitsPerComponent"),
       bytes: Buffer.from(obj.getContents()),
     });
   }
@@ -198,6 +201,64 @@ export async function decodeEmbeddedJpegs(
   const stats: DecodedImageStats[] = [];
   for (const jpeg of jpegs) {
     stats.push(await decodeImageInPage(page, jpeg.bytes, "image/jpeg"));
+  }
+  return stats;
+}
+
+/**
+ * Decode EVERY page image a rasterizing tool embedded, whatever it was stored
+ * as, and report pixel statistics — the grayscale tool keeps each page as
+ * whichever is smaller of a one-component JPEG and a Flate-compressed
+ * DeviceGray plane, so a JPEG-only reader would see only some of its pages
+ * (and, on a text-only fixture, none of them).
+ *
+ *  - `DCTDecode` → decoded by the browser under test, as `decodeEmbeddedJpegs`.
+ *  - `FlateDecode` over 8-bit `DeviceGray` → inflated here; the samples ARE
+ *    the pixels.
+ *
+ * Any other image shape FAILS rather than being skipped: a reader that
+ * silently skipped what it could not decode would report a blank page as
+ * "nothing to check".
+ */
+export async function decodeEmbeddedPageImages(
+  page: Page,
+  buf: Buffer,
+): Promise<DecodedImageStats[]> {
+  const images = await pdfImages(buf);
+  expect(
+    images.length,
+    "no image XObjects to decode — this artifact was not rasterized",
+  ).toBeGreaterThan(0);
+  const stats: DecodedImageStats[] = [];
+  for (const image of images) {
+    if (image.filter?.includes("DCTDecode")) {
+      stats.push(await decodeImageInPage(page, image.bytes, "image/jpeg"));
+      continue;
+    }
+    expect(
+      [image.filter, image.colorSpace, image.bitsPerComponent],
+      "an embedded page image this reader cannot decode",
+    ).toEqual(["/FlateDecode", "/DeviceGray", 8]);
+    const samples = inflateSync(image.bytes);
+    expect(samples.length, "inflated plane does not match /Width×/Height").toBe(
+      image.width * image.height,
+    );
+    let ink = 0;
+    let white = 0;
+    for (const v of samples) {
+      if (v < 128) ink++;
+      if (v > 240) white++;
+    }
+    stats.push({
+      width: image.width,
+      height: image.height,
+      inkPixels: ink,
+      // One channel: there is no hue for either count to find.
+      redPixels: 0,
+      bluePixels: 0,
+      whitePixels: white,
+      totalPixels: samples.length,
+    });
   }
   return stats;
 }

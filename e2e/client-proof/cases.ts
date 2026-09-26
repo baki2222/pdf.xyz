@@ -3,6 +3,7 @@ import { expect, type Page } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
 import { organizePages } from "../../src/lib/pdf/engine";
+import { jpegComponentCount } from "../../src/lib/pdf/gray-jpeg";
 import {
   addDocumentStructure,
   lostStructure,
@@ -19,6 +20,7 @@ import {
   makeFormPdf,
   makeImageBearingPdf,
   makeJpegFixtureInPage,
+  makeNeutralInkJpegInPage,
   makePngFixture,
   makeRasterizedPdf,
   makeTextPdf,
@@ -28,6 +30,7 @@ import {
 import {
   captureDownload,
   decodeEmbeddedJpegs,
+  decodeEmbeddedPageImages,
   decodeImageInPage,
   expectMagic,
   normalizeText,
@@ -856,8 +859,9 @@ export const CASES: Record<string, ToolCase> = {
 
       // The pixels, not just the structure. "Contains images and no text" is
       // equally true of two blank white pages — which is exactly what the
-      // pdfjs wasmUrl defect produced through this same rasterizer.
-      const stats = await decodeEmbeddedJpegs(ctx.page, buf);
+      // pdfjs wasmUrl defect produced through this same rasterizer. Every page
+      // image is decoded, whether it was stored as a JPEG or a Flate plane.
+      const stats = await decodeEmbeddedPageImages(ctx.page, buf);
       expect(stats.length).toBeGreaterThanOrEqual(2);
       for (const page of stats) {
         // Ink: the drawn blocks cover ~35% of the page and go mid-grey.
@@ -871,9 +875,28 @@ export const CASES: Record<string, ToolCase> = {
           "saturated colour survived a grayscale conversion",
         ).toBeLessThan(0.01);
       }
+
+      // And the file DECLARES itself grayscale. Neutral pixels in a DeviceRGB
+      // image pass both checks above — that is what this tool shipped until
+      // its pages became DeviceGray — and a print driver, a print shop's
+      // preflight or Acrobat's Output Preview still calls that file colour.
+      // Checked LAST so the two controls above still fail on their own
+      // property rather than on this one.
+      for (const image of images) {
+        expect(image.colorSpace, "a page image is not DeviceGray").toBe(
+          "/DeviceGray",
+        );
+        if (image.filter?.includes("DCTDecode")) {
+          expect(
+            jpegComponentCount(image.bytes),
+            "a DeviceGray JPEG whose frame header is not one-component",
+          ).toBe(1);
+        }
+      }
     },
-    // Two controls, one per claimed property: a rasterized output that
-    // rendered nothing, and a rasterized output that kept its colour.
+    // Three controls, one per claimed property: a rasterized output that
+    // rendered nothing, one that kept its colour, and one that LOOKS grey but
+    // is a three-component (DeviceRGB) image — the pre-fix artifact exactly.
     control: async (ctx) => {
       const size: [number, number] = [320, 240];
       const colour = await makeJpegFixtureInPage(
@@ -889,6 +912,11 @@ export const CASES: Record<string, ToolCase> = {
           size,
         ),
         await makeRasterizedPdf(colour.bytes, 2, size),
+        await makeRasterizedPdf(
+          await makeNeutralInkJpegInPage(ctx.page, 320, 240),
+          2,
+          size,
+        ),
       ];
     },
   },
@@ -1195,7 +1223,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "extract-images":
     "Only a single Flate-coded RGB PNG. JPEG2000 and JBIG2 embedded images — the formats the wasmUrl defect blanked — are not exercised. Note that e2e/pdfjs-decoders.spec.ts does NOT close this: it proves the decoder assets are SERVED, and says in its own docblock that it does not prove pdfjs decodes with them. Nothing in this repo yet renders a JPEG2000 or JBIG2 fixture end to end.",
   "grayscale-pdf":
-    "Only the default DPI preset. The screen/print preset difference is not exercised.",
+    "Only the default DPI preset. The screen/print preset difference is not exercised. The fixture's pages are flat blocks and text, which the tool stores as lossless Flate DeviceGray planes; the one-component JPEG branch it picks for photographic pages is proven in Node (src/lib/pdf/grayscale-output.test.ts, decoded by pdf.js), not in a browser here.",
   "watermark-pdf":
     "Only the default text, size, tilt and opacity on a Letter page. Note that the tool's own 60pt default overflows a small page and pdfjs then omits the off-page glyphs from extraction — so a watermark's VISUAL placement is not what this proof checks.",
 };

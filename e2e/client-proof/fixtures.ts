@@ -256,10 +256,12 @@ export function makePngFixture(
 /**
  * A PDF of `pages` pages, each covered edge to edge by the supplied JPEG.
  *
- * This is the shape every rasterizing tool here produces (grayscale-pdf,
- * redact-pdf), so it can stand in as their control: hand it a BLANK jpeg and
- * it is "a rasterized output that rendered nothing"; hand it a COLOUR jpeg and
- * it is "a rasterized output that forgot to desaturate". Both are structurally
+ * This is the shape redact-pdf produces, and the shape grayscale-pdf produced
+ * until its pages became one-channel DeviceGray images, so it can stand in as
+ * their control: hand it a BLANK jpeg and it is "a rasterized output that
+ * rendered nothing"; hand it a COLOUR jpeg and it is "a rasterized output that
+ * forgot to desaturate"; hand it a NEUTRAL jpeg and it is grayscale-pdf's
+ * pre-fix artifact, grey pixels in an RGB container. Each is structurally
  * indistinguishable from a correct artifact, which is the point.
  */
 export async function makeRasterizedPdf(
@@ -268,8 +270,13 @@ export async function makeRasterizedPdf(
   size: [number, number],
 ): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  const image = await embedRasterImage(doc, jpeg, "jpg");
   for (let i = 0; i < pages; i++) {
+    // One image XObject PER PAGE, as the real tools write them. A single
+    // shared image drawn on every page was rejected by the proofs' own
+    // "at least one image per page" count before any pixel was looked at —
+    // so every control built here failed, but on structure, and the pixel
+    // and colour assertions it existed to falsify were never reached.
+    const image = await embedRasterImage(doc, jpeg, "jpg");
     const page = doc.addPage(size);
     page.drawImage(image, { x: 0, y: 0, width: size[0], height: size[1] });
   }
@@ -309,6 +316,48 @@ export async function makeBlankImageInPage(
   if (!base64) throw new Error("canvas.toDataURL returned no payload");
   const bytes = detached(Buffer.from(base64, "base64"));
   assertEncodedAs(bytes, mime, dataUrl);
+  return bytes;
+}
+
+/**
+ * A browser-encoded JPEG of NEUTRAL ink — black and mid-grey blocks on white.
+ *
+ * Exactly what grayscale-pdf shipped before it wrote DeviceGray images: pixels
+ * with no hue, in the three-component container `canvas.toBlob` always
+ * produces. It passes every look-based check (ink present, no saturated
+ * colour), so it is the control that isolates the colour-space assertion.
+ */
+export async function makeNeutralInkJpegInPage(
+  page: Page,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ([w, h]) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w as number;
+      canvas.height = h as number;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("2d context unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w as number, h as number);
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, (w as number) / 2, (h as number) / 2);
+      ctx.fillStyle = "#808080";
+      ctx.fillRect(
+        (w as number) / 2,
+        (h as number) / 2,
+        w as number,
+        h as number,
+      );
+      return canvas.toDataURL("image/jpeg", 0.92);
+    },
+    [width, height],
+  );
+  const base64 = dataUrl.split(",")[1];
+  if (!base64) throw new Error("canvas.toDataURL returned no payload");
+  const bytes = detached(Buffer.from(base64, "base64"));
+  assertEncodedAs(bytes, "image/jpeg", dataUrl);
   return bytes;
 }
 
