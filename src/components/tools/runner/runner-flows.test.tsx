@@ -217,6 +217,33 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
     });
   }
 
+  for (const kind of ["png", "jpg"] as const) {
+    it(`${kind.toUpperCase()} to PDF: a file that cannot be read is named, and the rest of the batch still loads`, async () => {
+      // A file moved or deleted after it was picked, or a cloud-drive
+      // placeholder that is not on disk: the browser rejects the read. Before
+      // the fix one such file rejected the whole Promise.all — nothing was
+      // added, "Loading 2 images…" stayed on screen forever, and Create PDF
+      // stayed disabled even for images already in the list.
+      const { container } = renderRunner(<ImageToPdfRunner kind={kind} />);
+      const gone = fileOf(PNG_1X1, "gone.png", "image/png");
+      Object.defineProperty(gone, "arrayBuffer", {
+        value: () => Promise.reject(new DOMException("gone", "NotFoundError")),
+      });
+      pick(container, [fileOf(PNG_1X1, "shot.png", "image/png"), gone]);
+
+      await screen.findByText(/1 image$/);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("gone.png");
+      expect(alert.textContent).toContain(
+        "Could not read this file — pick it again.",
+      );
+      expect(screen.queryByText(/^Loading \d+ image/)).toBeNull();
+      expect(
+        screen.getByRole("button", { name: /create pdf/i }),
+      ).not.toBeDisabled();
+    });
+  }
+
   it("a WebP named .png is refused when it is picked, by its real format", async () => {
     const { container } = renderRunner(<ImageToPdfRunner kind="png" />);
     const webp = new Uint8Array([

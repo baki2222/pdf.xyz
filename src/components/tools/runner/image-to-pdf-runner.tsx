@@ -99,18 +99,35 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       setRejections(rejected);
       if (!accepted.length) return;
       setLoading((n) => n + accepted.length);
-      const read = await Promise.all(
-        accepted.map(async (file) => ({
-          file,
-          bytes: await readFileBytes(file),
-        })),
-      );
+      // SETTLED, not `all`, and the counter comes down in a `finally`. A file
+      // moved or deleted after it was picked (or a cloud placeholder that is
+      // not on disk) rejects its read; under `Promise.all` that one file
+      // dropped the whole pick, left "Loading N images…" on screen forever and
+      // kept Create PDF disabled for the images already in the list.
+      let settled: PromiseSettledResult<Uint8Array>[];
+      try {
+        settled = await Promise.allSettled(
+          accepted.map((file) => readFileBytes(file)),
+        );
+      } finally {
+        setLoading((n) => Math.max(0, n - accepted.length));
+      }
       // Decide by the bytes, now, rather than after the user has arranged
       // every image: a ".png" saved from the web is often a JPEG (fine) or a
-      // WebP (not), and the name cannot tell those apart.
+      // WebP (not), and the name cannot tell those apart. Pick order is kept:
+      // `settled[i]` is `accepted[i]`.
       const loaded: ImageItem[] = [];
       const unreadable: Rejection[] = [];
-      for (const { file, bytes } of read) {
+      for (const [index, outcome] of settled.entries()) {
+        const file = accepted[index]!;
+        if (outcome.status === "rejected") {
+          unreadable.push({
+            name: file.name,
+            reason: "Could not read this file — pick it again.",
+          });
+          continue;
+        }
+        const bytes = outcome.value;
         const format = sniffRasterFormat(bytes);
         if (!format) {
           unreadable.push({
@@ -131,7 +148,6 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       if (unreadable.length) setRejections([...rejected, ...unreadable]);
       loaded.forEach((item) => previewUrls.current.add(item.previewUrl));
       setItems((prev) => [...prev, ...loaded]);
-      setLoading((n) => Math.max(0, n - accepted.length));
     },
     [kind],
   );
