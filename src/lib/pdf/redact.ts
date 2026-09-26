@@ -1,7 +1,12 @@
 import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
-import { rasterizePdf, type RasterCanvasInfo, type RasterPage } from "./render";
+import {
+  rasterizePdf,
+  type RasterCanvasInfo,
+  type RasterPage,
+  type RasterizeOptions,
+} from "./render";
 
 /**
  * Privacy-safe, in-browser PDF redaction.
@@ -28,6 +33,20 @@ const PRODUCER = "pdf.xyz";
 export type RedactionFill = "black" | "white";
 
 /**
+ * Every fill the tool offers, in the order the runner shows them. The runner's
+ * fill control renders THIS list, and `redact-paint.test.ts` walks it — so a
+ * fill added here is offered and proven to reach the pixels in the same edit,
+ * rather than offered by one list and tested against another.
+ */
+export const REDACTION_FILL_OPTIONS: readonly {
+  value: RedactionFill;
+  label: string;
+}[] = [
+  { value: "black", label: "Black" },
+  { value: "white", label: "White" },
+];
+
+/**
  * A rectangle to redact, in PDF points with a bottom-left origin (the standard
  * PDF coordinate space), on a specific 1-based page. `x`/`y` locate the box's
  * lower-left corner; `width`/`height` size it.
@@ -44,6 +63,21 @@ export interface RedactionRect {
   /** Box height in points. */
   height: number;
 }
+
+/**
+ * The box the runner's form starts with — what "Add area" adds when the user
+ * touches nothing. Exported because it is the one rectangle every redaction
+ * proof can name without a drag: the unit paint test and the browser proof
+ * (e2e/client-proof/cases.ts) both locate their pixel regions from it, so
+ * moving the default moves the checks with it.
+ */
+export const DEFAULT_REDACTION_DRAFT: Readonly<RedactionRect> = {
+  page: 1,
+  x: 36,
+  y: 36,
+  width: 200,
+  height: 72,
+};
 
 /** A page's displayed size in PDF points. */
 export interface PageSize {
@@ -319,6 +353,18 @@ function paintRedactions(
 export async function redactPdf(
   bytes: Uint8Array,
   options: RedactOptions,
+  /**
+   * The rasterizer. Always {@link rasterizePdf} in the product; a parameter so
+   * `redact-paint.test.ts` can hand the REAL paint path a pixel canvas in Node
+   * and read the bitmap the encoder would receive — the pdfjs render itself
+   * needs a browser, but the paint that makes a redaction a redaction does not.
+   * (A `vi.mock` of ./render would poison this module in the shared test cache:
+   * see src/tests/mock-isolation.test.ts.)
+   */
+  rasterize: (
+    bytes: Uint8Array,
+    options: RasterizeOptions,
+  ) => Promise<RasterPage[]> = rasterizePdf,
 ): Promise<RedactResult> {
   const rects = options.rects ?? [];
   if (rects.length === 0) {
@@ -342,7 +388,7 @@ export async function redactPdf(
   const fillHex = redactionFillHex(options.fill);
   const byPage = groupByPage(rects);
 
-  const pages = await rasterizePdf(bytes, {
+  const pages = await rasterize(bytes, {
     format: "jpg",
     dpi: options.dpi ?? 150,
     quality: options.quality ?? 0.85,

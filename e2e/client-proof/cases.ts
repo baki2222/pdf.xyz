@@ -6,22 +6,27 @@ import {
   rasterScaleForDpi,
   resolutionById,
 } from "../../src/lib/pdf/pdf-to-image";
+import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact";
 import { fileInput, waitForHydration } from "../helpers";
 import {
+  inkBlockRect,
   makeBlankImageInPage,
   makeFormPdf,
   makeImageBearingPdf,
   makeJpegFixtureInPage,
   makePngFixture,
+  makeRasterPageInPage,
   makeRasterizedPdf,
   makeTextPdf,
   pageMarker,
   writeTempFixture,
+  type PointRect,
 } from "./fixtures";
 import {
   captureDownload,
   decodeEmbeddedJpegs,
   decodeImageInPage,
+  decodePageRegions,
   expectMagic,
   normalizeText,
   pdfCropBoxes,
@@ -150,6 +155,64 @@ const input = (ctx: CaseContext, key: string): Buffer => {
 
 /** Marker helper bound to a fixture file name. */
 const marker = (name: string, page: number) => pageMarker(name, page);
+
+/** The redact proof's page size, in points: makeTextPdf's default. */
+const REDACT_PAGE: [number, number] = [320, 240];
+
+function intersect(a: PointRect, b: PointRect): PointRect | null {
+  const x0 = Math.max(a.x, b.x);
+  const y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.width, b.x + b.width);
+  const y1 = Math.min(a.y + a.height, b.y + b.height);
+  return x1 > x0 && y1 > y0
+    ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
+    : null;
+}
+
+/**
+ * The regions the redact proof reads, derived from the two definitions they
+ * describe — the runner's default box and the fixture's ink block — so moving
+ * either moves the proof. Fails LOUDLY if they stop overlapping enough for the
+ * proof to mean anything, instead of letting a region shrink into a vacuous
+ * "at least 98% of nothing".
+ */
+function redactRegions(): {
+  box: PointRect;
+  overBlock: PointRect;
+  blockOutsideBox: PointRect;
+} {
+  const box: PointRect = {
+    x: DEFAULT_REDACTION_DRAFT.x,
+    y: DEFAULT_REDACTION_DRAFT.y,
+    width: DEFAULT_REDACTION_DRAFT.width,
+    height: DEFAULT_REDACTION_DRAFT.height,
+  };
+  const block = inkBlockRect(REDACT_PAGE);
+  const overBlock = intersect(box, block);
+  if (
+    !overBlock ||
+    overBlock.width * overBlock.height < 0.5 * box.width * box.height
+  ) {
+    throw new Error(
+      "redact proof precondition: the default box must sit mostly over the fixture's ink block, or a white box proves nothing",
+    );
+  }
+  // The block's band above the box: fixture ink the box must NOT touch.
+  const boxTop = box.y + box.height;
+  const blockTop = block.y + block.height;
+  const blockOutsideBox: PointRect = {
+    x: block.x,
+    y: boxTop,
+    width: block.width,
+    height: blockTop - boxTop,
+  };
+  if (blockOutsideBox.height < 6) {
+    throw new Error(
+      "redact proof precondition: the fixture's ink block must extend above the default box, or (c) has nothing to measure",
+    );
+  }
+  return { box, overBlock, blockOutsideBox };
+}
 
 /**
  * US Letter, in points. Several runners default to stamp sizes scaled for a
@@ -857,7 +920,18 @@ export const CASES: Record<string, ToolCase> = {
     kind: "redact",
     artifact: "pdf",
     run: async (ctx) => {
-      await uploadTextPdf(ctx, "secret.pdf", { pages: 2 });
+      await uploadTextPdf(ctx, "secret.pdf", { pages: 2, size: REDACT_PAGE });
+      // WHITE, deliberately. The fixture's black block sits under most of the
+      // default box, so a black fill cannot be told from a box that was never
+      // painted — that is exactly how the previous version of this proof
+      // passed with no paint at all. White over black can only come from the
+      // paint. (The black fill's paint is pinned by
+      // src/lib/pdf/redact-paint.test.ts, which reads the canvas directly.)
+      const white = ctx.page
+        .getByRole("radiogroup", { name: /redaction fill/i })
+        .getByRole("radio", { name: /^white$/i });
+      await white.click();
+      await expect(white).toHaveAttribute("aria-checked", "true");
       const addArea = ctx.page.getByRole("button", { name: /add area/i });
       await expect(addArea).toBeEnabled();
       await addArea.click();
@@ -879,31 +953,92 @@ export const CASES: Record<string, ToolCase> = {
       expect(texts.join("").trim()).toBe("");
       expect((await pdfImages(buf)).length).toBeGreaterThanOrEqual(2);
 
-      // "No text and some images" is also a perfect description of two blank
-      // pages, and a blank page is a redaction tool's most flattering failure:
-      // it satisfies the guarantee by destroying the document. Check that the
-      // page was actually rendered, and that the redaction box is real ink.
-      const stats = await decodeEmbeddedJpegs(ctx.page, buf);
-      expect(stats.length).toBeGreaterThanOrEqual(2);
-      for (const page of stats) {
-        expect(
-          (page.totalPixels - page.whitePixels) / page.totalPixels,
-          "the redacted page is blank — nothing was rendered under the box",
-        ).toBeGreaterThan(0.1);
-        expect(
-          page.inkPixels / page.totalPixels,
-          "no dark pixels at all: neither the page content nor the redaction box survived",
-        ).toBeGreaterThan(0.05);
-      }
+      // "No text and some images" also describes two blank pages, and whole-
+      // page ink counts describe the FIXTURE: its own black block is 17% of
+      // the page and sits under the default box, so they passed with the paint
+      // deleted. Every check below is about a REGION, located from the
+      // runner's own default box and the fixture's own block definition.
+      const { box, overBlock, blockOutsideBox } = redactRegions();
+      // Inset 8px: one JPEG block. The box borders the fixture's black block
+      // on two sides, and DCT ringing stays inside the 8x8 block that holds
+      // the edge — a 3px inset would let it decide the 98% verdict.
+      const [first, second] = await decodePageRegions(
+        ctx.page,
+        buf,
+        [box, overBlock, blockOutsideBox],
+        8,
+      );
+      if (!first || !second) throw new Error("expected two decoded pages");
+      const ratio = (n: number, of: { totalPixels: number }) =>
+        n / of.totalPixels;
+
+      // Page 2 has no box: it was rendered, and the fixture's ink really is
+      // where the box goes. Without this, (a) could pass on a blank render.
+      expect(
+        ratio(
+          second.whole.totalPixels - second.whole.whitePixels,
+          second.whole,
+        ),
+        "page 2 (no box) is blank — nothing was rendered",
+      ).toBeGreaterThan(0.1);
+      expect(
+        ratio(second.regions[1]!.inkPixels, second.regions[1]!),
+        "page 2 has no ink under the box's position — the white check on page 1 would prove nothing",
+      ).toBeGreaterThan(0.9);
+
+      // (a) The box: on page 1 it is the chosen fill, over ink that page 2
+      //     shows is there. A no-op paint leaves it ~80% black.
+      const onBox = first.regions[0]!;
+      expect(
+        ratio(onBox.whitePixels, onBox),
+        "the redaction box is not painted — the content under it survived",
+      ).toBeGreaterThan(0.98);
+
+      // (c) Only the box changed: the fixture's block, where it sticks out of
+      //     the box, is still solid ink on page 1. Catches a paint that
+      //     whitewashed the page, and a render that produced nothing.
+      const outside = first.regions[2]!;
+      expect(
+        ratio(outside.inkPixels, outside),
+        "ink OUTSIDE the box is gone on page 1 — the redaction destroyed more than the box",
+      ).toBeGreaterThan(0.9);
     },
-    // A rasterized 2-page output that rendered nothing: structurally identical
-    // to a correct redaction, and the only failure mode this tool has had.
-    control: async (ctx) =>
-      makeRasterizedPdf(
-        await makeBlankImageInPage(ctx.page, "image/jpeg", 320, 240),
-        2,
-        [320, 240],
-      ),
+    // One control per property, each run through the assertion above:
+    //  1. a well-formed 2-page raster that rendered nothing;
+    //  2. the fixture rendered faithfully with NO box painted — the output of
+    //     a no-op paint, and what the old whole-page ink checks accepted;
+    //  3. page 1 whitewashed entirely (box "painted" over everything), page 2
+    //     faithful — (a) and page 2's checks pass, so only (c) can reject it.
+    // Each carries one image PER PAGE, like the real output. The previous
+    // blank control shared one image across both pages, so the "at least two
+    // images" check rejected it before any pixel was read: the control was
+    // rejected, but for a reason that says nothing about rendering.
+    control: async (ctx) => {
+      const scale = 150 / 72;
+      const unpainted = await makeRasterPageInPage(
+        ctx.page,
+        REDACT_PAGE,
+        scale,
+        [{ rect: inkBlockRect(REDACT_PAGE), color: "#000000" }],
+      );
+      const whitewashed = await makeRasterPageInPage(
+        ctx.page,
+        REDACT_PAGE,
+        scale,
+        [],
+      );
+      const blank = await makeBlankImageInPage(
+        ctx.page,
+        "image/jpeg",
+        320,
+        240,
+      );
+      return [
+        await makeRasterizedPdf([blank, blank], 2, REDACT_PAGE),
+        await makeRasterizedPdf([unpainted, unpainted], 2, REDACT_PAGE),
+        await makeRasterizedPdf([whitewashed, unpainted], 2, REDACT_PAGE),
+      ];
+    },
   },
 
   "fill-forms": {
@@ -1133,7 +1268,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "edit-pdf":
     "Only a text insertion at the default position through the form controls. Image insertion and drag-positioning on the page canvas are not exercised.",
   "redact-pdf":
-    "Only the default draft area added via the Add area button. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven.",
+    "Proves, on the decoded page images, that the default area added via the Add area button is painted with the WHITE fill over the fixture's ink on page 1, that the same spot on page 2 (no box) keeps its ink, and that fixture ink outside the box survives. Only the White fill is proven here: the fixture's black block sits under the default box, so a Black fill cannot be told from an unpainted one in this browser proof, and its paint is pinned only by the unit test src/lib/pdf/redact-paint.test.ts. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven, and rotated (/Rotate 90) pages are not exercised.",
   "fill-forms":
     "Only a text field is written. Checkboxes, radio groups, dropdowns and the appearance-stream regeneration those need are not exercised.",
   "create-forms":

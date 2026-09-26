@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import JSZip from "jszip";
-import { PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import {
   expect,
   type Download,
@@ -366,4 +366,153 @@ export async function decodeImageInPage(
     },
     [bytes.toString("base64"), mime] as const,
   );
+}
+
+/** A rectangle in PDF points with a bottom-left origin (the page's own space). */
+export interface PagePointRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PageRegionStats {
+  /** Output page size in points (its CropBox). */
+  pageWidth: number;
+  pageHeight: number;
+  /** The whole page image. */
+  whole: DecodedImageStats;
+  /** One entry per requested region, in request order. */
+  regions: DecodedImageStats[];
+}
+
+/**
+ * Decode each output page's own raster image and report pixel statistics for
+ * the whole image AND for given regions of the page.
+ *
+ * Whole-image counts cannot tell WHERE ink is, and for a redaction that is the
+ * entire question: a fixture that already has a black block under the box
+ * satisfies "the page has dark pixels" with or without the box. Regions are
+ * given in page points (bottom-left origin) and mapped here, independently of
+ * the app's own point→pixel code, to the image's top-left pixel grid at the
+ * image's px/pt scale, then shrunk by `insetPx` on every side so JPEG ringing
+ * at an edge cannot decide a verdict.
+ *
+ * Images are found through each PAGE's /XObject resources, not by enumerating
+ * the file, so page N's statistics are page N's — an enumeration order that
+ * happened to match would be a guess.
+ */
+export async function decodePageRegions(
+  page: Page,
+  buf: Buffer,
+  regions: PagePointRect[],
+  insetPx = 3,
+): Promise<PageRegionStats[]> {
+  const doc = await loadPdf(buf);
+  const out: PageRegionStats[] = [];
+  for (const [index, pdfPage] of doc.getPages().entries()) {
+    const { width: pageWidth, height: pageHeight } = pdfPage.getCropBox();
+    const xobjects = pdfPage.node
+      .Resources()
+      ?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+    const images: PDFRawStream[] = [];
+    for (const [, ref] of xobjects?.entries() ?? []) {
+      const obj = doc.context.lookup(ref);
+      if (
+        obj instanceof PDFRawStream &&
+        obj.dict.get(PDFName.of("Subtype"))?.toString() === "/Image" &&
+        obj.dict.get(PDFName.of("Filter"))?.toString().includes("DCTDecode")
+      ) {
+        images.push(obj);
+      }
+    }
+    expect(
+      images.length,
+      `output page ${index + 1} should carry exactly one JPEG page image`,
+    ).toBe(1);
+    const jpeg = Buffer.from(images[0]!.getContents());
+    const pixelRegions = regions.map((r) => ({
+      // Scale factors come from the decoded image, so they are resolved in
+      // the page context below; pass the point geometry through.
+      left: r.x / pageWidth,
+      right: (r.x + r.width) / pageWidth,
+      top: (pageHeight - r.y - r.height) / pageHeight,
+      bottom: (pageHeight - r.y) / pageHeight,
+    }));
+    const decoded = await page.evaluate(
+      async ([b64, fractions, inset]) => {
+        const img = new Image();
+        img.src = `data:image/jpeg;base64,${b64}`;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("2d context unavailable");
+        ctx.drawImage(img, 0, 0);
+        const W = canvas.width;
+        const H = canvas.height;
+        const { data } = ctx.getImageData(0, 0, W, H);
+        const stats = (x0: number, y0: number, x1: number, y1: number) => {
+          let ink = 0;
+          let red = 0;
+          let blue = 0;
+          let white = 0;
+          let total = 0;
+          for (let y = y0; y < y1; y++) {
+            for (let x = x0; x < x1; x++) {
+              const i = (y * W + x) * 4;
+              const r = data[i] as number;
+              const g = data[i + 1] as number;
+              const b = data[i + 2] as number;
+              if (r < 128 && g < 128 && b < 128) ink++;
+              if (r > 160 && b < 96) red++;
+              if (b > 160 && r < 96) blue++;
+              if (r > 240 && g > 240 && b > 240) white++;
+              total++;
+            }
+          }
+          return {
+            width: Math.max(0, x1 - x0),
+            height: Math.max(0, y1 - y0),
+            inkPixels: ink,
+            redPixels: red,
+            bluePixels: blue,
+            whitePixels: white,
+            totalPixels: total,
+          };
+        };
+        const clamp = (v: number, max: number) => Math.max(0, Math.min(max, v));
+        return {
+          whole: stats(0, 0, W, H),
+          regions: (
+            fractions as {
+              left: number;
+              right: number;
+              top: number;
+              bottom: number;
+            }[]
+          ).map((f) =>
+            stats(
+              clamp(Math.ceil(f.left * W) + (inset as number), W),
+              clamp(Math.ceil(f.top * H) + (inset as number), H),
+              clamp(Math.floor(f.right * W) - (inset as number), W),
+              clamp(Math.floor(f.bottom * H) - (inset as number), H),
+            ),
+          ),
+        };
+      },
+      [jpeg.toString("base64"), pixelRegions, insetPx] as const,
+    );
+    for (const [i, region] of decoded.regions.entries()) {
+      // A region that shrank to nothing would make every ratio NaN and every
+      // "at least 98%" vacuous; say so instead.
+      expect(
+        region.totalPixels,
+        `region #${i + 1} on page ${index + 1} covers no pixels after the inset`,
+      ).toBeGreaterThan(100);
+    }
+    out.push({ pageWidth, pageHeight, ...decoded });
+  }
+  return out;
 }

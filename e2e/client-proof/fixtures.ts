@@ -42,6 +42,24 @@ export interface TextPdfOptions {
   colorful?: boolean;
 }
 
+/** An axis-aligned rectangle in PDF points, bottom-left origin. */
+export interface PointRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where {@link makeTextPdf} draws its solid black block on a page of `size`.
+ * Exported so a proof that reasons about "the fixture's own ink" (redact-pdf
+ * does: its default box sits over this block) locates it from the one
+ * definition the fixture draws with, instead of a copy of the numbers.
+ */
+export function inkBlockRect([w, h]: [number, number]): PointRect {
+  return { x: w * 0.1, y: h * 0.15, width: w * 0.5, height: h * 0.35 };
+}
+
 /** A valid multi-page PDF with per-page marker text and an ink rectangle. */
 export async function makeTextPdf(
   label: string,
@@ -85,13 +103,7 @@ export async function makeTextPdf(
         color: rgb(0, 0, 1),
       });
     } else {
-      page.drawRectangle({
-        x: w * 0.1,
-        y: h * 0.15,
-        width: w * 0.5,
-        height: h * 0.35,
-        color: rgb(0, 0, 0),
-      });
+      page.drawRectangle({ ...inkBlockRect(size), color: rgb(0, 0, 0) });
     }
   }
   return doc.save(unoptimized ? { useObjectStreams: false } : undefined);
@@ -263,17 +275,77 @@ export function makePngFixture(
  * indistinguishable from a correct artifact, which is the point.
  */
 export async function makeRasterizedPdf(
-  jpeg: Buffer,
+  jpeg: Buffer | Buffer[],
   pages: number,
   size: [number, number],
 ): Promise<Buffer> {
+  // One image SHARED by every page (embedded once, as before — existing
+  // controls depend on that shape), or one image per page, which lets a
+  // control differ between pages (e.g. a box painted on page 1 only).
+  if (Array.isArray(jpeg) && jpeg.length !== pages) {
+    throw new Error(
+      `makeRasterizedPdf: ${jpeg.length} images for ${pages} pages`,
+    );
+  }
   const doc = await PDFDocument.create();
-  const image = await embedRasterImage(doc, jpeg, "jpg");
+  const shared = Array.isArray(jpeg)
+    ? null
+    : await embedRasterImage(doc, jpeg, "jpg");
   for (let i = 0; i < pages; i++) {
+    const image =
+      shared ?? (await embedRasterImage(doc, (jpeg as Buffer[])[i]!, "jpg"));
     const page = doc.addPage(size);
     page.drawImage(image, { x: 0, y: 0, width: size[0], height: size[1] });
   }
   return Buffer.from(await doc.save());
+}
+
+/**
+ * A JPEG "render" of a `size`-point page at `scale` px/pt: white, with each
+ * given point-space rectangle (bottom-left origin) filled in its colour.
+ *
+ * Built for controls that must differ from a real output in ONE region only —
+ * "the fixture rendered, but the box was never painted" — which a blank page
+ * or a colour swatch cannot express.
+ */
+export async function makeRasterPageInPage(
+  page: Page,
+  size: [number, number],
+  scale: number,
+  fills: { rect: PointRect; color: string }[],
+): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ([pageSize, s, list]) => {
+      const [w, h] = pageSize as [number, number];
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(w * (s as number));
+      canvas.height = Math.round(h * (s as number));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("2d context unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const { rect, color } of list as {
+        rect: { x: number; y: number; width: number; height: number };
+        color: string;
+      }[]) {
+        const k = s as number;
+        ctx.fillStyle = color;
+        ctx.fillRect(
+          rect.x * k,
+          (h - rect.y - rect.height) * k,
+          rect.width * k,
+          rect.height * k,
+        );
+      }
+      return canvas.toDataURL("image/jpeg", 0.92);
+    },
+    [size, scale, fills] as const,
+  );
+  const base64 = dataUrl.split(",")[1];
+  if (!base64) throw new Error("canvas.toDataURL returned no payload");
+  const bytes = detached(Buffer.from(base64, "base64"));
+  assertEncodedAs(bytes, "image/jpeg", dataUrl);
+  return bytes;
 }
 
 /**
