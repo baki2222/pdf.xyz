@@ -32,17 +32,21 @@
  * only as trustworthy as the edge that writes it: if the origin answers a
  * direct connection, a caller can skip Cloudflare and write
  * `cf-connecting-ip` themselves. With `ORIGIN_IP=<address>` this connects to
- * that address for the production hostname and expects NO HTTP answer.
+ * that address for the production hostname and expects NO HTTP answer. It
+ * does not verify the certificate — an Origin CA or self-signed cert must not
+ * make an answering origin look locked — and only an OBSERVED refusal passes
+ * (`src/lib/probes/origin-knock.ts`, held by its test against real servers).
  *
  * EXIT CODES
  *   0  a 429 was observed, a spoofed address did not escape it (and, with
  *      ORIGIN_IP, the origin refused a direct connection)
  *   1  the limit was never reached — throttling is NOT enforcing
- *   2  the run could not complete (network, unexpected status)
+ *   2  the run could not complete (network, unexpected status), or the origin
+ *      knock neither got an answer nor saw a refusal — nothing is proven
  *   3  a client-written header bought a fresh bucket — identity is spoofable
  *   4  the origin answered a direct connection — the edge can be bypassed
  */
-import https from "node:https";
+import { knockOnOrigin, knockVerdict } from "../src/lib/probes/origin-knock";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
 
@@ -170,53 +174,13 @@ async function main(): Promise<number> {
 
   const originIp = process.env.ORIGIN_IP;
   if (originIp) {
-    const answered = await knockOnOrigin(originIp);
-    if (answered !== null) {
-      console.log(
-        `\nORIGIN REACHABLE — ${originIp} answered HTTP ${answered} for ${new URL(BASE).hostname}\n` +
-          `directly, so a caller can bypass the edge and write the client-IP header.`,
-      );
-      return 4;
-    }
-    console.log(`The origin ${originIp} refused a direct connection.`);
+    const hostname = new URL(BASE).hostname;
+    const outcome = await knockOnOrigin({ originIp, hostname });
+    const verdict = knockVerdict(originIp, hostname, outcome);
+    console.log(verdict.message);
+    if (verdict.exitCode !== 0) return verdict.exitCode;
   }
   return 0;
-}
-
-/** The HTTP status the origin answers directly with, or null if it does not. */
-function knockOnOrigin(originIp: string): Promise<number | null> {
-  const host = new URL(BASE).hostname;
-  const family = originIp.includes(":") ? 6 : 4;
-  return new Promise((resolve) => {
-    const req = https.request(
-      {
-        host,
-        servername: host,
-        path: "/api/worker/status",
-        method: "GET",
-        timeout: 10_000,
-        // Connect to the origin address, whatever DNS says about the name.
-        lookup: ((
-          _host: string,
-          options: { all?: boolean },
-          cb: (...args: unknown[]) => void,
-        ) =>
-          options?.all
-            ? cb(null, [{ address: originIp, family }])
-            : cb(null, originIp, family)) as never,
-      },
-      (res) => {
-        res.resume();
-        resolve(res.statusCode ?? 0);
-      },
-    );
-    req.on("timeout", () => {
-      req.destroy();
-      resolve(null);
-    });
-    req.on("error", () => resolve(null));
-    req.end();
-  });
 }
 
 main()

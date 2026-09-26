@@ -128,8 +128,8 @@ the same store, because it runs on a different host.
   its /64. **History:** until 2026-09 identity walked `x-vercel-forwarded-for`
   → `x-forwarded-for` → `x-real-ip` and took the leftmost hop. Nothing in
   front of this site strips those, so any caller chose its own bucket —
-  measured on production, 130 requests with one spoofed value gave 120 × 400
-  - 10 × 429 and the next value got a fresh budget.
+  measured on production, 130 requests with one spoofed value gave 120
+  responses of 400 and 10 of 429, and the next value got a fresh budget.
 
   **Order, and it is not optional:** a header is only as trustworthy as the
   edge that writes it. `cf-connecting-ip` is set by Cloudflare only for
@@ -139,7 +139,12 @@ the same store, because it runs on a different host.
   Cloudflare's ranges), confirm from outside that a direct connection is
   refused, THEN set this variable. `pnpm verify:rate-limit` checks both: it
   exits 3 if a spoofed header escapes a spent bucket, and with
-  `ORIGIN_IP=<address>` it exits 4 if the origin answers directly.
+  `ORIGIN_IP=<address>` it exits 4 if the origin answers directly. The knock
+  does not verify the origin's certificate (an Origin CA or self-signed cert
+  would otherwise make an answering origin look locked) and passes only on an
+  observed refusal: connection refused, reset or timed out, or a TLS alert
+  such as Authenticated Origin Pulls demanding a client certificate. Anything
+  else exits 2: nothing was proven either way.
 
 ---
 
