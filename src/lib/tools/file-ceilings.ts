@@ -4,6 +4,7 @@ import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import type { Tool } from "./types";
+import { workerEngineCeilingBytes } from "./worker-engine-ceilings";
 
 /**
  * ONE ceiling per tool: the byte cap a tool's page states IS the byte cap the
@@ -45,6 +46,11 @@ import type { Tool } from "./types";
  *  - everything else is worker-tier, and `JOB_LIMITS.maxFileBytes` is not a
  *    fallback there: it is the constant `parseCreateUploadSessionRequest`,
  *    `evaluateIntake` and the worker store all compare an upload against.
+ *    It is only the ceiling when the engine that runs the tool accepts at least
+ *    that much, though. The Office converter (50 MB) and the HTML renderer
+ *    (20 MB) refuse less, so for their tools the ceiling is the smaller of the
+ *    two, read from `WORKER_ENGINE_CEILINGS`. The upload validator refuses
+ *    above the same figure, so a file the page says is too big never moves.
  */
 
 /**
@@ -113,7 +119,13 @@ export function toolFileCeiling(tool: Tool): ToolFileCeiling {
   if (runner) {
     return { tier: "in-browser", runner, bytes: RUNNER_FILE_CEILINGS[runner] };
   }
-  return { tier: "worker", bytes: WORKER_FILE_CEILING };
+  return {
+    tier: "worker",
+    bytes: Math.min(
+      WORKER_FILE_CEILING,
+      workerEngineCeilingBytes(tool.slug) ?? WORKER_FILE_CEILING,
+    ),
+  };
 }
 
 /** The tool's ceiling in bytes, or `null` when it takes no file at all. */
@@ -129,6 +141,21 @@ export function toolFileCeilingBytes(tool: Tool): number | null {
 export function toolFileCeilingMb(tool: Tool): number | null {
   const bytes = toolFileCeilingBytes(tool);
   return bytes === null ? null : Math.round(bytes / (1024 * 1024));
+}
+
+/**
+ * What a panel says when a picked file is over the tool's ceiling, BEFORE it
+ * uploads anything — the same figure the page states, so the refusal can
+ * never disagree with the promise. `null` when the file fits (or the tool
+ * takes no file).
+ */
+export function fileOverCeilingMessage(
+  tool: Tool,
+  size: number,
+): string | null {
+  const bytes = toolFileCeilingBytes(tool);
+  if (bytes === null || size <= bytes) return null;
+  return `This file is larger than ${toolFileCeilingMb(tool)} MB, the most ${tool.name} accepts.`;
 }
 
 /**

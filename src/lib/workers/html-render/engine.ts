@@ -1,12 +1,13 @@
 import { looksLikePdf } from "../compression/engine";
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
 
-export const HTML_TO_PDF_TOOL = "html-to-pdf";
-export const WEBPAGE_TO_PDF_TOOL = "webpage-to-pdf";
-export const HTML_RENDER_TOOLS = [
+import { HTML_RENDER_TOOLS } from "./native-config";
+
+export {
   HTML_TO_PDF_TOOL,
   WEBPAGE_TO_PDF_TOOL,
-] as const;
+  HTML_RENDER_TOOLS,
+} from "./native-config";
 export type HtmlRenderTool = (typeof HTML_RENDER_TOOLS)[number];
 
 export const HTML_RENDER_ENGINE = "chromium" as const;
@@ -58,6 +59,11 @@ function validateOutput(
   return undefined;
 }
 
+/** Whole megabytes, rounded DOWN so the figure never overstates the cap. */
+function wholeMb(bytes: number): number {
+  return Math.floor(bytes / (1024 * 1024));
+}
+
 export async function runHtmlToPdf(
   input: Uint8Array,
   deps: HtmlRenderDeps,
@@ -69,7 +75,7 @@ export async function runHtmlToPdf(
       ok: false,
       kind: "too_large",
       limitBytes: limit,
-      message: "The HTML input exceeds the worker's size limit.",
+      message: `This HTML file is larger than ${wholeMb(limit)} MB, the most the HTML renderer accepts.`,
     };
   }
   let output: Uint8Array;

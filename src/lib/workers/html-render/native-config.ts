@@ -1,3 +1,25 @@
+export const HTML_TO_PDF_TOOL = "html-to-pdf";
+export const WEBPAGE_TO_PDF_TOOL = "webpage-to-pdf";
+/**
+ * The tools the Chromium renderer serves, in this import-free module (and
+ * re-exported by `engine.ts`) so the tool page's ceiling lookup can read them
+ * without pulling the server engine into the browser bundle.
+ */
+export const HTML_RENDER_TOOLS = [
+  HTML_TO_PDF_TOOL,
+  WEBPAGE_TO_PDF_TOOL,
+] as const;
+
+/**
+ * The most the HTML renderer accepts per uploaded file — the number the HTML
+ * to PDF page states. It used to state the upload gate's 100 MB while this
+ * engine refused anything over 20 MB, after the upload.
+ *
+ * `PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES` can only RAISE it, for the same reason
+ * as the Office converter's: the page cannot see a worker's env.
+ */
+export const HTML_RENDER_MAX_INPUT_BYTES = 20 * 1024 * 1024;
+
 const TRUE_VALUES = new Set(["1", "true", "yes", "on", "auto"]);
 const FALSE_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 
@@ -56,9 +78,12 @@ export function resolveNativeHtmlRenderConfig(
     candidates,
     overridden,
     timeoutMs: parsePositiveInt(env.PDFXYZ_HTML_RENDER_TIMEOUT_MS, 120_000),
-    maxInputBytes: parsePositiveInt(
-      env.PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES,
-      20 * 1024 * 1024,
+    maxInputBytes: Math.max(
+      parsePositiveInt(
+        env.PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES,
+        HTML_RENDER_MAX_INPUT_BYTES,
+      ),
+      HTML_RENDER_MAX_INPUT_BYTES,
     ),
     maxOutputBytes: parsePositiveInt(
       env.PDFXYZ_HTML_RENDER_MAX_OUTPUT_BYTES,

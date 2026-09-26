@@ -13,7 +13,10 @@ import {
 } from "@/lib/workers/html-render-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
-import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
+import {
+  fileOverCeilingMessage,
+  toolFileCeilingBytes,
+} from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
@@ -127,7 +130,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available ? (
-          <HtmlRenderRunArea mode={mode} />
+          <HtmlRenderRunArea mode={mode} tool={tool} />
         ) : (
           <HtmlRenderUnavailable
             phase={phase}
@@ -230,8 +233,9 @@ function HtmlRenderUnavailable({
   );
 }
 
-function HtmlRenderRunArea({ mode }: { mode: Mode }) {
+function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const [file, setFile] = useState<File | null>(null);
+  const [pickError, setPickError] = useState<string | null>(null);
   const [url, setUrl] = useState("https://");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<HtmlRenderWorkerResult | null>(null);
@@ -303,7 +307,17 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          onFiles={(files) => {
+            // Refuse an over-ceiling file before it uploads, with the figure
+            // the page states — the renderer would refuse it after the upload.
+            const picked = files[0] ?? null;
+            const tooBig = picked
+              ? fileOverCeilingMessage(tool, picked.size)
+              : null;
+            setPickError(tooBig);
+            setOutcome(null);
+            setFile(tooBig ? null : picked);
+          }}
           accept="text/html,.html,.htm"
           multiple={false}
           compact
@@ -323,6 +337,7 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
         Render PDF
       </WorkerRunButton>
 
+      {pickError && <ErrorNote message={pickError} />}
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">

@@ -1,13 +1,18 @@
 import { looksLikePdf } from "../compression/engine";
 
-export const WORD_TO_PDF_TOOL = "word-to-pdf";
-export const EXCEL_TO_PDF_TOOL = "excel-to-pdf";
-export const POWERPOINT_TO_PDF_TOOL = "powerpoint-to-pdf";
-export const OFFICE_TO_PDF_TOOLS = [
+import {
+  EXCEL_TO_PDF_TOOL,
+  OFFICE_TO_PDF_TOOLS,
+  POWERPOINT_TO_PDF_TOOL,
+  WORD_TO_PDF_TOOL,
+} from "./native-config";
+
+export {
   WORD_TO_PDF_TOOL,
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
-] as const;
+  OFFICE_TO_PDF_TOOLS,
+} from "./native-config";
 export type OfficeToPdfTool = (typeof OFFICE_TO_PDF_TOOLS)[number];
 export const OFFICE_TO_PDF_ENGINE = "libreoffice" as const;
 
@@ -81,7 +86,8 @@ export async function runOfficeToPdf(
       ok: false,
       kind: "too_large",
       limitBytes: maxInput,
-      message: "The Office input exceeds the worker's size limit.",
+      // Whole megabytes rounded DOWN, so the figure never overstates the cap.
+      message: `This document is larger than ${Math.floor(maxInput / (1024 * 1024))} MB, the most the Office converter accepts.`,
     };
   }
   let output: Uint8Array;

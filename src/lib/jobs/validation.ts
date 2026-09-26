@@ -59,6 +59,7 @@ export function isValidFileId(id: string): boolean {
 // tool catalogue with it). Re-exported under the same name for existing callers.
 export { MIME_BY_FORMAT } from "./mime-by-format";
 import { MIME_BY_FORMAT } from "./mime-by-format";
+import { workerEngineCeilingBytes } from "@/lib/tools/worker-engine-ceilings";
 
 function allowedMimeTypesForTool(tool: Tool): Set<string> {
   const set = new Set<string>();
@@ -200,6 +201,7 @@ function parseFileDescriptor(
   value: unknown,
   index: number,
   allowedMimes: Set<string>,
+  maxFileBytes: number,
 ): ParseResult<UploadFileDescriptor> {
   const field = `files[${index}]`;
   if (!isRecord(value)) {
@@ -231,9 +233,9 @@ function parseFileDescriptor(
       `${field}.bytes`,
     );
   }
-  if (bytes > JOB_LIMITS.maxFileBytes) {
+  if (bytes > maxFileBytes) {
     return tooLarge(
-      `${field}.bytes exceeds the ${JOB_LIMITS.maxFileBytes}-byte per-file limit.`,
+      `${field}.bytes exceeds the ${maxFileBytes}-byte per-file limit.`,
       `${field}.bytes`,
     );
   }
@@ -276,10 +278,18 @@ export function parseCreateUploadSessionRequest(
   }
 
   const allowedMimes = allowedMimeTypesForTool(tool);
+  // The engine that runs the tool may refuse less than the upload gate (the
+  // Office converter and the HTML renderer do). Refuse here, at session
+  // creation, so a file that engine will reject never moves a byte — and at
+  // the same figure the tool page states (`toolFileCeiling`).
+  const maxFileBytes = Math.min(
+    JOB_LIMITS.maxFileBytes,
+    workerEngineCeilingBytes(tool.slug) ?? JOB_LIMITS.maxFileBytes,
+  );
   const descriptors: UploadFileDescriptor[] = [];
   let totalBytes = 0;
   for (let i = 0; i < files.length; i++) {
-    const parsed = parseFileDescriptor(files[i], i, allowedMimes);
+    const parsed = parseFileDescriptor(files[i], i, allowedMimes, maxFileBytes);
     if (!parsed.ok) return parsed;
     totalBytes += parsed.value.bytes;
     descriptors.push(parsed.value);

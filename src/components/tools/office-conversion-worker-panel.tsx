@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import {
+  fileOverCeilingMessage,
+  toolFileCeilingBytes,
+} from "@/lib/tools/file-ceilings";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunOfficeConversion,
@@ -127,7 +131,11 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available ? (
-          <OfficeRunArea tool={officeTool} accept={acceptFor(officeTool)} />
+          <OfficeRunArea
+            tool={officeTool}
+            catalogTool={tool}
+            accept={acceptFor(officeTool)}
+          />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -181,7 +189,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
+            value={`${formatBytes(toolFileCeilingBytes(tool) ?? 0)}/file`}
           />
         </div>
       </div>
@@ -209,8 +217,17 @@ function SpecRow({
   );
 }
 
-function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
+function OfficeRunArea({
+  tool,
+  catalogTool,
+  accept,
+}: {
+  tool: OfficeTool;
+  catalogTool: Tool;
+  accept: string;
+}) {
   const [file, setFile] = useState<File | null>(null);
+  const [pickError, setPickError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<OfficeConversionWorkerResult | null>(
     null,
@@ -263,7 +280,18 @@ function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          onFiles={(files) => {
+            // Refuse an over-ceiling file here, before it uploads, with the
+            // figure the page states — the converter would refuse it anyway,
+            // after the whole file had moved.
+            const picked = files[0] ?? null;
+            const tooBig = picked
+              ? fileOverCeilingMessage(catalogTool, picked.size)
+              : null;
+            setPickError(tooBig);
+            setOutcome(null);
+            setFile(tooBig ? null : picked);
+          }}
           accept={accept}
           multiple={false}
           compact
@@ -280,6 +308,7 @@ function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
       >
         Convert to PDF
       </WorkerRunButton>
+      {pickError && <ErrorNote message={pickError} />}
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">
