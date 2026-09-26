@@ -13,7 +13,11 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
+// Through the product's font chooser, like every other text-drawing module:
+// for this Latin text it picks the same Helvetica faces, so the captured
+// poppler samples match these fixtures byte for byte in their geometry.
+import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 
 /** The left column of {@link twoColumnReportPdf}, one printed line each. */
 export const LEFT_COLUMN = [
@@ -31,8 +35,8 @@ export const RIGHT_COLUMN = [
 /** A report page: a title, then two columns of prose on shared baselines. */
 export async function twoColumnReportPdf(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const font = await embedDrawingFont(doc, [...LEFT_COLUMN, ...RIGHT_COLUMN]);
+  const bold = await embedDrawingFont(doc, ["Quarterly Report"], "sans-bold");
   const page = doc.addPage([612, 792]);
   page.drawText("Quarterly Report", { x: 50, y: 740, size: 18, font: bold });
   LEFT_COLUMN.forEach((line, i) =>
@@ -54,7 +58,7 @@ export const TABLE_ROWS = [
 /** A 4×3 table with no rules — cells placed on a grid, nothing else. */
 export async function quarterlyTablePdf(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const font = await embedDrawingFont(doc, TABLE_ROWS.flat());
   const page = doc.addPage([612, 792]);
   TABLE_ROWS.forEach((row, r) =>
     row.forEach((cell, c) =>
@@ -75,7 +79,7 @@ export async function partlyScannedPdf(
   stamp = "RECEIVED 2026-09-01 BATES 000123",
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const font = await embedDrawingFont(doc, [stamp]);
   for (let n = 1; n <= pageCount; n += 1) {
     const page = doc.addPage([612, 792]);
     page.drawRectangle({
