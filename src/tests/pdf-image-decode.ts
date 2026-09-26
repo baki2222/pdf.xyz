@@ -44,7 +44,7 @@ interface PdfjsImage {
  * them instead would give this reader no JPEG 2000 / JBIG2 decoders: a blank
  * image, no error.
  */
-function nodeAssetOptions() {
+export function nodeAssetOptions() {
   const require = createRequire(join(process.cwd(), "package.json"));
   const dir = dirname(require.resolve("pdfjs-dist/package.json"));
   const dirUrl = (name: string) => `${pathToFileURL(join(dir, name)).href}/`;
