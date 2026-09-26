@@ -1145,7 +1145,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "crop-pdf":
     "Only the default uniform margins applied to every page. Per-page selection and the drag-to-crop preview are not exercised.",
   "compare-pdf":
-    "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Comparison of scanned/image-only PDFs (the 'no comparable text' branch) is not exercised.",
+    "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text.",
   "compress-pdf":
     "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-worker step this tool offers is a server path and is covered by worker:prove-tools, not here.",
   "split-pdf":

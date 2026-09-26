@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Download,
   FileDiff,
@@ -12,14 +13,16 @@ import {
 import { downloadBlob, readFileBytes } from "@/lib/pdf/browser";
 import { partitionPdfFiles } from "@/lib/pdf/files";
 import { getPageCount } from "@/lib/pdf/engine";
-import { extractPdfText } from "@/lib/pdf/text";
+import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import {
   compareExtractedPdfText,
   compareOutputName,
+  fileWithoutText,
+  type CompareVerdict,
   type PdfCompareResult,
 } from "@/lib/pdf/compare-pdf";
 import { buttonVariants } from "@/components/ui/button";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn, formatBytes, formatSignedBytes } from "@/lib/utils";
 import {
   Dropzone,
   ErrorNote,
@@ -36,7 +39,7 @@ import {
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
 
-interface CompareItem {
+export interface CompareItem {
   id: string;
   name: string;
   size: number;
@@ -135,13 +138,44 @@ export function ComparePdfRunner() {
   );
 }
 
-function ComparePdfEditor({
+/** Where a PDF with no selectable text should go next. */
+export const OCR_TOOL_HREF = "/tools/ocr-pdf";
+
+/**
+ * What the result panel says for each verdict. A run that found no text to
+ * compare is not a success: it gets a neutral panel, never the green check,
+ * and a title that says what is missing instead of "Differences found".
+ */
+function verdictPresentation(
+  result: Pick<PdfCompareResult, "verdict" | "leftName" | "rightName">,
+): { title: string; tone: "ok" | "neutral" } {
+  const presentations: Record<
+    CompareVerdict,
+    { title: string; tone: "ok" | "neutral" }
+  > = {
+    identical: { title: "Selectable text matches", tone: "ok" },
+    different: { title: "Differences found", tone: "ok" },
+    "no-text": { title: "No text to compare", tone: "neutral" },
+    "left-no-text": {
+      title: `${result.leftName} has no selectable text`,
+      tone: "neutral",
+    },
+    "right-no-text": {
+      title: `${result.rightName} has no selectable text`,
+      tone: "neutral",
+    },
+  };
+  return presentations[result.verdict];
+}
+
+export function ComparePdfEditor({
   items,
   loading,
   rejections,
   onFiles,
   onRemove,
   onClearRejections,
+  extract = extractPdfText,
 }: {
   items: CompareItem[];
   loading: number;
@@ -149,6 +183,8 @@ function ComparePdfEditor({
   onFiles: (files: File[]) => void;
   onRemove: (id: string) => void;
   onClearRejections: () => void;
+  /** Reads each PDF's text. Only a test passes this; see `extractPdfText`. */
+  extract?: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 }) {
   const { busy, error, result, run } = useAsyncRun<PdfCompareResult>();
   const canCompare = items.length === 2;
@@ -157,8 +193,8 @@ function ComparePdfEditor({
       const [left, right] = items;
       if (!left || !right) throw new Error("Add two PDFs to compare.");
       const [leftText, rightText] = await Promise.all([
-        extractPdfText(left.bytes),
-        extractPdfText(right.bytes),
+        extract(left.bytes),
+        extract(right.bytes),
       ]);
       return compareExtractedPdfText(
         { name: left.name, size: left.size, extracted: leftText },
@@ -167,15 +203,38 @@ function ComparePdfEditor({
     });
 
   if (result) {
+    const { title, tone } = verdictPresentation(result);
+    const compared = result.hasComparableText;
+    const scanned = fileWithoutText(result);
+    const ocrLink = (
+      <Link href={OCR_TOOL_HREF} className="text-fg underline">
+        OCR PDF
+      </Link>
+    );
     return (
       <ResultPanel
-        title={
-          result.identicalText ? "Selectable text matches" : "Differences found"
+        title={title}
+        tone={tone}
+        announcement={
+          compared
+            ? undefined
+            : `${title}. Run OCR PDF on scanned or image-only files first.`
         }
         summary={
-          result.hasComparableText
-            ? `${result.summary.changedLines} changed lines · pages ${result.leftPageCount} vs ${result.rightPageCount}`
-            : "No selectable text found in either PDF — OCR is needed for scanned documents."
+          compared ? (
+            `${result.summary.changedLines} changed lines · pages ${result.leftPageCount} vs ${result.rightPageCount}`
+          ) : scanned ? (
+            <>
+              {scanned} looks scanned or image-only, so its text cannot be
+              compared with the other file. Run {ocrLink} on it first, then
+              compare again.
+            </>
+          ) : (
+            <>
+              Neither PDF has selectable text — scanned or image-only pages need{" "}
+              {ocrLink} before they can be compared.
+            </>
+          )
         }
         onReset={() => window.location.reload()}
       >
@@ -187,11 +246,15 @@ function ComparePdfEditor({
             />
             <Metric
               label="Size delta"
-              value={`${result.sizeDelta >= 0 ? "+" : ""}${formatBytes(Math.abs(result.sizeDelta))}`}
+              value={formatSignedBytes(result.sizeDelta)}
             />
             <Metric
               label="Changed lines"
-              value={result.summary.changedLines.toLocaleString()}
+              value={
+                compared
+                  ? result.summary.changedLines.toLocaleString("en-US")
+                  : "Not compared"
+              }
             />
           </div>
           <div className="border-line text-fg max-h-80 overflow-auto rounded-[4px] border bg-black/20 p-4 font-mono text-xs leading-5 whitespace-pre-wrap">

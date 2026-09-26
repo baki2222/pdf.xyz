@@ -25,3 +25,14 @@ export function formatBytes(bytes: number, decimals = 1) {
   const value = bytes / Math.pow(1024, i);
   return `${i === 0 ? value : value.toFixed(decimals)} ${units[i]}`;
 }
+
+/**
+ * A byte CHANGE, signed: 1536 -> "+1.5 KB", -1536 -> "1.5 KB" behind a U+2212
+ * MINUS SIGN (escaped below so it cannot be mistaken for a hyphen), 0 -> "0 B".
+ * `formatBytes` is unsigned, so wrapping it in `Math.abs` alone turns a file
+ * that shrank into one that grew.
+ */
+export function formatSignedBytes(delta: number, decimals = 1) {
+  const sign = delta > 0 ? "+" : delta < 0 ? "\u2212" : "";
+  return `${sign}${formatBytes(Math.abs(delta), decimals)}`;
+}

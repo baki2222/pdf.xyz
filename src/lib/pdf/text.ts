@@ -153,8 +153,17 @@ export function textOutputName(sourceName: string): string {
  */
 export async function extractPdfText(
   bytes: Uint8Array,
+  /**
+   * Which pdfjs build reads the bytes. The browser build is the only one a
+   * user runs; a jsdom test passes pdfjs's legacy build, which is the same
+   * parser with the DOM polyfills Node lacks, so the rest of this function —
+   * the part that decides `hasText` — is the code that ships.
+   */
+  loadReader: () => Promise<
+    Pick<typeof import("pdfjs-dist"), "getDocument">
+  > = loadPdfjs,
 ): Promise<ExtractedPdfText> {
-  const pdfjs = await loadPdfjs();
+  const pdfjs = await loadReader();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await loadingTask.promise;
