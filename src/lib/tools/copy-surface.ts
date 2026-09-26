@@ -65,11 +65,22 @@ const ROOT = process.cwd();
  * every file under `src/lib` that defines an allowance sentence and requires
  * the walk to reach it, so moving the constant again collapses loudly wherever
  * it lands.
+ *
+ * ALL of `src/components` since 2026-09-27, replacing the two component roots
+ * (`sections`, `tools`) — the eighth appearance. The docblock above promised
+ * "every user-facing source file", and the walk skipped the site footer
+ * ("Privacy-first by architecture, not by policy."), the upload zone, the
+ * status and legal components, and the shared social card. That card
+ * (`src/lib/og.tsx`, now listed) carried an unhedged "Runs in your browser"
+ * chip while roughly two in five tools upload to a worker, and every
+ * honesty guard was blind to it. A component folder is user-facing by
+ * construction, so the whole directory is walked; `copy-surface.test.ts`
+ * requires every component file to be reached, so a new folder cannot fall
+ * outside it.
  */
 export function copyFiles(): string[] {
   const roots = [
-    path.join(ROOT, "src", "components", "sections"),
-    path.join(ROOT, "src", "components", "tools"),
+    path.join(ROOT, "src", "components"),
     path.join(ROOT, "src", "app"),
     path.join(ROOT, "src", "lib", "tools"),
     // The guides catalogue: long-form instructional prose a visitor reads at
@@ -85,6 +96,9 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "faq.ts"),
     path.join(ROOT, "src", "lib", "site.ts"),
     path.join(ROOT, "src", "lib", "jobs", "ai-allowance.ts"),
+    // The shared social card, painted on every link to a page without its
+    // own image. Outside every walked root; listed for that reason.
+    path.join(ROOT, "src", "lib", "og.tsx"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
