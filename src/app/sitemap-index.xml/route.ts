@@ -37,8 +37,22 @@ import { tools } from "@/lib/tools";
  * away from it.
  */
 
-/** The canonical child sitemap this index points at. */
-const CHILD_SITEMAP = new URL("/sitemap.xml", siteConfig.url).toString();
+/**
+ * The child sitemap this index points at.
+ *
+ * WAS `/sitemap.xml`. The paragraph above gave the INDEX a URL the report had
+ * never seen, and then pointed that index straight back at the stuck child.
+ * Measured a week later (2026-09-27): the index read Success on 09-20 and
+ * 09-23 and listed "Sitemaps read: 0" both times — Google parsed it and never
+ * fetched the child it named, while that child's own row still said
+ * "Couldn't fetch". Half the theory had been applied.
+ *
+ * The child is now `/sitemaps/pages.xml`: the same `sitemap()` entries,
+ * served by a Route Handler (the shape Google has demonstrably read) at a URL
+ * with no failure history. Still exactly one list of URLs in the system — see
+ * that file for the evidence and the success criterion.
+ */
+const CHILD_SITEMAP = new URL("/sitemaps/pages.xml", siteConfig.url).toString();
 
 /**
  * `lastmod` for the child. Derived from the catalogues the child is built
