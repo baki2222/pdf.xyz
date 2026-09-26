@@ -17,7 +17,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { PasswordField } from "./pdf-security-worker-panel";
+import { PasswordField, isPasswordMissing } from "./pdf-security-worker-panel";
 
 afterEach(() => {
   cleanup();
@@ -68,5 +68,21 @@ describe("PasswordField while the run is busy", () => {
     expect(input).not.toHaveAttribute("readonly");
     fireEvent.change(input, { target: { value: "changed" } });
     expect(onChange).toHaveBeenCalledWith("changed");
+  });
+});
+
+describe("isPasswordMissing — which mode may run with a blank password", () => {
+  /**
+   * Unlock used to refuse to start with an empty field, so a PDF that opens
+   * WITHOUT a password (only its author's editing restrictions set) could not
+   * be unlocked at all — while every in-browser tool sent it here. Blank is
+   * the password that opens such a file; protect still needs one to set.
+   */
+  it("unlock runs with a blank password; protect does not", () => {
+    expect(isPasswordMissing("unlock", "")).toBe(false);
+    expect(isPasswordMissing("protect", "")).toBe(true);
+    // Control: a typed password is never "missing" in either mode.
+    expect(isPasswordMissing("protect", "p")).toBe(false);
+    expect(isPasswordMissing("unlock", "p")).toBe(false);
   });
 });

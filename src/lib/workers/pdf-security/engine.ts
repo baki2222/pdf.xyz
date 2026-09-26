@@ -150,6 +150,11 @@ const NOT_ENCRYPTED_MESSAGE =
   "This PDF isn't password-protected, so there's nothing to unlock.";
 const WRONG_PASSWORD_MESSAGE =
   "The password is incorrect, or this PDF cannot be unlocked with it.";
+// A blank password is how a restrictions-only file is unlocked; on a file that
+// needs a password to OPEN, the honest answer is that it needs one — not that
+// the (absent) password was wrong.
+const PASSWORD_REQUIRED_MESSAGE =
+  "This PDF needs a password to open. Enter that password and try again.";
 const FAILED_MESSAGE =
   "The PDF security engine could not process this file. No output was produced.";
 
@@ -273,7 +278,10 @@ export async function runProtect(
  *  - `too_large` / `invalid_pdf` on a rejected input (before any engine call);
  *  - `not_encrypted` when the input carries no encryption to remove;
  *  - `wrong_password` when the supplied password does not open it — a distinct,
- *    non-retryable user error (unlock never recovers or bypasses an unknown password);
+ *    non-retryable user error (unlock never recovers or bypasses an unknown password).
+ *    A blank password is how a file that opens freely but carries editing
+ *    restrictions is unlocked; on a file that needs a password to open, blank
+ *    fails here too, with copy that says a password is needed;
  *  - `failed` when the engine errors OR produces output that is not a readable,
  *    genuinely-DEcrypted PDF (proven by re-inspecting the output);
  *  - success carrying the decrypted bytes and content-free size metrics otherwise.
@@ -306,9 +314,15 @@ export async function runUnlock(
     return failed();
   }
   if (!outcome.ok) {
-    return outcome.wrongPassword
-      ? { ok: false, kind: "wrong_password", message: WRONG_PASSWORD_MESSAGE }
-      : failed();
+    if (!outcome.wrongPassword) return failed();
+    return {
+      ok: false,
+      kind: "wrong_password",
+      message:
+        options.password.length === 0
+          ? PASSWORD_REQUIRED_MESSAGE
+          : WRONG_PASSWORD_MESSAGE,
+    };
   }
 
   const output = outcome.output;

@@ -46,6 +46,16 @@ import { NotifyMe } from "./notify-me";
 type Phase = "loading" | "error" | "ready";
 type Mode = "protect" | "unlock";
 
+/**
+ * Whether the run must wait for a password. Protect needs one to set. Unlock
+ * accepts a blank one: that IS the password that opens a file carrying only
+ * its author's editing restrictions, and the worker refuses blank with its own
+ * "needs a password" copy on a file that does not open without one.
+ */
+export function isPasswordMissing(mode: Mode, password: string): boolean {
+  return mode === "protect" && password.length === 0;
+}
+
 /** Number of UTF-8 bytes a password occupies (the bound qpdf actually enforces). */
 function passwordByteLength(password: string): number {
   return new TextEncoder().encode(password).length;
@@ -126,7 +136,7 @@ const COPY: Record<
     icon: Unlock,
     badge: "Secure-worker unlock",
     blurb:
-      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that already opens the file — Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
+      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that already opens the file, or leave it blank if the file opens without one and you only want to remove its editing restrictions. Unlock never opens a file that needs a password you don't have. The input is wiped right after.",
     cta: "Unlock on the worker",
     running: "Unlocking on the worker…",
   },
@@ -402,10 +412,11 @@ function SecurityRunArea({
 
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
-  const canSubmit = file !== null && password.length > 0 && !tooLong && !busy;
+  const passwordMissing = isPasswordMissing(mode, password);
+  const canSubmit = file !== null && !passwordMissing && !tooLong && !busy;
 
   const start = useCallback(async () => {
-    if (!file || password.length === 0 || tooLong) return;
+    if (!file || passwordMissing || tooLong) return;
     setBusy(true);
     try {
       setOutcome(null);
@@ -432,7 +443,7 @@ function SecurityRunArea({
     } finally {
       setBusy(false);
     }
-  }, [file, password, keyLength, mode, tooLong]);
+  }, [file, password, keyLength, mode, tooLong, passwordMissing]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -466,7 +477,7 @@ function SecurityRunArea({
           title={
             mode === "protect"
               ? "Add a PDF to password-protect, or"
-              : "Add a password-protected PDF, or"
+              : "Add a locked PDF, or"
           }
           hint="PDF"
         />
@@ -491,7 +502,7 @@ function SecurityRunArea({
       >
         {mode === "protect"
           ? "Anyone opening the PDF will need this password. Store it somewhere safe — it can't be recovered."
-          : "Enter the password that currently opens this PDF."}
+          : "Enter the password that opens this PDF, or leave it blank if it opens without one and you only want to remove its editing and printing restrictions."}
         {tooLong
           ? ` Too long: ${passwordBytes}/${MAX_PDF_PASSWORD_BYTES} bytes.`
           : ""}

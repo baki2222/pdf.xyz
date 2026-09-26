@@ -168,6 +168,26 @@ describe("runUnlock", () => {
     }
   });
 
+  it("a BLANK password on a file that needs one says a password is needed, not that it was wrong", async () => {
+    const enc = pdf();
+    const deps = {
+      qpdf: fakeQpdf({
+        isEncrypted: async (b: Uint8Array) => b === enc,
+        unlock: async () => ({ ok: false as const, wrongPassword: true }),
+      }),
+    };
+    const blank = await runUnlock(enc, { password: "" }, deps);
+    const wrong = await runUnlock(enc, UNLOCK, deps);
+    expect(blank.ok || wrong.ok).toBe(false);
+    if (!blank.ok && !wrong.ok) {
+      expect(blank.kind).toBe("wrong_password");
+      expect(blank.message).toMatch(/needs a password to open/i);
+      expect(blank.message).not.toMatch(/incorrect/i);
+      // Control: a typed password that fails keeps the wrong-password copy.
+      expect(wrong.message).toMatch(/incorrect/i);
+    }
+  });
+
   it("decrypts and returns bytes + content-free meta", async () => {
     const enc = pdf(48);
     const dec = pdf(96);

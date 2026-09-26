@@ -99,6 +99,14 @@ describe("argument builders", () => {
     ]);
     expect(isEncryptedArgs("/in")).toEqual(["--is-encrypted", "/in"]);
   });
+
+  it("a blank unlock password emits NO --password (qpdf then opens with the empty user password)", () => {
+    expect(unlockArgs("/in", "/out", { password: "" })).toEqual([
+      "--decrypt",
+      "/in",
+      "/out",
+    ]);
+  });
 });
 
 describe("createNativeQpdfRunner — protect", () => {

@@ -194,13 +194,23 @@ export function protectArgs(
   return [...encrypt, inputPath, outputPath];
 }
 
-/** Build the qpdf argument vector for decrypting a PDF with a password. */
+/**
+ * Build the qpdf argument vector for decrypting a PDF with a password. An empty
+ * password emits no `--password` at all: qpdf then opens the file with the empty
+ * user password, which is what removes the editing restrictions from a file that
+ * opens without a password — and fails (exit 2) on one that needs a password.
+ */
 export function unlockArgs(
   inputPath: string,
   outputPath: string,
   opts: QpdfUnlockInput,
 ): string[] {
-  return [`--password=${opts.password}`, "--decrypt", inputPath, outputPath];
+  return [
+    ...(opts.password.length > 0 ? [`--password=${opts.password}`] : []),
+    "--decrypt",
+    inputPath,
+    outputPath,
+  ];
 }
 
 /** Build the qpdf argument vector for the presence-only encryption check. */

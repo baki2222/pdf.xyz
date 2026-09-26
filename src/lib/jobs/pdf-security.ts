@@ -39,7 +39,8 @@ const FALLBACK_STEM = "document";
  * hard limit: a password longer than this cannot be represented by the format, so
  * we reject it up front rather than accept a value qpdf would silently truncate
  * (which would let a user set a password they could never reproduce). One byte is
- * the floor — an empty password is not a password.
+ * the floor for a password being SET — an empty one protects nothing. Unlock is
+ * the one exception (see `parseUnlockPdfOptions`).
  */
 export const MAX_PDF_PASSWORD_BYTES = 127;
 
@@ -109,7 +110,10 @@ export interface ProtectPdfOptions {
 
 /** Validated options for an `unlock-pdf` (decrypt) job. */
 export interface UnlockPdfOptions {
-  /** The password that currently opens the encrypted PDF. */
+  /**
+   * The password that currently opens the encrypted PDF — `""` for a file that
+   * opens without one and only carries editing restrictions.
+   */
   password: string;
 }
 
@@ -136,12 +140,15 @@ function parsePassword(
   value: unknown,
   field: string,
   label: string,
+  { allowEmpty = false }: { allowEmpty?: boolean } = {},
 ): ParseResult<string> {
   if (typeof value !== "string") {
     return invalid(`\`${field}\` is required and must be a string.`, field);
   }
   if (value.length === 0) {
-    return invalid(`${label} cannot be empty.`, field);
+    return allowEmpty
+      ? { ok: true, value }
+      : invalid(`${label} cannot be empty.`, field);
   }
   if (CONTROL_CHAR.test(value)) {
     return invalid(`${label} cannot contain control characters.`, field);
@@ -209,10 +216,16 @@ export function parseProtectPdfOptions(
 
 /**
  * Parse the free-form `options` bag of an `unlock-pdf` job into typed, validated
- * options. Strict: a missing/empty/oversized/illegal password is rejected with a
- * content-free field error. Unlock only ever needs the password that opens the
- * document — it removes encryption you can already prove you may access; it never
- * recovers or bypasses an unknown password.
+ * options. A missing, oversized or illegal password is rejected with a
+ * content-free field error.
+ *
+ * An EMPTY password is accepted here, and only here. Many PDFs open with no
+ * password at all and carry only their author's editing restrictions (an
+ * "owner" password); the password that opens such a file IS the empty one, so
+ * `qpdf --decrypt` with no password removes the restrictions. That is still
+ * "the password that opens the document", not a bypass: a file that needs a
+ * password to open refuses the empty one exactly as it refuses a wrong one.
+ * Protect keeps rejecting "" — an empty password protects nothing.
  */
 export function parseUnlockPdfOptions(
   options: Record<string, unknown>,
@@ -221,6 +234,7 @@ export function parseUnlockPdfOptions(
     options.password,
     "options.password",
     "Password",
+    { allowEmpty: true },
   );
   if (!password.ok) return password;
   return { ok: true, value: { password: password.value } };

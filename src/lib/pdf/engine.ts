@@ -1,4 +1,9 @@
 import type { PDFDocument } from "pdf-lib";
+import {
+  encryptedPdfMessage,
+  probePdfEncryption,
+  type EncryptionVerdict,
+} from "./encryption";
 import { loadPdfLib } from "./pdf-lib";
 import type {
   NamedBytes,
@@ -22,7 +27,45 @@ export class PdfEngineError extends Error {
   }
 }
 
+/**
+ * pdf-lib refused the file because it is encrypted. `verdict` says whether it
+ * needs a password to OPEN (`needs-password`), only carries its author's
+ * editing restrictions (`opens-without-password`), or could not be told
+ * (`null`) — and the message is the one true of that verdict. See
+ * `./encryption` for why the difference is the whole point.
+ */
+export class PdfEncryptedError extends PdfEngineError {
+  readonly verdict: EncryptionVerdict | null;
+  constructor(verdict: EncryptionVerdict | null, message?: string) {
+    super(message ?? encryptedPdfMessage(verdict));
+    this.name = "PdfEncryptedError";
+    this.verdict = verdict;
+  }
+}
+
+/** The copy for a PDF that could not be read at all. */
+export const UNREADABLE_PDF_MESSAGE =
+  "This file couldn't be read as a PDF — it may be corrupted or not a PDF.";
+
 const PRODUCER = "pdf.xyz";
+
+/**
+ * Translate a pdf-lib load failure into the typed, user-facing error. Every
+ * pdf-lib loader in `src/lib/pdf` routes its failure through here, so an
+ * encrypted file is classified ONCE, by the same probe, wherever it is opened.
+ */
+export async function pdfLoadError(
+  err: unknown,
+  bytes: Uint8Array,
+  probe: (bytes: Uint8Array) => Promise<EncryptionVerdict | null> = (b) =>
+    probePdfEncryption(b),
+): Promise<PdfEngineError> {
+  const message = err instanceof Error ? err.message : "";
+  if (/encrypt/i.test(message)) {
+    return new PdfEncryptedError(await probe(bytes));
+  }
+  return new PdfEngineError(UNREADABLE_PDF_MESSAGE);
+}
 
 /**
  * Load PDF bytes into a pdf-lib document, translating pdf-lib's raw failures
@@ -34,15 +77,7 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(bytes);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (/encrypt/i.test(message)) {
-      throw new PdfEngineError(
-        "This PDF is password-protected. Unlock it first, then try again.",
-      );
-    }
-    throw new PdfEngineError(
-      "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
-    );
+    throw await pdfLoadError(err, bytes);
   }
 }
 

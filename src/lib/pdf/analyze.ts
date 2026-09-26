@@ -1,6 +1,6 @@
 import type { PDFDocument, PDFRawStream } from "pdf-lib";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
-import { PdfEngineError } from "./engine";
+import { pdfLoadError } from "./engine";
 
 /**
  * Honest compression analysis for the "Compress PDF" tool.
@@ -62,15 +62,7 @@ async function loadDoc(bytes: Uint8Array): Promise<PDFDocument> {
     const { PDFDocument } = await loadPdfLib();
     return await PDFDocument.load(bytes);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (/encrypt/i.test(message)) {
-      throw new PdfEngineError(
-        "This PDF is password-protected. Unlock it first, then try again.",
-      );
-    }
-    throw new PdfEngineError(
-      "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
-    );
+    throw await pdfLoadError(err, bytes);
   }
 }
 

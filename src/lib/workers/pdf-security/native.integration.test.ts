@@ -11,6 +11,10 @@ import { PDFDocument } from "pdf-lib";
 import { looksLikePdf } from "../compression/engine";
 import { createNativeQpdfRunner, resolveOnPath } from "./native";
 import { resolveNativePdfSecurityConfig } from "./native-config";
+import {
+  ownerOnlyEncryptedPdf,
+  userPasswordEncryptedPdf,
+} from "@/tests/encrypted-pdf-fixture";
 
 const HAS_QPDF = resolveOnPath("qpdf");
 const suite = HAS_QPDF ? describe : describe.skip;
@@ -57,6 +61,24 @@ suite("qpdf runner (real binary)", () => {
     });
     const attempt = await runner.unlock(encrypted, {
       password: "not-the-password",
+    });
+    expect(attempt).toEqual({ ok: false, wrongPassword: true });
+  });
+
+  it("a BLANK password unlocks a PDF that opens without one (owner restrictions only)", async () => {
+    const restricted = ownerOnlyEncryptedPdf();
+    expect(await runner.isEncrypted(restricted)).toBe(true);
+    const unlocked = await runner.unlock(restricted, { password: "" });
+    expect(unlocked.ok).toBe(true);
+    if (!unlocked.ok) return;
+    expect(await runner.isEncrypted(unlocked.output)).toBe(false);
+    // pdf-lib — the engine behind every in-browser tool — now opens it.
+    expect((await PDFDocument.load(unlocked.output)).getPageCount()).toBe(1);
+  });
+
+  it("control: a BLANK password does not open a PDF that needs a password", async () => {
+    const attempt = await runner.unlock(userPasswordEncryptedPdf(), {
+      password: "",
     });
     expect(attempt).toEqual({ ok: false, wrongPassword: true });
   });

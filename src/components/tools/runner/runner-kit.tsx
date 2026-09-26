@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import Link from "next/link";
 import { announceOutcome } from "@/components/a11y/live-region";
 import {
   AlertTriangle,
@@ -23,6 +24,7 @@ import {
 } from "lucide-react";
 import { PageRangeError } from "@/lib/pdf/ranges";
 import { PdfEngineError } from "@/lib/pdf/engine";
+import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { buttonVariants } from "@/components/ui/button";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
@@ -269,13 +271,29 @@ export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
 }
 
 export function ErrorNote({ message }: { message: string }) {
+  // A message that sends the user to Unlock PDF (every encrypted-file message
+  // does) carries the way there, rather than a tool name to go and find.
+  const offersUnlock = message.includes(UNLOCK_TOOL_NAME);
   return (
     <p
       role="alert"
       className="border-err/40 bg-err/10 text-err flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-      <span>{message}</span>
+      <span>
+        {message}
+        {offersUnlock && (
+          <>
+            {" "}
+            <Link
+              href={UNLOCK_TOOL_HREF}
+              className="font-medium underline underline-offset-2"
+            >
+              Open {UNLOCK_TOOL_NAME}
+            </Link>
+          </>
+        )}
+      </span>
     </p>
   );
 }

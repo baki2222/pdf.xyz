@@ -1,5 +1,5 @@
 import type { PDFEmbeddedPage } from "pdf-lib";
-import { PdfEngineError } from "./engine";
+import { PdfEncryptedError, PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";
 
@@ -261,9 +261,11 @@ async function loadOverlay(bytes: Uint8Array) {
   try {
     return await loadPdf(bytes);
   } catch (err) {
-    if (err instanceof PdfEngineError && /password/i.test(err.message)) {
-      throw new PdfEngineError(
-        "The overlay PDF is password-protected. Unlock it first, then try again.",
+    // Same verdict as the base file would get, said about the right file.
+    if (err instanceof PdfEncryptedError) {
+      throw new PdfEncryptedError(
+        err.verdict,
+        err.message.replace(/^This PDF/, "The overlay PDF"),
       );
     }
     throw new PdfEngineError(
