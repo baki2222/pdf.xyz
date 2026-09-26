@@ -45,9 +45,11 @@ import {
   WIDE_ROW,
   wideRowPdf,
 } from "@/tests/pdf-office-fixtures";
+import * as officeFixtures from "@/tests/pdf-office-fixtures";
 import { readXlsxSheet, sheetGridProblems } from "../ooxml/sheet-read";
 import { nativePdfOfficeExportDeps } from "../pdf-text/native";
 import { readDocxParagraphs } from "./docx-text";
+import { readPptx } from "./validate-ooxml";
 import {
   runPdfOfficeExport,
   type PdfFlowExtractor,
@@ -260,5 +262,39 @@ suite(label, () => {
     expect(sheet.rows).toHaveLength(1);
     expect(sheet.rows[0]!.cells.map((c) => c.value)).toEqual(WIDE_ROW);
     expect(sheet.rows[0]!.cells.at(-1)!.ref).toBe("AD1");
+  });
+
+  it("PDF to PowerPoint writes a deck PowerPoint opens for EVERY generated fixture PDF", async () => {
+    // Discovered, not named: every zero-argument `*Pdf` builder the fixtures
+    // module exports, plus a partly scanned document for its textless pages.
+    // Until 2026-09-27 every deck this produced was refused by PowerPoint.
+    const builders = Object.entries(
+      officeFixtures as Record<string, unknown>,
+    ).filter(
+      (entry): entry is [string, () => Promise<Uint8Array>] =>
+        entry[0].endsWith("Pdf") &&
+        typeof entry[1] === "function" &&
+        entry[1].length === 0,
+    );
+    expect(builders.length).toBeGreaterThanOrEqual(6);
+    const inputs: [string, Uint8Array][] = [
+      ...(await Promise.all(
+        builders.map(
+          async ([name, build]) =>
+            [name, await build()] as [string, Uint8Array],
+        ),
+      )),
+      ["partlyScannedPdf(4, [2])", await partlyScannedPdf(4, [2])],
+    ];
+    for (const [name, input] of inputs) {
+      const run = await runPdfOfficeExport("pdf-to-powerpoint", input, deps());
+      if (!run.ok)
+        throw new Error(`${name}: pdf-to-powerpoint failed: ${run.kind}`);
+      const read = await readPptx(run.output);
+      expect(read.problems, name).toEqual([]);
+      // Slide N is page N, textless pages included.
+      expect(read.slides, name).toHaveLength(run.meta.pageCount);
+      expect(read.slides.flat().join("").length, name).toBeGreaterThan(0);
+    }
   });
 });

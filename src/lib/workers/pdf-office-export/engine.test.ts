@@ -27,6 +27,7 @@ import { PdfTextExecError } from "../pdf-text/errors";
 import { flowText, type PdfFlowText } from "../pdf-text/flow";
 import { parseBboxFlow, parseLayoutText } from "../pdf-text/parse";
 import { DOCX_PAGE_BREAK, readDocxParagraphs } from "./docx-text";
+import { readPptx, xmlProblems } from "./validate-ooxml";
 import {
   PDF_OFFICE_EXPORT_TOOLS,
   runPdfOfficeExport,
@@ -127,8 +128,12 @@ describe("pdf-office-export engine", () => {
       expect(await zipEntries(xlsx.output)).toContain(
         "xl/worksheets/sheet1.xml",
       );
-    if (pptx.ok)
-      expect(await zipEntries(pptx.output)).toContain("ppt/slides/slide1.xml");
+    // INVERTED 2026-09-27. This asserted that `ppt/slides/slide1.xml` was IN
+    // the ZIP — true of every deck this tool shipped, and PowerPoint refused
+    // every one of them as "corrupted and unreadable" (no master, layout or
+    // theme, no slide size, empty shape properties). It now asks PowerPoint's
+    // question; the deck-level cases are in the pdf-to-powerpoint block below.
+    if (pptx.ok) expect((await readPptx(pptx.output)).problems).toEqual([]);
   });
 
   it("rejects image-only PDFs and oversized inputs", async () => {
@@ -475,5 +480,150 @@ describe("pdf-to-excel puts every value in its own column", () => {
         rows: [{ r: 1, cells: [cell("B1", 1), cell("A1", 0)] }],
       }),
     ).toHaveLength(1);
+  });
+});
+
+describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
+  // Read back through `readPptx`, the walk PowerPoint makes, which the
+  // deployment proof runs on production's bytes too. What shipped until
+  // 2026-09-27 was refused by PowerPoint on 100% of inputs (reproduced through
+  // its COM API: "The file or directory is corrupted and unreadable") while
+  // the only assertion here checked a part NAME was in the ZIP.
+  type Page = { pageNumber: number; text: string };
+  const layoutPages =
+    (pages: readonly Page[]): PdfTextExtractor =>
+    async () => ({
+      pageCount: pages.length,
+      pages: pages.map((p) => ({ ...p, characterCount: p.text.length })),
+      text: pages.map((p) => p.text).join("\n\n"),
+      characterCount: pages.reduce((n, p) => n + p.text.length, 0),
+      hasText: pages.some((p) => p.text.trim().length > 0),
+    });
+  async function deck(extract: PdfTextExtractor): Promise<Uint8Array> {
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
+      extract,
+    });
+    if (!run.ok) throw new Error(`pdf-to-powerpoint failed: ${run.kind}`);
+    return run.output;
+  }
+  const nonBlankLines = (text: string) =>
+    text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+  it("writes one slide per page, textless pages included, through the whole chain", async () => {
+    const pages = [
+      { pageNumber: 1, text: "Name Amount\nAlice 10" },
+      { pageNumber: 2, text: "" },
+      { pageNumber: 3, text: "Bob 20" },
+    ];
+    const read = await readPptx(await deck(layoutPages(pages)));
+    expect(read.problems).toEqual([]);
+    // Health check on the walk: every slide, plus presentation, master,
+    // layout and theme. A walk that reached nothing would find nothing wrong.
+    expect(read.reached).toHaveLength(pages.length + 4);
+    // A textless page is still a slide — slide N is page N — and its text
+    // body keeps the one empty paragraph the schema requires.
+    expect(read.slides).toEqual([
+      ["Name Amount", "Alice 10"],
+      [""],
+      ["Bob 20"],
+    ]);
+  });
+
+  it("names every slide part by its position, not by the page number it came from", async () => {
+    // Parts, content types, relationships and slide ids all key on the same
+    // index. They used to disagree: the part was named after `pageNumber`,
+    // everything pointing at it after the loop index.
+    const read = await readPptx(
+      await deck(
+        layoutPages([
+          { pageNumber: 4, text: "fourth" },
+          { pageNumber: 9, text: "ninth" },
+        ]),
+      ),
+    );
+    expect(read.problems).toEqual([]);
+    expect(read.slides).toEqual([["fourth"], ["ninth"]]);
+  });
+
+  it("strips XML-illegal control characters from every Office output, keeping markup as text", async () => {
+    // One stray control character from pdftotext made the whole part
+    // malformed XML — for Word and PowerPoint alike, which escaped `<` and
+    // `&` but not these. Excel's writer already stripped them.
+    const text = "A\u0001 <b>&amp;</b> \u001Fz\u000Bend";
+    const outputs = await Promise.all([
+      runPdfOfficeExport("pdf-to-word", PDF, {
+        extractFlow: flowPages([text]),
+      }),
+      runPdfOfficeExport("pdf-to-excel", PDF, {
+        extract: layoutPages([{ pageNumber: 1, text }]),
+      }),
+      runPdfOfficeExport("pdf-to-powerpoint", PDF, {
+        extract: layoutPages([{ pageNumber: 1, text }]),
+      }),
+    ]);
+    let partsChecked = 0;
+    for (const run of outputs) {
+      if (!run.ok) throw new Error(`export failed: ${run.kind}`);
+      const zip = await JSZip.loadAsync(run.output);
+      // Discovered: every XML part the package carries.
+      for (const name of Object.keys(zip.files).filter((n) =>
+        /\.(xml|rels)$/.test(n),
+      )) {
+        partsChecked++;
+        expect(
+          xmlProblems(await zip.file(name)!.async("string")),
+          `${run.filenameExt} ${name}`,
+        ).toEqual([]);
+      }
+    }
+    expect(partsChecked).toBeGreaterThanOrEqual(15);
+    const pptx = outputs[2]!;
+    if (!pptx.ok) return;
+    expect((await readPptx(pptx.output)).slides).toEqual([
+      ["A <b>&amp;</b> zend"],
+    ]);
+  });
+
+  it("writes a deck PowerPoint opens for EVERY captured poppler -layout sample", async () => {
+    // Discovered, not named: every `*_LAYOUT` capture in the samples module.
+    const samples = Object.entries(popplerSamples as Record<string, unknown>)
+      .filter(([name]) => name.endsWith("_LAYOUT"))
+      .map(([name, stdout]) => [name, String(stdout)] as const);
+    expect(samples.length).toBeGreaterThanOrEqual(3);
+    for (const [name, stdout] of samples) {
+      const extracted = parseLayoutText(stdout);
+      const read = await readPptx(await deck(async () => extracted));
+      expect(read.problems, name).toEqual([]);
+      expect(read.slides, name).toHaveLength(extracted.pages.length);
+      expect(read.slides.flat().filter(Boolean), name).toEqual(
+        extracted.pages.flatMap((p) => nonBlankLines(p.text)),
+      );
+    }
+  });
+
+  it("NEGATIVE CONTROL: the engine's own deck goes red without its master list", async () => {
+    // Run through the detector, on the writer's real output — the shape of
+    // the defect that shipped.
+    const zip = await JSZip.loadAsync(await deck(extract));
+    const xml = await zip.file("ppt/presentation.xml")!.async("string");
+    const broken = xml.replace(
+      /<p:sldMasterIdLst>[\s\S]*?<\/p:sldMasterIdLst>/,
+      "",
+    );
+    expect(broken).not.toBe(xml);
+    zip.file("ppt/presentation.xml", broken);
+    zip.remove("ppt/slides/_rels/slide1.xml.rels");
+    const { problems } = await readPptx(
+      await zip.generateAsync({ type: "uint8array" }),
+    );
+    expect(problems).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/no p:sldMasterIdLst/),
+        expect.stringMatching(/slide1\.xml: 0 slideLayout relationships/),
+      ]),
+    );
   });
 });
