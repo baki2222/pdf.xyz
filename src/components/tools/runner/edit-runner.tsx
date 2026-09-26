@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { getToolBySlug } from "@/lib/tools";
 import {
   Download,
   Image as ImageIcon,
@@ -1024,8 +1026,27 @@ function PagePreview({
   );
 }
 
-/** The load-bearing honesty of this tool: added content, not true text editing. */
-function HonestScopeNote() {
+/**
+ * A link to the tool that does what this one cannot, named as the catalogue
+ * names it — a typed "Redact" stayed plain text on the page for months, and a
+ * reader told to go elsewhere was given no way to get there.
+ */
+function ToolLink({ slug }: { slug: string }) {
+  const tool = getToolBySlug(slug);
+  if (!tool) throw new Error(`edit-runner links unknown tool "${slug}"`);
+  return (
+    <Link href={`/tools/${tool.slug}`} className="font-semibold underline">
+      {tool.name}
+    </Link>
+  );
+}
+
+/**
+ * The load-bearing honesty of this tool: added content, not true text editing.
+ * Exported so `tool-page-content.test.ts` can render it and read the links a
+ * reader actually receives.
+ */
+export function HonestScopeNote() {
   return (
     <div className="border-info/40 bg-info/10 text-info flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
       <Info className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
@@ -1035,8 +1056,10 @@ function HonestScopeNote() {
         coordinates. It does <span className="font-semibold">not</span> edit,
         reflow, restyle, or delete the text and objects already in your PDF —
         there is no OCR text layer, no drag handles, and no click-to-place
-        canvas. To cover existing content, draw a filled box over it (that hides
-        but doesn&apos;t remove it — use Redact to delete data).
+        canvas. To rework the existing text, convert the file with{" "}
+        <ToolLink slug="pdf-to-word" />. To cover existing content, draw a
+        filled box over it (that hides but doesn&apos;t remove it — use{" "}
+        <ToolLink slug="redact-pdf" /> to delete data).
       </p>
     </div>
   );

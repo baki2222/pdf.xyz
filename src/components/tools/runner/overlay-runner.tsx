@@ -48,7 +48,7 @@ export function OverlayRunner() {
     <SinglePdfRunner
       hint="Your base PDF · a stamp or letterhead PDF is overlaid locally in your browser"
       handoffSlug="overlay-pdf"
-      toolName="Overlay / Stamp"
+      toolName="Overlay PDF"
     >
       {(pdf, reset) => <OverlayEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>

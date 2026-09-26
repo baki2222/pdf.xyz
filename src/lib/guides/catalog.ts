@@ -16,6 +16,8 @@
  *    guides never say upload; worker-backed guides always do.
  */
 import { getToolBySlug } from "@/lib/tools";
+import { forgottenPasswordAnswer } from "@/lib/tools/tool-facts";
+import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
@@ -37,6 +39,16 @@ function ceilingMb(slug: string): number {
     );
   }
   return mb;
+}
+
+/**
+ * A tool's CURRENT catalogue name. A guide that names a neighbour by a typed
+ * string went stale the day three tools were renamed; this one cannot.
+ */
+function nameOf(slug: string): string {
+  const tool = getToolBySlug(slug);
+  if (!tool) throw new Error(`a guide names unknown tool "${slug}"`);
+  return tool.name;
 }
 
 export const guides: Guide[] = [
@@ -254,6 +266,14 @@ export const guides: Guide[] = [
         ],
       },
       {
+        id: "when-compression-is-not-the-job",
+        heading: "When compression is not the job",
+        body: [
+          `${nameOf("optimize-web")} is often mistaken for compression, and it is not: it linearizes the file so a viewer that loads a PDF in pieces can show the first page while the rest downloads. The file does not get smaller — it can come out slightly larger — so use it when the goal is a faster first page on the web, not a lighter file.`,
+          `${nameOf("grayscale-pdf")} converts a PDF to black and white for printing, right in your browser. Every page becomes a grayscale image, so text is no longer selectable or searchable — a trade worth knowing before you reach for it to save space.`,
+        ],
+      },
+      {
         id: "output-and-limits",
         heading: "What you get, and the limits",
         body: [
@@ -287,7 +307,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-convert-pdf-to-word",
@@ -815,7 +835,7 @@ export const guides: Guide[] = [
     slug: "how-to-password-protect-a-pdf",
     title: "How to password-protect a PDF",
     description:
-      "Password-protect a PDF with real AES encryption (qpdf). Your file goes to an encrypted, auto-deleting worker, and no account is needed.",
+      "Password-protect a PDF with real AES encryption. Your file goes to an encrypted, auto-deleting worker, and no account is needed.",
     tools: ["protect-pdf", "unlock-pdf", "redact-pdf"],
     keywords: [
       "password protect pdf",
@@ -892,12 +912,12 @@ export const guides: Guide[] = [
       },
       {
         question: "What if I forget the password later?",
-        answer:
-          "The password cannot be recovered through pdf.xyz. The Unlock PDF tool removes a password from a PDF you can already open — you enter the password that works and download an unprotected copy — but it cannot recover or bypass a password you do not know. Store the password somewhere dependable before you share the protected file.",
+        // One sentence for both places that say it (tool-facts owns it).
+        answer: forgottenPasswordAnswer(),
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-translate-a-pdf",
@@ -987,5 +1007,374 @@ export const guides: Guide[] = [
     ],
     published: "2026-09-17",
     updated: "2026-09-17",
+  },
+  {
+    slug: "how-to-add-text-to-a-pdf",
+    title: "How to add text to a PDF",
+    description:
+      "Add new text, images, boxes and lines to a PDF in your browser, placed by page and position. To change the existing text, convert the PDF to Word first.",
+    tools: ["edit-pdf", "pdf-to-word", "redact-pdf"],
+    keywords: [
+      "how to add text to a pdf",
+      "add text to pdf",
+      "edit pdf",
+      "insert image in pdf",
+      "type on a pdf",
+    ],
+    intro: [
+      `To add text to a PDF, open ${nameOf("edit-pdf")}, pick your file, add a text element with the page and position it belongs on, and export a copy with the text drawn in. It runs in your browser, so the file stays on your device.`,
+      `One thing to know before you start: ${nameOf("edit-pdf")} adds new content on top of the page. It does not edit, reflow or delete the text already in the PDF. If the job is changing existing wording, ${nameOf("pdf-to-word")} converts the PDF's selectable text into an editable Word document instead — one paragraph per line, without the original layout.`,
+    ],
+    steps: [
+      `Open the ${nameOf("edit-pdf")} tool and pick your PDF — it stays on your device.`,
+      "Add a text element, type the text, and choose its color and font size.",
+      "Set the page, then the X and Y position in PDF points, measured from the bottom-left corner of the page.",
+      "Add images, boxes or lines the same way if you need them.",
+      "Apply the edits — your additions are drawn into the pages.",
+      "Download the edited copy.",
+    ],
+    sections: [
+      {
+        id: "what-you-can-add",
+        heading: "What you can add",
+        body: [
+          "Four kinds of new content: text, PNG and JPG images, boxes — filled or outlined — and lines, with an optional arrowhead. Each one is drawn into the page's own content when you apply the edits, and the original pages, their count and their sizes are kept as they were.",
+          "Nothing is turned into a picture along the way, so the text that was already in the PDF stays selectable and searchable after you add to it.",
+        ],
+      },
+      {
+        id: "placing-by-position",
+        heading: "Placing things by position",
+        body: [
+          "There is no click-to-place canvas and no drag handles: every element is placed by numbers — the page it goes on, and an X and Y position in PDF points measured from the bottom-left corner. The page preview shows where your edits land before you apply them, so you can nudge the numbers until they sit where you want.",
+        ],
+      },
+      {
+        id: "changing-or-removing-existing-text",
+        heading: "Changing or removing text that is already there",
+        body: [
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, one paragraph per line. Images, fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
+          `A filled box drawn over existing content hides it, but the text underneath is still in the file and can be copied out. When content must actually be gone, use ${nameOf("redact-pdf")}: it covers the areas you choose with solid boxes, then rebuilds each page as a flattened image so the text and vectors underneath are removed rather than hidden.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I change the text that is already in my PDF?",
+        answer: `Not with ${nameOf("edit-pdf")} — it adds new content on top and keeps the existing text exactly as it was. To rework the existing text, convert the file with ${nameOf("pdf-to-word")}. To remove content for good, use ${nameOf("redact-pdf")}.`,
+      },
+      {
+        question: "Can I add an image or a logo to a PDF?",
+        answer:
+          "Yes. PNG and JPG images are placed by page and position, just like text.",
+      },
+      {
+        question: "Does my PDF leave my device?",
+        answer: `No. ${nameOf("edit-pdf")} runs entirely in your browser, and the file stays on your device from start to finish.`,
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("edit-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-add-page-numbers-to-a-pdf",
+    title: "How to add page numbers to a PDF",
+    description: `Add page numbers to a PDF in your browser: pick a format and one of ${STAMP_POSITIONS.length} positions, skip the cover, and choose the first number. No account needed.`,
+    tools: ["page-numbers", "header-footer", "merge-pdf"],
+    keywords: [
+      "how to add page numbers to a pdf",
+      "add page numbers to pdf",
+      "number pdf pages",
+      "pdf page numbering",
+      "skip cover page numbering",
+    ],
+    intro: [
+      `To add page numbers to a PDF, open ${nameOf("page-numbers")}, pick your file, choose a number format and a position, and download the numbered copy. The numbers are drawn right in your browser, so the file stays on your device.`,
+      "Two settings do most of the work on real documents. Start on page leaves a cover or title page unnumbered, and First number sets the number counting starts from — useful when a document continues from an earlier one.",
+    ],
+    steps: [
+      `Open the ${nameOf("page-numbers")} tool and pick your PDF — it stays on your device.`,
+      "Choose a number format preset, or write your own template with {n} for the page number and {total} for the last number.",
+      `Pick one of the ${STAMP_POSITIONS.length} positions for the number.`,
+      "Set Start on page to skip a cover, and First number to choose where counting starts.",
+      "Check the preview beside the format — it shows the label the first numbered page will carry.",
+      "Select Add page numbers, then download the numbered PDF.",
+    ],
+    sections: [
+      {
+        id: "choosing-a-format",
+        heading: "Choosing a format",
+        body: [
+          "The presets cover the common styles, “Page 1 of N” among them, and the template field takes anything else: {n} becomes the page number and {total} the last number printed, so “{n} / {total}” and “Page {n}” both work.",
+        ],
+      },
+      {
+        id: "skipping-the-cover",
+        heading: "Skipping the cover and choosing the first number",
+        body: [
+          "Pages before Start on page get no number at all. First number is the number printed on the first numbered page, and every page after it counts up from there.",
+          "{total} follows the same count: it is the last number that will be printed, so a skipped cover is not included in it. With a cover and four pages after it, Start on page 2 and First number 1 turn the default “Page {n} of {total}” into “Page 1 of 4” through “Page 4 of 4”.",
+        ],
+      },
+      {
+        id: "position-and-rotated-pages",
+        heading: "Position, and pages that are rotated",
+        body: [
+          `The number can sit in any of ${STAMP_POSITIONS.length} positions: each corner, the middle of each edge, or the center. On a page that carries a rotation, the number still lands in the spot you picked as the page is viewed, and it reads upright.`,
+        ],
+      },
+      {
+        id: "before-and-beyond-numbers",
+        heading: "Before numbering, and beyond it",
+        body: [
+          `If the document is still in several files, combine them first with ${nameOf("merge-pdf")}, so the numbering runs across the whole thing instead of restarting in each part.`,
+          `If you need more than a number — a title, a date, a confidentiality line — ${nameOf("header-footer")} adds a header and footer with your own text, plus {n}, {total} and {date} fields.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I leave the cover page unnumbered?",
+        answer:
+          "Yes. Set Start on page to 2 and the cover gets no number; leave First number at 1, and the page after the cover is numbered 1.",
+      },
+      {
+        question: "Can numbering start at a number other than 1?",
+        answer:
+          "Yes. First number sets it: set it to 5, and the first numbered page shows 5.",
+      },
+      {
+        question: "Does my PDF leave my device?",
+        answer: `No. ${nameOf("page-numbers")} runs entirely in your browser, and the file stays on your device from start to finish.`,
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("page-numbers")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-flatten-a-pdf-form",
+    title: "How to flatten a filled PDF form",
+    description:
+      "Flatten a filled PDF form in your browser, so its answers become part of the page and can't be edited — before you send it, print it or lock it with a password.",
+    tools: ["flatten-pdf", "fill-forms", "protect-pdf"],
+    keywords: [
+      "how to flatten a pdf form",
+      "flatten pdf",
+      "flatten pdf form",
+      "lock pdf form fields",
+      "make pdf form not editable",
+    ],
+    intro: [
+      `To flatten a PDF form, open ${nameOf("flatten-pdf")}, pick the filled PDF and select Flatten form fields. Each field's current value is drawn into the page and the field itself is removed, so the answers can no longer be changed in a PDF viewer. It runs in your browser, so the file stays on your device.`,
+      `Flattening is the last step of a form's life. Fill it in first — ${nameOf("fill-forms")} completes a PDF's existing form fields in your browser — then flatten the copy you are about to send.`,
+    ],
+    steps: [
+      `Open the ${nameOf("flatten-pdf")} tool and pick your filled PDF — it stays on your device.`,
+      "Check that the answers are final — the flattened copy has no fields left to change.",
+      "Select Flatten form fields.",
+      "Read the result: it says how many form fields were flattened, or that none were found.",
+      "Download the flattened PDF, and keep the original if you may need to edit the answers again.",
+    ],
+    sections: [
+      {
+        id: "what-gets-flattened",
+        heading: "What gets flattened",
+        body: [
+          "Every fillable form field — text boxes, checkboxes, radio buttons, dropdowns and list boxes — is drawn into the page with its current value and removed as a field. Comments and layers are not form fields, and they are re-saved unchanged.",
+          "A PDF with no form fields is re-saved as it is, and the result says no fillable form fields were found — so a file that only looks like a form, such as a scanned paper form, is not changed.",
+        ],
+      },
+      {
+        id: "when-flattening-is-refused",
+        heading: "When flattening is refused",
+        body: [
+          "A text field holding characters outside the basic PDF alphabet — Bengali, Chinese or Greek, for example — cannot be flattened yet, because the field is drawn with the form's own font. Instead of producing a page with those characters missing, the tool stops and says which characters it could not draw.",
+        ],
+      },
+      {
+        id: "after-flattening",
+        heading: "After flattening",
+        body: [
+          `Flattening stops the answers being edited, but anyone who has the file can still open and read it. If it should only open for certain people, ${nameOf("protect-pdf")} adds a password with AES encryption. That step runs on a secure worker rather than in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Why flatten a filled PDF form?",
+        answer:
+          "So the answers you send are the answers that are read. A flattened copy has no fields left for anyone to change, and its values are part of the page rather than something a viewer draws on top of it.",
+      },
+      {
+        question: "Can I undo flattening?",
+        answer:
+          "Not in the flattened copy — its fields are gone. The file you picked is not changed, so keep it if you may need to edit the answers again.",
+      },
+      {
+        question: "What if my PDF has no form fields?",
+        answer:
+          "Nothing is flattened: the file is re-saved as it is, and the result says no fillable form fields were found.",
+      },
+      {
+        question: "Does my PDF leave my device?",
+        answer: `No. ${nameOf("flatten-pdf")} runs entirely in your browser, and the file stays on your device from start to finish.`,
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("flatten-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-compare-two-pdf-files",
+    title: "How to compare two PDF files",
+    description:
+      "Compare two versions of a PDF in your browser: page count, file size and every added or removed line of text, with a downloadable report. Scans need OCR first.",
+    tools: ["compare-pdf", "ocr-pdf", "pdf-to-text"],
+    keywords: [
+      "how to compare two pdf files",
+      "compare pdf",
+      "pdf diff",
+      "find differences between two pdfs",
+      "compare pdf versions",
+    ],
+    intro: [
+      `To compare two PDF files, open ${nameOf("compare-pdf")}, pick the two versions, and select Compare PDFs. You get their page counts, the size difference and every line of text that was added or removed, plus a report you can download. It runs in your browser, so both files stay on your device.`,
+      "The comparison reads the text in each PDF, line by line. That makes it good at the question most people are asking — what changed in the wording — and blind to changes that are only visual.",
+    ],
+    steps: [
+      `Open the ${nameOf("compare-pdf")} tool.`,
+      "Pick two PDFs — the first is treated as the original, the second as the revised version. Both stay on your device.",
+      "Select Compare PDFs.",
+      "Read the summary: the page counts, the size difference and the number of changed lines.",
+      "Review the lines marked removed (-) and added (+).",
+      "Download the comparison report as a .txt file.",
+    ],
+    sections: [
+      {
+        id: "what-counts-as-a-change",
+        heading: "What counts as a change",
+        body: [
+          "A line of selectable text that is in one PDF and not the other. Lines only in the first PDF are listed as removed, and lines only in the second as added. Extra spaces inside a line and blank lines are ignored, so reflowed spacing does not flood the report.",
+          "Because the first file is the original, the order you pick them in matters: swap them and every addition becomes a removal.",
+        ],
+      },
+      {
+        id: "scanned-pdfs",
+        heading: "Scanned PDFs need OCR first",
+        body: [
+          `${nameOf("compare-pdf")} reads the text already embedded in each PDF. A scanned page is a picture with no text in it, so two scans compare as having no selectable text at all. Run each one through ${nameOf("ocr-pdf")} first — it adds a searchable text layer on a secure worker — then compare the results.`,
+        ],
+      },
+      {
+        id: "what-it-does-not-compare",
+        heading: "What it does not compare",
+        body: [
+          `Formatting, images, colors and layout are not compared — this is a text comparison, not a visual one. To read one file's text on its own, ${nameOf("pdf-to-text")} extracts it as a plain .txt file.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Does the order of the two files matter?",
+        answer:
+          "Yes. The first file is treated as the original and the second as the revised version: lines only in the first are listed as removed, and lines only in the second as added.",
+      },
+      {
+        question: "Why does it say no selectable text was found?",
+        answer: `Both PDFs are most likely scans, which carry pictures of text rather than text. Run them through ${nameOf("ocr-pdf")} first, then compare the results.`,
+      },
+      {
+        question: "Do my files leave my device?",
+        answer: `No. ${nameOf("compare-pdf")} runs entirely in your browser, and both files stay on your device from start to finish.`,
+      },
+      {
+        question: "How large can each PDF be?",
+        answer: `Up to ${ceilingMb("compare-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-remove-a-password-from-a-pdf",
+    title: "How to remove a password from a PDF",
+    description:
+      "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an encrypted, auto-deleting worker.",
+    tools: ["unlock-pdf", "protect-pdf"],
+    keywords: [
+      "how to remove a password from a pdf",
+      "remove password from pdf",
+      "unlock pdf",
+      "decrypt pdf",
+      "remove pdf password",
+    ],
+    intro: [
+      `To remove a password from a PDF, open ${nameOf("unlock-pdf")}, add the protected file, type the password that opens it, and download an unprotected copy. Anyone can then open that copy without a password.`,
+      `${nameOf("unlock-pdf")} runs on a secure worker rather than in your browser, because decryption uses the native qpdf engine. Your file uploads over an encrypted connection, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      "It is not a password cracker. It needs the password that currently opens the file, and it cannot recover, guess or bypass a password nobody knows.",
+    ],
+    steps: [
+      `Open the ${nameOf("unlock-pdf")} tool.`,
+      "Add the password-protected PDF — it uploads over an encrypted connection to the secure worker.",
+      "Type the password that currently opens the file.",
+      "Run the tool. The secure worker removes the encryption and deletes the input when the job finishes.",
+      `Download the unlocked copy. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      "Open the downloaded copy to confirm it no longer asks for a password.",
+    ],
+    sections: [
+      {
+        id: "what-unlocking-does",
+        heading: "What unlocking does",
+        body: [
+          "Unlocking decrypts the file with the password you type and writes a copy with the encryption removed. The pages themselves are not changed: it is the same document, without the lock.",
+        ],
+      },
+      {
+        id: "the-password-you-need",
+        heading: "You need the password that opens it",
+        body: [
+          "An empty password is refused before the job starts, and a password that does not open the file ends the job without an output. Nothing is guessed or tried on your behalf.",
+        ],
+      },
+      {
+        id: "putting-the-lock-back",
+        heading: "Putting a password back",
+        body: [
+          `If you only needed the lock off to make a change, put it back afterwards: ${nameOf("protect-pdf")} encrypts a PDF with AES so it only opens with a password, and it runs on the same kind of secure worker.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I remove a password I do not know?",
+        answer: `No. ${nameOf("unlock-pdf")} needs the password that currently opens the file. It does not guess, recover or bypass passwords.`,
+      },
+      {
+        question: "Is my PDF uploaded when I unlock it?",
+        answer:
+          "Yes. Unlocking runs on a secure worker rather than in the browser. The file travels over an encrypted connection, and the worker deletes the input when the job finishes.",
+      },
+      {
+        question: "How long is the unlocked copy available?",
+        answer: `The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. Download it as soon as the job completes.`,
+      },
+      {
+        question: "How large can my file be?",
+        answer: `Up to ${ceilingMb("unlock-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
   },
 ];

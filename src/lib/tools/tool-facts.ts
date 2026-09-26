@@ -30,6 +30,15 @@ import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { GRAYSCALE_DPI_PRESETS } from "@/lib/pdf/grayscale";
+import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
+import { OVERLAY_FITS } from "@/lib/pdf/overlay";
+import {
+  DEFAULT_PDF_KEY_LENGTH,
+  PDF_ENCRYPTION_LEVELS,
+  describePdfKeyLength,
+} from "@/lib/jobs/pdf-security";
+import { EXTRACTION_FIELD_TYPES } from "@/lib/jobs/ai-extract";
+import { tools } from "./catalog";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
@@ -83,6 +92,31 @@ const pluralPages = (n: number) => (n === 1 ? "page" : "pages");
 const grayscalePresetNames = GRAYSCALE_DPI_PRESETS.map(
   (preset) => `${preset.label} (${preset.dpi} DPI)`,
 ).join(" or ");
+
+/** "a, b or c" — the list shape every derived option sentence below uses. */
+const orList = (items: readonly string[]): string =>
+  items.length <= 1
+    ? (items[0] ?? "")
+    : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+
+/**
+ * Another tool's CURRENT name, for copy that sends the reader there. Typed
+ * names went stale the day three tools were renamed for their head term; a
+ * slug that stops resolving fails at import rather than shipping "undefined".
+ * `tool-page-content.test.ts` requires every tool a page names to be one of
+ * its visible related links.
+ */
+function toolName(slug: string): string {
+  const tool = tools.find((t) => t.slug === slug);
+  if (!tool) throw new Error(`tool-facts names unknown tool "${slug}"`);
+  return tool.name;
+}
+
+/** The encryption strengths as the protect panel's selector labels them. */
+const encryptionLabels = orList(PDF_ENCRYPTION_LEVELS.map((l) => l.label));
+
+/** Overlay scale modes as the overlay runner's control labels them. */
+const overlayFitLabels = orList(OVERLAY_FITS.map((fit) => fit.label));
 
 /* ------------------------------------------------------------------ *
  *  Facts — each line's source is the runner constant or UI it names.
@@ -143,6 +177,37 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       // PAGE_NUMBER_PRESETS so a new preset cannot leave it stale.
       value:
         "Presets “Page 1 of N”, “1 / N”, “1”, or “– 1 –” — or write your own template using {n} and {total}.",
+    },
+    {
+      label: "Placement",
+      // STAMP_POSITIONS is the list the runner's PositionPicker renders; the
+      // upright claim is placeStamp's rotation cancel, checked on a decoded
+      // output page by tool-page-content.test.ts.
+      value: `Any of ${STAMP_POSITIONS.length} positions — each corner, the middle of each edge, or the center. On a rotated page the number still lands there and reads upright.`,
+    },
+    {
+      label: "Numbering",
+      // The runner's two NumberField labels, verbatim.
+      value:
+        "Start on page skips earlier pages, such as a cover; First number sets the number counting starts from.",
+    },
+  ],
+  "header-footer": [
+    {
+      label: "Fields",
+      // The runner's token buttons, pinned to its export by
+      // tool-page-content.test.ts and to applyTokens by running it.
+      value:
+        "{n} inserts the page number, {total} the page count and {date} today's date — in the header, the footer or both.",
+    },
+  ],
+  "overlay-pdf": [
+    {
+      label: "Vector overlay",
+      // overlay.ts embeds the overlay page as a Form XObject; the test decodes
+      // an output page and finds a Form, not an Image.
+      value:
+        "The overlay is drawn as vector content, not pasted in as a picture, so text in both PDFs stays sharp and selectable.",
     },
   ],
   "sign-pdf": [
@@ -450,8 +515,102 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
     });
   }
 
+  entries.push(...(TOOL_QUESTIONS[tool.slug]?.() ?? []));
+
   return entries;
 }
+
+/**
+ * What a forgotten password costs, said once for both places that say it —
+ * the Protect PDF page and the password guide.
+ */
+export function forgottenPasswordAnswer(): string {
+  return `The password cannot be recovered through pdf.xyz. ${toolName("unlock-pdf")} removes a password from a PDF you can already open — you enter the password that works and download an unprotected copy — but it cannot recover or bypass a password you do not know. Store the password somewhere dependable before you share the protected file.`;
+}
+
+/**
+ * Per-tool questions, each answered by the code — never by the page's hopes.
+ * Every answer here has a probe in `tool-page-content.test.ts` that runs the
+ * engine (or reads the argument list the worker hands qpdf) and fails when the
+ * sentence stops being true. Built lazily so a renamed tool is read at call
+ * time, and every tool an answer sends the reader to must be one of the
+ * page's visible related links (same test).
+ */
+const TOOL_QUESTIONS: Record<string, () => readonly ToolFaqEntry[]> = {
+  "edit-pdf": () => [
+    {
+      question: `Can ${toolName("edit-pdf")} change the text already in my PDF?`,
+      answer: `No. It adds new text, images, boxes and lines on top of the page; the text and objects already there are kept exactly as they were. To rework the existing text, convert the file with ${toolName("pdf-to-word")}. To remove content for good rather than cover it, use ${toolName("redact-pdf")}.`,
+    },
+  ],
+  "page-numbers": () => [
+    {
+      question: "Can I leave the cover page unnumbered?",
+      answer:
+        "Yes. Set Start on page to 2 and the cover gets no number; leave First number at 1, and the page after the cover is numbered 1.",
+    },
+  ],
+  "flatten-pdf": () => [
+    {
+      question: `What does ${toolName("flatten-pdf")} flatten?`,
+      answer:
+        "Every fillable form field — text boxes, checkboxes, radio buttons, dropdowns and list boxes — is drawn into the page with its current value and removed as a field. Comments and layers are re-saved unchanged.",
+    },
+    {
+      question: "What if my PDF has no form fields?",
+      answer:
+        "Nothing is flattened: the file is re-saved as it is, and the result says no fillable form fields were found.",
+    },
+    {
+      question: "Can every filled form be flattened?",
+      answer:
+        "Not yet. A text field holding characters outside the basic PDF alphabet — Bengali, Chinese or Greek, for example — is refused with a message saying so, rather than flattened with those characters missing.",
+    },
+    {
+      question: "Can I undo flattening?",
+      answer:
+        "Not in the flattened copy — its fields are gone. The file you picked is not changed, so keep it if you may need to edit the answers again.",
+    },
+  ],
+  "compare-pdf": () => [
+    {
+      question: `What counts as a change in ${toolName("compare-pdf")}?`,
+      answer:
+        "A line of selectable text that is in one PDF and not the other. Lines only in the first PDF are listed as removed (-), and lines only in the second as added (+). Extra spaces inside a line and blank lines are ignored, and formatting, images and layout are not compared.",
+    },
+  ],
+  "optimize-web": () => [
+    {
+      question: `What does ${toolName("optimize-web")} change?`,
+      answer:
+        "It linearizes the file: the parts needed to show the first page are moved to the front, with an index, so a viewer that loads a PDF in pieces can show page one while the rest downloads. It does not change what is on the pages.",
+    },
+    {
+      question: "Will it make my PDF smaller?",
+      answer: `No — linearizing is not compression, and the file can come out slightly larger. To reduce the size, use ${toolName("compress-pdf")}.`,
+    },
+  ],
+  "protect-pdf": () => [
+    {
+      question: `Which encryption does ${toolName("protect-pdf")} use?`,
+      answer: `AES only — the older RC4 cipher is never used. ${PDF_ENCRYPTION_LEVELS.map((level) => level.description).join(" ")} ${describePdfKeyLength(DEFAULT_PDF_KEY_LENGTH)} is the default.`,
+    },
+    {
+      question: "What if I forget the password?",
+      answer: forgottenPasswordAnswer(),
+    },
+  ],
+  "unlock-pdf": () => [
+    {
+      question: `Can ${toolName("unlock-pdf")} remove a password I don't know?`,
+      answer:
+        "No. It needs the password that currently opens the file — an empty one is refused — and uses it to decrypt. Nothing is guessed, recovered or bypassed.",
+    },
+  ],
+};
+
+/** The slugs with their own questions — exported so tests can walk them. */
+export const TOOL_QUESTION_SLUGS = Object.keys(TOOL_QUESTIONS);
 
 /* ------------------------------------------------------------------ *
  *  HowTo steps, mode-true.
@@ -468,6 +627,30 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
     `Choose the output quality: ${grayscalePresetNames}.`,
     "Select Convert to grayscale — every page is rendered as a grayscale image in your browser.",
     "Download the grayscale PDF.",
+  ],
+  "page-numbers": [
+    "Pick your PDF — it stays on your device.",
+    "Choose a number format preset, or write your own with {n} and {total}.",
+    `Pick one of ${STAMP_POSITIONS.length} positions. Set Start on page to skip a cover, and First number to choose where counting starts.`,
+    "Select Add page numbers, then download the numbered PDF.",
+  ],
+  "overlay-pdf": [
+    "Pick the base PDF you want to stamp — it stays on your device.",
+    "Add the overlay PDF: a letterhead, stamp or template.",
+    `Choose the scale — ${overlayFitLabels} — and the opacity. For a multi-page overlay, use its first page on every page or cycle through its pages.`,
+    "Download the overlaid PDF.",
+  ],
+  "protect-pdf": [
+    "Upload your PDF over an encrypted connection.",
+    "Type the password that will be needed to open it.",
+    `Choose the encryption strength: ${encryptionLabels}. ${describePdfKeyLength(DEFAULT_PDF_KEY_LENGTH)} is the default.`,
+    "The secure worker encrypts the file and deletes the input when the job finishes.",
+    `Download the protected PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+  ],
+  "ai-extract": [
+    `Upload a PDF with selectable text over an encrypted connection — run ${toolName("ocr-pdf")} first for a scan.`,
+    `Name each field you want with a type (${orList(EXTRACTION_FIELD_TYPES)}), or describe what to extract in a prompt.`,
+    "Download a ZIP with the extracted JSON, a readable Markdown version and a manifest.",
   ],
 };
 

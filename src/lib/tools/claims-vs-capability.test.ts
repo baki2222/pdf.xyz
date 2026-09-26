@@ -30,6 +30,10 @@
  *                       text box per slide, no pictures.
  *   merge-pdf           "Drag pages or files into the order you want." — the
  *                       engine takes whole files, and so does the runner.
+ *   word-to-pdf         "DOCX and DOC into pixel-perfect PDF." / "…while
+ *                       preserving layout, fonts, and formatting." — LibreOffice
+ *                       lays it out, and the worker image installs no
+ *                       Word-metric faces (rule added 2026-09-27).
  *
  * Nothing caught any of them because every existing copy guard asked a
  * different question — is it too long, does it say "upload", does it hedge —
@@ -860,6 +864,54 @@ const RULES: readonly ClaimRule[] = [
       return {
         present: !wholeFiles,
         evidence: `mergePdfs takes ${mergePdfs.length} argument(s); merged page order ${order.join(",")}`,
+      };
+    },
+  },
+  {
+    id: "Office to PDF is pixel-perfect or keeps the document's fonts",
+    // The tools the page mounts the LibreOffice conversion panel for.
+    subjects: () => panelMounts().get("OfficeConversionWorkerPanel") ?? [],
+    shapes: {
+      // "not a pixel-perfect visual diff" is compare-pdf's honest disclaimer.
+      "pixel-perfect": /(?<!\bnot (?:a )?)\bpixel[- ]perfect\b/i,
+      "preserves fonts":
+        /\b(?:preserv|keep|retain)\w*\s+(?:[\w-]+,?\s+){0,3}(?:and\s+)?fonts\b/i,
+      "fonts are kept":
+        /\bfonts\s+(?:are|stay|remain)\s+(?:\w+\s+){0,2}(?:kept|preserved|intact|unchanged)\b/i,
+    },
+    shipped: [
+      "DOCX and DOC into pixel-perfect PDF.",
+      "Convert Microsoft Word documents to PDF while preserving layout, fonts, and formatting.",
+    ],
+    synonyms: [
+      "A pixel perfect copy of your document.",
+      "Your fonts are kept exactly as they were.",
+      "It keeps your fonts and spacing.",
+    ],
+    honest: [
+      "This is not a pixel-perfect visual comparison.",
+      "Scanned pages need OCR first; this is not a pixel-perfect visual diff.",
+      "Fonts the worker lacks are substituted.",
+      "Images, fonts, tables and page layout are not recreated.",
+    ],
+    probe: async () => {
+      // THE PROPERTY: can the worker lay a Word document out in the faces it
+      // was written in? LibreOffice, not Word, does the layout, so the only
+      // way it keeps Calibri/Cambria line breaks is a metric-compatible face
+      // installed in the image that runs the job. The stage is found by what
+      // it runs (`worker:daemon`), not by its name.
+      const dockerfile = read("Dockerfile");
+      const stage = dockerfile
+        .split(/^FROM\s/m)
+        .find((s) => /^CMD\s.*worker:daemon/m.test(s));
+      if (!stage) throw new Error("no Dockerfile stage runs worker:daemon");
+      if (!/\blibreoffice\b/.test(stage))
+        throw new Error("the worker stage no longer installs libreoffice");
+      const fonts = stage.match(/\bfonts-[a-z0-9-]+/g) ?? [];
+      const metric = fonts.filter((f) => /carlito|caladea/.test(f));
+      return {
+        present: metric.length > 0,
+        evidence: `worker stage font packages: ${fonts.join(", ") || "none"}`,
       };
     },
   },
