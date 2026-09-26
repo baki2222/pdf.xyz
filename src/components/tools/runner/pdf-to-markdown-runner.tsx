@@ -31,6 +31,7 @@ export function PdfToMarkdownRunner() {
       hint="One PDF · converts selectable text to Markdown locally in your browser"
       handoffSlug="pdf-to-markdown"
       toolName="PDF to Markdown"
+      reader="pdfjs"
     >
       {(pdf, reset) => <PdfToMarkdownEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>

@@ -1,6 +1,6 @@
 import type { PDFDocument, PDFRawStream } from "pdf-lib";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
-import { PdfEngineError } from "./engine";
+import { loadPdf } from "./engine";
 
 /**
  * Honest compression analysis for the "Compress PDF" tool.
@@ -57,21 +57,13 @@ export interface OptimizationSummary {
   recommendation: OptimizeRecommendation;
 }
 
+/**
+ * The engine's shared loader, so an encrypted file gets the same verdict here as
+ * in every other tool: "password-protected" only when it cannot be opened, and
+ * "editing restrictions" for owner-only encryption, which opens without one.
+ */
 async function loadDoc(bytes: Uint8Array): Promise<PDFDocument> {
-  try {
-    const { PDFDocument } = await loadPdfLib();
-    return await PDFDocument.load(bytes);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (/encrypt/i.test(message)) {
-      throw new PdfEngineError(
-        "This PDF is password-protected. Unlock it first, then try again.",
-      );
-    }
-    throw new PdfEngineError(
-      "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
-    );
-  }
+  return loadPdf(bytes);
 }
 
 function isImageStream(lib: PdfLibModule, obj: unknown): obj is PDFRawStream {

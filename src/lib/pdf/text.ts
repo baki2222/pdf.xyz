@@ -1,5 +1,6 @@
 import { outputName } from "./files";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
+import { awaitPdfjsDocument, loadPdfjs } from "./pdfjs";
 
 /** One extracted page of selectable PDF text. Page numbers are 1-based. */
 export interface ExtractedTextPage {
@@ -20,20 +21,6 @@ export interface ExtractedPdfText {
 interface TextItemLike {
   str?: unknown;
   hasEOL?: unknown;
-}
-
-let workerConfigured = false;
-
-async function loadPdfjs() {
-  const pdfjs = await import("pdfjs-dist");
-  if (!workerConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
-    workerConfigured = true;
-  }
-  return pdfjs;
 }
 
 /**
@@ -157,7 +144,7 @@ export async function extractPdfText(
   const pdfjs = await loadPdfjs();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
-  const doc = await loadingTask.promise;
+  const doc = await awaitPdfjsDocument(loadingTask);
 
   try {
     const pages: ExtractedTextPage[] = [];

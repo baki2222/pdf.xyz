@@ -4,6 +4,7 @@ import type {
   PositionedTextItem,
 } from "@/lib/workers/table-extract/engine";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
+import { awaitPdfjsDocument, loadPdfjs } from "./pdfjs";
 
 /**
  * Positioned selectable-text extraction for table detection.
@@ -21,20 +22,6 @@ interface PdfTextItemLike {
   height?: unknown;
   /** pdfjs transform matrix [a, b, c, d, e, f]; e = x, f = y (PDF points, y up). */
   transform?: unknown;
-}
-
-let workerConfigured = false;
-
-async function loadPdfjs() {
-  const pdfjs = await import("pdfjs-dist");
-  if (!workerConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
-    workerConfigured = true;
-  }
-  return pdfjs;
 }
 
 /** Convert a raw pdfjs text-content items array into positioned runs. */
@@ -69,7 +56,7 @@ export async function extractPdfLayout(bytes: Uint8Array): Promise<PdfLayout> {
   const pdfjs = await loadPdfjs();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
-  const doc = await loadingTask.promise;
+  const doc = await awaitPdfjsDocument(loadingTask);
 
   try {
     const pages: PdfLayoutPage[] = [];

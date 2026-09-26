@@ -9,7 +9,7 @@ import {
   HandoffLoading,
   HandoffProblem,
 } from "./handoff-notice";
-import { useSinglePdf, type LoadedPdf } from "./use-single-pdf";
+import { useSinglePdf, type LoadedPdf, type PdfReader } from "./use-single-pdf";
 import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
 
 /**
@@ -29,6 +29,7 @@ export function SinglePdfRunner({
   handoffSlug,
   handoff: providedHandoff,
   toolName = "this tool",
+  reader = "pdf-lib",
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -38,8 +39,13 @@ export function SinglePdfRunner({
   handoff?: ToolHandoff;
   /** Tool name for honest hand-off error copy. */
   toolName?: string;
+  /**
+   * `"pdfjs"` only for tools that never hand the bytes to pdf-lib — see
+   * {@link PdfReader}.
+   */
+  reader?: PdfReader;
 }) {
-  const { pdf, loading, error, open, clear } = useSinglePdf();
+  const { pdf, loading, error, open, clear } = useSinglePdf({ reader });
   // Self-claim only when a parent hasn't already provided a claimed hand-off.
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);
   const handoff = providedHandoff ?? selfHandoff;

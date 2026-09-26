@@ -1,5 +1,9 @@
 import type { PDFEmbeddedPage } from "pdf-lib";
-import { PdfEngineError } from "./engine";
+import {
+  PdfEngineError,
+  PdfPasswordRequiredError,
+  PdfRestrictedError,
+} from "./engine";
 import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";
 
@@ -261,7 +265,14 @@ async function loadOverlay(bytes: Uint8Array) {
   try {
     return await loadPdf(bytes);
   } catch (err) {
-    if (err instanceof PdfEngineError && /password/i.test(err.message)) {
+    // Branch on the verdict, not on a word in its copy: the restriction
+    // message mentions a password too, and must not become "password-protected".
+    if (err instanceof PdfRestrictedError) {
+      throw new PdfRestrictedError(
+        "The overlay PDF has editing restrictions set by its author, so it can't be placed on another PDF. If you have its permissions password, remove the restrictions with Unlock PDF, then try again.",
+      );
+    }
+    if (err instanceof PdfPasswordRequiredError) {
       throw new PdfEngineError(
         "The overlay PDF is password-protected. Unlock it first, then try again.",
       );

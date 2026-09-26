@@ -55,6 +55,7 @@ export function PdfToImageRunner({ format }: { format: RasterFormat }) {
       hint={`One PDF · every page becomes a ${label} image, rendered locally in your browser`}
       handoffSlug={format === "png" ? "pdf-to-png" : "pdf-to-jpg"}
       toolName={`PDF to ${label}`}
+      reader="pdfjs"
     >
       {(pdf, reset) => (
         <PdfToImageEditor pdf={pdf} format={format} onReset={reset} />

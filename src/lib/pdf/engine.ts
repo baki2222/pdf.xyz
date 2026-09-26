@@ -23,7 +23,50 @@ export class PdfEngineError extends Error {
   }
 }
 
+/** The file cannot be OPENED without a password. */
+export class PdfPasswordRequiredError extends PdfEngineError {
+  constructor() {
+    super("This PDF is password-protected. Unlock it first, then try again.");
+    this.name = "PdfPasswordRequiredError";
+  }
+}
+
+/**
+ * The file opens with no password but carries owner ("permissions")
+ * encryption, which pdf-lib cannot remove — so a tool that rewrites the file
+ * cannot take it. It is NOT "password-protected" to the person holding it: it
+ * opened in their viewer without a prompt. Unlock PDF does remove it, but only
+ * with the permissions password, which is why the copy says so rather than
+ * sending everyone there.
+ */
+export class PdfRestrictedError extends PdfEngineError {
+  constructor(
+    message = "This PDF has editing restrictions set by its author. It opens without a password, but this tool can't change a restricted file. If you have its permissions password, remove the restrictions with Unlock PDF, then try again.",
+  ) {
+    super(message);
+    this.name = "PdfRestrictedError";
+  }
+}
+
 const PRODUCER = "pdf.xyz";
+
+/**
+ * Which encrypted file is this? pdf-lib refuses every /Encrypt the same way;
+ * pdfjs can tell a file that opens without a password from one that cannot.
+ * pdfjs is imported only here, on the refusal path, so no successful load pays
+ * for it. A probe that cannot answer changes nothing: the password copy stays.
+ */
+async function encryptedPdfError(bytes: Uint8Array): Promise<PdfEngineError> {
+  try {
+    const { opensWithoutPassword } = await import("./pdfjs");
+    if ((await opensWithoutPassword(bytes)) === true) {
+      return new PdfRestrictedError();
+    }
+  } catch {
+    // Fall through to the conservative answer.
+  }
+  return new PdfPasswordRequiredError();
+}
 
 /**
  * Load PDF bytes into a pdf-lib document, translating pdf-lib's raw failures
@@ -36,10 +79,10 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
     return await PDFDocument.load(bytes);
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
+    // By message: pdf-lib's EncryptedPDFError is compiled to ES5 and does not
+    // survive `instanceof` (encryption.test.ts pins the message it throws).
     if (/encrypt/i.test(message)) {
-      throw new PdfEngineError(
-        "This PDF is password-protected. Unlock it first, then try again.",
-      );
+      throw await encryptedPdfError(bytes);
     }
     throw new PdfEngineError(
       "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
