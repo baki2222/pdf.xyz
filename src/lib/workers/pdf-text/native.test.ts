@@ -349,7 +349,7 @@ describe("deps wiring — readiness must reflect the host, not the wiring", () =
     // THE RELATIONSHIP, read off the argv each extractor really runs. PDF to
     // Word read `-layout` until 2026-09-27, which glued a two-column page's
     // columns together line by line; Excel must keep `-layout`, whose padding
-    // its row splitting depends on.
+    // its column placement depends on.
     const argvs: string[][] = [];
     const wired: PdfTextSeams = {
       ...seams(""),
@@ -382,7 +382,7 @@ describe("deps wiring — readiness must reflect the host, not the wiring", () =
     // THE RELATIONSHIP, not the argument. Both builders call the same factory
     // and the padding choice is now the only thing separating them; a swap is
     // silent in both directions — AI ceilings would count alignment spaces
-    // again, and office export would lose the 2+ spaces it splits rows on.
+    // again, and office export would lose the padding it places columns by.
     const row = "North   1200  1350";
     const wired = { resolveOnPath: () => true, ...seams(row) };
 
@@ -401,7 +401,7 @@ describe("deps wiring — readiness must reflect the host, not the wiring", () =
     ).toBe("North 1200 1350");
     expect(
       (await office!(PDF)).text,
-      "PDF→Office export splits spreadsheet rows on runs of 2+ spaces; " +
+      "PDF to Excel places each cell by its position on the padded line; " +
         "collapsing here merges its columns",
     ).toBe(row);
   });

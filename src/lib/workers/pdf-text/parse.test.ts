@@ -127,8 +127,8 @@ describe("parseLayoutText", () => {
   });
 
   it("preserves the run-of-spaces column alignment -layout produces", () => {
-    // The office-export engine splits spreadsheet rows on 2+ spaces, so collapsing
-    // them here would silently merge columns.
+    // PDF to Excel places each cell by its position on the padded line, so
+    // collapsing the padding here would silently merge columns.
     const out = parseLayoutText("North               1200   1350");
     expect(out.text).toBe("North               1200   1350");
   });

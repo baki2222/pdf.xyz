@@ -3,16 +3,26 @@ import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import {
   columnsReadInOrder,
+  INVOICE_SHEET,
+  invoiceSheetMismatches,
   LEFT_COLUMN,
   rc4EncryptedPdf,
   RIGHT_COLUMN,
   TABLE_ROWS,
 } from "@/tests/pdf-office-fixtures";
+import * as popplerSamples from "@/tests/poppler-samples";
 import {
+  INVOICE_LAYOUT,
+  INVOICE_SPACED_LAYOUT,
   TABLE_BBOX,
   TWO_COLUMN_BBOX,
   TWO_COLUMN_LAYOUT,
 } from "@/tests/poppler-samples";
+import {
+  readXlsxSheet,
+  sheetGridProblems,
+  type SheetRead,
+} from "../ooxml/sheet-read";
 import { PdfTextExecError } from "../pdf-text/errors";
 import { flowText, type PdfFlowText } from "../pdf-text/flow";
 import { parseBboxFlow, parseLayoutText } from "../pdf-text/parse";
@@ -364,5 +374,106 @@ describe("coverage — which pages had text to export", () => {
         littleTextPageCount: 0,
       },
     });
+  });
+});
+
+describe("pdf-to-excel puts every value in its own column", () => {
+  // Read back from the .xlsx a user downloads, cell by cell. What shipped split
+  // `-layout` lines on `	| {2,}|,` and dropped the empty pieces: `1,250.00`
+  // became two cells, and a row with an empty cell moved every later value
+  // under the wrong header. The only test checked that sheet1.xml EXISTED.
+  const layoutOf =
+    (stdout: string): PdfTextExtractor =>
+    async () =>
+      parseLayoutText(stdout);
+
+  async function excelSheet(extract: PdfTextExtractor): Promise<SheetRead> {
+    const run = await runPdfOfficeExport("pdf-to-excel", PDF, { extract });
+    if (!run.ok) throw new Error(`pdf-to-excel failed: ${run.kind}`);
+    return readXlsxSheet(run.output);
+  }
+
+  it.each([
+    ["rows 16pt apart", INVOICE_LAYOUT],
+    ["rows 24pt apart, a blank line between each", INVOICE_SPACED_LAYOUT],
+  ])("writes a real poppler invoice cell for cell (%s)", async (_, stdout) => {
+    const sheet = await excelSheet(layoutOf(stdout));
+    // Health check: the comparison below walks INVOICE_SHEET, so a sheet
+    // with no rows must not be able to look like a clean one.
+    expect(sheet.rows).toHaveLength(INVOICE_SHEET.length);
+    expect(invoiceSheetMismatches(sheet)).toEqual([]);
+    expect(sheetGridProblems(sheet)).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the invoice checker sees a value moved one column left", async () => {
+    const sheet = await excelSheet(layoutOf(INVOICE_LAYOUT));
+    const row = sheet.rows[4]!; // 1002, with the empty Description
+    const moved: SheetRead = {
+      rows: sheet.rows.map((r) =>
+        r !== row
+          ? r
+          : {
+              ...r,
+              cells: r.cells.map((c) =>
+                c.column === 3 ? { ...c, ref: "C5", column: 2 } : c,
+              ),
+            },
+      ),
+    };
+    expect(invoiceSheetMismatches(moved)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^C5: want absent/)]),
+    );
+  });
+
+  it("gives a row wider than 26 columns AA, AB… — every reference once, left to right", async () => {
+    const labels = Array.from({ length: 30 }, (_, i) => `c${i + 1}`);
+    const sheet = await excelSheet(layoutOf(labels.join("   ")));
+    expect(sheetGridProblems(sheet)).toEqual([]);
+    const cells = sheet.rows[0]!.cells;
+    expect(cells.map((c) => c.value)).toEqual(labels);
+    // Decoded by the reader, which shares nothing with the writer.
+    expect(cells.map((c) => c.column)).toEqual(labels.map((_, i) => i));
+    expect(cells.slice(25).map((c) => c.ref)).toEqual([
+      "Z1",
+      "AA1",
+      "AB1",
+      "AC1",
+      "AD1",
+    ]);
+  });
+
+  it("writes a well-formed grid for EVERY captured poppler -layout sample", async () => {
+    // Discovered, not named: every `*_LAYOUT` capture in the samples module.
+    const samples = Object.entries(popplerSamples as Record<string, unknown>)
+      .filter(([name]) => name.endsWith("_LAYOUT"))
+      .map(([name, stdout]) => [name, String(stdout)] as const);
+    expect(samples.length).toBeGreaterThanOrEqual(3);
+    for (const [name, stdout] of samples) {
+      const sheet = await excelSheet(layoutOf(stdout));
+      const cellCount = sheet.rows.reduce((n, r) => n + r.cells.length, 0);
+      expect(cellCount, name).toBeGreaterThan(0);
+      expect(sheetGridProblems(sheet), name).toEqual([]);
+    }
+  });
+
+  it("POSITIVE CONTROL: the grid checker sees duplicate and backwards references", () => {
+    const cell = (ref: string, column: number) => ({
+      ref,
+      column,
+      row: 1,
+      type: "text" as const,
+      value: "x",
+      format: "General",
+    });
+    expect(
+      sheetGridProblems({
+        rows: [{ r: 1, cells: [cell("Z1", 25), cell("Z1", 25)] }],
+      }),
+    ).toHaveLength(1);
+    expect(
+      sheetGridProblems({
+        rows: [{ r: 1, cells: [cell("B1", 1), cell("A1", 0)] }],
+      }),
+    ).toHaveLength(1);
   });
 });

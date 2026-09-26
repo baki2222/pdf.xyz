@@ -18,6 +18,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 // for this Latin text it picks the same Helvetica faces, so the captured
 // poppler samples match these fixtures byte for byte in their geometry.
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import { cellsByRef, type SheetRead } from "@/lib/workers/ooxml/sheet-read";
 
 /** The left column of {@link twoColumnReportPdf}, one printed line each. */
 export const LEFT_COLUMN = [
@@ -277,6 +278,159 @@ export async function partlyScannedPdf(
       page.drawText(stamp, { x: 50, y: 750, size: 10, font });
   }
   return doc.save();
+}
+
+// ───────────────────────────── PDF to Excel ─────────────────────────────────
+
+/** The two lines {@link invoicePdf} prints above its table. */
+export const INVOICE_HEADING = [
+  "Invoice",
+  "Acme Supplies, 12 Market Street",
+] as const;
+/**
+ * The table {@link invoicePdf} draws, as printed; `""` draws nothing. Built
+ * from the shapes PDF to Excel shipped broken: a thousands separator, a comma
+ * inside text, an EMPTY middle cell, a Total row with two empty cells, a code
+ * with a leading zero, and currency.
+ */
+export const INVOICE_ROWS = [
+  ["Invoice No", "Date", "Description", "Qty", "Amount"],
+  ["1001", "2026-01-05", "Widgets, blue", "2", "1,250.00"],
+  ["1002", "2026-01-06", "", "5", "$3,400.50"],
+  ["00123", "2026-01-07", "Smith, John", "12", "980.25"],
+  ["Total", "", "", "19", "$5,630.75"],
+] as const;
+
+/** A cell as the XLSX must hold it: text, or a number and its display format. */
+export type ExpectedCell =
+  { text: string } | { number: number; format: string } | null;
+const textCell = (t: string): ExpectedCell => ({ text: t });
+const numberCell = (number: number, format = "0"): ExpectedCell => ({
+  number,
+  format,
+});
+/**
+ * Every row of the sheet PDF to Excel must write for {@link invoicePdf}, from
+ * A1 down, typed by hand as an INDEPENDENT bound — not derived from the
+ * writer's own number rules. `null` is a cell that must be absent.
+ */
+export const INVOICE_SHEET: readonly (readonly ExpectedCell[])[] = [
+  [textCell(INVOICE_HEADING[0])],
+  [textCell(INVOICE_HEADING[1])],
+  INVOICE_ROWS[0].map((t) => textCell(t)),
+  [
+    numberCell(1001),
+    textCell("2026-01-05"),
+    textCell("Widgets, blue"),
+    numberCell(2),
+    numberCell(1250, "#,##0.00"),
+  ],
+  [
+    numberCell(1002),
+    textCell("2026-01-06"),
+    null,
+    numberCell(5),
+    numberCell(3400.5, '"$"#,##0.00'),
+  ],
+  [
+    textCell("00123"),
+    textCell("2026-01-07"),
+    textCell("Smith, John"),
+    numberCell(12),
+    numberCell(980.25, "0.00"),
+  ],
+  [
+    textCell("Total"),
+    null,
+    null,
+    numberCell(19),
+    numberCell(5630.75, '"$"#,##0.00'),
+  ],
+];
+
+/**
+ * {@link INVOICE_ROWS} under {@link INVOICE_HEADING}: text columns flush left,
+ * Qty and Amount flush RIGHT (headers included), the way invoices are set.
+ * `rowGap` 24 makes poppler print a blank line between rows.
+ */
+export async function invoicePdf(rowGap = 16): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const all = [...INVOICE_HEADING, ...INVOICE_ROWS.flat()];
+  const font = await embedDrawingFont(doc, all);
+  const bold = await embedDrawingFont(doc, all, "sans-bold");
+  const page = doc.addPage([612, 792]);
+  page.drawText(INVOICE_HEADING[0], { x: 50, y: 740, size: 18, font: bold });
+  page.drawText(INVOICE_HEADING[1], { x: 50, y: 716, size: 11, font });
+  const left = [50, 130, 220];
+  const right = [420, 520];
+  INVOICE_ROWS.forEach((row, r) =>
+    row.forEach((cell, c) => {
+      if (!cell) return;
+      const face = r === 0 ? bold : font;
+      const x =
+        c < left.length
+          ? left[c]!
+          : right[c - left.length]! - face.widthOfTextAtSize(cell, 11);
+      page.drawText(cell, { x, y: 680 - r * rowGap, size: 11, font: face });
+    }),
+  );
+  return doc.save();
+}
+
+/** The 30 headings {@link wideRowPdf} prints on one line — four past Z. */
+export const WIDE_ROW = Array.from(
+  { length: 30 },
+  (_, i) => `Col${i + 1}`,
+) as readonly string[];
+
+/** {@link WIDE_ROW} across one wide page, 58pt apart. */
+export async function wideRowPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, WIDE_ROW);
+  const page = doc.addPage([40 + WIDE_ROW.length * 58, 200]);
+  WIDE_ROW.forEach((label, i) =>
+    page.drawText(label, { x: 40 + i * 58, y: 120, size: 11, font }),
+  );
+  return doc.save();
+}
+
+/**
+ * Where the sheet read back differs from {@link INVOICE_SHEET}, one line per
+ * cell — every expected cell, AND every cell the sheet has that was not
+ * expected. Empty means the sheet is exactly right.
+ */
+export function invoiceSheetMismatches(sheet: SheetRead): string[] {
+  const cells = cellsByRef(sheet);
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  INVOICE_SHEET.forEach((row, r) =>
+    row.forEach((want, c) => {
+      const ref = `${String.fromCharCode(65 + c)}${r + 1}`;
+      seen.add(ref);
+      const got = cells.get(ref);
+      const shown = got
+        ? `${got.type} ${JSON.stringify(got.value)} (${got.format})`
+        : "absent";
+      if (want === null) {
+        if (got) problems.push(`${ref}: want absent, got ${shown}`);
+      } else if ("text" in want) {
+        if (got?.type !== "text" || got.value !== want.text)
+          problems.push(
+            `${ref}: want text ${JSON.stringify(want.text)}, got ${shown}`,
+          );
+      } else if (
+        got?.type !== "number" ||
+        Number(got.value) !== want.number ||
+        got.format !== want.format
+      )
+        problems.push(
+          `${ref}: want number ${want.number} (${want.format}), got ${shown}`,
+        );
+    }),
+  );
+  for (const ref of cells.keys())
+    if (!seen.has(ref)) problems.push(`${ref}: unexpected cell`);
+  return problems;
 }
 
 // ─────────────────────────── hand-written RC4 PDF ───────────────────────────

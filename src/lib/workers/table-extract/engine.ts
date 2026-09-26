@@ -1,4 +1,11 @@
 import JSZip from "jszip";
+import {
+  SheetStyles,
+  STYLES_CONTENT_TYPE_OVERRIDE,
+  stylesRelationship,
+  worksheetXml,
+  xmlEscape,
+} from "../ooxml/sheet-cells";
 
 /**
  * Table extraction engine for the `extract-tables` tool.
@@ -240,42 +247,13 @@ export function toCsv(rows: string[][]): string {
   return rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
 }
 
-function xmlEscape(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/** A1-style column reference for a 0-based column index (supports >26 columns). */
-function columnRef(index: number): string {
-  let ref = "";
-  let n = index;
-  do {
-    ref = String.fromCharCode(65 + (n % 26)) + ref;
-    n = Math.floor(n / 26) - 1;
-  } while (n >= 0);
-  return ref;
-}
-
-function worksheetXml(rows: string[][]): string {
-  const sheetData = rows
-    .map((row, ri) => {
-      const cells = row
-        .map(
-          (value, ci) =>
-            `<c r="${columnRef(ci)}${ri + 1}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`,
-        )
-        .join("");
-      return `<row r="${ri + 1}">${cells}</row>`;
-    })
-    .join("");
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetData}</sheetData></worksheet>`;
-}
-
 /** Build a single, multi-sheet XLSX workbook — one sheet per detected table. */
 async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
+  // Cells, column letters and number rules are shared with PDF to Excel —
+  // see `../ooxml/sheet-cells`. Sheets first: they register the formats that
+  // `xl/styles.xml` must declare.
+  const styles = new SheetStyles();
+  const sheets = tables.map((table) => worksheetXml(table.rows, styles));
   const zip = new JSZip();
   const sheetOverrides = tables
     .map(
@@ -285,7 +263,7 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
     .join("");
   zip.file(
     "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheetOverrides}</Types>`,
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheetOverrides}${STYLES_CONTENT_TYPE_OVERRIDE}</Types>`,
   );
   zip.file(
     "_rels/.rels",
@@ -298,7 +276,9 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
         (_, i) =>
           `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`,
       )
-      .join("")}</Relationships>`,
+      .join(
+        "",
+      )}${stylesRelationship(`rId${tables.length + 1}`)}</Relationships>`,
   );
   zip.file(
     "xl/workbook.xml",
@@ -309,9 +289,10 @@ async function buildXlsx(tables: DetectedTable[]): Promise<Uint8Array> {
       )
       .join("")}</sheets></workbook>`,
   );
-  tables.forEach((table, i) =>
-    zip.file(`xl/worksheets/sheet${i + 1}.xml`, worksheetXml(table.rows)),
+  sheets.forEach((sheet, i) =>
+    zip.file(`xl/worksheets/sheet${i + 1}.xml`, sheet),
   );
+  zip.file("xl/styles.xml", styles.xml());
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
 

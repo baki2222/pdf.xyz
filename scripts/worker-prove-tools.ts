@@ -64,6 +64,14 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import {
+  readXlsxSheet,
+  sheetGridProblems,
+} from "@/lib/workers/ooxml/sheet-read";
+import {
+  invoicePdf,
+  invoiceSheetMismatches,
+} from "@/tests/pdf-office-fixtures";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
@@ -786,11 +794,32 @@ const SPECS: ProofSpec[] = [
   },
   {
     tool: "pdf-to-excel",
-    make: tablePdf,
-    name: "table.pdf",
+    make: async () => Buffer.from(await invoicePdf()),
+    name: "invoice.pdf",
     type: PDF_MIME,
     expect: isZipContainer,
     want: "XLSX",
+    // `PK` at byte 0 was true of the sheet this tool shipped, which put
+    // `1,250.00` in two columns and moved every value after an empty cell
+    // under the wrong header. Read every cell at its reference instead: the
+    // invoice carries a thousands separator, a comma inside text, empty
+    // cells, a leading-zero code and currency.
+    verify: async (bytes) => {
+      const sheet = await readXlsxSheet(bytes);
+      const problems = [
+        ...sheetGridProblems(sheet),
+        ...invoiceSheetMismatches(sheet),
+      ];
+      return problems.length === 0
+        ? {
+            ok: true,
+            detail: `${sheet.rows.length} row(s), every invoice cell at its reference`,
+          }
+        : {
+            ok: false,
+            detail: `sheet1.xml differs from the invoice in ${problems.length} place(s): ${problems.slice(0, 4).join("; ")}`,
+          };
+    },
   },
   {
     tool: "pdf-to-powerpoint",

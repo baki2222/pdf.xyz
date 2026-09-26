@@ -10,7 +10,14 @@ import {
   type PdfFlowText,
   type PdfFlowTextPage,
 } from "../pdf-text/flow";
+import {
+  SheetStyles,
+  STYLES_CONTENT_TYPE_OVERRIDE,
+  stylesRelationship,
+  worksheetXml,
+} from "../ooxml/sheet-cells";
 import { pdfHasEncryptionDictionary } from "./encryption";
+import { layoutGrid } from "./layout-grid";
 
 export const PDF_TO_WORD_TOOL = "pdf-to-word";
 export const PDF_TO_EXCEL_TOOL = "pdf-to-excel";
@@ -40,7 +47,7 @@ export interface PdfOfficeExportDeps {
   /**
    * Reading order (`-bbox-layout` flows and blocks) — Word. Separate because
    * `-layout` glues a two-column page's columns together line by line, and
-   * Excel's row splitting depends on exactly that padding. Word never falls
+   * Excel's column placement depends on exactly that padding. Word never falls
    * back to `extract`: without this it reports `unsupported`.
    */
   extractFlow?: PdfFlowExtractor;
@@ -143,19 +150,20 @@ async function docx(pages: readonly PdfFlowTextPage[]): Promise<Uint8Array> {
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
 
-function rows(text: string): string[][] {
-  return lines(text).map((l) =>
-    l
-      .split(/\t| {2,}|,/)
-      .map((c) => c.trim())
-      .filter(Boolean),
-  );
-}
-async function xlsx(text: string): Promise<Uint8Array> {
+/**
+ * The XLSX: every page's `-layout` lines placed into columns by position
+ * (`./layout-grid`), one sheet row per non-blank line, pages in order. Cells
+ * go through the shared writer, so a value is a number when its whole text is
+ * one and a column past Z is AA — see `../ooxml/sheet-cells`.
+ */
+async function xlsx(pages: ExtractedPdfText["pages"]): Promise<Uint8Array> {
+  const rows = pages.flatMap((page) => layoutGrid(page.text));
+  const styles = new SheetStyles();
+  const sheet = worksheetXml(rows, styles);
   const zip = new JSZip();
   zip.file(
     "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>${STYLES_CONTENT_TYPE_OVERRIDE}</Types>`,
   );
   zip.file(
     "_rels/.rels",
@@ -163,22 +171,14 @@ async function xlsx(text: string): Promise<Uint8Array> {
   );
   zip.file(
     "xl/_rels/workbook.xml.rels",
-    `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>${stylesRelationship("rId2")}</Relationships>`,
   );
   zip.file(
     "xl/workbook.xml",
     `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Extracted text" sheetId="1" r:id="rId1"/></sheets></workbook>`,
   );
-  const sheetData = rows(text)
-    .map(
-      (r, ri) =>
-        `<row r="${ri + 1}">${r.map((c, ci) => `<c r="${String.fromCharCode(65 + Math.min(ci, 25))}${ri + 1}" t="inlineStr"><is><t>${esc(c)}</t></is></c>`).join("")}</row>`,
-    )
-    .join("");
-  zip.file(
-    "xl/worksheets/sheet1.xml",
-    `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetData}</sheetData></worksheet>`,
-  );
+  zip.file("xl/worksheets/sheet1.xml", sheet);
+  zip.file("xl/styles.xml", styles.xml());
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
 
@@ -319,7 +319,7 @@ async function renderLayout(
   if (tool === PDF_TO_EXCEL_TOOL)
     return {
       ...base,
-      output: await xlsx(extracted.text),
+      output: await xlsx(extracted.pages),
       filenameExt: "xlsx",
       contentType:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

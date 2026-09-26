@@ -180,8 +180,9 @@ async function runPdfText(
  *
  * REQUIRED, with no default, because the two consumers need opposite things and
  * the wrong one is silent either way. `keep` for anything that reads structure
- * out of the spacing — PDF→Office export splits spreadsheet rows on 2+ spaces,
- * so collapsing would merge its columns. `collapse` for anything that feeds a
+ * out of the spacing — PDF to Excel places each cell in a column by where its
+ * text sits on the padded line (`pdf-office-export/layout-grid`), so collapsing
+ * would merge its columns and move empty cells. `collapse` for anything that feeds a
  * language model, where the gap width is noise that inflates the character count
  * the AI ceilings are compared against and is paid for again in output tokens.
  */

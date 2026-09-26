@@ -10,6 +10,11 @@ import {
   type PdfLayoutPage,
   type PositionedTextItem,
 } from "./engine";
+import {
+  cellsByRef,
+  readXlsxSheet,
+  sheetGridProblems,
+} from "../ooxml/sheet-read";
 
 /** A positioned text item with sane defaults for width/height. */
 function item(
@@ -145,6 +150,49 @@ describe("buildTablesZip", () => {
     expect(await zip.file("table-1.csv")!.async("string")).toBe(
       "Name,Age\r\nAlice,30",
     );
+  });
+});
+
+describe("tables.xlsx — cells written by the shared sheet writer", () => {
+  // PDF to Excel and this engine each carried a cell writer, and they
+  // disagreed. Both now use `../ooxml/sheet-cells`; this reads the workbook a
+  // user opens, through a reader that shares nothing with that writer.
+  async function tableSheet(rows: string[][]) {
+    const zip = await JSZip.loadAsync(
+      await buildTablesZip([{ pageNumber: 1, rows }]),
+    );
+    const xlsx = await zip.file("tables.xlsx")!.async("uint8array");
+    return readXlsxSheet(xlsx);
+  }
+
+  it("stores an unambiguous number as a number, and a code as text", async () => {
+    const sheet = await tableSheet([
+      ["Item", "Amount"],
+      ["Widgets, blue", "1,250.00"],
+      ["Code", "00123"],
+    ]);
+    expect(sheetGridProblems(sheet)).toEqual([]);
+    const cells = cellsByRef(sheet);
+    expect(cells.get("A2")).toMatchObject({
+      type: "text",
+      value: "Widgets, blue",
+    });
+    expect(cells.get("B2")).toMatchObject({
+      type: "number",
+      value: "1250.00",
+      format: "#,##0.00",
+    });
+    expect(cells.get("B3")).toMatchObject({ type: "text", value: "00123" });
+  });
+
+  it("leaves an empty cell empty in its own column, past Z included", async () => {
+    const wide = Array.from({ length: 30 }, (_, i) => `h${i + 1}`);
+    const sparse = wide.map((_, i) => (i === 1 ? "" : `v${i + 1}`));
+    const sheet = await tableSheet([wide, sparse]);
+    expect(sheetGridProblems(sheet)).toEqual([]);
+    const cells = cellsByRef(sheet);
+    expect(cells.has("B2")).toBe(false);
+    expect(cells.get("AD2")).toMatchObject({ value: "v30" });
   });
 });
 

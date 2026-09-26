@@ -22,6 +22,9 @@ import {
   HIGHLIGHTS_LEFT,
   HIGHLIGHTS_RIGHT,
   incomeStatementPdf,
+  INVOICE_SHEET,
+  invoicePdf,
+  invoiceSheetMismatches,
   newsletterPdf,
   NEWSLETTER_LEFT,
   NEWSLETTER_RIGHT,
@@ -38,7 +41,10 @@ import {
   STATEMENT_ROWS,
   TABLE_ROWS,
   twoColumnReportPdf,
+  WIDE_ROW,
+  wideRowPdf,
 } from "@/tests/pdf-office-fixtures";
+import { readXlsxSheet, sheetGridProblems } from "../ooxml/sheet-read";
 import { nativePdfOfficeExportDeps } from "../pdf-text/native";
 import { readDocxParagraphs } from "./docx-text";
 import {
@@ -191,5 +197,35 @@ suite(label, () => {
           pagesWithLittleText: [1],
         },
       });
+  });
+
+  it.each([16, 24])(
+    "PDF to Excel writes an invoice cell for cell — rows %ipt apart",
+    async (rowGap) => {
+      const run = await runPdfOfficeExport(
+        "pdf-to-excel",
+        await invoicePdf(rowGap),
+        deps(),
+      );
+      if (!run.ok) throw new Error(`pdf-to-excel failed: ${run.kind}`);
+      const sheet = await readXlsxSheet(run.output);
+      expect(sheet.rows).toHaveLength(INVOICE_SHEET.length);
+      expect(invoiceSheetMismatches(sheet)).toEqual([]);
+      expect(sheetGridProblems(sheet)).toEqual([]);
+    },
+  );
+
+  it("PDF to Excel gives a 30-column row AA… references, each once, in order", async () => {
+    const run = await runPdfOfficeExport(
+      "pdf-to-excel",
+      await wideRowPdf(),
+      deps(),
+    );
+    if (!run.ok) throw new Error(`pdf-to-excel failed: ${run.kind}`);
+    const sheet = await readXlsxSheet(run.output);
+    expect(sheetGridProblems(sheet)).toEqual([]);
+    expect(sheet.rows).toHaveLength(1);
+    expect(sheet.rows[0]!.cells.map((c) => c.value)).toEqual(WIDE_ROW);
+    expect(sheet.rows[0]!.cells.at(-1)!.ref).toBe("AD1");
   });
 });
