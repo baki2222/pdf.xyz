@@ -1,3 +1,4 @@
+import { MUST_ALLOW, MUST_BLOCK } from "@/lib/net/public-address.corpus";
 import { describe, expect, it } from "vitest";
 import {
   isSafePublicHttpUrl,
@@ -163,4 +164,43 @@ describe("public URL SSRF guard", () => {
     expect(isSafePublicHttpUrl("https://example.com/invoice.html")).toBe(true);
     expect(isSafePublicHttpUrl("http://example.org/path?q=1")).toBe(true);
   });
+
+  /*
+   * History: until 2026-09 this guard matched host STRINGS (`/^127\./`,
+   * `host === "[::1]"`) and every URL in the audit list below walked past it.
+   * The corpus is the classifier's own, spelled as URLs the way a user would
+   * type them, so the edge and the worker can never disagree about an address.
+   */
+  const asUrl = (addr: string) =>
+    addr.includes(":") ? `http://[${addr}]/` : `http://${addr}/`;
+
+  it.each([
+    "http://localhost./",
+    "http://LOCALHOST../admin",
+    "http://[::ffff:127.0.0.1]/",
+    "http://[::]/",
+    "http://[fd00::1]/",
+    "http://[fe80::1]/",
+    "http://100.100.100.200/",
+    "http://100.64.0.1/",
+    "http://0.0.0.1/",
+    "http://[::ffff:169.254.169.254]/",
+    "http://0x7f000001/", // WHATWG canonicalises to 127.0.0.1
+    "http://2130706433/",
+    "http://127.1/",
+    "http://metadata/computeMetadata/v1/",
+    "http://metadata.google.internal/",
+    "http://printer.local./",
+    "http://x.invalid/",
+    ...MUST_BLOCK.map(asUrl),
+  ])("blocks bypass %s", (url) => {
+    expect(isSafePublicHttpUrl(url)).toBe(false);
+  });
+
+  it.each(MUST_ALLOW.map(asUrl))(
+    "still allows public literal %s (positive control)",
+    (url) => {
+      expect(isSafePublicHttpUrl(url)).toBe(true);
+    },
+  );
 });

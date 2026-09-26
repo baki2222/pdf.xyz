@@ -374,6 +374,55 @@ function htmlFile(): Buffer {
   );
 }
 
+/**
+ * The renderer-isolation proof's page. Until 2026-09 the worker rendered an
+ * uploaded page from `file://` with Chromium's network open, and this exact
+ * page came back with the worker's local files and internal answers printed in
+ * it. Each reach below must come back EMPTY, while the visible line proves the
+ * page itself rendered (so an empty PDF cannot pass).
+ */
+const ISOLATION_VISIBLE = "pdf.xyz renderer isolation proof";
+function isolationHtmlFile(): Buffer {
+  return Buffer.from(
+    `<!doctype html><html><head><meta charset="utf-8"><title>isolation</title></head>
+<body><h1>${ISOLATION_VISIBLE}</h1>
+<iframe src="file:///etc/passwd" width="600" height="200"></iframe>
+<iframe src="file:///proc/self/environ" width="600" height="200"></iframe>
+<iframe src="http://169.254.169.254/latest/meta-data/" width="600" height="200"></iframe>
+<iframe src="http://127.0.0.1:3000/" width="600" height="200"></iframe>
+<pre id="out"></pre>
+<script>
+for (const u of ["file:///etc/passwd", "http://169.254.169.254/latest/meta-data/"])
+  fetch(u).then(r => r.text()).then(t => { out.textContent += "REACHED:" + t.slice(0, 200); })
+    .catch(() => {});
+</script></body></html>`,
+    "utf8",
+  );
+}
+
+/** Markers any one of which means the page read something it must not. */
+const ISOLATION_LEAKS: readonly { marker: RegExp; what: string }[] = [
+  { marker: /root:[^:\s]*:0:0/, what: "/etc/passwd" },
+  { marker: /PDFXYZ_|PATH=|HOSTNAME=/, what: "a process environment" },
+  { marker: /ami-id|instance-id|local-ipv4/, what: "a metadata service" },
+  { marker: /REACHED:/, what: "a script-side read" },
+];
+
+async function pdfPlainText(bytes: Buffer): Promise<string> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+  const doc = await task.promise;
+  let text = "";
+  for (let i = 1; i <= doc.numPages; i++) {
+    const content = await (await doc.getPage(i)).getTextContent();
+    text += content.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join(" ");
+  }
+  await task.destroy();
+  return text.replace(/\s+/g, " ");
+}
+
 function csvFile(): Buffer {
   return Buffer.from("Region,Q1,Q2\nNorth,1200,1350\nSouth,980,1020\n", "utf8");
 }
@@ -718,6 +767,36 @@ const SPECS: ProofSpec[] = [
     type: "text/html",
     expect: isPdf,
     want: "PDF",
+  },
+  // The renderer must not read the worker's files or reach its private
+  // network on an uploaded page's say-so. `verify` decodes the PDF the user
+  // gets back; the visible line is the positive control.
+  {
+    tool: "html-to-pdf",
+    label: "html-to-pdf (isolation)",
+    make: isolationHtmlFile,
+    name: "isolation.html",
+    type: "text/html",
+    expect: isPdf,
+    verify: async (bytes) => {
+      const text = await pdfPlainText(bytes);
+      if (!text.includes(ISOLATION_VISIBLE))
+        return {
+          ok: false,
+          detail: `the page's own text is missing (${text.length} chars extracted), so an absent leak proves nothing`,
+        };
+      const leaks = ISOLATION_LEAKS.filter((l) => l.marker.test(text));
+      return leaks.length === 0
+        ? {
+            ok: true,
+            detail: "page rendered; no local file or internal address reached",
+          }
+        : {
+            ok: false,
+            detail: `the PDF contains ${leaks.map((l) => l.what).join(", ")}`,
+          };
+    },
+    want: "PDF showing the page and nothing of the worker",
   },
   {
     tool: "webpage-to-pdf",

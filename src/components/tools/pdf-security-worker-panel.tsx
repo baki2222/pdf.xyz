@@ -261,9 +261,10 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
 
         <p className="text-muted text-xs leading-relaxed">
           No account required. This runs on an isolated secure worker: files are
-          encrypted in transit and at rest, processed in a sandbox with no
-          network egress, and deleted automatically. Your password is used only
-          to perform the operation and is never stored or logged.
+          encrypted in transit and at rest, processed in a temporary per-job
+          folder that is erased when the job ends, and deleted automatically.
+          Your password is used only to perform the operation and is never
+          stored or logged.
         </p>
       </div>
     </div>

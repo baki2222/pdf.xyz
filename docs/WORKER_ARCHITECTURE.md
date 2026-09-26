@@ -614,7 +614,7 @@ URL-input example:
 }
 ```
 
-The URL validator blocks localhost, private IPv4 ranges, link-local/cloud metadata ranges, embedded credentials, non-http(s) protocols, and internal/local hostnames. Production workers must also enforce network egress rules; this edge validator is defense-in-depth, not the only SSRF protection.
+The URL validator refuses internal hostnames, every non-public IPv4/IPv6 range (`src/lib/net/public-address.ts`), embedded credentials and non-http(s) protocols. It is the early rejection only. The enforcement is in the worker's Chromium renderer (`src/lib/workers/html-render/network.ts`), which resolves and checks every request the page makes — redirects and sub-resources included — and connects only to the address it checked.
 
 ### `GET /api/jobs/:id`
 
@@ -860,7 +860,7 @@ Each job runs in an isolated temporary directory/container. Recommended processo
 - No document contents in logs.
 - Strict timeout and memory limits.
 - No arbitrary file paths in requests or outputs.
-- Network egress disabled by default; webpage-to-PDF is the only exception and still requires SSRF guards.
+- Chromium renders (HTML and webpage to PDF) have no network of their own: every request is fulfilled by the worker after a public-address check, and uploaded HTML is never read from `file://`. No other processor is network-isolated today — the worker process reaches storage, the queue and AI providers by design.
 - Signed, expiring download URLs.
 - Idempotency keys for retry-safe job creation.
 
