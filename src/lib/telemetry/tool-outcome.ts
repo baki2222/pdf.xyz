@@ -1,11 +1,20 @@
 /**
- * Tool-run outcomes — `tool_completed` / `tool_failed` — sent from the two
- * places every run already passes through, so no runner or panel can forget.
+ * Tool-run outcomes — `tool_completed` / `tool_failed` — sent from wherever a
+ * run keeps its own state:
  *
- *  - Browser runners: `useAsyncRun` (runner-kit), the state machine all 26
- *    `useAsyncRun` runners share.
- *  - Worker panels: {@link withToolOutcome} around the job lifecycles
- *    (`runSecurityJob`, which eleven panels share, and `runWorkerOcr`).
+ *  - Browser runners: `useAsyncRun` (runner-kit), which most runners share;
+ *    and the two that hold their own run state — compress's on-device analysis
+ *    (`CompressEditor`) and the batch runner (`useBatchRunner`, one outcome per
+ *    file).
+ *  - Worker jobs: {@link withToolOutcome} around every function that creates a
+ *    job (`POST /api/jobs`) — `runSecurityJob` (which most panels share),
+ *    `runWorkerOcr`, `runWorkerCompression` and `runWorkerWebpageToPdf`.
+ *
+ * This list is not the guard. It once said "the two places every run already
+ * passes through, so no runner or panel can forget" while compress-pdf and
+ * webpage-to-pdf passed through neither. `run-outcome-coverage.test.ts`
+ * DISCOVERS the run paths — every job creation, every function declaring its
+ * own busy/running state — and fails on one that reaches no reporter.
  *
  * WHY A PAGE REGISTRY rather than a slug argument: the shared hook does not
  * know which tool it runs, and the capability is a catalog fact the job

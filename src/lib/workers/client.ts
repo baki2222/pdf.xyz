@@ -20,6 +20,9 @@ import type { ApiError } from "@/lib/jobs/responses";
 import type { CompressionProfile } from "./compression/engine";
 import { pollJobToTerminal } from "./job-polling";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
+import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
+
+const COMPRESS_TOOL = "compress-pdf";
 
 /** What the caller wants compressed, and how. */
 export interface CompressWorkerInput {
@@ -128,6 +131,18 @@ export async function runWorkerCompression(
   input: CompressWorkerInput,
   options: CompressWorkerOptions = {},
 ): Promise<CompressWorkerResult> {
+  // The run's outcome is reported here, where every deep-compression job
+  // passes — see `@/lib/telemetry/tool-outcome`. It was not, until the audit
+  // after 6a2fc17: compress-pdf, the most-used tool, sent no outcome at all.
+  return withToolOutcome(COMPRESS_TOOL, () =>
+    runWorkerCompressionSteps(input, options),
+  );
+}
+
+async function runWorkerCompressionSteps(
+  input: CompressWorkerInput,
+  options: CompressWorkerOptions,
+): Promise<CompressWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const { signal } = options;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -140,7 +155,7 @@ export async function runWorkerCompression(
     body: toArrayBuffer(
       new TextEncoder().encode(
         JSON.stringify({
-          tool: "compress-pdf",
+          tool: COMPRESS_TOOL,
           files: [
             {
               filename: input.filename,
@@ -187,7 +202,7 @@ export async function runWorkerCompression(
     body: toArrayBuffer(
       new TextEncoder().encode(
         JSON.stringify({
-          tool: "compress-pdf",
+          tool: COMPRESS_TOOL,
           inputs: [slot.fileId],
           // Carry the original filename as display-only metadata so the worker
           // names the output after it. The server re-sanitizes it and never lets

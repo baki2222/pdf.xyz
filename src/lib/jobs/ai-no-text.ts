@@ -15,7 +15,8 @@
  * refuses before upload, so the two can never tell a user different things.
  *
  * The key set is the catalog's AI-capability tools, exactly — pinned in both
- * directions by `ai-no-text.test.ts`. A key the catalog does not have is
+ * directions by `src/lib/workers/ai-text-preflight.test.ts` ("is exactly the
+ * catalog's AI tools, in both directions"). A key the catalog does not have is
  * decoration; an AI tool with no key would upload a scan and spend the
  * allowance on it. And it must NEVER contain OCR, whose whole input is a PDF
  * with no selectable text.

@@ -66,13 +66,25 @@ from:
 
 - `tool_viewed` — `ToolTelemetry`, mounted by the tool page. It is re-sent once
   when a real sink is first configured, because GA4 is enabled from the root
-  layout's effect, which React runs after the page's.
+  layout's effect, which React runs after the page's. The first send goes to
+  the environment default (`defaultSinkFor`: a console sink in development, a
+  no-op everywhere else), the second to the configured sink — one send per
+  sink, never two to the same one.
 - `tool_completed` / `tool_failed` — `useAsyncRun` (every browser runner that
-  uses it) and `withToolOutcome` around `runSecurityJob` and `runWorkerOcr`
-  (the worker panels), via
+  uses it), compress's own on-device analysis and the batch runner (one
+  outcome per file), and `withToolOutcome` around every function that creates
+  a job — `runSecurityJob`, `runWorkerOcr`, `runWorkerCompression` and
+  `runWorkerWebpageToPdf` — via
   [`tool-outcome.ts`](../src/lib/telemetry/tool-outcome.ts). The reason is
   `toolErrorReason(code)` — a fixed category from the error CODE, never the
-  message. Output size is deliberately not sent.
+  message. Output size is deliberately not sent. A first version reported from
+  `useAsyncRun`, `runSecurityJob` and `runWorkerOcr` only, and compress-pdf
+  and webpage-to-pdf — which hold their own run state — sent nothing.
+  [`run-outcome-coverage.test.ts`](../src/lib/telemetry/run-outcome-coverage.test.ts)
+  now discovers every job creation and every function that declares its own
+  busy/running state, and fails on one that reaches no reporter. It checks that
+  a run CALLS a reporter, not that every branch of it does; the behavioural
+  chain is `tool-outcome.test.tsx`.
 - `workspace_handoff_created` — `launchHandoff` in the workspace, only when a
   hand-off token was really created.
 

@@ -9,7 +9,16 @@
  * reason, and never the error message.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { act, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { ReactNode } from "react";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { useEffect } from "react";
 import {
@@ -28,6 +37,9 @@ import {
   runSecurityJob,
   type FetchLike,
 } from "@/lib/workers/pdf-security-client";
+import { runWorkerCompression } from "@/lib/workers/client";
+import { runWorkerWebpageToPdf } from "@/lib/workers/html-render-client";
+import { CompressRunner } from "@/components/tools/runner/compress-runner";
 
 const SECRET = "clientlist-2026.pdf could not be read";
 
@@ -38,6 +50,7 @@ function sink(): RedactedEvent[] {
 }
 
 afterEach(() => {
+  cleanup();
   resetTelemetry();
 });
 
@@ -255,5 +268,124 @@ describe("worker panels — runSecurityJob reports the outcome", () => {
       },
     );
     expect(seen.filter((e) => e.name === "tool_failed")).toEqual([]);
+  });
+});
+
+/**
+ * THE DEFECT (review of 6a2fc17): the outcome was reported from `useAsyncRun`,
+ * `runSecurityJob` and `runWorkerOcr`, and the docblock said "no runner or
+ * panel can forget". Three run paths passed through none of them: compress's
+ * own analysis state and its deep `runWorkerCompression` job, the batch runner
+ * (compress with 2+ files), and `runWorkerWebpageToPdf`'s own job lifecycle.
+ * So compress-pdf and webpage-to-pdf never sent an outcome. Each case below
+ * drives the real path and reads the sink; each failed on 6a2fc17.
+ * `run-outcome-coverage.test.ts` is the guard that discovers such paths.
+ */
+describe("the run paths that held their own state now report", () => {
+  it("deep compression (runWorkerCompression) reports as compress-pdf", async () => {
+    const seen = sink();
+    render(<ToolTelemetry toolSlug="compress-pdf" capability="in-browser" />);
+    const result = await runWorkerCompression(
+      { filename: "doc.pdf", bytes: await textPdf(), profile: "deep" },
+      { fetchImpl: notConfigured },
+    );
+    expect(result.ok).toBe(false);
+    expect(seen.filter((e) => e.name === "tool_failed")).toEqual([
+      {
+        name: "tool_failed",
+        toolSlug: "compress-pdf",
+        capability: "in-browser",
+        reason: "worker-unavailable",
+      },
+    ]);
+    expect(JSON.stringify(seen)).not.toContain("clientlist");
+  });
+
+  it("webpage to PDF (runWorkerWebpageToPdf) reports as webpage-to-pdf", async () => {
+    const seen = sink();
+    render(
+      <ToolTelemetry toolSlug="webpage-to-pdf" capability="secure-worker" />,
+    );
+    const result = await runWorkerWebpageToPdf("https://example.com/", {
+      fetchImpl: notConfigured,
+    });
+    expect(result.ok).toBe(false);
+    expect(seen.filter((e) => e.name === "tool_failed")).toEqual([
+      {
+        name: "tool_failed",
+        toolSlug: "webpage-to-pdf",
+        capability: "secure-worker",
+        reason: "worker-unavailable",
+      },
+    ]);
+  });
+
+  const router = {
+    push: () => {},
+    replace: () => {},
+    refresh: () => {},
+    back: () => {},
+    forward: () => {},
+    prefetch: () => {},
+    hmrRefresh: () => {},
+  };
+  function page(ui: ReactNode) {
+    return render(
+      <AppRouterContext.Provider value={router as never}>
+        <ToolTelemetry toolSlug="compress-pdf" capability="in-browser" />
+        {ui}
+      </AppRouterContext.Provider>,
+    );
+  }
+  function pick(container: HTMLElement, files: File[]) {
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error("no file input rendered");
+    fireEvent.change(input, { target: { files } });
+  }
+  const pdfFile = async (name: string) =>
+    new File([Buffer.from(await textPdf())], name, {
+      type: "application/pdf",
+    });
+
+  it("compress, one file: the on-device analysis is a completed run", async () => {
+    const seen = sink();
+    const { container } = page(<CompressRunner />);
+    pick(container, [await pdfFile("report.pdf")]);
+    await waitFor(
+      () =>
+        expect(seen.filter((e) => e.name === "tool_completed")).toHaveLength(1),
+      { timeout: 10_000 },
+    );
+    expect(seen.find((e) => e.name === "tool_completed")).toMatchObject({
+      toolSlug: "compress-pdf",
+      capability: "in-browser",
+    });
+    expect(JSON.stringify(seen)).not.toContain("report.pdf");
+  });
+
+  it("compress, a batch: every file is one run, and a broken one is a failure", async () => {
+    const seen = sink();
+    const { container } = page(<CompressRunner />);
+    pick(container, [
+      await pdfFile("a.pdf"),
+      await pdfFile("b.pdf"),
+      new File([Buffer.from("not a pdf at all")], "broken.pdf", {
+        type: "application/pdf",
+      }),
+    ]);
+    fireEvent.click(await screen.findByRole("button", { name: /Compress 3/ }));
+    await waitFor(
+      () => {
+        expect(seen.filter((e) => e.name === "tool_completed")).toHaveLength(2);
+        expect(seen.filter((e) => e.name === "tool_failed")).toHaveLength(1);
+      },
+      { timeout: 10_000 },
+    );
+    for (const e of seen.filter(
+      (x) => x.name.startsWith("tool_") && x.name !== "tool_viewed",
+    ))
+      expect(e).toMatchObject({ toolSlug: "compress-pdf" });
+    expect(JSON.stringify(seen)).not.toContain("broken");
   });
 });
