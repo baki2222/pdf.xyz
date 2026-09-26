@@ -13,6 +13,8 @@
  * advertise both entry points. Nothing here re-derives the URL by hand; each
  * side is read through the same accessor the framework uses.
  */
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GET } from "./sitemap-index.xml/route";
 import sitemap from "./sitemap";
@@ -24,7 +26,8 @@ async function indexXml(): Promise<string> {
   return await GET().text();
 }
 
-const CANONICAL_SITEMAP = new URL("/sitemap.xml", siteConfig.url).toString();
+/** Still served, still advertised in robots.txt — just no longer the index's child. */
+const LEGACY_SITEMAP = new URL("/sitemap.xml", siteConfig.url).toString();
 
 describe("the sitemap index points at a sitemap that exists", () => {
   it("is well-formed sitemapindex XML with the right namespace", async () => {
@@ -39,10 +42,29 @@ describe("the sitemap index points at a sitemap that exists", () => {
     expect([...xml.matchAll(/<sitemap>/g)]).toHaveLength(1);
   });
 
-  it("names the canonical sitemap URL, not a hand-typed one", async () => {
+  it("names a child that a real route in src/app serves", async () => {
+    // WAS `expect(loc).toBe(...)` against a constant typed by hand, under the
+    // title "names the canonical sitemap URL, not a hand-typed one". The
+    // relationship worth pinning is that the pointer RESOLVES: the <loc> path
+    // must be a route file that exists, and `sitemaps-pages.test.ts` proves
+    // that route serves exactly `sitemap()`'s URLs. Index → route → the one
+    // URL list: the chain, not the unit.
     const xml = await indexXml();
     const loc = /<loc>([^<]+)<\/loc>/.exec(xml)?.[1];
-    expect(loc).toBe(CANONICAL_SITEMAP);
+    expect(loc, "the index names no child").toBeTruthy();
+    const routeFile = path.join(
+      process.cwd(),
+      "src/app",
+      new URL(loc!).pathname,
+      "route.ts",
+    );
+    expect(
+      existsSync(routeFile),
+      "the index points at " + loc + " but " + routeFile + " does not exist",
+    ).toBe(true);
+    // Not the metadata-route sitemap, which Google has never read — see
+    // src/app/sitemaps/pages.xml/route.ts for the measurements.
+    expect(loc).not.toBe(LEGACY_SITEMAP);
 
     // And that URL is one the sitemap route really serves: every entry the
     // sitemap emits sits under the same origin, so a changed siteConfig.url
@@ -79,7 +101,7 @@ describe("the sitemap index points at a sitemap that exists", () => {
   it("robots.txt advertises both entry points", () => {
     const declared = robots().sitemap;
     const list = Array.isArray(declared) ? declared : [declared];
-    expect(list).toContain(CANONICAL_SITEMAP);
+    expect(list).toContain(LEGACY_SITEMAP);
     expect(list).toContain(
       new URL("/sitemap-index.xml", siteConfig.url).toString(),
     );

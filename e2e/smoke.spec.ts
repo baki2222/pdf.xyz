@@ -145,6 +145,22 @@ test.describe("production hardening", () => {
     expect(sitemapBody).toContain("<urlset");
     expect(sitemapBody).toContain("/tools/merge-pdf");
 
+    // Follow the index the way a crawler does — read its child from the
+    // served XML rather than naming it here — and require the same page set
+    // the metadata-route sitemap publishes. The index is what Google reads.
+    const index = await request.get("/sitemap-index.xml");
+    expect(index.status()).toBe(200);
+    const child = /<loc>([^<]+)<\/loc>/.exec(await index.text())?.[1];
+    expect(child, "the sitemap index names no child").toBeTruthy();
+    const childRes = await request.get(new URL(child!).pathname);
+    expect(childRes.status()).toBe(200);
+    expect(childRes.headers()["content-type"]).toContain("xml");
+    const childBody = await childRes.text();
+    const urlsOf = (xml: string) =>
+      [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]).sort();
+    expect(urlsOf(childBody).length).toBeGreaterThan(60);
+    expect(urlsOf(childBody)).toEqual(urlsOf(sitemapBody));
+
     const manifest = await request.get("/manifest.webmanifest");
     expect(manifest.status()).toBe(200);
     const manifestJson = JSON.parse(await manifest.text());

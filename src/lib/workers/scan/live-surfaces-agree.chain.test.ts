@@ -167,7 +167,30 @@ function stringLeaves(value: unknown, out: string[]): string[] {
   return out;
 }
 
-/** Split a served body into sentences, JSON or not. */
+/**
+ * An address, not a sentence. A URL's slug is made of words and says nothing:
+ * `/guides/how-to-make-a-scanned-pdf-searchable` is not a claim that uploads
+ * are scanned.
+ */
+const URL_TOKEN = /\bhttps?:\/\/[^\s<>"']+/gi;
+
+/**
+ * Split a served body into sentences, JSON or not.
+ *
+ * WAS: a non-JSON body became ONE sentence, split only at `. ; ! ?`. That held
+ * for every surface this walked until 2026-09-27, when `/sitemaps/pages.xml`
+ * joined the corpus — 67 `<loc>` URLs with no sentence punctuation between
+ * them. `scanned` from one guide's URL and `files` from ANOTHER guide's URL
+ * landed in the same "sentence", and the classifier correctly read the
+ * sentence it was handed as "uploads are scanned". The classifier was right;
+ * the splitter had built a sentence that no document contains. A composed
+ * check failing at the seam, not at either part.
+ *
+ * So a markup tag now ends a sentence too — no claim spans two elements — and
+ * URLs are removed before classifying. Neither change can hide a real claim:
+ * prose never lives inside a URL, and a sentence that crossed an element
+ * boundary was never one sentence. The controls below pin both directions.
+ */
 function sentencesOf(body: string): string[] {
   let prose: string[];
   try {
@@ -176,7 +199,8 @@ function sentencesOf(body: string): string[] {
     prose = [body]; // a non-JSON surface (an icon, a text file) is still read
   }
   return prose
-    .flatMap((s) => s.split(/(?<=[.;!?])\s+/))
+    .map((s) => s.replace(URL_TOKEN, " "))
+    .flatMap((s) => s.split(/(?<=[.;!?])\s+|<[^>]*>/))
     .map((s) => s.trim())
     .filter(Boolean);
 }
@@ -416,4 +440,66 @@ describe("every live surface answers the running worker's answer about uploads",
       expect(wrong).toEqual([]);
     });
   }
+});
+
+describe("the sentence splitter builds only sentences a document contains", () => {
+  it("does not assemble a claim out of two different URLs", () => {
+    // The body that broke it, reduced: `scanned` in one guide's slug, `files`
+    // in another's, no sentence punctuation between them.
+    const sitemapShape = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      "<urlset>",
+      "<url><loc>https://pdf.xyz/guides/how-to-make-a-scanned-pdf-searchable</loc></url>",
+      "<url><loc>https://pdf.xyz/guides/how-to-merge-pdf-files</loc></url>",
+      "</urlset>",
+    ].join(String.fromCharCode(10));
+    const claims = sentencesOf(sitemapShape)
+      .map(classify)
+      .filter((c) => c !== null);
+    expect(claims).toEqual([]);
+  });
+
+  it("ends a sentence at a tag, even between prose elements", () => {
+    // Isolates the TAG split. No URL here, so URL stripping cannot rescue it:
+    // without the split, these two list items read as one sentence with an
+    // upload subject and a scan verb.
+    const list =
+      "<ul><li>Files are uploaded over TLS</li><li>scanned documents become searchable</li></ul>";
+    expect(
+      sentencesOf(list)
+        .map(classify)
+        .filter((c) => c !== null),
+    ).toEqual([]);
+  });
+
+  it("does not read a URL's slug as words in a sentence", () => {
+    // Isolates the URL strip. One sentence, no tags, so the tag split cannot
+    // rescue it: the only `scanned` is inside the address.
+    const oneSentence =
+      "Your files stay local — read https://pdf.xyz/guides/how-to-make-a-scanned-pdf-searchable to learn more";
+    expect(
+      sentencesOf(oneSentence)
+        .map(classify)
+        .filter((c) => c !== null),
+    ).toEqual([]);
+  });
+
+  it("still hears a real claim, in markup and in JSON, in both arms", () => {
+    // Positive controls THROUGH the splitter, so the fix above cannot have
+    // blinded it: the shipped sentence from the 2026-08-22 incident, wrapped
+    // in an element, and its negation inside a JSON payload.
+    const html =
+      "<p>Every file is scanned for malware before any processor touches it.</p>";
+    expect(sentencesOf(html).map(classify)).toContain("scanned");
+
+    const json = JSON.stringify({
+      detail: "Malware scanning is not configured; uploads are not scanned.",
+    });
+    expect(sentencesOf(json).map(classify)).toContain("not-scanned");
+
+    // And a URL inside an otherwise real sentence does not stop it counting.
+    const withLink =
+      "Uploads are scanned before processing — see https://pdf.xyz/privacy for how.";
+    expect(sentencesOf(withLink).map(classify)).toContain("scanned");
+  });
 });
