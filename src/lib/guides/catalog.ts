@@ -18,6 +18,7 @@
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
+import { HYBRID_WORKER_STEP } from "@/lib/tools/processing";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
@@ -285,8 +286,9 @@ export const guides: Guide[] = [
       },
       {
         question: "Is my PDF uploaded when I compress it?",
-        answer:
-          "Not for the analysis or the lossless repack — both run in your browser, and on that path the file stays on your device. The optional deep image compression step is the exception: there, your PDF is uploaded to a secure, auto-deleting worker, and the page checks a worker is available before anything leaves your device.",
+        // The worker sentence is the tool page's own (HYBRID_WORKER_STEP): the
+        // page and this guide answer the same question, so they share the words.
+        answer: `Not for the analysis or the lossless repack — both run in your browser, and on that path the file stays on your device. The exception is deep image compression. ${HYBRID_WORKER_STEP}`,
       },
       {
         question: "How large can my PDF be?",

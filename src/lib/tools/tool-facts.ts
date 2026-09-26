@@ -28,6 +28,7 @@ import {
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
+import { HYBRID_SUMMARY } from "./processing";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import {
   ANNOTATION_FACT,
@@ -339,43 +340,77 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
   const capability = capabilityForMode(tool.processing);
   const entries: ToolFaqEntry[] = [];
 
-  if (capability === "in-browser") {
-    entries.push({
-      question: `Is my file uploaded when I use ${tool.name}?`,
-      answer:
-        "No. This tool runs entirely in your browser with WebAssembly and browser APIs — the file stays on your device from start to finish.",
-    });
-    entries.push({
-      question: `Does ${tool.name} work offline?`,
-      // Wording bounded by what ships today: the engine chunk is fetched on
-      // first use (file pick / first run), so "page loaded" alone does NOT
-      // make the work connection-proof — the earlier claim said it did.
-      answer:
-        "Not fully — the page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the processing itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
-    });
-  } else {
-    // An AI tool's answer names where the TEXT goes. This answer ships as
-    // FAQPage JSON-LD, and for the four AI tools it used to say only "processed
-    // on an encrypted, isolated worker" — true of the extraction, silent about
-    // the third-party provider that does the actual work (privacy policy §3).
-    const retention = `the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`;
-    if (getToolInputKind(tool.slug) === "url") {
-      // No file: the question a URL tool's reader has is what we do with the
-      // address. It used to be asked "What happens to my file", and answered
-      // "The file is processed … Inputs are wiped", of a tool with no file.
+  const retention = `the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`;
+
+  /*
+   * EXHAUSTIVE over the capability, so a new mode is a compile error here rather
+   * than a silent fall into whichever arm is last. There used to be two arms —
+   * in-browser, and `else` — and hybrid fell into the worker arm: Compress PDF's
+   * only privacy answer, shipped as FAQPage JSON-LD, said "The file is processed
+   * on an encrypted, isolated worker" of a tool whose default path never calls
+   * the API. `hybrid-copy.test.ts` reads the served JSON-LD for it.
+   */
+  switch (capability) {
+    case "in-browser": {
       entries.push({
-        question: `What happens when ${tool.name} runs?`,
-        answer: `Nothing is uploaded from your device. A browser on our processing server loads the page from the internet — the site sees the request come from our server, not from you — and prints it to PDF; ${retention}`,
+        question: `Is my file uploaded when I use ${tool.name}?`,
+        answer:
+          "No. This tool runs entirely in your browser with WebAssembly and browser APIs — the file stays on your device from start to finish.",
       });
-    } else {
-      const where =
-        capability === "ai"
-          ? "Our processing server extracts the PDF's selectable text and sends that text — not the file — to a third-party AI provider to produce the result."
-          : "The file is processed on an encrypted, isolated worker.";
       entries.push({
-        question: `What happens to my file after ${tool.name} runs?`,
-        answer: `${where} Inputs are wiped when the job finishes, ${retention}`,
+        question: `Does ${tool.name} work offline?`,
+        // Wording bounded by what ships today: the engine chunk is fetched on
+        // first use (file pick / first run), so "page loaded" alone does NOT
+        // make the work connection-proof — the earlier claim said it did.
+        answer:
+          "Not fully — the page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the processing itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
       });
+      break;
+    }
+    case "hybrid": {
+      // The question a searcher asks, answered with both paths — the same
+      // sentence the mode line and the capability descriptor carry.
+      entries.push({
+        question: `Is my file uploaded when I use ${tool.name}?`,
+        answer: `Not by default. ${HYBRID_SUMMARY}`,
+      });
+      // Retention is true of the worker step only, so it is asked of that step.
+      entries.push({
+        question: `What happens to my file if I run the optional secure-worker step?`,
+        answer: `Only then does the file leave your device. Inputs are wiped when the job finishes, ${retention}`,
+      });
+      break;
+    }
+    case "secure-worker":
+    case "ai": {
+      // An AI tool's answer names where the TEXT goes. This answer ships as
+      // FAQPage JSON-LD, and for the four AI tools it used to say only
+      // "processed on an encrypted, isolated worker" — true of the extraction,
+      // silent about the third-party provider that does the actual work
+      // (privacy policy §3).
+      if (getToolInputKind(tool.slug) === "url") {
+        // No file: the question a URL tool's reader has is what we do with the
+        // address. It used to be asked "What happens to my file", and answered
+        // "The file is processed … Inputs are wiped", of a tool with no file.
+        entries.push({
+          question: `What happens when ${tool.name} runs?`,
+          answer: `Nothing is uploaded from your device. A browser on our processing server loads the page from the internet — the site sees the request come from our server, not from you — and prints it to PDF; ${retention}`,
+        });
+      } else {
+        const where =
+          capability === "ai"
+            ? "Our processing server extracts the PDF's selectable text and sends that text — not the file — to a third-party AI provider to produce the result."
+            : "The file is processed on an encrypted, isolated worker.";
+        entries.push({
+          question: `What happens to my file after ${tool.name} runs?`,
+          answer: `${where} Inputs are wiped when the job finishes, ${retention}`,
+        });
+      }
+      break;
+    }
+    default: {
+      const unhandled: never = capability;
+      throw new Error(`toolFaq: no answer for capability ${String(unhandled)}`);
     }
   }
 
@@ -481,6 +516,15 @@ function defaultSteps(tool: Tool): readonly string[] {
       "Choose your options.",
       "Run the tool in your browser.",
       "Save the result to your device.",
+    ];
+  }
+  if (capability === "hybrid") {
+    // Never the upload flow below: a hybrid tool's default path stays on the
+    // device, and its worker step is one the user starts.
+    return [
+      `Open the tool and pick your ${formats} file — the main work runs in your browser.`,
+      "Save the result to your device.",
+      `Optionally, start the clearly labeled secure-worker step — only then is the file uploaded, and its download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ];
   }
   if (getToolInputKind(tool.slug) === "url") {

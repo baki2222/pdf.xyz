@@ -30,6 +30,24 @@ export interface ProcessingMeta {
 }
 
 /**
+ * The hybrid mode's worker step, said once — read by this table, the capability
+ * descriptor (`jobs/capabilities.ts`), the tool FAQ and the compress guide.
+ *
+ * WAS "Runs in your browser when possible, with an encrypted server fallback for
+ * large or complex files", and the descriptor said the same with "when it can".
+ * Both described a mechanism that does not exist: nothing routes a file to the
+ * server. Compress PDF's analysis and lossless repack always run in the browser,
+ * whatever the size, and the worker pass happens only when the user presses its
+ * button — which the panel offers only after `/api/worker/status` says a worker
+ * can take it. `hybrid-copy.test.ts` holds the shipped sentences as its corpus.
+ */
+export const HYBRID_WORKER_STEP =
+  "An optional, clearly labeled step uploads the file to an encrypted secure worker — only when you start it, and only after the page confirms a worker is available.";
+
+/** The whole hybrid story in two sentences: the default path, then the step. */
+export const HYBRID_SUMMARY = `The main work runs in your browser, and on that path the file stays on your device. ${HYBRID_WORKER_STEP}`;
+
+/**
  * Honest, user-facing copy for each processing mode. This is what lets us tell
  * users exactly what happens to their files without over-promising.
  */
@@ -65,8 +83,7 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
   hybrid: {
     label: "Browser-first",
     short: "Hybrid",
-    description:
-      "Runs in your browser when possible, with an encrypted server fallback for large or complex files.",
+    description: HYBRID_SUMMARY,
     hue: {
       dot: "bg-cyan-600",
       card: {

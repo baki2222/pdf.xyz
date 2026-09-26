@@ -16,8 +16,8 @@ export type ToolCategoryId =
  * know what leaves their device.
  * - `client`  : runs fully in the browser (files never uploaded)
  * - `server`  : processed on ephemeral, auto-deleting workers
- * - `hybrid`  : client-first with an optional server fallback
- * - `ai`      : uses an AI model on secure infrastructure
+ * - `hybrid`  : client-first; an optional worker step the user starts
+ * - `ai`      : the PDF's text is sent to a third-party AI provider
  */
 export type ProcessingMode = "client" | "server" | "hybrid" | "ai";
 

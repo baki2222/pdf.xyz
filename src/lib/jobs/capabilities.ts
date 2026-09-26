@@ -7,6 +7,7 @@
  */
 
 import { getToolBySlug } from "@/lib/tools";
+import { HYBRID_SUMMARY } from "@/lib/tools/processing";
 import type { ProcessingMode, Tool } from "@/lib/tools/types";
 import { acceptsDamagedPdf } from "./damaged-input";
 import type { ToolCapability, ToolInputKind } from "./types";
@@ -25,8 +26,8 @@ export function capabilityForMode(mode: ProcessingMode): ToolCapability {
 
 /**
  * Whether a capability's server path uses the worker backend at all. `hybrid`
- * counts because a job submitted to the API is, by definition, taking the
- * server fallback path — the browser path never calls the API.
+ * counts because a job submitted to the API is, by definition, the optional
+ * worker step the user started — the browser path never calls the API.
  */
 export function usesWorkerBackend(capability: ToolCapability): boolean {
   return capability !== "in-browser";
@@ -68,8 +69,10 @@ export const CAPABILITY_DESCRIPTORS: Record<
   hybrid: {
     id: "hybrid",
     label: "Hybrid",
-    summary:
-      "Runs in your browser when it can, with an encrypted secure-worker fallback for large or complex files.",
+    // The mode line's own sentence, not a second one about the same mode: this
+    // said "when it can, with an encrypted secure-worker fallback for large or
+    // complex files" — a route to the server that does not exist.
+    summary: HYBRID_SUMMARY,
     uploadsFiles: true,
   },
   ai: {
