@@ -770,11 +770,16 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
         let j = i + 2;
         for (; j < lines.length; j++) {
           const line = lines[j]!.trim();
+          // GFM ends a table at a blank line or at the start of any other
+          // block, pipes or not: `- a | b` is a list item, not a row.
           if (
             !line ||
             QUOTE_LINE.test(line) ||
             ATX_HEADING.test(line) ||
-            FENCE_OPEN.test(lines[j]!)
+            FENCE_OPEN.test(lines[j]!) ||
+            THEMATIC_BREAK.test(line) ||
+            BULLET_ITEM.test(line) ||
+            ORDERED_ITEM.test(line)
           ) {
             break;
           }
@@ -893,9 +898,13 @@ function listMarker(block: MarkdownBlock & { kind: "list-item" }): string {
  *
  * Kept next to {@link drawBlock} and mirroring its cases on purpose: a new block
  * kind that draws a new marker has to be added in both, and the two sitting
- * together is the cheapest way to make that obvious. `markdown-to-pdf.test.ts`
- * pins the bullet specifically, because that is the character that broke, and
- * checks that every string the output PDF shows is covered by this corpus.
+ * together is the cheapest way to make that obvious. Two tests pin it, each by
+ * proving the glyphs in the output PDF, and each for ONE decoration: the bullet
+ * ("markdown picks a face that can draw the bullet it invents", in
+ * `unicode-font.test.ts`) and table cells ("a table in a script only its cells
+ * use still gets a face that can draw it", here). Nothing checks the corpus
+ * against every string the PDF shows, so a new decoration is covered only if
+ * it is added here by hand.
  */
 function drawnStrings(blocks: MarkdownBlock[], title: string): string[] {
   const out = [title, ELLIPSIS];
@@ -909,7 +918,11 @@ function drawnStrings(blocks: MarkdownBlock[], title: string): string[] {
         out.push(block.text);
         continue;
       case "table":
-        out.push(...block.header, ...block.rows.flat());
+        // Cell by cell, never `push(...cells)`: a table at the source cap has
+        // hundreds of thousands of cells, and a spread passes each one as an
+        // argument on the stack.
+        for (const cell of block.header) out.push(cell);
+        for (const row of block.rows) for (const cell of row) out.push(cell);
         continue;
       case "rule":
         // Drawn as a line, not as text.
@@ -981,13 +994,19 @@ function drawTable(
   const columns = block.header.length;
   const rows = [block.header, ...block.rows];
   const fontFor = (r: number) => (r === 0 ? bold : body);
+  // Each column's natural width is its widest cell. Folded, not
+  // `Math.max(...rows.map(...))`: that passes one argument per row, and a
+  // table at the source cap has more rows than the call stack has room for.
   const natural = Array.from(
     { length: columns },
     (_, c) =>
-      Math.max(
-        ...rows.map((row, r) =>
-          fontFor(r).widthOfTextAtSize(row[c] ?? "", TABLE_SIZE),
-        ),
+      rows.reduce(
+        (widest, row, r) =>
+          Math.max(
+            widest,
+            fontFor(r).widthOfTextAtSize(row[c] ?? "", TABLE_SIZE),
+          ),
+        0,
       ) +
       TABLE_PAD_X * 2,
   );
@@ -1004,7 +1023,11 @@ function drawTable(
     const cells = widths.map((w, c) =>
       wrapTextLine(row[c] ?? "", font, w - TABLE_PAD_X * 2 + 0.001, TABLE_SIZE),
     );
-    const height = Math.max(...cells.map((lines) => lines.length));
+    // Folded for the same reason, per column this time.
+    const height = cells.reduce(
+      (tallest, lines) => Math.max(tallest, lines.length),
+      0,
+    );
     // A row taller than the space left is continued on the next page; the
     // slice that fits is drawn as a row of its own, rules and all.
     for (let offset = 0; offset < height;) {

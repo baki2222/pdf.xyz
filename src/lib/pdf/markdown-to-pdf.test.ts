@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   PDFArray,
   PDFDict,
@@ -300,6 +301,158 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
     expect(text).toBe(source.trim());
     expect(elapsed).toBeLessThan(5_000);
   });
+});
+
+/* ------------------------------------------------------------------ *
+ *  Finding: a table under the source cap crashed the tool.
+ *
+ *  Table support spread one argument per cell (`out.push(...cells)`) and
+ *  one per row (`Math.max(...rows.map(...))`). A 40,000-row, 4-column table
+ *  (1.3 MB) threw "Maximum call stack size exceeded"; the renderer before
+ *  tables drew the same file. Nothing reached it: the linearity suite above
+ *  feeds single paragraphs, and vitest's worker threads have a 4 MB stack,
+ *  four times a browser main thread's — a 380,000-cell table passed HERE on
+ *  the broken code.
+ *
+ *  So the render runs where the stack is the consumer's shape: a child
+ *  `node`, main thread, the tool's real module through tsx. The child
+ *  MEASURES how many arguments its stack can spread, and every table is
+ *  built just past that, so the size follows the stack instead of a number
+ *  typed here. It runs with a fifth of node's default stack: the limit
+ *  scales with the stack and the property does not, and at the default
+ *  (984 KB, ~125,000 arguments — about what Chrome's main thread allows)
+ *  the same proof costs 8 s and 1.4 GB. The positive control is in the
+ *  child too: spreading as many arguments as the table has rows MUST throw
+ *  there, or the table proves nothing.
+ * ------------------------------------------------------------------ */
+
+const TABLE_CHILD = String.raw`
+const { markdownToPdf, parseMarkdownBlocks } = await import(process.env.MD_MODULE);
+let lo = 1, hi = 1 << 24;
+while (lo < hi) {
+  const mid = (lo + hi + 1) >> 1;
+  try { Math.max(...new Array(mid).fill(0)); lo = mid; } catch { hi = mid - 1; }
+}
+const n = Math.ceil(lo * 1.1);
+let spreadThrows = false;
+try { Math.max(...new Array(n).fill(0)); } catch (e) { spreadThrows = e instanceof RangeError; }
+const shapes = {
+  // n rows: every row-wise spread passes n arguments.
+  tall: "| h0 |\n| --- |\n" + "x\n".repeat(n),
+  // n columns: every cell-wise and column-wise spread passes n arguments.
+  wide: "|a|" + "c|".repeat(n - 2) + "z|\n|" + "-|".repeat(n) + "\n",
+};
+const out = { limit: lo, n, spreadThrows, cases: {} };
+for (const [name, source] of Object.entries(shapes)) {
+  const blocks = parseMarkdownBlocks(source);
+  const table = blocks[0];
+  const result = {
+    bytes: Buffer.byteLength(source),
+    blocks: blocks.length,
+    kind: table.kind,
+    columns: table.header?.length,
+    rows: table.rows?.length,
+  };
+  const started = performance.now();
+  try {
+    const pdf = await markdownToPdf(source, { title: name + ".md" });
+    result.pdf = Buffer.from(pdf).toString("base64");
+  } catch (error) {
+    result.error = String(error);
+  }
+  result.ms = performance.now() - started;
+  out.cases[name] = result;
+}
+process.stdout.write(JSON.stringify(out));
+`;
+
+interface TableCase {
+  bytes: number;
+  blocks: number;
+  kind: string;
+  columns: number;
+  rows: number;
+  pdf?: string;
+  error?: string;
+  ms: number;
+}
+
+let tableRun: {
+  limit: number;
+  n: number;
+  spreadThrows: boolean;
+  cases: Record<"tall" | "wide", TableCase>;
+} | null = null;
+
+function renderTablesInChild() {
+  tableRun ??= JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        "--stack-size=200",
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        TABLE_CHILD,
+      ],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        maxBuffer: 256 * 1024 * 1024,
+        env: {
+          ...process.env,
+          MD_MODULE: pathToFileURL(path.join(__dirname, "markdown-to-pdf.ts"))
+            .href,
+        },
+      },
+    ),
+  );
+  return tableRun!;
+}
+
+describe("a table stays renderable up to the source cap", () => {
+  it("the child's stack cannot spread one argument per row (health check)", () => {
+    const run = renderTablesInChild();
+    // Plausible: a stack that allowed millions would make every table below
+    // pass whatever the renderer spreads; one that allowed a handful would
+    // mean the child is not the shape of a browser's main thread at all.
+    expect(run.limit).toBeGreaterThan(5_000);
+    expect(run.limit).toBeLessThan(200_000);
+    expect(run.n).toBeGreaterThan(run.limit);
+    expect(run.spreadThrows).toBe(true);
+  }, 120_000);
+
+  it.each(["tall", "wide"] as const)(
+    "a %s table past that limit, under the cap, reaches the page cell for cell",
+    async (name) => {
+      const { n, cases } = renderTablesInChild();
+      const result = cases[name];
+      // Under the cap, so the tool accepts it; ONE table of the built shape,
+      // so a table that fell through to a paragraph cannot pass.
+      expect(result.bytes).toBeLessThanOrEqual(MAX_SOURCE_BYTES);
+      expect(result.blocks).toBe(1);
+      expect(result.kind).toBe("table");
+      expect(name === "tall" ? result.rows : result.columns).toBe(n);
+      expect(result.error).toBeUndefined();
+      expect(result.ms).toBeLessThan(30_000);
+
+      // What the reader receives: every cell typed is drawn, once.
+      const texts = (
+        await drawnRuns(new Uint8Array(Buffer.from(result.pdf!, "base64")))
+      ).map((run) => run.text);
+      const count = (cell: string) => texts.filter((t) => t === cell).length;
+      if (name === "tall") {
+        expect(count("h0")).toBe(1);
+        expect(count("x")).toBe(n);
+      } else {
+        expect(count("a")).toBe(1);
+        expect(count("c")).toBe(n - 2);
+        expect(count("z")).toBe(1);
+      }
+    },
+    120_000,
+  );
 });
 
 /* ------------------------------------------------------------------ *
@@ -713,6 +866,56 @@ describe("block structure", () => {
         text: "sibling continued lazily",
       },
     ]);
+  });
+
+  it.each([
+    "- item after table",
+    "* starred item",
+    "+ plus item",
+    "1. ordered item",
+    "2) ordered item",
+    "---",
+    "***",
+    "> quoted",
+    "## heading",
+  ])("a table ends where %j starts a block (GFM 4.10)", (line) => {
+    // Before: the row loop stopped only at a blank line, a quote, a heading or
+    // a fence, so a list or a rule straight after a table became a row —
+    // ["- item after table", ""] — and printed its own syntax in a cell.
+    const alone = parseMarkdownBlocks(line);
+    // Health check: the line really is a block of its own, not prose.
+    expect(alone).toHaveLength(1);
+    expect(alone[0]!.kind).not.toBe("paragraph");
+    const blocks = parseMarkdownBlocks(
+      `| a | b |\n|---|---|\n| 1 | 2 |\n${line}`,
+    );
+    expect(blocks).toEqual([
+      {
+        kind: "table",
+        align: ["left", "left"],
+        header: ["a", "b"],
+        rows: [["1", "2"]],
+      },
+      ...alone,
+    ]);
+  });
+
+  it("a table still takes a plain line with no pipe as a row (GFM example 202)", () => {
+    // The control for the break above: ending the table at ANY line would
+    // pass it too.
+    expect(parseMarkdownBlocks("| a | b |\n|---|---|\n| 1 | 2 |\nbar")).toEqual(
+      [
+        {
+          kind: "table",
+          align: ["left", "left"],
+          header: ["a", "b"],
+          rows: [
+            ["1", "2"],
+            ["bar", ""],
+          ],
+        },
+      ],
+    );
   });
 
   it("GFM tables become rows and cells, with escaped pipes kept", () => {
