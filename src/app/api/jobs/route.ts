@@ -29,7 +29,12 @@ import {
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
 import { apiError } from "@/lib/jobs/responses";
 import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
-import { readJsonBody, respond, respondRateLimited } from "../_lib/http";
+import {
+  readJsonBody,
+  rejectCrossSite,
+  respond,
+  respondRateLimited,
+} from "../_lib/http";
 
 // Never statically cached: a request-scoped, no-store endpoint. Node runtime —
 // the local-dev adapter uses Node built-ins (lazily imported only in that mode).
@@ -37,6 +42,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: Request): Promise<Response> {
+  // Cross-site browser writes are refused before anything else — including
+  // the rate-limit charge they would otherwise spend (see rejectCrossSite).
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   // Abuse guard first, before reading the body: throttle a flood before doing any
   // work. A no-op unless a limiter is configured (see @/lib/ratelimit); the honest
   // not-configured semantics below are otherwise untouched.

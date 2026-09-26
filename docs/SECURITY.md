@@ -169,6 +169,13 @@ is on, so the production build is unaffected. The full design is in
 **Strict validation at the edge** (`src/lib/jobs/validation.ts`):
 
 - Only worker-capable tools accept jobs; in-browser tools are rejected.
+- Every state-changing API handler refuses a cross-site browser request FIRST
+  (`rejectCrossSite` in `src/app/api/_lib/http.ts`: `Sec-Fetch-Site` must be
+  `same-origin` or `none`, else `Origin` must name this host) — before the
+  rate-limit charge a hostile page would otherwise spend from its visitors'
+  budgets. JSON bodies are accepted only when the Content-Type ESSENCE is
+  `application/json`; `text/plain;application/json` (CORS-safelisted, so
+  sendable cross-site without a preflight) is refused with 415.
 - Filenames may not contain path separators or `..` traversal.
 - Declared MIME types must be in the tool's allowlist; sizes are bounded by
   `JOB_LIMITS` (100 MB/file, 500 MB/session, 20 files) and request bodies are
