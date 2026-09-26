@@ -1,6 +1,7 @@
 import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
+import { displayedPageSize } from "./page-frame";
 import { rasterizePdf, type RasterCanvasInfo, type RasterPage } from "./render";
 
 /**
@@ -123,21 +124,10 @@ export function redactionFillHex(fill: RedactionFill | undefined): string {
   return fill === "white" ? "#ffffff" : "#000000";
 }
 
-/**
- * A page's displayed size, accounting for its rotation: a page rotated 90°/270°
- * presents its media box's height as its width and vice-versa. This is the space
- * a redaction rectangle is expressed in — the page as the viewer sees it.
- */
-export function displayedPageSize(
-  width: number,
-  height: number,
-  rotationDegrees = 0,
-): PageSize {
-  const angle = ((Math.round(rotationDegrees) % 360) + 360) % 360;
-  return angle === 90 || angle === 270
-    ? { width: height, height: width }
-    : { width, height };
-}
+// A redaction rectangle is expressed in the page as the viewer sees it. The
+// rotation-aware size lives in page-frame.ts so Edit PDF sizes its pages with the
+// same definition; re-exported here for existing callers.
+export { displayedPageSize };
 
 function isFiniteNumber(value: number): boolean {
   return typeof value === "number" && Number.isFinite(value);
