@@ -37,6 +37,10 @@ import { DEFAULT_RETENTION, JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
 import { MAX_OCR_LANGUAGES, OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { toolCount } from "@/lib/tools";
 import { DEFAULT_JOB_TTL_SECONDS } from "@/lib/workers/queue/redis-config";
+import {
+  RETENTION_WINDOW_MINUTES,
+  RETENTION_WINDOWS,
+} from "@/lib/retention-windows";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import { processingSplit } from "./processing-split";
 
@@ -130,10 +134,88 @@ const OWNED: { value: number; units: readonly string[]; source: string }[] = [
     units: ["mb"],
     source: "MAX_SOURCE_BYTES (tools/limits, text/markdown source cap)",
   },
+  // Every retention clock the policy pages state, registered by ITERATING the
+  // derivation rather than by retyping its keys: a clock added there is owned
+  // here the same day. They overlap on purpose — 1 day is the job record's TTL
+  // AND the lifecycle rule's age — and a finding names every owner it equals,
+  // because picking one would tell the writer which clock they meant.
+  ...Object.entries(RETENTION_WINDOW_MINUTES).map(([clock, minutes]) => ({
+    value: minutes,
+    units: ["minutes", "minute", "min"] as const,
+    source: `RETENTION_WINDOW_MINUTES.${clock}`,
+  })),
 ];
 
 const UNIT_PATTERN =
-  /\b(\d+(?:\.\d+)?)\s*(MB|GB|minutes?|hours?|files?|tools?|languages?|runs?\b|min\b)/gi;
+  /\b(\d+(?:\.\d+)?)\s*(MB|GB|minutes?|hours?|days?|weeks?|files?|tools?|languages?|runs?\b|min\b)/gi;
+
+/**
+ * A duration spelled in WORDS, which the digit pattern cannot see.
+ *
+ * Added 2026-09-27. The census matched digits only, so "lasts about a day"
+ * (homepage security section) and "is kept for about a day" (FAQ) stated the
+ * job record's lifetime — the queue's `DEFAULT_JOB_TTL_SECONDS` — with no
+ * number for it to read. Every surface carrying the fact in digits was
+ * derived; the two carrying it in words were free to drift.
+ *
+ * ANCHORED, because "a day" is also how this product states a RATE: "3 free
+ * AI runs a day", "the amount translated in a day". A bare
+ * `(an?|one) (minute|hour|day)` would flag those as the job TTL — a wrong
+ * owner is worse than none. The anchor is the word that makes it a LENGTH OF
+ * TIME: a hedge (about, around, roughly, ~), a bound (within, after, up to),
+ * or a span (for, lasts). The corpus test below proves both directions.
+ */
+const WORD_DURATION_PATTERN =
+  /(?:\b(?:about|around|roughly|approximately|nearly|almost|within|after|for|lasts?|up to)\s+|~\s*)(?:(?:about|around|roughly)\s+)?(an?|one)\s+(minute|hour|day|week)\b/gi;
+
+/** Minutes per duration unit, so "a day", "24 hours" and "1440 minutes" meet. */
+const MINUTES_PER: Record<string, number> = {
+  min: 1,
+  minute: 1,
+  hour: 60,
+  day: 24 * 60,
+  week: 7 * 24 * 60,
+};
+
+interface UnitLiteral {
+  literal: string;
+  value: number;
+  /** Singular, lower-case: "mb", "minute", "day", "tool"… */
+  unit: string;
+}
+
+/** Every unit-bearing figure in `source`, digit-spelled or word-spelled. */
+function unitLiterals(source: string): UnitLiteral[] {
+  const out: UnitLiteral[] = [];
+  for (const [literal, num, unitRaw] of source.matchAll(UNIT_PATTERN)) {
+    if (!literal || !num || !unitRaw) continue;
+    out.push({
+      literal,
+      value: Number(num),
+      unit: unitRaw.toLowerCase().replace(/s$/, ""),
+    });
+  }
+  for (const [literal, , unitRaw] of source.matchAll(WORD_DURATION_PATTERN)) {
+    if (!literal || !unitRaw) continue;
+    out.push({ literal, value: 1, unit: unitRaw.toLowerCase() });
+  }
+  return out;
+}
+
+/** Every owner whose figure equals this literal's, durations compared in minutes. */
+function ownersOf({ value, unit }: UnitLiteral): string[] {
+  const inMinutes = (n: number, u: string) =>
+    u.replace(/s$/, "") in MINUTES_PER
+      ? n * MINUTES_PER[u.replace(/s$/, "")]!
+      : undefined;
+  const mine = inMinutes(value, unit);
+  const sources = OWNED.filter((o) =>
+    mine !== undefined
+      ? o.units.some((u) => inMinutes(o.value, u) === mine)
+      : o.value === value && o.units.some((u) => u.replace(/s$/, "") === unit),
+  ).map((o) => o.source);
+  return [...new Set(sources)];
+}
 
 /* ------------------------------------------------------------------ *
  *  The copy surface (same walk as pricing-honesty + the workspace UI)
@@ -219,6 +301,21 @@ const ALLOWED: { file: string; literal: RegExp; reason: string }[] = [
   // is the value the queue parser falls back to, now exported, and the page
   // reads it through `RETENTION_WINDOWS.jobRecord`. It is registered in OWNED
   // above, so a hand-written "24 hours" is now a must-derive finding.
+  //
+  // THE ENTRY'S REASON WAS FALSE WHEN WRITTEN. It said "no compile-time owner
+  // exists yet" on 2026-08-09; `DEFAULT_JOB_TTL_SECONDS = 86_400` had existed
+  // in redis-config.ts since 2026-07-02, five weeks earlier — private, not
+  // absent. The exit condition named the MECHANISM ("exported") rather than
+  // the PROPERTY ("a default exists"), which is rule 2. And it was scoped to
+  // the one file that said it in digits: the homepage ("lasts about a day")
+  // and the FAQ ("kept for about a day") said the same thing in words the
+  // digit pattern could not read. Both now derive, and WORD_DURATION_PATTERN
+  // reads that spelling.
+  //
+  // What deriving cannot prove: that production runs the DEFAULT.
+  // `PDFXYZ_QUEUE_JOB_TTL_SECONDS` can override it and no page can read it, so
+  // every stated window is true only while production leaves it unset.
+  // `src/app/job-record-window.test.tsx` holds the operator docs to that.
 ];
 
 /**
@@ -236,28 +333,21 @@ function censusFindings(): Finding[] {
   const findings: Finding[] = [];
   for (const file of copyFiles()) {
     const source = withoutComments(readFileSync(file, "utf8"));
-    for (const match of source.matchAll(UNIT_PATTERN)) {
-      const [literal, num, unitRaw] = match;
-      if (!literal || !num || !unitRaw) continue;
-      const unit = unitRaw.toLowerCase().replace(/s$/, "");
-      const value = Number(num);
+    for (const found of unitLiterals(source)) {
+      const { literal, unit } = found;
       if (
         ALLOWED.some(
           (a) => a.file === relative(file) && a.literal.test(literal.trim()),
         )
       )
         continue;
-      const owner = OWNED.find(
-        (o) =>
-          o.value === value &&
-          o.units.some((u) => u.replace(/s$/, "") === unit),
-      );
-      if (owner) {
+      const owners = ownersOf(found);
+      if (owners.length > 0) {
         findings.push({
           file: relative(file),
           literal,
           rule: "must-derive",
-          detail: `equals ${owner.source} — derive it so the next config change cannot turn this into a lie`,
+          detail: `equals ${owners.join(" = ")} — derive it so the next config change cannot turn this into a lie`,
         });
       } else if (
         [
@@ -265,6 +355,8 @@ function censusFindings(): Finding[] {
           "gb",
           "minute",
           "hour",
+          "day",
+          "week",
           "file",
           "tool",
           "language",
@@ -338,5 +430,64 @@ describe("user-facing copy does not hand-write figures the code owns", () => {
       stale,
       `these baseline entries no longer occur — remove them so the debt is visible:\n  ${stale.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("reads durations spelled in words, and not rates (corpus, both directions)", () => {
+    // Rule 1: every shape shipped must be caught, and every pattern must
+    // catch something shipped. The first two are the sentences that carried
+    // the job record's lifetime past this census until 2026-09-27, verbatim.
+    // Read as MINUTES, not as an owner: the pattern's job is to see the
+    // figure, and pinning the owner here would fail for the wrong reason the
+    // day a TTL changes. Ownership is checked relationally below.
+    const caught: [sentence: string, minutes: number][] = [
+      [
+        "a job record — the file's name, never its contents — lasts about a day.",
+        24 * 60,
+      ],
+      [
+        "A job record — the file's name, never its contents — is kept for about a day.",
+        24 * 60,
+      ],
+      ["it is kept for about 24 hours", 24 * 60],
+      ["Downloads stop after an hour.", 60],
+      ["we delete files within an hour", 60],
+      ["the record is kept ~ a day", 24 * 60],
+      ["the bytes are erased after one day", 24 * 60],
+      ["the link lasts a minute", 1],
+      ["kept for up to a week", 7 * 24 * 60],
+    ];
+    for (const [sentence, minutes] of caught) {
+      const found = unitLiterals(sentence);
+      expect(found, `not read as a figure: "${sentence}"`).toHaveLength(1);
+      const { value, unit } = found[0]!;
+      expect(value * MINUTES_PER[unit]!, sentence).toBe(minutes);
+    }
+
+    // And a literal reaches the constant it restates: the job record's
+    // window, spelled the way the pages spell it, is owned by the queue TTL.
+    const restated = unitLiterals(
+      `kept for about ${RETENTION_WINDOWS.jobRecord}`,
+    );
+    expect(restated).toHaveLength(1);
+    expect(ownersOf(restated[0]!).map((o) => o.split(" ")[0])).toContain(
+      "DEFAULT_JOB_TTL_SECONDS",
+    );
+
+    // Rates and ordinals share the words and are not durations. A wrong
+    // owner is worse than none: "3 free AI runs a day" is the allowance's
+    // cadence, and calling it the job TTL would send a writer to the wrong
+    // constant.
+    for (const sentence of [
+      "Your own 3 free AI runs a day — sign in for more",
+      "And the amount translated in a day is bounded by the free allowance.",
+      "stored copies are erased by a daily storage rule",
+      "getting the list right the first time saves you a second pass",
+      "before and after a resubmit, a week apart",
+      "the allowance resets daily",
+    ])
+      expect(
+        unitLiterals(sentence).filter((l) => l.unit !== "run"),
+        `a rate or ordinal was read as a duration: "${sentence}"`,
+      ).toEqual([]);
   });
 });

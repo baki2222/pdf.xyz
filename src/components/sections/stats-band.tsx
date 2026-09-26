@@ -30,7 +30,7 @@ export function StatsBand() {
    * ... nothing is retained", which was "three separate untruths the privacy
    * page already corrects - the link dying and the bytes dying are different
    * events, and a job record (the file's name, never its contents) is kept for
-   * about a day." Files ARE stored after processing. The output sits in
+   * the queue's key TTL." Files ARE stored after processing. The output sits in
    * storage until the link expires, and the stored copy is erased by a daily
    * rule AFTER that.
    *

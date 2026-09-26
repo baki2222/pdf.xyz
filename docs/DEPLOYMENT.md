@@ -390,8 +390,13 @@ the required REST variables are valid. Before using it for production traffic:
   to that database only. Prefer a per-environment database (or a distinct
   `PDFXYZ_QUEUE_KEY_PREFIX`) so preview and production never share job state.
 - Enable in-transit encryption (Upstash REST is HTTPS) and encryption at rest.
-- Set `PDFXYZ_QUEUE_JOB_TTL_SECONDS` so every key auto-expires comfortably past the
-  retention window — it is the backstop that keeps no job state around forever.
+- Leave `PDFXYZ_QUEUE_JOB_TTL_SECONDS` unset. Every key already auto-expires at
+  the default, comfortably past the retention window, and it is the backstop that
+  keeps no job state around forever. The job record holds the file's name, and
+  `/privacy`, the FAQ and the homepage state its lifetime from that default
+  (`RETENTION_WINDOWS.jobRecord`), because a static page cannot read this
+  variable. Changing it makes all three false until the copy changes with it
+  (`src/app/job-record-window.test.tsx` fails on a doc that advises otherwise).
 - Tune `PDFXYZ_QUEUE_LEASE_SECONDS` (lease ceiling) above the worst-case job slice
   and `PDFXYZ_QUEUE_MAX_ATTEMPTS` so only genuinely transient failures retry before
   a job is dead-lettered.
