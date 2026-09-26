@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import {
   PAGE_JOIN,
   pageTextChunks,
@@ -339,8 +340,8 @@ export async function runSummarize(
       ok: false,
       kind: "no_text",
       retryable: false,
-      message:
-        "This PDF has no selectable text to summarize. It may be a scan or image-only PDF — run OCR PDF first, then summarize the result.",
+      // One string for both sides of the upload — see `@/lib/jobs/ai-no-text`.
+      message: NO_SELECTABLE_TEXT_MESSAGE["summarize-pdf"],
     };
   }
 

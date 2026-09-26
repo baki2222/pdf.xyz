@@ -182,3 +182,47 @@ export async function extractPdfText(
     await loadingTask.destroy().catch(() => {});
   }
 }
+
+/**
+ * Whether a PDF has ANY selectable text — the same answer as
+ * `extractPdfText(bytes).hasText`, but it stops at the first page that has
+ * some, so a normal document costs one page's parse rather than all of them.
+ *
+ * The predicate is `pageTextChunks` itself (a page counts when its normalized
+ * text is non-empty), which is exactly what makes the joined text — and so
+ * `hasText` — non-empty. `ai-text-preflight.test.ts` pins the two against each
+ * other over blank, image-only, whitespace-only and late-text fixtures.
+ *
+ * Throws when pdfjs cannot open the file (encrypted, damaged); a caller that
+ * has no verdict must not invent one.
+ */
+export async function pdfHasSelectableText(
+  bytes: Uint8Array,
+): Promise<boolean> {
+  const pdfjs = await loadPdfjs();
+  const data = bytes.slice();
+  const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
+  const doc = await awaitPdfjsDocument(loadingTask);
+  try {
+    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+      const page = await doc.getPage(pageNumber);
+      try {
+        const content = await page.getTextContent({
+          includeMarkedContent: false,
+        });
+        const text = textItemsToPlainText(content.items as TextItemLike[]);
+        if (pageTextChunks([{ pageNumber, text }]).length > 0) return true;
+      } finally {
+        page.cleanup();
+      }
+    }
+    return false;
+  } finally {
+    try {
+      doc.cleanup();
+    } catch {
+      // best effort
+    }
+    await loadingTask.destroy().catch(() => {});
+  }
+}

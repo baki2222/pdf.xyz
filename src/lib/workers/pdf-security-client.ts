@@ -28,6 +28,10 @@ import type { WorkerStatus } from "./status";
 import { pollJobToTerminal } from "./job-polling";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
 import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
+import {
+  NO_SELECTABLE_TEXT_MESSAGE,
+  readsOnlySelectableText,
+} from "@/lib/jobs/ai-no-text";
 
 const PROTECT_TOOL = "protect-pdf";
 const UNLOCK_TOOL = "unlock-pdf";
@@ -147,6 +151,24 @@ async function readError(
  * result. Returns the downloaded bytes or an honest, typed failure. The `options`
  * object is the ONLY place the password travels, and only in the job-create body.
  */
+/**
+ * Whether the PDF has selectable text: `true`, `false`, or `undefined` when the
+ * browser could not tell (an encrypted or damaged file pdfjs cannot open).
+ * Only a definite `false` refuses — a verdict the browser never reached is left
+ * to the worker. pdfjs is imported on demand so a panel that never runs an AI
+ * job never downloads it.
+ */
+async function selectableTextVerdict(
+  bytes: Uint8Array,
+): Promise<boolean | undefined> {
+  try {
+    const { pdfHasSelectableText } = await import("@/lib/pdf/text");
+    return await pdfHasSelectableText(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function runSecurityJob(
   tool: string,
   filename: string,
@@ -170,6 +192,19 @@ export async function runSecurityJob(
   const { signal } = opts;
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxPollAttempts = opts.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
+
+  // 0. A tool that reads only selectable text cannot do anything with a PDF
+  //    that has none — and asking the worker costs the user a whole upload AND
+  //    a reservation of their daily AI allowance that a worker-side refusal
+  //    never gives back (three scans locked a connection out for the day,
+  //    audit at 67e8d0f). So the browser asks first, and answers with the
+  //    worker's own words (`@/lib/jobs/ai-no-text`).
+  if (readsOnlySelectableText(tool)) {
+    const hasText = await selectableTextVerdict(bytes);
+    if (hasText === false) {
+      return { ok: false, message: NO_SELECTABLE_TEXT_MESSAGE[tool] };
+    }
+  }
 
   // 1. Reserve an upload slot for exactly this file.
   //

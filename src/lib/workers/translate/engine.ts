@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import {
   PAGE_JOIN,
   pageTextChunks,
@@ -502,8 +503,8 @@ export async function runTranslate(
       ok: false,
       kind: "no_text",
       retryable: false,
-      message:
-        "This PDF has no selectable text to translate. It may be a scan or image-only PDF — run OCR PDF first, then translate the result.",
+      // One string for both sides of the upload — see `@/lib/jobs/ai-no-text`.
+      message: NO_SELECTABLE_TEXT_MESSAGE["translate-pdf"],
     };
   }
 

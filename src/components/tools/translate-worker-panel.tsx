@@ -31,6 +31,7 @@ import {
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { extractPdfText, pageTextChunks } from "@/lib/pdf/text";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
@@ -276,6 +277,17 @@ function TranslateBuilder() {
       // hand-written versions of "does this fit" is how a browser refusal ends
       // up hiding a worker that would have succeeded.
       const extracted = await extractPdfText(bytes);
+      // NOTHING TO TRANSLATE IS NOT "TOO LONG". A scan has no text pages, so
+      // the "does any page fit?" check below finds none and used to answer
+      // "0 characters … split it into smaller files" — the one remedy that
+      // cannot help. Say what the worker would say, before anything is sent.
+      if (!extracted.hasText) {
+        setOutcome({
+          ok: false,
+          message: NO_SELECTABLE_TEXT_MESSAGE["translate-pdf"],
+        });
+        return;
+      }
       // THE SAME BLOCKS THE WORKER WILL CHUNK, computed once and used for both
       // the refusal below and the page count declared with the job. Counting
       // them twice — here and again at the call site — is how the declaration
