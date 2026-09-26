@@ -32,6 +32,7 @@ import {
   NO_SELECTABLE_TEXT_MESSAGE,
   readsOnlySelectableText,
 } from "@/lib/jobs/ai-no-text";
+import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const PROTECT_TOOL = "protect-pdf";
 const UNLOCK_TOOL = "unlock-pdf";
@@ -70,7 +71,11 @@ export interface PdfSecurityWorkerFailure {
   ok: false;
   /** A client-safe, honest message (from the server's typed error when present). */
   message: string;
-  /** The contract error code or job error code, when one is available. */
+  /**
+   * The contract error code or job error code, when one is available — or
+   * `timeout` when polling stopped while the job was still running. Read by
+   * the `tool_failed` telemetry (`toolErrorReason`), never shown to a user.
+   */
   code?: string;
 }
 
@@ -188,6 +193,30 @@ export async function runSecurityJob(
    */
   declaredTextPages?: number,
 ): Promise<PdfSecurityWorkerResult> {
+  // Every panel that runs a worker job comes through here, so this is where
+  // its outcome is reported — see `@/lib/telemetry/tool-outcome`.
+  return withToolOutcome(tool, () =>
+    runSecurityJobSteps(
+      tool,
+      filename,
+      bytes,
+      options,
+      opts,
+      declaredCharacters,
+      declaredTextPages,
+    ),
+  );
+}
+
+async function runSecurityJobSteps(
+  tool: string,
+  filename: string,
+  bytes: Uint8Array,
+  options: Record<string, unknown>,
+  opts: PdfSecurityWorkerOptions,
+  declaredCharacters?: number,
+  declaredTextPages?: number,
+): Promise<PdfSecurityWorkerResult> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -202,7 +231,12 @@ export async function runSecurityJob(
   if (readsOnlySelectableText(tool)) {
     const hasText = await selectableTextVerdict(bytes);
     if (hasText === false) {
-      return { ok: false, message: NO_SELECTABLE_TEXT_MESSAGE[tool] };
+      return {
+        ok: false,
+        message: NO_SELECTABLE_TEXT_MESSAGE[tool],
+        // The code the worker's own `no_text` refusal maps to.
+        code: "unprocessable_entity",
+      };
     }
   }
 
@@ -218,6 +252,7 @@ export async function runSecurityJob(
     return {
       ok: false,
       message: "This tool doesn't accept that file type.",
+      code: "unsupported_file_type",
     };
   }
   const sessionRes = await fetchImpl("/api/uploads", {
@@ -289,6 +324,7 @@ export async function runSecurityJob(
       message: polled.stillRunning
         ? `${polled.message} (job ${polled.jobId})`
         : polled.message,
+      ...(polled.stillRunning ? { code: "timeout" } : {}),
     };
   }
   job = polled.job;

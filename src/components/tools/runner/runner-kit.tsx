@@ -27,6 +27,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 import { cn } from "@/lib/utils";
+import {
+  reportToolCompleted,
+  reportToolFailed,
+} from "@/lib/telemetry/tool-outcome";
 
 /* ------------------------------------------------------------------ *
  *  Async run state
@@ -42,6 +46,17 @@ export function errorMessage(err: unknown): string {
 }
 
 /**
+ * The failure code a thrown value maps to for telemetry. Our typed errors are
+ * refusals of the INPUT (unreadable, password-protected, a bad page range);
+ * anything else failed while processing and gets no code.
+ */
+export function failureCode(err: unknown): string | undefined {
+  return err instanceof PdfEngineError || err instanceof PageRangeError
+    ? "unprocessable_entity"
+    : undefined;
+}
+
+/**
  * Small state machine shared by every runner: tracks a busy flag, the last
  * error, and the produced result, and wraps an async task with try/catch.
  */
@@ -53,12 +68,18 @@ export function useAsyncRun<T>() {
   const run = useCallback(async (task: () => Promise<T>) => {
     setBusy(true);
     setError(null);
+    const started = Date.now();
     try {
       const value = await task();
       setResult(value);
+      // Every browser runner's outcome passes through here, so this is where
+      // it is reported — never the message, only a coarse reason from the
+      // error's TYPE. See `@/lib/telemetry/tool-outcome`.
+      reportToolCompleted({ elapsedMs: Date.now() - started });
       return value;
     } catch (err) {
       setError(errorMessage(err));
+      reportToolFailed({ code: failureCode(err) });
       return null;
     } finally {
       setBusy(false);

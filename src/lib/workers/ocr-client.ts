@@ -24,6 +24,7 @@ import type { ApiError } from "@/lib/jobs/responses";
 import type { OcrOptions } from "@/lib/jobs/ocr";
 import { pollJobToTerminal } from "./job-polling";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
+import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const OCR_TOOL = "ocr-pdf";
 const DEFAULT_POLL_INTERVAL_MS = 800;
@@ -139,6 +140,15 @@ async function readError(
 export async function runWorkerOcr(
   input: OcrWorkerInput,
   options: OcrWorkerOptions = {},
+): Promise<OcrWorkerResult> {
+  // The run's outcome is reported here, where every OCR job passes — see
+  // `@/lib/telemetry/tool-outcome`.
+  return withToolOutcome(OCR_TOOL, () => runWorkerOcrSteps(input, options));
+}
+
+async function runWorkerOcrSteps(
+  input: OcrWorkerInput,
+  options: OcrWorkerOptions,
 ): Promise<OcrWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const { signal } = options;
