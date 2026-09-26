@@ -19,11 +19,23 @@
  * the character spans that some row's segment covers — the gutters between
  * them are blank on every row — so each segment lands in the column it sits
  * in, and a column a row leaves empty stays an empty cell in that row.
+ * A one-segment line between a table's rows, or directly below its last row
+ * (an unlabeled total), is placed by where it starts, like any other cell.
  *
  * Nothing here ever splits a segment's own text. When the rows disagree (one
  * long cell straddling two columns' positions), those columns become one and
- * the texts that share it are joined with a space — values may be COMBINED,
- * never MOVED under another header.
+ * the texts that share it are joined with a space.
+ *
+ * What is pinned, by layout-grid.test.ts ("values may be COMBINED, never
+ * MOVED under another header"): in a table whose rows agree on the columns,
+ * ANY subset of a row's cells, in any row including the last, lands under
+ * its own header with the row's other cells empty. What is NOT promised:
+ *  - one overlong cell merges columns for its whole group, so a heading and
+ *    the values under it can share a combined cell ("joins, never splits");
+ *  - a one-run line directly below a table that starts inside a column is
+ *    taken as the table's (a centred footnote there lands under that column);
+ *  - the caller trims each page, so a page's FIRST line loses its indent: a
+ *    header row that starts with an empty cell is shifted left.
  */
 
 interface Segment {
@@ -38,7 +50,10 @@ interface Span {
 /** Consecutive lines of one page whose multi-segment rows share columns. */
 interface Group {
   first: number;
+  /** The last multi-segment row. */
   last: number;
+  /** The last line the group places: `last`, or a one-run line below it. */
+  end: number;
   /** Line indexes of the rows that define the columns. */
   rows: number[];
   columns: Span[];
@@ -120,23 +135,45 @@ export function layoutGrid(pageText: string): (string | null)[][] {
       if (union.length >= Math.max(prev.columns.length, columns.length)) {
         prev.rows = rows;
         prev.columns = union;
-        prev.last = block[block.length - 1]!;
+        prev.last = prev.end = block[block.length - 1]!;
         continue;
       }
     }
     groups.push({
       first: block[0]!,
       last: block[block.length - 1]!,
+      end: block[block.length - 1]!,
       rows: block,
       columns,
     });
   }
 
+  // A table's tail: the one-run lines directly below its last row (blank
+  // lines allowed, as between rows) are placed by position too, exactly as
+  // the same line is BETWEEN two rows. That is an unlabeled total, a balance
+  // brought forward, an amount-only continuation, which `-layout` prints as
+  // spaces then one value; left out, it went to column A under the first
+  // header. The tail stops at a line that starts in the first column (a
+  // title or paragraph after the table, which lands in A either way) or
+  // past the table's right edge (under no column), and at the next table.
+  groups.forEach((group, k) => {
+    const stop = groups[k + 1]?.first ?? segments.length;
+    const left = group.columns[0]!.end;
+    const right = group.columns[group.columns.length - 1]!.end;
+    for (let i = group.last + 1; i < stop; i++) {
+      const segs = segments[i]!;
+      if (segs.length === 0) continue;
+      const start = segs[0]!.start;
+      if (segs.length !== 1 || start < left || start >= right) break;
+      group.end = i;
+    }
+  });
+
   const grid: (string | null)[][] = [];
   let g = 0;
   segments.forEach((segs, i) => {
     if (segs.length === 0) return;
-    while (groups[g] && groups[g]!.last < i) g++;
+    while (groups[g] && groups[g]!.end < i) g++;
     const group = groups[g];
     if (!group || i < group.first) {
       // Outside every table: a title, an address, a paragraph line.

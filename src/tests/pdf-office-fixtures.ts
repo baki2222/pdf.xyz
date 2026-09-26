@@ -301,6 +301,19 @@ export const INVOICE_ROWS = [
   ["Total", "", "", "19", "$5,630.75"],
 ] as const;
 
+/**
+ * {@link INVOICE_ROWS} with the last row printed as its amount alone: the
+ * unlabeled grand total, balance brought forward or amount-only continuation
+ * line that invoices and statements end on. `-layout` prints it as spaces and
+ * one number, a line with a single text run.
+ */
+export const INVOICE_LONE_TOTAL_ROWS: readonly (readonly string[])[] = [
+  ...INVOICE_ROWS.slice(0, -1),
+  INVOICE_ROWS[INVOICE_ROWS.length - 1]!.map((cell, c, row) =>
+    c === row.length - 1 ? cell : "",
+  ),
+];
+
 /** A cell as the XLSX must hold it: text, or a number and its display format. */
 export type ExpectedCell =
   { text: string } | { number: number; format: string } | null;
@@ -351,11 +364,15 @@ export const INVOICE_SHEET: readonly (readonly ExpectedCell[])[] = [
 /**
  * {@link INVOICE_ROWS} under {@link INVOICE_HEADING}: text columns flush left,
  * Qty and Amount flush RIGHT (headers included), the way invoices are set.
- * `rowGap` 24 makes poppler print a blank line between rows.
+ * `rowGap` 24 makes poppler print a blank line between rows. `rows` draws a
+ * variant table at the same positions ({@link INVOICE_LONE_TOTAL_ROWS}).
  */
-export async function invoicePdf(rowGap = 16): Promise<Uint8Array> {
+export async function invoicePdf(
+  rowGap = 16,
+  rows: readonly (readonly string[])[] = INVOICE_ROWS,
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const all = [...INVOICE_HEADING, ...INVOICE_ROWS.flat()];
+  const all = [...INVOICE_HEADING, ...rows.flat()];
   const font = await embedDrawingFont(doc, all);
   const bold = await embedDrawingFont(doc, all, "sans-bold");
   const page = doc.addPage([612, 792]);
@@ -363,7 +380,7 @@ export async function invoicePdf(rowGap = 16): Promise<Uint8Array> {
   page.drawText(INVOICE_HEADING[1], { x: 50, y: 716, size: 11, font });
   const left = [50, 130, 220];
   const right = [420, 520];
-  INVOICE_ROWS.forEach((row, r) =>
+  rows.forEach((row, r) =>
     row.forEach((cell, c) => {
       if (!cell) return;
       const face = r === 0 ? bold : font;

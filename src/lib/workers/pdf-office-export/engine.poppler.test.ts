@@ -22,6 +22,7 @@ import {
   HIGHLIGHTS_LEFT,
   HIGHLIGHTS_RIGHT,
   incomeStatementPdf,
+  INVOICE_LONE_TOTAL_ROWS,
   INVOICE_SHEET,
   invoicePdf,
   invoiceSheetMismatches,
@@ -212,6 +213,38 @@ suite(label, () => {
       expect(sheet.rows).toHaveLength(INVOICE_SHEET.length);
       expect(invoiceSheetMismatches(sheet)).toEqual([]);
       expect(sheetGridProblems(sheet)).toEqual([]);
+    },
+  );
+
+  it.each([16, 24])(
+    "PDF to Excel puts a table's amount-only LAST line under Amount — rows %ipt apart",
+    async (rowGap) => {
+      // 1287f42 sent this line to column A, under the first header: a lone
+      // value is a one-run line, and one-run lines were placed by position
+      // only BETWEEN a table's rows, never after its last one.
+      const run = await runPdfOfficeExport(
+        "pdf-to-excel",
+        await invoicePdf(rowGap, INVOICE_LONE_TOTAL_ROWS),
+        deps(),
+      );
+      if (!run.ok) throw new Error(`pdf-to-excel failed: ${run.kind}`);
+      const sheet = await readXlsxSheet(run.output);
+      expect(sheetGridProblems(sheet)).toEqual([]);
+      const header = INVOICE_LONE_TOTAL_ROWS[0]!;
+      const headerRow = sheet.rows.find(
+        (row) => row.cells[0]?.value === header[0],
+      );
+      // HEALTH: the header was read back whole, one heading per column.
+      expect(headerRow?.cells.map((c) => c.value)).toEqual([...header]);
+      const amount = headerRow!.cells.find((c) => c.value === header.at(-1));
+      const lone = INVOICE_LONE_TOTAL_ROWS.at(-1)!.at(-1)!;
+      const last = sheet.rows.at(-1)!;
+      expect(last.cells).toHaveLength(1);
+      expect(last.cells[0]).toMatchObject({
+        type: "number",
+        value: String(Number(lone.replace(/[$,]/g, ""))),
+        column: amount!.column,
+      });
     },
   );
 
