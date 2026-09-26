@@ -55,7 +55,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To merge PDF files, open the Merge PDF tool, add two or more PDFs, and drag them into the order you want. The tool combines them into a single PDF that you save straight to your device.",
-      "What makes this approach different is where the work happens. Merge PDF runs entirely in your browser using WebAssembly and browser APIs, so your files stay on your device from start to finish — there is no server step in the middle. There is also no account: open the page, add your files, and merge.",
+      "What makes this approach different is where the work happens. Merge PDF runs entirely in your browser, so your files stay on your device from start to finish — there is no server step in the middle. There is also no account: open the page, add your files, and merge.",
       "The combined PDF follows your list from top to bottom, so a stack of scans, chapters, or exhibits comes out exactly as you arranged it. If you later need the reverse operation, Split PDF breaks one document into separate files by page range, fixed intervals, or one file per page, and Organize Pages rearranges pages inside a single document.",
     ],
     steps: [
@@ -79,7 +79,7 @@ export const guides: Guide[] = [
         id: "where-the-merge-runs",
         heading: "Where the merge actually runs",
         body: [
-          "Merge PDF is an in-browser tool. The processing runs on your own device using WebAssembly and browser APIs, and your files stay there from start to finish — they are never sent to a server as part of the merge. That also means there is no account: the browser you already have does the work.",
+          "Merge PDF is an in-browser tool. The processing runs on your own device, in your browser, and your files stay there from start to finish — they are never sent to a server as part of the merge. That also means there is no account: the browser you already have does the work.",
           "One honest nuance: the tool is not fully offline. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the merge itself runs entirely on your device, and a dropped connection does not interrupt work already in progress.",
         ],
       },
@@ -96,7 +96,7 @@ export const guides: Guide[] = [
       {
         question: "Do my files get sent to a server when I merge PDFs?",
         answer:
-          "No. Merge PDF runs entirely in your browser with WebAssembly and browser APIs, and your files stay on your device from start to finish.",
+          "No. Merge PDF runs entirely in your browser, and your files stay on your device from start to finish.",
       },
       {
         question: "How large can each PDF file be?",
@@ -136,7 +136,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To split a PDF into separate files, open the Split PDF tool, pick your document, and choose how to divide it: custom page ranges, every N pages, or one file per page. The split runs immediately and the resulting PDFs download together as a ZIP.",
-      "What sets this approach apart is where the work happens. Split PDF runs entirely in your browser using WebAssembly and browser APIs, so the file stays on your device from start to finish — nothing is sent anywhere to be processed. There is no account to create and nothing to install; you pick a file, split it, and save the results.",
+      "What sets this approach apart is where the work happens. Split PDF runs entirely in your browser, so the file stays on your device from start to finish — nothing is sent anywhere to be processed. There is no account to create and nothing to install; you pick a file, split it, and save the results.",
       "This guide walks through each split mode, what the output looks like, and the limits worth knowing before you start — including when a neighboring tool like Extract Pages is the better fit for the job.",
     ],
     steps: [
@@ -167,7 +167,7 @@ export const guides: Guide[] = [
         id: "where-the-split-runs",
         heading: "Where the split happens",
         body: [
-          "Split PDF is an in-browser tool. The processing runs entirely on your device using WebAssembly and browser APIs, and the file never leaves it — there is no server step in the path from picking a file to saving the ZIP. That also means no account: nothing about the flow requires identifying yourself.",
+          "Split PDF is an in-browser tool. The processing runs entirely on your device, in your browser, and the file never leaves it — there is no server step in the path from picking a file to saving the ZIP. That also means no account: nothing about the flow requires identifying yourself.",
           "One honest nuance about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the split itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
         ],
       },
@@ -183,7 +183,7 @@ export const guides: Guide[] = [
       {
         question: "Does Split PDF send my file to a server?",
         answer:
-          "No. The tool runs entirely in your browser with WebAssembly and browser APIs — the file stays on your device from start to finish, and the split output is produced and saved locally.",
+          "No. The tool runs entirely in your browser — the file stays on your device from start to finish, and the split output is produced and saved locally.",
       },
       {
         question: "How large can the PDF be?",
@@ -394,7 +394,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To turn JPG photos into a single PDF, open the JPG to PDF tool on pdf.xyz, pick your images, and run the conversion right in your browser. The tool combines your JPGs into one tidy PDF and gives you control over page size, orientation, and margins along the way.",
-      "What sets this converter apart is where the work happens: entirely in your own browser. It is built on WebAssembly and browser APIs, so your photos stay on your device from the moment you pick them to the moment you save the finished PDF — and no account is needed.",
+      "What sets this converter apart is where the work happens: entirely in your own browser. Nothing is sent to a server, so your photos stay on your device from the moment you pick them to the moment you save the finished PDF — and no account is needed.",
       `Each image can be up to ${MAX_IMAGE_MB} MB, and the output is one PDF assembled on your device. That makes the tool a natural fit for photographed receipts, scanned pages saved as JPGs, or any batch of pictures that belongs together in a single file.`,
     ],
     steps: [
@@ -419,7 +419,7 @@ export const guides: Guide[] = [
         id: "where-it-runs",
         heading: "Your photos never leave your device",
         body: [
-          "JPG to PDF is an in-browser tool. The conversion runs on your own machine using WebAssembly and browser APIs, and your files stay on your device from start to finish — there is no server step in the path, and no account is needed.",
+          "JPG to PDF is an in-browser tool. The conversion runs on your own machine, in your browser, and your files stay on your device from start to finish — there is no server step in the path, and no account is needed.",
           "One honest caveat about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the assembly itself runs entirely on your device, so a dropped connection does not interrupt work already in progress.",
         ],
       },
@@ -436,7 +436,7 @@ export const guides: Guide[] = [
       {
         question: "Does my photo leave my device when I convert JPG to PDF?",
         answer:
-          "No. The tool runs entirely in your browser using WebAssembly and browser APIs, so your files stay on your device from start to finish.",
+          "No. The tool runs entirely in your browser, so your files stay on your device from start to finish.",
       },
       {
         question: "Can I combine multiple JPG photos into one PDF?",
@@ -477,7 +477,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To create a fillable PDF form, open the Create Fillable Forms tool, place fields on the pages where answers belong, and save the result. You get a reusable fillable AcroForm PDF — real form fields that anyone can complete on a screen instead of printing and writing.",
-      "The difference is where the work happens. This is a client-side tool: it builds the form in your browser with WebAssembly and browser APIs, so the document stays on your device from the moment you pick it to the moment you save the finished file. There is no account to create — open the page and start placing fields.",
+      "The difference is where the work happens. This is a client-side tool: it builds the form in your browser, so the document stays on your device from the moment you pick it to the moment you save the finished file. There is no account to create — open the page and start placing fields.",
       "The output is built to be reused. Because the fields are genuine AcroForm fields, the same PDF can be sent out and completed again and again, and it pairs naturally with the Fill Forms tool for the people on the receiving end.",
     ],
     steps: [
@@ -501,7 +501,7 @@ export const guides: Guide[] = [
         id: "where-the-work-happens",
         heading: "Where the work happens",
         body: [
-          "Create Fillable Forms is a client-side tool. The processing runs in your browser using WebAssembly and browser APIs, not on a server — the PDF you pick stays on your device from start to finish. That is also why no account is required: there is nothing to set up before you start placing fields.",
+          "Create Fillable Forms is a client-side tool. The processing runs in your browser, not on a server — the PDF you pick stays on your device from start to finish. That is also why no account is required: there is nothing to set up before you start placing fields.",
           "One honest note about connectivity: the page and its processing engine arrive over the network, and the engine is fetched the first time you use the tool. From there, the work itself happens on your device, so a connection that drops mid-build does not interrupt work already in progress.",
         ],
       },
@@ -518,7 +518,7 @@ export const guides: Guide[] = [
       {
         question: "Is my PDF sent to a server when I create a fillable form?",
         answer:
-          "No. Create Fillable Forms runs entirely in your browser with WebAssembly and browser APIs — the file stays on your device from start to finish. There is also no account to create.",
+          "No. Create Fillable Forms runs entirely in your browser — the file stays on your device from start to finish. There is also no account to create.",
       },
       {
         question: "What kinds of form fields can I add to a PDF?",
@@ -559,7 +559,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To fill out a PDF form, open the Fill Forms tool in your web browser, pick the PDF, and work straight through its fields — text boxes, checkboxes, radio buttons, dropdowns, and lists. When you run the tool, your answers are written into the PDF and the completed file saves back to your device.",
-      "What sets this approach apart is where the work happens: on your own device. Fill Forms is an in-browser tool — it runs entirely in your browser using WebAssembly and browser APIs, so the form you picked and everything you type into it stays on your device from start to finish. That matters for forms in particular, because forms are where names, addresses, and other personal details go. There is nothing to install and no account to create — the tool runs in your web browser.",
+      "What sets this approach apart is where the work happens: on your own device. Fill Forms is an in-browser tool — it runs entirely in your browser, so the form you picked and everything you type into it stays on your device from start to finish. That matters for forms in particular, because forms are where names, addresses, and other personal details go. There is nothing to install and no account to create — the tool runs in your web browser.",
       "Fill Forms completes the interactive fields the PDF already contains — its AcroForm fields. The steps below walk through filling a form from start to finish, then cover which field kinds the tool fills, what to do when a PDF has no fields at all, and how signing and locking the finished form fit in.",
     ],
     steps: [
@@ -583,7 +583,7 @@ export const guides: Guide[] = [
         id: "where-the-work-happens",
         heading: "Where the work happens",
         body: [
-          "Fill Forms is an in-browser tool. It runs entirely on your device using WebAssembly and browser APIs, and your PDF stays on your device from start to finish. The finished form does not pass through a server on its way back to you — you save the completed file straight to your device.",
+          "Fill Forms is an in-browser tool. It runs entirely in your browser, and your PDF stays on your device from start to finish. The finished form does not pass through a server on its way back to you — you save the completed file straight to your device.",
           "The page and its processing engine do load over the network, and the engine is fetched the first time you use the tool, so the very first run needs a connection. After that, the filling itself runs entirely on your device, and a dropped connection does not interrupt a run that is already underway. No account is needed at any point.",
         ],
       },
@@ -608,7 +608,7 @@ export const guides: Guide[] = [
       {
         question: "Does my PDF leave my device when I fill out a form?",
         answer:
-          "No. Fill Forms runs entirely in your browser with WebAssembly and browser APIs, and the file stays on your device from start to finish.",
+          "No. Fill Forms runs entirely in your browser, and the file stays on your device from start to finish.",
       },
       {
         question: "Can I fill out a PDF form offline?",
@@ -649,7 +649,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To add a signature to a PDF, open the Sign PDF tool, create your signature by drawing it, typing it, or picking a signature image, and place it exactly where the document needs it. Export the result and you have a signed PDF ready to send.",
-      "What sets this approach apart is where the work happens. Sign PDF runs entirely in your browser using WebAssembly and browser APIs, so the PDF and the signature you create stay on your device from start to finish. No account is needed — open the page, make your mark, and export.",
+      "What sets this approach apart is where the work happens. Sign PDF runs entirely in your browser, so the PDF and the signature you create stay on your device from start to finish. No account is needed — open the page, make your mark, and export.",
       "You also get more range than a single scribble box. There are five ways to make a signature — draw it, type it, pick an image, use a script font, or choose a print-and-scan style — so the result can be as personal or as formal as the document calls for.",
     ],
     steps: [
@@ -673,7 +673,7 @@ export const guides: Guide[] = [
         id: "your-file-stays-on-your-device",
         heading: "Your file stays on your device",
         body: [
-          "Sign PDF is an in-browser tool. It runs entirely in your browser with WebAssembly and browser APIs, which means the contract, lease, or offer letter you open never leaves your device — the file stays local from the moment you pick it to the moment you export. For the kind of paperwork that usually carries a signature, that is the difference that matters most.",
+          "Sign PDF is an in-browser tool. It runs entirely in your browser, which means the contract, lease, or offer letter you open never leaves your device — the file stays local from the moment you pick it to the moment you export. For the kind of paperwork that usually carries a signature, that is the difference that matters most.",
           "One honest nuance about connectivity: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the processing itself runs on your device, and a dropped connection does not interrupt work in progress.",
         ],
       },
@@ -702,7 +702,7 @@ export const guides: Guide[] = [
       {
         question: "Does my PDF leave my device when I sign it?",
         answer:
-          "No. Sign PDF runs entirely in your browser with WebAssembly and browser APIs, so the file stays on your device from start to finish.",
+          "No. Sign PDF runs entirely in your browser, so the file stays on your device from start to finish.",
       },
       {
         question: "Does Sign PDF work offline?",

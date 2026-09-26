@@ -261,7 +261,7 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
     entries.push({
       question: `Is my file uploaded when I use ${tool.name}?`,
       answer:
-        "No. This tool runs entirely in your browser with WebAssembly and browser APIs — the file stays on your device from start to finish.",
+        "No. This tool runs entirely in your browser — the file stays on your device from start to finish.",
     });
     entries.push({
       question: `Does ${tool.name} work offline?`,
