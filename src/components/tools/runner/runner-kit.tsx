@@ -15,6 +15,7 @@ import {
   Download,
   Image as ImageIcon,
   ImageOff,
+  Info,
   Loader2,
   RefreshCw,
   TriangleAlert,
@@ -528,6 +529,7 @@ export function ResultPanel({
   onReset,
   resetLabel = "Start over",
   announcement,
+  tone = "ok",
 }: {
   title: string;
   summary?: ReactNode;
@@ -540,6 +542,12 @@ export function ResultPanel({
    * ("PDF re-saved", "Selectable text matches").
    */
   announcement?: string;
+  /**
+   * `neutral` for a run that finished but did not do the tool's job — a
+   * "flatten" of a PDF with nothing to flatten. A green check on that panel is
+   * a claim the file does not back.
+   */
+  tone?: "ok" | "neutral";
 }) {
   const id = useId();
   // Always `true`: this panel only ever renders on success, so its existence IS
@@ -550,11 +558,26 @@ export function ResultPanel({
       {...outcome}
       role="group"
       aria-labelledby={summary ? `${id}-t ${id}-s` : `${id}-t`}
-      className="animate-float-up border-ok/30 bg-ok/10 focus-visible:ring-ok/50 flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2"
+      data-tone={tone}
+      className={cn(
+        "animate-float-up flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2",
+        tone === "ok"
+          ? "border-ok/30 bg-ok/10 focus-visible:ring-ok/50"
+          : "border-line bg-wash focus-visible:ring-line-strong",
+      )}
     >
       <div className="flex items-start gap-3">
-        <span className="bg-ok/15 text-ok grid size-10 shrink-0 place-items-center rounded-[3px]">
-          <CheckCircle2 className="size-5" aria-hidden />
+        <span
+          className={cn(
+            "grid size-10 shrink-0 place-items-center rounded-[3px]",
+            tone === "ok" ? "bg-ok/15 text-ok" : "bg-panel text-muted",
+          )}
+        >
+          {tone === "ok" ? (
+            <CheckCircle2 className="size-5" aria-hidden />
+          ) : (
+            <Info className="size-5" aria-hidden />
+          )}
         </span>
         <div className="flex flex-col gap-1">
           <h3 id={`${id}-t`} className="text-fg text-base font-semibold">

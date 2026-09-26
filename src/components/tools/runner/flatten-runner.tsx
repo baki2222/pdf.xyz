@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { Download, Layers, ShieldCheck, TriangleAlert } from "lucide-react";
 import {
-  countFormFields,
-  flattenedOutputName,
+  DYNAMIC_XFA_MESSAGE,
+  flattenDownloadName,
   flattenPdf,
+  inspectForm,
   type FlattenResult,
+  type FormInspection,
 } from "@/lib/pdf/flatten";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
@@ -23,6 +25,14 @@ import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
+/**
+ * Said before the run AND after it. Any re-save breaks a digital signature —
+ * every pdf-lib tool rewrites the file — so this names the save, not
+ * flattening, as the cause.
+ */
+export const SIGNED_PDF_WARNING =
+  "This PDF is digitally signed. Saving any change to it here, including flattening, means the signature will no longer verify.";
+
 export function FlattenRunner() {
   return (
     <SinglePdfRunner
@@ -35,7 +45,7 @@ export function FlattenRunner() {
   );
 }
 
-function FlattenEditor({
+export function FlattenEditor({
   pdf,
   onReset,
 }: {
@@ -43,14 +53,14 @@ function FlattenEditor({
   onReset: () => void;
 }) {
   const { busy, error, result, run } = useAsyncRun<FlattenResult>();
-  const [fieldCount, setFieldCount] = useState<number | null>(null);
+  const [inspection, setInspection] = useState<FormInspection | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    countFormFields(pdf.bytes)
-      .then((count) => {
-        if (alive) setFieldCount(count);
+    inspectForm(pdf.bytes)
+      .then((found) => {
+        if (alive) setInspection(found);
       })
       .catch(() => {
         if (alive)
@@ -68,38 +78,75 @@ function FlattenEditor({
   };
 
   if (result) {
+    const flattened = result.flattenedFields > 0;
+    const size = formatBytes(result.bytes.byteLength);
+    const plural = (n: number) => (n === 1 ? "" : "s");
     return (
       <ResultPanel
-        title={result.hadForm ? "Form fields flattened" : "PDF re-saved"}
+        title={flattened ? "Form fields flattened" : "PDF re-saved"}
+        tone={flattened ? "ok" : "neutral"}
         summary={
-          result.hadForm
-            ? `${result.flattenedFields} form field${result.flattenedFields === 1 ? "" : "s"} flattened · ${formatBytes(result.bytes.byteLength)}`
-            : `No fillable form fields found · ${formatBytes(result.bytes.byteLength)}`
+          !result.hadForm
+            ? `No fillable form fields found · ${size}`
+            : result.flattenedFields === result.totalFields
+              ? `${result.flattenedFields} form field${plural(result.flattenedFields)} flattened · ${size}`
+              : `Flattened ${result.flattenedFields} of ${result.totalFields} form field${plural(result.totalFields)} · ${size}`
         }
         onReset={onReset}
       >
         <div className="flex flex-col gap-3">
           {!result.hadForm && (
             <p className="border-warn/40 bg-warn/10 text-warn max-w-2xl rounded-[4px] border px-4 py-3 text-sm">
-              This PDF did not contain AcroForm fields to flatten. Comments,
-              markup annotations, and optional-content layers are not flattened
-              by this browser tool.
+              This PDF did not contain AcroForm fields to flatten, so nothing in
+              it was flattened. Comments, markup annotations, and
+              optional-content layers are not flattened by this browser tool.
             </p>
+          )}
+          {result.skipped.length > 0 && (
+            <div className="border-line bg-wash max-w-2xl rounded-[4px] border px-4 py-3 text-sm">
+              <p className="text-fg font-medium">
+                Left as-is, still interactive:
+              </p>
+              <ul className="text-muted mt-1 list-disc pl-5">
+                {result.skipped.map((skip) => (
+                  <li key={skip.name}>
+                    {skip.name} ({skip.reason})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {result.droppedXfa && (
+            <p className="text-muted max-w-2xl text-sm">
+              This form also carried an XFA layer. It was removed; the download
+              holds the flattened AcroForm.
+            </p>
+          )}
+          {result.signed && (
+            <p className="text-warn max-w-2xl text-sm">{SIGNED_PDF_WARNING}</p>
           )}
           <button
             type="button"
             onClick={() =>
-              downloadBytes(result.bytes, flattenedOutputName(pdf.file.name))
+              downloadBytes(
+                result.bytes,
+                flattenDownloadName(pdf.file.name, result),
+              )
             }
             className={buttonVariants({ variant: "primary", size: "lg" })}
           >
             <Download className="size-4" aria-hidden />
-            Download flattened PDF
+            {flattened ? "Download flattened PDF" : "Download PDF"}
           </button>
         </div>
       </ResultPanel>
     );
   }
+
+  const fillable = inspection
+    ? inspection.fields - inspection.signatureFields
+    : null;
+  const blocked = inspection?.dynamicXfa === true;
 
   return (
     <div className="flex flex-col gap-5">
@@ -120,27 +167,50 @@ function FlattenEditor({
           <InfoTile
             icon={TriangleAlert}
             title="Honest scope"
-            body="This does not flatten every comment, ink annotation, or optional-content layer. Those stay as-is."
+            body="This does not flatten comments, ink annotations, optional-content layers, or signature fields. Those stay as-is."
           />
         </div>
       </RunnerSection>
 
       <RunnerSection title="Detected form fields">
-        {fieldCount === null && !countError ? (
+        {inspection === null && !countError ? (
           <p className="text-muted inline-flex items-center gap-2 text-sm">
             <Spinner className="size-4" /> Inspecting PDF…
           </p>
-        ) : countError ? (
+        ) : countError || !inspection ? (
           <p className="text-warn text-sm">{countError}</p>
-        ) : fieldCount === 0 ? (
-          <p className="text-warn text-sm">
-            No fillable AcroForm fields were detected. You can still re-save the
-            PDF, but there may be nothing interactive for this tool to flatten.
-          </p>
+        ) : blocked ? (
+          <p className="text-warn text-sm">{DYNAMIC_XFA_MESSAGE}</p>
         ) : (
-          <p className="text-muted text-sm">
-            Found {fieldCount} fillable form field{fieldCount === 1 ? "" : "s"}.
-          </p>
+          <div className="flex flex-col gap-2 text-sm">
+            {fillable === 0 ? (
+              <p className="text-warn">
+                No fillable AcroForm fields were detected, so there is nothing
+                for this tool to flatten. You can still re-save the PDF, but its
+                content will not change.
+              </p>
+            ) : (
+              <p className="text-muted">
+                Found {fillable} fillable form field{fillable === 1 ? "" : "s"}.
+              </p>
+            )}
+            {inspection.signatureFields > 0 && (
+              <p className="text-muted">
+                {inspection.signatureFields} signature field
+                {inspection.signatureFields === 1 ? "" : "s"} will be left
+                as-is.
+              </p>
+            )}
+            {inspection.xfa && (
+              <p className="text-muted">
+                This form also carries an XFA layer, which will be removed. Its
+                AcroForm fields are what get flattened.
+              </p>
+            )}
+            {inspection.signed && (
+              <p className="text-warn">{SIGNED_PDF_WARNING}</p>
+            )}
+          </div>
         )}
       </RunnerSection>
 
@@ -151,9 +221,14 @@ function FlattenEditor({
       {error && <ErrorNote message={error} />}
 
       <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel="Flattening…">
+        <RunButton
+          onClick={onRun}
+          busy={busy}
+          disabled={blocked}
+          busyLabel={fillable === 0 ? "Saving…" : "Flattening…"}
+        >
           <Layers className="size-4" aria-hidden />
-          Flatten form fields
+          {fillable === 0 ? "Re-save PDF" : "Flatten form fields"}
         </RunButton>
       </div>
     </div>
