@@ -3,8 +3,8 @@
  * worker, plus a presence-only binary probe.
  *
  * This is the ONLY module here that touches Node built-ins. It exists because the
- * pdfjs-backed extractors in `@/lib/pdf/text` and `@/lib/pdf/layout` are browser
- * modules that cannot run under Node at all (see `./parse`), so the worker needs a
+ * pdfjs-backed extractor in `@/lib/pdf/text` is a browser module that cannot run
+ * under Node at all (see `./parse`), so the worker needs a
  * native path — the same shape `../office-conversion/native` uses for LibreOffice.
  *
  * Honesty rules it preserves:
