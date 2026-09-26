@@ -628,15 +628,19 @@ export const CASES: Record<string, ToolCase> = {
     kind: "watermark",
     artifact: "pdf",
     run: async (ctx) => {
-      // LETTER, not the 320x240 default. The runner's own default watermark is
-      // 60pt "CONFIDENTIAL" — about 480pt wide — so on the small fixture it
-      // hangs off both edges, and pdfjs omits glyphs that fall outside the page
-      // box from getTextContent. Measured: 320x240 tilt 45 extracts
-      // "NFIDENTIAL", tilt 0 extracts "ONFIDENTIA", 612x792 extracts the whole
-      // word. That is a FIXTURE too small for the tool's defaults, not an
-      // engine defect — and the trap it sets is that the obvious "fix" is to
-      // assert the truncated string, which would pin the wrong behaviour
-      // forever.
+      // LETTER, not the 320x240 default. History: the runner's default
+      // watermark is 60pt "CONFIDENTIAL" — about 480pt wide — and the engine
+      // used to draw it at that size on any page, so on the small fixture it
+      // hung off both edges and pdfjs (which omits glyphs outside the page box
+      // from getTextContent) extracted "NFIDENTIAL" at tilt 45 and
+      // "ONFIDENTIA" at tilt 0. This comment called that a fixture too small
+      // for the defaults, not an engine defect. It WAS an engine defect — a
+      // real A6 page or a long company name hit it — and the engine now
+      // shrinks the text to fit each page's visible box and the result panel
+      // says how many pages it shrank (src/lib/pdf/watermark.test.ts sweeps
+      // every pdf-lib page size through pdfjs). LETTER stays so this proof
+      // exercises the unshrunk, full-size path; asserting a truncated string
+      // would still pin the wrong behaviour.
       await uploadTextPdf(ctx, "stamped.pdf", { pages: 2, size: LETTER });
       // Default watermark text is CONFIDENTIAL; the fixture never contains it.
       return runAndDownload(
