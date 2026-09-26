@@ -1,11 +1,13 @@
 import type { MetadataRoute } from "next";
 import { siteConfig } from "@/lib/site";
-import { tools } from "@/lib/tools";
+import { categories, tools } from "@/lib/tools";
+import { categoryHref } from "@/lib/tools/category-href";
 import { guides } from "@/lib/guides";
 import { isToolSupported } from "@/lib/pdf/registry";
 
 /**
- * /sitemap.xml — the home page, the tool catalog, every tool page, the guides
+ * /sitemap.xml — the home page, the tool catalog, the category landing pages,
+ * every tool page, the guides
  * and every guide page, and the policy and status pages. /workspace is
  * intentionally omitted: it is the one route that declares
  * `noindex, nofollow`.
@@ -78,6 +80,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: isToolSupported(tool.slug) ? 0.8 : 0.6,
   }));
 
+  // The category landing pages, from `categories` — the same array their
+  // `generateStaticParams` reads — through the one helper that spells the URL.
+  const categoryRoutes: MetadataRoute.Sitemap = categories.map((category) => ({
+    url: url(categoryHref(category.id)),
+    lastModified,
+    changeFrequency: "weekly",
+    priority: 0.8,
+  }));
+
   // Derived from the same module `generateStaticParams` reads, so the sitemap
   // and the route set cannot disagree about which guides exist.
   const guideRoutes: MetadataRoute.Sitemap = guides.map((guide) => ({
@@ -87,5 +98,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.7,
   }));
 
-  return [...staticRoutes, ...toolRoutes, ...guideRoutes];
+  return [...staticRoutes, ...categoryRoutes, ...toolRoutes, ...guideRoutes];
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   AlertTriangle,
   Clock,
@@ -28,6 +28,7 @@ import { BatchPanel } from "./batch-panel";
 import type { WorkspaceToolSummary } from "./summary";
 import { SuggestedTools } from "./suggested-tools";
 import { useWorkspace } from "./use-workspace";
+import { deepLinkedToolSlug } from "./deep-link";
 import {
   acceptAttribute,
   acceptHint,
@@ -56,6 +57,8 @@ const FAMILY_ICON: Record<FileFamily, typeof FileText> = {
 
 const ACCEPT = acceptAttribute();
 
+const noSubscription = () => () => {};
+
 /** Compact relative time for the activity log (client-only, post-hydration). */
 function formatRelative(at: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - at) / 1000));
@@ -82,12 +85,21 @@ function activityIcon(kind: WorkspaceAction["kind"]) {
 export function WorkspaceClient({
   tools,
   popular,
-  preselected,
 }: {
   tools: WorkspaceToolSummary[];
   popular: WorkspaceToolSummary[];
-  preselected?: string;
 }) {
+  // `?tool=` is read here, after hydration — the server snapshot is "" so the
+  // prerendered page is the plain workspace. See `deepLinkedToolSlug`.
+  const search = useSyncExternalStore(
+    noSubscription,
+    () => window.location.search,
+    () => "",
+  );
+  const preselected = useMemo(
+    () => deepLinkedToolSlug(search, tools),
+    [search, tools],
+  );
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);

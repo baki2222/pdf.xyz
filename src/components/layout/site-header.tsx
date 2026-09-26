@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
-import { primaryNav } from "@/lib/site";
+import { activeNavHref, primaryNav } from "@/lib/site";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/layout/logo";
@@ -19,10 +19,8 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
-  const isActive = (href: string) =>
-    href.startsWith("/") &&
-    !href.includes("#") &&
-    (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const current = activeNavHref(pathname);
+  const isActive = (href: string) => href === current;
 
   return (
     <header className="bg-canvas border-line sticky top-0 z-50 border-b">

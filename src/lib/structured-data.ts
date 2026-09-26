@@ -188,3 +188,38 @@ export function breadcrumbSchema(
     })),
   };
 }
+
+/**
+ * A category landing page: a CollectionPage whose main entity is the ordered
+ * list of the tools on it. The list is the same array the page renders, so the
+ * structured data cannot name a tool the reader does not see.
+ */
+export function categoryCollectionSchema(args: {
+  path: string;
+  name: string;
+  description: string;
+  tools: readonly Pick<Tool, "slug" | "name">[];
+}): Json {
+  const url = abs(args.path);
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "@id": `${url}#collection`,
+    name: args.name,
+    description: args.description,
+    url,
+    inLanguage: "en-US",
+    isPartOf: { "@id": WEBSITE_ID },
+    publisher: { "@id": ORG_ID },
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: args.tools.length,
+      itemListElement: args.tools.map((tool, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        name: tool.name,
+        url: abs(`/tools/${tool.slug}`),
+      })),
+    },
+  };
+}

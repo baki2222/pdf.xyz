@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ShieldCheck } from "lucide-react";
-import { getPopularTools, getToolBySlug } from "@/lib/tools";
+import { getPopularTools } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { Pill } from "@/components/ui/badge";
 import { buildMetadata } from "@/lib/seo";
@@ -25,16 +25,11 @@ const popularSummaries = toolSummaries.filter((tool) =>
   popularSlugs.has(tool.slug),
 );
 
-export default async function WorkspacePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ tool?: string }>;
-}) {
-  const { tool } = await searchParams;
-  // Honor the deep-link only for a real catalog tool; the workspace states
-  // honestly whether that tool runs in-browser or on a (not-yet-enabled) worker.
-  const preselected = tool && getToolBySlug(tool) ? tool : undefined;
-
+/**
+ * Prerendered: the `?tool=` deep link is resolved in the browser by
+ * `WorkspaceClient` (see `deep-link.ts`), so nothing here reads the request.
+ */
+export default function WorkspacePage() {
   return (
     <div className="bg-canvas text-fg py-14 sm:py-20">
       <Container className="flex flex-col gap-10">
@@ -53,11 +48,7 @@ export default async function WorkspacePage({
           </p>
         </div>
 
-        <WorkspaceClient
-          tools={toolSummaries}
-          popular={popularSummaries}
-          preselected={preselected}
-        />
+        <WorkspaceClient tools={toolSummaries} popular={popularSummaries} />
       </Container>
     </div>
   );

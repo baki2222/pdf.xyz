@@ -16,7 +16,7 @@ export function SiteFooter() {
   return (
     <footer className="bg-canvas border-line border-t">
       <Container className="py-14">
-        <div className="grid gap-10 lg:grid-cols-[1.5fr_repeat(3,1fr)]">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.5fr_repeat(4,1fr)]">
           <div className="flex flex-col gap-4">
             <Logo />
             <p className="text-muted max-w-xs text-sm leading-relaxed">
