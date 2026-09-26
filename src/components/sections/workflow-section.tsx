@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Fragment } from "react";
 import { ArrowRight } from "lucide-react";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -11,17 +10,24 @@ const steps = [
     body: "Drag in one file or a hundred. They stage in your browser — nothing uploads until a tool needs it.",
   },
   {
-    title: "Chain tools",
-    body: "Merge, then compress, then stamp and sign — line up steps once and run them as a single pipeline.",
+    title: "Pick a tool",
+    body: "Choose a suggested tool. In-browser tools open with your staged files already loaded, so there is nothing to upload again.",
   },
   {
-    title: "Export & reuse",
-    body: "Download instantly, or save a workflow as a preset you can rerun on the next batch in a click.",
+    title: "Download",
+    body: "Download the result when the tool finishes. Each tool runs on its own; pick the next one when you need it.",
   },
 ];
 
-const chain = ["Merge", "Compress", "Watermark", "Sign", "Export"] as const;
-type Stage = (typeof chain)[number];
+/**
+ * Tools that open with the workspace's staged files. Not a sequence: the
+ * workspace hands files to ONE tool at a time, and this strip used to be an
+ * arrowed "Example pipeline" selling a chaining feature that does not exist.
+ * Every entry here is a tool with an in-browser handoff (see
+ * `feature-claims.test.ts`).
+ */
+const stages = ["Merge", "Compress", "Watermark", "Sign"] as const;
+type Stage = (typeof stages)[number];
 
 /** A sheet of paper with a folded corner, in token colours. */
 function Sheet({
@@ -79,9 +85,9 @@ function Bars({
 }
 
 /**
- * The document at each stage of the pipeline — pages being merged,
- * condensed, watermarked, signed, exported. Decorative (the chip labels
- * beneath carry the words), drawn entirely in tokens so both schemes work.
+ * The document in each tool — pages being merged, condensed, watermarked,
+ * signed. Decorative (the chip labels beneath carry the words), drawn
+ * entirely in tokens so both schemes work.
  */
 function StageGlyph({ stage }: { stage: Stage }) {
   return (
@@ -141,27 +147,15 @@ function StageGlyph({ stage }: { stage: Stage }) {
           />
         </Sheet>
       )}
-      {stage === "Export" && (
-        <Sheet>
-          <Bars ys={[36, 46]} />
-          <path
-            d="M42 60 V84 M33 75 L42 84 L51 75"
-            fill="none"
-            stroke="var(--sf-accent)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </Sheet>
-      )}
     </svg>
   );
 }
 
 /**
- * The page's full-bleed moment: a wash ground, the document itself moving
- * through the pipeline at large scale, and the three steps as a ruled row
- * beneath. This is where a document product finally shows a document.
+ * The page's full-bleed moment: a wash ground, the document itself in the
+ * tools that open staged files, at large scale, and the three steps as a
+ * ruled row beneath. This is where a document product finally shows a
+ * document.
  */
 export function WorkflowSection() {
   return (
@@ -170,8 +164,8 @@ export function WorkflowSection() {
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
           <SectionHeading
             eyebrow="Workspace"
-            title="Build workflows, not one-off tasks"
-            description="Most PDF sites make you repeat yourself. pdf.xyz keeps your files in a single workspace so you can chain tools into repeatable pipelines."
+            title="One workspace for your files"
+            description="Most PDF sites make you upload the same file again for every tool. pdf.xyz stages your files once, and the in-browser tools open with them already loaded."
             className="max-w-2xl"
           />
           <Link
@@ -185,24 +179,16 @@ export function WorkflowSection() {
 
         <div className="flex flex-col gap-5">
           <p className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            Example pipeline
+            Tools that open your staged files
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-10 sm:justify-between">
-            {chain.map((stage, i) => (
-              <Fragment key={stage}>
-                <div className="flex flex-col items-center gap-3">
-                  <StageGlyph stage={stage} />
-                  <span className="border-line-strong/60 bg-panel text-fg rounded-[2px] border px-3 py-1.5 font-mono text-[13px]">
-                    {stage}
-                  </span>
-                </div>
-                {i < chain.length - 1 && (
-                  <ArrowRight
-                    className="text-faint mb-10 hidden size-4 md:block"
-                    aria-hidden
-                  />
-                )}
-              </Fragment>
+            {stages.map((stage) => (
+              <div key={stage} className="flex flex-col items-center gap-3">
+                <StageGlyph stage={stage} />
+                <span className="border-line-strong/60 bg-panel text-fg rounded-[2px] border px-3 py-1.5 font-mono text-[13px]">
+                  {stage}
+                </span>
+              </div>
             ))}
           </div>
         </div>
