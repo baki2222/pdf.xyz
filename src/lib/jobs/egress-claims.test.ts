@@ -44,8 +44,13 @@ const PATTERNS: readonly RegExp[] = [
 
 /**
  * Pending a copy change outside this lane (see the copy lane's queue): the
- * shared pipeline copy lives in a file this change does not edit. Tolerated,
- * never required, so the copy change can land in either order.
+ * shared pipeline copy lives in a file this change does not edit.
+ *
+ * REQUIRED to still match, not merely tolerated. It was first written as
+ * "tolerated, never required", which never retires: once the copy lane fixed
+ * the file, a regression reintroducing the claim there would have passed
+ * silently, with this set as its licence. Now the moment the file stops
+ * making the claim, the test below fails until the entry is removed.
  */
 const PENDING_COPY = new Set(["src/lib/jobs/capabilities.ts"]);
 
@@ -77,6 +82,17 @@ describe("no surface claims the worker has no network", () => {
     expect(idle).toEqual([]);
     // The claim that actually shipped must be caught, not only synonyms.
     expect(SHIPPED.every((s) => PATTERNS.some((p) => p.test(s)))).toBe(true);
+  });
+
+  it("every PENDING_COPY exemption is still needed — remove it once the copy lands", () => {
+    const retired = [...PENDING_COPY].filter((rel) => {
+      const text = flatten(readFileSync(path.join(ROOT, rel), "utf8"));
+      return !PATTERNS.some((p) => p.test(text));
+    });
+    expect(
+      retired,
+      "these files no longer make the claim: delete them from PENDING_COPY so the scan below covers them",
+    ).toEqual([]);
   });
 
   it("no source file under src/ makes the claim", () => {
