@@ -27,8 +27,8 @@ import type { PdfKeyLength } from "@/lib/jobs/pdf-security";
 import type { WorkerStatus } from "./status";
 import { pollJobToTerminal } from "./job-polling";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
+import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
 
-const CONTENT_TYPE = "application/pdf";
 const PROTECT_TOOL = "protect-pdf";
 const UNLOCK_TOOL = "unlock-pdf";
 const DEFAULT_POLL_INTERVAL_MS = 800;
@@ -172,12 +172,25 @@ export async function runSecurityJob(
   const maxPollAttempts = opts.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
 
   // 1. Reserve an upload slot for exactly this file.
+  //
+  // The declared type comes from the file's extension through the same table
+  // the server validates against. It WAS a constant `application/pdf`, written
+  // when this runner served only Protect and Unlock; once Word, Excel,
+  // PowerPoint and HTML to PDF reused it, every one of their uploads was
+  // refused with 415 before a byte moved (see `@/lib/jobs/mime-by-format`).
+  const contentType = declaredContentTypeFor(filename);
+  if (!contentType) {
+    return {
+      ok: false,
+      message: "This tool doesn't accept that file type.",
+    };
+  }
   const sessionRes = await fetchImpl("/api/uploads", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: jsonBody({
       tool,
-      files: [{ filename, contentType: CONTENT_TYPE, bytes: bytes.byteLength }],
+      files: [{ filename, contentType, bytes: bytes.byteLength }],
     }),
     signal,
   });
