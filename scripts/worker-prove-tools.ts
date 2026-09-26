@@ -63,6 +63,7 @@ import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
@@ -765,6 +766,23 @@ const SPECS: ProofSpec[] = [
     type: PDF_MIME,
     expect: isZipContainer,
     want: "DOCX",
+    // `PK` at byte 0 is true of a DOCX with an empty body, and was true of the
+    // column-scrambled DOCX this tool shipped. Read the text a reader gets.
+    verify: async (bytes) => {
+      const paragraphs = await readDocxParagraphs(bytes);
+      const found = paragraphs.some((p) =>
+        p.includes("pdf.xyz deployment proof"),
+      );
+      return found
+        ? {
+            ok: true,
+            detail: `${paragraphs.length} paragraph(s), fixture text found`,
+          }
+        : {
+            ok: false,
+            detail: `word/document.xml has ${paragraphs.length} paragraph(s) and none carries the fixture's "pdf.xyz deployment proof"`,
+          };
+    },
   },
   {
     tool: "pdf-to-excel",

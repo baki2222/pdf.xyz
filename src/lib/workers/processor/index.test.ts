@@ -104,7 +104,13 @@ describe("createProcessorRegistry", () => {
 
   it("registers the PDF to Office exporter for PDF to Word/Excel/PowerPoint tools", () => {
     const registry = createProcessorRegistry({
-      pdfOfficeExport: { extract: fakePdfTextExtractor() },
+      // Both extractors: Word reads reading-order paragraphs (`extractFlow`),
+      // Excel and PowerPoint the layout text. `extract` alone used to be the
+      // whole wiring, and it is what scrambled every two-column page.
+      pdfOfficeExport: {
+        extract: fakePdfTextExtractor(),
+        extractFlow: async () => ({ pageCount: 1, pages: [] }),
+      },
     });
     expect(registry.supports("pdf-to-word")).toBe(true);
     expect(registry.supports("pdf-to-excel")).toBe(true);

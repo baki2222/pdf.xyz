@@ -80,6 +80,10 @@ const ALLOWED = new Set(
     // reachable from a route, a component or a barrel.
     "src/tests/unicode-fonts.ts",
     "src/tests/setup.ts",
+    // Probes PATH for a POPPLER `pdftotext` (spawning `-v`) and hashes RC4
+    // keys for the hand-written encrypted fixtures. Pulled in only by the PDF
+    // to Office `*.test.ts(x)` files, never by a route, component or barrel.
+    "src/tests/pdf-office-fixtures.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 

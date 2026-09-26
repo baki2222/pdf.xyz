@@ -1,4 +1,5 @@
 import type { JobError } from "@/lib/jobs";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -72,9 +73,27 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    // The three below are properties of the DOCUMENT, so a retry returns the
+    // same answer. Each has its own code because each needs its own next step
+    // — OCR, Unlock, Repair — and the panel links to it by code, never by
+    // matching message text. `password_protected` used to fall through to the
+    // retryable `internal_error` below: requeued with backoff, then reported
+    // as "could not be exported" with no hint that it was locked.
     case "no_text":
       return {
-        code: "unprocessable_entity",
+        code: OFFICE_EXPORT_ERROR_CODES.noText,
+        message: run.message,
+        retryable: false,
+      };
+    case "password_protected":
+      return {
+        code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+        message: run.message,
+        retryable: false,
+      };
+    case "unreadable":
+      return {
+        code: OFFICE_EXPORT_ERROR_CODES.unreadable,
         message: run.message,
         retryable: false,
       };
@@ -98,7 +117,10 @@ function meta(m: PdfOfficeExportMeta): ProcessorMeta {
 export function createPdfOfficeExportProcessor(
   deps: PdfOfficeExportDeps,
 ): Processor {
-  const ready = deps.extract != null;
+  // Both extractors, because this processor claims all three tools: Excel and
+  // PowerPoint read `extract`, Word reads `extractFlow`. Wiring one and not the
+  // other would advertise a tool that answers every job with `unsupported`.
+  const ready = deps.extract != null && deps.extractFlow != null;
   return {
     id: "pdf-office-export",
     tools: PDF_OFFICE_EXPORT_TOOLS,
@@ -136,6 +158,9 @@ export function createPdfOfficeExportProcessor(
           },
         ],
         meta(run.meta),
+        // Which pages had text. Without it a partly scanned PDF "succeeds"
+        // with its scanned pages silently missing from the file.
+        { officeExport: run.coverage },
       );
     },
   };

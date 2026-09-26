@@ -20,6 +20,7 @@ import {
   type PdfTextSeams,
 } from "./native";
 import { resolveNativePdfTextConfig } from "./native-config";
+import { isPdfOpenRefusal, PdfTextExecError } from "./errors";
 
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
 
@@ -259,6 +260,52 @@ describe("extractors", () => {
   });
 });
 
+describe("a failed run says HOW it failed", () => {
+  it("carries the exit status of a real process that refused its input", async () => {
+    // A real spawn through the default runner: node itself, handed pdftotext's
+    // argv, exits 9 on the unknown `-layout` flag. The runner used to reject
+    // with a bare Error, so an engine could not tell "this document will not
+    // open" from "this run timed out" — and retried both.
+    const error = await createNativePdfTextExtractor(
+      process.execPath,
+      resolveNativePdfTextConfig({}),
+      "keep",
+    )(PDF).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(PdfTextExecError);
+    expect(error).toMatchObject({
+      exitCode: 9,
+      killed: false,
+      outputTooLarge: false,
+    });
+    expect(isPdfOpenRefusal(error)).toBe(true);
+  });
+
+  it("does not call a timeout or an output ceiling a refusal", () => {
+    expect(
+      isPdfOpenRefusal(
+        new PdfTextExecError({
+          exitCode: null,
+          killed: true,
+          outputTooLarge: false,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isPdfOpenRefusal(
+        new PdfTextExecError({
+          exitCode: null,
+          killed: false,
+          outputTooLarge: true,
+        }),
+      ),
+    ).toBe(false);
+    expect(isPdfOpenRefusal(new Error("pdftotext failed."))).toBe(false);
+  });
+});
+
 describe("deps wiring — readiness must reflect the host, not the wiring", () => {
   it("injects extract only when pdftotext is present", () => {
     expect(
@@ -267,6 +314,34 @@ describe("deps wiring — readiness must reflect the host, not the wiring", () =
     expect(
       nativePdfOfficeExportDeps({}, { resolveOnPath: () => false }).extract,
     ).toBeUndefined();
+  });
+
+  it("injects extractFlow only when pdftotext is present", () => {
+    expect(
+      nativePdfOfficeExportDeps({}, { resolveOnPath: () => true }).extractFlow,
+    ).toBeTypeOf("function");
+    expect(
+      nativePdfOfficeExportDeps({}, { resolveOnPath: () => false }).extractFlow,
+    ).toBeUndefined();
+  });
+
+  it("gives PDF to Word the reading-order extractor and Excel/PowerPoint the layout one", async () => {
+    // THE RELATIONSHIP, read off the argv each extractor really runs. PDF to
+    // Word read `-layout` until 2026-09-27, which glued a two-column page's
+    // columns together line by line; Excel must keep `-layout`, whose padding
+    // its row splitting depends on.
+    const argvs: string[][] = [];
+    const wired: PdfTextSeams = {
+      ...seams(""),
+      exec: async (_command, args) => {
+        argvs.push([...args]);
+        return "";
+      },
+    };
+    const deps = nativePdfOfficeExportDeps({}, wired);
+    await deps.extract!(PDF);
+    await deps.extractFlow!(PDF);
+    expect(argvs.map((argv) => argv[0])).toEqual(["-layout", "-bbox-layout"]);
   });
 
   it("injects extractLayout only when pdftotext is present", () => {

@@ -23,6 +23,10 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import {
+  OfficeExportCoverageNotice,
+  OfficeExportNextStep,
+} from "./office-export-notices";
 
 type PdfOfficeTool = "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint";
 type Phase = "loading" | "error" | "ready";
@@ -119,8 +123,9 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             The worker extracts selectable PDF text and packages it into a real{" "}
-            {extensionFor(officeTool)} file. Scanned PDFs fail honestly and
-            should be OCR’d first.
+            {extensionFor(officeTool)} file. Pages without selectable text
+            (scans) are not included, and the result tells you which ones. Run
+            OCR first to include them.
           </p>
         </div>
 
@@ -291,10 +296,16 @@ function PdfOfficeRunArea({
       >
         Export {output}
       </WorkerRunButton>
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      {outcome?.ok === false && (
+        <>
+          <ErrorNote message={outcome.message} />
+          <OfficeExportNextStep code={outcome.code} />
+        </>
+      )}
       {outcome?.ok === true && (
         <ResultCard announce={`Your ${output} file is ready.`}>
           <p className="text-ok text-sm">Your {output} file is ready.</p>
+          <OfficeExportCoverageNotice job={outcome.job} />
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)
