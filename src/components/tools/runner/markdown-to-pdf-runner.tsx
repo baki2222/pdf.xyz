@@ -88,6 +88,7 @@ export function MarkdownToPdfRunner() {
         onSource={setSource}
         onFile={(files) => files[0] && void readMarkdownFile(files[0])}
         loadError={loadError}
+        onClearError={() => setLoadError(null)}
       />
     </div>
   );
@@ -98,13 +99,15 @@ function MarkdownToPdfEditor({
   onSource,
   onFile,
   loadError,
+  onClearError,
 }: {
   source: MarkdownSource;
   onSource: (source: MarkdownSource) => void;
   onFile: (files: File[]) => void;
   loadError: string | null;
+  onClearError: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const characterCount = source.text.length;
   const byteCount = new TextEncoder().encode(source.text).byteLength;
   const filename = markdownPdfOutputName(source.name);
@@ -121,7 +124,11 @@ function MarkdownToPdfEditor({
       <ResultPanel
         title="PDF created"
         summary={`${formatBytes(result.byteLength)} · ${characterCount.toLocaleString()} Markdown characters converted locally`}
-        onReset={() => onSource({ ...source, text: "" })}
+        onReset={() => {
+          reset();
+          onSource({ name: "document.md", text: "" });
+          onClearError();
+        }}
       >
         <button
           type="button"

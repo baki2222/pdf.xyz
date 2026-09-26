@@ -91,7 +91,9 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           accepted.push(file);
         }
       }
-      if (rejected.length) setRejections((prev) => [...prev, ...rejected]);
+      // Each pick reports its own rejections; an old note about a file the
+      // user already replaced is not news.
+      setRejections(rejected);
       if (!accepted.length) return;
       setLoading((n) => n + accepted.length);
       const loaded = await Promise.all(
@@ -121,7 +123,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     }
   }, [handoff.status, handoff.files, addFiles]);
 
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const move = (from: number, to: number) =>
     setItems((prev) => reorder(prev, from, to));
   const remove = (id: string) =>
@@ -134,10 +136,17 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       return prev.filter((item) => item.id !== id);
     });
 
+  /**
+   * Back to an empty picker: images, old rejection notes, and the finished
+   * result. The result lives in this component's hook, so emptying the list
+   * alone left the success panel up ("0 images") with the old PDF behind it.
+   */
   const clearItems = () => {
     previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
     previewUrls.current.clear();
     setItems([]);
+    setRejections([]);
+    reset();
   };
   const onRun = () =>
     run(() =>

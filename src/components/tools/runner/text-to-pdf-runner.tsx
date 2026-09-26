@@ -90,6 +90,7 @@ function TextToPdfEditor({
   onSource,
   onFile,
   loadError,
+  onClearError,
 }: {
   source: TextSource;
   onSource: (source: TextSource) => void;
@@ -97,7 +98,7 @@ function TextToPdfEditor({
   loadError: string | null;
   onClearError: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const characterCount = source.text.length;
   const byteCount = new TextEncoder().encode(source.text).byteLength;
   const filename = textPdfOutputName(source.name);
@@ -112,7 +113,13 @@ function TextToPdfEditor({
       <ResultPanel
         title="PDF created"
         summary={`${formatBytes(result.byteLength)} · ${characterCount.toLocaleString()} characters converted`}
-        onReset={() => onSource({ ...source, text: "" })}
+        onReset={() => {
+          // The result lives in THIS component's hook; emptying the text alone
+          // left the success panel up with "0 characters converted".
+          reset();
+          onSource({ name: "text.txt", text: "" });
+          onClearError();
+        }}
       >
         <button
           type="button"
