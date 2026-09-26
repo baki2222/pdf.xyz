@@ -21,6 +21,12 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import {
+  DEFAULT_JPEG_QUALITY,
+  DEFAULT_RESOLUTION_ID,
+  RASTER_RESOLUTIONS,
+  type RasterResolution,
+} from "@/lib/pdf/pdf-to-image";
 import type { Guide } from "./types";
 
 /**
@@ -38,6 +44,30 @@ function ceilingMb(slug: string): number {
   }
   return mb;
 }
+
+/**
+ * A render-resolution preset a guide describes, by id — read from the list the
+ * PDF-to-image runner offers. Throws rather than falling back: a guide that
+ * describes "Print" must not silently describe the default instead.
+ */
+function rasterPreset(id: string): RasterResolution {
+  const preset = RASTER_RESOLUTIONS.find((r) => r.id === id);
+  if (!preset) {
+    throw new Error(
+      `a guide describes raster preset "${id}", which is not offered`,
+    );
+  }
+  return preset;
+}
+
+const presetText = (r: RasterResolution) => `${r.label} (${r.dpi} DPI)`;
+
+/** "Screen (96 DPI), High (150 DPI), and Print (300 DPI)" — from the list. */
+const RASTER_PRESET_LIST = (() => {
+  const items = RASTER_RESOLUTIONS.map(presetText);
+  const last = items.pop();
+  return items.length > 0 ? `${items.join(", ")}, and ${last}` : `${last}`;
+})();
 
 export const guides: Guide[] = [
   {
@@ -213,7 +243,7 @@ export const guides: Guide[] = [
     title: "How to compress a PDF",
     description:
       "Compress a PDF with a lossless repack that runs in your browser, or send image-heavy files through deep image compression on a secure, auto-deleting worker.",
-    tools: ["compress-pdf", "optimize-web", "grayscale-pdf"],
+    tools: ["compress-pdf", "optimize-web"],
     keywords: [
       "compress pdf",
       "reduce pdf file size",
@@ -281,13 +311,18 @@ export const guides: Guide[] = [
         answer: `The job runs on an encrypted, isolated worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
+        question: "Will a smaller PDF also open faster on a website?",
+        answer:
+          "Size is only part of it. If the PDF will be read in a browser, run Optimize for Web on the compressed copy: it linearizes the file with qpdf on a secure worker, so the first page can render while the rest still downloads, and the input is deleted after the job. Linearizing reorders the file for streaming; it is not a compression step.",
+      },
+      {
         question: "Do I need an account to compress a PDF?",
         answer:
           "No account is needed. Open the tool, add your PDF, review the breakdown, and save the result.",
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-convert-pdf-to-word",
@@ -460,6 +495,169 @@ export const guides: Guide[] = [
     ],
     published: "2026-09-17",
     updated: "2026-09-17",
+  },
+  {
+    slug: "how-to-convert-pdf-to-jpg",
+    title: "How to convert a PDF to JPG images",
+    description:
+      "Turn every page of a PDF into a JPG image right in your browser — your file never leaves your device. Pick a resolution; several pages arrive as one ZIP.",
+    tools: ["pdf-to-jpg", "pdf-to-png", "extract-images"],
+    keywords: [
+      "pdf to jpg",
+      "convert pdf to jpg",
+      "pdf to jpeg",
+      "pdf to image",
+      "save pdf pages as images",
+      "turn a pdf into pictures",
+    ],
+    intro: [
+      "To convert a PDF to JPG, open the PDF to JPG tool, add your PDF, choose a resolution, and render. Every page becomes its own JPG image, drawn right in your browser. A one-page PDF downloads as a single JPG; a longer document arrives as one ZIP with an image for each page.",
+      "The rendering happens on your own device. The tool draws each page with pdf.js, a PDF renderer bundled with the site, and encodes it as a JPG in the browser, so your PDF stays on your device from start to finish. There is no account to create.",
+      `That makes it a quick way to share a page in a chat or on a slide, to drop a page into a document that only takes images, or to show a PDF on a device with no viewer. Each PDF can be up to ${ceilingMb("pdf-to-jpg")} MB.`,
+    ],
+    steps: [
+      "Open the PDF to JPG tool.",
+      "Add your PDF. It is read in your browser, and the file stays on your device.",
+      `Choose a resolution: ${RASTER_PRESET_LIST}. ${rasterPreset(DEFAULT_RESOLUTION_ID).label} is selected to start.`,
+      "Render the pages. A progress count shows each page as it is drawn.",
+      "Check the previews, then download: a single page saves as one JPG, and several pages save as one ZIP with an image for each page.",
+    ],
+    sections: [
+      {
+        id: "choosing-a-resolution",
+        heading: "Choosing a resolution",
+        body: [
+          `The resolution decides how many pixels each page gets. ${presetText(rasterPreset("screen"))} is enough for a page read on a monitor or in a chat. ${presetText(rasterPreset("high"))} is a sharper all-rounder. ${presetText(rasterPreset("print"))} is for printing, or for zooming in on small text. Every step up draws more pixels per page, so the images get larger and take longer to render.`,
+          `Each page is encoded at a fixed JPEG quality of ${Math.round(DEFAULT_JPEG_QUALITY * 100)}%, on a white background: JPG has no transparency, so any transparent area of a page comes out white.`,
+        ],
+      },
+      {
+        id: "where-it-runs",
+        heading: "Your PDF never leaves your device",
+        body: [
+          "PDF to JPG is an in-browser tool. The PDF is read, drawn, and encoded on your own machine, and the images are saved straight from the browser — there is no server step in the path, and no account is needed.",
+          "One honest caveat about working offline: the page and its rendering engine load over the network, and the engine is fetched the first time you use the tool. After that, the rendering runs entirely on your device, so a dropped connection does not interrupt work already in progress.",
+        ],
+      },
+      {
+        id: "pages-or-embedded-images",
+        heading: "Page images, or the images inside the PDF?",
+        body: [
+          "PDF to JPG draws each whole page — text, drawings, and pictures together — as one image, the way a screen shows it. If you want the photos embedded in the PDF at their original resolution instead of pictures of whole pages, use Extract Images: it saves embedded JPEGs as they are, rebuilds RGB and grayscale images as PNGs, and skips formats it cannot read.",
+          "If an image inside the PDF cannot be decoded, the page is still rendered, and the result tells you how many images could not be decoded rather than handing back a page with a silent gap.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent anywhere when I convert it to JPG?",
+        answer:
+          "No. The pages are drawn and encoded in your browser, so the file stays on your device from start to finish.",
+      },
+      {
+        question: "Why did I get a ZIP file?",
+        answer:
+          "Because the PDF has more than one page. Each page becomes its own JPG, named with its page number so the files sort in reading order, and the images are bundled into one ZIP so they download together. A one-page PDF downloads as a single JPG.",
+      },
+      {
+        question: "Can I convert just one page?",
+        answer:
+          "The tool renders every page of the PDF you add. For a single page, use Extract Pages first to make a one-page PDF — it runs in your browser too — and convert that.",
+      },
+      {
+        question: "How do I get PNG images instead?",
+        answer:
+          "Use PDF to PNG. It renders pages the same way, at the same resolutions, but saves lossless PNGs — usually larger files, with no JPEG compression around sharp text.",
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("pdf-to-jpg")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-rotate-a-pdf",
+    title: "How to rotate pages in a PDF",
+    description:
+      "Rotate every page of a PDF, or only the pages you pick — left, right, or upside down — right in your browser, so the file stays on your device.",
+    tools: ["rotate-pdf", "organize-pages", "crop-pdf"],
+    keywords: [
+      "rotate pdf",
+      "rotate pdf pages",
+      "turn pdf pages",
+      "fix a sideways pdf",
+      "rotate one page in a pdf",
+      "landscape pdf",
+    ],
+    intro: [
+      "To rotate a PDF, open the Rotate PDF tool, add your file, turn the pages that need it, and download the result. You can turn every page at once or only the ones you select, and each page's thumbnail shows its new orientation before anything is applied.",
+      "Rotate PDF runs entirely in your browser, so your PDF stays on your device and no account is needed. The rotation is written into each page as a setting rather than redrawn, so text stays selectable and images keep their quality.",
+      `It is the quick fix for a scan that came out sideways, a landscape table stuck in a portrait report, or a page someone photographed upside down. Each PDF can be up to ${ceilingMb("rotate-pdf")} MB.`,
+    ],
+    steps: [
+      "Open the Rotate PDF tool.",
+      "Add your PDF. It opens in your browser, and the file stays on your device.",
+      "Choose the pages to turn. Every page starts selected; click Clear, then click pages to pick them, Shift-click to take a range, or use Invert.",
+      "Turn them with Left, Right, or 180°, or use the arrows on one page's thumbnail to turn just that page.",
+      "Check the thumbnails. Reset puts every page back the way it was.",
+      "Apply the rotation and download the rotated PDF.",
+    ],
+    sections: [
+      {
+        id: "every-page-or-some",
+        heading: "Turning every page, or only some",
+        body: [
+          "Every page starts selected, so one click on Left, Right, or 180° turns the whole document — the usual fix for a scan that came out sideways. To turn only some pages, clear the selection and pick the ones you want: click a page to select it, Shift-click another to select everything in between, or Invert to swap what is selected. With nothing selected at all, a turn applies to every page.",
+          "For a single odd page, skip the selection and use the arrows on that page's thumbnail. Pages that were already rotated in the original start from their current angle, so a turn adds to what is there, and Apply stays unavailable until at least one page differs from the original.",
+        ],
+      },
+      {
+        id: "what-rotating-changes",
+        heading: "What rotating changes, and what it leaves alone",
+        body: [
+          "A PDF stores each page's rotation as a setting, and this tool changes that setting instead of redrawing the page. Text stays selectable and searchable, images keep their original quality, and no page is turned into a picture.",
+          "If you also need to reorder, duplicate, or delete pages, use Organize Pages, which does all of that and rotation in one pass on a visual page board, in your browser too. If a page is the right way up but carries too much margin, Crop PDF trims it.",
+        ],
+      },
+      {
+        id: "where-it-runs",
+        heading: "Your PDF never leaves your device",
+        body: [
+          "Rotate PDF is an in-browser tool. The file is opened, turned, and saved on your own machine — there is no server step in the path, and no account is needed.",
+          "One honest caveat about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the work runs entirely on your device, so a dropped connection does not interrupt work already in progress.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I rotate just one page of a PDF?",
+        answer:
+          "Yes. Use the arrows on that page's thumbnail, or select only that page and use Left, Right, or 180°. The other pages stay as they were.",
+      },
+      {
+        question: "Does rotating a PDF reduce its quality?",
+        answer:
+          "No. The tool changes each page's rotation setting instead of redrawing the page, so text stays selectable and images keep their quality.",
+      },
+      {
+        question: "Does my PDF leave my device when I rotate it?",
+        answer:
+          "No. Rotate PDF runs entirely in your browser, so the file stays on your device from start to finish.",
+      },
+      {
+        question: "Can I rotate and reorder pages at the same time?",
+        answer:
+          "Use Organize Pages for that. It reorders, rotates, duplicates, and deletes pages in one pass, and it runs in your browser too.",
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("rotate-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",

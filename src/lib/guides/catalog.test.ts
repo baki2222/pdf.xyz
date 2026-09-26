@@ -123,6 +123,37 @@ describe("the guides catalogue is structurally sound", () => {
     }
   });
 
+  it("every tool under 'Tools used in this guide' is one the guide uses", () => {
+    // The guide page renders `guide.tools` under the heading "Tools used in
+    // this guide", and the tool page's Guides band links back through the same
+    // field. So each entry is a claim that the article USES that tool, and a
+    // reader can check it: the tool must be named in the copy. The compress
+    // guide listed Grayscale PDF and Optimize for Web while naming neither,
+    // and Grayscale PDF makes a text PDF 150-300x LARGER (audit, 67e8d0f) —
+    // the "used" claim was the only thing sending compress readers there.
+    const unnamed = (guide: Guide) =>
+      guide.tools.filter((slug) => {
+        const name = getToolBySlug(slug)?.name;
+        const copy = copyStrings(guide).join(" ").toLowerCase();
+        return !name || !copy.includes(name.toLowerCase());
+      });
+    const holes = guides.flatMap((guide) =>
+      unnamed(guide).map((slug) => `${guide.slug} lists ${slug}`),
+    );
+    expect(holes, holes.join("\n")).toEqual([]);
+    // Health check: the corpus is the whole catalogue's tool references.
+    expect(guides.flatMap((g) => g.tools).length).toBeGreaterThanOrEqual(
+      2 * guides.length,
+    );
+    // Positive control, through the same detector: a listed tool the copy
+    // never names is reported; one it names is not.
+    const fixture = {
+      ...fixtureAround("Open Merge PDF and add your files."),
+      tools: ["merge-pdf", "split-pdf"],
+    };
+    expect(unnamed(fixture)).toEqual(["split-pdf"]);
+  });
+
   it("dates are real and ordered", () => {
     for (const guide of guides) {
       for (const date of [guide.published, guide.updated]) {

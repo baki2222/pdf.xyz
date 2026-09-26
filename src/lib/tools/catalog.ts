@@ -144,7 +144,7 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF", "ZIP"],
     keywords: ["compress pdf", "reduce size", "shrink pdf", "optimize size"],
-    related: ["optimize-web", "grayscale-pdf", "repair-pdf"],
+    related: ["optimize-web", "remove-pages", "repair-pdf"],
     how: [
       "Add your PDF — it's analyzed privately, right in your browser.",
       "Review the size breakdown and download a lossless-optimized copy.",
@@ -192,14 +192,14 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["optimize pdf", "linearize", "fast web view", "web pdf"],
-    related: ["compress-pdf", "grayscale-pdf", "repair-pdf"],
+    related: ["compress-pdf", "split-pdf", "repair-pdf"],
   },
   {
     slug: "grayscale-pdf",
     name: "Grayscale PDF",
     tagline: "Convert to black & white to save ink.",
     description:
-      "Render each page to grayscale and rebuild a print-friendly PDF. This flattens selectable text and vectors into page images.",
+      "Render each page to grayscale and rebuild a print-friendly PDF. This flattens selectable text and vectors into page images, so text-based PDFs usually get larger.",
     category: "optimize",
     icon: "grayscale",
     processing: "client",
