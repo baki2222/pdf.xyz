@@ -1,13 +1,41 @@
-import { describe, expect, it, vi } from "vitest";
-import { runPdfToPdfA, type GhostscriptPdfARunner } from "./engine";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  GhostscriptRunError,
+  runPdfToPdfA,
+  type GhostscriptFailureReason,
+  type GhostscriptPdfARunner,
+} from "./engine";
+import { inspectPdfAMarkers } from "./pdfa-markers";
+import {
+  buildPdfAFixture,
+  declaredPdfA,
+  withoutOutputIntent,
+} from "@/tests/pdfa-fixtures";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
 );
 const NOT_PDF = new TextEncoder().encode("not a pdf");
 
-function runner(output = PDF): GhostscriptPdfARunner {
-  return { convertToPdfA: vi.fn(async () => ({ bytes: output, notes: [] })) };
+/**
+ * What a working conversion returns: a PDF that DECLARES PDF/A-2b. Every
+ * success case below used to hand the engine `PDF` (a bare `%PDF-` stub) as
+ * the "converted" output, and the engine shipped it — which is exactly the
+ * defect: nothing between Ghostscript and the user asked whether the file
+ * said PDF/A at all.
+ */
+let DECLARED: Uint8Array;
+beforeAll(async () => {
+  DECLARED = await declaredPdfA();
+});
+
+function runner(output?: Uint8Array): GhostscriptPdfARunner {
+  return {
+    convertToPdfA: vi.fn(async () => ({
+      bytes: output ?? DECLARED,
+      notes: [],
+    })),
+  };
 }
 
 describe("pdf-archive engine", () => {
@@ -39,11 +67,12 @@ describe("pdf-archive engine", () => {
   });
 
   it("converts valid PDFs and returns bounded metadata", async () => {
-    const gs = runner(
-      new TextEncoder().encode(
-        "%PDF-1.7\n1 0 obj<<>>endobj\npdfa\ntrailer<<>>\n%%EOF\n",
-      ),
-    );
+    // INVERTED: this case once fed the engine the bytes
+    // "%PDF-1.7 … pdfa … %%EOF" as a successful PDF/A output and asserted
+    // `ok: true`. That pinned the defect — a file with no PDF/A declaration
+    // passed. The output here now declares PDF/A-2b; the one that does not is
+    // refused below.
+    const gs = runner();
     const result = await runPdfToPdfA(PDF, { ghostscript: gs });
     expect(result).toMatchObject({
       ok: true,
@@ -67,7 +96,13 @@ describe("pdf-archive engine", () => {
           }),
         },
       }),
-    ).resolves.toMatchObject({ ok: false, kind: "failed" });
+    ).resolves.toMatchObject({
+      ok: false,
+      kind: "failed",
+      // An untyped throw is NOT assumed transient: nothing says the same bytes
+      // would fare better, and a retry holds the serial worker.
+      reason: "engine_exit",
+    });
 
     await expect(
       runPdfToPdfA(PDF, { ghostscript: runner(NOT_PDF) }),
@@ -84,7 +119,7 @@ describe("what the conversion removed is reported, not discarded", () => {
     // one-page PDF with transparency. Exit 0, valid file, metadata gone.
     const gsRunner = {
       convertToPdfA: vi.fn(async () => ({
-        bytes: PDF,
+        bytes: DECLARED,
         notes: [
           "Text string detected in DOCINFO cannot be represented in XMP for PDF/A1, discarding DOCINFO",
         ],
@@ -108,5 +143,80 @@ describe("what the conversion removed is reported, not discarded", () => {
     if (!run.ok) return;
     expect(run.meta.hadNotes).toBe(false);
     expect(run.meta.notes).toEqual([]);
+  });
+});
+
+describe("an output that does not DECLARE PDF/A-2b is never shipped as PDF/A", () => {
+  it("refuses the pre-fix shape: part 2 in the XMP, no OutputIntent", async () => {
+    // Fails against the pre-fix engine: its only output check was
+    // `looksLikePdf`, so this file — a valid PDF whose PDF/A claim no validator
+    // accepts — came back `ok: true` and was handed to the user as PDF/A-2b.
+    const run = await runPdfToPdfA(PDF, {
+      ghostscript: runner(await withoutOutputIntent()),
+    });
+    expect(run).toMatchObject({
+      ok: false,
+      kind: "failed",
+      reason: "not_pdfa",
+    });
+    if (run.ok || run.kind !== "failed") return;
+    expect(run.message).toMatch(/PDF\/A-2b/);
+  });
+
+  it.each([
+    ["claims PDF/A-1", { xmp: { part: "1" } }],
+    ["claims conformance U", { xmp: { conformance: "U" } }],
+    ["has no XMP at all", { xmp: null }],
+    ["has an intent with no ICC profile", { intent: "no-profile" as const }],
+  ])("refuses an output that %s", async (_label, opts) => {
+    const run = await runPdfToPdfA(PDF, {
+      ghostscript: runner(await buildPdfAFixture(opts)),
+    });
+    expect(run).toMatchObject({ ok: false, reason: "not_pdfa" });
+  });
+
+  it("asks the question of the OUTPUT, after the PDF check, every time", async () => {
+    const inspectOutput = vi.fn(inspectPdfAMarkers);
+    const output = await declaredPdfA();
+    const run = await runPdfToPdfA(PDF, {
+      ghostscript: runner(output),
+      inspectOutput,
+    });
+    expect(run.ok).toBe(true);
+    expect(inspectOutput).toHaveBeenCalledTimes(1);
+    expect(inspectOutput).toHaveBeenCalledWith(output);
+    // Health check: the input (a bare stub) is not what was inspected.
+    expect(inspectOutput.mock.calls[0]![0]).not.toBe(PDF);
+  });
+});
+
+describe("the runner's failure reason reaches the run", () => {
+  function throwing(reason: GhostscriptFailureReason): GhostscriptPdfARunner {
+    return {
+      convertToPdfA: vi.fn(async () => {
+        throw new GhostscriptRunError(reason, "x");
+      }),
+    };
+  }
+
+  it.each([
+    ["engine_exit", { kind: "failed", reason: "engine_exit" }],
+    ["timeout", { kind: "failed", reason: "timeout" }],
+    ["bad_output", { kind: "failed", reason: "bad_output" }],
+    ["io", { kind: "failed", reason: "transient" }],
+    ["spawn", { kind: "failed", reason: "transient" }],
+    ["password_required", { kind: "password_required" }],
+  ] as const)("%s", async (reason, expected) => {
+    const run = await runPdfToPdfA(PDF, { ghostscript: throwing(reason) });
+    expect(run).toMatchObject({ ok: false, ...expected });
+  });
+
+  it("points an open-password PDF at Unlock PDF", async () => {
+    const run = await runPdfToPdfA(PDF, {
+      ghostscript: throwing("password_required"),
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.message).toMatch(/Unlock PDF/);
   });
 });

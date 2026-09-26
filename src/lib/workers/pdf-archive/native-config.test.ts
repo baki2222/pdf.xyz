@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveNativePdfArchiveConfig } from "./native-config";
+import {
+  DEFAULT_PDFA_ICC_PROFILE,
+  resolveNativePdfArchiveConfig,
+} from "./native-config";
 
 describe("resolveNativePdfArchiveConfig", () => {
   it("defaults to enabled Ghostscript on PATH with bounded limits", () => {
@@ -32,5 +35,23 @@ describe("resolveNativePdfArchiveConfig", () => {
       maxOutputBytes: 67_890,
       tmpDir: "/tmp/pdfxyz",
     });
+  });
+
+  it("takes an ABSOLUTE ICC profile override and ignores a relative one", () => {
+    // The path goes to Ghostscript's --permit-file-read and into the prefix
+    // file; a relative one would resolve against wherever the daemon started.
+    expect(resolveNativePdfArchiveConfig({}).iccProfile).toBe(
+      DEFAULT_PDFA_ICC_PROFILE,
+    );
+    expect(
+      resolveNativePdfArchiveConfig({
+        PDFXYZ_PDF_ARCHIVE_ICC_PROFILE: "/opt/icc/srgb.icc",
+      }).iccProfile,
+    ).toBe("/opt/icc/srgb.icc");
+    expect(
+      resolveNativePdfArchiveConfig({
+        PDFXYZ_PDF_ARCHIVE_ICC_PROFILE: "srgb.icc",
+      }).iccProfile,
+    ).toBe(DEFAULT_PDFA_ICC_PROFILE);
   });
 });

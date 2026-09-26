@@ -59,6 +59,7 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import JSZip from "jszip";
 import { declaredContentTypeFor } from "../src/lib/jobs/mime-by-format";
+import { proveDeclaredPdfA } from "@/lib/workers/pdf-archive/pdfa-markers";
 import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -703,12 +704,16 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "decrypted PDF",
   },
+  // `expect: isPdf` alone was this proof until the PDF/A gate existed: it passed
+  // any PDF, so it could not fail on a file whose PDF/A claim no validator
+  // accepts. `verify` asks the downloaded artifact the engine's own question.
   {
     tool: "pdf-to-pdfa",
     make: textPdf,
     name: "archive.pdf",
     type: PDF_MIME,
     expect: isPdf,
+    verify: proveDeclaredPdfA,
     want: "PDF/A",
   },
   {

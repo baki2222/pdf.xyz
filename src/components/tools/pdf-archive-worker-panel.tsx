@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Archive, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
@@ -10,6 +11,7 @@ import {
   runWorkerPdfToPdfA,
   type PdfArchiveWorkerResult,
 } from "@/lib/workers/pdf-archive-client";
+import { PDF_ARCHIVE_PASSWORD_REQUIRED_CODE } from "@/lib/workers/pdf-archive/contract";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
@@ -26,6 +28,9 @@ import { NotifyMe } from "./notify-me";
 import { PdfANotes } from "./pdfa-notes";
 
 type Phase = "loading" | "error" | "ready";
+
+/** Where a user with an open-password PDF can remove the password first. */
+export const UNLOCK_TOOL_SLUG = "unlock-pdf";
 
 function badgeFor(
   phase: Phase,
@@ -162,7 +167,11 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
 
         <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
           <SpecRow icon={FileUp} label="Input" value="One PDF" />
-          <SpecRow icon={FileDown} label="Output" value="PDF/A-2b PDF" />
+          <SpecRow
+            icon={FileDown}
+            label="Output"
+            value="PDF/A-2b (best effort, not validated)"
+          />
           <SpecRow
             icon={Timer}
             label="Retention"
@@ -270,7 +279,25 @@ function ArchiveRunArea({ localDevOnly }: { localDevOnly: boolean }) {
       >
         Convert to PDF/A
       </WorkerRunButton>
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      {outcome?.ok === false && (
+        <>
+          <ErrorNote message={outcome.message} />
+          {/* The worker can tell an open-password file from a broken one; the
+              user should not have to guess which Unlock tool that means. */}
+          {outcome.code === PDF_ARCHIVE_PASSWORD_REQUIRED_CODE && (
+            <p className="text-muted text-sm">
+              <Link
+                href={`/tools/${UNLOCK_TOOL_SLUG}`}
+                className="text-fg font-medium underline underline-offset-2"
+              >
+                Unlock PDF
+              </Link>{" "}
+              removes the password if you know it. Then convert the unlocked
+              copy here.
+            </p>
+          )}
+        </>
+      )}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF/A file is ready.">
           {/* Above the download: a user who clicks and leaves is exactly the
