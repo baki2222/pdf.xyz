@@ -27,6 +27,7 @@ import {
 } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import { CROP_KEEPS_CONTENT } from "@/lib/pdf/crop-disclosure";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { toolFileCeilingMb } from "./file-ceilings";
@@ -146,6 +147,10 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       label: "Crop modes",
       value:
         "Uniform margins or per-side control, applied to all pages or only the ones you select.",
+    },
+    {
+      label: "Hidden, not deleted",
+      value: CROP_KEEPS_CONTENT,
     },
   ],
   "edit-pdf": [

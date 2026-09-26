@@ -579,7 +579,7 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["crop pdf", "trim margins", "cut pdf", "resize pages"],
-    related: ["rotate-pdf", "organize-pages", "edit-pdf"],
+    related: ["redact-pdf", "rotate-pdf", "organize-pages"],
     how: [
       "Open the PDF you want to crop.",
       "Set the crop margins and choose which pages to apply them to.",
