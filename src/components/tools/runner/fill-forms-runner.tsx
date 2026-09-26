@@ -238,14 +238,32 @@ function FieldsEditor({
 
   if (result) {
     const notApplied = result.outcomes.filter((o) => o.status !== "applied");
+    // The request travels with the result (not the checkbox, which is gone by
+    // now): "asked for a locked form, got an editable one" must be SAID, not
+    // left as a missing " · flattened" suffix under a green "Form filled".
+    // No link to Flatten PDF — it runs the same pdf-lib flatten, and fails on
+    // the same file.
+    const flattenFailed = result.flattenRequested && !result.flattened;
     return (
       <ResultPanel
-        title="Form filled"
+        title={flattenFailed ? "Form filled — not flattened" : "Form filled"}
         summary={
           <>
             {result.appliedCount} field{result.appliedCount === 1 ? "" : "s"}{" "}
             filled
             {result.flattened ? " · flattened to static content" : ""}
+            {flattenFailed && (
+              <span className="border-warn/40 bg-warn/10 text-warn mt-3 flex items-start gap-2 rounded-[4px] border px-3 py-2 text-xs leading-relaxed">
+                <TriangleAlert
+                  className="mt-0.5 size-3.5 shrink-0"
+                  aria-hidden
+                />
+                <span>
+                  Your values were filled, but this form couldn&apos;t be
+                  flattened, so the fields are still editable in a viewer.
+                </span>
+              </span>
+            )}
           </>
         }
         onReset={onReset}
