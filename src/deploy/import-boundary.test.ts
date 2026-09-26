@@ -80,6 +80,10 @@ const ALLOWED = new Set(
     // reachable from a route, a component or a barrel.
     "src/tests/unicode-fonts.ts",
     "src/tests/setup.ts",
+    // Spawns `render-tool-pages.ts` in a fresh process and parses the tool
+    // pages' JSON-LD back out of the markup. Imported only by `*.test.ts` copy
+    // guards; nothing on a route, a component or a barrel reaches it.
+    "src/tests/rendered-tool-pages.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 
