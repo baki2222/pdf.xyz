@@ -25,15 +25,20 @@
  * minus `SUPERSEDED_RATE_LIMIT_ACTIONS` (exported beside the union, so this
  * guard and any future consumer read one definition). And the superseded set
  * is itself checked against the code: the actions some call site actually
- * enforces are discovered by walking `src/`, and "superseded" must be exactly
- * the complement. A superseded action that regains a caller, or a live action
- * that loses its last one, fails here rather than in a paragraph.
+ * enforces are discovered from a TypeScript AST of `src/` and `scripts/` —
+ * CALLS to the limiter's enforcing functions from outside the limiter package,
+ * never a `policyFor("…")` lookup (see "WHO ENFORCES WHAT" below for why that
+ * distinction was paid for) — and "superseded" must be exactly the complement.
+ * A superseded action that regains a caller, or a live action that loses its
+ * last one, fails here rather than in a paragraph.
  *
  * Each row's Limit is `policy.limit` formatted the way the doc formats numbers,
  * and each Window is `policy.windowSeconds` in words.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
+import type * as TS from "typescript";
 import { describe, expect, it } from "vitest";
 import { AI_ALLOWANCE_ACTION } from "@/lib/jobs/ai-allowance";
 import { AI_SPEND_DAILY_TOKEN_CEILING } from "@/lib/jobs/ai-spend-ceiling";
@@ -144,15 +149,283 @@ function tableProblems(doc: string): string[] {
   return problems;
 }
 
-function sourceFiles(dir: string): string[] {
+// ── WHO ENFORCES WHAT: a CALL graph, not a module graph ──────────────────────
+//
+// History (2026-09-27, review of 508f5dc). The first discovery counted every
+// `policyFor("…")` literal in `src/`. For `ai.spend` the only such literals are
+// INSIDE the definitions of `peekAiSpendCeiling` and `recordAiSpend` (and the
+// probe's `spendProbePolicy`) — so a reviewer neutered every real caller of the
+// spend gate (the jobs route's peek, the executor's record, the status read)
+// and this file stayed 5/5 green. Looking a policy up enforces nothing; the
+// runbook could have kept calling `ai.spend` the only cost control after its
+// last caller was gone. Rule 4: a module graph read as a call graph.
+//
+// What it does now:
+//  1. The LIMITER PACKAGE is discovered as the directory that defines
+//     `policyFor`. Nothing inside it is a call site — its own functions reading
+//     policies, and its status reads, are the mechanism, not a consumer.
+//  2. The POLICY READERS are discovered: every exported function in that
+//     package whose body calls `policyFor`. Each must be classified below as
+//     enforcement or not, in both directions — a new reader fails until someone
+//     says which it is, and a classification naming no reader fails too.
+//  3. Each enforcer's action is resolved from its OWN definition (a literal, a
+//     const bound to an exported constant, or "the caller's Nth argument").
+//  4. An action is enforced when a call site OUTSIDE the package reaches it:
+//     for a parameterised enforcer, by passing the literal; for fixed-action
+//     enforcers, by EVERY one of them having a caller. `ai.spend` is two-phase —
+//     a peek that refuses and a record that counts — and either alone bounds
+//     nothing: with no record the counter never rises, with no peek nothing is
+//     refused.
+//  Calls are CallExpressions in a TypeScript AST, so a comment that mentions
+//  `recordAiSpend(tokens)` and a `function recordAiSpend(` declaration are not
+//  callers.
+
+const ts = createRequire(import.meta.url)("typescript") as typeof TS;
+
+/** Readers of `policyFor` that decide whether a request or a job proceeds. */
+const ENFORCEMENT = [
+  "enforceRateLimit",
+  "enforceAiCharacterAllowance",
+  "peekAiSpendCeiling",
+  "recordAiSpend",
+] as const;
+
+/** Readers of `policyFor` that decide nothing, and why. */
+const NOT_ENFORCEMENT: Record<string, string> = {
+  rateLimitHeaders: "formats headers for a decision already made",
+  spendProbePolicy:
+    "the probe's own bucket; it moves nothing the ceiling reads",
+};
+
+interface Source {
+  path: string;
+  text: string;
+}
+
+type ActionOf =
+  | { kind: "fixed"; action: string }
+  | { kind: "argument"; index: number }
+  | { kind: "unresolved"; why: string };
+
+interface PolicyReader {
+  name: string;
+  file: string;
+  actionOf: ActionOf;
+}
+
+const SOURCE_ROOTS = ["src", "scripts"];
+
+function walk(dir: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
-    if (statSync(path).isDirectory()) out.push(...sourceFiles(path));
-    else if (/\.tsx?$/.test(name) && !/\.(test|spec)\.tsx?$/.test(name))
-      out.push(path);
+    if (statSync(path).isDirectory()) out.push(...walk(path));
+    else if (
+      /\.(m?[jt]sx?)$/.test(name) &&
+      !/\.(test|spec)\.(m?[jt]sx?)$/.test(name)
+    )
+      out.push(path.replace(/\\/g, "/"));
   }
   return out;
+}
+
+function sourceCorpus(): Source[] {
+  return SOURCE_ROOTS.flatMap(walk).map((path) => ({
+    path,
+    text: readFileSync(path, "utf8"),
+  }));
+}
+
+function parse(src: Source): TS.SourceFile {
+  return ts.createSourceFile(src.path, src.text, ts.ScriptTarget.Latest, true);
+}
+
+function each(node: TS.Node, visit: (n: TS.Node) => void): void {
+  visit(node);
+  node.forEachChild((child) => each(child, visit));
+}
+
+function calleeName(call: TS.CallExpression): string | undefined {
+  return ts.isIdentifier(call.expression) ? call.expression.text : undefined;
+}
+
+function isExported(node: TS.FunctionDeclaration): boolean {
+  return (
+    node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false
+  );
+}
+
+/** The directory that defines `policyFor`, with a trailing slash. */
+function limiterPackage(corpus: readonly Source[]): string {
+  const definers = corpus.filter((src) => {
+    let found = false;
+    each(parse(src), (n) => {
+      if (
+        ts.isFunctionDeclaration(n) &&
+        n.name?.text === "policyFor" &&
+        isExported(n)
+      )
+        found = true;
+    });
+    return found;
+  });
+  if (definers.length !== 1)
+    throw new Error(
+      `expected ONE definition of policyFor, found [${definers.map((d) => d.path).join(", ")}]`,
+    );
+  const path = definers[0]!.path;
+  return path.slice(0, path.lastIndexOf("/") + 1);
+}
+
+/** `export const NAME = "literal"` anywhere in the corpus. */
+function exportedStringConst(
+  corpus: readonly Source[],
+  name: string,
+): string | undefined {
+  for (const src of corpus) {
+    if (!src.text.includes(name)) continue;
+    let value: string | undefined;
+    each(parse(src), (n) => {
+      if (
+        ts.isVariableStatement(n) &&
+        n.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+      )
+        for (const d of n.declarationList.declarations)
+          if (
+            ts.isIdentifier(d.name) &&
+            d.name.text === name &&
+            d.initializer &&
+            ts.isStringLiteral(d.initializer)
+          )
+            value = d.initializer.text;
+    });
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function resolveAction(
+  fn: TS.FunctionDeclaration,
+  arg: TS.Expression | undefined,
+  corpus: readonly Source[],
+): ActionOf {
+  if (!arg) return { kind: "unresolved", why: "policyFor() with no argument" };
+  if (ts.isStringLiteral(arg)) return { kind: "fixed", action: arg.text };
+  if (!ts.isIdentifier(arg))
+    return { kind: "unresolved", why: `policyFor(${arg.getText()})` };
+  const index = fn.parameters.findIndex(
+    (p) => ts.isIdentifier(p.name) && p.name.text === arg.text,
+  );
+  if (index >= 0) return { kind: "argument", index };
+  let init: TS.Expression | undefined;
+  each(fn, (n) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === arg.text
+    )
+      init = n.initializer;
+  });
+  if (init && ts.isStringLiteral(init))
+    return { kind: "fixed", action: init.text };
+  if (init && ts.isIdentifier(init)) {
+    const value = exportedStringConst(corpus, init.text);
+    if (value !== undefined) return { kind: "fixed", action: value };
+  }
+  return { kind: "unresolved", why: `policyFor(${arg.text})` };
+}
+
+/** Every exported function in the limiter package that calls `policyFor`. */
+function policyReaders(corpus: readonly Source[]): PolicyReader[] {
+  const pkg = limiterPackage(corpus);
+  const readers: PolicyReader[] = [];
+  for (const src of corpus) {
+    if (!src.path.startsWith(pkg)) continue;
+    each(parse(src), (n) => {
+      if (!ts.isFunctionDeclaration(n) || !isExported(n) || !n.name || !n.body)
+        return;
+      let first: TS.CallExpression | undefined;
+      each(n.body, (m) => {
+        if (!first && ts.isCallExpression(m) && calleeName(m) === "policyFor")
+          first = m;
+      });
+      if (first)
+        readers.push({
+          name: n.name.text,
+          file: src.path,
+          actionOf: resolveAction(n, first.arguments[0], corpus),
+        });
+    });
+  }
+  return readers;
+}
+
+/**
+ * action → the call sites (outside the limiter package) that enforce it.
+ * Only actions that are ACTUALLY enforced appear; see the header for the rule.
+ */
+function enforcedActions(corpus: readonly Source[]): Map<string, string[]> {
+  const pkg = limiterPackage(corpus);
+  const enforcers = policyReaders(corpus).filter((r) =>
+    (ENFORCEMENT as readonly string[]).includes(r.name),
+  );
+  const byName = new Map(enforcers.map((e) => [e.name, e]));
+  const sitesOf = new Map<string, string[]>(enforcers.map((e) => [e.name, []]));
+  const enforced = new Map<string, string[]>();
+  const add = (action: string, site: string) =>
+    enforced.set(action, [...(enforced.get(action) ?? []), site]);
+
+  for (const src of corpus) {
+    if (src.path.startsWith(pkg)) continue;
+    if (!enforcers.some((e) => src.text.includes(e.name))) continue;
+    const sf = parse(src);
+    each(sf, (n) => {
+      if (!ts.isCallExpression(n)) return;
+      const enforcer = byName.get(calleeName(n) ?? "");
+      if (!enforcer) return;
+      const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+      const site = `${src.path}:${line} ${enforcer.name}`;
+      if (enforcer.actionOf.kind === "argument") {
+        const arg = n.arguments[enforcer.actionOf.index];
+        if (arg && ts.isStringLiteral(arg)) add(arg.text, site);
+      } else sitesOf.get(enforcer.name)!.push(site);
+    });
+  }
+
+  const fixed = new Map<string, PolicyReader[]>();
+  for (const e of enforcers)
+    if (e.actionOf.kind === "fixed")
+      fixed.set(e.actionOf.action, [
+        ...(fixed.get(e.actionOf.action) ?? []),
+        e,
+      ]);
+  for (const [action, group] of fixed)
+    if (group.every((e) => sitesOf.get(e.name)!.length > 0))
+      for (const e of group)
+        for (const site of sitesOf.get(e.name)!) add(action, site);
+  return enforced;
+}
+
+/** Rename every call of `names` outside the limiter package; counts landings. */
+function neuter(
+  corpus: readonly Source[],
+  names: readonly string[],
+): { corpus: Source[]; landed: number } {
+  const pkg = limiterPackage(corpus);
+  let landed = 0;
+  const pattern = new RegExp(`\\b(${names.join("|")})\\(`, "g");
+  const mutated = corpus.map((src) =>
+    src.path.startsWith(pkg)
+      ? src
+      : {
+          ...src,
+          text: src.text.replace(pattern, (_m, name: string) => {
+            landed++;
+            return `neutered_${name}(`;
+          }),
+        },
+  );
+  return { corpus: mutated, landed };
 }
 
 describe("docs/RATE_LIMITING.md — the policy table is the policy", () => {
@@ -174,36 +447,131 @@ describe("docs/RATE_LIMITING.md — the policy table is the policy", () => {
     expect(spend?.action).toBe("ai.spend");
   });
 
-  it("SUPERSEDED is exactly the actions no call site enforces (discovered by walking src/)", () => {
-    const files = sourceFiles("src");
-    expect(
-      files.length,
-      "the source walk found implausibly few files",
-    ).toBeGreaterThan(200);
+  describe("SUPERSEDED is exactly the actions no call site enforces", () => {
+    const corpus = sourceCorpus();
 
-    const enforced = new Set<string>();
-    for (const file of files) {
-      const text = readFileSync(file, "utf8");
-      for (const m of text.matchAll(/enforceRateLimit\(\s*"([^"]+)"/g))
-        enforced.add(m[1]!);
-      for (const m of text.matchAll(/policyFor\(\s*"([^"]+)"\s*\)/g))
-        enforced.add(m[1]!);
-      // The character allowance selects its policy through the shared
-      // constant, so its call site names a function, not a literal.
-      if (
-        !file.replace(/\\/g, "/").endsWith("ratelimit/guard.ts") &&
-        /\benforceAiCharacterAllowance\(/.test(text)
-      )
-        enforced.add(AI_ALLOWANCE_ACTION);
-    }
-    // Health check: the discovery must see most of the policy table, or every
-    // assertion below would be answering a question about a shrunken world.
-    expect([...enforced].sort().join(", ")).toMatch(/uploads\.create/);
-    expect(enforced.size).toBeGreaterThanOrEqual(LIVE.length);
+    it("health: the corpus spans both source roots and is plausibly sized", () => {
+      expect(
+        corpus.length,
+        "the source walk found implausibly few files",
+      ).toBeGreaterThan(200);
+      for (const root of SOURCE_ROOTS)
+        expect(
+          corpus.some((s) => s.path.startsWith(`${root}/`)),
+          `nothing walked under ${root}/`,
+        ).toBe(true);
+      expect(limiterPackage(corpus)).toBe("src/lib/ratelimit/");
+    });
 
-    expect([...enforced].sort()).toEqual([...LIVE].sort());
-    for (const gone of SUPERSEDED_RATE_LIMIT_ACTIONS)
-      expect(enforced.has(gone), `${gone} has a call site again`).toBe(false);
+    it("every policyFor reader in the limiter package is classified, and every classification names one", () => {
+      const readers = policyReaders(corpus);
+      const classified = [...ENFORCEMENT, ...Object.keys(NOT_ENFORCEMENT)];
+      expect(readers.map((r) => r.name).sort()).toEqual(classified.sort());
+      for (const r of readers.filter((r) =>
+        (ENFORCEMENT as readonly string[]).includes(r.name),
+      ))
+        expect(
+          r.actionOf.kind,
+          `${r.name}: ${JSON.stringify(r.actionOf)}`,
+        ).not.toBe("unresolved");
+      // The resolved actions, printed. The allowance's comes from the shared
+      // constant's DEFINITION, read independently of the import below.
+      const actionOf = Object.fromEntries(
+        readers.map((r) => [r.name, r.actionOf]),
+      );
+      expect(actionOf).toMatchObject({
+        enforceRateLimit: { kind: "argument", index: 0 },
+        enforceAiCharacterAllowance: {
+          kind: "fixed",
+          action: AI_ALLOWANCE_ACTION,
+        },
+        peekAiSpendCeiling: { kind: "fixed", action: "ai.spend" },
+        recordAiSpend: { kind: "fixed", action: "ai.spend" },
+      });
+    });
+
+    it("the enforced set equals the live set, with its call sites printed", () => {
+      const enforced = enforcedActions(corpus);
+      // Health: the discovery must see most of the policy table, or every
+      // assertion below answers a question about a shrunken world.
+      expect(enforced.get("uploads.create")?.length ?? 0).toBeGreaterThan(0);
+      expect(enforced.size).toBeGreaterThanOrEqual(LIVE.length);
+
+      expect([...enforced.keys()].sort()).toEqual([...LIVE].sort());
+      for (const gone of SUPERSEDED_RATE_LIMIT_ACTIONS)
+        expect(
+          enforced.get(gone),
+          `${gone} has a call site again`,
+        ).toBeUndefined();
+      // Both phases of the spend gate, by file — not a count.
+      const spend = (enforced.get("ai.spend") ?? []).join("\n");
+      expect(spend).toMatch(
+        /src\/app\/api\/jobs\/route\.ts:\d+ peekAiSpendCeiling/,
+      );
+      expect(spend).toMatch(/executor\.ts:\d+ recordAiSpend/);
+      expect(spend, "a status read is not enforcement").not.toMatch(
+        /spend-status/,
+      );
+    });
+
+    it("CONTROL: no caller of either spend phase drops ai.spend", () => {
+      const both = neuter(corpus, ["peekAiSpendCeiling", "recordAiSpend"]);
+      expect(both.landed, "the neutering never landed").toBeGreaterThanOrEqual(
+        2,
+      );
+      expect(enforcedActions(both.corpus).has("ai.spend")).toBe(false);
+
+      // Two-phase: either half alone bounds nothing. The status module's peek
+      // is inside the limiter package and must not keep the gate "enforced".
+      for (const phase of ["peekAiSpendCeiling", "recordAiSpend"]) {
+        const one = neuter(corpus, [phase]);
+        expect(one.landed, `${phase}: never landed`).toBeGreaterThan(0);
+        expect(
+          enforcedActions(one.corpus).has("ai.spend"),
+          `ai.spend still enforced with no ${phase} caller`,
+        ).toBe(false);
+      }
+    });
+
+    it("CONTROL: a comment, a declaration and a policy lookup are not callers", () => {
+      const { corpus: bare } = neuter(corpus, [
+        "peekAiSpendCeiling",
+        "recordAiSpend",
+      ]);
+      const decoy: Source = {
+        path: "src/app/api/decoy/route.ts",
+        text: [
+          "// the executor calls recordAiSpend(tokens) on every terminal outcome",
+          "/* peekAiSpendCeiling() refuses before the job is queued */",
+          'import { policyFor } from "@/lib/ratelimit/policy";',
+          'export const p = policyFor("ai.spend");',
+          "export function recordAiSpend(tokens: number) { return tokens; }",
+          "export function peekAiSpendCeiling() { return 0; }",
+        ].join("\n"),
+      };
+      expect(enforcedActions([...bare, decoy]).has("ai.spend")).toBe(false);
+    });
+
+    it("CONTROL: the other enforcers drop their action when their callers go, and a superseded action that regains one is seen", () => {
+      const allowance = neuter(corpus, ["enforceAiCharacterAllowance"]);
+      expect(allowance.landed).toBeGreaterThan(0);
+      expect(enforcedActions(allowance.corpus).has(AI_ALLOWANCE_ACTION)).toBe(
+        false,
+      );
+
+      const routes = neuter(corpus, ["enforceRateLimit"]);
+      expect(routes.landed).toBeGreaterThan(0);
+      expect(enforcedActions(routes.corpus).has("uploads.create")).toBe(false);
+
+      const [gone] = SUPERSEDED_RATE_LIMIT_ACTIONS;
+      const revived: Source = {
+        path: "scripts/revived.ts",
+        text: `import { enforceRateLimit } from "@/lib/ratelimit/guard";\nexport const r = (q: Request) => enforceRateLimit("${gone}", q);\n`,
+      };
+      expect(enforcedActions([...corpus, revived]).get(gone)).toEqual([
+        "scripts/revived.ts:2 enforceRateLimit",
+      ]);
+    });
   });
 
   it("CONTROL: re-inserting the superseded ai.run row fails the predicate", () => {

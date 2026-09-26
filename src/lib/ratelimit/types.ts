@@ -64,6 +64,11 @@ export const RATE_LIMIT_ACTIONS = [
  * every action minus these, and `rate-limiting-doc.test.ts` checks this list
  * against the call sites it discovers, so it cannot claim an action is dead
  * while a route still enforces it, or live after its last caller is gone.
+ * "Caller" means a CALL of an enforcing function (`enforceRateLimit`,
+ * `enforceAiCharacterAllowance`, and for `ai.spend` BOTH `peekAiSpendCeiling`
+ * and `recordAiSpend`) from outside this package — not a `policyFor` lookup,
+ * which enforces nothing. That test's CONTROLs remove each caller and must
+ * see the action drop.
  */
 export const SUPERSEDED_RATE_LIMIT_ACTIONS = [
   "ai.run",

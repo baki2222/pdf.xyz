@@ -13,6 +13,14 @@
  * chain: whatever the source does, the served page must state a window equal
  * to the TTL, in every sentence that names the job record.
  *
+ * IT IS NOT A SECOND GUARD ON THE 2026-09-27 DEFECT. Restoring the original
+ * "about a day" copy leaves this file GREEN (verified in review): one day is
+ * 1,440 minutes, which is the TTL today, so the words were true and only
+ * undeclared. The defect was that the copy did not DERIVE, and only
+ * `numbers-honesty.test.ts` sees that. This file catches the other failure —
+ * a served window that disagrees with the constant, e.g. after the TTL moves
+ * and hand-typed words do not.
+ *
  * The sentences are DISCOVERED (every sentence in the rendered markup that
  * mentions a job record), never listed, and there must be at least three of
  * them — the card, the FAQ answer, and its JSON-LD twin — so a page that
