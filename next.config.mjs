@@ -162,6 +162,13 @@ function securityHeaders() {
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Nothing renders through next/image (thumbnails are pre-rendered blobs), so
+  // the optimizer endpoint is attack surface with no user: production answered
+  // `GET /_next/image?url=%2Ffavicon.ico&w=64&q=75` with 200 while Next carried
+  // an unauthenticated RCE in that optimizer (GHSA-2xp9-vwfh-vxw4). With
+  // `unoptimized` the server 404s the route before reading a parameter —
+  // `src/deploy/dependency-floors.test.ts` pins that against the installed Next.
+  images: { unoptimized: true },
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },
