@@ -18,9 +18,24 @@ import { describe, expect, it } from "vitest";
 import {
   columnsReadInOrder,
   findPopplerPdfToText,
+  highlightsPdf,
+  HIGHLIGHTS_LEFT,
+  HIGHLIGHTS_RIGHT,
+  incomeStatementPdf,
+  newsletterPdf,
+  NEWSLETTER_LEFT,
+  NEWSLETTER_RIGHT,
+  paragraphsReadWhole,
   partlyScannedPdf,
   quarterlyTablePdf,
   rc4EncryptedPdf,
+  rowsHeldTogether,
+  sidebarPdf,
+  SIDEBAR_LIST,
+  SIDEBAR_MAIN,
+  skuTablePdf,
+  SKU_ROWS,
+  STATEMENT_ROWS,
   TABLE_ROWS,
   twoColumnReportPdf,
 } from "@/tests/pdf-office-fixtures";
@@ -91,6 +106,41 @@ suite(label, () => {
   it("keeps a table's rows as rows", async () => {
     const paragraphs = await docxParagraphs(await quarterlyTablePdf());
     expect(paragraphs).toEqual(TABLE_ROWS.map((row) => row.join("\t")));
+  });
+
+  it("keeps a label / amount statement's rows as rows, long labels included", async () => {
+    const paragraphs = await docxParagraphs(await incomeStatementPdf());
+    expect(rowsHeldTogether(paragraphs, STATEMENT_ROWS)).toBe(true);
+    expect(paragraphs).toEqual(STATEMENT_ROWS.map((row) => row.join("	")));
+  });
+
+  it("keeps a table with a text column as rows", async () => {
+    const paragraphs = await docxParagraphs(await skuTablePdf());
+    expect(rowsHeldTogether(paragraphs, SKU_ROWS)).toBe(true);
+    expect(paragraphs).toEqual(SKU_ROWS.map((row) => row.join("	")));
+  });
+
+  it("writes aligned prose one whole paragraph at a time", async () => {
+    // Short aligned last lines above aligned headings; a paragraph beside a
+    // list of names; two columns of one-line sentences.
+    expect(
+      paragraphsReadWhole(await docxParagraphs(await newsletterPdf()), [
+        NEWSLETTER_LEFT,
+        NEWSLETTER_RIGHT,
+      ]),
+    ).toBe(true);
+    expect(
+      paragraphsReadWhole(await docxParagraphs(await sidebarPdf()), [
+        [SIDEBAR_MAIN],
+        [SIDEBAR_LIST],
+      ]),
+    ).toBe(true);
+    expect(
+      paragraphsReadWhole(await docxParagraphs(await highlightsPdf()), [
+        [HIGHLIGHTS_LEFT],
+        [HIGHLIGHTS_RIGHT],
+      ]),
+    ).toBe(true);
   });
 
   it("names a user-password PDF as password-protected, for all three tools", async () => {

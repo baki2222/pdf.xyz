@@ -280,7 +280,27 @@ describe("a failed run says HOW it failed", () => {
       killed: false,
       outputTooLarge: false,
     });
-    expect(isPdfOpenRefusal(error)).toBe(true);
+    // INVERTED: this asserted `true` while any non-zero exit counted as the
+    // document refusing to open. Exit 9 is node rejecting a flag, which says
+    // nothing about the PDF; only poppler's document statuses do.
+    expect(isPdfOpenRefusal(error)).toBe(false);
+  });
+
+  it("calls only poppler's DOCUMENT exit statuses a refusal", () => {
+    const exit = (exitCode: number) =>
+      isPdfOpenRefusal(
+        new PdfTextExecError({
+          exitCode,
+          killed: false,
+          outputTooLarge: false,
+        }),
+      );
+    // 1: error opening the PDF; 3: PDF permissions — the document's answer.
+    expect(exit(1)).toBe(true);
+    expect(exit(3)).toBe(true);
+    // 2: error opening the OUTPUT file; 99: other error — not the document's.
+    expect(exit(2)).toBe(false);
+    expect(exit(99)).toBe(false);
   });
 
   it("does not call a timeout or an output ceiling a refusal", () => {

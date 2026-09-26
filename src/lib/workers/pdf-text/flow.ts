@@ -26,19 +26,43 @@
  *     whole table row in one `<line>`; the gap between cells is many times a
  *     word space, while even justified prose rarely stretches a space past one
  *     em. {@link CELL_GAP_EMS} is that line.
- *  2. **A table row is a band of the page (lines sharing a baseline) holding
- *     two or more cells, most of them short.** Two columns of PROSE also share
- *     baselines, so alignment alone cannot tell them apart; length can — a
- *     prose line carries a sentence, a cell carries a value.
- *     {@link LONG_CELL_WORDS} and {@link MAX_LONG_CELL_SHARE} draw that line.
- *  3. **A table is two or more consecutive table rows.** One aligned pair of
+ *  2. **A candidate table is a run of consecutive bands** (lines sharing a
+ *     baseline) that each hold two or more cells. Nothing about the band on
+ *     its own says "table": two columns of prose share baselines too, and a
+ *     statement row holds one long label beside one short amount. So the run
+ *     is judged as a whole, by its COLUMNS (cells grouped by overlapping x).
+ *  3. **A table has a column of values.** At least one column in which every
+ *     cell is short — under {@link LONG_CELL_WORDS} words: amounts, codes,
+ *     quarters. Two columns of prose have none, whatever their line lengths
+ *     elsewhere. (The first version of this rule counted long cells PER BAND
+ *     and gave up at half: a label/amount row with a four-word label is
+ *     exactly half, so no income statement, bank statement or SKU list with a
+ *     text column ever formed a run, and every label was printed before every
+ *     amount — measured, poppler 25.07, `incomeStatementPdf`.)
+ *  4. **A table's cells are items, not wrapped text.** If any line of the run
+ *     is a sentence carried over a line break inside its poppler block — a
+ *     line of {@link LONG_CELL_WORDS}+ words followed by one that starts in
+ *     lowercase — the run is running text set beside something aligned, and
+ *     it is read in reading order. Checked in BOTH directions, so a run that
+ *     starts at the tail of a paragraph ("…, and" / "it went well.") is
+ *     rejected even when the paragraph's earlier lines sit outside the run.
+ *     (Measured, poppler 25.07, `newsletterPdf`: without it, two paragraphs
+ *     ending on short lines above aligned headings were cut, and their last
+ *     lines written as one tab-separated row.) Scripts without letter case
+ *     give this rule nothing to see; rule 3 still separates two columns of
+ *     their prose, but a narrow list beside a paragraph is read as a table.
+ *  5. **A table is {@link MIN_TABLE_ROWS} or more rows.** One aligned pair of
  *     short lines is as likely to be two column headings as a table.
- *  4. **Everything else is read in poppler's order**, one paragraph per block,
+ *  6. **Everything else is read in poppler's order**, one paragraph per block,
  *     lines joined with a space. A line that ends in a hyphen is joined to a
  *     lowercase continuation WITHOUT a space and WITH its hyphen: removing it
  *     would turn "well-known" into "wellknown", and deleting characters the
  *     document contains is a worse failure than keeping one it did not need.
  *     A soft hyphen (U+00AD) is only ever a line-break artefact, so it goes.
+ *
+ * Known limit: a cell that wraps onto a second line breaks its run (the
+ * continuation is a one-cell band), so a table with multi-line cells is read
+ * in poppler's order, column by column.
  *
  * A paragraph is a list of cells: one cell is a prose paragraph, two or more is
  * a table row, which the DOCX writer separates with tabs.
@@ -47,10 +71,12 @@ import type { FlowLine, FlowPage, PdfFlowLayout } from "./parse";
 
 /** Gap between words, in line heights, beyond which a line splits into cells. */
 export const CELL_GAP_EMS = 2;
-/** A cell with at least this many words reads as prose, not a table value. */
+/**
+ * A cell with at least this many words reads as text, not a table value: a
+ * table needs one column where every cell is shorter, and only a line this
+ * long can wrap a sentence onto the next.
+ */
 export const LONG_CELL_WORDS = 4;
-/** A band stops being a table row once this share of its cells are prose-long. */
-export const MAX_LONG_CELL_SHARE = 0.5;
 /** A table needs at least this many consecutive table rows. */
 export const MIN_TABLE_ROWS = 2;
 
@@ -72,10 +98,14 @@ interface Cell {
   text: string;
   words: number;
   xMin: number;
+  xMax: number;
 }
 
 interface PlacedLine {
   line: FlowLine;
+  /** The lines before and after this one in its poppler block, if any. */
+  prev: FlowLine | null;
+  next: FlowLine | null;
   cells: Cell[];
   yCenter: number;
   height: number;
@@ -94,18 +124,22 @@ function lineCells(line: FlowLine): Cell[] {
   for (const word of words) {
     const prev = run[run.length - 1];
     if (prev && word.xMin - prev.xMax > CELL_GAP_EMS * height) {
-      cells.push({
-        text: joinWords(run),
-        words: run.length,
-        xMin: run[0]!.xMin,
-      });
+      cells.push(cellOf(run));
       run = [];
     }
     run.push(word);
   }
-  if (run.length)
-    cells.push({ text: joinWords(run), words: run.length, xMin: run[0]!.xMin });
+  if (run.length) cells.push(cellOf(run));
   return cells;
+}
+
+function cellOf(words: readonly FlowLine["words"][number][]): Cell {
+  return {
+    text: joinWords(words),
+    words: words.length,
+    xMin: words[0]!.xMin,
+    xMax: Math.max(...words.map((w) => w.xMax)),
+  };
 }
 
 /** Group lines into horizontal bands that share a baseline, top to bottom. */
@@ -128,11 +162,51 @@ function bands(lines: PlacedLine[]): PlacedLine[][] {
   return out;
 }
 
-function isTableBand(band: PlacedLine[]): boolean {
-  const cells = band.flatMap((l) => l.cells);
-  if (cells.length < 2) return false;
-  const long = cells.filter((c) => c.words >= LONG_CELL_WORDS).length;
-  return long / cells.length < MAX_LONG_CELL_SHARE;
+/** Two or more cells side by side: a band that COULD be a table row. */
+function isAlignedBand(band: PlacedLine[]): boolean {
+  return band.reduce((n, l) => n + l.cells.length, 0) >= 2;
+}
+
+/** A run's cells grouped into columns: cells whose x-ranges overlap, chained. */
+function columns(run: PlacedLine[][]): Cell[][] {
+  const cells = run
+    .flatMap((band) => band.flatMap((l) => l.cells))
+    .sort((a, b) => a.xMin - b.xMin);
+  const out: { xMax: number; cells: Cell[] }[] = [];
+  for (const cell of cells) {
+    const last = out[out.length - 1];
+    if (last && cell.xMin <= last.xMax) {
+      last.cells.push(cell);
+      last.xMax = Math.max(last.xMax, cell.xMax);
+    } else {
+      out.push({ xMax: cell.xMax, cells: [cell] });
+    }
+  }
+  return out.map((c) => c.cells);
+}
+
+const lineText = (line: FlowLine) => joinWords(line.words);
+
+/** `upper` carries a sentence over the line break into `lower` (rule 4). */
+function wrapsInto(upper: FlowLine | null, lower: FlowLine | null): boolean {
+  return (
+    upper !== null &&
+    lower !== null &&
+    upper.words.length >= LONG_CELL_WORDS &&
+    /^\p{Ll}/u.test(lineText(lower))
+  );
+}
+
+/** Rules 3–5: is this run of aligned bands a table? */
+function isTable(run: PlacedLine[][]): boolean {
+  if (run.length < MIN_TABLE_ROWS) return false;
+  const hasValueColumn = columns(run).some((column) =>
+    column.every((cell) => cell.words < LONG_CELL_WORDS),
+  );
+  if (!hasValueColumn) return false;
+  return !run.some((band) =>
+    band.some((l) => wrapsInto(l.prev, l.line) || wrapsInto(l.line, l.next)),
+  );
 }
 
 /** Join a block's lines into one paragraph, mending line-break hyphenation. */
@@ -156,19 +230,22 @@ function joinLines(texts: readonly string[]): string {
 export function flowParagraphs(page: FlowPage): FlowParagraph[] {
   const placed = new Map<FlowLine, PlacedLine>();
   for (const block of page.blocks)
-    for (const line of block.lines)
+    block.lines.forEach((line, i) =>
       placed.set(line, {
         line,
+        prev: block.lines[i - 1] ?? null,
+        next: block.lines[i + 1] ?? null,
         cells: lineCells(line),
         yCenter: (line.yMin + line.yMax) / 2,
         height: Math.max(1, line.yMax - line.yMin),
-      });
+      }),
+    );
 
-  // Tables: maximal runs of consecutive table bands, MIN_TABLE_ROWS or more.
+  // Tables: maximal runs of consecutive aligned bands that pass isTable.
   const tableOf = new Map<FlowLine, FlowParagraph[]>();
   let run: PlacedLine[][] = [];
   const closeRun = () => {
-    if (run.length >= MIN_TABLE_ROWS) {
+    if (isTable(run)) {
       const rows = run.map((band) =>
         band
           .flatMap((l) => l.cells)
@@ -180,7 +257,7 @@ export function flowParagraphs(page: FlowPage): FlowParagraph[] {
     run = [];
   };
   for (const band of bands([...placed.values()])) {
-    if (isTableBand(band)) run.push(band);
+    if (isAlignedBand(band)) run.push(band);
     else closeRun();
   }
   closeRun();

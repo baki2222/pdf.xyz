@@ -69,6 +69,190 @@ export async function quarterlyTablePdf(): Promise<Uint8Array> {
 }
 
 /**
+ * A label / amount statement, drawn the way an income statement, a bank
+ * statement or an invoice summary is: labels flush left, amounts flush RIGHT
+ * on a shared edge, and some labels of four or more words. The first paragraph
+ * rule shipped for PDF to Word read a band holding one long label and one
+ * amount as prose (half its cells "long"), so no run of table rows formed and
+ * poppler's reading order printed every label, then every amount.
+ */
+export const STATEMENT_ROWS = [
+  ["Revenue", "12,400"],
+  ["Cost of goods sold", "7,100"],
+  ["Gross profit", "5,300"],
+  ["Selling and admin expenses", "2,900"],
+  ["Operating income", "2,400"],
+  ["Interest paid on bank loans", "300"],
+  ["Net income", "2,100"],
+] as const;
+
+/** {@link STATEMENT_ROWS}, amounts right-aligned at x = 480. */
+export async function incomeStatementPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, STATEMENT_ROWS.flat());
+  const page = doc.addPage([612, 792]);
+  STATEMENT_ROWS.forEach(([label, amount], r) => {
+    const y = 700 - r * 16;
+    page.drawText(label, { x: 50, y, size: 11, font });
+    page.drawText(amount, {
+      x: 480 - font.widthOfTextAtSize(amount, 11),
+      y,
+      size: 11,
+      font,
+    });
+  });
+  return doc.save();
+}
+
+/** A two-column table whose second column is a line of text, not a value. */
+export const SKU_ROWS = [
+  ["SKU", "Description"],
+  ["A-100", "Stainless steel water bottle with a bamboo lid"],
+  ["B-200", "Recycled cotton tote bag in a natural colour"],
+  ["C-300", "Ceramic pour-over coffee dripper, white"],
+] as const;
+
+/** {@link SKU_ROWS}: codes at x = 50, descriptions at x = 150. */
+export async function skuTablePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, SKU_ROWS.flat());
+  const page = doc.addPage([612, 792]);
+  SKU_ROWS.forEach(([sku, description], r) => {
+    const y = 700 - r * 16;
+    page.drawText(sku, { x: 50, y, size: 11, font });
+    page.drawText(description, { x: 150, y, size: 11, font });
+  });
+  return doc.save();
+}
+
+/**
+ * A two-column newsletter whose paragraphs END on short lines at the same
+ * height, above section headings aligned across the columns. Two consecutive
+ * bands of short aligned lines is what the first paragraph rule called a
+ * table: it pulled those lines out of their paragraphs and wrote
+ * `"it went well.\tfeedback was great."` — the columns interleaved again.
+ * Each entry is one paragraph, one printed line per string.
+ */
+export const NEWSLETTER_LEFT = [
+  [
+    "Our team spent the last quarter rebuilding",
+    "the upload flow from the ground up, and",
+    "it went well.",
+  ],
+  ["Next steps"],
+  [
+    "We will ship the new editor in two phases",
+    "and measure how people use each one.",
+  ],
+] as const;
+export const NEWSLETTER_RIGHT = [
+  [
+    "Customers noticed the faster uploads within",
+    "days, the support queue shrank, and the",
+    "feedback was great.",
+  ],
+  ["Open issues"],
+  [
+    "Search inside very large files is still slow",
+    "and the fix needs a new kind of index.",
+  ],
+] as const;
+
+/** {@link NEWSLETTER_LEFT} at x = 50 and {@link NEWSLETTER_RIGHT} at x = 320. */
+export async function newsletterPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const all = [...NEWSLETTER_LEFT.flat(), ...NEWSLETTER_RIGHT.flat()];
+  const font = await embedDrawingFont(doc, all);
+  const bold = await embedDrawingFont(doc, all, "sans-bold");
+  const page = doc.addPage([612, 792]);
+  for (const [x, column] of [
+    [50, NEWSLETTER_LEFT],
+    [320, NEWSLETTER_RIGHT],
+  ] as const) {
+    let y = 700;
+    column.forEach((paragraph, p) => {
+      const heading = p === 1;
+      if (p > 0) y -= 14;
+      for (const line of paragraph) {
+        page.drawText(line, {
+          x,
+          y,
+          size: heading ? 12 : 11,
+          font: heading ? bold : font,
+        });
+        y -= heading ? 18 : 14;
+      }
+    });
+  }
+  return doc.save();
+}
+
+/**
+ * A paragraph with a narrow list beside it, every line on a shared baseline:
+ * the list's column is all short values, which is table evidence on its own,
+ * so this is what tells a table from running text set next to a list.
+ */
+export const SIDEBAR_MAIN = [
+  "The board approved the budget for next year",
+  "after a long debate about hiring, and asked",
+  "the finance team to report back every month",
+  "on how the new spending plan is working out.",
+] as const;
+export const SIDEBAR_LIST = [
+  "Editor",
+  "Jane Doe",
+  "Design",
+  "Sam Lee",
+] as const;
+
+/** {@link SIDEBAR_MAIN} at x = 50, {@link SIDEBAR_LIST} at x = 400. */
+export async function sidebarPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, [...SIDEBAR_MAIN, ...SIDEBAR_LIST]);
+  const page = doc.addPage([612, 792]);
+  SIDEBAR_MAIN.forEach((line, i) =>
+    page.drawText(line, { x: 50, y: 700 - i * 14, size: 11, font }),
+  );
+  SIDEBAR_LIST.forEach((line, i) =>
+    page.drawText(line, { x: 400, y: 700 - i * 14, size: 11, font }),
+  );
+  return doc.save();
+}
+
+/**
+ * Two columns of one-line sentences, each starting with a capital, on shared
+ * baselines: no line continues onto the next, so only the absence of a column
+ * of short VALUES says this is not a table.
+ */
+export const HIGHLIGHTS_LEFT = [
+  "Revenue grew twelve percent over the year.",
+  "Costs fell for the third straight quarter.",
+  "Hiring stayed flat in every single region.",
+] as const;
+export const HIGHLIGHTS_RIGHT = [
+  "Currency exposure remains the largest risk.",
+  "Supplier delays may slow the next launch.",
+  "Cash reserves cover two full years of costs.",
+] as const;
+
+/** {@link HIGHLIGHTS_LEFT} at x = 50, {@link HIGHLIGHTS_RIGHT} at x = 320. */
+export async function highlightsPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, [
+    ...HIGHLIGHTS_LEFT,
+    ...HIGHLIGHTS_RIGHT,
+  ]);
+  const page = doc.addPage([612, 792]);
+  HIGHLIGHTS_LEFT.forEach((line, i) =>
+    page.drawText(line, { x: 50, y: 700 - i * 14, size: 11, font }),
+  );
+  HIGHLIGHTS_RIGHT.forEach((line, i) =>
+    page.drawText(line, { x: 320, y: 700 - i * 14, size: 11, font }),
+  );
+  return doc.save();
+}
+
+/**
  * A scan with a typed line: `textPages` get `stamp` as their only text, every
  * other page is a grey rectangle standing in for a scanned image — no text at
  * all, which is what a scan is to a text extractor.
@@ -276,4 +460,52 @@ export function columnsReadInOrder(paragraphs: readonly string[]): boolean {
   const left = paragraphs.findIndex((p) => p.includes(LEFT_COLUMN.join(" ")));
   const right = paragraphs.findIndex((p) => p.includes(RIGHT_COLUMN.join(" ")));
   return left >= 0 && right > left;
+}
+
+/**
+ * The table property, over paragraphs as a reader gets them: every row's
+ * cells sit in ONE paragraph, in order. What the first paragraph rule wrote
+ * for a statement — every label in one paragraph, every amount in the next —
+ * fails it on the first row.
+ */
+export function rowsHeldTogether(
+  paragraphs: readonly string[],
+  rows: readonly (readonly string[])[],
+): boolean {
+  return rows.every((row) =>
+    paragraphs.some((p) => {
+      let at = 0;
+      for (const cell of row) {
+        const found = p.indexOf(cell, at);
+        if (found < 0) return false;
+        at = found + cell.length;
+      }
+      return true;
+    }),
+  );
+}
+
+/**
+ * The multi-column prose property, generalised from
+ * {@link columnsReadInOrder}: each source paragraph (a list of printed lines)
+ * is contiguous inside ONE output paragraph, and no output paragraph holds a
+ * line from two different columns. Cutting a paragraph's last line off and
+ * tabbing it to the other column's last line fails both halves.
+ */
+export function paragraphsReadWhole(
+  paragraphs: readonly string[],
+  columns: readonly (readonly (readonly string[])[])[],
+): boolean {
+  const whole = columns.every((column) =>
+    column.every((source) =>
+      paragraphs.some((p) => p.includes(source.join(" "))),
+    ),
+  );
+  const unmixed = paragraphs.every(
+    (p) =>
+      columns.filter((column) =>
+        column.some((source) => source.some((line) => p.includes(line))),
+      ).length <= 1,
+  );
+  return whole && unmixed;
 }

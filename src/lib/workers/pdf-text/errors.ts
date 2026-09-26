@@ -38,15 +38,26 @@ export class PdfTextExecError extends Error {
 }
 
 /**
- * True when pdftotext ran to completion and refused the document: a non-zero
- * exit it chose, not a timeout, a spawn failure or an output ceiling. That
- * answer does not change on retry.
+ * The exit statuses with which poppler's (and Xpdf's) `pdftotext` says the
+ * DOCUMENT is the problem: 1 "error opening a PDF file", 3 "error related to
+ * PDF permissions". The others are not about the document — 2 is "error
+ * opening an output file" and 99 "other error" — so a retry may succeed, and
+ * calling them "damaged, try Repair PDF" would send the user to fix a file
+ * that is fine. (The first version accepted any non-zero exit.)
+ */
+export const PDF_REFUSAL_EXIT_CODES: ReadonlySet<number> = new Set([1, 3]);
+
+/**
+ * True when pdftotext ran to completion and refused the document: an exit
+ * status in {@link PDF_REFUSAL_EXIT_CODES}, not a timeout, a spawn failure, an
+ * output ceiling or an environmental error. That answer does not change on
+ * retry.
  */
 export function isPdfOpenRefusal(error: unknown): boolean {
   return (
     error instanceof PdfTextExecError &&
     error.exitCode !== null &&
-    error.exitCode !== 0 &&
+    PDF_REFUSAL_EXIT_CODES.has(error.exitCode) &&
     !error.killed &&
     !error.outputTooLarge
   );
