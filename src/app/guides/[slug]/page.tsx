@@ -13,7 +13,7 @@ import {
   articleSchema,
   breadcrumbSchema,
   faqPageSchema,
-  howToSchema,
+  namedHowToSchema,
 } from "@/lib/structured-data";
 
 export function generateStaticParams() {
@@ -77,7 +77,9 @@ export default async function GuidePage({
         data={[
           articleSchema(guide),
           breadcrumbSchema(breadcrumbs),
-          howToSchema(guide.title, guide.steps),
+          // The title already reads "How to …"; `howToSchema` would prefix
+          // "How to use" and ship "How to use How to merge PDF files".
+          namedHowToSchema(guide.title, guide.steps),
           ...(guide.faq.length > 0
             ? [
                 faqPageSchema(

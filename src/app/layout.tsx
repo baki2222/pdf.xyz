@@ -58,10 +58,19 @@ export const metadata: Metadata = {
   authors: [{ name: siteConfig.creator }],
   creator: siteConfig.creator,
   publisher: siteConfig.creator,
-  alternates: { canonical: "/" },
+  // NO `alternates.canonical`, NO `openGraph.url` and NO `robots` here — this
+  // object is inherited by every route that does not override a key, and the
+  // one route that never overrides them is the 404. It WAS
+  // `alternates: { canonical: "/" }` plus `robots: { index: true, ... }`, so
+  // production's https://pdf.xyz/tools/nope answered 404 with
+  // `<link rel="canonical" href="https://pdf.xyz"/>`, the home page's title,
+  // and `index, follow` beside Next's own `noindex` — every dead URL declared
+  // itself a duplicate of the home page. A page's identity is per page:
+  // `buildMetadata({ path })` sets canonical, og:url and robots for every
+  // page, and `not-found.tsx` declares its own. `not-found-metadata.test.ts`
+  // fails if any layout puts these back.
   openGraph: {
     type: "website",
-    url: siteConfig.url,
     siteName: siteConfig.name,
     title: `${siteConfig.name} — ${siteConfig.tagline}`,
     description: siteConfig.description,
@@ -72,11 +81,6 @@ export const metadata: Metadata = {
     title: `${siteConfig.name} — ${siteConfig.tagline}`,
     description: siteConfig.description,
     creator: "@pdfxyz",
-  },
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: { index: true, follow: true },
   },
   formatDetection: { telephone: false, address: false, email: false },
 };
