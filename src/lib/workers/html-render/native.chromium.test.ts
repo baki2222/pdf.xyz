@@ -1,18 +1,13 @@
 import { execFile } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { createNativeChromiumPdfRunner, resolveOnPath } from "./native";
+import { findChromium } from "./test-chromium";
 import type { PinnedFetch, Resolve } from "./network";
+import { printChromeLeaks } from "./print-chrome";
 
 /**
  * THE POINT OF CONSUMPTION for the renderer's isolation: a real Chromium,
@@ -23,43 +18,7 @@ import type { PinnedFetch, Resolve } from "./network";
  * none exists the suite reports itself SKIPPED, which is visible; it never
  * reports a pass it did not run.
  */
-function findChromium(): string | null {
-  const pinned = process.env.PDFXYZ_TEST_CHROMIUM_BIN;
-  if (pinned && existsSync(pinned)) return pinned;
-  const caches = [
-    process.env.PLAYWRIGHT_BROWSERS_PATH,
-    process.env.LOCALAPPDATA &&
-      path.join(process.env.LOCALAPPDATA, "ms-playwright"),
-    path.join(homedir(), ".cache", "ms-playwright"),
-    path.join(homedir(), "Library", "Caches", "ms-playwright"),
-  ].filter((d): d is string => !!d && existsSync(d));
-  for (const cache of caches) {
-    for (const dir of readdirSync(cache)
-      .filter((d) => d.startsWith("chromium_headless_shell-"))
-      .sort()
-      .reverse()) {
-      for (const sub of readdirSync(path.join(cache, dir))) {
-        for (const exe of [
-          "chrome-headless-shell.exe",
-          "chrome-headless-shell",
-        ]) {
-          const candidate = path.join(cache, dir, sub, exe);
-          if (existsSync(candidate)) return candidate;
-        }
-      }
-    }
-  }
-  for (const name of [
-    "chromium",
-    "chromium-browser",
-    "google-chrome",
-    "google-chrome-stable",
-  ])
-    if (resolveOnPath(name)) return name;
-  return null;
-}
-
-const BIN = findChromium();
+const BIN = findChromium(resolveOnPath);
 
 async function pdfText(bytes: Uint8Array): Promise<string> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -120,6 +79,52 @@ fetch("${secretUrl}").then(r => r.text()).then(t => out.append("SCRIPT-READ:" + 
 const LOCAL_ONLY_PAGE = `<!doctype html><html><body><h1>${VISIBLE}</h1>
 <iframe src="${secretUrl}" width="600" height="100"></iframe></body></html>`;
 
+/**
+ * A page whose `<title>` appears nowhere in its body: if that title is in the
+ * PDF, Chromium's print header put it there.
+ */
+const TITLE = `Header-only title ${process.pid}`;
+const CHROME_VISIBLE = "Print chrome proof body";
+const TITLED_PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<title>${TITLE}</title></head><body><h1>${CHROME_VISIBLE}</h1></body></html>`;
+
+/** A page that navigates itself to the canary file the moment it loads. */
+const REFRESH_PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="0;url=${secretUrl}"></head>
+<body><h1>${VISIBLE}</h1></body></html>`;
+
+/**
+ * The argv this module used until 2026-09: the upload written to a
+ * `pdfxyz-html-` temp dir, as the pre-fix code named it, and opened as file://.
+ */
+async function renderWithPreFixArgv(html: string, name: string) {
+  const dir = mkdtempSync(path.join(work, "pdfxyz-html-"));
+  const input = path.join(dir, `${name}.html`);
+  const output = path.join(dir, `${name}.pdf`);
+  writeFileSync(input, html);
+  await new Promise<void>((done) =>
+    execFile(
+      BIN!,
+      [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--run-all-compositor-stages-before-draw",
+        "--virtual-time-budget=10000",
+        `--print-to-pdf=${output}`,
+        pathToFileURL(input).toString(),
+      ],
+      { timeout: 60_000 },
+      () => done(),
+    ),
+  );
+  return {
+    text: await pdfText(readFileSync(output)),
+    url: pathToFileURL(input).toString(),
+  };
+}
+
 const fetched: string[] = [];
 const resolve: Resolve = async (host) => {
   if (host === "frame.example")
@@ -131,6 +136,12 @@ const resolve: Resolve = async (host) => {
 };
 const fetch: PinnedFetch = async (url) => {
   fetched.push(url.toString());
+  if (url.pathname === "/report")
+    return {
+      status: 200,
+      rawHeaders: ["Content-Type", "text/html; charset=utf-8"],
+      body: new TextEncoder().encode(TITLED_PAGE),
+    };
   if (url.pathname === "/to-metadata")
     return {
       status: 302,
@@ -153,28 +164,29 @@ describe.skipIf(!BIN)(
      * be passing because the extractor is blind, not because the leak is gone.
      */
     it("the pre-fix argv leaks a local file into the PDF (the detector can see a leak)", async () => {
-      const input = path.join(work, "input.html");
-      const output = path.join(work, "old.pdf");
-      writeFileSync(input, LOCAL_ONLY_PAGE);
-      await new Promise<void>((done) =>
-        execFile(
-          BIN!,
-          [
-            "--headless=new",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--run-all-compositor-stages-before-draw",
-            "--virtual-time-budget=10000",
-            `--print-to-pdf=${output}`,
-            pathToFileURL(input).toString(),
-          ],
-          { timeout: 60_000 },
-          () => done(),
-        ),
-      );
-      const text = await pdfText(readFileSync(output));
+      const { text } = await renderWithPreFixArgv(LOCAL_ONLY_PAGE, "old");
       expect(text).toContain(VISIBLE);
+      expect(text).toContain(SECRET);
+    }, 90_000);
+
+    /*
+     * POSITIVE CONTROL for the header/footer assertions below: the same
+     * predicate, on the pre-fix argv's output, must SEE the header and footer.
+     * A predicate that finds nothing here would pass anything.
+     */
+    it("the pre-fix argv stamps a print header and footer (the detector can see them)", async () => {
+      const { text, url } = await renderWithPreFixArgv(TITLED_PAGE, "chrome");
+      expect(text).toContain(CHROME_VISIBLE);
+      const leaks = printChromeLeaks(text, { title: TITLE, sourceUrl: url });
+      expect(leaks).toContain("the page URL");
+      expect(leaks).toContain("the page <title>");
+      expect(leaks).toContain("a file:// URL (the worker's copy)");
+      expect(leaks).toContain("the worker's temp directory");
+      expect(leaks).toContain("a print date");
+    }, 90_000);
+
+    it("the pre-fix argv follows a meta refresh into a local file (the detector can see it)", async () => {
+      const { text } = await renderWithPreFixArgv(REFRESH_PAGE, "refresh");
       expect(text).toContain(SECRET);
     }, 90_000);
 
@@ -202,6 +214,29 @@ describe.skipIf(!BIN)(
       // Public content still renders — through the policy, as a cross-site frame.
       expect(text).toContain("Public frame rendered");
       expect(fetched).toEqual(["https://frame.example/"]);
+    }, 90_000);
+
+    it("an uploaded page cannot navigate itself into a local file", async () => {
+      const text = await pdfText(
+        await runner.renderHtml(new TextEncoder().encode(REFRESH_PAGE)),
+      );
+      expect(text).toContain(VISIBLE);
+      expect(text).not.toContain(SECRET);
+    }, 90_000);
+
+    it("an uploaded page's PDF carries the page and no print header or footer", async () => {
+      const text = await pdfText(
+        await runner.renderHtml(new TextEncoder().encode(TITLED_PAGE)),
+      );
+      expect(text).toContain(CHROME_VISIBLE);
+      expect(printChromeLeaks(text, { title: TITLE })).toEqual([]);
+    }, 90_000);
+
+    it("a webpage's PDF carries the page and neither its title nor its URL", async () => {
+      const sourceUrl = "https://public.example/report";
+      const text = await pdfText(await runner.renderUrl(sourceUrl));
+      expect(text).toContain(CHROME_VISIBLE);
+      expect(printChromeLeaks(text, { title: TITLE, sourceUrl })).toEqual([]);
     }, 90_000);
 
     it("a public URL that redirects to the metadata address is refused", async () => {

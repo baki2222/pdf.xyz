@@ -268,6 +268,24 @@ describe("native Chromium HTML renderer", () => {
     );
   });
 
+  /*
+   * The mechanism half of the header/footer fix. The property half — the
+   * decoded PDF carries no title, date or address — is read back from a real
+   * Chromium in native.chromium.test.ts; this one runs everywhere.
+   */
+  it("asks Chromium for the page alone — no print header or footer — for both render kinds", async () => {
+    for (const render of [
+      (r: ReturnType<typeof runner>) => r.renderHtml(HTML),
+      (r: ReturnType<typeof runner>) => r.renderUrl("https://public.example/"),
+    ]) {
+      const fake = fakeChromium();
+      await render(runner(fake));
+      const prints = fake.sent.filter((m) => m.method === "Page.printToPDF");
+      expect(prints).toHaveLength(1);
+      expect(prints[0]!.params.displayHeaderFooter).toBe(false);
+    }
+  });
+
   it("every other request goes through the network policy", async () => {
     const fake = fakeChromium({
       paused: [

@@ -6,6 +6,7 @@ import path from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { looksLikePdf } from "../compression/engine";
 import { CdpConnection, type CdpEvent, type CdpPipe } from "./cdp";
+import { HTML_DOCUMENT_URL } from "./document-url";
 import type { ChromiumPdfRunner, HtmlRenderDeps } from "./engine";
 import {
   createRenderNetwork,
@@ -38,12 +39,7 @@ import {
 /** Virtual time a page gets for timers and late fetches — as the CLI's budget. */
 export const VIRTUAL_TIME_BUDGET_MS = 10_000;
 
-/**
- * Where an uploaded HTML document is served from. `.invalid` is reserved
- * (RFC 6761) and `./network` refuses it, so the page can never fetch it — or
- * anything relative to it — back from anywhere.
- */
-export const HTML_DOCUMENT_URL = "https://document.invalid/";
+export { HTML_DOCUMENT_URL };
 
 export interface ChromiumProcess {
   pipe: CdpPipe;
@@ -408,6 +404,11 @@ export function createNativeChromiumPdfRunner(
     const { stream } = await cdp.send<{ stream: string }>(
       "Page.printToPDF",
       {
+        // Stated, not inherited: the CLI this replaced printed the date and
+        // <title> atop every page and the document's address (the worker's
+        // temp path, for an upload) along the bottom. The PDF must carry the
+        // page and nothing else — `native.chromium.test.ts` reads that back.
+        displayHeaderFooter: false,
         printBackground: true,
         preferCSSPageSize: true,
         transferMode: "ReturnAsStream",

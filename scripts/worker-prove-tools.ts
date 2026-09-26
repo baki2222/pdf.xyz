@@ -65,6 +65,7 @@ import path from "node:path";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
+import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
   harnessExitCode,
@@ -364,11 +365,17 @@ function rasterJpg(): Buffer {
   return minimalJpeg();
 }
 
+/**
+ * The title appears nowhere in the body, so finding it in the PDF means
+ * Chromium's print header put it there (see `printChromeLeaks`).
+ */
+const HTML_PROOF_TITLE = "pdf.xyz proof";
+const HTML_PROOF_VISIBLE = "HTML to PDF";
 function htmlFile(): Buffer {
   return Buffer.from(
-    `<!doctype html><html><head><meta charset="utf-8"><title>pdf.xyz proof</title>
+    `<!doctype html><html><head><meta charset="utf-8"><title>${HTML_PROOF_TITLE}</title>
 <style>body{font-family:sans-serif;padding:40px}h1{color:#4c1d95}</style></head>
-<body><h1>HTML to PDF</h1><p>Rendered by Chromium on the secure worker.</p>
+<body><h1>${HTML_PROOF_VISIBLE}</h1><p>Rendered by Chromium on the secure worker.</p>
 <table border="1"><tr><th>Row</th><th>Value</th></tr><tr><td>1</td><td>alpha</td></tr></table>
 </body></html>`,
     "utf8",
@@ -408,6 +415,34 @@ const ISOLATION_LEAKS: readonly { marker: RegExp; what: string }[] = [
   { marker: /ami-id|instance-id|local-ipv4/, what: "a metadata service" },
   { marker: /REACHED:/, what: "a script-side read" },
 ];
+
+/**
+ * The PDF a user downloads must carry the page and nothing else: until 2026-09
+ * every page came back with a print date and the `<title>` along the top and
+ * the worker's `file:///tmp/pdfxyz-html-…/input.html` (or the webpage's URL)
+ * along the bottom, and `isPdf` could not see any of it. `visible` is the
+ * positive control — an empty PDF cannot pass by containing no header.
+ */
+function verifyPageOnly(
+  visible: string,
+  context: Parameters<typeof printChromeLeaks>[1],
+) {
+  return async (bytes: Buffer) => {
+    const text = await pdfPlainText(bytes);
+    if (!text.includes(visible))
+      return {
+        ok: false,
+        detail: `the page's own text is missing (${text.length} chars extracted), so an absent header proves nothing`,
+      };
+    const leaks = printChromeLeaks(text, context);
+    return leaks.length === 0
+      ? { ok: true, detail: "page rendered; no print header or footer" }
+      : {
+          ok: false,
+          detail: `the PDF carries a print header/footer: ${leaks.join(", ")}`,
+        };
+  };
+}
 
 async function pdfPlainText(bytes: Buffer): Promise<string> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -770,7 +805,8 @@ const SPECS: ProofSpec[] = [
     name: "page.html",
     type: "text/html",
     expect: isPdf,
-    want: "PDF",
+    verify: verifyPageOnly(HTML_PROOF_VISIBLE, { title: HTML_PROOF_TITLE }),
+    want: "PDF of the page with no print header or footer",
   },
   // The renderer must not read the worker's files or reach its private
   // network on an uploaded page's say-so. `verify` decodes the PDF the user
@@ -806,7 +842,12 @@ const SPECS: ProofSpec[] = [
     tool: "webpage-to-pdf",
     url: "https://example.com/",
     expect: isPdf,
-    want: "PDF",
+    // example.com's <title> is also its <h1>, so only the URL — which the
+    // page body never prints — can show the footer.
+    verify: verifyPageOnly("Example Domain", {
+      sourceUrl: "https://example.com/",
+    }),
+    want: "PDF of the page with no print header or footer",
   },
   {
     tool: "word-to-pdf",
