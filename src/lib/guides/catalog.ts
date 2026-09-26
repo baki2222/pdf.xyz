@@ -269,7 +269,7 @@ export const guides: Guide[] = [
         id: "when-compression-is-not-the-job",
         heading: "When compression is not the job",
         body: [
-          `${nameOf("optimize-web")} is often mistaken for compression, and it is not: it linearizes the file so a viewer that loads a PDF in pieces can show the first page while the rest downloads. The file does not get smaller — it can come out slightly larger — so use it when the goal is a faster first page on the web, not a lighter file.`,
+          `${nameOf("optimize-web")} is often mistaken for compression, and it is not: it linearizes the file so a viewer that loads a PDF in pieces can show the first page while the rest downloads. It is not meant to reduce size: the whole file is rewritten, so its size can change in either direction. Use it when the goal is a faster first page on the web, and ${nameOf("compress-pdf")} when the goal is a lighter file.`,
           `${nameOf("grayscale-pdf")} converts a PDF to black and white for printing, right in your browser. Every page becomes a grayscale image, so text is no longer selectable or searchable — a trade worth knowing before you reach for it to save space.`,
         ],
       },

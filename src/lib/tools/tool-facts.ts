@@ -587,7 +587,7 @@ const TOOL_QUESTIONS: Record<string, () => readonly ToolFaqEntry[]> = {
     },
     {
       question: "Will it make my PDF smaller?",
-      answer: `No — linearizing is not compression, and the file can come out slightly larger. To reduce the size, use ${toolName("compress-pdf")}.`,
+      answer: `Not reliably — linearizing is not compression, and reducing size is not what it is for. The whole file is rewritten, so its size can change in either direction. To make it smaller, use ${toolName("compress-pdf")}.`,
     },
   ],
   "protect-pdf": () => [

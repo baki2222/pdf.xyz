@@ -878,10 +878,14 @@ const RULES: readonly ClaimRule[] = [
         /\b(?:preserv|keep|retain)\w*\s+(?:[\w-]+,?\s+){0,3}(?:and\s+)?fonts\b/i,
       "fonts are kept":
         /\bfonts\s+(?:are|stay|remain)\s+(?:\w+\s+){0,2}(?:kept|preserved|intact|unchanged)\b/i,
+      // The same fidelity promise without the word "font": a layout the
+      // worker cannot set in the workbook's own faces is not a faithful one.
+      faithful: /\bfaithful(?:ly)?\b/i,
     },
     shipped: [
       "DOCX and DOC into pixel-perfect PDF.",
       "Convert Microsoft Word documents to PDF while preserving layout, fonts, and formatting.",
+      "Convert Excel workbooks to PDF with faithful table layout and print areas — rendered by LibreOffice on a secure worker that deletes the input when the job finishes.",
     ],
     synonyms: [
       "A pixel perfect copy of your document.",

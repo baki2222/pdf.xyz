@@ -235,7 +235,7 @@ export const tools: Tool[] = [
     name: "Excel to PDF",
     tagline: "Spreadsheets into clean PDF tables.",
     description:
-      "Convert Excel workbooks to PDF with faithful table layout and print areas — rendered by LibreOffice on a secure worker that deletes the input when the job finishes.",
+      "Convert Excel workbooks and CSV files to PDF — laid out by LibreOffice on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "excel",
     processing: "server",

@@ -193,6 +193,24 @@ describe("tool pages link where they send the reader", () => {
     expect(orphans(trio).orphans).toEqual([c!.slug]);
   });
 
+  it("an unknown slug does not cost a page one of its three visible links", () => {
+    // getRelatedTools drops unknown slugs BEFORE it takes three, so the page
+    // shows b, c and d. A copy that sliced first would report d an orphan.
+    const [a, b, c, d] = tools;
+    const four: Tool[] = [
+      { ...a!, related: ["no-such-tool", b!.slug, c!.slug, d!.slug] },
+      { ...b!, related: [a!.slug] },
+      { ...c!, related: [a!.slug] },
+      { ...d!, related: [a!.slug] },
+    ];
+    expect(getRelatedTools(four[0]!, 3).map((r) => r.slug)).toEqual([
+      b!.slug,
+      c!.slug,
+      d!.slug,
+    ]);
+    expect(orphans(four).orphans).toEqual([]);
+  });
+
   it("the edit tool's scope note links the tools it sends the reader to", () => {
     const html = renderToStaticMarkup(createElement(HonestScopeNote));
     const text = html.replace(/<[^>]+>/g, "");
@@ -214,7 +232,9 @@ function orphans(list: readonly Tool[]): { orphans: string[]; edges: number } {
   const linked = new Set<string>();
   let edges = 0;
   for (const t of list) {
-    for (const slug of (t.related ?? []).slice(0, 3)) {
+    // The links a page SHOWS, through the function the page calls — not a
+    // copy of its slicing, which dropped unknown slugs in a different order.
+    for (const { slug } of getRelatedTools(t, 3)) {
       if (!bySlug.has(slug) || slug === t.slug) continue;
       linked.add(slug);
       edges += 1;
@@ -718,23 +738,170 @@ describe("edit-pdf: the text already on the page is kept exactly", () => {
   });
 });
 
-describe("optimize-web: linearizing is not compression", () => {
-  /** qpdf flags that make a file smaller or change its content. */
-  const RESHAPING =
-    /^--(?:compress-streams|recompress-flate|compression-level|object-streams|optimize-images|remove-unreferenced|flatten|decode-level|coalesce)/;
+describe("optimize-web: linearizing is not compression, and no copy promises a size", () => {
+  /*
+   * History, kept on purpose. This block used to certify the answer "No —
+   * linearizing is not compression, and the file can come out slightly
+   * larger" by checking that `linearizeArgs` passes qpdf no reshaping FLAG.
+   * That was the adjacent measurement: `qpdf --linearize in out` rewrites the
+   * whole file with qpdf's DEFAULTS, which compress uncompressed streams and
+   * drop objects the trailer no longer reaches (superseded incremental-update
+   * revisions among them). No flag is needed for the output to be smaller, so
+   * a flag list cannot license "it does not get smaller". The size is not
+   * something the copy may promise in either direction; it now says the size
+   * can change either way and points at Compress PDF for a lighter file.
+   */
 
-  it("the worker passes qpdf nothing but --linearize", () => {
-    const flags = linearizeArgs("in.pdf", "out.pdf").filter((a) =>
-      a.startsWith("-"),
+  /** A unit of copy: prose, or a question with its answer. */
+  type Unit = { where: string; text: string; question?: string };
+
+  /** Shapes that tell a reader the linearized file cannot come out smaller. */
+  const DENIES_SHRINKING: Record<string, (u: Unit) => boolean> = {
+    "prose denial": (u) =>
+      /\b(?:does not|doesn['\u2019]t|will not|won['\u2019]t|cannot|can['\u2019]t|never)\s+(?:get|become|come out|end up|make (?:it|the file|your PDF))?\s*(?:any\s+)?smaller\b/i.test(
+        u.text,
+      ),
+    "a flat No to the size question": (u) =>
+      u.question !== undefined &&
+      /\bsmaller\b/i.test(u.question) &&
+      /^\s*No\b/.test(u.text),
+  };
+  const denials = (u: Unit) =>
+    Object.entries(DENIES_SHRINKING)
+      .filter(([, hit]) => hit(u))
+      .map(([name]) => name);
+
+  /** The sentences this block once approved, exactly as they shipped. */
+  const SHIPPED: Unit[] = [
+    {
+      where: "optimize-web FAQ at 1fb610d",
+      question: "Will it make my PDF smaller?",
+      text: "No — linearizing is not compression, and the file can come out slightly larger. To reduce the size, use Compress PDF.",
+    },
+    {
+      where: "compress guide at 1fb610d",
+      text: "Optimize PDF for Web is often mistaken for compression, and it is not: it linearizes the file so a viewer that loads a PDF in pieces can show the first page while the rest downloads. The file does not get smaller — it can come out slightly larger — so use it when the goal is a faster first page on the web, not a lighter file.",
+    },
+  ];
+
+  /**
+   * Every piece of copy that talks about this tool: all of its own page, and
+   * any unit on another tool page or guide that names it or linearizing.
+   */
+  function aboutOptimizeWeb(): Unit[] {
+    const self = tool("optimize-web");
+    const about = (text: string) =>
+      text.includes(self.name) || /lineariz/i.test(text);
+    const units: Unit[] = [];
+    for (const t of tools) {
+      const own = t.slug === self.slug;
+      const prose = [
+        t.tagline,
+        t.description,
+        ...howToSteps(t),
+        ...toolFacts(t.slug).map((f) => f.value),
+      ];
+      for (const text of prose) {
+        if (own || about(text)) units.push({ where: `tool ${t.slug}`, text });
+      }
+      for (const e of toolFaq(t)) {
+        if (own || about(e.question) || about(e.answer)) {
+          units.push({
+            where: `tool ${t.slug} FAQ`,
+            question: e.question,
+            text: e.answer,
+          });
+        }
+      }
+    }
+    for (const g of guides) {
+      const prose = [
+        ...g.intro,
+        ...g.steps,
+        ...g.sections.flatMap((s) => [s.heading, ...s.body]),
+      ];
+      for (const text of prose) {
+        if (about(text)) units.push({ where: `guide ${g.slug}`, text });
+      }
+      for (const f of g.faq) {
+        if (about(f.question) || about(f.answer)) {
+          units.push({
+            where: `guide ${g.slug} FAQ`,
+            question: f.question,
+            text: f.answer,
+          });
+        }
+      }
+    }
+    return units;
+  }
+
+  it("the corpus: every shipped denial is caught, and every shape catches one", () => {
+    for (const u of SHIPPED) {
+      expect(denials(u), `not caught: ${u.where}`).not.toEqual([]);
+    }
+    for (const name of Object.keys(DENIES_SHRINKING)) {
+      expect(
+        SHIPPED.some((u) => denials(u).includes(name)),
+        `the "${name}" shape catches no shipped sentence`,
+      ).toBe(true);
+    }
+    // Negative control: the honest shape of each is not caught.
+    expect(
+      denials({
+        where: "honest",
+        question: "Will it make my PDF smaller?",
+        text: "Not reliably. The file is rewritten, so its size can change in either direction.",
+      }),
+    ).toEqual([]);
+  });
+
+  it("no copy about the tool says the file cannot come out smaller", () => {
+    const units = aboutOptimizeWeb();
+    // Health: the walk reaches both places the claim has lived.
+    expect(
+      units.some((u) => u.where.startsWith("guide ")),
+      "the walk found no guide that discusses the tool",
+    ).toBe(true);
+    const sizeQuestion = units.find(
+      (u) =>
+        u.where === "tool optimize-web FAQ" &&
+        /\bsmaller\b/i.test(u.question ?? ""),
     );
-    expect(flags).toEqual(["--linearize"]);
-    expect(flags.filter((f) => RESHAPING.test(f))).toEqual([]);
-    // Positive control through the same detector.
-    expect(RESHAPING.test("--compress-streams=y")).toBe(true);
-    const faq = toolFaq(tool("optimize-web"))
-      .map((e) => e.answer)
-      .join(" ");
-    expect(faq).toMatch(/not compression/);
+    expect(
+      sizeQuestion,
+      "the page no longer answers the size question",
+    ).toBeDefined();
+    const offenders = units
+      .map((u) => ({ u, hit: denials(u) }))
+      .filter(({ hit }) => hit.length > 0)
+      .map(({ u, hit }) => `${u.where} [${hit.join(", ")}]: ${u.text}`);
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+
+  it("the size answer says why, and sends the reader to the tool that shrinks", () => {
+    const compress = tool("compress-pdf").name;
+    const units = aboutOptimizeWeb();
+    const answer = units.find(
+      (u) =>
+        u.where === "tool optimize-web FAQ" &&
+        /\bsmaller\b/i.test(u.question ?? ""),
+    )!;
+    expect(answer.text).toMatch(/not compression/);
+    expect(answer.text).toMatch(/either direction/);
+    expect(answer.text).toContain(compress);
+    const guideLines = units.filter(
+      (u) =>
+        u.where.startsWith("guide ") &&
+        u.text.includes(tool("optimize-web").name),
+    );
+    expect(guideLines.length).toBeGreaterThan(0);
+    for (const u of guideLines) {
+      expect(u.text, u.where).toMatch(/either direction/);
+      expect(u.text, u.where).toContain(compress);
+    }
+    // What the tool does is what the first answer says: it linearizes.
+    expect(linearizeArgs("in.pdf", "out.pdf")).toContain("--linearize");
   });
 });
 
