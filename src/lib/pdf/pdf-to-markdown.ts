@@ -64,14 +64,22 @@ function escapeBlockStart(text: string): string {
 /**
  * Escape a `<` that opens something a Markdown renderer would treat as HTML (a
  * tag, a comment, a processing instruction, an autolink), so `<div>` in the
- * PDF stays visible text instead of vanishing into the renderer.
+ * PDF stays visible text instead of vanishing into the renderer; and an `&`
+ * that opens an entity reference, so `&lt;` in the PDF is not decoded.
  *
  * Deliberately NOT escaped: `*`, `_`, backticks and `[`. They are common in
  * identifiers, file names and URLs, and backslashes through them make the text
  * unreadable to the LLM and note-taking readers this tool is for.
  */
 function escapeInline(text: string): string {
-  return text.replace(/<(?=[A-Za-z/!?])/g, "&lt;");
+  return (
+    text
+      // An `&` that starts an entity reference, so `&lt;` shown in the PDF
+      // stays `&lt;` instead of rendering as `<`. A bare `&` (R&D) renders
+      // as itself and is left alone. First, so the `&lt;` below survives.
+      .replace(/&(?=#?[A-Za-z0-9]+;)/g, "&amp;")
+      .replace(/<(?=[A-Za-z/!?])/g, "&lt;")
+  );
 }
 
 /** Collapse whitespace, trim, and escape the block-leading syntax above. */
@@ -259,10 +267,32 @@ interface GeoLine {
   size: number;
 }
 
-function quantile(values: number[], q: number): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
+/**
+ * Steps within this factor of the smallest one are the same line pitch, read
+ * with rounding jitter; the pitch is their median.
+ */
+const PITCH_CLUSTER = 1.1;
+
+/**
+ * The page's line pitch: the smallest cluster of baseline steps.
+ *
+ * Not a quantile of all the steps. Every quantile is a vote, and on a page of
+ * one-line paragraphs the paragraph GAPS are the majority: the lower quartile
+ * landed on the gap once no more than a quarter of the steps were wraps (a
+ * page of two-line paragraphs did the same to the median), nothing exceeded
+ * 1.3x it, and the whole page merged. A single wrapped line is enough to show
+ * the pitch, so the smallest steps decide, not the most common ones.
+ *
+ * The price: one page that mixes line spacings at the body size (a
+ * single-spaced block quote inside double-spaced text) takes the tighter
+ * pitch, and the looser text then splits line by line. Over-splitting keeps
+ * every word in order; the merge it replaces lost every boundary on the page.
+ */
+function linePitch(steps: number[]): number | null {
+  if (!steps.length) return null;
+  const sorted = [...steps].sort((a, b) => a - b);
+  const cluster = sorted.filter((s) => s <= sorted[0]! * PITCH_CLUSTER);
+  return cluster[Math.floor((cluster.length - 1) / 2)]!;
 }
 
 function geoLines(lines: readonly TextLine[] | null): GeoLine[] | null {
@@ -325,10 +355,11 @@ function isHeadingLine(line: GeoLine, bodySize: number): boolean {
  * paragraph. Paragraphs are recovered from the baseline steps instead.
  */
 function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
-  // The page's line pitch: a low quantile of the steps between consecutive
-  // body-size lines. Not the median — on a page of two-line paragraphs half
-  // the steps ARE paragraph gaps. Steps under half a line are super/subscript
-  // shifts, not lines.
+  // The page's line pitch, from the steps between consecutive body-size
+  // lines (see `linePitch`). Steps under half a line are super/subscript
+  // shifts, not lines. A page with no wrapped line at all has only gap steps,
+  // so its smallest step IS the gap and it stays one paragraph: a known
+  // limitation, pinned as such in the tests.
   const steps: number[] = [];
   for (let i = 1; i < lines.length; i += 1) {
     const prev = lines[i - 1]!;
@@ -342,7 +373,7 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
       steps.push(step);
     }
   }
-  const pitch = quantile(steps, 0.25) ?? bodySize * 1.2;
+  const pitch = linePitch(steps) ?? bodySize * 1.2;
 
   // Left edges body lines share: a margin, a column's margin, a list's
   // hanging indent. Bucketed to whole points; an edge is an x at least two

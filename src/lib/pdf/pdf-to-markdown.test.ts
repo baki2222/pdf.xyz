@@ -269,6 +269,18 @@ describe("pdf-to-markdown over pdfjs-shaped items", () => {
     expect(markdown).toContain("\n\n\\```\n\n");
     expect(markdown).toContain("plain **bold** stays on two lines.");
   });
+
+  it("keeps a literal entity reference literal, and a bare & bare", () => {
+    // A PDF that SHOWS `&lt;` (an HTML tutorial, say) must not render as `<`.
+    const page = [
+      run("Type &lt; or &#60; for a less-than", 72, 700),
+      run("sign; R&D and A & B stay as written.", 72, 686),
+    ];
+    const { markdown } = convert([page]);
+    expect(markdown).toContain(
+      "Type &amp;lt; or &amp;#60; for a less-than sign; R&D and A & B stay as written.",
+    );
+  });
 });
 
 describe("pdf-to-markdown", () => {
@@ -555,5 +567,109 @@ describe("pdf-to-markdown over geometry measured from real generators", () => {
     expect(paragraphs[4]).toBe(
       "A second paragraph in the flow continues and eventually moves into the right hand column of the page when it runs out of room here.",
     );
+  });
+
+  /*
+   * HISTORY. The page pitch was once `quantile(steps, 0.25)`. That fixed pages
+   * of wrapped paragraphs and left the same collapse on pages of mostly
+   * one-line paragraphs (letters, memos, meeting notes, FAQs): once no more
+   * than a quarter of the steps are wraps, the lower quartile lands on the
+   * paragraph GAP, nothing exceeds 1.3x it, and the page is one paragraph —
+   * even though the page shows the real line pitch in its wrapped lines.
+   */
+  describe("pitch comes from the wrapped lines, however few", () => {
+    // The two steps are read from the Word measurement, not typed.
+    const wordStep = (a: number, b: number) =>
+      WORD_16_EXPORT[a]![2] - WORD_16_EXPORT[b]![2];
+    const lineStep = wordStep(2, 3);
+    const paragraphStep = wordStep(4, 5);
+
+    /** A Word page of Normal paragraphs with these line counts, top down. */
+    function wordParagraphs(lineCounts: number[]): {
+      rows: Row[];
+      firstLines: string[];
+    } {
+      const rows: Row[] = [];
+      const firstLines: string[] = [];
+      let y = 700;
+      lineCounts.forEach((count, p) => {
+        for (let l = 0; l < count; l += 1) {
+          // Every line ends in a full stop, so a wrongly joined page cannot
+          // be told apart from a right one by its punctuation alone.
+          const text = `Paragraph ${p + 1} line ${l + 1} of ${count}.`;
+          if (l === 0) firstLines.push(text);
+          rows.push([text, 72, y, 12]);
+          y -= l === count - 1 ? paragraphStep : lineStep;
+        }
+      });
+      return { rows, firstLines };
+    }
+
+    const paragraphsOf = (rows: Row[]) =>
+      kinds(
+        markdownBlocks(
+          extractedTextToMarkdown(measuredPage(rows), { sourceName: "m.pdf" })
+            .markdown,
+        ),
+        "paragraph",
+      );
+
+    it("HEALTH CHECK: the measured steps are a line and a paragraph gap", () => {
+      expect(lineStep).toBeGreaterThan(16);
+      expect(paragraphStep / lineStep).toBeGreaterThan(PARAGRAPH_GAP_RATIO);
+    });
+
+    it("the reviewer's page: two wrapped paragraphs, then five one-liners", () => {
+      const { rows, firstLines } = wordParagraphs([2, 2, 1, 1, 1, 1, 1]);
+      const paragraphs = paragraphsOf(rows);
+      expect(paragraphs).toHaveLength(7);
+      expect(paragraphs.map((p) => p.split(" line ")[0])).toEqual(
+        firstLines.map((l) => l.split(" line ")[0]),
+      );
+      expect(paragraphs[0]).toBe(
+        "Paragraph 1 line 1 of 2. Paragraph 1 line 2 of 2.",
+      );
+    });
+
+    it("one wrapped paragraph is enough, however many one-liners follow", () => {
+      // Every share of wrap steps from 1/2 down to 1/13: the quartile failed
+      // from 1/4 down, so the sweep crosses the old failure boundary.
+      for (let oneLiners = 1; oneLiners <= 12; oneLiners += 1) {
+        const counts = [2, ...Array<number>(oneLiners).fill(1)];
+        const { rows, firstLines } = wordParagraphs(counts);
+        const paragraphs = paragraphsOf(rows);
+        expect(
+          paragraphs.map((p) => p.split(" line ")[0]),
+          `${oneLiners} one-line paragraphs`,
+        ).toEqual(firstLines.map((l) => l.split(" line ")[0]));
+      }
+    });
+
+    it("the wrapped paragraph may come last, or sit in the middle", () => {
+      for (const counts of [
+        [1, 1, 1, 1, 1, 2],
+        [1, 1, 3, 1, 1, 1],
+      ]) {
+        const { rows, firstLines } = wordParagraphs(counts);
+        expect(paragraphsOf(rows)).toHaveLength(firstLines.length);
+      }
+    });
+
+    it("POSITIVE CONTROL: wrapped lines still join into one paragraph", () => {
+      const { rows } = wordParagraphs([4, 1, 3]);
+      expect(paragraphsOf(rows)).toEqual([
+        "Paragraph 1 line 1 of 4. Paragraph 1 line 2 of 4. Paragraph 1 line 3 of 4. Paragraph 1 line 4 of 4.",
+        "Paragraph 2 line 1 of 1.",
+        "Paragraph 3 line 1 of 3. Paragraph 3 line 2 of 3. Paragraph 3 line 3 of 3.",
+      ]);
+    });
+
+    it("LIMITATION: a page with no wrapped line at all has no pitch to find", () => {
+      // Every step is a paragraph gap, so the smallest step IS the gap and
+      // nothing exceeds 1.3x it. The page shows no line pitch to measure.
+      // If this goes red because it was fixed, invert it; do not delete it.
+      const { rows } = wordParagraphs([1, 1, 1, 1]);
+      expect(paragraphsOf(rows)).toHaveLength(1);
+    });
   });
 });
