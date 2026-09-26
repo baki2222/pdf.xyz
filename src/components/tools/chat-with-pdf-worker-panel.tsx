@@ -17,9 +17,10 @@ import {
 import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  AI_PER_CALL_ALLOWANCE_NOTE,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
+import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
 import {
   canRunChatWithPdf,
   runWorkerChatWithPdf,
@@ -125,7 +126,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {AI_PER_CALL_ALLOWANCE_NOTE}
           </p>
         )}
         {available ? (
@@ -273,6 +274,16 @@ function ChatBuilder() {
    * panel displays it as if it belonged to the file on screen.
    */
   const fileToken = useRef(0);
+  /**
+   * The document's character count, for the file identified by `token`.
+   *
+   * Counted once per file, not once per question: the document does not
+   * change between questions, and pdfjs over a long PDF is seconds of work.
+   * Keyed by the same token a swap bumps, so a new file is always recounted.
+   */
+  const documentCount = useRef<{ token: number; count: number | null } | null>(
+    null,
+  );
 
   const chooseFile = useCallback((next: File | null) => {
     fileToken.current += 1;
@@ -293,11 +304,20 @@ function ChatBuilder() {
     // forever with no error, recoverable only by reloading the page.
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
+      const cached = documentCount.current;
+      const documentCharacters =
+        cached && cached.token === startedFor
+          ? cached.count
+          : await countDeclaredCharacters(bytes);
+      documentCount.current = { token: startedFor, count: documentCharacters };
       const result = await runWorkerChatWithPdf({
         filename: file.name,
         bytes,
         question: asked,
         ...(context.turns.length > 0 ? { context: context.turns } : {}),
+        // Each question is charged the document plus what it carries, not a
+        // third of the day — which had made three questions the whole day.
+        documentCharacters,
       });
       // The document changed while this was running: the answer is about a file the user
       // has already replaced, so it belongs to no transcript on screen. Drop it rather

@@ -171,6 +171,7 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        documentCharacters: null,
         question: "What is the total?",
         context: [
           { role: "user", content: "hi" },
@@ -249,6 +250,7 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        documentCharacters: null,
         question: "What is the total?",
       },
       { fetchImpl, sleep: async () => {} },
@@ -300,6 +302,7 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        documentCharacters: null,
         question: "What is the total?",
       },
       { fetchImpl, sleep: async () => {} },

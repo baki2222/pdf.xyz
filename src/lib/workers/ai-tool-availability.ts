@@ -17,7 +17,10 @@
 
 import type { WorkerStatus } from "./status";
 import { canRunPdfSecurity } from "./pdf-security-client";
-import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import {
+  AI_ALLOWANCE_FACT,
+  AI_PER_CALL_ALLOWANCE_FACT,
+} from "@/lib/jobs/ai-allowance";
 
 /**
  * True when the UI may offer a secure-worker AI flow. Three conditions, all
@@ -42,6 +45,14 @@ import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 // A third independent copy of the same sentence until 2026-08-11. The name
 // stays because four panels import it; the words come from one place now.
 export const AI_DAILY_ALLOWANCE_NOTE = AI_ALLOWANCE_FACT;
+
+/**
+ * The same line for Summarize, Chat and Extract, which also state the most a
+ * single run can take — see {@link AI_PER_CALL_ALLOWANCE_FACT}. Translate keeps
+ * {@link AI_DAILY_ALLOWANCE_NOTE}: a long translation is several calls and is
+ * charged by its size with no per-run ceiling.
+ */
+export const AI_PER_CALL_ALLOWANCE_NOTE = AI_PER_CALL_ALLOWANCE_FACT;
 
 export function canRunAiTool(status: WorkerStatus | null | undefined): boolean {
   if (!status) return false;

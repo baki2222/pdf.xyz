@@ -32,6 +32,7 @@ import {
   type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
+import { perCallReadLimit } from "./read-cap-limit";
 
 type Failure = Extract<AiExtractRun, { ok: false }>;
 
@@ -154,7 +155,19 @@ export function createAiExtractProcessor(deps: AiExtractDeps): Processor {
           retryable: false,
         });
       }
-      const run = await runAiExtract(file.bytes, parsed.value, deps);
+      // The read bound this run was CHARGED for. The route prices a per-call
+      // run by the characters the browser declared, which is only true if
+      // no more than that is read — see `./read-cap-limit`. Absent leaves the
+      // engine's own limit untouched; malformed fails closed.
+      const readLimit = perCallReadLimit(
+        input.delivery,
+        deps.limits?.maxInputChars,
+      );
+      if (!readLimit.ok) return processorFail(readLimit.error);
+      const run = await runAiExtract(file.bytes, parsed.value, {
+        ...deps,
+        limits: { ...deps.limits, maxInputChars: readLimit.maxInputChars },
+      });
       // A run that failed AFTER a provider call still owes the job record what
       // it spent — see `aiResultsFromFailure`. Absent when no call happened.
       if (!run.ok)

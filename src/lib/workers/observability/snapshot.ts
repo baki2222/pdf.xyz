@@ -270,6 +270,12 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "a job delivers only what its reservation paid for, and names the bound that stopped it",
     proves: provenByFlag,
   },
+  aiReadCap: {
+    label: "AI read cap",
+    promise:
+      "a summary, answer or extraction is charged by the size of the document, because the worker reads no more of it than was declared",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

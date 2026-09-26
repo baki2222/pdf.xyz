@@ -227,6 +227,13 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     subject: /\bdelivery cap\b|reservation paid|what its reservation/i,
     catalogueCopy: false,
   },
+  aiReadCap: {
+    // The panels say "One run never counts more than N" — true whether or not
+    // this is proven, so it is not a hedge on it. The catalogue says nothing
+    // about per-run pricing yet; the day it does, this goes red on purpose.
+    subject: /\bread cap\b|one run never counts|reads no more of/i,
+    catalogueCopy: false,
+  },
 };
 
 /* ------------------------------------------------------------------ *

@@ -264,3 +264,22 @@ export function readWorkerHeartbeatLiveness(
 ): Promise<HeartbeatLiveness> {
   return createHeartbeatReader(env, deps).read();
 }
+
+/**
+ * Does the worker that will run the next job read no more of a document than a
+ * per-call AI job declared? The `readCapEnforced` witness `aiReservationFor`
+ * asks for before it prices summarize, chat or extract by size.
+ *
+ * FRESH OR NOTHING. A stale heartbeat describes an image that may already have
+ * been replaced, and an unreachable broker or a disabled seam describes no
+ * image at all — each answers `false`, which charges a run what it cost before
+ * the discount existed. That is the direction this may fail in: a discount
+ * withheld, never a full read sold at a one-character price.
+ */
+export async function runningWorkerEnforcesAiReadCap(
+  env: EnvSource = process.env,
+  deps: HeartbeatRedisDeps = {},
+): Promise<boolean> {
+  const liveness = await readWorkerHeartbeatLiveness(env, deps);
+  return liveness.observed && liveness.capabilities?.aiReadCap === true;
+}

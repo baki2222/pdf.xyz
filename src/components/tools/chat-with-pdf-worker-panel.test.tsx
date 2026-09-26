@@ -37,6 +37,20 @@ vi.mock("@/lib/workers/chat-with-pdf-client", async (importOriginal) => ({
   runWorkerChatWithPdf,
 }));
 
+/**
+ * The browser's character count, stubbed: pdfjs does not run under jsdom, and
+ * what is under test here is what the PANEL does with a count — that it is
+ * taken once per file and handed to the driver with every question.
+ * `countDeclaredCharacters` itself is tested in `ai-declared-characters.test.ts`.
+ */
+const countDeclaredCharacters = vi.hoisted(() =>
+  vi.fn(async (): Promise<number | null> => 4_321),
+);
+
+vi.mock("@/lib/workers/ai-declared-characters", () => ({
+  countDeclaredCharacters,
+}));
+
 // Imported after the mock so the panel picks up the stubbed driver.
 const { ChatWithPdfWorkerPanel } = await import("./chat-with-pdf-worker-panel");
 
@@ -385,6 +399,65 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     expect(
       screen.getByText(/oldest exchanges are left out/i),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ChatWithPdfWorkerPanel — what each question is charged", () => {
+  /**
+   * Until 2026-09-27 the panel declared nothing, so every question reserved a
+   * third of the day's AI allowance whatever the PDF held: three questions was
+   * the whole day's chat. Each question now declares the document's characters,
+   * counted ONCE per file — the document does not change between questions.
+   */
+  it("declares the counted document with every question, counting it once per file", async () => {
+    stubStatus();
+    countDeclaredCharacters.mockClear();
+    runWorkerChatWithPdf
+      .mockImplementationOnce(() => workerSuccess("Q one", "A one."))
+      .mockImplementationOnce(() => workerSuccess("Q two", "A two."));
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+    expect(await screen.findByText("A one.")).toBeInTheDocument();
+    await ask("Q two");
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+
+    for (const index of [0, 1]) {
+      expect(
+        (requestAt(index) as { documentCharacters?: unknown })
+          .documentCharacters,
+        `question ${index + 1} was sent without the document's count, so it ` +
+          "costs a third of the day",
+      ).toBe(4_321);
+    }
+    expect(
+      countDeclaredCharacters,
+      "the same document was re-counted for a follow-up question",
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("recounts after the document is swapped", async () => {
+    stubStatus();
+    countDeclaredCharacters.mockClear();
+    runWorkerChatWithPdf.mockImplementation(() =>
+      workerSuccess("Q one", "A one."),
+    );
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+    expect(await screen.findByText("A one.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /remove/i }));
+    countDeclaredCharacters.mockResolvedValueOnce(99);
+    await ask("Q one");
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    expect(
+      (requestAt(1) as { documentCharacters?: unknown }).documentCharacters,
+      "a new document was charged at the previous document's size",
+    ).toBe(99);
+    expect(countDeclaredCharacters).toHaveBeenCalledTimes(2);
   });
 });
 

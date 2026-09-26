@@ -160,3 +160,123 @@ export function deliveryCapFor(
       : {}),
   };
 }
+
+/**
+ * How an AI tool's run is priced against the daily allowance.
+ *
+ *  - `per-character` — the work scales with the document. Translate splits a
+ *    long document into several provider calls, so a job reserves
+ *    `declared × h` with no upper clamp, and the cap it runs under is that same
+ *    reservation ({@link deliveryCapFor}).
+ *  - `per-call` — one provider call reads the document up to the engine's own
+ *    per-run read limit (`AI_INPUT_LIMITS.maxInputCharacters`). A run costs the
+ *    characters it declared, and never more than an undeclared run costs.
+ */
+export type AiRunPricing = "per-character" | "per-call";
+
+/**
+ * The pricing of every AI-capability tool.
+ *
+ * ⚠️ UNTIL 2026-09-27 ONLY TRANSLATE WAS PRICED BY SIZE. Summarize, Chat and
+ * Extract never declared a count, so every run of them reserved the fallback —
+ * `TRANSLATE_MAX_INPUT_CHARS × h`, exactly a third of the bucket — whatever the
+ * document held. A visitor told they had 30,774 characters a day got three
+ * summaries of a one-page PDF, or three chat QUESTIONS in total. The figure on
+ * the page was not the unit anyone was charged in.
+ *
+ * A typed map rather than a rule, because the property that decides it — does
+ * one job make one provider call or many — lives in the engines, not in the
+ * catalog. `delivery-cap.pricing.test.ts` derives the AI tool set from the
+ * catalog and fails if a tool is missing here, and proves every `per-call` tool's
+ * processor actually truncates at the cap it is handed.
+ */
+export const AI_RUN_PRICING: Readonly<Record<string, AiRunPricing>> = {
+  "translate-pdf": "per-character",
+  "summarize-pdf": "per-call",
+  "chat-with-pdf": "per-call",
+  "ai-extract": "per-call",
+};
+
+/** What an AI job is debited, and what it may then read or deliver. */
+export interface AiReservation {
+  /** Debited from the daily allowance, in WORKER-EXTRACTED characters. */
+  readonly charge: number;
+  /**
+   * The bound handed to the worker, or `undefined` for "the engine's own
+   * per-run limit". Never smaller than what an honest declaration needs: it is
+   * `declared × h`, the same headroom the charge carries.
+   */
+  readonly delivery: JobDeliveryCap | undefined;
+}
+
+/**
+ * Price an AI job and derive the bound it runs under.
+ *
+ * ── WHY A DECLARATION IS HONOURED ONLY WHEN THE RUNNING WORKER ENFORCES IT ──
+ *
+ * A declared count is a client claim. For a `per-call` tool it is safe to
+ * charge LESS for a smaller claim only because the worker then reads no more
+ * than the claim — declare one character, be read four. Before the summarize,
+ * chat and extract processors honoured the cap, that was false: a caller could
+ * declare 1, pay 4, and have 500,000 characters sent to the provider.
+ *
+ * The worker image is built by hand and the web tier auto-deploys, so "the code
+ * that enforces it is merged" is a MECHANISM, and it arrives first. The PROPERTY
+ * is "the worker that will run this job enforces it", and the only witness to
+ * that is the running image's own proof, published on its heartbeat
+ * (`aiReadCap`). `readCapEnforced` is asked for exactly that, and only when the
+ * answer could change the price. Until it says yes, a declaration on a
+ * `per-call` tool is ignored and the run costs what it cost before — the
+ * convenient failure here is a discount nobody can collect on, never a spend
+ * hole.
+ *
+ * ── THE CLAMP ───────────────────────────────────────────────────────────────
+ *
+ * A `per-call` run costs `min(declared, fallback) × h`. The clamp is what keeps
+ * this from refusing documents that work today: the engines read up to 500,000
+ * characters, and a document that large, charged at its size, would not fit in
+ * the bucket at all. With the clamp a large document costs exactly what an
+ * undeclared run always cost, and a small one costs what it holds.
+ *
+ * Its read bound is NOT clamped: it stays `declared × h`, so an honest large
+ * document is still read to the engine's own limit. Under-declaring buys a
+ * smaller read, never a cheaper full one.
+ *
+ * An AI tool missing from {@link AI_RUN_PRICING} is treated as a `per-call`
+ * tool whose worker enforces nothing: its declaration is ignored.
+ */
+export async function aiReservationFor(
+  tool: string,
+  request: {
+    readonly declaredCharacters?: number;
+    readonly declaredTextPages?: number;
+  },
+  limits: {
+    readonly fallbackCharacters: number;
+    readonly headroom: number;
+    /** Does the worker that will run this job enforce a per-call read cap? */
+    readonly readCapEnforced: () => Promise<boolean>;
+  },
+): Promise<AiReservation> {
+  if (AI_RUN_PRICING[tool] === "per-character") {
+    const cap = deliveryCapFor(request, limits);
+    return { charge: cap.characters, delivery: cap };
+  }
+  const fallback = Math.ceil(limits.fallbackCharacters * limits.headroom);
+  const declared = request.declaredCharacters;
+  if (
+    declared === undefined ||
+    AI_RUN_PRICING[tool] !== "per-call" ||
+    !(await limits.readCapEnforced())
+  ) {
+    return { charge: fallback, delivery: undefined };
+  }
+  return {
+    charge: Math.ceil(
+      Math.min(declared, limits.fallbackCharacters) * limits.headroom,
+    ),
+    // Characters only. The page bound is translate's exact half; a per-call
+    // engine reads a prefix of the joined text and has no page loop to stop.
+    delivery: { characters: Math.ceil(declared * limits.headroom) },
+  };
+}

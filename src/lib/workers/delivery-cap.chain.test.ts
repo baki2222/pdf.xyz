@@ -227,12 +227,25 @@ describe("the route passes the cap it charged for", () => {
     ).toBe(2);
   });
 
-  it("charges the allowance with the SAME binding it caps delivery with", () => {
+  it("charges the allowance and caps delivery from the SAME binding", () => {
     /**
      * The drift this prevents is invisible in review: two correct expressions
-     * that agree today. `enforceAiCharacterAllowance` must be handed a property
-     * of the cap object, not a separately-computed number, so "charged" and
-     * "allowed to deliver" cannot come apart.
+     * that agree today. The amount handed to `enforceAiCharacterAllowance` and
+     * the cap handed to the adapter must be properties of ONE object, so what
+     * is billed and what may be delivered cannot come apart.
+     *
+     * ── INVERTED 2026-09-27, NOT DELETED ─────────────────────────────────────
+     *
+     * This used to require the charge to be `delivery.characters` — the cap's
+     * own character bound. That was true of translate and it PINNED A DEFECT
+     * on the other three AI tools: it made "charge = the cap" structural, and
+     * the only cap a summarize, chat or extract job ever got was the undeclared
+     * fallback, so every run of them cost a third of the day whatever the
+     * document held. A per-call run is now charged `min(declared, fallback) × h`
+     * and read up to `declared × h`, so the two numbers legitimately differ —
+     * and the property worth pinning is that they come from one decision, not
+     * that they are one number. `delivery-cap.pricing.test.ts` pins the
+     * relationship between them (never charged for more than may be read).
      */
     const sf = routeAst();
     const charge = callsNamed(sf, "enforceAiCharacterAllowance");
@@ -245,30 +258,80 @@ describe("the route passes the cap it charged for", () => {
     expect(amount, "the allowance is charged with no amount").toBeDefined();
     expect(
       amount !== undefined && ts.isPropertyAccessExpression(amount),
-      "the allowance is charged with a value computed apart from the delivery " +
-        "cap, so what is billed and what may be delivered can drift",
+      "the allowance is charged with a value computed apart from the " +
+        "reservation, so what is billed and what may be delivered can drift",
     ).toBe(true);
     const access = amount as TS.PropertyAccessExpression;
-    expect(access.name.text).toBe("characters");
+    expect(access.name.text).toBe("charge");
 
     const capped = callsNamed(sf, "createJob")[0]!.arguments[1];
     expect(
+      capped !== undefined && ts.isPropertyAccessExpression(capped),
+      "the adapter is handed a cap that is not read off the reservation",
+    ).toBe(true);
+    const handed = capped as TS.PropertyAccessExpression;
+    expect(handed.name.text).toBe("delivery");
+    expect(
       ts.isIdentifier(access.expression) &&
-        capped !== undefined &&
-        ts.isIdentifier(capped) &&
-        access.expression.text === capped.text,
+        ts.isIdentifier(handed.expression) &&
+        access.expression.text === handed.expression.text,
       "the object charged for and the object handed to the adapter are not the " +
         "same binding",
     ).toBe(true);
   });
 
-  it("derives that object with deliveryCapFor rather than inline arithmetic", () => {
+  it("derives that object with aiReservationFor rather than inline arithmetic", () => {
     // Arithmetic written inline here is the shape that goes stale when the
-    // multiplier moves, and none of the tests above can reach it.
+    // multiplier moves, and none of the tests above can reach it. This named
+    // `deliveryCapFor` until 2026-09-27; that function is now the translate
+    // branch of `aiReservationFor`, which the route must go through.
+    expect(
+      callsNamed(routeAst(), "aiReservationFor").length,
+      "the route builds the reservation by hand again",
+    ).toBe(1);
     expect(
       callsNamed(routeAst(), "deliveryCapFor").length,
-      "the route builds the cap by hand again",
-    ).toBe(1);
+      "the route derives a cap beside the reservation, so charge and cap are " +
+        "two decisions again",
+    ).toBe(0);
+  });
+
+  it("asks the RUNNING worker whether per-call reads are capped", () => {
+    /**
+     * The exit condition names the property, not the mechanism. A per-call
+     * tool may be charged its declared size only if the worker that runs the
+     * job reads no more than that; the code that makes that true is merged
+     * long before the hand-built image carrying it is running. So the witness
+     * handed to `aiReservationFor` must be the heartbeat's proof — a literal
+     * `true`, or any function that does not ask the running image, would sell
+     * a full read at a one-character price for as long as the old image runs.
+     */
+    const call = callsNamed(routeAst(), "aiReservationFor")[0];
+    expect(call, "the route does not price AI jobs at all").toBeDefined();
+    const limits = call!.arguments[2];
+    expect(
+      limits !== undefined && ts.isObjectLiteralExpression(limits),
+      "the reservation's limits are not written where this check can read them",
+    ).toBe(true);
+    const witness = (limits as TS.ObjectLiteralExpression).properties.find(
+      (property) =>
+        ts.isPropertyAssignment(property) &&
+        ts.isIdentifier(property.name) &&
+        property.name.text === "readCapEnforced",
+    ) as TS.PropertyAssignment | undefined;
+    expect(witness, "no read-cap witness is passed").toBeDefined();
+    const asked: string[] = [];
+    const walk = (node: TS.Node): void => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        asked.push(node.expression.text);
+      }
+      ts.forEachChild(node, walk);
+    };
+    walk(witness!.initializer);
+    expect(
+      asked,
+      "the read-cap witness does not ask the running worker's heartbeat",
+    ).toContain("runningWorkerEnforcesAiReadCap");
   });
 });
 

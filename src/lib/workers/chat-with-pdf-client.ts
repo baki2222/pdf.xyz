@@ -29,6 +29,35 @@ export interface ChatWithPdfWorkerInput {
   question: string;
   /** Optional prior conversation (complete user/assistant pairs) for a follow-up. */
   context?: ChatTurn[];
+  /**
+   * Characters of selectable text in the DOCUMENT, counted once per file by
+   * the panel (`countDeclaredCharacters`), or `null` when it could not count.
+   *
+   * Not the declaration itself: every question re-sends the whole document
+   * plus the question and the carried turns, so this client adds those to it
+   * ({@link chatDeclaredCharacters}). Required and nullable for the reason
+   * translate's client gives — an omitted count silently costs a third of the
+   * day per question, which made three questions the whole day's chat.
+   */
+  documentCharacters: number | null;
+}
+
+/**
+ * What one chat question declares: the document, the question, and every
+ * carried turn — all of it is sent to the provider on this call.
+ */
+export function chatDeclaredCharacters(
+  input: Pick<
+    ChatWithPdfWorkerInput,
+    "documentCharacters" | "question" | "context"
+  >,
+): number | undefined {
+  if (input.documentCharacters === null) return undefined;
+  const carried = (input.context ?? []).reduce(
+    (sum, turn) => sum + turn.content.length,
+    0,
+  );
+  return input.documentCharacters + input.question.length + carried;
 }
 
 export function runWorkerChatWithPdf(
@@ -44,6 +73,7 @@ export function runWorkerChatWithPdf(
     input.bytes,
     jobOptions,
     options,
+    chatDeclaredCharacters(input),
   );
 }
 

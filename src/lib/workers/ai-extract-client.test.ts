@@ -168,6 +168,7 @@ describe("ai-extract-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        declaredCharacters: null,
         mode: "schema",
         schema: [{ name: "total", type: "number" }],
       },
@@ -240,6 +241,7 @@ describe("ai-extract-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        declaredCharacters: null,
         mode: "prompt",
         prompt: "Extract the vendor and date",
       },
@@ -295,6 +297,7 @@ describe("ai-extract-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        declaredCharacters: null,
         mode: "prompt",
         prompt: "Extract totals",
       },

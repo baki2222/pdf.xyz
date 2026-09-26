@@ -10,13 +10,14 @@
  */
 
 import {
+  aiReservationFor,
   capabilityForMode,
-  deliveryCapFor,
   parseCreateJobRequest,
-  type JobDeliveryCap,
+  type AiReservation,
 } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
+import { runningWorkerEnforcesAiReadCap } from "@/lib/workers/heartbeat";
 import {
   enforceAiCharacterAllowance,
   enforceRateLimit,
@@ -63,15 +64,15 @@ export async function POST(request: Request): Promise<Response> {
   // throttle (see AI_ALLOWANCE_USED_MESSAGE).
   const tool = getToolBySlug(parsed.value.tool);
   /**
-   * What this job may deliver, in the two units the reservation is exposed in.
+   * What this job is charged, and what it may then deliver.
    *
-   * DECLARED HERE rather than inside the branch below because the reservation
-   * and the cap are the same decision seen twice, and a `let` scoped to the
-   * branch that CHARGES would let the branch that DELIVERS be forgotten — which
-   * is the whole defect: a reservation nothing enforces looks enforced.
-   * `undefined` means this job is not AI-capability and has no cap.
+   * DECLARED HERE rather than inside the branch below because the charge and
+   * the cap are the same decision seen twice, and a `let` scoped to the branch
+   * that CHARGES would let the branch that DELIVERS be forgotten — which is the
+   * whole defect: a reservation nothing enforces looks enforced. `undefined`
+   * means this job is not AI-capability: no charge, no cap.
    */
-  let delivery: JobDeliveryCap | undefined;
+  let reservation: AiReservation | undefined;
   if (tool && capabilityForMode(tool.processing) === "ai") {
     // The GLOBAL ceiling first, and it is not a 429. A spent cost control is
     // OUR limit, not this caller's quota — answering it as a rate limit would
@@ -107,25 +108,32 @@ export async function POST(request: Request): Promise<Response> {
      * ONE OBJECT, CHARGED AND THEN ENFORCED — never two expressions that
      * happen to agree.
      *
-     * `delivery.characters` is what the allowance is debited below and what the
-     * worker is later bound to deliver. Handing that same value to the adapter
-     * is what makes the debit true in both directions: without it the
-     * reservation is a number the system takes and does not honour, and the
-     * caller pays it and receives whatever the document happens to hold.
+     * `reservation.charge` is what the allowance is debited below, and
+     * `reservation.delivery` is what the worker is later bound to. Both come
+     * from one call, so what is billed and what may be delivered cannot drift:
+     * for translate they are the same number, and for a per-call tool (summarize,
+     * chat, extract) the read bound is never below what was charged for.
+     *
+     * A per-call tool is priced by its declared size only while the running
+     * worker proves it reads no more than that (`aiReadCap` on a fresh
+     * heartbeat). Until 2026-09-27 every such run was charged a third of the
+     * day whatever the document held — three one-page summaries, or three chat
+     * questions, against a published allowance of 30,774 characters.
      */
-    delivery = deliveryCapFor(parsed.value, {
+    reservation = await aiReservationFor(tool.slug, parsed.value, {
       fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
       headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+      readCapEnforced: () => runningWorkerEnforcesAiReadCap(),
     });
     const aiLimit = await enforceAiCharacterAllowance(
-      delivery.characters,
+      reservation.charge,
       request,
     );
     if (!aiLimit.allowed) return respondRateLimited(aiLimit);
   }
 
   const adapter = await getWorkerAdapter();
-  const outcome = await adapter.createJob(parsed.value, delivery);
+  const outcome = await adapter.createJob(parsed.value, reservation?.delivery);
   return respond(
     outcome.ok
       ? { status: outcome.status, body: outcome.value }
