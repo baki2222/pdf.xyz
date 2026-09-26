@@ -10,7 +10,10 @@ import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
-import { assertFormFieldTextDrawable } from "./unicode-font";
+import {
+  assertFormFieldTextDrawable,
+  formTextsDrawnOnRegeneration,
+} from "./unicode-font";
 
 /**
  * Flatten a PDF's fillable AcroForm fields into static page content, entirely
@@ -314,23 +317,13 @@ export function flattenFormFields(
     }
   }
 
-  // Everything that will be drawn with the form's WinAnsi font, checked before
-  // anything is touched, so a Bengali value is refused with a message that
-  // names it rather than skipped with "couldn't be drawn". Text fields are
-  // checked whether or not they need regenerating (the contract this tool has
-  // always had); choice fields only when they will actually be regenerated.
-  assertFormFieldTextDrawable(
-    fields.flatMap((field) => {
-      if (field instanceof PDFTextField) return [field.getText() ?? ""];
-      if (
-        (field instanceof PDFDropdown || field instanceof PDFOptionList) &&
-        field.needsAppearancesUpdate()
-      ) {
-        return field.getSelected();
-      }
-      return [];
-    }),
-  );
+  // Everything that will be drawn with the form's WinAnsi font, checked AFTER
+  // the dirty-marking above (which is what makes a flagged field "need" a
+  // redraw) and before anything is touched, so a Bengali value is refused with
+  // a message that names it rather than skipped with "couldn't be drawn". A
+  // field whose authored appearance will be drawn as-is is not checked: the
+  // font never sees its value. Pinned both ways in `flatten.test.ts`.
+  assertFormFieldTextDrawable(formTextsDrawnOnRegeneration(fields, lib));
 
   const font = form.getDefaultFont();
   const flattened: string[] = [];

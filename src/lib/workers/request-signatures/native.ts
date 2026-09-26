@@ -1,4 +1,9 @@
+import { loadPdfLib } from "@/lib/pdf/pdf-lib";
 import { loadPdf, stampProducer } from "@/lib/pdf/stamp";
+import {
+  assertFormFieldTextDrawable,
+  formTextsDrawnOnRegeneration,
+} from "@/lib/pdf/unicode-font";
 import type {
   PdfFieldPlacer,
   PdfInspector,
@@ -48,6 +53,14 @@ const place: PdfFieldPlacer = async (bytes, fields) => {
       height: field.height,
     });
   }
+  // `getForm()` above arms `save()` to regenerate every field that is dirty or
+  // has no stored appearance — the uploader's fields as well as ours — with
+  // the form's WinAnsi Helvetica. A Bengali value in one of THEIR fields used
+  // to escape `save()` as a raw `WinAnsi cannot encode`; it is refused in
+  // words here, before anything is written.
+  assertFormFieldTextDrawable(
+    formTextsDrawnOnRegeneration(form.getFields(), await loadPdfLib()),
+  );
   stampProducer(doc);
   return await doc.save();
 };

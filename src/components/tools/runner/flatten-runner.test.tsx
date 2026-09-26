@@ -169,6 +169,39 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
     expect(screen.getByText(SIGNED_PDF_WARNING)).toBeVisible();
   });
 
+  it("two skipped fields sharing a name are BOTH listed, without a React key collision", async () => {
+    // Malformed forms repeat field names. Keyed by name, React warns and may
+    // drop or reuse one of the rows, so the list stops matching the count.
+    const doc = await PDFDocument.load(await formPdf());
+    const page = doc.getPage(0);
+    const form = doc.getForm();
+    for (const y of [560, 500]) {
+      const ref = doc.context.register(
+        doc.context.obj({
+          FT: "Sig",
+          T: PDFString.of("Signature1"),
+          Type: "Annot",
+          Subtype: "Widget",
+          Rect: [50, y, 250, y + 40],
+          F: 4,
+          P: page.ref,
+        }),
+      );
+      page.node.addAnnot(ref);
+      form.acroForm.addField(ref);
+    }
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    mount(await doc.save(), "dupes.pdf");
+    await runTool(/flatten form fields/i);
+
+    await screen.findByRole("group", { name: /form fields flattened/i });
+    expect(screen.getAllByText(/^Signature1 \(/)).toHaveLength(2);
+    const keyWarnings = errors.mock.calls.filter((args) =>
+      args.some((arg) => /same key/i.test(String(arg))),
+    );
+    expect(keyWarnings).toEqual([]);
+  });
+
   it("a dynamic XFA form is explained and cannot be run", async () => {
     mount(await dynamicXfaPdf(), "tax-form.pdf");
     await screen.findByText(DYNAMIC_XFA_MESSAGE);

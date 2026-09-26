@@ -108,8 +108,10 @@ export function FlattenEditor({
                 Left as-is, still interactive:
               </p>
               <ul className="text-muted mt-1 list-disc pl-5">
-                {result.skipped.map((skip) => (
-                  <li key={skip.name}>
+                {result.skipped.map((skip, index) => (
+                  // Field names repeat in malformed forms; the index keeps
+                  // every row distinct.
+                  <li key={`${index}:${skip.name}`}>
                     {skip.name} ({skip.reason})
                   </li>
                 ))}

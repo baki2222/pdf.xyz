@@ -316,6 +316,54 @@ describe("flattenPdf — a form whose reader regenerates its appearances", () =>
     await expect(run).rejects.toBeInstanceOf(PdfEngineError);
     await expect(run).rejects.toThrow(/outside it: .*ঢ/);
   });
+
+  it("refuses a TEXT value it would have to regenerate outside WinAnsi, naming the characters", async () => {
+    // The text-field arm of the refusal. Without it the value is regenerated,
+    // pdf-lib throws `WinAnsi cannot encode`, and the field is quietly skipped
+    // as "couldn't be drawn" — a Bengali answer left behind with no reason
+    // anyone could act on.
+    const run = flattenPdf(await staleAppearanceFormPdf({ value: "ঢাকা" }));
+    await expect(run).rejects.toBeInstanceOf(PdfEngineError);
+    await expect(run).rejects.toThrow(/outside it: .*ঢ/);
+  });
+
+  it("control: a non-WinAnsi value whose AUTHORED appearance is what readers show is flattened, not refused", async () => {
+    // Without the flag nothing is regenerated: the authored stream is drawn and
+    // the form's WinAnsi font never sees the value. Refusing it would refuse a
+    // file this tool can flatten exactly as every reader shows it.
+    const result = await flattenPdf(
+      await staleAppearanceFormPdf({ value: "ঢাকা", needAppearances: false }),
+    );
+    expect(result.flattenedFields).toBe(1);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it("refuses a list box whose regenerated appearance would draw a non-WinAnsi OPTION, even with a Latin selection", async () => {
+    // A list box's appearance lists every option, not just the selected one,
+    // so checking only the selection let `ঢাকা` reach the WinAnsi encoder.
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([600, 800]);
+    const form = doc.getForm();
+    const list = form.createOptionList("district");
+    list.addOptions(["Dhaka", "Chattogram"]);
+    list.select("Dhaka");
+    list.addToPage(page, { x: 50, y: 600, width: 200, height: 80 });
+    await doc.save();
+    list.acroField.dict.set(
+      PDFName.of("Opt"),
+      doc.context.obj([
+        PDFHexString.fromText("Dhaka"),
+        PDFHexString.fromText("ঢাকা"),
+      ]),
+    );
+    form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
+    form.markFieldAsClean(list.ref);
+    const input = await doc.save({ updateFieldAppearances: false });
+
+    const run = flattenPdf(input);
+    await expect(run).rejects.toBeInstanceOf(PdfEngineError);
+    await expect(run).rejects.toThrow(/outside it: .*ঢ/);
+  });
 });
 
 describe("flattenPdf — fields that cannot be drawn are left as-is, never fatal", () => {
