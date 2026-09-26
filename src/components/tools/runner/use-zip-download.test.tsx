@@ -11,7 +11,11 @@ import {
 } from "@testing-library/react";
 import { withoutComments } from "@/lib/tools/copy-surface";
 import { ErrorNote } from "./runner-kit";
-import { ZIP_FAILED_MESSAGE, useZipDownload } from "./use-zip-download";
+import {
+  ZIP_FAILED_MESSAGE,
+  ZIP_OUT_OF_MEMORY_MESSAGE,
+  useZipDownload,
+} from "./use-zip-download";
 
 /**
  * Every "Download ZIP" button (PDF to image, Extract images, Split, batch
@@ -60,6 +64,44 @@ describe("useZipDownload — a failed ZIP is visible", () => {
     expect(screen.getByRole("alert").textContent).toContain(ZIP_FAILED_MESSAGE);
     expect(screen.getByRole("button").textContent).toBe("Download ZIP");
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it("an archive that did not fit in memory is not blamed on the connection", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <Harness
+        zip={() =>
+          Promise.reject(new RangeError("Array buffer allocation failed"))
+        }
+        save={() => {}}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+    const alert = screen.getByRole("alert").textContent;
+    expect(alert).toContain(ZIP_OUT_OF_MEMORY_MESSAGE);
+    expect(alert).not.toMatch(/connection/i);
+  });
+
+  it("control: a chunk that failed to load keeps the connection sentence", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <Harness
+        zip={() =>
+          Promise.reject(
+            new TypeError("Failed to fetch dynamically imported module"),
+          )
+        }
+        save={() => {}}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+    const alert = screen.getByRole("alert").textContent;
+    expect(alert).toContain(ZIP_FAILED_MESSAGE);
+    expect(alert).not.toContain(ZIP_OUT_OF_MEMORY_MESSAGE);
   });
 
   it("control: a resolving build saves and shows no error", async () => {

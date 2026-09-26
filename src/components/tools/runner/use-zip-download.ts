@@ -17,6 +17,28 @@ import type { NamedBytes } from "@/lib/pdf/types";
 export const ZIP_FAILED_MESSAGE =
   "Couldn't build the ZIP. Check your connection and try again.";
 
+/**
+ * The other cause named above, which the connection sentence is false of: the
+ * archive did not fit in memory. V8 reports that as `RangeError: Array buffer
+ * allocation failed`; other engines say "out of memory" or "allocation size".
+ * Retrying on a better connection would fail the same way.
+ */
+export const ZIP_OUT_OF_MEMORY_MESSAGE =
+  "Couldn't build the ZIP: this browser ran out of memory bundling these files. Close other tabs, or process fewer pages or files at a time, and try again.";
+
+/** Which of the two sentences is true of `err`. */
+export function zipFailureMessage(err: unknown): string {
+  const { name, message } = (err ?? {}) as {
+    name?: unknown;
+    message?: unknown;
+  };
+  const text = typeof message === "string" ? message : "";
+  const outOfMemory =
+    name === "RangeError" ||
+    /out of memory|allocation (failed|size)/i.test(text);
+  return outOfMemory ? ZIP_OUT_OF_MEMORY_MESSAGE : ZIP_FAILED_MESSAGE;
+}
+
 type Zip = (files: NamedBytes[], options?: ZipOptions) => Promise<Blob>;
 type Save = (blob: Blob, filename: string) => void;
 
@@ -37,7 +59,7 @@ export function useZipDownload(zip: Zip = zipFiles, save: Save = downloadBlob) {
         save(await zip(files, options), filename);
       } catch (err) {
         console.error("ZIP build failed", err);
-        setZipError(ZIP_FAILED_MESSAGE);
+        setZipError(zipFailureMessage(err));
       } finally {
         setZipping(false);
       }

@@ -32,7 +32,11 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import { isLikelyPdf } from "@/lib/pdf/files";
-import { extractPdfText, pageTextChunks } from "@/lib/pdf/text";
+import {
+  extractPdfText,
+  pageTextChunks,
+  type ExtractedPdfText,
+} from "@/lib/pdf/text";
 import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
@@ -95,7 +99,19 @@ export function pickedFileProblem(file: {
     : `"${file.name}" isn't a PDF — choose a .pdf file.`;
 }
 
-export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
+/** The local text parse the builder runs before anything is uploaded. */
+type ExtractText = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+
+export function TranslateWorkerPanel({
+  tool,
+  // Injectable for one reason: the modern pdf.js build needs `DOMMatrix`, which
+  // jsdom lacks, so the panel test passes the REAL `extractPdfText` bound to the
+  // legacy build. The page never passes it.
+  extractText = extractPdfText,
+}: {
+  tool: Tool;
+  extractText?: ExtractText;
+}) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState<WorkerStatus | null>(null);
 
@@ -171,7 +187,7 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         )}
         {available ? (
-          <TranslateBuilder />
+          <TranslateBuilder extractText={extractText} />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -262,7 +278,7 @@ function SpecRow({
   );
 }
 
-function TranslateBuilder() {
+function TranslateBuilder({ extractText }: { extractText: ExtractText }) {
   const [file, setFile] = useState<File | null>(null);
   const [targetLanguage, setTargetLanguage] =
     useState<TranslateLanguage>(DEFAULT_TARGET);
@@ -303,7 +319,7 @@ function TranslateBuilder() {
       // The same planner runs on both sides for exactly that reason: two
       // hand-written versions of "does this fit" is how a browser refusal ends
       // up hiding a worker that would have succeeded.
-      const extracted = await extractPdfText(bytes);
+      const extracted = await extractText(bytes);
       // THE SAME BLOCKS THE WORKER WILL CHUNK, computed once and used for both
       // the refusal below and the page count declared with the job. Counting
       // them twice — here and again at the call site — is how the declaration
@@ -349,7 +365,7 @@ function TranslateBuilder() {
     } finally {
       setBusy(false);
     }
-  }, [file, targetLanguage, sourceLanguage, instructions]);
+  }, [file, targetLanguage, sourceLanguage, instructions, extractText]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
