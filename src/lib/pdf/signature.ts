@@ -12,6 +12,7 @@ import {
   type StampPosition,
 } from "./stamp";
 import { embedDrawingFont } from "./unicode-font";
+import type { SignatureStyle } from "./offered-kinds";
 
 /**
  * Apply a *visual* electronic signature to a PDF page, fully in-browser. A
@@ -26,8 +27,11 @@ import { embedDrawingFont } from "./unicode-font";
 
 export type SignaturePosition = StampPosition;
 
-/** Typed-signature look: a script-like serif italic, or a clean print face. */
-export type SignatureStyle = "signature" | "print";
+/**
+ * Typed-signature look: a script-like serif italic, or a clean print face.
+ * Defined in the `offered-kinds` leaf, which the tool page's fact also reads.
+ */
+export type { SignatureStyle };
 
 export interface TypedSignature {
   kind: "typed";

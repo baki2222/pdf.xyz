@@ -136,8 +136,8 @@ this gate exists to prevent.
 
 They run inside the same envelope as every other worker job
 ([`docs/ENGINE_ROADMAP.md`](ENGINE_ROADMAP.md)): short-lived encrypted storage,
-isolated per-job processing, strict egress limits, inputs wiped as soon as the job
-ends, outputs dropped on their retention TTL (`DEFAULT_RETENTION`), and **no
+processing on the separate worker process (not the web tier), inputs wiped as soon
+as the job ends, outputs dropped on their retention TTL (`DEFAULT_RETENTION`), and **no
 document contents in logs**. Malware scanning is the one item that is _not_
 universal: it is optional and off unless an operator configures a scanner, and an
 unscanned upload is never reported as scanned.
@@ -175,8 +175,13 @@ is on, so the production build is unaffected. The full design is in
   capped before parsing.
 - URL-input tools (e.g. webpage-to-PDF) accept only public `http(s)` URLs;
   localhost, private, link-local/metadata ranges, embedded credentials, and
-  non-http(s) schemes are blocked — defense-in-depth against SSRF, with the
-  worker's egress policy as the real enforcement.
+  non-http(s) schemes are blocked. This check is the SSRF enforcement, not
+  defence in depth: the worker has no egress policy (it is one long-running
+  process that must reach storage, the queue and AI providers), and the check
+  judges the address as written — it does not resolve DNS or follow redirects.
+  Per-job isolation and egress limits are NOT implemented; see
+  `src/lib/jobs/pipeline-honesty.test.ts` for the property that would have to
+  be proven before any page may claim them.
 - Rate limits (`RATE_LIMITS`) are published in the contract and enforced at the
   gateway. Phase 33 adds an in-app **abuse guard** (`src/lib/ratelimit`) as
   defense-in-depth behind that gateway — see **Abuse guard & rate limiting** below.

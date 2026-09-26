@@ -369,7 +369,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, i, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -415,10 +415,10 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         <p className="text-muted text-xs leading-relaxed">
-          No account required. OCR runs on an isolated secure worker: files are
-          encrypted in transit and at rest, recognized in a sandbox with no
-          network egress, and deleted automatically. It&apos;s enabled per
-          deployment — see our worker architecture and security docs.
+          No account required. OCR runs on a separate processing server, not in
+          your browser: files are encrypted in transit and at rest, and deleted
+          automatically. It&apos;s enabled per deployment — see our worker
+          architecture and security docs.
         </p>
       </div>
     </div>

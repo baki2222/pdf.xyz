@@ -79,8 +79,11 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
   ai: {
     label: "AI-assisted",
     short: "AI",
+    // Names the third party: the AI work is done by an outside provider, from
+    // the PDF's text (privacy policy section 3). "An AI model on secure
+    // infrastructure" read as if the model ran on ours.
     description:
-      "Uses an AI model on secure infrastructure. Your content is never used to train models.",
+      "Sends your PDF's selectable text — not the file — to a third-party AI provider, under terms that prohibit training on it.",
     hue: {
       dot: "bg-violet-600",
       card: {

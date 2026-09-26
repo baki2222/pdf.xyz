@@ -2,6 +2,11 @@ import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";
 import { assertFormFieldTextDrawable } from "./unicode-font";
+import {
+  FIELD_TYPE_LABELS,
+  NEW_FIELD_TYPES,
+  type NewFieldType,
+} from "./offered-kinds";
 
 /**
  * Pure, in-browser AcroForm *creation* built on pdf-lib only — no uploads, no
@@ -19,27 +24,12 @@ import { assertFormFieldTextDrawable } from "./unicode-font";
  * (1pt = 1/72") from the *bottom-left* corner of the page.
  */
 
-/** The field kinds this tool can create. */
-export type NewFieldType =
-  "text" | "checkbox" | "dropdown" | "radio" | "optionlist";
-
-/** Human-facing label for each creatable field type. */
-export const FIELD_TYPE_LABELS: Record<NewFieldType, string> = {
-  text: "Text field",
-  checkbox: "Checkbox",
-  dropdown: "Dropdown",
-  radio: "Radio group",
-  optionlist: "Option list",
-};
-
-/** Every creatable type, in the order the builder offers them. */
-export const NEW_FIELD_TYPES: readonly NewFieldType[] = [
-  "text",
-  "checkbox",
-  "dropdown",
-  "radio",
-  "optionlist",
-];
+/*
+ * The field kinds this tool can create, their labels, and the order the builder
+ * offers them live in the `offered-kinds` leaf, so the tool page's count reads
+ * the same list the builder iterates. Re-exported here for existing importers.
+ */
+export { FIELD_TYPE_LABELS, NEW_FIELD_TYPES, type NewFieldType };
 
 /** A stable, human-facing label for a field type. */
 export function describeFieldType(type: NewFieldType): string {

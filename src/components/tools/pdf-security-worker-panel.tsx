@@ -218,7 +218,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, i, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -260,10 +260,10 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         <p className="text-muted text-xs leading-relaxed">
-          No account required. This runs on an isolated secure worker: files are
-          encrypted in transit and at rest, processed in a sandbox with no
-          network egress, and deleted automatically. Your password is used only
-          to perform the operation and is never stored or logged.
+          No account required. This runs on a separate processing server, not in
+          your browser: files are encrypted in transit and at rest, and deleted
+          automatically. Your password is used only to perform the operation and
+          is never stored or logged.
         </p>
       </div>
     </div>

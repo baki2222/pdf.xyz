@@ -110,9 +110,16 @@ function byteLength(text: string): number {
 
 /**
  * SSRF guard for URL-input tools. Blocks non-http(s), localhost, private and
- * link-local ranges, and internal TLDs at the edge. The worker's egress policy
- * is the real enforcement layer; this is defense in depth and keeps the contract
- * from ever accepting an arbitrary URL.
+ * link-local ranges, and internal TLDs at the edge, and the html-render engine
+ * calls it again before Chromium loads anything.
+ *
+ * This IS the enforcement layer, not defence in depth. This comment used to call
+ * "the worker's egress policy" the real one; no such policy exists — the worker is
+ * a long-running process with ordinary network access, because it must reach
+ * object storage, the queue and the AI providers. Know its bounds: it judges the
+ * address as written, without resolving DNS, so a public hostname that resolves
+ * to a private address, or a public page that redirects to one, is not caught
+ * here.
  */
 export function isSafePublicHttpUrl(raw: string): boolean {
   let url: URL;

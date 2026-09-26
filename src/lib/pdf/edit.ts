@@ -12,6 +12,7 @@ import {
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
+import type { EditOpType } from "./offered-kinds";
 
 /**
  * In-browser basic PDF editing built on pdf-lib only — no uploads, no worker.
@@ -51,8 +52,12 @@ const MAX_TEXT_CHARS = 2000;
 /** Largest inserted image we embed in-browser, to keep the output sane (10 MB). */
 export const MAX_EDIT_IMAGE_BYTES = 10 * 1024 * 1024;
 
-/** The kinds of new content this editor can flatten onto a page. */
-export type EditOpType = "text" | "rect" | "line" | "image";
+/**
+ * The kinds of new content this editor can flatten onto a page — defined in the
+ * `offered-kinds` leaf so the runner's buttons and the tool page's count read the
+ * same list this union is derived from.
+ */
+export type { EditOpType };
 
 /** The two raster image formats pdf-lib can embed. */
 export type EditImageFormat = "png" | "jpg";

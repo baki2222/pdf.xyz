@@ -27,8 +27,20 @@ import {
 } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
-import { capabilityForMode } from "@/lib/jobs/capabilities";
+import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
+import {
+  ANNOTATION_FACT,
+  ANNOTATION_TYPES,
+  EDIT_OP_FACT,
+  EDIT_OP_TYPES,
+  FIELD_TYPE_FACT,
+  NEW_FIELD_TYPES,
+  SIGNATURE_SOURCE_FACT,
+  SIGNATURE_SOURCES,
+  SPLIT_MODE_FACT,
+  SPLIT_MODES,
+} from "@/lib/pdf/offered-kinds";
 import { toolFileCeilingMb } from "./file-ceilings";
 import type { Tool } from "./types";
 
@@ -80,6 +92,62 @@ const pluralPages = (n: number) => (n === 1 ? "page" : "pages");
 export interface ToolFact {
   readonly label: string;
   readonly value: string;
+  /**
+   * The list a spelled count in this fact counts — the SAME array a runner
+   * iterates, never a copy. `counted-facts.test.ts` finds every count word on
+   * every fact and requires it to equal this list's length, and requires this
+   * list to be one of the `offered-kinds` arrays by identity, so a count cannot
+   * be typed by hand again.
+   */
+  readonly counts?: readonly string[];
+}
+
+const COUNT_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+] as const;
+
+/** A count as a word, for prose ("three ways"); throws past twelve. */
+export function countWord(n: number): string {
+  const word = COUNT_WORDS[n];
+  if (word === undefined) throw new Error(`no count word for ${n}`);
+  return word;
+}
+
+/**
+ * "Four element types: text, boxes, lines, and images." — the count word and the
+ * named items both come from `ids`, so neither can drift from the other or from
+ * the runner. Throws past twelve rather than printing a numeral in prose.
+ */
+function countedFact<Id extends string>(
+  label: string,
+  noun: string,
+  ids: readonly Id[],
+  phrase: Record<Id, string>,
+  conjunction: "and" | "or",
+): ToolFact {
+  const word = countWord(ids.length);
+  const names = ids.map((id) => phrase[id]);
+  const list =
+    names.length <= 2
+      ? names.join(` ${conjunction} `)
+      : `${names.slice(0, -1).join(", ")}, ${conjunction} ${names.at(-1)}`;
+  return {
+    label,
+    value: `${word[0]!.toUpperCase()}${word.slice(1)} ${noun}: ${list}.`,
+    counts: ids,
+  };
 }
 
 const FACTS: Record<string, readonly ToolFact[]> = {
@@ -102,11 +170,13 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
   ],
   "split-pdf": [
-    {
-      label: "Split modes",
-      value:
-        "Three ways to split: custom page ranges, every N pages, or one file per page.",
-    },
+    countedFact(
+      "Split modes",
+      "ways to split",
+      SPLIT_MODES,
+      SPLIT_MODE_FACT,
+      "or",
+    ),
   ],
   "organize-pages": [
     {
@@ -135,11 +205,16 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
   ],
   "sign-pdf": [
-    {
-      label: "Signature modes",
-      value:
-        "Five ways to make a signature: draw it, type it, pick an image, use a script font, or print-and-scan style.",
-    },
+    // Was "Five ways to make a signature: draw it, type it, pick an image, use a
+    // script font, or print-and-scan style" — the typed signature counted once
+    // per font style, and a "print-and-scan" style the runner does not have.
+    countedFact(
+      "Signature modes",
+      "ways to make a signature",
+      SIGNATURE_SOURCES,
+      SIGNATURE_SOURCE_FACT,
+      "or",
+    ),
   ],
   "crop-pdf": [
     {
@@ -148,25 +223,36 @@ const FACTS: Record<string, readonly ToolFact[]> = {
         "Uniform margins or per-side control, applied to all pages or only the ones you select.",
     },
   ],
+  // Was "Eight element types, including text, boxes, lines, images, and filled
+  // shapes" over an editor with four — a filled box is an option on the box.
   "edit-pdf": [
-    {
-      label: "Elements",
-      value:
-        "Eight element types, including text, boxes, lines, images, and filled shapes.",
-    },
+    countedFact(
+      "Elements",
+      "element types",
+      EDIT_OP_TYPES,
+      EDIT_OP_FACT,
+      "and",
+    ),
   ],
   "create-forms": [
-    {
-      label: "Field types",
-      value: "Five field types: text, checkbox, dropdown, radio, and list.",
-    },
+    countedFact(
+      "Field types",
+      "field types",
+      NEW_FIELD_TYPES,
+      FIELD_TYPE_FACT,
+      "and",
+    ),
   ],
+  // Was "Six annotation kinds, including highlights, boxes, notes, and lines"
+  // over a tool with four.
   "annotate-pdf": [
-    {
-      label: "Annotation kinds",
-      value:
-        "Six annotation kinds, including highlights, boxes, notes, and lines.",
-    },
+    countedFact(
+      "Annotation kinds",
+      "annotation kinds",
+      ANNOTATION_TYPES,
+      ANNOTATION_FACT,
+      "and",
+    ),
   ],
   "jpg-to-pdf": [
     {
@@ -194,7 +280,8 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   ],
   "compress-pdf": [
     {
-      label: "Two paths",
+      // Was "Two paths": a count with no list behind it. The value names both.
+      label: "Where it runs",
       value:
         "Lossless structural repack always runs in your browser; deep image compression is an optional, clearly-labeled secure-worker step that needs a native engine.",
     },
@@ -267,10 +354,29 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
         "Not fully — the page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the processing itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
     });
   } else {
-    entries.push({
-      question: `What happens to my file after ${tool.name} runs?`,
-      answer: `The file is processed on an encrypted, isolated worker. Inputs are wiped when the job finishes, the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
-    });
+    // An AI tool's answer names where the TEXT goes. This answer ships as
+    // FAQPage JSON-LD, and for the four AI tools it used to say only "processed
+    // on an encrypted, isolated worker" — true of the extraction, silent about
+    // the third-party provider that does the actual work (privacy policy §3).
+    const retention = `the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`;
+    if (getToolInputKind(tool.slug) === "url") {
+      // No file: the question a URL tool's reader has is what we do with the
+      // address. It used to be asked "What happens to my file", and answered
+      // "The file is processed … Inputs are wiped", of a tool with no file.
+      entries.push({
+        question: `What happens when ${tool.name} runs?`,
+        answer: `Nothing is uploaded from your device. A browser on our processing server loads the page from the internet — the site sees the request come from our server, not from you — and prints it to PDF; ${retention}`,
+      });
+    } else {
+      const where =
+        capability === "ai"
+          ? "Our processing server extracts the PDF's selectable text and sends that text — not the file — to a third-party AI provider to produce the result."
+          : "The file is processed on an encrypted, isolated worker.";
+      entries.push({
+        question: `What happens to my file after ${tool.name} runs?`,
+        answer: `${where} Inputs are wiped when the job finishes, ${retention}`,
+      });
+    }
   }
 
   /*
@@ -375,6 +481,17 @@ function defaultSteps(tool: Tool): readonly string[] {
       "Choose your options.",
       "Run the tool in your browser.",
       "Save the result to your device.",
+    ];
+  }
+  if (getToolInputKind(tool.slug) === "url") {
+    // A URL tool uploads nothing. This branch used to fall through to the
+    // upload flow and tell webpage-to-pdf users to "Upload your URL file over
+    // an encrypted connection" — beside a pipeline that said the same.
+    return [
+      "Paste the address of a public web page.",
+      "Choose your options.",
+      "A browser on our processing server loads the page and prints it to PDF.",
+      `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ];
   }
   return [

@@ -21,7 +21,23 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import { countWord } from "@/lib/tools/tool-facts";
+import {
+  SIGNATURE_SOURCES,
+  SIGNATURE_STYLE_LABEL,
+  SIGNATURE_STYLES,
+} from "@/lib/pdf/offered-kinds";
 import type { Guide } from "./types";
+
+/**
+ * Sign PDF's counts, from the lists the runner offers. The guide used to say
+ * "five ways to make a signature", counting the typed signature once per font
+ * style and naming a "print-and-scan style" the runner does not have.
+ */
+const signatureWays = countWord(SIGNATURE_SOURCES.length);
+const signatureStyles = SIGNATURE_STYLES.map((s) =>
+  SIGNATURE_STYLE_LABEL[s].toLowerCase(),
+);
 
 /**
  * The per-file cap a guide states, read from the SAME source the tool's own
@@ -650,22 +666,22 @@ export const guides: Guide[] = [
     intro: [
       "To add a signature to a PDF, open the Sign PDF tool, create your signature by drawing it, typing it, or picking a signature image, and place it exactly where the document needs it. Export the result and you have a signed PDF ready to send.",
       "What sets this approach apart is where the work happens. Sign PDF runs entirely in your browser using WebAssembly and browser APIs, so the PDF and the signature you create stay on your device from start to finish. No account is needed — open the page, make your mark, and export.",
-      "You also get more range than a single scribble box. There are five ways to make a signature — draw it, type it, pick an image, use a script font, or choose a print-and-scan style — so the result can be as personal or as formal as the document calls for.",
+      `You also get more range than a single scribble box. There are ${signatureWays} ways to make a signature — draw it, type it in a ${signatureStyles.join(" or ")} style, or pick an image of the signature you already use — so the result can be as personal or as formal as the document calls for.`,
     ],
     steps: [
       "Open the Sign PDF tool.",
       "Pick the PDF you need to sign — the file stays on your device the entire time.",
       "Create your signature: draw it, type it, or pick a signature image you already have.",
-      "For a different look, use the script font style or the print-and-scan style instead.",
+      `If you type it, pick the look: ${signatureStyles.join(" or ")} style.`,
       "Place the signature exactly where the document needs it — the tool is built for precise placement.",
       "Export your signed PDF and save it to your device.",
     ],
     sections: [
       {
-        id: "five-ways-to-make-a-signature",
-        heading: "Five ways to make a signature",
+        id: "ways-to-make-a-signature",
+        heading: `${signatureWays[0]!.toUpperCase()}${signatureWays.slice(1)} ways to make a signature`,
         body: [
-          "Sign PDF offers five ways to make a signature: draw it, type it, pick an image, use a script font, or go with a print-and-scan style. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and the script font gives a typed name a handwritten look without any drawing at all. If you already keep a scanned signature as an image file, pick that image and reuse the mark you have always used. The print-and-scan style rounds out the five.",
+          `Sign PDF offers ${signatureWays} ways to make a signature: draw it, type it, or pick an image. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and it comes in ${countWord(SIGNATURE_STYLES.length)} styles — script, which gives a typed name a handwritten look without any drawing at all, and print, a plain printed name. If you already keep a scanned signature as a PNG or JPG image, pick that image and reuse the mark you have always used.`,
           "Whichever you choose, the rest works the same way: position the signature precisely on the page, then export.",
         ],
       },
@@ -912,7 +928,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To translate a PDF into another language, open the Translate PDF tool on pdf.xyz, pick your file, and choose the language you want. AI translates the PDF's selectable text and returns it as translated Markdown and plain text, ready to download.",
-      `Translate PDF is one of the AI tools, so the work does not happen in your browser: your PDF uploads over an encrypted connection to an encrypted, isolated worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed at any point.`,
+      `Translate PDF is one of the AI tools, so the work does not happen in your browser: your PDF uploads over an encrypted connection to our processing server, which extracts its selectable text and sends that text — not the file — to a third-party AI provider to translate. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed at any point.`,
       "Know what you are getting before you start: a text translation, not a page-by-page rebuild. The output is the document's words in the new language, packaged as Markdown and plain text rather than a re-laid-out PDF. That focus on the text is also what lets long documents be handled sensibly — split at page boundaries, translated in ordered passes, and reassembled rather than refused.",
     ],
     steps: [
@@ -944,7 +960,7 @@ export const guides: Guide[] = [
         id: "where-your-file-goes",
         heading: "Where your file goes",
         body: [
-          `Translate PDF is one of the AI tools, so processing does not run in your browser. Your PDF uploads over an encrypted connection to an encrypted, isolated worker, which is where the AI reads the text and writes the translation. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `Translate PDF is one of the AI tools, so processing does not run in your browser. Your PDF uploads over an encrypted connection to our processing server. The server extracts the PDF's selectable text and sends that text to a third-party AI provider, which writes the translation — the PDF file itself is not sent to the provider. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. Section 3 of our privacy policy covers the provider's side.`,
           "No account is needed for any of this. Open the tool, translate, and download the result.",
         ],
       },
@@ -964,7 +980,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to my PDF after it is translated?",
-        answer: `The file is processed on an encrypted, isolated worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `Our processing server extracts its selectable text and sends that text — not the file — to a third-party AI provider for translation. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "Will the translation look like the original PDF?",

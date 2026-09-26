@@ -10,6 +10,7 @@
  * success, and failures are fixed/content-free (no filenames, paths, or qpdf text).
  */
 
+import { acceptsDamagedPdf } from "@/lib/jobs/damaged-input";
 import { looksLikePdf, looksRepairable } from "../compression/engine";
 
 export const REPAIR_TOOL = "repair-pdf";
@@ -103,9 +104,14 @@ const failed = (): PdfStructureRun => ({
  * Deliberately NOT `deps.validate`: that seam is the OUTPUT validator, and a
  * deployment tightening its output check must not thereby re-close the door on
  * the files repair exists for.
+ *
+ * Which tool takes damage is read from {@link acceptsDamagedPdf} — the same
+ * predicate the soundness gate and the tool page's pipeline copy read — so the
+ * floor, the gate and the sentence cannot drift apart.
  */
 function inputFloor(operation: "repair" | "linearize") {
-  return operation === "repair" ? looksRepairable : looksLikePdf;
+  const tool = operation === "repair" ? REPAIR_TOOL : OPTIMIZE_WEB_TOOL;
+  return acceptsDamagedPdf(tool) ? looksRepairable : looksLikePdf;
 }
 
 async function preflight(
