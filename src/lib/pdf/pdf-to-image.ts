@@ -105,3 +105,63 @@ export function zipOutputName(
   const base = sanitizeSegment(baseName(sourceName ?? ""));
   return `${base}-${format}.zip`;
 }
+
+/** The next preset below `id`, or `undefined` when `id` is already the lowest. */
+export function lowerResolutionThan(id: string): RasterResolution | undefined {
+  const at = RASTER_RESOLUTIONS.findIndex((r) => r.id === id);
+  return at > 0 ? RASTER_RESOLUTIONS[at - 1] : undefined;
+}
+
+/**
+ * The sentence appended to "the ZIP could not be prepared" on the PDF-to-image
+ * result — only what the page can actually do. A lower preset makes smaller
+ * images and so a smaller archive; per-page downloads exist only for pages that
+ * have a preview button, which is not every page of a long document.
+ */
+export function zipFailureFallback({
+  lowerResolution,
+  everyPageHasButton,
+}: {
+  lowerResolution: string | undefined;
+  everyPageHasButton: boolean;
+}): string | undefined {
+  const lower = lowerResolution
+    ? `re-render at ${lowerResolution} resolution for a smaller ZIP`
+    : null;
+  const pages = everyPageHasButton
+    ? "download the pages one at a time below"
+    : null;
+  if (lower && pages) return `If it keeps failing, ${lower}, or ${pages}.`;
+  if (lower ?? pages) return `If it keeps failing, ${lower ?? pages}.`;
+  return undefined;
+}
+
+/**
+ * What the result panel says when the rasterizer rendered pages BELOW the DPI
+ * the user picked — `null` when it did not. Pages longer than
+ * `maxDevicePx / requestedDpi` inches are capped (see `RASTER_MAX_DEVICE_PX`);
+ * the preset label alone would then overstate every one of them.
+ *
+ * The DPI is floored, never rounded: 213.8 DPI of scale is at most 213 DPI of
+ * whole pixels, and the note exists to stop overstating.
+ */
+export function rasterCapNote(
+  pages: readonly { dpi: number; dpiCapped: boolean }[],
+  requestedDpi: number,
+  maxDevicePx: number,
+): string | null {
+  const capped = pages.filter((p) => p.dpiCapped);
+  if (capped.length === 0) return null;
+  const floors = capped.map((p) => Math.floor(p.dpi));
+  const lowest = floors.reduce((a, b) => Math.min(a, b));
+  const same = floors.every((d) => d === lowest);
+  const single = pages.length === 1;
+  const subject = single
+    ? "This page is"
+    : capped.length === pages.length
+      ? `All ${pages.length} pages are`
+      : `${capped.length} of ${pages.length} pages are`;
+  const verb = single ? "it was" : "they were";
+  const at = same ? `${lowest} DPI` : `as low as ${lowest} DPI`;
+  return `${subject} too large for ${requestedDpi} DPI — ${verb} rendered at ${at}, because images are limited to ${maxDevicePx.toLocaleString("en-US")} pixels on a side.`;
+}

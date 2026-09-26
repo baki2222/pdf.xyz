@@ -10,12 +10,7 @@ import {
   rangesPerPage,
 } from "@/lib/pdf/ranges";
 import type { NamedBytes, SplitPart } from "@/lib/pdf/types";
-import {
-  downloadBlob,
-  downloadBytes,
-  totalBytes,
-  zipFiles,
-} from "@/lib/pdf/browser";
+import { downloadBytes, totalBytes } from "@/lib/pdf/browser";
 import { baseName, outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -30,6 +25,7 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { useZipDownload } from "./use-zip-download";
 
 type SplitMode = "ranges" | "everyN" | "perPage";
 
@@ -51,7 +47,7 @@ export function SplitRunner() {
   );
 }
 
-function SplitEditor({
+export function SplitEditor({
   pdf,
   onReset,
 }: {
@@ -64,7 +60,7 @@ function SplitEditor({
     return pdf.pageCount > 1 ? `1-${half}, ${half + 1}-${pdf.pageCount}` : "1";
   });
   const [size, setSize] = useState(1);
-  const [zipping, setZipping] = useState(false);
+  const { zipping, zipError, download: downloadZip } = useZipDownload();
   const { busy, error, result, run } = useAsyncRun<NamedBytes[]>();
 
   const { parts, previewError } = useMemo((): {
@@ -101,13 +97,7 @@ function SplitEditor({
       downloadBytes(files[0]!.bytes, files[0]!.name);
       return;
     }
-    setZipping(true);
-    try {
-      const zip = await zipFiles(files);
-      downloadBlob(zip, outputName(pdf.file.name, "split", "zip"));
-    } finally {
-      setZipping(false);
-    }
+    await downloadZip(files, outputName(pdf.file.name, "split", "zip"));
   };
 
   if (result) {
@@ -117,12 +107,14 @@ function SplitEditor({
         summary={`${result.length} file${result.length === 1 ? "" : "s"} created · ${formatBytes(totalBytes(result))} total`}
         onReset={onReset}
       >
+        {zipError && <ErrorNote message={zipError} />}
         <button
           type="button"
           onClick={() => {
-            if (!zipping) downloadResult(result);
+            if (!zipping) void downloadResult(result);
           }}
           aria-disabled={zipping || undefined}
+          aria-busy={zipping}
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           {zipping ? (

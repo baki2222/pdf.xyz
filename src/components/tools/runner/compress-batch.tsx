@@ -14,20 +14,16 @@ import {
   X,
 } from "lucide-react";
 import { optimizeLossless } from "@/lib/pdf/analyze";
-import {
-  downloadBlob,
-  downloadBytes,
-  readFileBytes,
-  zipFiles,
-} from "@/lib/pdf/browser";
+import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import type { NamedBytes } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import type { BatchItem } from "@/lib/batch";
 import { HandoffLoadedBadge } from "./handoff-notice";
-import { Spinner } from "./runner-kit";
+import { ErrorNote, Spinner } from "./runner-kit";
 import { useBatchRunner, type BatchUnit } from "./use-batch-runner";
+import { useZipDownload } from "./use-zip-download";
 
 /** Deterministic, on-device result of losslessly repacking one PDF. */
 export interface CompressResult {
@@ -91,15 +87,18 @@ export function CompressBatchRunner({
       item.status === "done" && !!item.result,
   );
 
+  const { zipping, zipError, download: downloadZip } = useZipDownload();
   const downloadAll = useCallback(async () => {
     const named: NamedBytes[] = doneItems.map((item) => ({
       name: item.result.outputName,
       bytes: item.result.bytes,
     }));
     if (named.length === 0) return;
-    const blob = await zipFiles(named);
-    downloadBlob(blob, "pdfxyz-compressed.zip");
-  }, [doneItems]);
+    await downloadZip(named, "pdfxyz-compressed.zip", {
+      // Every finished row carries its own download button.
+      fallback: "If it keeps failing, download the files one at a time above.",
+    });
+  }, [doneItems, downloadZip]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -174,6 +173,8 @@ export function CompressBatchRunner({
         {state.phase === "canceled" && "Batch canceled."}
       </p>
 
+      {zipError && <ErrorNote message={zipError} />}
+
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-muted text-xs">
@@ -231,10 +232,20 @@ export function CompressBatchRunner({
               {doneItems.length > 0 && (
                 <button
                   type="button"
-                  onClick={downloadAll}
+                  // `aria-disabled`, not `disabled`, so zipping does not blur
+                  // the user out of the button they just pressed.
+                  onClick={() => {
+                    if (!zipping) void downloadAll();
+                  }}
+                  aria-disabled={zipping || undefined}
+                  aria-busy={zipping}
                   className={buttonVariants({ variant: "primary", size: "sm" })}
                 >
-                  <FileArchive className="size-4" aria-hidden />
+                  {zipping ? (
+                    <Spinner />
+                  ) : (
+                    <FileArchive className="size-4" aria-hidden />
+                  )}
                   Download all ({doneItems.length})
                 </button>
               )}

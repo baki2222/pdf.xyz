@@ -15,12 +15,7 @@ import type {
   ExtractedImage,
   SkippedImage,
 } from "@/lib/pdf/extract-images";
-import {
-  downloadBlob,
-  downloadBytes,
-  outputName,
-  zipFiles,
-} from "@/lib/pdf/browser";
+import { downloadBytes, outputName } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -34,6 +29,7 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { useZipDownload } from "./use-zip-download";
 
 /** Cap on how many image previews render in the grid; the ZIP still holds all. */
 const PREVIEW_LIMIT = 24;
@@ -55,7 +51,7 @@ export function ExtractImagesRunner() {
   );
 }
 
-interface Extraction extends ExtractImagesResult {
+export interface Extraction extends ExtractImagesResult {
   /** Sum of extracted image bytes. */
   totalBytes: number;
 }
@@ -134,7 +130,7 @@ function ExtractImagesEditor({
   );
 }
 
-function ExtractionResult({
+export function ExtractionResult({
   pdf,
   result,
   onReset,
@@ -231,7 +227,7 @@ function ExtractionActions({
   zip: boolean;
   onReset: () => void;
 }) {
-  const [zipping, setZipping] = useState(false);
+  const { zipping, zipError, download: downloadZip } = useZipDownload();
 
   const downloadOne = (image: ExtractedImage) => {
     downloadBytes(image.bytes, image.name, MIME[image.format]);
@@ -242,22 +238,25 @@ function ExtractionActions({
       if (images[0]) downloadOne(images[0]);
       return;
     }
-    setZipping(true);
-    try {
-      const blob = await zipFiles(
-        images.map((image) => ({ name: image.name, bytes: image.bytes })),
+    await downloadZip(
+      images.map((image) => ({ name: image.name, bytes: image.bytes })),
+      outputName(pdf.file.name, "images", "zip"),
+      {
         // Our PNGs use uncompressed IDAT, so DEFLATE meaningfully shrinks them;
         // already-compressed JPEGs simply pass through near their stored size.
-        { compression: "DEFLATE" },
-      );
-      downloadBlob(blob, outputName(pdf.file.name, "images", "zip"));
-    } finally {
-      setZipping(false);
-    }
+        compression: "DEFLATE",
+        // Only images with a preview have their own button (PREVIEW_LIMIT).
+        fallback:
+          images.length <= PREVIEW_LIMIT
+            ? "If it keeps failing, download the images one at a time below."
+            : undefined,
+      },
+    );
   };
 
   return (
     <div className="flex w-full flex-col gap-5">
+      {zipError && <ErrorNote message={zipError} />}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <button
           type="button"
