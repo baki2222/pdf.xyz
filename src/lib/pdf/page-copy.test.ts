@@ -24,6 +24,7 @@ import {
   organizePages,
   splitPdf,
 } from "./engine";
+import { loadPdfjs } from "./pdfjs";
 import { buildSplitParts, rangesPerPage } from "./ranges";
 
 /**
@@ -388,7 +389,15 @@ function resetTrigger(shape: "widget-aa" | "next-chain" | "field-aa") {
 const OUTLINE_MARKER = "SECRET-OUTLINE-TITLE";
 const METADATA_MARKER = "SECRET-XMP-METADATA";
 const ATTACHMENT_MARKER = "SECRET-EMBEDDED-FILE";
-const INFO_MARKER = "SECRET-INFO-SUBJECT";
+/**
+ * On a custom `/Info` key, which the output deliberately does not carry. It
+ * sat on `/Subject` until the subset tools began carrying the standard four
+ * entries (title, author, subject, keywords) on purpose — a removed page does
+ * not change what the document is about. What this marker pins is unchanged:
+ * the copier never FOLLOWS the source `/Info`, so nothing on it arrives except
+ * what `document-structure.ts` writes fresh.
+ */
+const INFO_MARKER = "SECRET-INFO-CUSTOM-KEY";
 
 /**
  * Document-level state a kept page can reach without going through a page:
@@ -416,7 +425,9 @@ function documentLevelReach(shape: "catalog" | "direct") {
     if (!(catalogRef instanceof PDFRef) || !(infoRef instanceof PDFRef)) {
       throw new Error("catalog or info is not a ref");
     }
-    doc.setSubject(INFO_MARKER);
+    ctx
+      .lookup(infoRef, PDFDict)
+      .set(PDFName.of("XYZPrivateNote"), PDFString.of(INFO_MARKER));
 
     const outlinesRef = ctx.nextRef();
     const itemRef = ctx.nextRef();
@@ -992,6 +1003,428 @@ describe("page tools keep a fillable form fillable", () => {
       const doc = await PDFDocument.load(out);
       expect(doc.getTitle()).toBe("Tax Form 2026");
     }
+  });
+});
+
+// --------------------------------------------------------------------------
+// Document structure a remaining page still needs: bookmarks, page labels,
+// the document's metadata and language, and links that go through a NAMED
+// destination. Measured at 74b8c4a: every subset tool dropped all of it but
+// the title — the output is a fresh document, and only the pages and the form
+// were carried into it — and a link through a named destination (hyperref's
+// shape, and Chrome's "Save as PDF") survived as a hot-spot naming a
+// destination the output no longer defines. Read the way a viewer reads it:
+// through pdfjs.
+// --------------------------------------------------------------------------
+
+/** Titles of bookmarks whose every page is dropped: they must not ship. */
+const DROPPED_BOOKMARKS = ["SECRET-BOOKMARK-A2", "SECRET-BOOKMARK-APPENDIX"];
+const HANDBOOK_URL = "https://example.test/handbook";
+
+interface OutlineSpec {
+  title: string;
+  target?: Record<string, unknown>;
+  open?: boolean;
+  kids?: OutlineSpec[];
+}
+
+function addOutline(doc: PDFDocument, specs: OutlineSpec[]) {
+  const ctx = doc.context;
+  const rootRef = ctx.nextRef();
+  const write = (items: OutlineSpec[], parent: PDFRef): PDFRef[] => {
+    const refs = items.map(() => ctx.nextRef());
+    items.forEach((item, i) => {
+      const kids = item.kids ? write(item.kids, refs[i]!) : undefined;
+      ctx.assign(
+        refs[i]!,
+        ctx.obj({
+          Title: PDFString.of(item.title),
+          Parent: parent,
+          ...(i > 0 ? { Prev: refs[i - 1]! } : {}),
+          ...(i < items.length - 1 ? { Next: refs[i + 1]! } : {}),
+          ...(kids
+            ? {
+                First: kids[0]!,
+                Last: kids[kids.length - 1]!,
+                Count: item.open ? kids.length : -kids.length,
+              }
+            : {}),
+          ...item.target,
+        }),
+      );
+    });
+    return refs;
+  };
+  const top = write(specs, rootRef);
+  ctx.assign(
+    rootRef,
+    ctx.obj({
+      Type: "Outlines",
+      First: top[0]!,
+      Last: top[top.length - 1]!,
+      Count: top.length,
+    }),
+  );
+  doc.catalog.set(PDFName.of("Outlines"), rootRef);
+}
+
+/**
+ * A five-page handbook with the structure real writers emit:
+ *  - page labels i, ii, Ch-1, Ch-2, Ch-3 (front matter in roman numerals);
+ *  - named destinations in BOTH places the format keeps them — the `/Names`
+ *    `/Dests` name tree behind an intermediate `/Kids` node (strings; LaTeX
+ *    hyperref, Chrome) and the catalog's `/Dests` dictionary (names, PDF 1.1);
+ *  - bookmarks by explicit destination, by named destination through `/Dest`
+ *    and through a GoTo action, a URI bookmark, a parent whose own page is
+ *    dropped while its child's is kept, and two bookmarks to dropped pages;
+ *  - three links on page 1, each through a named destination;
+ *  - title, author, subject, keywords, a catalog `/Lang`, and `/PageMode
+ *    /UseOutlines` (open with the bookmark panel showing).
+ */
+async function handbookDoc(): Promise<Uint8Array> {
+  const doc = await withBodies(5);
+  const ctx = doc.context;
+  const [p1, p2, p3, p4, p5] = doc.getPages();
+  doc.setTitle("Employee Handbook");
+  doc.setAuthor("HR Department");
+  doc.setSubject("Policies 2026");
+  doc.setKeywords(["handbook", "policy"]);
+  doc.catalog.set(PDFName.of("Lang"), PDFString.of("en-GB"));
+  doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
+  doc.catalog.set(
+    PDFName.of("PageLabels"),
+    ctx.obj({
+      Nums: [0, { S: "r" }, 2, { S: "D", P: PDFString.of("Ch-") }],
+    }),
+  );
+  const leaf = ctx.register(
+    ctx.obj({
+      Limits: [PDFString.of("sec.a1"), PDFString.of("sec.a2")],
+      Names: [
+        PDFString.of("sec.a1"),
+        [p3!.ref, "Fit"],
+        PDFString.of("sec.a2"),
+        { D: [p4!.ref, "Fit"] },
+      ],
+    }),
+  );
+  doc.catalog.set(
+    PDFName.of("Names"),
+    ctx.obj({ Dests: ctx.register(ctx.obj({ Kids: [leaf] })) }),
+  );
+  doc.catalog.set(
+    PDFName.of("Dests"),
+    ctx.obj({ chapB: [p5!.ref, "XYZ", 0, 300, 0] }),
+  );
+  addOutline(doc, [
+    { title: "Front matter", target: { Dest: [p1!.ref, "XYZ", 0, 300, 0] } },
+    {
+      title: "Chapter A",
+      target: { Dest: [p2!.ref, "Fit"] },
+      open: true,
+      kids: [
+        {
+          title: "A.1",
+          target: { A: { S: "GoTo", D: PDFString.of("sec.a1") } },
+        },
+        {
+          title: DROPPED_BOOKMARKS[0]!,
+          target: { Dest: PDFString.of("sec.a2") },
+        },
+      ],
+    },
+    {
+      title: "Website",
+      target: { A: { S: "URI", URI: PDFString.of(HANDBOOK_URL) } },
+    },
+    { title: DROPPED_BOOKMARKS[1]!, target: { Dest: [p4!.ref, "Fit"] } },
+    { title: "Chapter B", target: { Dest: "chapB" } },
+  ]);
+  const link = (target: Record<string, unknown>, y: number) =>
+    addAnnot(
+      doc,
+      0,
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [10, y, 60, y + 20],
+        Border: [0, 0, 0],
+        ...target,
+      }),
+    );
+  link({ Dest: PDFString.of("sec.a1") }, 10); // -> page 3
+  link({ A: { S: "GoTo", D: "chapB" } }, 40); // -> page 5
+  link({ Dest: PDFString.of("sec.a2") }, 70); // -> page 4
+  return doc.save();
+}
+
+interface ViewerOutline {
+  title: string;
+  page: number | null;
+  url?: string;
+  children: ViewerOutline[];
+}
+
+/**
+ * What a viewer shows: pdfjs's outline (each destination resolved to a page
+ * index the way the viewer resolves it on click), page labels, document info,
+ * page mode, and where each link on page `linkPage` lands.
+ */
+async function readAsViewer(bytes: Uint8Array, linkPage = 0) {
+  const pdfjs = await loadPdfjs();
+  const task = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await task.promise;
+  try {
+    const pageOf = async (dest: unknown): Promise<number | null> => {
+      const explicit =
+        typeof dest === "string" ? await pdf.getDestination(dest) : dest;
+      if (!Array.isArray(explicit)) return null;
+      const target: unknown = explicit[0];
+      if (typeof target === "number") return target;
+      if (!target || typeof target !== "object") return null;
+      try {
+        return await pdf.getPageIndex(target as never);
+      } catch {
+        return null;
+      }
+    };
+    interface Item {
+      title: string;
+      dest: unknown;
+      url?: string | null;
+      items?: Item[];
+    }
+    const walk = async (items: Item[]): Promise<ViewerOutline[]> =>
+      Promise.all(
+        items.map(async (item) => ({
+          title: item.title,
+          page: item.dest ? await pageOf(item.dest) : null,
+          ...(item.url ? { url: item.url } : {}),
+          children: await walk(item.items ?? []),
+        })),
+      );
+    const outline = await walk(((await pdf.getOutline()) ?? []) as Item[]);
+    const page = await pdf.getPage(linkPage + 1);
+    const annotations = (await page.getAnnotations()) as {
+      subtype?: string;
+      dest?: unknown;
+    }[];
+    const links = await Promise.all(
+      annotations
+        .filter((a) => a.subtype === "Link")
+        .map((a) => pageOf(a.dest)),
+    );
+    const { info } = (await pdf.getMetadata()) as unknown as {
+      info: Record<string, unknown>;
+    };
+    return {
+      outline,
+      labels: await pdf.getPageLabels(),
+      pageMode: await pdf.getPageMode(),
+      info: {
+        Title: info.Title,
+        Author: info.Author,
+        Subject: info.Subject,
+        Keywords: info.Keywords,
+      },
+      links,
+    };
+  } finally {
+    await task.destroy();
+  }
+}
+
+/** Every bookmark title in an outline, depth first. */
+const titles = (items: ViewerOutline[]): string[] =>
+  items.flatMap((item) => [item.title, ...titles(item.children)]);
+
+const catalogLang = async (bytes: Uint8Array) => {
+  const doc = await PDFDocument.load(bytes);
+  const lang = doc.context.lookup(doc.catalog.get(PDFName.of("Lang")));
+  return lang instanceof PDFString || lang instanceof PDFHexString
+    ? lang.decodeText()
+    : undefined;
+};
+
+describe("page tools keep the document's bookmarks, page labels and metadata", () => {
+  const PAGE_COUNT = 5;
+  /** Pages 1, 3 and 5 kept; 2 and 4 dropped. */
+  const KEPT = [0, 2, 4];
+  const SUBSET_TOOLS: Record<
+    string,
+    (bytes: Uint8Array, kept: number[]) => Promise<Uint8Array>
+  > = {
+    extractPages: (b, kept) => extractPages(b, kept),
+    deletePages: (b, kept) =>
+      deletePages(
+        b,
+        Array.from({ length: PAGE_COUNT }, (_, i) => i).filter(
+          (i) => !kept.includes(i),
+        ),
+      ),
+    splitPdf: async (b, kept) =>
+      (await splitPdf(b, [{ name: "part.pdf", indices: kept }]))[0]!.bytes,
+    organizePages: (b, kept) =>
+      organizePages(
+        b,
+        kept.map((sourceIndex) => ({ sourceIndex, rotation: 0 })),
+      ),
+  };
+
+  /**
+   * The engine's own answer to "which tools carry document state": every
+   * exported function that assembles with `carryDocumentState: true`. A new
+   * subset tool joins this set without anyone naming it.
+   */
+  const carriers = (flag: boolean) =>
+    readFileSync(join(__dirname, "engine.ts"), "utf8")
+      .split(/^export async function /m)
+      .slice(1)
+      .filter((body) => body.includes(`carryDocumentState: ${flag}`))
+      .map((body) => /^(\w+)/.exec(body)![1]!)
+      .sort();
+
+  it("the tools under test are exactly the engine's document-state carriers (derived)", () => {
+    // Positive control for the parser: it finds merge as the one that doesn't.
+    expect(carriers(false)).toEqual(["mergePdfs"]);
+    expect(carriers(true)).toEqual(Object.keys(SUBSET_TOOLS).sort());
+  });
+
+  it("POSITIVE CONTROL: a viewer reads the whole structure in the input", async () => {
+    const bytes = await handbookDoc();
+    const input = await readAsViewer(bytes);
+    expect(input.labels).toEqual(["i", "ii", "Ch-1", "Ch-2", "Ch-3"]);
+    expect(input.outline).toEqual([
+      { title: "Front matter", page: 0, children: [] },
+      {
+        title: "Chapter A",
+        page: 1,
+        children: [
+          { title: "A.1", page: 2, children: [] },
+          { title: DROPPED_BOOKMARKS[0], page: 3, children: [] },
+        ],
+      },
+      { title: "Website", page: null, url: HANDBOOK_URL, children: [] },
+      { title: DROPPED_BOOKMARKS[1], page: 3, children: [] },
+      { title: "Chapter B", page: 4, children: [] },
+    ]);
+    expect(input.links).toEqual([2, 4, 3]);
+    expect(input.pageMode).toBe("UseOutlines");
+    expect(input.info).toEqual({
+      Title: "Employee Handbook",
+      Author: "HR Department",
+      Subject: "Policies 2026",
+      Keywords: "handbook policy",
+    });
+    expect(await catalogLang(bytes)).toBe("en-GB");
+    // The oracle sees the titles that must not ship, so their absence below
+    // is absence.
+    const inspected = await inspect(bytes);
+    for (const title of DROPPED_BOOKMARKS) {
+      expect(inspected.text).toContain(title);
+    }
+  });
+
+  for (const [tool, run] of Object.entries(SUBSET_TOOLS)) {
+    describe(tool, () => {
+      it("bookmarks to kept pages survive and open the same page; the rest leave no title behind", async () => {
+        const bytes = await handbookDoc();
+        const input = await readAsViewer(bytes);
+        const out = await run(bytes, KEPT);
+        const viewer = await readAsViewer(out);
+        expect(viewer.outline).toEqual([
+          { title: "Front matter", page: 0, children: [] },
+          {
+            // Its own page (2) is gone; it opens its first surviving child's.
+            title: "Chapter A",
+            page: 1,
+            children: [{ title: "A.1", page: 1, children: [] }],
+          },
+          { title: "Website", page: null, url: HANDBOOK_URL, children: [] },
+          { title: "Chapter B", page: 2, children: [] },
+        ]);
+        // The relationship, not just the tree: every bookmark that kept its
+        // own page opens, in the output, the page it opened in the input.
+        const flat = (items: ViewerOutline[]) => [
+          ...items,
+          ...items.flatMap((i) => i.children),
+        ];
+        const inputPage = new Map(
+          flat(input.outline).map((i) => [i.title, i.page]),
+        );
+        const checked = flat(viewer.outline).filter(
+          (item) => item.page !== null && item.title !== "Chapter A",
+        );
+        expect(checked.length).toBe(3);
+        for (const item of checked) {
+          expect(KEPT[item.page!], item.title).toBe(inputPage.get(item.title));
+        }
+        expect(viewer.pageMode).toBe("UseOutlines");
+        const inspected = await inspect(out);
+        for (const title of DROPPED_BOOKMARKS) {
+          expect(titles(viewer.outline)).not.toContain(title);
+          expect(inspected.text, `${title} in ${tool}`).not.toContain(title);
+        }
+        expect(inspected.pageDicts).toBe(inspected.pageCount);
+        expect(inspected.dangling).toEqual([]);
+      });
+
+      it("every kept page keeps its own page label", async () => {
+        const bytes = await handbookDoc();
+        const input = await readAsViewer(bytes);
+        const viewer = await readAsViewer(await run(bytes, KEPT));
+        expect(viewer.labels).toEqual(KEPT.map((i) => input.labels![i]));
+        expect(viewer.labels).toEqual(["i", "Ch-1", "Ch-3"]);
+      });
+
+      it("title, author, subject, keywords and language are kept", async () => {
+        const bytes = await handbookDoc();
+        const out = await run(bytes, KEPT);
+        expect((await readAsViewer(out)).info).toEqual(
+          (await readAsViewer(bytes)).info,
+        );
+        expect(await catalogLang(out)).toBe(await catalogLang(bytes));
+      });
+
+      it("a link through a named destination lands on its kept page; one to a dropped page is gone", async () => {
+        const viewer = await readAsViewer(await run(await handbookDoc(), KEPT));
+        // Input: page 1 links to pages 3, 5 and 4 (indices 2, 4, 3). Page 4 is
+        // dropped; the other two land on their pages' new positions.
+        expect(viewer.links).toEqual([1, 2]);
+      });
+    });
+  }
+
+  it("organize: bookmarks and labels follow their pages when the order changes", async () => {
+    const viewer = await readAsViewer(
+      await organizePages(await handbookDoc(), [
+        { sourceIndex: 4, rotation: 0 },
+        { sourceIndex: 0, rotation: 0 },
+      ]),
+    );
+    expect(viewer.labels).toEqual(["Ch-3", "i"]);
+    // Chapter A and everything under it sit on dropped pages 2-4.
+    expect(viewer.outline).toEqual([
+      { title: "Front matter", page: 1, children: [] },
+      { title: "Website", page: null, url: HANDBOOK_URL, children: [] },
+      { title: "Chapter B", page: 0, children: [] },
+    ]);
+  });
+
+  it("with every page kept, labels and bookmarks are the input's", async () => {
+    const bytes = await handbookDoc();
+    const input = await readAsViewer(bytes);
+    const viewer = await readAsViewer(
+      await extractPages(bytes, [0, 1, 2, 3, 4]),
+    );
+    expect(viewer.labels).toEqual(input.labels);
+    expect(viewer.outline).toEqual(input.outline);
+  });
+
+  it("merge: each source's named links land in that source's own pages", async () => {
+    const merged = await mergePdfs([await handbookDoc(), await handbookDoc()]);
+    expect((await readAsViewer(merged, 0)).links).toEqual([2, 4, 3]);
+    expect((await readAsViewer(merged, 5)).links).toEqual([7, 9, 8]);
   });
 });
 

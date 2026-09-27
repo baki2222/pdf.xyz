@@ -9,6 +9,13 @@ import type {
   PDFRef as PDFRefT,
   PDFStream as PDFStreamT,
 } from "pdf-lib";
+import {
+  carryDocumentStructure,
+  destinationMapper,
+  namedDestinations,
+  resolveNamedLinks,
+  type PageMap,
+} from "./document-structure";
 import type { PdfLibModule } from "./pdf-lib";
 
 /**
@@ -78,6 +85,11 @@ import type { PdfLibModule } from "./pdf-lib";
  * page-scoped object needs a new kind here; `page-copy.test.ts` FIXTURES is
  * where each one found so far is pinned.
  *
+ * The document-level structure the output DOES need — bookmarks, page labels,
+ * title/author/subject/keywords, `/Lang`, and links through named
+ * destinations — is rebuilt fresh from its parts by `document-structure.ts`,
+ * never copied, so none of the above is weakened by it.
+ *
  * Nor does it prune what kept and dropped pages SHARE. When pages share one
  * `/Resources` dictionary, as some writers emit, every XObject and font in it
  * ships, including an image only a dropped page draws. Pruning a shared
@@ -93,9 +105,12 @@ export interface PageSource {
 
 export interface AssembleOptions {
   /**
-   * Publish the kept pages' form fields as the output's `/AcroForm` and carry
-   * the source title. Off for merge: fields from two sources can share a fully
-   * qualified name, and one field tree cannot hold both honestly.
+   * Publish the kept pages' form fields as the output's `/AcroForm`, and carry
+   * the source's bookmarks, page labels, metadata and language
+   * (`document-structure.ts`). Off for merge: fields from two sources can
+   * share a fully qualified name, and one field tree cannot hold both
+   * honestly; two outlines and two label trees would need merging, not
+   * carrying.
    */
   carryDocumentState: boolean;
 }
@@ -122,6 +137,7 @@ export async function assemblePages(
     acroForm: PDFDictT;
     copier: ForeignAwareCopier;
   }[] = [];
+  let structure: (() => void) | undefined;
 
   for (const { doc: src, indices } of sources) {
     const srcPages = src.getPages();
@@ -135,6 +151,10 @@ export async function assemblePages(
       sentinel,
     );
     const copiedOnce = new Set<number>();
+    /** Each kept source page's FIRST copy: where a link to it now lands. */
+    const pageMap: PageMap = new Map();
+    const copiedRefs: PDFRefT[] = [];
+    const copiedIndices: number[] = [];
     for (const index of indices) {
       const srcPage = srcPages[index];
       if (!srcPage) continue;
@@ -145,7 +165,10 @@ export async function assemblePages(
       } else {
         copiedOnce.add(index);
         ref = copier.copyRef(srcPage.ref);
+        pageMap.set(srcPage.ref, ref);
       }
+      copiedRefs.push(ref);
+      copiedIndices.push(index);
       const node = out.context.lookup(ref);
       if (!(node instanceof lib.PDFPageLeaf)) {
         throw new Error("page copy did not produce a page");
@@ -154,13 +177,20 @@ export async function assemblePages(
       out.addPage(page);
       pages.push(page);
     }
+    // The output has no name tree, so a link through a named destination
+    // would be dead in it: make it explicit (or the sentinel, for layer 2 to
+    // remove when its page was dropped).
+    const resolve = namedDestinations(lib, src);
+    const map = destinationMapper(lib, src, out, pageMap);
+    resolveNamedLinks(lib, out, resolve, map, sentinel, copiedRefs);
     if (options.carryDocumentState) {
       const acroForm = src.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict);
       if (acroForm) formRoots.push({ acroForm, copier });
-      const title = src.getTitle();
-      if (title) out.setTitle(title);
+      structure ??= () =>
+        carryDocumentStructure(lib, src, out, copiedIndices, resolve, map);
     }
   }
+  structure?.();
 
   const tree = pageTree(lib, out);
   const keptAnnots = repairAnnotations(lib, out, tree, sentinel);
