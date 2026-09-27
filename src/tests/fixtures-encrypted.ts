@@ -19,8 +19,14 @@
  *     owner_password="owner-secret", algorithm="RC4-128"); w.write(...)
  *
  * The owner-only file's page 2 carries /Rotate 90 so a reader that "succeeds"
- * without really parsing the page tree (e.g. pdf-lib with ignoreEncryption on
- * an encrypted object stream) cannot pass by returning zeros.
+ * without really parsing the page tree cannot pass by returning zeros.
+ *
+ * ⚠️ THIS PAIR HAS NO OBJECT STREAMS, so it cannot tell pdfjs from pdf-lib with
+ * `ignoreEncryption`: only strings and streams are encrypted, the page tree
+ * here is plain dictionaries, and pdf-lib reads it exactly (measured: 3 pages,
+ * rotations [0, 90, 0]). An earlier version of this note claimed the /Rotate
+ * defended against that variant; on this file it does not. See
+ * {@link OWNER_ONLY_OBJSTM_PDF_BASE64}, which does.
  */
 export const ENCRYPTED_FIXTURE_TEXT = ["OWNER-P1", "OWNER-P2", "OWNER-P3"];
 export const ENCRYPTED_FIXTURE_ROTATIONS = [0, 90, 0];
@@ -96,3 +102,54 @@ export const USER_PASSWORD_PDF_BASE64 =
   "MzIzNjY0Mzc2NjM2NjEzNT4gPDMxMzIzOTY1MzczNzY2NjYzNTM2NjEzNzYxMzYzMTYyNjYz" +
   "NzY0MzQ2NDYyMzk2MjMyMzY2NDM3NjYzNjYxMzU+IF0KL0VuY3J5cHQgMTMgMCBSCj4+CnN0" +
   "YXJ0eHJlZgoxMjg1CiUlRU9GCg==";
+
+/**
+ * Owner-only encryption again, but the way modern generators write it: the
+ * catalog, page tree and pages live in an ENCRYPTED OBJECT STREAM, indexed by
+ * an xref stream (PDF 1.5+). Bank statements and e-invoices look like this.
+ *
+ * This is the file that separates a real decrypting reader from pdf-lib with
+ * `ignoreEncryption`, which parses the still-encrypted object stream as if it
+ * were plaintext and never finds the pages. pdf-lib and pypdf 6.19 cannot
+ * write encrypted object streams, so it was written byte by byte (RC4-128,
+ * V2/R3, user password "", owner password "owner-secret", P -3904, three
+ * 200x200 pages drawing OSTM-P1..3, page 2 /Rotate 90) and checked with two
+ * independent readers before it was checked in:
+ *
+ *     pdfinfo    Encrypted: yes (print:no copy:no change:no addNotes:no
+ *                algorithm:RC4), Pages: 3
+ *     pdftotext  OSTM-P1 / OSTM-P2 / OSTM-P3
+ *     pypdf      decrypt("") -> 1, rotations [0, 90, 0]
+ *
+ * and `grep -c "Type /Page"` over the bytes is 0: the page tree is not in the
+ * clear anywhere.
+ */
+export const OBJSTM_FIXTURE_TEXT = ["OSTM-P1", "OSTM-P2", "OSTM-P3"];
+
+export const OWNER_ONLY_OBJSTM_PDF_BASE64 =
+  "JVBERi0xLjcKJeLjz9MKNyAwIG9iago8PCAvTGVuZ3RoIDM4ID4+CnN0cmVhbQpjLD9Cnl2X" +
+  "qnosENwemMOGTbDqzWyAGFM28vYOITlBheh49tB+TgplbmRzdHJlYW0KZW5kb2JqCjggMCBv" +
+  "YmoKPDwgL0xlbmd0aCAzOCA+PgpzdHJlYW0Keqc4AGox7pVRZk61ys/Gz5iN1XYcfrrVtBNk" +
+  "3T3gXMMv3/3lbuAKZW5kc3RyZWFtCmVuZG9iago5IDAgb2JqCjw8IC9MZW5ndGggMzggPj4K" +
+  "c3RyZWFtCoWgLoZtk8z24mVMS83IZHZLSKaIo5ujbCgitSA2hkzVle+MI8TECmVuZHN0cmVh" +
+  "bQplbmRvYmoKMTAgMCBvYmoKPDwgL1R5cGUgL09ialN0bSAvTiA2IC9GaXJzdCAzMiAvTGVu" +
+  "Z3RoIDUxOSA+PgpzdHJlYW0K41oLrG4hLdAPDUapxIQqApbjWaEPISpN6oRztMLv+SyGl0Ur" +
+  "BBeC7fgNnh93iOU8eHO0MaLB702IXH35MpCTgw+5d+cyqWp+KSET6TueyQdy0P0c+G5Q9KLj" +
+  "t+/IRS5j/zkArRoLTaJThSLHtDliboelKyoVjcKiaPO35lPop8cPuNuEtaTg9vefjNuSsUXv" +
+  "rqqIZefdL5HTdgF4DWaxy4lCoUpaNMySUXEthoXR9jqEvEpAKJnJHSbdBpqeoqz3wOyl5aqU" +
+  "OBJ9PHl7l7EFWYdhAO7tyNOPiNDnvy3q7YwmtyEvD6unPYu5VCq/KW5sX2URifPgxiRvfni4" +
+  "Y4i6q95LGLwviDctJjeXRUZn9battM+oOcUIXP+n2vrVUNAyWOUkSCK2P46nmMWRR0TmA/ss" +
+  "t8l1B33LfRn/zmU3gvBlZiJPOcqTUFwDyRydB+wAqayu8SF44IP1yQIsI9A3eYVG/svT4iHt" +
+  "ISHDTgfGO+J0/3Cb17OPo3EStcygTBBXZCneFneX/mOKWY5Z/BD2GSawW9NlNzlyw0rkkPCp" +
+  "qKk6zWQGk5yyvZP10hzK6W94ydM8kH3qgAl/NAolCkWsDXAeUgkqZjfm+aKqHqPtAVaop10y" +
+  "MKMb25q+BQf4nwxE7w0Y6q2TMmjlsrjcYzhid5TVGo3UNg9bTaODMYlzfzplDJAOxMfgCmVu" +
+  "ZHN0cmVhbQplbmRvYmoKMTEgMCBvYmoKPDwgL0ZpbHRlciAvU3RhbmRhcmQgL1YgMiAvUiAz" +
+  "IC9MZW5ndGggMTI4IC9PIDw5MTNiMDczZjViNjU5NTRjOGI2ZGEyMjE2OTk3MWExNzdiN2U2" +
+  "ZDk0YTEwNmZmNzVjMGMxNjI5NmJjMTU0MTJlPiAvVSA8Mzc3ZjRhY2I2OWJhMDE4YTYwZWE5" +
+  "ZjM2M2UzYmQwZjMwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD4gL1AgLTM5MDQg" +
+  "Pj4KZW5kb2JqCjEyIDAgb2JqCjw8IC9UeXBlIC9YUmVmIC9TaXplIDEzIC9XIFsxIDQgMl0g" +
+  "L1Jvb3QgMSAwIFIgL0VuY3J5cHQgMTEgMCBSIC9JRCBbPDhiYzQ2NTIzM2VkZjFjODVhMWIz" +
+  "NWFhZjdiZDhlNGUxPiA8OGJjNDY1MjMzZWRmMWM4NWExYjM1YWFmN2JkOGU0ZTE+XSAvTGVu" +
+  "Z3RoIDkxID4+CnN0cmVhbQoAAAAAAP//AgAAAAoAAAIAAAAKAAECAAAACgACAgAAAAoAAwIA" +
+  "AAAKAAQCAAAACgAFAQAAAA8AAAEAAABnAAABAAAAvwAAAQAAARcAAAEAAANvAAABAAAEQgAA" +
+  "CmVuZHN0cmVhbQplbmRvYmoKc3RhcnR4cmVmCjEwOTAKJSVFT0YK";

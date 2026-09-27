@@ -3,6 +3,8 @@ import { PDFDocument } from "pdf-lib";
 import {
   ENCRYPTED_FIXTURE_ROTATIONS,
   ENCRYPTED_FIXTURE_TEXT,
+  OBJSTM_FIXTURE_TEXT,
+  OWNER_ONLY_OBJSTM_PDF_BASE64,
   OWNER_ONLY_PDF_BASE64,
   USER_PASSWORD_PDF_BASE64,
 } from "@/tests/fixtures-encrypted";
@@ -38,6 +40,8 @@ import { extractPdfText } from "./text";
 
 const ownerOnly = () =>
   new Uint8Array(Buffer.from(OWNER_ONLY_PDF_BASE64, "base64"));
+const ownerOnlyObjStm = () =>
+  new Uint8Array(Buffer.from(OWNER_ONLY_OBJSTM_PDF_BASE64, "base64"));
 const userPassword = () =>
   new Uint8Array(Buffer.from(USER_PASSWORD_PDF_BASE64, "base64"));
 
@@ -99,6 +103,58 @@ describe("read-only tools read an owner-only file", () => {
       expect(err.message).toMatch(PASSWORD);
       expect(err.message).not.toMatch(/No password given/);
     }
+  });
+});
+
+/**
+ * The two owner-only fixtures above have no object streams, and on those
+ * pdf-lib with `ignoreEncryption` reads the page board exactly — so the
+ * page-board test could not tell the pdfjs reader from that shortcut (only the
+ * user-password control, which the shortcut opens without complaint, did).
+ * This file keeps its page tree in an ENCRYPTED object stream, as modern
+ * generators write it: the shortcut cannot read it, a decrypting reader can.
+ */
+describe("an owner-only file whose page tree is in an encrypted object stream", () => {
+  it("health check: pdf-lib refuses it, and ignoreEncryption cannot read its pages", async () => {
+    expect(
+      (await rejection(PDFDocument.load(ownerOnlyObjStm()))).message,
+    ).toMatch(/encrypt/i);
+    let board: string;
+    try {
+      const doc = await PDFDocument.load(ownerOnlyObjStm(), {
+        ignoreEncryption: true,
+        throwOnInvalidObject: false,
+      });
+      board = JSON.stringify(
+        doc.getPages().map((page) => page.getRotation().angle),
+      );
+    } catch (err) {
+      board = `threw: ${(err as Error).message}`;
+    }
+    // Positive control of the same predicate: the plain-dictionary fixture IS
+    // read by the shortcut — which is why this fixture exists.
+    const plain = await PDFDocument.load(ownerOnly(), {
+      ignoreEncryption: true,
+    });
+    expect(
+      JSON.stringify(plain.getPages().map((page) => page.getRotation().angle)),
+    ).toBe(JSON.stringify(ENCRYPTED_FIXTURE_ROTATIONS));
+    expect(board).not.toBe(JSON.stringify(ENCRYPTED_FIXTURE_ROTATIONS));
+  });
+
+  it("the read-only page board and the text extractor read it", async () => {
+    expect(await readPageBoard(ownerOnlyObjStm(), "pdfjs")).toEqual({
+      pageCount: 3,
+      rotations: ENCRYPTED_FIXTURE_ROTATIONS,
+    });
+    const extracted = await extractPdfText(ownerOnlyObjStm());
+    expect(extracted.pages.map((p) => p.text)).toEqual(OBJSTM_FIXTURE_TEXT);
+  });
+
+  it("writing tools refuse it as restricted, not password-protected", async () => {
+    const err = await rejection(getPageRotations(ownerOnlyObjStm()));
+    expect(err).toBeInstanceOf(PdfRestrictedError);
+    expect(err.message).toMatch(RESTRICTED);
   });
 });
 

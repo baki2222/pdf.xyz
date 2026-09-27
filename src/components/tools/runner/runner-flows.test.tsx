@@ -10,6 +10,8 @@ import {
 import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import {
+  OBJSTM_FIXTURE_TEXT,
+  OWNER_ONLY_OBJSTM_PDF_BASE64,
   OWNER_ONLY_PDF_BASE64,
   USER_PASSWORD_PDF_BASE64,
 } from "@/tests/fixtures-encrypted";
@@ -87,6 +89,22 @@ describe("PDF to Text reads a restricted (owner-only) PDF end to end", () => {
     fireEvent.click(screen.getByRole("button", { name: /extract/i }));
     await screen.findByText("Text extracted", undefined, { timeout: 10_000 });
     expect(container.textContent).toContain("OWNER-P2");
+  }, 30_000);
+
+  it("and one whose page tree is in an encrypted object stream", async () => {
+    // The shape modern generators write, and the one pdf-lib's
+    // ignoreEncryption cannot read (see encryption.test.ts).
+    const { container } = renderRunner(<PdfToTextRunner />);
+    pick(container, [
+      fileOf(OWNER_ONLY_OBJSTM_PDF_BASE64, "e-invoice.pdf", "application/pdf"),
+    ]);
+    await screen.findAllByText(/3 pages/, undefined, { timeout: 10_000 });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /extract/i }));
+    await screen.findByText("Text extracted", undefined, { timeout: 10_000 });
+    for (const text of OBJSTM_FIXTURE_TEXT) {
+      expect(container.textContent).toContain(text);
+    }
   }, 30_000);
 
   it("NEGATIVE CONTROL: a PDF that needs a password is refused as one", async () => {
