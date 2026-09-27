@@ -656,13 +656,32 @@ const RULES: readonly ClaimRule[] = [
       if (!file) throw new Error("no runner module for pdf-to-image");
       const runner = withoutComments(read(file));
       const render = withoutComments(read("src/lib/pdf/render.ts"));
-      const rasterize =
-        /export async function rasterizePdf\(\s*bytes[^,]*,\s*\{([\s\S]*?)\}\s*:\s*RasterizeOptions/.exec(
-          render,
-        )?.[1];
+      const optionDefaults = (name: string) =>
+        new RegExp(
+          `export async function ${name}(?:<[^>]*>)?\\(\\s*bytes[^,]*,\\s*\\{([\\s\\S]*?)\\}\\s*:\\s*\\w+`,
+        ).exec(render)?.[1];
+      const rasterize = optionDefaults("rasterizePdf");
       if (!rasterize)
         throw new Error("could not find rasterizePdf's option defaults");
-      const whiteDefault = /background\s*=\s*"#ffffff"/.test(rasterize);
+      // Follow the default to wherever it is applied. Until the grayscale fix
+      // (wave 1, 2026-09-27) rasterizePdf defaulted `background` itself; it now
+      // forwards `...rest` to capturePdfPages, which does. Reading only
+      // rasterizePdf's own signature then found no white default and reported
+      // the capability ARRIVED — a probe of the wrong function, not a new
+      // feature. A shape that is neither fails loudly rather than guess.
+      let defaults = rasterize;
+      if (!/\bbackground\b/.test(rasterize)) {
+        const forwards =
+          /\.\.\.rest\b/.test(rasterize) &&
+          /capturePdfPages\(\s*bytes,\s*\{\s*\.\.\.rest\b/.test(render);
+        const captured = forwards ? optionDefaults("capturePdfPages") : undefined;
+        if (!captured)
+          throw new Error(
+            "rasterizePdf neither defaults `background` nor forwards its options to capturePdfPages — find where the PNG background is decided and point this probe there",
+          );
+        defaults = captured;
+      }
+      const whiteDefault = /background\s*=\s*"#ffffff"/.test(defaults);
       const runnerChooses = /\bbackground\b|transparen|alpha/i.test(runner);
       return {
         present: runnerChooses || !whiteDefault,

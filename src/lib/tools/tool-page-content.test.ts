@@ -1096,8 +1096,9 @@ describe("protect-pdf and unlock-pdf: the answers match qpdf's arguments", () =>
       {
         qpdf: {
           isEncrypted: async () => true,
+          requiresPassword: async () => "needs-password",
           protect: async () => new Uint8Array(),
-          unlock: async () => ({ ok: false, wrongPassword: true }),
+          unlock: async () => ({ ok: false, reason: "wrong-password" }),
         },
         validate: () => true,
       },
