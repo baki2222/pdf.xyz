@@ -22,6 +22,7 @@ import {
 } from "@/lib/workers/ai-tool-availability";
 import {
   canRunSummarize,
+  preflightSummarize,
   runWorkerSummarize,
   type SummarizeWorkerResult,
 } from "@/lib/workers/summarize-client";
@@ -37,6 +38,7 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { OfficeExportNextStep } from "./office-export-notices";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
@@ -221,10 +223,16 @@ function SummaryBuilder() {
     if (!file) return;
     await run(async (controls) => {
       const trimmedFocus = focus.trim();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // CHECK HERE, BEFORE ANYTHING IS SPENT. The allowance is reserved when
+      // the job is created, so a scan or a locked PDF refused by the worker
+      // has already cost the user a third of the day. See preflightSummarize.
+      const refusal = await preflightSummarize(bytes);
+      if (!refusal.ok) return refusal;
       const result = await runWorkerSummarize(
         {
           filename: file.name,
-          bytes: new Uint8Array(await file.arrayBuffer()),
+          bytes,
           length,
           format,
           ...(trimmedFocus ? { focus: trimmedFocus } : {}),
@@ -326,6 +334,9 @@ function SummaryBuilder() {
       </WorkerRunButton>
 
       <WorkerJobStatus job={job} />
+      {outcome?.ok === false && !outcome.stillRunning && (
+        <OfficeExportNextStep code={outcome.code} />
+      )}
       {outcome?.ok === true && (
         <ResultCard announce="Your AI summary package is ready.">
           <TruncationNotice
