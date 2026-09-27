@@ -17,10 +17,10 @@ import type { ToolCategoryId } from "./types";
  * explorer is not an exemption: it READS the query string, so old shared URLs
  * keep filtering, and writes no link.
  *
- * STILL LINKED FROM, and so not yet true everywhere: the files that test holds
- * in `PENDING`, compared with this list in both directions —
- * `src/app/tools/[slug]/page.tsx`, whose category chip and middle
- * BreadcrumbList item point at `/tools?category=<id>` on all fifty tool pages.
+ * STILL LINKED FROM: nothing. The files that test holds in `PENDING` are
+ * compared with this list in both directions, and both are empty since
+ * 2026-09-27, when the last one — the tool page's category chip and middle
+ * BreadcrumbList item, on all fifty tool pages — moved to this helper.
  */
 export const CATEGORY_PATH_PREFIX = "/tools/category/";
 

@@ -115,7 +115,11 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
               No runner is shown until the worker is ready, so {tool.name} never
               pretends to detect tables it cannot actually extract.
             </p>
-            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={phase === "loading"}
+            />
           </div>
         )}
 

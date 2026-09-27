@@ -109,16 +109,30 @@ export function webApplicationSchema(): Json {
  * importer would get the stub); tools are covered only through
  * {@link howToSchema} rendered by `<JsonLd>`, as that test's positive control.
  */
-export function namedHowToSchema(name: string, steps: readonly string[]): Json {
+/**
+ * A step is its text, or a titled step — the tool pages' authored steps carry
+ * a short title ("Put them in order") that becomes the HowToStep's `name`.
+ */
+export type HowToStepInput = string | { title?: string; text: string };
+
+export function namedHowToSchema(
+  name: string,
+  steps: readonly HowToStepInput[],
+): Json {
   return {
     "@context": "https://schema.org",
     "@type": "HowTo",
     name,
-    step: steps.map((text, index) => ({
-      "@type": "HowToStep",
-      position: index + 1,
-      text,
-    })),
+    step: steps.map((step, index) => {
+      const { title, text } =
+        typeof step === "string" ? { title: undefined, text: step } : step;
+      return {
+        "@type": "HowToStep",
+        position: index + 1,
+        ...(title ? { name: title } : {}),
+        text,
+      };
+    }),
   };
 }
 
@@ -130,7 +144,10 @@ export function namedHowToSchema(name: string, steps: readonly string[]): Json {
  * and the structured-steps guard pins that an in-browser tool's steps never
  * claim an upload, because this block ships to crawlers as fact.
  */
-export function howToSchema(toolName: string, steps: readonly string[]): Json {
+export function howToSchema(
+  toolName: string,
+  steps: readonly HowToStepInput[],
+): Json {
   return namedHowToSchema(`How to use ${toolName}`, steps);
 }
 

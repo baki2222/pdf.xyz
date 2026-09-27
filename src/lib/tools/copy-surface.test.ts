@@ -17,7 +17,9 @@ import {
   copyFiles,
   definesAllowanceCopy,
   libSourceFiles,
+  toolContentFiles,
 } from "./copy-surface";
+import { getAllToolSlugs } from "./index";
 
 const rel = (f: string) => path.relative(process.cwd(), f).replace(/\\/g, "/");
 
@@ -76,6 +78,32 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/components/upload/staged-file-actions.tsx",
     );
     expect(components.filter((f) => !walked.has(f))).toEqual([]);
+  });
+
+  it("reaches every tool page's content file — the set the page consumes", () => {
+    // The fifty authored content files (2026-09-27) sit under
+    // `src/lib/tools/content/` and reach the walk by recursion. That is
+    // asserted against the content INDEX, not the directory: the index is
+    // what `page-copy.ts` hands the page, so a content file is on a page if
+    // and only if it is in this set. The catalogue bounds its size, both ways.
+    const content = toolContentFiles();
+    expect([...content.keys()].sort()).toEqual(getAllToolSlugs().sort());
+    const walked = new Set(copyFiles());
+    expect(
+      [...content.values()].filter((f) => !walked.has(f)).map(rel),
+    ).toEqual([]);
+  });
+
+  it("positive control: the content derivation reads the index, not a guess", () => {
+    // A derivation that returned nothing would make the test above pass
+    // over an empty set; one that followed a type-only import would add a
+    // module no page renders.
+    const content = toolContentFiles();
+    expect(rel(content.get("merge-pdf")!)).toBe(
+      "src/lib/tools/content/merge-pdf.ts",
+    );
+    expect(content.has("types")).toBe(false);
+    expect(content.has("index")).toBe(false);
   });
 
   it("never walks test files into the copy surface", () => {

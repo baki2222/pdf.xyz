@@ -71,10 +71,19 @@ import {
 } from "@/lib/workers/translate/engine";
 import { tools } from "./index";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
-import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
+import { toolFacts } from "./tool-facts";
+import {
+  pageContent,
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "./page-copy";
 import {
   copyFiles,
   flattenForPhraseSearch,
+  toolContentFiles,
   withoutComments,
 } from "./copy-surface";
 import type { Tool } from "./types";
@@ -222,7 +231,75 @@ const panels = panelsFromDispatch();
  * ------------------------------------------------------------------ */
 
 /** Every "N characters" figure in a rendered sentence, comma-tolerant. */
+/**
+ * Figures in characters that are NOT a statement of how much of the document
+ * a tool reads — each with the shipped sentence that needs it.
+ *
+ * Added 2026-09-27, when this guard moved from the derived FAQ to everything
+ * the page renders (`page-copy`). The authored content states other quantities
+ * in the same unit: what a run COSTS from the daily allowance, and how long a
+ * box the reader types into may be. Read as ceilings, a true page failed four
+ * times ("chat-with-pdf states 10,258 characters but its engine honours
+ * 500,000"); the checker was answering "is there a number before
+ * `characters`?" while claiming to answer "what does this page say the tool
+ * reads?".
+ *
+ * Classified by the words BESIDE the figure, never by its value: the published
+ * per-run charge is 10,258 — the same number as translate's ceiling, by
+ * construction — so a value exemption would license exactly the 49x defect
+ * this guard was built for ("Chat reads up to 10,258 characters"). The control
+ * below keeps that sentence red.
+ */
+const NOT_A_CEILING: readonly {
+  what: string;
+  /** Tested against ~48 characters either side of the figure. */
+  near: RegExp;
+  shipped: string;
+}[] = [
+  {
+    what: "a charge against the daily allowance",
+    near: /\b(?:allowance|pool|charged|costs?)\b/i,
+    shipped:
+      "each question, follow-ups included, costs a flat 10,258 characters of that pool",
+  },
+  {
+    what: "the length of a box the reader types into",
+    near: /\b(?:box|field|focus|instructions?|a name of|type up to)\b/i,
+    shipped:
+      "Write it in the Your question box in plain language, up to 2,000 characters",
+  },
+];
+
+const CLAIM = /(\d[\d,]*)\s+characters\b/gi;
+
+/** Is the figure at `index` in `text` one of the NOT_A_CEILING quantities? */
+function notACeiling(text: string, index: number, length: number): boolean {
+  const window = text.slice(Math.max(0, index - 48), index + length + 48);
+  return NOT_A_CEILING.some((kind) => kind.near.test(window));
+}
+
+/**
+ * The CEILING claims in a rendered string: every "N characters" that is not
+ * one of the other quantities above, sentence by sentence so a neighbouring
+ * sentence cannot excuse one.
+ */
 function characterClaims(text: string): number[] {
+  const out: number[] = [];
+  for (const sentence of sentencesOf(text)) {
+    for (const m of sentence.matchAll(CLAIM)) {
+      if (notACeiling(sentence, m.index ?? 0, m[0].length)) continue;
+      out.push(Number(m[1]!.replace(/,/g, "")));
+    }
+  }
+  return out;
+}
+
+function sentencesOf(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+/);
+}
+
+/** Every "N characters" figure in a rendered sentence, comma-tolerant. */
+function rawCharacterClaims(text: string): number[] {
   return [...text.matchAll(/(\d[\d,]*)\s+characters\b/gi)].map((m) =>
     Number(m[1]!.replace(/,/g, "")),
   );
@@ -235,12 +312,23 @@ function allNumbers(text: string): number[] {
   );
 }
 
-/** The rendered strings a tool's page shows: facts, FAQ (→ JSON-LD), steps. */
+/**
+ * The rendered strings a tool's page shows — through `page-copy`, the same
+ * accessors the page renders: facts, the FAQ (→ FAQPage JSON-LD), the steps
+ * (→ HowTo JSON-LD), the intro and use cases, and the meta description.
+ * Until 2026-09-27 this read `toolFaq`/`howToSteps` directly; the page moved
+ * to authored content that day, and reading the old accessors would have
+ * certified strings the page no longer showed.
+ */
 function renderedStrings(tool: Tool): string[] {
+  const content = pageContent(tool);
   return [
     ...toolFacts(tool.slug).map((fact) => `${fact.label}: ${fact.value}`),
-    ...toolFaq(tool).map((entry) => `${entry.question} ${entry.answer}`),
-    ...howToSteps(tool),
+    ...pageFaq(tool).map((entry) => `${entry.question} ${entry.answer}`),
+    ...pageSteps(tool).map(stepText),
+    ...pageIntro(tool),
+    ...pageUseCases(tool).map((u) => `${u.title}. ${u.body}`),
+    ...(content ? [content.seoTitle, content.metaDescription] : []),
   ];
 }
 
@@ -440,9 +528,14 @@ describe("every stated ceiling is the honoured one", () => {
         pagesAtDensest(honoured),
         pagesAtSparsest(honoured),
       ]);
-      const ceilingSentences = renderedStrings(tool).filter(
-        (text) => characterClaims(text).length > 0,
-      );
+      // Sentence by sentence: a FAQ answer can state the ceiling in one
+      // sentence and the allowance in the next, and only the first is held
+      // to the ceiling's page floors. File sizes (MB) are `file-ceilings`'
+      // subject, not this one's.
+      const ceilingSentences = renderedStrings(tool)
+        .flatMap(sentencesOf)
+        .filter((text) => characterClaims(text).length > 0)
+        .map((text) => text.replace(/\d[\d,]*\s*(?:MB|GB)\b/g, ""));
       expect(ceilingSentences.length).toBeGreaterThanOrEqual(1);
       for (const sentence of ceilingSentences) {
         for (const value of allNumbers(sentence)) {
@@ -512,6 +605,14 @@ describe("the third surface someone adds next month", () => {
         .map(([, file]) => relative(file)),
     );
     attributed.add("src/lib/tools/tool-facts.ts");
+    // Each AI tool's authored content file: its strings reach the page through
+    // `page-copy`, which `renderedStrings` reads per tool — so the checks
+    // above hold them. Derived from the content index, not named.
+    const contentFiles = toolContentFiles();
+    for (const tool of aiTools) {
+      const file = contentFiles.get(tool.slug);
+      if (file) attributed.add(relative(file));
+    }
     // The allowance module derives the DAILY BUDGET from the per-call ceiling; it
     // does not state the ceiling itself. Its two sentences are attributed — and
     // checked in both directions — by `ratelimit/allowance-copy.test.ts`, whose
@@ -578,6 +679,28 @@ describe("controls", () => {
     const claims = characterClaims(shipped);
     expect(claims.length).toBeGreaterThanOrEqual(1);
     expect(claims.some((claim) => claim !== honoured)).toBe(true);
+  });
+
+  it("the not-a-ceiling classes are exercised both ways", () => {
+    // Every class exempts the sentence that needed it...
+    for (const kind of NOT_A_CEILING) {
+      expect(rawCharacterClaims(kind.shipped).length, kind.what).toBe(1);
+      expect(characterClaims(kind.shipped), kind.what).toEqual([]);
+    }
+    // ...and none exempts a ceiling, including one whose VALUE is the charge.
+    for (const ceiling of [
+      "Chat with PDF reads up to 10,258 characters of your document.",
+      "The model is sent at most 10,258 characters of the extracted text.",
+      "Up to 500,000 characters of selectable text — roughly 81 pages.",
+    ]) {
+      expect(characterClaims(ceiling).length, ceiling).toBe(1);
+    }
+    // A neighbouring sentence does not excuse a ceiling.
+    expect(
+      characterClaims(
+        "Each run costs a share of the allowance. It reads 10,258 characters.",
+      ),
+    ).toEqual([10_258]);
   });
 
   it("health check: the extractor sees numbers in known-good copy", () => {

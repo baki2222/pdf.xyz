@@ -199,7 +199,11 @@ function ArchiveUnavailable({
         No uploader is shown until the worker is ready, so PDF/A conversion
         never pretends to process a file it cannot actually run.
       </p>
-      <NotifyMe toolName="PDF to PDF/A" toolSlug="pdf-to-pdfa" />
+      <NotifyMe
+        toolName="PDF to PDF/A"
+        toolSlug="pdf-to-pdfa"
+        checking={phase === "loading"}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber } from "pdf-lib";
 import {
   deletePages,
   extractPages,
@@ -198,5 +198,164 @@ describe("organizePages", () => {
       { sourceIndex: 99, rotation: 0 },
     ]);
     expect(await widths(out)).toEqual([10]);
+  });
+});
+
+/*
+ * Left-out pages must not ride along inside the file.
+ *
+ * Found by the content writers on 2026-09-27 and published on the Extract and
+ * Delete Pages pages as a warning: a kept page whose link jumped to a left-out
+ * page made `copyPages` copy that page's object — text and images — into the
+ * output, outside the page tree, and transitively through that page's own
+ * links. The page tree was right the whole time, which is why nothing saw it;
+ * these tests count the PAGE OBJECTS in the file instead.
+ */
+describe("pages left out of an output are not carried inside it", () => {
+  /**
+   * Five pages, widths 10..50. Page 1 links to page 3 by `/Dest`, page 3 links
+   * to page 5 by a GoTo action, and page 2 links back to page 1.
+   */
+  async function makeLinkedPdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const pages = [1, 2, 3, 4, 5].map((n) => doc.addPage([n * 10, 100]));
+    const link = (from: number, entries: Record<string, unknown>) => {
+      const annot = doc.context.register(
+        doc.context.obj({
+          Type: "Annot",
+          Subtype: "Link",
+          Rect: [0, 0, 5, 5],
+          ...entries,
+        } as never),
+      );
+      pages[from]!.node.set(PDFName.of("Annots"), doc.context.obj([annot]));
+    };
+    link(0, { Dest: [pages[2]!.ref, PDFName.of("Fit")] });
+    link(2, {
+      A: { S: "GoTo", D: [pages[4]!.ref, PDFName.of("Fit")] },
+    });
+    link(1, { Dest: [pages[0]!.ref, PDFName.of("Fit")] });
+    return doc.save();
+  }
+
+  /** Widths of every /Type /Page object in the file, tree or not. */
+  async function pageObjectWidths(bytes: Uint8Array): Promise<number[]> {
+    const doc = await PDFDocument.load(bytes);
+    const found: number[] = [];
+    for (const [, object] of doc.context.enumerateIndirectObjects()) {
+      if (!(object instanceof PDFDict)) continue;
+      if (object.get(PDFName.of("Type")) !== PDFName.of("Page")) continue;
+      const box = object.lookup(PDFName.of("MediaBox"), PDFArray);
+      found.push(Math.round(box.lookup(2, PDFNumber).asNumber()));
+    }
+    return found.sort((a, b) => a - b);
+  }
+
+  /**
+   * Where each tree page's first link lands: the target's width when it is a
+   * page IN THE TREE, "orphan" when it is a page object the reader cannot
+   * reach, null when the link opens nothing.
+   */
+  async function linkTargets(
+    bytes: Uint8Array,
+  ): Promise<(number | "orphan" | null)[]> {
+    const doc = await PDFDocument.load(bytes);
+    const tree = new Set(doc.getPages().map((page) => page.ref.toString()));
+    return doc.getPages().map((page) => {
+      const annots = page.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+      const annot = annots?.lookup(0, PDFDict);
+      const action = annot?.lookupMaybe(PDFName.of("A"), PDFDict);
+      const dest =
+        annot?.lookupMaybe(PDFName.of("Dest"), PDFArray) ??
+        action?.lookupMaybe(PDFName.of("D"), PDFArray);
+      if (!dest) return null;
+      if (!tree.has(String(dest.get(0)))) return "orphan";
+      const box = dest
+        .lookup(0, PDFDict)
+        .lookup(PDFName.of("MediaBox"), PDFArray);
+      return Math.round(box.lookup(2, PDFNumber).asNumber());
+    });
+  }
+
+  it("positive control: the counter sees the leak a raw copy makes", async () => {
+    // Without this, a counter that saw only the tree would pass everything.
+    const src = await PDFDocument.load(await makeLinkedPdf());
+    const out = await PDFDocument.create();
+    for (const page of await out.copyPages(src, [0, 1])) out.addPage(page);
+    const bytes = await out.save();
+    // The left-out 3 and 5 ride along, AND page 2's link to kept page 1 made
+    // a second, orphan copy of page 1 — which is what that link opens.
+    expect(await pageObjectWidths(bytes)).toEqual([10, 10, 20, 30, 50]);
+    expect(await linkTargets(bytes)).toEqual(["orphan", "orphan"]);
+  });
+
+  it("extractPages carries only the selection", async () => {
+    const out = await extractPages(await makeLinkedPdf(), [0, 1]);
+    expect(await widths(out)).toEqual([10, 20]);
+    expect(await pageObjectWidths(out)).toEqual([10, 20]);
+    // A link to a KEPT page opens that page; one to a left-out page is inert.
+    expect(await linkTargets(out)).toEqual([null, 10]);
+  });
+
+  it("deletePages leaves the deleted pages out of the bytes", async () => {
+    const out = await deletePages(await makeLinkedPdf(), [2, 3, 4]);
+    expect(await pageObjectWidths(out)).toEqual([10, 20]);
+    expect(await linkTargets(out)).toEqual([null, 10]);
+  });
+
+  it("organizePages drops a deleted page a kept one linked to", async () => {
+    const out = await organizePages(await makeLinkedPdf(), [
+      { sourceIndex: 1, rotation: 0 },
+      { sourceIndex: 0, rotation: 0 },
+    ]);
+    expect(await pageObjectWidths(out)).toEqual([10, 20]);
+    expect(await linkTargets(out)).toEqual([10, null]);
+  });
+
+  it("splitPdf restores the source between parts, so a later part keeps its links", async () => {
+    const [first, second] = await splitPdf(await makeLinkedPdf(), [
+      { name: "a.pdf", indices: [0] },
+      { name: "b.pdf", indices: [0, 2] },
+    ]);
+    expect(await pageObjectWidths(first!.bytes)).toEqual([10]);
+    expect(await pageObjectWidths(second!.bytes)).toEqual([10, 30]);
+    // In the second part page 3 WAS kept, so page 1's link survives the
+    // first part's detaching; page 3's GoTo to the left-out page 5 is inert.
+    expect(await linkTargets(second!.bytes)).toEqual([30, null]);
+    expect(await linkTargets(first!.bytes)).toEqual([null]);
+  });
+});
+
+describe("mergePdfs keeps a file's internal links pointing into the tree", () => {
+  it("re-aims a link at the merged copy of its page, not an orphan", async () => {
+    const doc = await PDFDocument.create();
+    const [first, second] = [doc.addPage([10, 100]), doc.addPage([20, 100])];
+    const annot = doc.context.register(
+      doc.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [0, 0, 5, 5],
+        Dest: [second.ref, PDFName.of("Fit")],
+      } as never),
+    );
+    first.node.set(PDFName.of("Annots"), doc.context.obj([annot]));
+    const merged = await PDFDocument.load(
+      await mergePdfs([await makePdf(1), await doc.save()]),
+    );
+    const tree = merged.getPages().map((page) => page.ref.toString());
+    const link = merged
+      .getPage(1)
+      .node.lookup(PDFName.of("Annots"), PDFArray)
+      .lookup(0, PDFDict)
+      .lookup(PDFName.of("Dest"), PDFArray);
+    expect(String(link.get(0))).toBe(tree[2]);
+    let pageObjects = 0;
+    for (const [, object] of merged.context.enumerateIndirectObjects())
+      if (
+        object instanceof PDFDict &&
+        object.get(PDFName.of("Type")) === PDFName.of("Page")
+      )
+        pageObjects++;
+    expect(pageObjects).toBe(3);
   });
 });

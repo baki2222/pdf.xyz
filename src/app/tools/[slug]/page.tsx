@@ -45,8 +45,17 @@ import {
   howToSchema,
   toolApplicationSchema,
 } from "@/lib/structured-data";
-import { howToSteps, toolFacts, toolFaq } from "@/lib/tools/tool-facts";
-import { guidesForTool } from "@/lib/guides";
+import { toolFacts } from "@/lib/tools/tool-facts";
+import {
+  pageContent,
+  pageFaq,
+  pageIntro,
+  pageRelatedGuideSlugs,
+  pageSteps,
+  pageUseCases,
+} from "@/lib/tools/page-copy";
+import { categoryHref } from "@/lib/tools/category-href";
+import { getGuideBySlug, guidesForTool, type Guide } from "@/lib/guides";
 
 export function generateStaticParams() {
   return getAllToolSlugs().map((slug) => ({ slug }));
@@ -79,9 +88,13 @@ export async function generateMetadata({
   if (!tool) {
     return buildMetadata({ title: "Tool not found", noIndex: true });
   }
+  // The authored, search-facing title and description (`@/lib/tools/content`)
+  // — keyword-first and unique per tool. The H1 stays the tool's name, and
+  // the canonical is unchanged.
+  const content = pageContent(tool);
   return buildMetadata({
-    title: tool.name,
-    description: tool.description,
+    title: content?.seoTitle ?? tool.name,
+    description: content?.metaDescription ?? tool.description,
     path: `/tools/${tool.slug}`,
     keywords: tool.keywords,
     // Every tool gets its own share card, leading with where it actually runs.
@@ -102,14 +115,26 @@ export default async function ToolPage({
   const category = getCategory(tool.category);
   const processing = getProcessingMeta(tool.processing);
   const related = getRelatedTools(tool, 3);
-  // Every tool has steps now: the catalogue's own when authored, else the
-  // mode-true default (in-browser steps never claim an upload — guarded).
-  const steps = howToSteps(tool);
+  // Everything the page SAYS comes through `@/lib/tools/page-copy` — the same
+  // accessors the honesty guards read, so a guard cannot certify copy this
+  // page no longer renders. Authored content first; the derived copy (the
+  // catalogue's steps or the mode-true default, the derived FAQ) where a tool
+  // has none.
+  const intro = pageIntro(tool);
+  const useCases = pageUseCases(tool);
+  const steps = pageSteps(tool);
   const facts = toolFacts(tool.slug);
-  const faq = toolFaq(tool);
-  // Discovered from each guide's own `tools` field — the band cannot link a
-  // guide that does not claim this tool back, and there is no href list here.
-  const toolGuides = guidesForTool(tool.slug);
+  const faq = pageFaq(tool);
+  // The guides this tool's content names, then every guide that claims this
+  // tool in its own `tools` field — one link per guide.
+  const toolGuides: Guide[] = [];
+  for (const guide of [
+    ...pageRelatedGuideSlugs(tool).map((slug) => getGuideBySlug(slug)),
+    ...guidesForTool(tool.slug),
+  ]) {
+    if (guide && !toolGuides.some((g) => g.slug === guide.slug))
+      toolGuides.push(guide);
+  }
   const runnerKind = getRunnerKind(tool.slug);
   /*
    * THIS TOOL's ceiling, not the worker's. The staging hint below interpolated
@@ -129,10 +154,42 @@ export default async function ToolPage({
   const breadcrumbs = [
     { name: "All tools", path: "/tools" },
     ...(category
-      ? [{ name: category.name, path: `/tools?category=${category.id}` }]
+      ? [{ name: category.name, path: categoryHref(category.id) }]
       : []),
     { name: tool.name, path: `/tools/${tool.slug}` },
   ];
+
+  const useCaseList =
+    useCases.length > 0 ? (
+      <ul className="flex flex-col gap-3">
+        {useCases.map((useCase) => (
+          <li key={useCase.title} className="flex flex-col gap-1">
+            <h3 className="text-fg text-sm font-semibold">{useCase.title}</h3>
+            <p className="text-muted text-sm leading-relaxed">{useCase.body}</p>
+          </li>
+        ))}
+      </ul>
+    ) : null;
+
+  const stepList = (
+    <ol className="flex flex-col gap-3">
+      {steps.map((step, i) => (
+        <li key={i} className="flex items-start gap-3">
+          {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
+              theme ground — 16.4:1 here, and correct inside any future scope. */}
+          <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
+            {i + 1}
+          </span>
+          <span className="text-muted text-sm leading-relaxed">
+            {step.title && (
+              <span className="text-fg font-semibold">{step.title}. </span>
+            )}
+            {step.text}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
 
   const formatChips = (
     <div className="flex flex-wrap items-center gap-2">
@@ -175,7 +232,7 @@ export default async function ToolPage({
           <span aria-hidden>/</span>
           {category && (
             <Link
-              href={`/tools?category=${category.id}`}
+              href={categoryHref(category.id)}
               className="hover:text-fg transition-colors"
             >
               {category.name}
@@ -230,32 +287,25 @@ export default async function ToolPage({
                 <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                   About this tool
                 </h2>
-                <p className="text-fg text-sm leading-relaxed">
-                  {tool.description}
-                </p>
+                {intro.map((paragraph, i) => (
+                  <p
+                    key={i}
+                    className={`${i === 0 ? "text-fg" : "text-muted"} text-sm leading-relaxed`}
+                  >
+                    {paragraph}
+                  </p>
+                ))}
                 <p className="text-muted text-sm leading-relaxed">
                   {processing.description}
                 </p>
+                {useCaseList}
               </div>
               {steps.length > 0 && (
                 <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
                   <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                     How it works
                   </h2>
-                  <ol className="flex flex-col gap-3">
-                    {steps.map((step, i) => (
-                      <li key={step} className="flex items-start gap-3">
-                        {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
-                            theme ground — 16.4:1 here, and correct inside any future scope. */}
-                        <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
-                          {i + 1}
-                        </span>
-                        <span className="text-muted text-sm leading-relaxed">
-                          {step}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
+                  {stepList}
                 </div>
               )}
             </div>
@@ -281,9 +331,14 @@ export default async function ToolPage({
                 </div>
               </div>
 
-              <p className="text-fg text-base leading-relaxed text-pretty">
-                {tool.description}
-              </p>
+              {intro.map((paragraph, i) => (
+                <p
+                  key={i}
+                  className={`${i === 0 ? "text-fg text-base" : "text-muted text-sm"} leading-relaxed text-pretty`}
+                >
+                  {paragraph}
+                </p>
+              ))}
 
               {formatChips}
 
@@ -291,25 +346,21 @@ export default async function ToolPage({
                 {processing.description}
               </p>
 
+              {useCaseList && (
+                <div className="flex flex-col gap-4">
+                  <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
+                    When to use it
+                  </h2>
+                  {useCaseList}
+                </div>
+              )}
+
               {steps.length > 0 && (
                 <div className="flex flex-col gap-4">
                   <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                     How it works
                   </h2>
-                  <ol className="flex flex-col gap-3">
-                    {steps.map((step, i) => (
-                      <li key={step} className="flex items-start gap-3">
-                        {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
-                            theme ground — 16.4:1 here, and correct inside any future scope. */}
-                        <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
-                          {i + 1}
-                        </span>
-                        <span className="text-muted text-sm leading-relaxed">
-                          {step}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
+                  {stepList}
                 </div>
               )}
             </div>

@@ -25,9 +25,9 @@ import {
  * filters (the explorer reads it, so old shared URLs work).
  *
  * STILL LINKED FROM the files `category-href.test.ts` holds in `PENDING`,
- * compared with this list in both directions: `src/app/tools/[slug]/page.tsx`,
- * whose category chip and middle breadcrumb item point at
- * `/tools?category=<id>` on all fifty tool pages.
+ * compared with this list in both directions: none, since 2026-09-27, when the
+ * tool pages' category chip and middle breadcrumb item moved to
+ * `categoryHref`.
  *
  * The set is `categories`, closed: a ninth category gets a page by existing,
  * and anything else is a real 404, not a 200 that says "not found" (the soft

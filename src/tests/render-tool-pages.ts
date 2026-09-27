@@ -49,17 +49,23 @@ function textOf(markup: string): string {
     .trim();
 }
 
+/**
+ * `--markup` prints the server HTML itself rather than its text: a check about
+ * an ELEMENT (is there a button?) cannot be answered from text, where a
+ * sentence describing the button and the button read the same.
+ */
+const MARKUP = process.argv.includes("--markup");
+
 async function main(): Promise<void> {
   const census: Record<string, string> = {};
   for (const tool of tools) {
     const element = await ToolPage({
       params: Promise.resolve({ slug: tool.slug }),
     });
-    census[tool.slug] = textOf(
-      renderToStaticMarkup(
-        createElement(AppRouterContext.Provider, { value: ROUTER }, element),
-      ),
+    const markup = renderToStaticMarkup(
+      createElement(AppRouterContext.Provider, { value: ROUTER }, element),
     );
+    census[tool.slug] = MARKUP ? markup : textOf(markup);
   }
   process.stdout.write(JSON.stringify(census));
 }

@@ -48,14 +48,16 @@ const QUERY_LINK = /\?category=/;
 const SPELLED_PATH = /["'`]\/tools\/category\//;
 
 /**
- * NOT MINE TO EDIT, and time-boxed: the tool page's breadcrumb and category
- * chip are being switched to `categoryHref` by the content lane in the same
- * programme of work. This entry is a RATCHET, not an allowance — the test
- * below fails the moment the file stops writing `?category=`, so the
- * exemption is deleted in the change that makes it unnecessary rather than
- * outliving it.
+ * A RATCHET, not an allowance — the test below fails the moment a listed file
+ * stops writing `?category=`, so an exemption is deleted in the change that
+ * makes it unnecessary rather than outliving it.
+ *
+ * EMPTY since 2026-09-27: its one entry, `src/app/tools/[slug]/page.tsx`
+ * (the tool page's breadcrumb and category chip), moved to `categoryHref` in
+ * the content lane's wiring and was deleted here by that ratchet. Kept as a
+ * set so the next exemption is a deliberate act with a reason beside it.
  */
-const PENDING = new Set(["src/app/tools/[slug]/page.tsx"]);
+const PENDING = new Set<string>();
 
 /**
  * The backticked `src/…` paths a docblock lists after `STILL LINKED FROM`, up

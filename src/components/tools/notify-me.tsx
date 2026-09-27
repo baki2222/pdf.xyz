@@ -32,15 +32,30 @@ import { getToolBySlug } from "@/lib/tools";
 export function NotifyMe({
   toolName,
   toolSlug,
+  checking,
 }: {
   toolName: string;
   toolSlug: string;
+  /**
+   * True while the panel is still asking the worker whether it can run.
+   *
+   * REQUIRED, so every panel has to answer it. The panels start in their
+   * "loading" phase, and that is the phase the SERVER renders — so before this
+   * prop, all twenty live worker and AI tool pages shipped "Notify me when this
+   * ships" in their HTML, to every crawler and to every visitor until the
+   * status check returned. A tool that is running in production told Google it
+   * had not shipped. While checking, the button renders nothing; the panel's
+   * own "Checking…" line is the whole truth at that moment.
+   */
+  checking: boolean;
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
   // Derived here rather than passed in: fourteen panels render this button, and
   // a capability threaded by hand through each of them is fourteen chances to
   // file a click under the wrong one.
   const tool = getToolBySlug(toolSlug);
+
+  if (checking) return null;
 
   if (acknowledged) {
     return (

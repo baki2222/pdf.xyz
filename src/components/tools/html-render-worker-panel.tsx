@@ -225,7 +225,11 @@ function HtmlRenderUnavailable({
         No runner is shown until the worker is ready, so {toolName} never
         pretends to process input it cannot actually render.
       </p>
-      <NotifyMe toolName={toolName} toolSlug={toolSlug} />
+      <NotifyMe
+        toolName={toolName}
+        toolSlug={toolSlug}
+        checking={phase === "loading"}
+      />
     </div>
   );
 }

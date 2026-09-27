@@ -154,7 +154,11 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
               never pretends to produce a translation it cannot actually
               generate.
             </p>
-            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={phase === "loading"}
+            />
           </div>
         )}
 

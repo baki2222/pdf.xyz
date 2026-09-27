@@ -178,7 +178,11 @@ export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
               No builder is shown until the worker is ready, so {tool.name}{" "}
               never pretends to prepare a request it cannot actually package.
             </p>
-            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={phase === "loading"}
+            />
           </div>
         )}
 

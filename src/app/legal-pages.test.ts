@@ -21,6 +21,7 @@ import { JOB_LIMITS } from "@/lib/jobs/types";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
+import { toolContentFiles } from "@/lib/tools/copy-surface";
 
 const ROOT = process.cwd();
 const PRIVACY = path.join(ROOT, "src", "app", "privacy", "page.tsx");
@@ -310,10 +311,19 @@ describe("the policy pages do not promise what the product does not do", () => {
       // first article was written. Guides state retention and privacy facts
       // as a matter of course, which is exactly this list's vocabulary.
       path.join(ROOT, "src", "lib", "guides", "catalog.ts"),
+      // The fifty tool pages' authored content, added 2026-09-27 BEFORE it
+      // shipped — the same in-order rule as tool-facts and the guides. Its
+      // FAQs become FAQPage JSON-LD. DERIVED from the content index (what the
+      // page consumes), not listed, so a fifty-first tool is read on arrival.
+      ...toolContentFiles().values(),
       ...readdirSync(sectionsDir)
         .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."))
         .map((f) => path.join(sectionsDir, f)),
     ];
+    // Health check: the derived content set is the catalogue, not a sliver.
+    expect([...toolContentFiles().keys()].sort()).toEqual(
+      tools.map((t) => t.slug).sort(),
+    );
     const offenders: string[] = [];
     for (const file of targets) {
       const source = withoutComments(read(file));
@@ -329,5 +339,24 @@ describe("the policy pages do not promise what the product does not do", () => {
       offenders,
       `marketing copy contains a claim the legal pages are forbidden from making:\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("positive control: a retired claim planted in real tool content is caught", () => {
+    // A real content file, with the FAQ lie of 2026-08-09 planted in one of
+    // its answers. Same scan, same list: if the tool content ever falls out
+    // of `targets` above, the corpus test stops reading it; this shows the
+    // list still bites on content-shaped source when it is read.
+    const file = toolContentFiles().get("merge-pdf")!;
+    const real = withoutComments(read(file));
+    expect(OVERCLAIMS.filter((o) => o.pattern.test(real))).toEqual([]);
+    const planted = real.replace(
+      "Merge copies pages",
+      "Your files are permanently deleted within minutes and nothing is retained. Merge copies pages",
+    );
+    expect(planted).not.toBe(real);
+    const caught = OVERCLAIMS.filter((o) => o.pattern.test(planted)).map((o) =>
+      String(o.pattern),
+    );
+    expect(caught.length).toBeGreaterThanOrEqual(2);
   });
 });

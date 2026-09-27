@@ -91,6 +91,11 @@ import { validatePlainTextInput } from "@/lib/pdf/text-to-pdf";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { getAllToolSlugs, tools } from "./index";
 import { withoutComments } from "./copy-surface";
+import { FONT_PACKS } from "@/lib/pdf/font-packs";
+import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
+import { MAX_PDF_PASSWORD_BYTES } from "@/lib/jobs/pdf-security";
+import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
+import { resolveNativeHtmlRenderConfig } from "@/lib/workers/html-render/native-config";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import {
   RUNNER_FILE_CEILINGS,
@@ -318,13 +323,107 @@ const UNIT_MB: Readonly<Record<string, number>> = {
  * "PDF/A-2b", and this scan runs over the PDF/A page. `bytes` spelled out IS
  * matched, because that is the spelling the API errors use.
  */
+const SIZE_CLAIM = /(?<![\w-])(\d[\d,]*(?:\.\d+)?)\s*(bytes|KB|MB|GB|TB)\b/gi;
+
 function sizeClaimsMb(text: string): number[] {
   return [
-    ...text.matchAll(/(\d[\d,]*(?:\.\d+)?)\s*(bytes|KB|MB|GB|TB)\b/gi),
+    // Not preceded by a letter or hyphen: "UTF-8 bytes" is an encoding, and
+    // read as a size it made "8 bytes" a claim on two pages (2026-09-27).
+    ...text.matchAll(SIZE_CLAIM),
   ].map(
     (match) =>
       Number(match[1]!.replace(/,/g, "")) * UNIT_MB[match[2]!.toLowerCase()]!,
   );
+}
+
+/**
+ * Sizes a tool page states that are NOT the per-file ceiling of the file the
+ * reader picks — each gated TWICE, by value and by subject.
+ *
+ * Added 2026-09-27, when the authored content reached the pages: a font the
+ * browser downloads ("137.8 KB for Bengali"), a password's length ("up to 127
+ * bytes"), a picture inserted into the PDF ("up to 10 MB"), and the converter's
+ * own input cap on the worker ("refuses a Word file over 50 MB"). Every one is
+ * true, and this guard failed ten pages on them, because it asked "is there a
+ * size on the page?" while claiming to ask "what does the page say the tool
+ * accepts?".
+ *
+ * VALUE alone would license the defect: a page on a 2 MB tool saying "up to
+ * 10 MB" would pass as the picture cap. SUBJECT alone would too: "a PNG of up
+ * to 100 MB" on the 25 MB image tool mentions a picture. Both must hold — the
+ * figure equals a constant that owns this other quantity, AND the words
+ * around it name that quantity. `controls` keeps each class's shipped sentence
+ * exempt and a plain ceiling claim with the same value red.
+ *
+ * The converter caps are a real gap, disclosed rather than hidden: the upload
+ * gate (and the panel's Limit row) says 100 MB while LibreOffice refuses above
+ * its default 50 MB and Chromium above 20 MB. The pages say both, truthfully;
+ * making the Limit row state the lower one is a product change of its own.
+ */
+const MB_OF = (bytes: number) => bytes / MB;
+const OTHER_SIZES: readonly {
+  what: string;
+  valuesMb: readonly number[];
+  near: RegExp;
+  window: number;
+  shipped: string;
+}[] = [
+  {
+    what: "a font the browser downloads",
+    valuesMb: FONT_PACKS.map((pack) => MB_OF(pack.bytes)),
+    near: /\b(?:font|typeface|Noto)\b/i,
+    window: 200,
+    shipped:
+      "a Noto typeface from the /fonts/ folder on this same site: 137.8 KB for Bengali up to 10.1 MB for Chinese",
+  },
+  {
+    what: "a password's length",
+    valuesMb: [MB_OF(MAX_PDF_PASSWORD_BYTES)],
+    near: /\bpassword\b|\bToo long\b/i,
+    // Wide: in the FAQPage JSON-LD the question ("…the password itself?")
+    // and the figure sit ~170 characters apart. The value gate is exact.
+    window: 240,
+    shipped:
+      "Enter it in the New password field. It can be up to 127 bytes long.",
+  },
+  {
+    what: "a picture inserted into the PDF",
+    valuesMb: [MB_OF(MAX_EDIT_IMAGE_BYTES)],
+    near: /\b(?:picture|image|photo|PNG|JPG)\b/i,
+    window: 80,
+    shipped: "Choose a PNG or JPG of up to 10 MB",
+  },
+  {
+    what: "the converting engine's own input cap",
+    valuesMb: [
+      MB_OF(resolveNativeOfficeConversionConfig({}).maxInputBytes),
+      MB_OF(resolveNativeHtmlRenderConfig({}).maxInputBytes),
+    ],
+    near: /\b(?:converter|renderer|LibreOffice|Chromium)\b/i,
+    window: 120,
+    shipped:
+      "the converter refuses a Word file over 50 MB before LibreOffice ever opens it",
+  },
+];
+
+/** The per-file CEILING claims on a page: every size not in OTHER_SIZES. */
+function ceilingClaimsMb(text: string): number[] {
+  const out: number[] = [];
+  for (const match of text.matchAll(SIZE_CLAIM)) {
+    const mb =
+      Number(match[1]!.replace(/,/g, "")) * UNIT_MB[match[2]!.toLowerCase()]!;
+    const at = match.index ?? 0;
+    const other = OTHER_SIZES.some((kind) => {
+      if (!kind.valuesMb.some((v) => Math.abs(v - mb) / v < 0.01)) return false;
+      const around = text.slice(
+        Math.max(0, at - kind.window),
+        at + match[0].length + kind.window,
+      );
+      return kind.near.test(around);
+    });
+    if (!other) out.push(mb);
+  }
+  return out;
 }
 
 function textOf(markup: string): string {
@@ -703,7 +802,7 @@ describe("every size a tool page states is that tool's own ceiling", () => {
     "%s's rendered page states its ceiling, and no other size",
     (slug, tool) => {
       const ceiling = toolFileCeilingMb(tool);
-      const claims = sizeClaimsMb(pageText.get(slug)!);
+      const claims = ceilingClaimsMb(pageText.get(slug)!);
       if (ceiling === null) {
         expect(
           claims,
@@ -770,6 +869,24 @@ describe("every size a tool page states is that tool's own ceiling", () => {
  * ================================================================== */
 
 describe("controls", () => {
+  it("the other-size classes are exercised both ways", () => {
+    for (const kind of OTHER_SIZES) {
+      // The sentence that needed the class is seen, and exempt...
+      expect(sizeClaimsMb(kind.shipped).length, kind.what).toBeGreaterThan(0);
+      expect(ceilingClaimsMb(kind.shipped), kind.what).toEqual([]);
+      // ...and the SAME value, stated as what a file may be, is still a claim.
+      for (const mb of kind.valuesMb) {
+        const plain = `Files of up to ${mb >= 1 ? `${mb} MB` : `${Math.round(mb * MB)} bytes`} are accepted.`;
+        expect(ceilingClaimsMb(plain).length, `${kind.what}: ${plain}`).toBe(1);
+      }
+    }
+    // The subject without the value is not enough either: a picture of up to
+    // 100 MB on a 25 MB image tool is a ceiling claim.
+    expect(ceilingClaimsMb("Choose a PNG or JPG of up to 100 MB")).toEqual([
+      100,
+    ]);
+  });
+
   it("health check: the size extractor sees the spellings that ship", () => {
     // A blind extractor reports the strongest possible pass above. These are
     // the forms rendered today: `formatBytes` at one decimal, whole megabytes
@@ -781,6 +898,8 @@ describe("controls", () => {
     expect(sizeClaimsMb("1.5 GB")).toEqual([1536]);
     expect(sizeClaimsMb("2,097,152 bytes")).toEqual([2]);
     expect(sizeClaimsMb("no sizes here")).toEqual([]);
+    // An encoding is not a size.
+    expect(sizeClaimsMb("counted in UTF-8 bytes, up to 2 MB")).toEqual([2]);
     // Why bare "B" is not a unit: this really renders, on the PDF/A page.
     expect(sizeClaimsMb("Converts to PDF/A-2b and PDF/A-3b")).toEqual([]);
   });
