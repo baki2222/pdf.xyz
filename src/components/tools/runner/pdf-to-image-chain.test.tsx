@@ -249,6 +249,9 @@ async function convertAtPrint(name: string, sizes: Paper[]) {
     push: () => {},
     replace: () => {},
     prefetch: () => {},
+    // Next 16.3's AppRouterInstance (the dependency bump merged beside this
+    // test) added `bfcacheId`; a stub that omits it no longer type-checks.
+    bfcacheId: "test",
   };
   const { container } = render(
     <AppRouterContext.Provider value={router}>

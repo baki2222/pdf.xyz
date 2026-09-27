@@ -21,6 +21,7 @@ import { ExtractionResult } from "./extract-images-runner";
 import { ImageResult } from "./pdf-to-image-runner";
 import { SplitEditor } from "./split-runner";
 import { zipFailureMessage } from "./use-zip-download";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 /**
  * What a person gets when they press "Download ZIP" — the file the browser
@@ -115,6 +116,7 @@ function loaded(bytes: Uint8Array, name: string, pageCount: number) {
     bytes,
     pageCount,
     rotations: Array.from({ length: pageCount }, () => 0 as const),
+    digitalSignatures: countDigitalSignatures(bytes),
   };
 }
 

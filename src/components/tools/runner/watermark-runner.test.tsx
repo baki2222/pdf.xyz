@@ -5,6 +5,7 @@ import { PDFDocument, PageSizes } from "pdf-lib";
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { watermarkPdf } from "@/lib/pdf/watermark";
 import { WatermarkEditor } from "./watermark-runner";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 /**
  * What a person using Add Watermark is TOLD. The engine now shrinks text that
@@ -37,6 +38,7 @@ async function runWith(bytes: Uint8Array, pageCount: number, text: string) {
         bytes,
         pageCount,
         rotations: Array.from({ length: pageCount }, () => 0 as const),
+        digitalSignatures: countDigitalSignatures(bytes),
       }}
       onReset={() => {}}
     />,
@@ -81,7 +83,13 @@ describe("Add Watermark runner — the result says when text was shrunk to fit",
     });
     render(
       <WatermarkEditor
-        pdf={{ file, bytes, pageCount: 1, rotations: [0] }}
+        pdf={{
+          file,
+          bytes,
+          pageCount: 1,
+          rotations: [0],
+          digitalSignatures: countDigitalSignatures(bytes),
+        }}
         onReset={() => {}}
       />,
     );

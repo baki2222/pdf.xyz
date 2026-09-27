@@ -11,6 +11,7 @@ import {
 import { resetAnnouncer } from "@/components/a11y/live-region";
 import { DYNAMIC_XFA_MESSAGE } from "@/lib/pdf/flatten";
 import { FlattenEditor, SIGNED_PDF_WARNING } from "./flatten-runner";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 /**
  * What a person using Flatten PDF is told and handed — the rendered runner and
@@ -111,7 +112,13 @@ function mount(bytes: Uint8Array, name: string) {
   });
   render(
     <FlattenEditor
-      pdf={{ file, bytes, pageCount: 1, rotations: [0] }}
+      pdf={{
+        file,
+        bytes,
+        pageCount: 1,
+        rotations: [0],
+        digitalSignatures: countDigitalSignatures(bytes),
+      }}
       onReset={() => {}}
     />,
   );

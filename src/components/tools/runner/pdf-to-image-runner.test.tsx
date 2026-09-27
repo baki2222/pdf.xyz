@@ -6,6 +6,7 @@ import { rasterCapNote, resolutionById } from "@/lib/pdf/pdf-to-image";
 import type { RasterPage } from "@/lib/pdf/render";
 import { RASTER_MAX_DEVICE_PX, rasterPageScale } from "@/lib/pdf/render-utils";
 import { ImageResult } from "./pdf-to-image-runner";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 /**
  * The PDF → PNG / JPG result panel, as a person reads it. A page too large for
@@ -72,6 +73,7 @@ function mount(pages: RasterPage[], presetId: string) {
         bytes: new Uint8Array([1]),
         pageCount: pages.length,
         rotations: pages.map(() => 0 as const),
+        digitalSignatures: countDigitalSignatures(new Uint8Array([1])),
       }}
       format="png"
       result={{
