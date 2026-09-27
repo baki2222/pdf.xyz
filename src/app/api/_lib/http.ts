@@ -82,7 +82,8 @@ export function rejectCrossSite(request: Request): Response | null {
   try {
     originHost = new URL(origin).host.toLowerCase();
   } catch {
-    return crossSiteRefusal(); // `Origin: null` — sandboxed or opaque
+    // `Origin: null` — sandboxed or opaque.
+    return crossSiteRefusal();
   }
   const own = [
     request.headers.get("host"),
