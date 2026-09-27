@@ -290,9 +290,11 @@ export interface FlattenFieldsOutcome {
  * value-bearing field is marked dirty and regenerated from its value first.
  * Without the flag, authored appearances are kept: that is what readers show.
  *
- * The caller must save with `updateFieldAppearances: false`: a skipped field
- * whose regeneration failed here would otherwise be regenerated — and throw —
- * again inside `save()`.
+ * A field skipped as "couldn't be drawn" is still dirty, so `flattenPdf` saves
+ * with `updateFieldAppearances: false` — a plain `save()` would regenerate it
+ * and throw outside every try. That, the catch below, and the "no appearance"
+ * arm are pinned through `flattenPdf` by the "is skipped with its reason; the
+ * rest of the form still flattens" tests in `flatten.test.ts`.
  */
 export function flattenFormFields(
   doc: PDFDocument,

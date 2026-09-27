@@ -186,6 +186,64 @@ async function removedPageFormPdf(): Promise<Uint8Array> {
 }
 
 /**
+ * A filled name field next to a comb field (`MaxLen 4`) whose `/V` holds nine
+ * digits, under `/NeedAppearances true` — a filler that wrote the value without
+ * checking the field's length, which readers tolerate. The flag marks `pin`
+ * dirty, and pdf-lib's regeneration then throws `Failed to layout combed text`:
+ * the only real input that reaches `flattenFormFields`' "couldn't be drawn" arm.
+ */
+async function undrawableCombFormPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const form = doc.getForm();
+  const name = form.createTextField("applicant.name");
+  name.setText("Ada Lovelace");
+  name.addToPage(page, { x: 50, y: 700, width: 300, height: 24 });
+  const pin = form.createTextField("pin");
+  pin.setMaxLength(4);
+  pin.enableCombing();
+  pin.setText("1234");
+  pin.addToPage(page, { x: 50, y: 640, width: 120, height: 24 });
+  await doc.save();
+  pin.acroField.dict.set(PDFName.of("V"), PDFHexString.fromText("123456789"));
+  form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
+  form.markFieldAsClean(pin.ref);
+  return doc.save({ updateFieldAppearances: false });
+}
+
+/**
+ * A filled name field next to a checked checkbox whose widget's `/AP /N` state
+ * dictionary holds only a `/Custom` state — neither the field's `/V` (`/Yes`)
+ * nor `/Off`. `/AS /Custom` is in the dictionary, so pdf-lib does not think it
+ * needs regenerating: the field reaches `flattenFormFields`' "no appearance to
+ * draw" arm with nothing to draw.
+ */
+async function noAppearanceCheckboxFormPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([600, 800]);
+  const form = doc.getForm();
+  const name = form.createTextField("applicant.name");
+  name.setText("Ada Lovelace");
+  name.addToPage(page, { x: 50, y: 700, width: 300, height: 24 });
+  const agree = form.createCheckBox("agree");
+  agree.check();
+  agree.addToPage(page, { x: 50, y: 660, width: 18, height: 18 });
+  await doc.save();
+  const [widget] = agree.acroField.getWidgets();
+  if (!widget) throw new Error("fixture: the checkbox has no widget");
+  const custom = doc.context.register(
+    doc.context.formXObject([], { BBox: [0, 0, 18, 18] }),
+  );
+  widget.dict.set(
+    PDFName.of("AP"),
+    doc.context.obj({ N: doc.context.obj({ Custom: custom }) }),
+  );
+  widget.dict.set(PDFName.of("AS"), PDFName.of("Custom"));
+  form.markFieldAsClean(agree.ref);
+  return doc.save({ updateFieldAppearances: false });
+}
+
+/**
  * A dynamic XFA form as it arrives: no AcroForm fields, an XFA stream, the
  * catalog's `/NeedsRendering true`, and one placeholder page.
  */
@@ -442,6 +500,92 @@ describe("flattenPdf — fields that cannot be drawn are left as-is, never fatal
     const text = (await pageTexts(result.bytes))[0];
     expect(text).toContain("Kept Value");
     expect(text).not.toContain("Split Value");
+  });
+
+  it("fixture health: pdf-lib really cannot regenerate the comb field, in save() too", async () => {
+    // If pdf-lib ever lays out an over-long comb value, this fixture stops
+    // reaching the "couldn't be drawn" arm and the test below passes vacuously.
+    const doc = await PDFDocument.load(await undrawableCombFormPdf());
+    const form = doc.getForm();
+    expect(form.acroForm.dict.lookup(PDFName.of("NeedAppearances"))).toBe(
+      PDFBool.True,
+    );
+    const pin = form.getTextField("pin");
+    expect(pin.getText()).toBe("123456789");
+    expect(pin.getMaxLength()).toBe(4);
+    expect(() => pin.defaultUpdateAppearances(form.getDefaultFont())).toThrow(
+      /combed text/,
+    );
+    // The same field, still dirty, is what a default `save()` would regenerate.
+    form.markFieldAsDirty(pin.ref);
+    await expect(doc.save()).rejects.toThrow(/combed text/);
+  });
+
+  it("a value that cannot be drawn is skipped with its reason; the rest of the form still flattens", async () => {
+    // Pins BOTH halves of "one field never fails the document": the per-field
+    // catch around regeneration, AND the final `save({ updateFieldAppearances:
+    // false })` — a plain `save()` regenerates the still-dirty skipped field
+    // outside every try and rejects with pdf-lib's raw layout error.
+    const run = flattenPdf(await undrawableCombFormPdf());
+    await expect(run).resolves.toMatchObject({ flattenedFields: 1 });
+    const result = await run;
+    expect(result.totalFields).toBe(2);
+    expect(result.skipped).toEqual([
+      { name: "pin", reason: expect.stringMatching(/couldn't be drawn/) },
+    ]);
+
+    const text = (await pageTexts(result.bytes))[0];
+    expect(text).toContain("Ada Lovelace");
+    expect(text).not.toContain("1234");
+    // Left as-is: still a live field, its value intact, its widget on the page.
+    const doc = await PDFDocument.load(result.bytes);
+    expect(
+      doc
+        .getForm()
+        .getFields()
+        .map((f) => f.getName()),
+    ).toEqual(["pin"]);
+    expect(doc.getForm().getTextField("pin").getText()).toBe("123456789");
+    expect(doc.getPage(0).node.Annots()?.size()).toBe(1);
+  });
+
+  it("fixture health: the checkbox has neither its /V state nor /Off, and pdf-lib won't regenerate it", async () => {
+    const doc = await PDFDocument.load(await noAppearanceCheckboxFormPdf());
+    const agree = doc.getForm().getCheckBox("agree");
+    const value = agree.acroField.getValue();
+    expect(value).toBe(PDFName.of("Yes"));
+    const normal = agree.acroField.getWidgets()[0]?.getAppearances()?.normal;
+    expect(normal).toBeInstanceOf(PDFDict);
+    const states = (normal as PDFDict).keys().map((k) => k.decodeText());
+    expect(states).toEqual(["Custom"]);
+    // Otherwise `defaultUpdateAppearances` would build /Off and the field would
+    // be drawn, never reaching the arm under test.
+    expect(agree.needsAppearancesUpdate()).toBe(false);
+  });
+
+  it("a field with no appearance to draw is skipped with its reason; the rest of the form still flattens", async () => {
+    const run = flattenPdf(await noAppearanceCheckboxFormPdf());
+    await expect(run).resolves.toMatchObject({ flattenedFields: 1 });
+    const result = await run;
+    expect(result.skipped).toEqual([
+      { name: "agree", reason: expect.stringMatching(/no appearance/) },
+    ]);
+    expect((await pageTexts(result.bytes))[0]).toContain("Ada Lovelace");
+    const doc = await PDFDocument.load(result.bytes);
+    expect(
+      doc
+        .getForm()
+        .getFields()
+        .map((f) => f.getName()),
+    ).toEqual(["agree"]);
+    // Left exactly as it was: value, state and widget all untouched.
+    const agree = doc.getForm().getCheckBox("agree");
+    expect(agree.acroField.getValue()).toBe(PDFName.of("Yes"));
+    expect(agree.acroField.getWidgets()[0]?.getAppearanceState()).toBe(
+      PDFName.of("Custom"),
+    );
+    expect(doc.getPage(0).node.Annots()?.size()).toBe(1);
+    expect(flatWidgetCount(doc.getPage(0))).toBe(1);
   });
 
   it("removes the flattened widget annotations from the page, not just the fields", async () => {
