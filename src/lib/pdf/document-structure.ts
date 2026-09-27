@@ -22,8 +22,16 @@ import type { PdfLibModule } from "./pdf-lib";
  * Chrome's "Save as PDF" write them through named destinations — pointed at
  * names the output no longer defined. Nothing here COPIES a source object:
  * every piece is read from the source and written fresh, so the leak rules of
- * `page-copy.ts` are untouched. A bookmark whose page was dropped is not
- * written at all, so its title cannot ship (the tests read the file for it).
+ * `page-copy.ts` are untouched.
+ *
+ * A bookmark whose own page was dropped is written only when something below
+ * it lands on a KEPT page; it then opens the first such page. Otherwise it is
+ * not written, and neither is anything below it — a URL or viewer-action
+ * bookmark under it included, since its title describes the dropped section.
+ * So a dropped page's bookmark title ships only as the heading of bookmarks to
+ * kept pages. Pinned in page-copy.test.ts ("the rest leave no title behind"),
+ * which reads every string in the output file for the titles that must not
+ * ship. At 325da5a a URL child alone kept such a parent alive, title and all.
  *
  * Deliberately NOT carried: custom `/Info` keys, the XMP `/Metadata` stream
  * (it describes the whole source and would need rewriting, not copying), the
@@ -294,9 +302,11 @@ interface Bookmark {
  * Rebuild the outline with only the bookmarks that still go somewhere: to a
  * kept page, to a URL, or to a named viewer action (next page, print) — or
  * that hold such a bookmark below them. A bookmark whose own page was dropped
- * but whose children survive opens its first surviving child's page. Anything
- * else — a bookmark to a dropped page, JavaScript, a launch — is not written,
- * so its title does not ship. Returns whether an outline was written.
+ * is the exception: it is written only when a bookmark below it lands on a
+ * kept page, and it opens the first one. Without one, it and everything below
+ * it are not written — a URL child does not keep a dropped page's title alive.
+ * Anything else — JavaScript, a launch — is not written either. Returns
+ * whether an outline was written.
  */
 function carryOutline(
   lib: PdfLibModule,
@@ -342,8 +352,16 @@ function carryOutline(
         carried = out.context.obj({ S: "Named", N: name });
       }
     }
+    if (ownPageDropped) {
+      // Its title names a page the user removed. It stays only as the heading
+      // of bookmarks that land on kept pages; a URL or a viewer action below
+      // it is not a reason to ship it, and goes with it.
+      const inherited = firstDestination(children);
+      if (!inherited) return undefined;
+      // A copy: two outline items must not share one array object.
+      dest = inherited.clone(out.context);
+    }
     if (!dest && !carried && children.length === 0) return undefined;
-    if (!dest && ownPageDropped) dest = firstDestination(children);
 
     const title = context.lookup(item.get(PDFName.of("Title")));
     const flags = context.lookup(item.get(PDFName.of("F")));

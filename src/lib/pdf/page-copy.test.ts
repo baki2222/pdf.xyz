@@ -1017,9 +1017,33 @@ describe("page tools keep a fillable form fillable", () => {
 // through pdfjs.
 // --------------------------------------------------------------------------
 
-/** Titles of bookmarks whose every page is dropped: they must not ship. */
-const DROPPED_BOOKMARKS = ["SECRET-BOOKMARK-A2", "SECRET-BOOKMARK-APPENDIX"];
+/**
+ * A bookmark whose own page is dropped, with nothing under it but a bookmark
+ * that goes to NO page (a URL, a viewer action). Such a child always survives
+ * on its own, and at 325da5a it kept its parent alive: the parent shipped with
+ * its title and no destination. The parent keeps its title only when a
+ * descendant lands on a kept page (Chapter A); these do not, so neither the
+ * parent nor what it holds is written.
+ */
+const PARENT_OVER_URI = "SECRET-PARENT-OF-DROPPED";
+const URI_UNDER_DROPPED = "SECRET-URI-UNDER-DROPPED";
+const PARENT_OVER_NAMED = "SECRET-PARENT-NAMED-ONLY";
+const NAMED_UNDER_DROPPED = "SECRET-NEXT-UNDER-DROPPED";
+/**
+ * Titles that must not ship: a bookmark to a dropped page, and a bookmark to a
+ * dropped page together with everything under it when nothing under it lands
+ * on a kept page.
+ */
+const DROPPED_BOOKMARKS = [
+  "SECRET-BOOKMARK-A2",
+  "SECRET-BOOKMARK-APPENDIX",
+  PARENT_OVER_URI,
+  URI_UNDER_DROPPED,
+  PARENT_OVER_NAMED,
+  NAMED_UNDER_DROPPED,
+];
 const HANDBOOK_URL = "https://example.test/handbook";
+const PAYROLL_URL = "https://example.test/payroll";
 
 interface OutlineSpec {
   title: string;
@@ -1076,7 +1100,9 @@ function addOutline(doc: PDFDocument, specs: OutlineSpec[]) {
  *    hyperref, Chrome) and the catalog's `/Dests` dictionary (names, PDF 1.1);
  *  - bookmarks by explicit destination, by named destination through `/Dest`
  *    and through a GoTo action, a URI bookmark, a parent whose own page is
- *    dropped while its child's is kept, and two bookmarks to dropped pages;
+ *    dropped while its child's is kept, two bookmarks to dropped pages, and
+ *    two parents on dropped pages whose only child goes to no page (a URL,
+ *    a Named viewer action);
  *  - three links on page 1, each through a named destination;
  *  - title, author, subject, keywords, a catalog `/Lang`, and `/PageMode
  *    /UseOutlines` (open with the bookmark panel showing).
@@ -1138,6 +1164,26 @@ async function handbookDoc(): Promise<Uint8Array> {
       target: { A: { S: "URI", URI: PDFString.of(HANDBOOK_URL) } },
     },
     { title: DROPPED_BOOKMARKS[1]!, target: { Dest: [p4!.ref, "Fit"] } },
+    {
+      title: PARENT_OVER_URI,
+      target: { Dest: [p4!.ref, "Fit"] },
+      kids: [
+        {
+          title: URI_UNDER_DROPPED,
+          target: { A: { S: "URI", URI: PDFString.of(PAYROLL_URL) } },
+        },
+      ],
+    },
+    {
+      title: PARENT_OVER_NAMED,
+      target: { A: { S: "GoTo", D: [p2!.ref, "Fit"] } },
+      kids: [
+        {
+          title: NAMED_UNDER_DROPPED,
+          target: { A: { S: "Named", N: "NextPage" } },
+        },
+      ],
+    },
     { title: "Chapter B", target: { Dest: "chapB" } },
   ]);
   const link = (target: Record<string, unknown>, y: number) =>
@@ -1306,6 +1352,23 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
       },
       { title: "Website", page: null, url: HANDBOOK_URL, children: [] },
       { title: DROPPED_BOOKMARKS[1], page: 3, children: [] },
+      {
+        title: PARENT_OVER_URI,
+        page: 3,
+        children: [
+          {
+            title: URI_UNDER_DROPPED,
+            page: null,
+            url: PAYROLL_URL,
+            children: [],
+          },
+        ],
+      },
+      {
+        title: PARENT_OVER_NAMED,
+        page: 1,
+        children: [{ title: NAMED_UNDER_DROPPED, page: null, children: [] }],
+      },
       { title: "Chapter B", page: 4, children: [] },
     ]);
     expect(input.links).toEqual([2, 4, 3]);
@@ -1332,6 +1395,12 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
         const input = await readAsViewer(bytes);
         const out = await run(bytes, KEPT);
         const viewer = await readAsViewer(out);
+        // The file first, then the viewer: a title can ship without showing.
+        const inspected = await inspect(out);
+        for (const title of DROPPED_BOOKMARKS) {
+          expect(inspected.text, `${title} in ${tool}`).not.toContain(title);
+          expect(titles(viewer.outline)).not.toContain(title);
+        }
         expect(viewer.outline).toEqual([
           { title: "Front matter", page: 0, children: [] },
           {
@@ -1360,11 +1429,6 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
           expect(KEPT[item.page!], item.title).toBe(inputPage.get(item.title));
         }
         expect(viewer.pageMode).toBe("UseOutlines");
-        const inspected = await inspect(out);
-        for (const title of DROPPED_BOOKMARKS) {
-          expect(titles(viewer.outline)).not.toContain(title);
-          expect(inspected.text, `${title} in ${tool}`).not.toContain(title);
-        }
         expect(inspected.pageDicts).toBe(inspected.pageCount);
         expect(inspected.dangling).toEqual([]);
       });
@@ -1403,7 +1467,8 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
       ]),
     );
     expect(viewer.labels).toEqual(["Ch-3", "i"]);
-    // Chapter A and everything under it sit on dropped pages 2-4.
+    // Chapter A and everything under it sit on dropped pages 2-4, and so do
+    // the two parents whose only child goes to no page.
     expect(viewer.outline).toEqual([
       { title: "Front matter", page: 1, children: [] },
       { title: "Website", page: null, url: HANDBOOK_URL, children: [] },
