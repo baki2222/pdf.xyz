@@ -20,7 +20,11 @@ import {
   type PdfTextSeams,
 } from "./native";
 import { resolveNativePdfTextConfig } from "./native-config";
-import { isPdfOpenRefusal, PdfTextExecError } from "./errors";
+import {
+  isPdfOpenRefusal,
+  PDF_REFUSAL_EXIT_CODES,
+  PdfTextExecError,
+} from "./errors";
 
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
 
@@ -323,6 +327,25 @@ describe("a failed run says HOW it failed", () => {
       ),
     ).toBe(false);
     expect(isPdfOpenRefusal(new Error("pdftotext failed."))).toBe(false);
+  });
+
+  it("does not call a killed or over-ceiling run a refusal even when it carries a DOCUMENT exit status", () => {
+    // The cases above have no exit status, so the refusal set alone already
+    // rejects them and the killed / outputTooLarge clauses were decoration:
+    // neutering `!error.killed` turned nothing red. The status and the kill
+    // flag are read from separate fields of the runner's error (and the
+    // runner is an injectable seam), so nothing ties "killed" to "no
+    // status" — and a timeout says nothing about the document.
+    for (const exitCode of PDF_REFUSAL_EXIT_CODES) {
+      const refusal = (detail: { killed: boolean; outputTooLarge: boolean }) =>
+        isPdfOpenRefusal(new PdfTextExecError({ exitCode, ...detail }));
+      // Control: the same status, run to completion, IS a refusal.
+      expect(refusal({ killed: false, outputTooLarge: false })).toBe(true);
+      expect(refusal({ killed: true, outputTooLarge: false })).toBe(false);
+      expect(refusal({ killed: false, outputTooLarge: true })).toBe(false);
+    }
+    // Health check: the loop ran over a non-empty set.
+    expect(PDF_REFUSAL_EXIT_CODES.size).toBeGreaterThan(0);
   });
 });
 

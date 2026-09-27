@@ -15,9 +15,19 @@
  * fail, or pass, for reasons that say nothing about the worker.
  */
 import { describe, expect, it } from "vitest";
+import { PDFDocument } from "pdf-lib";
 import {
+  columnHeadingsPdf,
+  columnListsPdf,
   columnsReadInOrder,
   findPopplerPdfToText,
+  HEADINGS_LEFT,
+  HEADINGS_RIGHT,
+  LETTER,
+  letterPdf,
+  LISTS_LEFT,
+  LISTS_RIGHT,
+  readColumnByColumn,
   highlightsPdf,
   HIGHLIGHTS_LEFT,
   HIGHLIGHTS_RIGHT,
@@ -152,6 +162,33 @@ suite(label, () => {
     ).toBe(true);
   });
 
+  it("writes two columns whose every row lines up column by column, one w:p per paragraph, no tabs", async () => {
+    // Short capitalised last lines above aligned headings, and two bulleted
+    // lists side by side: every row of both pages is a pair of short lines on
+    // a shared baseline, which is what a table row looks like.
+    for (const [build, columns] of [
+      [columnHeadingsPdf, [HEADINGS_LEFT, HEADINGS_RIGHT]],
+      [columnListsPdf, [LISTS_LEFT, LISTS_RIGHT]],
+    ] as const) {
+      const paragraphs = await docxParagraphs(await build());
+      expect(
+        paragraphs.filter((p) => p.includes("\t")),
+        build.name,
+      ).toEqual([]);
+      expect(readColumnByColumn(paragraphs, columns), build.name).toBe(true);
+    }
+  });
+
+  it("writes a one-block letter one w:p per paragraph, heading, list item and closing line", async () => {
+    // One font, one size, one pitch: poppler hands the whole letter over as
+    // ONE block, and 9c73735 wrote it as one paragraph. The justified
+    // paragraph, with a full line ending in a full stop inside it, must still
+    // come out as one w:p.
+    expect(await docxParagraphs(await letterPdf())).toEqual(
+      LETTER.map((p) => p.join(" ")),
+    );
+  });
+
   it("names a user-password PDF as password-protected, for all three tools", async () => {
     const locked = rc4EncryptedPdf({
       userPassword: "s3cret",
@@ -165,6 +202,24 @@ suite(label, () => {
       await expect(
         runPdfOfficeExport(tool, locked, deps()),
       ).resolves.toMatchObject({ ok: false, kind: "password_protected" });
+  });
+
+  it("names a locked PDF password-protected when its header is damaged too — the case only the byte scan can answer", async () => {
+    // poppler still refuses this file for its password (exit 1); pdf-lib
+    // cannot parse it at all, so the encryption question is answered by the
+    // `/Encrypt` scan or not at all. Without the scan it read as damaged,
+    // and the user was sent to Repair PDF for a file that needs a password.
+    const locked = rc4EncryptedPdf({
+      userPassword: "s3cret",
+      ownerPassword: "owner",
+    });
+    const damaged = locked.slice(locked.indexOf(0x0a) + 1);
+    await expect(
+      PDFDocument.load(damaged, { ignoreEncryption: true }),
+    ).rejects.toThrow();
+    await expect(
+      runPdfOfficeExport("pdf-to-word", damaged, deps()),
+    ).resolves.toMatchObject({ ok: false, kind: "password_protected" });
   });
 
   it("POSITIVE CONTROL: an owner-password-only PDF is encrypted AND still converts", async () => {

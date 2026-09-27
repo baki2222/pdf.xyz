@@ -124,8 +124,7 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
           <p className="text-muted text-sm leading-relaxed">
             The worker extracts selectable PDF text and packages it into a real{" "}
             {extensionFor(officeTool)} file. Pages without selectable text
-            (scans) are not included, and the result tells you which ones. Run
-            OCR first to include them.
+            (scans) are not included; run OCR first to include them.
           </p>
         </div>
 

@@ -254,6 +254,171 @@ export async function highlightsPdf(): Promise<Uint8Array> {
 }
 
 /**
+ * Two columns whose paragraphs end on a SHORT sentence that starts with a
+ * capital, above bold headings aligned across the columns. Unlike
+ * {@link NEWSLETTER_LEFT}, nothing on the short lines starts in lowercase, so
+ * nothing about them says "this continues the line above". The first
+ * paragraph rule (2e76d92) wrote `"Costs fell.\tAlso tariffs."` and then
+ * `"Outlook\tSummary"` — each paragraph's last line cut off, and the right
+ * column's heading before the left column's body.
+ */
+export const HEADINGS_LEFT = [
+  [
+    "Sales rose in every region this year and the",
+    "new stores opened on time and on budget.",
+    "Costs fell.",
+  ],
+  ["Outlook"],
+  [
+    "We expect growth to continue next year as",
+    "the second factory comes online in spring.",
+  ],
+] as const;
+export const HEADINGS_RIGHT = [
+  [
+    "Prices for raw materials stayed high all year",
+    "and cut margins in the second half again.",
+    "Also tariffs.",
+  ],
+  ["Summary"],
+  [
+    "The board will review the dividend in March",
+    "once the audited accounts are complete.",
+  ],
+] as const;
+
+/**
+ * Two columns of BULLETED lists under bold headings, items on shared
+ * baselines. Every item is short, so every row looks like a table row with a
+ * column of values: 9c73735 wrote `"• Strong cash\t- Currency swings"`, the
+ * two lists interleaved item by item.
+ */
+export const LISTS_LEFT = [
+  ["Strengths"],
+  ["• Strong cash"],
+  ["• Low debt"],
+  ["• Loyal customers"],
+] as const;
+export const LISTS_RIGHT = [
+  ["Risks"],
+  ["- Currency swings"],
+  ["- Supplier delays"],
+  ["- New rivals"],
+] as const;
+
+/**
+ * Two columns of paragraphs, `headed[i]` set bold and 12pt with space above,
+ * the way {@link newsletterPdf} sets them.
+ */
+async function columnsPdf(
+  columns: readonly (readonly (readonly string[])[])[],
+  headed: (paragraph: number) => boolean,
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const all = columns.flat(2);
+  const font = await embedDrawingFont(doc, all);
+  const bold = await embedDrawingFont(doc, all, "sans-bold");
+  const page = doc.addPage([612, 792]);
+  columns.forEach((column, c) => {
+    let y = 700;
+    column.forEach((paragraph, p) => {
+      const heading = headed(p);
+      if (p > 0 && heading) y -= 14;
+      for (const line of paragraph) {
+        page.drawText(line, {
+          x: 50 + c * 270,
+          y,
+          size: heading ? 12 : 11,
+          font: heading ? bold : font,
+        });
+        y -= heading ? 18 : 14;
+      }
+    });
+  });
+  return doc.save();
+}
+
+/** {@link HEADINGS_LEFT} at x = 50 and {@link HEADINGS_RIGHT} at x = 320. */
+export async function columnHeadingsPdf(): Promise<Uint8Array> {
+  return columnsPdf([HEADINGS_LEFT, HEADINGS_RIGHT], (p) => p === 1);
+}
+
+/** {@link LISTS_LEFT} at x = 50 and {@link LISTS_RIGHT} at x = 320. */
+export async function columnListsPdf(): Promise<Uint8Array> {
+  return columnsPdf([LISTS_LEFT, LISTS_RIGHT], (p) => p === 0);
+}
+
+/**
+ * A one-column letter set the hard way for a paragraph rule: ONE font, ONE
+ * size, ONE line pitch, no space between paragraphs — so poppler reads the
+ * whole letter as one block and only the lines themselves say where a
+ * paragraph ends. Each entry is one paragraph, one printed line per string.
+ *
+ * {@link LETTER_JUSTIFIED} paragraphs are set full measure, their LAST line
+ * included, so a break after them can only come from what follows (a heading,
+ * a list item), and a full line ending in a full stop INSIDE one ("…last
+ * week.") must not end the paragraph. Every paragraph rule in
+ * `src/lib/workers/pdf-text/flow.ts` decides at least one break here on its
+ * own: the salutation's comma, the heading after a full line, the numbered
+ * and bulleted items after full lines, "Bar hours" before a capitalised line,
+ * the closing.
+ */
+export const LETTER = [
+  ["Dear Ms Smith,"],
+  [
+    "Thank you for your letter of 3 March about the club accounts and the",
+    "proposals for next year, which the committee discussed at length last week.",
+    "It agreed to put three changes to the members at the annual meeting in May.",
+  ],
+  ["Proposals"],
+  ["1. Raise the membership fee by five percent from January to cover costs."],
+  ["2. Hold two general meetings each year."],
+  ["3. Publish the accounts online."],
+  ["Bar hours"],
+  [
+    "We will also keep the bar open later on match days, as many members asked:",
+  ],
+  ["• a trial for three months,"],
+  ["• then a vote at the next meeting."],
+  ["Yours sincerely,"],
+  ["John Doe"],
+] as const;
+/** Indexes into {@link LETTER} of the paragraphs set justified, full measure. */
+export const LETTER_JUSTIFIED: ReadonlySet<number> = new Set([1, 3, 7]);
+/** The measure {@link letterPdf} justifies to, in points. */
+const LETTER_MEASURE = 500;
+
+/** {@link LETTER} at x = 50, 11pt Helvetica, every line 14pt below the last. */
+export async function letterPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await embedDrawingFont(doc, LETTER.flat());
+  const page = doc.addPage([612, 792]);
+  let y = 740;
+  LETTER.forEach((paragraph, p) => {
+    for (const line of paragraph) {
+      if (!LETTER_JUSTIFIED.has(p)) {
+        page.drawText(line, { x: 50, y, size: 11, font });
+      } else {
+        // Word by word, the slack shared out between the gaps.
+        const words = line.split(" ");
+        const inked = words.reduce(
+          (sum, w) => sum + font.widthOfTextAtSize(w, 11),
+          0,
+        );
+        const gap = (LETTER_MEASURE - inked) / (words.length - 1);
+        let x = 50;
+        for (const word of words) {
+          page.drawText(word, { x, y, size: 11, font });
+          x += font.widthOfTextAtSize(word, 11) + gap;
+        }
+      }
+      y -= 14;
+    }
+  });
+  return doc.save();
+}
+
+/**
  * A scan with a typed line: `textPages` get `stamp` as their only text, every
  * other page is a grey rectangle standing in for a scanned image — no text at
  * all, which is what a scan is to a text extractor.
@@ -679,4 +844,25 @@ export function paragraphsReadWhole(
       ).length <= 1,
   );
   return whole && unmixed;
+}
+
+/**
+ * The strictest reading of a multi-column page, over paragraphs as a reader
+ * gets them: EXACTLY one output paragraph per source paragraph, whole, the
+ * first column's paragraphs all before the second's. What PDF to Word wrote
+ * for {@link columnHeadingsPdf} and {@link columnListsPdf} — a heading or item
+ * tabbed to its neighbour, or the right column's heading before the left
+ * column's body — fails it; so does a list collapsed into one paragraph.
+ */
+export function readColumnByColumn(
+  paragraphs: readonly string[],
+  columns: readonly (readonly (readonly string[])[])[],
+): boolean {
+  const expected = columns.flatMap((column) =>
+    column.map((source) => source.join(" ")),
+  );
+  return (
+    paragraphs.length === expected.length &&
+    paragraphs.every((p, i) => p === expected[i])
+  );
 }

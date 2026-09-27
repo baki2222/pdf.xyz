@@ -195,6 +195,10 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+/** Copy that promises the result will say WHICH pages were left out. */
+const PROMISES_A_PAGE_LIST =
+  /(tells?|shows?|lists?|names?) you (exactly )?which (ones|pages)/i;
+
 describe("PDF to Word panel — pages that were not exported", () => {
   it("names the scanned pages beside the download, with a way to OCR them", async () => {
     stubNetwork(await jobFrom(pages(SENTENCE, "", "", "")));
@@ -235,6 +239,17 @@ describe("PDF to Word panel — pages that were not exported", () => {
       await screen.findByText(/Your DOCX file is ready/),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Text found on/)).not.toBeInTheDocument();
+    // …and nothing else on the page promised it would. The panel's intro
+    // used to say "the result tells you which ones" whatever worker ran the
+    // job; against this worker that sentence was false. Only the notice,
+    // which renders from the worker's own report, may name pages.
+    expect(document.body.textContent).not.toMatch(PROMISES_A_PAGE_LIST);
+  });
+
+  it("POSITIVE CONTROL: the promise pattern catches the sentence the panel used to show", () => {
+    expect(
+      "Pages without selectable text (scans) are not included, and the result tells you which ones. Run OCR first to include them.",
+    ).toMatch(PROMISES_A_PAGE_LIST);
   });
 });
 
