@@ -18,9 +18,9 @@
  *     through it and must stay a list item;
  *   - every tool that reads only embedded text says, before a file is picked,
  *     that scans need OCR — and may not promise "any PDF". That set is
- *     DISCOVERED: the runners that call one of the extractors
- *     `@/lib/pdf/text` exports (read off that module, not typed here),
- *     reached through the page's own dispatch, plus the worker engine that
+ *     DISCOVERED: the runners that import one of the extractors
+ *     `@/lib/pdf/text` exports (read off that module, not typed here) and use
+ *     it, reached through the page's own dispatch, plus the worker engine that
  *     refuses a text-less PDF as `no_text` (proven by running it, not by
  *     reading it).
  *
@@ -32,7 +32,11 @@
  *   - the discovery, which searched for the literal `extractPdfText(`, lost
  *     pdf-to-markdown from the set while the tool still reads embedded text
  *     only; the tool-facts list then disagreed with it, and nothing else would
- *     have noticed a tool leaving the OCR check;
+ *     have noticed a tool leaving the OCR check. The same day compare-pdf's
+ *     runner (the compare fix, merged next) began taking its extractor as a
+ *     default parameter, `extract = extractPdfText`, and calling `extract(`,
+ *     and the call-shaped search lost compare-pdf too — so the discovery now
+ *     follows the IMPORT and requires a use, not a spelling of the call;
  *   - the facts were checked by feeding the converter text with NO geometry,
  *     the fallback that fix names as the defect, instead of what the runner
  *     hands it now; and a bullet was required to keep its own character,
@@ -234,15 +238,69 @@ describe("tools that read only embedded text say scans need OCR, and never promi
     ),
   ].map((m) => m[1]!);
 
+  /**
+   * Does `source` import one of {@link TEXT_EXTRACTORS} from `@/lib/pdf/text`
+   * and USE it — called, passed, or bound as a default? An import alone is
+   * not a use (loading is not running), so the local name has to appear
+   * again outside the import statement.
+   */
+  function readsEmbeddedText(source: string): boolean {
+    const IMPORT = /import\s*\{([^}]*)\}\s*from\s*["']@\/lib\/pdf\/text["'];?/g;
+    const locals = [...source.matchAll(IMPORT)].flatMap((m) =>
+      m[1]!
+        .split(",")
+        .map((spec) => spec.trim().replace(/^type\s+/, ""))
+        .filter(Boolean)
+        .map((spec) => {
+          const [imported, local] = spec.split(/\s+as\s+/);
+          return { imported: imported!, local: (local ?? imported)! };
+        })
+        .filter(({ imported }) => TEXT_EXTRACTORS.includes(imported))
+        .map(({ local }) => local),
+    );
+    const body = source.replace(IMPORT, "");
+    return locals.some((local) => new RegExp(`\\b${local}\\b`).test(body));
+  }
+
   function embeddedTextOnly(): string[] {
     const client = supportedToolSlugs.filter((slug) => {
       const file = runnerFileForSlug(slug);
-      if (!file) return false;
-      const source = withoutComments(read(file));
-      return TEXT_EXTRACTORS.some((name) => source.includes(`${name}(`));
+      return file ? readsEmbeddedText(withoutComments(read(file))) : false;
     });
     return [...client, ...PDF_OFFICE_EXPORT_TOOLS];
   }
+
+  it("the use detector follows the import, not the spelling of a call", () => {
+    const from = 'from "@/lib/pdf/text";';
+    // Positive: a call, a default parameter, a renamed import.
+    expect(
+      readsEmbeddedText(
+        `import { extractPdfText } ${from} f(extractPdfText(b));`,
+      ),
+    ).toBe(true);
+    expect(
+      readsEmbeddedText(
+        `import { extractPdfText } ${from} function g(extract = extractPdfText) { return extract(b); }`,
+      ),
+    ).toBe(true);
+    expect(
+      readsEmbeddedText(
+        `import { extractPdfLines as lines } ${from} lines(b);`,
+      ),
+    ).toBe(true);
+    // Negative: imported and never used; a type only; another module's name.
+    expect(readsEmbeddedText(`import { extractPdfText } ${from}`)).toBe(false);
+    expect(
+      readsEmbeddedText(
+        `import { type ExtractedPdfText } ${from} let x: ExtractedPdfText;`,
+      ),
+    ).toBe(false);
+    expect(
+      readsEmbeddedText(
+        'import { extractPdfText } from "./elsewhere"; extractPdfText(b);',
+      ),
+    ).toBe(false);
+  });
 
   it("reads the text module's extractors, both of them (health)", () => {
     expect(TEXT_EXTRACTORS).toEqual(
