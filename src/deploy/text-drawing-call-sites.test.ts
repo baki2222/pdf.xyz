@@ -79,6 +79,17 @@ function walk(dir: string): string[] {
   return out;
 }
 
+/** The `.test.ts(x)` files under `dir` — the modules `walk` leaves out. */
+function walkTests(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkTests(full));
+    else if (/\.(test|spec)\.tsx?$/.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
 function stripComments(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -409,9 +420,68 @@ describe("the AcroForm family, which draws text WITHOUT calling drawText", () =>
     expect(writes("const value = field.getText()")).toBe(false);
   });
 
+  /**
+   * `src/tests/` holds test SUPPORT — fixture builders a test imports. A module
+   * there that writes a form (`unflattenable-form-pdf.ts` builds the orphan-
+   * widget form Fill forms is tested on) draws text no user ever supplied, so
+   * "the user gets `WinAnsi cannot encode`" is not a claim about it. Added
+   * 2026-09-27 where this guard (L11) met that fixture (L12, merged beside it):
+   * the walk is every non-test file, and the fixture landed in the writer set.
+   *
+   * The exclusion is a FACT checked below, not an exemption: no shipped module
+   * imports anything under `src/tests/`, found by resolving every import in
+   * the tree — so nothing a user runs can reach a module it skips.
+   */
+  const TEST_SUPPORT = path.join(SRC, "tests") + path.sep;
+  const isTestSupport = (file: string) => file.startsWith(TEST_SUPPORT);
+
+  /** Every module path `source` imports, resolved (aliases and relatives). */
+  function importTargets(file: string, source: string): string[] {
+    const specs = [
+      ...source.matchAll(/\b(?:from|import)\s*\(?\s*["']([^"']+)["']/g),
+    ].map((m) => m[1]!);
+    return specs.flatMap((spec) => {
+      if (spec.startsWith("@/")) return [path.join(SRC, spec.slice(2))];
+      if (spec.startsWith(".")) return [path.resolve(path.dirname(file), spec)];
+      return [];
+    });
+  }
+
+  it("test-support modules are unreachable from shipped code (the exclusion's premise)", () => {
+    const shipped = files.filter((file) => !isTestSupport(file));
+    const reaching = shipped.flatMap((file) =>
+      importTargets(file, stripComments(readFileSync(file, "utf8")))
+        .filter(
+          (target) => isTestSupport(target + path.sep) || isTestSupport(target),
+        )
+        .map(
+          (target) =>
+            `${path.relative(ROOT, file)} -> ${path.relative(ROOT, target)}`,
+        ),
+    );
+    expect(reaching, "a shipped module imports test support").toEqual([]);
+    // POSITIVE CONTROL: the same resolver sees the tests that DO import it,
+    // so an empty list above is not a resolver that sees nothing.
+    const testFiles = walkTests(SRC);
+    const seen = testFiles.flatMap((file) =>
+      importTargets(file, stripComments(readFileSync(file, "utf8"))).filter(
+        (target) => isTestSupport(target),
+      ),
+    );
+    expect(seen.length).toBeGreaterThanOrEqual(5);
+    expect(
+      seen.some((target) => target.endsWith("unflattenable-form-pdf")),
+    ).toBe(true);
+    // And the exclusion is exercised: it skips a real module today, so it
+    // is not a rule about nothing.
+    expect(formFiles.some(isTestSupport)).toBe(true);
+  });
+
   it("every AcroForm writer refuses in words rather than leaking a library error", () => {
-    const writers = formFiles.filter((file) =>
-      writes(stripComments(readFileSync(file, "utf8"))),
+    const writers = formFiles.filter(
+      (file) =>
+        !isTestSupport(file) &&
+        writes(stripComments(readFileSync(file, "utf8"))),
     );
     // `[] ⊆ X` is vacuously true: at least the three known writers are in it.
     expect(writers.length).toBeGreaterThanOrEqual(3);
