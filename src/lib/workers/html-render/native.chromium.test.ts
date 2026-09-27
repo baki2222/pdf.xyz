@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { createNativeChromiumPdfRunner, resolveOnPath } from "./native";
+import { WebpageFetchError } from "./engine";
 import { findChromium } from "./test-chromium";
 import type { PinnedFetch, Resolve } from "./network";
 import { printChromeLeaks } from "./print-chrome";
@@ -125,6 +126,19 @@ async function renderWithPreFixArgv(html: string, name: string) {
   };
 }
 
+/**
+ * A site's error page: real HTML with real text, exactly what a 404 or a bot
+ * check hands a browser. Rendered, it makes a perfectly good PDF — which is
+ * why "Chromium produced a PDF" never meant "the page was captured".
+ */
+const ERROR_PAGE_TEXT = "Error page body the user never asked for";
+const ERROR_PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<title>Just a moment...</title></head><body><h1>${ERROR_PAGE_TEXT}</h1></body></html>`;
+const BROKEN_PARTS_TEXT = "A page with a broken image and frame";
+const BROKEN_PARTS_PAGE = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body><h1>${BROKEN_PARTS_TEXT}</h1><img src="https://frame.example/nope.png">
+<iframe src="https://frame.example/missing"></iframe></body></html>`;
+
 const fetched: string[] = [];
 const resolve: Resolve = async (host) => {
   if (host === "frame.example")
@@ -142,6 +156,18 @@ const fetch: PinnedFetch = async (url) => {
       rawHeaders: ["Content-Type", "text/html; charset=utf-8"],
       body: new TextEncoder().encode(TITLED_PAGE),
     };
+  const html = (status: number, page: string, extra: string[] = []) => ({
+    status,
+    rawHeaders: ["Content-Type", "text/html; charset=utf-8", ...extra],
+    body: new TextEncoder().encode(page),
+  });
+  if (url.pathname === "/missing") return html(404, ERROR_PAGE);
+  if (url.pathname === "/error-page-as-200") return html(200, ERROR_PAGE);
+  if (url.pathname === "/challenge")
+    return html(403, ERROR_PAGE, ["cf-mitigated", "challenge"]);
+  if (url.pathname === "/broken-parts") return html(200, BROKEN_PARTS_PAGE);
+  if (url.pathname === "/nope.png")
+    return { status: 404, rawHeaders: [], body: new Uint8Array() };
   if (url.pathname === "/to-metadata")
     return {
       status: 302,
@@ -239,12 +265,70 @@ describe.skipIf(!BIN)(
       expect(printChromeLeaks(text, { title: TITLE, sourceUrl })).toEqual([]);
     }, 90_000);
 
+    /*
+     * CHANGED 2026-09: this matched `/BLOCKED_BY_CLIENT/` in the generic
+     * render error. The refusal is now typed, so the user is told the
+     * redirect led somewhere that is never fetched.
+     */
     it("a public URL that redirects to the metadata address is refused", async () => {
       fetched.length = 0;
-      await expect(
-        runner.renderUrl("https://public.example/to-metadata"),
-      ).rejects.toThrow(/BLOCKED_BY_CLIENT/);
+      const error = await runner
+        .renderUrl("https://public.example/to-metadata")
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(WebpageFetchError);
+      expect((error as WebpageFetchError).failure).toEqual({
+        reason: "blocked",
+      });
       expect(fetched).toEqual(["https://public.example/to-metadata"]);
+    }, 90_000);
+
+    /*
+     * The status is read from the main-frame document on a REAL Chromium: the
+     * fake-pipe tests in native.test.ts assume the navigation arrives on the
+     * frame id Page.getFrameTree reported, and only a browser can confirm it.
+     */
+    it("a site that answers 404 fails the render instead of printing its error page", async () => {
+      // Positive control: the very same page, answered 200, renders and its
+      // text is readable — so the refusal below is the STATUS, not a page
+      // Chromium could not print or a reader that could not see it.
+      const control = await pdfText(
+        await runner.renderUrl("https://public.example/error-page-as-200"),
+      );
+      expect(control).toContain(ERROR_PAGE_TEXT);
+
+      const error = await runner
+        .renderUrl("https://public.example/missing")
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(WebpageFetchError);
+      expect((error as WebpageFetchError).failure).toEqual({
+        reason: "http",
+        status: 404,
+      });
+    }, 90_000);
+
+    it("a bot-check answer is named as one", async () => {
+      const error = await runner
+        .renderUrl("https://public.example/challenge")
+        .catch((e: unknown) => e);
+      expect((error as WebpageFetchError).failure).toEqual({
+        reason: "challenge",
+        status: 403,
+      });
+    }, 90_000);
+
+    it("a broken image or iframe inside a page does not fail it", async () => {
+      fetched.length = 0;
+      const text = await pdfText(
+        await runner.renderUrl("https://public.example/broken-parts"),
+      );
+      expect(text).toContain(BROKEN_PARTS_TEXT);
+      // Both broken parts were really asked for, and answered with errors.
+      expect(fetched).toEqual(
+        expect.arrayContaining([
+          "https://frame.example/nope.png",
+          "https://frame.example/missing",
+        ]),
+      );
     }, 90_000);
   },
 );

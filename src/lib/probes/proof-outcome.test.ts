@@ -28,7 +28,19 @@
  * blind predicate reports the strongest possible pass.
  */
 import { describe, expect, it } from "vitest";
+import { PDFDocument } from "pdf-lib";
+import { DEFAULT_RETENTION } from "@/lib/jobs";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
+import { createWorkerExecutor } from "@/lib/workers/executor/executor";
+import { createLocalDevExecutorStorage } from "@/lib/workers/executor/local-dev-storage";
+import {
+  WebpageFetchError,
+  webpageFetchMessage,
+  type ChromiumPdfRunner,
+} from "@/lib/workers/html-render/engine";
+import { createProcessorRegistry } from "@/lib/workers/processor";
+import { createLocalDevQueue } from "@/lib/workers/queue/local-dev";
+import { DevWorkerStore } from "@/lib/workers/store";
 import {
   AI_ALLOWANCE_USED_MESSAGE,
   RATE_LIMITED_MESSAGE,
@@ -41,6 +53,7 @@ import {
   UNPROVEN_CAUSES,
   UNPROVEN_VIAS,
   harnessExitCode,
+  judgeExpectedRefusal,
   orderSpecsForAllowance,
   refusalVerdict,
   unprovenSummaryLines,
@@ -481,5 +494,76 @@ describe("orderSpecsForAllowance", () => {
       "chat-with-pdf",
       "chat-with-pdf (follow-up)",
     ]);
+  });
+});
+
+/*
+ * webpage-to-pdf's negative proof: ask for a page the site answers 404 and
+ * require the job to REFUSE it. Judged here through the whole worker chain —
+ * renderer error -> engine -> processor -> executor -> the stored job the API
+ * serves — because each hop can drop the reason on its own: the engine's
+ * catch used to replace every error with one generic sentence.
+ */
+describe("the expected-refusal proof (webpage-to-pdf 404)", () => {
+  const NOT_FOUND = webpageFetchMessage({ reason: "http", status: 404 });
+  /** A real one-page PDF: what Chromium prints from an error page. */
+  const printedErrorPage = async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([300, 300]);
+    return doc.save();
+  };
+
+  async function jobAfterRender(renderUrl: ChromiumPdfRunner["renderUrl"]) {
+    let clock = 100_000;
+    const store = new DevWorkerStore(() => clock);
+    const queue = createLocalDevQueue({ store, now: () => clock });
+    await queue.submit({
+      job: {
+        jobId: "job_proof404000",
+        tool: "webpage-to-pdf",
+        capability: "secure-worker",
+        status: "queued",
+        progress: 0,
+        createdAt: new Date(clock).toISOString(),
+        updatedAt: new Date(clock).toISOString(),
+        expiresAt: new Date(clock + 3_600_000).toISOString(),
+        retention: DEFAULT_RETENTION,
+      },
+      inputs: [],
+      options: { url: "https://example.com/pdfxyz-proof-404" },
+    });
+    await createWorkerExecutor({
+      queue,
+      storage: createLocalDevExecutorStorage({ store, now: () => clock }),
+      registry: createProcessorRegistry({
+        htmlRender: { chromium: { renderHtml: printedErrorPage, renderUrl } },
+      }),
+      leaseMs: 1_000,
+    }).drain();
+    clock += 1;
+    return store.getJob("job_proof404000")!;
+  }
+
+  it("passes when the worker refuses the 404 with the site's reason", async () => {
+    const job = await jobAfterRender(async () => {
+      throw new WebpageFetchError({ reason: "http", status: 404 });
+    });
+    expect(judgeExpectedRefusal(NOT_FOUND, job)).toMatchObject({ ok: true });
+  });
+
+  it("goes red when the worker prints the 404 page instead (the pre-2026-09 worker)", async () => {
+    const job = await jobAfterRender(printedErrorPage);
+    expect(job.status).toBe("completed");
+    const verdict = judgeExpectedRefusal(NOT_FOUND, job);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toMatch(/COMPLETED/);
+  });
+
+  it("goes red when the job fails for a reason that is not the site's", async () => {
+    const job = await jobAfterRender(async () => {
+      throw new Error("Chromium exited before the render finished.");
+    });
+    expect(judgeExpectedRefusal(NOT_FOUND, job)).toMatchObject({ ok: false });
+    expect(judgeExpectedRefusal(NOT_FOUND, {})).toMatchObject({ ok: false });
   });
 });

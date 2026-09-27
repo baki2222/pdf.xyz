@@ -7,11 +7,17 @@ import type { Readable, Writable } from "node:stream";
 import { looksLikePdf } from "../compression/engine";
 import { CdpConnection, type CdpEvent, type CdpPipe } from "./cdp";
 import { HTML_DOCUMENT_URL } from "./document-url";
-import type { ChromiumPdfRunner, HtmlRenderDeps } from "./engine";
+import {
+  WebpageFetchError,
+  type ChromiumPdfRunner,
+  type HtmlRenderDeps,
+  type WebpageFetchFailure,
+} from "./engine";
 import {
   createRenderNetwork,
   type PausedRequest,
   type RenderNetworkSeams,
+  type RequestDecision,
 } from "./network";
 import {
   resolveNativeHtmlRenderConfig,
@@ -255,6 +261,52 @@ export function probeChromiumFromConfig(
 type RenderTarget =
   { kind: "html"; bytes: Uint8Array } | { kind: "url"; url: string };
 
+/**
+ * What a main-frame document's answer says about the page a user asked for:
+ * null when it IS a page (2xx, or a 3xx whose follow-up comes back through
+ * here and replaces this verdict), otherwise why it is not.
+ *
+ * History: until 2026-09 the only success criteria were "Chromium exited 0"
+ * and "the output starts %PDF-". A 404, a 500, a login wall or a Cloudflare
+ * "Just a moment..." page is a successful navigation, so its page was printed
+ * and handed back as "Your PDF is ready." The status is read here, from the
+ * response this module itself fulfilled — never from a sub-resource, which
+ * fails without failing the page.
+ *
+ * `cf-mitigated: challenge` is the one bot-check marker read, and only as a
+ * header the site sent: it names the failure, while the 403 it arrives with
+ * would fail the render anyway. A page title such as "Just a moment..." is
+ * deliberately NOT read — a real page may carry those words — so a bot check
+ * served with a 200 is still printed. That is a known gap, not a guarantee.
+ */
+export function mainDocumentVerdict(
+  decision: RequestDecision,
+): WebpageFetchFailure | null {
+  if (decision.action === "fail") {
+    switch (decision.reason) {
+      case "BlockedByClient":
+      case "AccessDenied":
+        return { reason: "blocked" };
+      case "NameNotResolved":
+        return { reason: "unresolved" };
+      case "ConnectionFailed":
+      case "TimedOut":
+        return { reason: "unreachable" };
+      case "Failed":
+        return { reason: "unreadable" };
+    }
+  }
+  const challenged = decision.headers.some(
+    (h) =>
+      h.name.toLowerCase() === "cf-mitigated" &&
+      h.value.trim().toLowerCase() === "challenge",
+  );
+  if (challenged) return { reason: "challenge", status: decision.status };
+  if (decision.status >= 400)
+    return { reason: "http", status: decision.status };
+  return null;
+}
+
 const INTERCEPT_ALL = { patterns: [{ urlPattern: "*" }] };
 
 export function createNativeChromiumPdfRunner(
@@ -276,6 +328,8 @@ export function createNativeChromiumPdfRunner(
     const network = createRenderNetwork(seams.network);
     let documentServed = false;
     let mainFrameId = "";
+    /** The latest main-frame document's verdict (url renders only). */
+    let pageVerdict: WebpageFetchFailure | null = null;
 
     const answer = async (event: CdpEvent): Promise<void> => {
       const p = event.params as {
@@ -309,6 +363,14 @@ export function createNativeChromiumPdfRunner(
       }
       seams.onRequest?.({ url: p.request.url, resourceType: p.resourceType });
       const decision = await network.handle(p.request);
+      // Recorded BEFORE Chromium is answered: Page.navigate settles on that
+      // answer, and the verdict must already be here when it does.
+      if (
+        target.kind === "url" &&
+        p.resourceType === "Document" &&
+        p.frameId === mainFrameId
+      )
+        pageVerdict = mainDocumentVerdict(decision);
       if (decision.action === "fail") {
         await cdp.send(
           "Fetch.failRequest",
@@ -396,6 +458,16 @@ export function createNativeChromiumPdfRunner(
       { url },
       pageSession,
     );
+    if (target.kind === "url") {
+      // The site's answer outranks Chromium's summary of it: a blocked
+      // redirect and a refused download both arrive as `errorText`.
+      if (pageVerdict) throw new WebpageFetchError(pageVerdict);
+      if (nav.errorText)
+        throw new WebpageFetchError({
+          reason: "navigation",
+          errorText: nav.errorText,
+        });
+    }
     if (nav.errorText) throw new Error(`navigation failed: ${nav.errorText}`);
     if (target.kind === "html" && !documentServed)
       throw new Error("the uploaded document was never served");
@@ -409,6 +481,10 @@ export function createNativeChromiumPdfRunner(
       pageSession,
     );
     await budget;
+    // Again after the page has run: a script or a meta refresh may have taken
+    // the main frame somewhere that answered with an error.
+    if (target.kind === "url" && pageVerdict)
+      throw new WebpageFetchError(pageVerdict);
 
     const { stream } = await cdp.send<{ stream: string }>(
       "Page.printToPDF",
@@ -470,6 +546,8 @@ export function createNativeChromiumPdfRunner(
       try {
         bytes = await Promise.race([drive(cdp, target), deadline, died]);
       } catch (error) {
+        // What the site did travels to the user intact.
+        if (error instanceof WebpageFetchError) throw error;
         throw new Error(
           `Chromium HTML rendering failed: ${error instanceof Error ? error.message : String(error)}`,
         );

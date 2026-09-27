@@ -66,9 +66,11 @@ import { embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
+import { webpageFetchMessage } from "@/lib/workers/html-render/engine";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
   harnessExitCode,
+  judgeExpectedRefusal,
   orderSpecsForAllowance,
   refusalVerdict,
   specKey,
@@ -710,6 +712,12 @@ interface ProofSpec {
    * pass) reaches the operator.
    */
   verify?: (bytes: Buffer) => Promise<{ ok: boolean; detail: string }>;
+  /**
+   * The proof passes only if the job FAILS with exactly this user-facing
+   * message (see `judgeExpectedRefusal`). A delivered artifact is itself the
+   * failure, so `expect` and `verify` are never reached for such a spec.
+   */
+  refuses?: string;
   want: string;
   keepArtifactAs?: string;
 }
@@ -848,6 +856,18 @@ const SPECS: ProofSpec[] = [
       sourceUrl: "https://example.com/",
     }),
     want: "PDF of the page with no print header or footer",
+  },
+  {
+    // The NEGATIVE control for the spec above, and the only proof that the
+    // worker reads the site's answer at all. example.com answers any other
+    // path with a 404 carrying ITS HOME PAGE ("Example Domain"), so until
+    // 2026-09 this printed a PDF the spec above would have passed.
+    tool: "webpage-to-pdf",
+    label: "webpage-to-pdf (404 refused)",
+    url: "https://example.com/pdfxyz-proof-404",
+    refuses: webpageFetchMessage({ reason: "http", status: 404 }),
+    expect: () => false,
+    want: "the job refused with the site's 404, not a PDF of the error page",
   },
   {
     tool: "word-to-pdf",
@@ -1317,6 +1337,23 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     const poll = await fetch(`${BASE}/api/jobs/${jobId}`);
     job = (await poll.json().catch(() => ({}))) as ApiResponse;
     if (job.status && TERMINAL_STATUSES.has(job.status)) break;
+  }
+  if (spec.refuses !== undefined) {
+    const verdict = judgeExpectedRefusal(spec.refuses, job);
+    return verdict.ok
+      ? {
+          label,
+          outcome: "proven",
+          seconds: seconds(),
+          detail: verdict.detail,
+        }
+      : {
+          label,
+          outcome: "failed",
+          seconds: seconds(),
+          stage: "expected refusal",
+          detail: verdict.detail,
+        };
   }
   if (job.status !== "completed") {
     return {

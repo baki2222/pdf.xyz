@@ -187,6 +187,61 @@ export function refusalVerdict(observed: ObservedRefusal): RefusalVerdict {
 }
 
 /* ------------------------------------------------------------------ *
+ *  A proof whose PASS is a refusal
+ * ------------------------------------------------------------------ */
+
+/** The terminal job fields an expected-refusal proof reads. */
+export interface ObservedJob {
+  status?: string;
+  error?: { code: string; message: string };
+}
+
+/**
+ * Judge a proof that passes only when the job FAILS, with exactly the
+ * sentence the worker gives users for that failure.
+ *
+ * Why this shape exists: webpage-to-pdf's proof renders https://example.com/
+ * and requires "Example Domain" in the PDF — and example.com answers every
+ * other path with a 404 carrying THE SAME PAGE. Until 2026-09 the worker
+ * printed error pages like any other, so a proof that reads the text could not
+ * tell the page from its 404. Only a proof that asks for the 404 and requires
+ * the job to refuse it can see that the status is read at all.
+ *
+ * The expected sentence is passed in from the engine's own message function,
+ * never retyped, so rewording it moves the proof with it. A COMPLETED job is
+ * the loudest failure here: it means a user was handed a PDF of an error page.
+ */
+export function judgeExpectedRefusal(
+  expectedMessage: string,
+  job: ObservedJob,
+): { ok: boolean; detail: string } {
+  if (job.status === "completed")
+    return {
+      ok: false,
+      detail:
+        "the job COMPLETED — the worker delivered a PDF of a page the site refused, as if it were the page",
+    };
+  if (job.status !== "failed")
+    return {
+      ok: false,
+      detail: `the job ended "${job.status ?? "timeout"}", not refused`,
+    };
+  if (job.error?.message !== expectedMessage)
+    return {
+      ok: false,
+      detail:
+        `the job failed, but not with the site's reason: ${job.error ? `${job.error.code}: ${job.error.message}` : "(no error)"}`.slice(
+          0,
+          240,
+        ),
+    };
+  return {
+    ok: true,
+    detail: `refused as it should be — ${job.error.code}: ${job.error.message}`,
+  };
+}
+
+/* ------------------------------------------------------------------ *
  *  Exit code
  * ------------------------------------------------------------------ */
 
