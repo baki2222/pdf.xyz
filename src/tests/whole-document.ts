@@ -10,6 +10,7 @@ import {
 } from "pdf-lib";
 import { awaitPdfjsDocument, loadPdfjs } from "@/lib/pdf/pdfjs";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 
 /**
  * A document that carries, besides its pages, every kind of document-level
@@ -22,7 +23,8 @@ import { embedDrawingFont } from "@/lib/pdf/unicode-font";
  * sent every page, in order, through the assembler, and measured at 8e270e8
  * it returned the file with the attachment, the XMP stream, the tag tree and
  * the custom key gone. Shared by `page-copy.test.ts` (the engine) and
- * `runner-flows.test.tsx` (the Rotate PDF runner, read at the download).
+ * `runner-flows.test.tsx` (the Rotate PDF and Organize PDF runners, read at
+ * the download).
  */
 
 export const WHOLE_DOCUMENT = {
@@ -135,7 +137,12 @@ export async function documentLevelState(bytes: Uint8Array) {
   }
 
   const pdfjs = await loadPdfjs();
-  const task = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  // Opened as every viewer in the product opens a file: the shared options,
+  // not hand-built ones (`wasm-assets.test.ts` reads this file too).
+  const task = pdfjs.getDocument({
+    data: bytes.slice(),
+    ...PDFJS_DOCUMENT_DEFAULTS,
+  });
   const pdf = await awaitPdfjsDocument(task);
   try {
     // What a viewer lists in its attachments panel (pdfjs: a Map by name).

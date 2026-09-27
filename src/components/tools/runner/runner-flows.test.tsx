@@ -20,6 +20,7 @@ import { ImageToPdfRunner } from "./image-to-pdf-runner";
 import { isImageAllowedForKind } from "@/lib/pdf/image-to-pdf";
 import { HandoffLoadedBadge } from "./handoff-notice";
 import { RotateRunner } from "./rotate-runner";
+import { OrganizeRunner } from "./organize-runner";
 import { documentLevelState, wholeDocumentPdf } from "@/tests/whole-document";
 
 /**
@@ -310,6 +311,65 @@ describe("Rotate PDF downloads the whole document, turned", () => {
       );
       // The runner did what the user asked...
       expect(output.rotations).toEqual(input.rotations.map((r) => r + 90));
+      // ...and nothing else.
+      expect(output.catalogKeys).toEqual(input.catalogKeys);
+      expect(output.info).toEqual(input.info);
+      expect(output.attachments).toEqual(input.attachments);
+      expect(output.xmpTitle).toBe(input.xmpTitle);
+      expect(output.marked).toBe(true);
+      // Health check: the input really carried each of them.
+      expect(Object.keys(input.attachments)).toHaveLength(1);
+      expect(input.xmpTitle).not.toBeNull();
+    } finally {
+      URL.createObjectURL = previous;
+    }
+  }, 30_000);
+});
+
+describe("Organize PDF downloads the whole document when it removes no page", () => {
+  // The same plan Rotate PDF sends — every page, in order, one turned — built
+  // by the OTHER runner that can send it. The engine test ("one page turned")
+  // proves organizePages keeps document-level state for that plan; this reads
+  // the file a person downloads from the Organize tool, so a runner that
+  // built a different plan (or called a different engine) could not pass.
+  it("keeps every catalog and /Info entry, the attachment, XMP and tags", async () => {
+    const bytes = await wholeDocumentPdf();
+    const input = await documentLevelState(bytes);
+    const downloads: Blob[] = [];
+    const previous = URL.createObjectURL;
+    URL.createObjectURL = (blob: Blob | MediaSource) => {
+      if (blob instanceof Blob && blob.type === "application/pdf") {
+        downloads.push(blob);
+      }
+      return "blob:download";
+    };
+    try {
+      const { container } = renderRunner(<OrganizeRunner />);
+      pick(container, [
+        new File([bytes.slice()], "ledger.pdf", { type: "application/pdf" }),
+      ]);
+      fireEvent.click(
+        await screen.findByRole(
+          "button",
+          { name: "Rotate page 1 right" },
+          { timeout: 10_000 },
+        ),
+      );
+      fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
+      await screen.findByText("Pages organized", undefined, {
+        timeout: 10_000,
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: /download organized pdf/i }),
+      );
+      expect(downloads).toHaveLength(1);
+      const output = await documentLevelState(
+        new Uint8Array(await downloads[0]!.arrayBuffer()),
+      );
+      // The runner did what the user asked...
+      expect(output.rotations).toEqual(
+        input.rotations.map((r, i) => (i === 0 ? r + 90 : r)),
+      );
       // ...and nothing else.
       expect(output.catalogKeys).toEqual(input.catalogKeys);
       expect(output.info).toEqual(input.info);
