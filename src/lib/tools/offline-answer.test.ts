@@ -45,6 +45,24 @@
  *    network fetches. They are not document-dependent in the same way and are
  *    covered by ENGINE_ARRIVES_FACT ("parts of the engine are fetched the
  *    first time a step needs them"), which this file does not re-derive.
+ *  - A `getDocument` is classified by what ITS declaration does with the
+ *    document. One that opened a document and handed it to another
+ *    declaration to render would be under-classified — so a document that
+ *    leaves its declaration without being evaluated there is UNCLASSIFIED,
+ *    which is fatal below, not a quiet empty set.
+ *
+ * ── AMENDED 2026-09-27, at the merge with L12 ───────────────────────────────
+ *
+ *  This classified every `getDocument` that spreads PDFJS_DOCUMENT_DEFAULTS as
+ *  a character-map fetch "on any parse". L12 (c27ec09) added
+ *  `classifyPdfAccess`, which opens a document only to read its metadata and
+ *  is reached from every single-PDF runner — and 13 pages were then told they
+ *  fetch a character map mid-run. They do not: pdf.js fetches a CMap in its
+ *  PartialEvaluator, when a FONT is loaded, which happens only when page
+ *  content is evaluated (a render, an operator list, text content, a save
+ *  that regenerates appearances). Reading /Info and XMP loads no font. So the
+ *  class now needs the property that causes the fetch, as image-decoder
+ *  already needed a render.
  */
 import type * as TS from "typescript";
 import { createRequire } from "node:module";
@@ -328,30 +346,85 @@ function reach(root: NodeId): Set<NodeId> {
 interface Site {
   readonly id: NodeId;
   readonly text: string;
-  /** Empty = a fetch nobody has classified. */
+  /** What this site fetches mid-run; empty when it fetches nothing. */
   readonly classes: readonly MidRunFetch[];
+  /** False = a fetch nobody has classified. Fatal when reached. */
+  readonly classified: boolean;
+}
+
+/**
+ * The pdf.js calls that evaluate page content — the only path by which pdf.js
+ * loads a font (and so a CMap) or decodes an image. Page methods and the
+ * document's save, which regenerates annotation appearances.
+ */
+const EVALUATES_CONTENT = new Set([
+  "render",
+  "getOperatorList",
+  "getTextContent",
+  "streamTextContent",
+  "saveDocument",
+]);
+
+/**
+ * Whether a document loaded in `node` (`const x = await <task>.promise`) is
+ * handed out of it — returned, passed to a call, or put in an object — so
+ * that some OTHER declaration could evaluate it.
+ */
+function documentLeaves(node: TS.Node): boolean {
+  const loaded = new Set<string>();
+  const findLoaded = (n: TS.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      ts.isAwaitExpression(n.initializer) &&
+      ts.isPropertyAccessExpression(n.initializer.expression) &&
+      n.initializer.expression.name.text === "promise"
+    )
+      loaded.add(n.name.text);
+    ts.forEachChild(n, findLoaded);
+  };
+  findLoaded(node);
+  let leaves = false;
+  const isLoaded = (e: TS.Node | undefined) =>
+    !!e && ts.isIdentifier(e) && loaded.has(e.text);
+  const visit = (n: TS.Node): void => {
+    if (ts.isReturnStatement(n) && isLoaded(n.expression)) leaves = true;
+    if (ts.isCallExpression(n) && n.arguments.some(isLoaded)) leaves = true;
+    if (ts.isShorthandPropertyAssignment(n) && loaded.has(n.name.text))
+      leaves = true;
+    if (ts.isPropertyAssignment(n) && isLoaded(n.initializer)) leaves = true;
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return leaves;
 }
 
 /**
  * The network fetches inside one declaration.
  *
  * `getDocument` is classified by the PROPERTY that makes pdfjs fetch: the
- * options it spreads carry a non-null `cMapUrl` (character maps, on any parse)
- * and `wasmUrl` (image decoders — reached only when the declaration renders a
- * page). Unset those options and the classes go away with them.
+ * options it spreads carry a non-null `cMapUrl` (character maps — fetched when
+ * a font is loaded, so only when the declaration evaluates page content) and
+ * `wasmUrl` (image decoders — reached only when the declaration renders a
+ * page). Unset those options and the classes go away with them. A document
+ * that is evaluated nowhere here but LEAVES the declaration is unclassified.
  */
 function sitesIn(id: NodeId): Site[] {
   const node = declOf(id);
   if (!node) return [];
   const found: Site[] = [];
   let renders = false;
+  let evaluates = false;
   const scan = (n: TS.Node): void => {
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
-      n.expression.name.text === "render"
-    )
-      renders = true;
+      EVALUATES_CONTENT.has(n.expression.name.text)
+    ) {
+      evaluates = true;
+      if (n.expression.name.text === "render") renders = true;
+    }
     ts.forEachChild(n, scan);
   };
   scan(node);
@@ -369,6 +442,7 @@ function sitesIn(id: NodeId): Site[] {
           id,
           text: n.getText(),
           classes: font ? ["drawing-font"] : [],
+          classified: !!font,
         });
       } else if (
         ts.isPropertyAccessExpression(callee) &&
@@ -385,11 +459,16 @@ function sitesIn(id: NodeId): Site[] {
               p.expression.text === "PDFJS_DOCUMENT_DEFAULTS",
           );
         const classes: MidRunFetch[] = [];
-        if (spreadsDefaults && PDFJS_DOCUMENT_DEFAULTS.cMapUrl)
+        if (spreadsDefaults && PDFJS_DOCUMENT_DEFAULTS.cMapUrl && evaluates)
           classes.push("character-map");
         if (spreadsDefaults && PDFJS_DOCUMENT_DEFAULTS.wasmUrl && renders)
           classes.push("image-decoder");
-        found.push({ id, text: n.getText(), classes });
+        found.push({
+          id,
+          text: n.getText(),
+          classes,
+          classified: evaluates || !documentLeaves(node),
+        });
       }
     }
     ts.forEachChild(n, visit);
@@ -475,17 +554,27 @@ describe("the fetch-site graph is healthy", () => {
       for (const s of reachedBy(t.slug).sites) all.set(`${s.id} ${s.text}`, s);
     const ids = new Set([...all.values()].map((s) => rel(s.id)));
     // Positive controls: each class has the site the wasm-assets docblock and
-    // unicode-font name.
-    expect(ids).toContain("lib/pdf/render.ts#rasterizePdf");
+    // unicode-font name. The raster site moved from rasterizePdf into
+    // capturePdfPages when L08 (85ee451) made rasterizePdf a thin wrapper.
+    expect(ids).toContain("lib/pdf/render.ts#capturePdfPages");
     expect(ids).toContain("lib/pdf/render.ts#createThumbnailRenderer");
     expect(ids).toContain("lib/pdf/text.ts#extractPdfText");
     expect(ids).toContain("lib/pdf/unicode-font.ts#fetchFromOrigin");
     const classesOf = (id: string) =>
       [...all.values()].filter((s) => rel(s.id) === id)[0]?.classes ?? [];
-    expect([...classesOf("lib/pdf/render.ts#rasterizePdf")].sort()).toEqual([
+    expect([...classesOf("lib/pdf/render.ts#capturePdfPages")].sort()).toEqual([
       "character-map",
       "image-decoder",
     ]);
+    // NEGATIVE control, and the site that made this distinction necessary: a
+    // document opened only for its metadata is discovered, classified, and
+    // fetches nothing (L12's classifyPdfAccess).
+    const access = [...all.values()].find(
+      (s) => rel(s.id) === "lib/pdf/encryption.ts#classifyPdfAccess",
+    );
+    expect(access, "the metadata-only site is not discovered").toBeDefined();
+    expect(access!.classified).toBe(true);
+    expect(access!.classes).toEqual([]);
     expect(classesOf("lib/pdf/text.ts#extractPdfText")).toEqual([
       "character-map",
     ]);
@@ -517,7 +606,7 @@ describe("the fetch-site graph is healthy", () => {
   it("no in-browser runner reaches a fetch nobody classified", () => {
     const unclassified = inBrowser().flatMap((t) =>
       reachedBy(t.slug)
-        .sites.filter((s) => s.classes.length === 0)
+        .sites.filter((s) => !s.classified)
         .map((s) => `${t.slug}: ${rel(s.id)} ${s.text}`),
     );
     expect(unclassified).toEqual([]);
