@@ -29,6 +29,7 @@ import { resetAnnouncer } from "@/components/a11y/live-region";
 import { readAsViewer } from "@/tests/pdfjs-viewer";
 import { HeaderFooterEditor } from "./header-footer-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 const NOW = new Date(2026, 8, 27, 12, 0, 0);
 
@@ -90,6 +91,7 @@ async function loadedPdf(): Promise<LoadedPdf> {
     bytes,
     pageCount: 1,
     rotations: [0],
+    digitalSignatures: countDigitalSignatures(bytes),
   };
 }
 

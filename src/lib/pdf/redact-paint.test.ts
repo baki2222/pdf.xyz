@@ -144,6 +144,9 @@ function pixelRasterizer() {
         height,
         pageWidth: size.width,
         pageHeight: size.height,
+        // Rendered at exactly the requested DPI: this stand-in has no size cap.
+        dpi: options.dpi ?? 150,
+        dpiCapped: false,
         undecodedImages: 0,
       };
     });

@@ -34,6 +34,7 @@ import {
   type Extraction,
 } from "./extract-images-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 const JPG_1X1 = Uint8Array.from(
   Buffer.from(
@@ -61,6 +62,7 @@ function loaded(bytes: Uint8Array): LoadedPdf {
     bytes,
     pageCount: 1,
     rotations: [0],
+    digitalSignatures: countDigitalSignatures(bytes),
   };
 }
 
