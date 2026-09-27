@@ -5,6 +5,7 @@ import { withoutComments } from "@/lib/tools/copy-surface";
 import {
   RASTER_RESOLUTIONS,
   lowerResolutionThan,
+  rasterCapInches,
   rasterCapNote,
   zipFailureFallback,
 } from "./pdf-to-image";
@@ -13,7 +14,7 @@ import { RASTER_MAX_DEVICE_PX, rasterPageScale } from "./render-utils";
 /**
  * "Print · 300 DPI" is a promise about the pixels. The rasterizer keeps both
  * sides of a page under RASTER_MAX_DEVICE_PX, so a page longer than
- * 5000 / 300 = 16.7 in comes out BELOW the DPI the chip and the result summary
+ * 5000 / 300 = 16.67 in comes out BELOW the DPI the chip and the result summary
  * named — tabloid at ~294, A2 at ~213, ARCH D at ~138 — and nothing said so.
  * The clamp happened inside `renderDimensions`, which returned a scale and no
  * verdict, so no layer above it COULD say so.
@@ -90,10 +91,12 @@ describe("rasterPageScale — the engine reports the DPI it actually renders at"
   });
 
   it("the rasterizer takes its scale from rasterPageScale, and nothing re-declares the cap", () => {
-    // `rasterizePdf` needs a real canvas, which this suite does not have, so
-    // the seam is pinned here: the engine calls the helper this file tests,
-    // and `RasterPage` REQUIRES `dpi` and `dpiCapped`, so omitting them from
-    // the page it builds is a type error, not a silent drop.
+    // A source check, and on its own it was not enough: review kept this green
+    // while `rasterizePdf` dropped `dpiCapped` (M3) or sized the viewport from
+    // the requested DPI instead of this helper's scale (M5). The seam is now
+    // RUN, through the real `rasterizePdf` to the downloaded PNG, by
+    // src/components/tools/runner/pdf-to-image-chain.test.tsx. This stays for
+    // the second half: nothing else re-declares the cap.
     const render = withoutComments(
       readFileSync(path.join(process.cwd(), "src/lib/pdf/render.ts"), "utf8"),
     );
@@ -107,6 +110,38 @@ describe("rasterPageScale — the engine reports the DPI it actually renders at"
         ),
       );
     expect(declares).toEqual(["render-utils.ts"]);
+  });
+});
+
+describe("rasterCapInches — the largest page a preset keeps at full DPI", () => {
+  it("fits under the cap, and is the LARGEST tenth of an inch that does, for every preset", () => {
+    // It was `(cap / dpi).toFixed(1)`: 16.667 became "16.7 in", naming a
+    // 16.68 in page as safe when the cap lowers it. Floored, never rounded.
+    expect(RASTER_RESOLUTIONS.length).toBeGreaterThan(0);
+    for (const res of RASTER_RESOLUTIONS) {
+      const inches = Number(rasterCapInches(res.dpi, RASTER_MAX_DEVICE_PX));
+      expect(inches * res.dpi, res.label).toBeLessThanOrEqual(
+        RASTER_MAX_DEVICE_PX,
+      );
+      expect((inches + 0.1) * res.dpi, res.label).toBeGreaterThan(
+        RASTER_MAX_DEVICE_PX,
+      );
+    }
+    expect(rasterCapInches(300, RASTER_MAX_DEVICE_PX)).toBe("16.6");
+    // Control: an exact fit is not floored away (5000 / 250 = 20.0).
+    expect(rasterCapInches(250, RASTER_MAX_DEVICE_PX)).toBe("20.0");
+  });
+
+  it("agrees with the engine: a page of exactly that size is not capped, a tenth more is", () => {
+    for (const res of RASTER_RESOLUTIONS) {
+      const inches = Number(rasterCapInches(res.dpi, RASTER_MAX_DEVICE_PX));
+      const pt = inches * 72;
+      expect(rasterPageScale(pt, pt, res.dpi).dpiCapped, res.label).toBe(false);
+      const over = (inches + 0.1) * 72;
+      expect(rasterPageScale(over, over, res.dpi).dpiCapped, res.label).toBe(
+        true,
+      );
+    }
   });
 });
 

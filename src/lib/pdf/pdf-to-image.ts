@@ -137,6 +137,17 @@ export function zipFailureFallback({
 }
 
 /**
+ * The longest page side, in inches, that `dpi` renders at full resolution
+ * under the rasterizer's `maxDevicePx` cap — what a preset chip promises
+ * before anything renders. Floored to a tenth, never rounded: 5000 / 300 is
+ * 16.67 in, and "16.7 in" would name a 16.68 in page as safe when the cap
+ * lowers it.
+ */
+export function rasterCapInches(dpi: number, maxDevicePx: number): string {
+  return (Math.floor((maxDevicePx / dpi) * 10) / 10).toFixed(1);
+}
+
+/**
  * What the result panel says when the rasterizer rendered pages BELOW the DPI
  * the user picked — `null` when it did not. Pages longer than
  * `maxDevicePx / requestedDpi` inches are capped (see `RASTER_MAX_DEVICE_PX`);

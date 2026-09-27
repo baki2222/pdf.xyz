@@ -15,6 +15,7 @@ import {
   DEFAULT_RESOLUTION_ID,
   RASTER_MIME,
   lowerResolutionThan,
+  rasterCapInches,
   rasterCapNote,
   zipFailureFallback,
   RASTER_RESOLUTIONS,
@@ -167,9 +168,10 @@ function PdfToImageEditor({
               onClick={() => changeResolution(res.id)}
               disabled={busy}
               active={res.id === resolutionId}
-              title={`${res.dpi} DPI — pages over ${(
-                RASTER_MAX_DEVICE_PX / res.dpi
-              ).toFixed(1)} in on a side render lower`}
+              title={`${res.dpi} DPI for pages up to ${rasterCapInches(
+                res.dpi,
+                RASTER_MAX_DEVICE_PX,
+              )} in on a side; larger pages may render lower`}
             >
               {res.label}
               <span className="text-muted text-[10px]">{res.dpi} DPI</span>

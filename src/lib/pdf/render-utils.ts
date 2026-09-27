@@ -114,9 +114,13 @@ export function renderDimensions(
  * freed before the next renders).
  *
  * It is a promise-breaker by design: any page longer than
- * `RASTER_MAX_DEVICE_PX / dpi` inches on a side (16.7 in at 300 DPI — tabloid
- * already) renders BELOW the DPI the user chose. So the cap is never applied
- * silently — {@link rasterPageScale} reports it on every page.
+ * `RASTER_MAX_DEVICE_PX / dpi` inches on a side (16.67 in at 300 DPI — tabloid
+ * already) renders BELOW the DPI the user chose. {@link rasterPageScale}
+ * reports that on every page (`dpiCapped`), but a report is only as good as
+ * its reader: PDF to PNG / JPG reads it and says so on the result
+ * (proved through `rasterizePdf` by pdf-to-image-chain.test.tsx). Grayscale
+ * and redact also name a DPI on their presets and do NOT read it yet, so a
+ * large page there is still lowered without a word.
  */
 export const RASTER_MAX_DEVICE_PX = 5000;
 

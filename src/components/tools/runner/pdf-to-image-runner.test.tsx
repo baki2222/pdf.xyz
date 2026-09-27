@@ -13,8 +13,12 @@ import { ImageResult } from "./pdf-to-image-runner";
  * panel used to name only the preset — "Print · 4.1 MB · bundled as a ZIP" —
  * over an A2 drawing delivered at 213 DPI.
  *
- * The pages are built the way `rasterizePdf` builds them: `dpi` and
- * `dpiCapped` come from `rasterPageScale`, the helper the engine calls.
+ * The pages here are built BY HAND from `rasterPageScale`, so this file proves
+ * the panel, not the engine's hand-off to it. A comment once claimed they were
+ * "built the way rasterizePdf builds them", and review kept every test here
+ * green while `rasterizePdf` dropped `dpiCapped`. The composed chain — the
+ * real `rasterizePdf`, the note, the downloaded PNG's pixel size — is proved
+ * in pdf-to-image-chain.test.tsx.
  */
 
 beforeEach(() => {

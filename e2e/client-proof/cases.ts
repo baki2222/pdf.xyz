@@ -1153,9 +1153,9 @@ export const PROOF_LIMITS: Record<string, string> = {
   "organize-pages":
     "Only the Reverse bulk action. Drag reordering, duplication and per-page rotation inside the organizer are not exercised.",
   "pdf-to-jpg":
-    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
+    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx drives the same runner and the real rasterizePdf at Print in jsdom, but for PNG output only, so the JPEG encoder at those presets is not exercised anywhere.",
   "pdf-to-png":
-    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
+    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx covers Print in jsdom through the real rasterizePdf: an A2 page and an ARCH D page are capped at 5,000 px and the note names the DPI of the downloaded pixels, while Letter stays at 2550 x 3300 with no note, both as a single PNG and as a ZIP. It uses pdfjs's legacy build, a render that paints nothing, and a stub encoder that writes the canvas size, so it proves pixel dimensions and the note, not pixel content.",
   "extract-images":
     "Only a single Flate-coded RGB PNG. JPEG2000 and JBIG2 embedded images — the formats the wasmUrl defect blanked — are not exercised. Note that e2e/pdfjs-decoders.spec.ts does NOT close this: it proves the decoder assets are SERVED, and says in its own docblock that it does not prove pdfjs decodes with them. Nothing in this repo yet renders a JPEG2000 or JBIG2 fixture end to end.",
   "grayscale-pdf":
