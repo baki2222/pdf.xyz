@@ -1,5 +1,5 @@
 import type { PDFFont, PDFImage, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
-import { embedRasterImage, loadPdfLib } from "./pdf-lib";
+import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import {
   arrowHeadSegments,
   clampOpacity,
@@ -565,7 +565,9 @@ export async function editPdf(
           `An inserted image on page ${op.page} couldn't be decoded as a ${op.format === "png" ? "PNG" : "JPG"}.`,
         );
       }
-      page.drawImage(image, {
+      // The box is in the shape the browser showed the image (its natural
+      // size honours EXIF); drawRasterImage turns the stored pixels to fit.
+      await drawRasterImage(page, image, {
         x: op.x,
         y: op.y,
         width: op.width,

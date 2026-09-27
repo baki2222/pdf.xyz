@@ -1,4 +1,4 @@
-import { embedRasterImage, loadPdfLib } from "./pdf-lib";
+import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { rasterizePdf, type RasterPage } from "./render";
 
@@ -97,7 +97,7 @@ export async function grayscalePdf(
       color: rgb(1, 1, 1),
     });
     const image = await embedRasterImage(doc, page.bytes, "jpg");
-    outPage.drawImage(image, {
+    await drawRasterImage(outPage, image, {
       x: 0,
       y: 0,
       width: pageWidth,

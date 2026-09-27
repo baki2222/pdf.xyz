@@ -1,6 +1,8 @@
 import {
+  drawRasterImage,
   embedRasterImage,
   loadPdfLib,
+  rasterDisplaySize,
   type RasterImageFormat,
 } from "./pdf-lib";
 import { outputName } from "./files";
@@ -218,7 +220,10 @@ export async function imagesToPdf(
       height: PAGE_HEIGHT,
       color: rgb(1, 1, 1),
     });
-    page.drawImage(image, fitRect(image.width, image.height));
+    // Fit the image as the browser SHOWED it: a portrait phone photo is stored
+    // as landscape pixels plus an EXIF turn, and the preview grid is upright.
+    const shown = rasterDisplaySize(image);
+    await drawRasterImage(page, image, fitRect(shown.width, shown.height));
   }
 
   return doc.save();

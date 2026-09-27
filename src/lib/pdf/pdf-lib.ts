@@ -27,7 +27,13 @@
  * one (`raster-embedder-boundary.test.ts`).
  */
 
-import type { PDFDocument, PDFImage } from "pdf-lib";
+import type { PDFDocument, PDFImage, PDFPage } from "pdf-lib";
+import {
+  orientationMatrix,
+  swapsAxes,
+  uprightJpeg,
+  type ExifOrientation,
+} from "./jpeg-orientation";
 
 /** The whole pdf-lib module, for helpers that thread it through sync code. */
 export type PdfLibModule = typeof import("pdf-lib");
@@ -104,6 +110,89 @@ export async function embedRasterImage(
   bytes: Uint8Array,
   format: RasterImageFormat,
 ): Promise<PDFImage> {
-  const safe = normalizeImageBytes(bytes);
-  return format === "png" ? doc.embedPng(safe) : doc.embedJpg(safe);
+  if (format === "png") return doc.embedPng(normalizeImageBytes(bytes));
+  // The DCT stream is embedded as-is (lossless); only a turn requested by EXIF
+  // is lifted out of it and recorded for {@link drawRasterImage}.
+  const upright = uprightJpeg(bytes);
+  const image = await doc.embedJpg(normalizeImageBytes(upright.bytes));
+  if (upright.orientation !== 1) orientations.set(image, upright.orientation);
+  return image;
+}
+
+/**
+ * The EXIF turn each embedded JPEG still owes, keyed by the image itself so it
+ * cannot be separated from it: whoever holds the `PDFImage` holds the turn.
+ * Only {@link drawRasterImage} reads it, and `raster-draw-boundary.test.ts`
+ * keeps every module that embeds through here drawing through there — a bare
+ * `page.drawImage` would lay the stored pixels down on their side again.
+ */
+const orientations = new WeakMap<PDFImage, ExifOrientation>();
+
+/**
+ * The size an embedded image is SHOWN at, in pixels: what a browser reports as
+ * its natural size. A portrait phone photo is stored 4032×3024 and shown
+ * 3024×4032; fitting it to a page must use the second.
+ */
+export function rasterDisplaySize(image: PDFImage): {
+  width: number;
+  height: number;
+} {
+  const orientation = orientations.get(image) ?? 1;
+  return swapsAxes(orientation)
+    ? { width: image.height, height: image.width }
+    : { width: image.width, height: image.height };
+}
+
+/**
+ * Draw an image from {@link embedRasterImage} upright into `box` — a box in
+ * DISPLAY shape ({@link rasterDisplaySize}).
+ *
+ * An image with no turn owed goes through `page.drawImage` exactly as before,
+ * so upright JPEGs and every PNG produce the same content stream they always
+ * did. A turned one is drawn through ONE matrix for all eight orientations
+ * (see `orientationMatrix`), with the same `q … gs … cm … Do Q` shape pdf-lib
+ * writes, so opacity behaves the same on both paths.
+ */
+export async function drawRasterImage(
+  page: PDFPage,
+  image: PDFImage,
+  box: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    opacity?: number;
+  },
+): Promise<void> {
+  const orientation = orientations.get(image) ?? 1;
+  if (orientation === 1) {
+    page.drawImage(image, box);
+    return;
+  }
+  const {
+    concatTransformationMatrix,
+    drawObject,
+    popGraphicsState,
+    pushGraphicsState,
+    setGraphicsState,
+  } = await loadPdfLib();
+  const name = page.node.newXObject("Image", image.ref);
+  const state =
+    box.opacity === undefined
+      ? []
+      : [
+          setGraphicsState(
+            page.node.newExtGState(
+              "GS",
+              page.doc.context.obj({ Type: "ExtGState", ca: box.opacity }),
+            ),
+          ),
+        ];
+  page.pushOperators(
+    pushGraphicsState(),
+    ...state,
+    concatTransformationMatrix(...orientationMatrix(orientation, box)),
+    drawObject(name),
+    popGraphicsState(),
+  );
 }

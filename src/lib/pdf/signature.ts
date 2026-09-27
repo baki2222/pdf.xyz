@@ -1,4 +1,4 @@
-import { embedRasterImage, loadPdfLib } from "./pdf-lib";
+import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import {
@@ -181,7 +181,12 @@ export async function signPdf(
       v,
       margin,
     });
-    page.drawImage(image, { x, y, width: boxWidth, height: boxHeight });
+    await drawRasterImage(page, image, {
+      x,
+      y,
+      width: boxWidth,
+      height: boxHeight,
+    });
   } else {
     const text = input.text.trim();
     // A typed signature is a person's name. Refusing to draw it because the
