@@ -196,7 +196,9 @@ describe("routes, the sitemap, and the robots directives agree", () => {
     // tolerates 25; a count near that is the signal to revisit both.
     expect(routes.length).toBeLessThan(tools.length + 33);
     expect(entries.length).toBeGreaterThanOrEqual(tools.length);
-  });
+    // It resolves every route module (~1 s alone); under a full parallel run
+    // it passed vitest's 5 s default intermittently. Measured 2026-09-27.
+  }, 30_000);
 
   it("both classifications are populated, so the predicate is not blind", async () => {
     const routes = await resolveRoutes();

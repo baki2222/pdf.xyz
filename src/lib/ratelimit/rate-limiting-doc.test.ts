@@ -447,6 +447,10 @@ describe("docs/RATE_LIMITING.md — the policy table is the policy", () => {
     expect(spend?.action).toBe("ai.spend");
   });
 
+  // Each check here re-walks every source file with the TypeScript parser
+  // (~0.3-2 s alone). Under a full parallel run on the integrated tree they
+  // passed 5 s — vitest's default — intermittently, and a red that is really
+  // a clock is the kind that gets a guard deleted. Measured 2026-09-27.
   describe("SUPERSEDED is exactly the actions no call site enforces", () => {
     const corpus = sourceCorpus();
 
@@ -572,7 +576,7 @@ describe("docs/RATE_LIMITING.md — the policy table is the policy", () => {
         "scripts/revived.ts:2 enforceRateLimit",
       ]);
     });
-  });
+  }, 30_000);
 
   it("CONTROL: re-inserting the superseded ai.run row fails the predicate", () => {
     const withRow = doc.replace(
