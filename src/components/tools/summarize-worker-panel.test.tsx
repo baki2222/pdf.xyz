@@ -11,8 +11,10 @@
  * documented and fixed this trap; Summarize never had.
  *
  * Driven through the real panel and the real browser job client over a
- * recording network. `extractPdfText` is stubbed because pdfjs cannot run
- * under the test DOM (it needs `DOMMatrix`); what it returns — or throws, by
+ * recording network. The extractor is swapped through
+ * `summarizePreflightDeps` (and put back) because pdfjs cannot run under the
+ * test DOM (it needs `DOMMatrix`), and `vi.mock` would leave the text module
+ * cached with the stub for later files; what it returns — or throws, by
  * pdfjs's own exception names — is the input under test. The positive control
  * is a text PDF that MUST reach `/api/jobs`, so a stub that blocked everything
  * could not pass.
@@ -27,17 +29,16 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { resetTelemetry } from "@/lib/telemetry/track";
 
-const extraction = vi.hoisted(() => ({
+import { summarizePreflightDeps } from "@/lib/workers/summarize-client";
+import { SummarizeWorkerPanel } from "./summarize-worker-panel";
+
+/** What the stubbed extractor does in the current test. */
+const extraction = {
   run: (async () => {
     throw new Error("unset");
-  }) as () => Promise<unknown>,
-}));
-vi.mock("@/lib/pdf/text", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/pdf/text")>()),
-  extractPdfText: () => extraction.run(),
-}));
-
-const { SummarizeWorkerPanel } = await import("./summarize-worker-panel");
+  }) as () => Promise<ExtractedPdfText>,
+};
+const realExtract = summarizePreflightDeps.extract;
 
 const tool = getToolBySlug("summarize-pdf")!;
 const providers = getProviderReadiness("remote-configured");
@@ -122,6 +123,7 @@ function network() {
 }
 
 async function summarize() {
+  summarizePreflightDeps.extract = () => extraction.run();
   render(<SummarizeWorkerPanel tool={tool} />);
   const input = await waitFor(() => {
     const found = document.querySelector('input[type="file"]');
@@ -142,6 +144,7 @@ async function summarize() {
 }
 
 afterEach(() => {
+  summarizePreflightDeps.extract = realExtract;
   resetTelemetry();
   vi.unstubAllGlobals();
   document.body.innerHTML = "";

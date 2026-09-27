@@ -27,10 +27,11 @@ import {
 import {
   canRunTranslate,
   runWorkerTranslate,
+  translateTextDeps,
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { extractPdfText, pageTextChunks } from "@/lib/pdf/text";
+import { pageTextChunks } from "@/lib/pdf/text";
 import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
@@ -263,7 +264,7 @@ function TranslateBuilder() {
       // The same planner runs on both sides for exactly that reason: two
       // hand-written versions of "does this fit" is how a browser refusal ends
       // up hiding a worker that would have succeeded.
-      const extracted = await extractPdfText(bytes);
+      const extracted = await translateTextDeps.extract(bytes);
       // THE SAME BLOCKS THE WORKER WILL CHUNK, computed once and used for both
       // the refusal below and the page count declared with the job. Counting
       // them twice — here and again at the call site — is how the declaration

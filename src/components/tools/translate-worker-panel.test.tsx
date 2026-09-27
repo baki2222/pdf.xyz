@@ -9,11 +9,18 @@
  * the worker finished it and charged the allowance for it.
  *
  * The chunk count is derived here from the SAME planner and the same ceiling
- * the panel uses, never typed, and the wait is read from what the panel
- * actually hands the job client.
+ * the panel uses, never typed, and the wait is COUNTED on the wire: status
+ * reads against a job that never finishes, until the panel offers Keep waiting.
+ * No `vi.mock` — a mocked module stays cached for later files (mock-isolation).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { pageTextChunks } from "@/lib/pdf/text";
@@ -30,19 +37,8 @@ import {
 } from "@/lib/jobs/client-wait";
 import { resetTelemetry } from "@/lib/telemetry/track";
 
-const runWorkerTranslate = vi.hoisted(() => vi.fn());
-const extracted = vi.hoisted(() => ({ value: null as unknown }));
-
-vi.mock("@/lib/workers/translate-client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/workers/translate-client")>()),
-  runWorkerTranslate,
-}));
-vi.mock("@/lib/pdf/text", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/pdf/text")>()),
-  extractPdfText: async () => extracted.value,
-}));
-
-const { TranslateWorkerPanel } = await import("./translate-worker-panel");
+import { translateTextDeps } from "@/lib/workers/translate-client";
+import { TranslateWorkerPanel } from "./translate-worker-panel";
 
 const tool = getToolBySlug("translate-pdf")!;
 const providers = getProviderReadiness("remote-configured");
@@ -94,19 +90,58 @@ function documentOf(pages: number): ExtractedPdfText {
   };
 }
 
+const realExtract = translateTextDeps.extract;
+const JOB = "job_translate1";
+
 afterEach(() => {
+  translateTextDeps.extract = realExtract;
   resetTelemetry();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
-  runWorkerTranslate.mockReset();
   document.body.innerHTML = "";
 });
 
-async function translate(doc: ExtractedPdfText) {
-  extracted.value = doc;
-  runWorkerTranslate.mockResolvedValue({ ok: false, message: "stub" });
+/**
+ * Translate `doc` against a job that never finishes, and count the status
+ * reads the browser makes before it stops waiting — the wait as it reaches the
+ * wire, not as the panel's source spells it.
+ */
+async function pollsBeforeGivingUp(doc: ExtractedPdfText) {
+  translateTextDeps.extract = async () => doc;
+  let polls = 0;
+  const json = (body: unknown) => ({
+    ok: true,
+    status: 200,
+    json: async () => body,
+    arrayBuffer: async () => new ArrayBuffer(0),
+  });
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ ok: true, status: 200, json: async () => READY })),
+    vi.fn(async (url: string) => {
+      if (url === "/api/worker/status") return json(READY);
+      if (url === "/api/uploads")
+        return json({
+          slots: [
+            { fileId: "f1", url: "/upload/f1", method: "PUT", headers: {} },
+          ],
+        });
+      if (url === "/upload/f1") return json({});
+      if (url === "/api/jobs")
+        return json({
+          jobId: JOB,
+          tool: "translate-pdf",
+          status: "processing",
+        });
+      if (url === `/api/jobs/${JOB}`) {
+        polls += 1;
+        return json({
+          jobId: JOB,
+          tool: "translate-pdf",
+          status: "processing",
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }),
   );
   render(<TranslateWorkerPanel tool={tool} />);
   const input = await waitFor(() => {
@@ -114,6 +149,7 @@ async function translate(doc: ExtractedPdfText) {
     if (!found) throw new Error("no input");
     return found;
   });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   fireEvent.change(input, {
     target: {
       files: [
@@ -124,11 +160,16 @@ async function translate(doc: ExtractedPdfText) {
     },
   });
   fireEvent.click(screen.getByRole("button", { name: /translate pdf/i }));
-  await waitFor(() => expect(runWorkerTranslate).toHaveBeenCalledTimes(1));
-  return runWorkerTranslate.mock.calls[0]![1] as {
-    pollIntervalMs?: number;
-    maxPollAttempts?: number;
-  };
+  for (
+    let i = 0;
+    i < 200 && !screen.queryByRole("button", { name: /keep waiting/i });
+    i += 1
+  )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+  expect(screen.getByRole("button", { name: /keep waiting/i })).toBeTruthy();
+  return { polls };
 }
 
 describe("Translate panel — the wait follows the plan", () => {
@@ -140,20 +181,14 @@ describe("Translate panel — the wait follows the plan", () => {
     ).chunks.length;
     // Health: the fixture really is several provider calls.
     expect(chunks).toBeGreaterThanOrEqual(3);
-    const options = await translate(doc);
     const expected = translateJobPoll(chunks);
-    expect(options).toMatchObject({
-      pollIntervalMs: expected.intervalMs,
-      maxPollAttempts: expected.maxAttempts,
-    });
     expect(pollWaitMs(expected)).toBeGreaterThan(pollWaitMs(AI_JOB_POLL));
+    const { polls } = await pollsBeforeGivingUp(doc);
+    expect(polls).toBe(expected.maxAttempts);
   });
 
   it("POSITIVE CONTROL: a one-chunk document gets the ordinary AI wait", async () => {
-    const options = await translate(documentOf(1));
-    expect(options).toMatchObject({
-      pollIntervalMs: AI_JOB_POLL.intervalMs,
-      maxPollAttempts: AI_JOB_POLL.maxAttempts,
-    });
+    const { polls } = await pollsBeforeGivingUp(documentOf(1));
+    expect(polls).toBe(AI_JOB_POLL.maxAttempts);
   });
 });

@@ -81,9 +81,20 @@ export function canRunSummarize(
 export type SummarizePreflight =
   { ok: true } | { ok: false; message: string; code: string };
 
+/**
+ * The extractor the preflight reads with. An object rather than a bare import
+ * so a test can swap it and put it back: pdfjs needs `DOMMatrix`, which the
+ * test DOM lacks, and `vi.mock` of the text module would leave it cached with
+ * the stub for every later file in the same worker (see mock-isolation.test).
+ */
+export const summarizePreflightDeps: {
+  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+} = { extract: extractPdfText };
+
 export async function preflightSummarize(
   bytes: Uint8Array,
-  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText> = extractPdfText,
+  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText> = (b) =>
+    summarizePreflightDeps.extract(b),
 ): Promise<SummarizePreflight> {
   let extracted: ExtractedPdfText;
   try {
