@@ -15,11 +15,43 @@ import {
 } from "./native-config";
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 import { PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS } from "./contract";
+import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 const MAX_BUFFER_CODE = "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
-/** qpdf `--requires-password`: 0 = needs a password, 2 = not encrypted, 3 = encrypted but openable. */
-const QPDF_NEEDS_PASSWORD_EXIT = 0;
+/**
+ * Ghostscript's success status. Named because this module also runs qpdf, whose
+ * statuses are NOT "zero or failure" (3 is "warnings, output written"); a bare
+ * `!== 0` here would read as the qpdf defect `qpdf-exit.test.ts` hunts for.
+ * For Ghostscript it is the contract: any other exit is a failed conversion.
+ */
+const GHOSTSCRIPT_EXIT_OK = 0;
+
+/**
+ * What qpdf `--requires-password` answers about opening a file with no
+ * password, read with the shared statuses (`../qpdf-exit`), as
+ * `pdf-security/native.ts` reads the same option.
+ */
+type OpenPasswordAnswer =
+  /** 0: encrypted, and the empty password does not open it. */
+  | "needs-password"
+  /** QPDF_EXIT_WARNINGS: encrypted, but it opens (owner-password only). */
+  | "opens"
+  /** QPDF_EXIT_ERROR: not encrypted — or qpdf cannot open it either. */
+  | "not-encrypted-or-unreadable"
+  /** Anything else, a timeout, or a probe that did not run. */
+  | "unknown";
+
+function readOpenPasswordAnswer(
+  probe: { code: number; timedOut: boolean; spawnError?: string } | null,
+): OpenPasswordAnswer {
+  if (probe === null || probe.timedOut || probe.spawnError !== undefined)
+    return "unknown";
+  if (probe.code === 0) return "needs-password";
+  if (probe.code === QPDF_EXIT_WARNINGS) return "opens";
+  if (probe.code === QPDF_EXIT_ERROR) return "not-encrypted-or-unreadable";
+  return "unknown";
+}
 
 export interface GhostscriptExecResult {
   code: number;
@@ -286,12 +318,9 @@ export function createNativeGhostscriptPdfARunner(
         windowsHide: true,
       },
     ).catch(() => null);
-    return (
-      probe !== null &&
-      !probe.timedOut &&
-      probe.spawnError === undefined &&
-      probe.code === QPDF_NEEDS_PASSWORD_EXIT
-    );
+    // Only "needs a password" is the file's own failure; every other answer
+    // leaves Ghostscript's failure as it was reported.
+    return readOpenPasswordAnswer(probe) === "needs-password";
   }
 
   /**
@@ -355,7 +384,7 @@ export function createNativeGhostscriptPdfARunner(
           throw new GhostscriptRunError("spawn", "Ghostscript did not start.");
         if (result.timedOut)
           throw new GhostscriptRunError("timeout", "Ghostscript timed out.");
-        if (result.code !== 0)
+        if (result.code !== GHOSTSCRIPT_EXIT_OK)
           throw await fileFailure(
             inputPath,
             "engine_exit",

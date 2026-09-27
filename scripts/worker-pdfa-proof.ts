@@ -17,6 +17,7 @@ import {
   pdfaProofInput,
   runPdfAImageProof,
 } from "@/lib/workers/pdf-archive/image-proof";
+import { qpdfWroteOutput } from "@/lib/workers/qpdf-exit";
 
 /**
  * The proof input plus a line of standard-font text. pdf-lib does NOT embed
@@ -46,15 +47,29 @@ async function qpdfEncrypt(
     const input = path.join(dir, "in.pdf");
     const output = path.join(dir, "out.pdf");
     await writeFile(input, bytes);
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        "qpdf",
-        ["--encrypt", user, owner, "256", "--", input, output],
-        { timeout: 30_000, windowsHide: true },
-        (error) =>
-          error ? reject(new Error("qpdf encryption failed")) : resolve(),
-      );
-    });
+    // Resolve with qpdf's exit status instead of rejecting on any non-zero
+    // one: 3 means "warnings, output written" and the encrypted file is there
+    // (`qpdf-exit.ts`). A spawn failure or a timeout resolves as a failure.
+    const result = await new Promise<{ code: number; timedOut: boolean }>(
+      (resolve) => {
+        execFile(
+          "qpdf",
+          ["--encrypt", user, owner, "256", "--", input, output],
+          { timeout: 30_000, windowsHide: true },
+          (error: (Error & { code?: unknown; killed?: boolean }) | null) =>
+            resolve({
+              code:
+                error === null
+                  ? 0
+                  : typeof error.code === "number"
+                    ? error.code
+                    : -1,
+              timedOut: error?.killed === true,
+            }),
+        );
+      },
+    );
+    if (!qpdfWroteOutput(result)) throw new Error("qpdf encryption failed");
     return new Uint8Array(await readFile(output));
   } finally {
     await rm(dir, { recursive: true, force: true });
