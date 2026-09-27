@@ -42,6 +42,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import JSZip from "jszip";
 import {
   PDFArray,
+  PDFBool,
   PDFCheckBox,
   PDFDict,
   PDFDocument,
@@ -818,7 +819,22 @@ describe("flatten-pdf: the FAQ is what flattening does", () => {
     );
   });
 
-  it("refuses a text field in each script the answer names", async () => {
+  it("refuses a text field in each script the answer names, when flattening has to draw it", async () => {
+    // CHANGED 2026-09-27 where this test (copy lane) met the flatten fix merged
+    // beside it, history kept. The fixture here set a value without redrawing
+    // its appearance and saved with `updateFieldAppearances: false`: a field
+    // whose STORED appearance is blank, with no `/NeedAppearances` flag. The
+    // old flatten refused any non-WinAnsi value, whatever it would draw. The
+    // fix draws a field's authored appearance as it is — what a reader shows,
+    // and how a Bengali answer filled with its own font now flattens instead
+    // of being refused — and refuses only a value it has to REDRAW with the
+    // form's WinAnsi font. So the refusal is asked of the shape that redraws:
+    // a filler's `/NeedAppearances true` (pdftk, most server fillers).
+    //
+    // NOT PINNED, and said so: the FAQ's "is refused ... rather than flattened
+    // with those characters missing" no longer covers a field whose own
+    // appearance is drawn as-is. That copy lives in tool-facts.ts, owned by a
+    // separate change; see `flatten.test.ts` for the drawn-as-is behaviour.
     const SAMPLES: Record<string, string> = {
       Bengali: "বাংলা",
       Chinese: "中文",
@@ -829,15 +845,25 @@ describe("flatten-pdf: the FAQ is what flattening does", () => {
       ?.split(/,\s*|\s+or\s+/)
       .map((s) => s.trim());
     expect(named?.sort()).toEqual(Object.keys(SAMPLES).sort());
-    for (const [script, sample] of Object.entries(SAMPLES)) {
+    const filled = async (value: string) => {
       const doc = await PDFDocument.create();
       const page = doc.addPage([600, 800]);
-      const field = doc.getForm().createTextField("name");
+      const form = doc.getForm();
+      const field = form.createTextField("name");
       field.addToPage(page, { x: 20, y: 700, width: 200, height: 20 });
-      field.setText(sample);
-      const bytes = await doc.save({ updateFieldAppearances: false });
-      await expect(flattenPdf(bytes), script).rejects.toThrow(/outside it/);
+      field.setText(value);
+      form.acroForm.dict.set(PDFName.of("NeedAppearances"), PDFBool.True);
+      return doc.save({ updateFieldAppearances: false });
+    };
+    for (const [script, sample] of Object.entries(SAMPLES)) {
+      await expect(flattenPdf(await filled(sample)), script).rejects.toThrow(
+        /outside it/,
+      );
     }
+    // CONTROL: the same field with a Latin value flattens, so the refusal
+    // above is the script's doing and not the fixture's.
+    const latin = await flattenPdf(await filled("Ada"));
+    expect(latin.flattenedFields).toBe(1);
   });
 });
 
