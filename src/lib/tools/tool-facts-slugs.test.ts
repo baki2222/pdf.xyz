@@ -39,8 +39,9 @@ describe("FACTS keys", () => {
     expect(orphans(FACTS_SLUGS), "these keys name no tool").toEqual([]);
   });
 
-  it("the predicate catches a typo'd key (positive control)", () => {
-    expect(orphans([...FACTS_SLUGS, "rotate-pfd"])).toEqual(["rotate-pfd"]);
+  it("the predicate catches a typo'd key and passes a real one (controls)", () => {
+    expect(orphans([...FACTS_SLUGS, "rotate-pfd"])).toContain("rotate-pfd");
+    expect(orphans(["rotate-pdf"])).toEqual([]);
   });
 
   it("every key's facts are what the page's accessor returns", () => {
