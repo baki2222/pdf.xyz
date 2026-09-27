@@ -59,6 +59,49 @@ describe("findUnbundledAssets", () => {
     ).toEqual(["base.css", "bg.png", "print.css"]);
   });
 
+  it("reads image-set() candidates written as bare strings, but not a type() string", () => {
+    expect(
+      scan(
+        `<div style="background-image:image-set('a.png' type('image/png'), url(b.png) 2x, &quot;data:image/png;base64,AA&quot; 3x)"></div>
+        <div style="background-image:-webkit-image-set('c.png' 1x, 'https://cdn.example/d.png' 2x)"></div>`,
+      ).sort(),
+    ).toEqual(["a.png", "b.png", "c.png"]);
+  });
+
+  it("ignores url() inside a CSS comment, and decodes CSS escapes", () => {
+    expect(
+      scan(
+        `<style>/* .old{background:url(gone.png)} */ .new{background:url(here.png)}
+          .esc{background:u\\72l(escaped.png)}</style>`,
+      ),
+    ).toEqual(["here.png", "escaped.png"]);
+  });
+
+  it("scans an <iframe srcdoc> document, through its own <base>", () => {
+    expect(
+      scan(
+        `<iframe srcdoc="<img src='inner.png'><img src='https://cdn.example/x.png'>"></iframe>
+        <iframe srcdoc="<base href='https://site.example/'><img src='based.png'>"></iframe>`,
+      ),
+    ).toEqual(["inner.png"]);
+  });
+
+  it("names a PUBLIC reference for the kinds Chromium loads from the document's own origin only", () => {
+    expect(
+      scan(`<svg><use href="https://cdn.example/icons.svg#a"/>
+        <image href="https://cdn.example/photo.png"/>
+        <rect filter="url(https://cdn.example/f.svg#f)" mask="url(https://cdn.example/m.svg#m)"/>
+        <rect filter="url(#local)"/></svg>
+        <div style="filter:url('https://cdn.example/css.svg#f');mask-image:url(https://cdn.example/mask.png)"></div>
+        <video src="https://cdn.example/v.mp4"><track src="https://cdn.example/t.vtt"></video>`),
+    ).toEqual([
+      "https://cdn.example/icons.svg#a",
+      "https://cdn.example/f.svg#f",
+      "https://cdn.example/css.svg#f",
+      "https://cdn.example/t.vtt",
+    ]);
+  });
+
   it("follows an absolute <base> — relative references then load — but not a relative one", () => {
     expect(
       scan(`<img src="logo.png">`, `<base href="https://site.example/">`),

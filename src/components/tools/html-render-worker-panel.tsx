@@ -348,15 +348,17 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
               Remove
             </button>
           </div>
-          {assetsNote && (
-            <p
-              role="status"
-              className="text-muted flex items-start gap-1.5 text-xs leading-relaxed"
-            >
-              <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-              <span>{assetsNote}</span>
-            </p>
-          )}
+          {/* Present, empty, from the moment a file is chosen: a live region
+              created together with its text is not announced by several
+              screen readers. The note arrives in it once the file is read. */}
+          <div role="status">
+            {assetsNote && (
+              <p className="text-muted flex items-start gap-1.5 text-xs leading-relaxed">
+                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span>{assetsNote}</span>
+              </p>
+            )}
+          </div>
         </div>
       ) : (
         <Dropzone

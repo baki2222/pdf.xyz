@@ -9,11 +9,11 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
-  waitFor,
 } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -60,7 +60,27 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function pick(html: string, name = "report.html") {
+/**
+ * A chosen file whose contents arrive only when the test says so, so the
+ * moment the scan runs is the test's, not the scheduler's.
+ */
+function heldFile(html: string, name = "report.html") {
+  let release!: () => void;
+  const read = new Promise<string>((r) => (release = () => r(html)));
+  const file = new File([html], name, { type: "text/html" });
+  Object.defineProperty(file, "text", { value: () => read });
+  return {
+    file,
+    /** Let the panel read the file, and let everything that follows settle. */
+    release: () =>
+      act(async () => {
+        release();
+        await read;
+      }),
+  };
+}
+
+async function pick(html: string | File, name = "report.html") {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
@@ -70,9 +90,15 @@ async function pick(html: string, name = "report.html") {
   const input = document.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input).not.toBeNull();
   fireEvent.change(input!, {
-    target: { files: [new File([html], name, { type: "text/html" })] },
+    target: {
+      files: [
+        typeof html === "string"
+          ? new File([html], name, { type: "text/html" })
+          : html,
+      ],
+    },
   });
-  await screen.findByText(name);
+  await screen.findByText(typeof html === "string" ? name : html.name);
 }
 
 const MISSING = /not part of this upload and will be missing from the PDF/;
@@ -87,16 +113,38 @@ describe("HtmlRenderWorkerPanel — linked files the upload does not carry", () 
   });
 
   // The positive control's twin: a self-contained page must not be warned
-  // about, or the note is noise users learn to ignore.
-  it("says nothing for a self-contained page", async () => {
-    await pick(`<!doctype html><html><head><style>h1{color:red}</style></head>
-      <body><h1>Invoice</h1><img src="data:image/png;base64,AAAA"></body></html>`);
-    // Let the async read settle before asserting absence.
-    await waitFor(() =>
-      expect(screen.getByText("report.html")).toBeInTheDocument(),
-    );
-    await new Promise((r) => setTimeout(r, 50));
+  // about, or the note is noise users learn to ignore. History: this used to
+  // assert absence after a fixed 50 ms sleep, which passes just as well when
+  // the scan has not run yet. The file is now held until the test releases
+  // it, and the same release shows a note at once for a page that needs one
+  // (the control that the release really does let the scan finish).
+  it("says nothing for a self-contained page, once the scan has run", async () => {
+    const control = heldFile(`<img src="logo.png">`);
+    await pick(control.file);
     expect(screen.queryByText(MISSING)).toBeNull();
+    await control.release();
+    expect(screen.queryByText(MISSING)).not.toBeNull();
+    cleanup();
+
+    const clean =
+      heldFile(`<!doctype html><html><head><style>h1{color:red}</style></head>
+      <body><h1>Invoice</h1><img src="data:image/png;base64,AAAA"></body></html>`);
+    await pick(clean.file);
+    await clean.release();
+    expect(screen.queryByText(MISSING)).toBeNull();
+  });
+
+  // A live region announces CHANGES to itself. One inserted together with its
+  // text is, for several screen readers, never announced. So the region is
+  // there, empty, from the moment a file is chosen, and the note arrives in it.
+  it("announces the note in a live region that was waiting for it", async () => {
+    const held = heldFile(`<img src="logo.png">`);
+    await pick(held.file);
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("");
+    await held.release();
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region.textContent).toMatch(MISSING);
   });
 
   it("states the one-file limit before any file is chosen", async () => {

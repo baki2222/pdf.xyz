@@ -68,6 +68,14 @@ export interface ChromiumSeams {
   launch?: ChromiumLaunch;
   fs?: ChromiumFs;
   network?: RenderNetworkSeams;
+  /**
+   * Told of every request Chromium makes while rendering, BEFORE the policy
+   * decides it — refused ones included — except the served upload itself.
+   * Read-only: it cannot change a decision. `unbundled-assets.chromium.test.ts`
+   * uses it to see what the renderer asks for at the upload's own address,
+   * which the policy refuses before any fetch seam could see it.
+   */
+  onRequest?: (request: { url: string; resourceType?: string }) => void;
   /** The environment Chromium's must be CUT DOWN from. Default process.env. */
   parentEnv?: Record<string, string | undefined>;
   platform?: NodeJS.Platform;
@@ -299,6 +307,7 @@ export function createNativeChromiumPdfRunner(
         );
         return;
       }
+      seams.onRequest?.({ url: p.request.url, resourceType: p.resourceType });
       const decision = await network.handle(p.request);
       if (decision.action === "fail") {
         await cdp.send(
