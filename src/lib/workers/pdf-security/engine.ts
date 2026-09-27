@@ -8,15 +8,16 @@
  *   - The transformation genuinely requires the native `qpdf` binary. When no
  *     qpdf runner is wired the engine returns an honest `unsupported` result; it
  *     NEVER fabricates an "encrypted" or "unlocked" file.
- *   - Every failure mode is explicit and typed — an already-encrypted protect
- *     input, a non-encrypted unlock input, a wrong password, an unreadable PDF,
- *     an oversize input, or an engine crash — so the processor can map each to a
- *     precise, content-free job error. There is no branch that dresses up bytes
- *     it did not verify.
- *   - It proves its own work: a protect output must come back genuinely
- *     encrypted, and an unlock output must come back genuinely NOT encrypted, or
- *     the run fails. So a passthrough or a botched engine call can never look like
- *     success.
+ *   - Every failure mode is explicit and typed — a protect input that already
+ *     needs a password to open, a protect input that opens freely but whose
+ *     permissions are locked by an owner password, a non-encrypted unlock input,
+ *     a wrong password, an unreadable PDF, an oversize input, or an engine
+ *     crash — so the processor can map each to a precise, content-free job
+ *     error. There is no branch that dresses up bytes it did not verify.
+ *   - It proves its own work: a protect output must come back needing a
+ *     password to open, and an unlock output must come back genuinely NOT
+ *     encrypted, or the run fails. So a passthrough or a botched engine call can
+ *     never look like success.
  *
  * The qpdf runner is INJECTED (`QpdfRunner`), so both the "no binary → honest
  * failure" path and the "binary present → real invocation" path are fully
@@ -63,6 +64,18 @@ export interface QpdfUnlockInput {
 }
 
 /**
+ * What qpdf `--requires-password` says about opening a file with no password:
+ *  - `needs-password` — it is encrypted and the empty password does not open it;
+ *  - `opens-freely` — it is encrypted, but only its PERMISSIONS are locked (by an
+ *    owner password): anyone can open it, printing/copying/editing may be
+ *    restricted. `isEncrypted` answers "yes" for this case too, which is why it
+ *    cannot be what decides "already password-protected";
+ *  - `not-encrypted` — no encryption at all.
+ */
+export type QpdfPasswordRequirement =
+  "needs-password" | "opens-freely" | "not-encrypted";
+
+/**
  * The outcome of a decrypt attempt. `wrongPassword` distinguishes an incorrect
  * password (a deterministic, non-retryable user error) from every other engine
  * failure, WITHOUT surfacing the password or any raw engine text.
@@ -80,6 +93,8 @@ export type QpdfUnlockOutcome =
 export interface QpdfRunner {
   /** True when the input bytes are an encrypted PDF (needs no password to answer). */
   isEncrypted(input: Uint8Array): Promise<boolean>;
+  /** Whether opening the input needs a password (needs no password to answer). */
+  requiresPassword(input: Uint8Array): Promise<QpdfPasswordRequirement>;
   /** Encrypt the input and return the encrypted bytes. Throws on failure. */
   protect(input: Uint8Array, opts: QpdfProtectInput): Promise<Uint8Array>;
   /** Decrypt the input with the given password; distinguishes a wrong password. */
@@ -133,6 +148,7 @@ export type PdfSecurityRun =
   | { ok: false; kind: "invalid_pdf"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
   | { ok: false; kind: "already_encrypted"; message: string }
+  | { ok: false; kind: "restrictions_only"; message: string }
   | { ok: false; kind: "not_encrypted"; message: string }
   | { ok: false; kind: "wrong_password"; message: string }
   | { ok: false; kind: "failed"; message: string };
@@ -144,8 +160,18 @@ const UNSUPPORTED_MESSAGE =
 const TOO_LARGE_MESSAGE =
   "The input PDF exceeds the worker's size limit for this operation.";
 const INVALID_PDF_MESSAGE = "The input could not be read as a PDF.";
+// Shown ONLY when qpdf says a password is needed to open the file. It used to be
+// shown for every encrypted input, including files the user had just opened
+// without one, so the message contradicted what they could see.
 const ALREADY_ENCRYPTED_MESSAGE =
-  "This PDF is already password-protected. Unlock it first, then protect it again.";
+  "This PDF already needs a password to open. Unlock it with that password first, then protect it again.";
+// A file that opens freely but whose permissions an owner password locks. Unlock
+// and Protect never change a file's protection without the password that set it
+// ("can't recover or bypass a password you don't know"), and replacing these
+// restrictions with a new password would do exactly that in two steps — so this
+// is a truthful refusal that names the password that is actually needed.
+const RESTRICTIONS_ONLY_MESSAGE =
+  "This PDF opens without a password, but its printing, copying or editing is locked with a separate owner (permissions) password. Unlock it with that owner password first, then protect it.";
 const NOT_ENCRYPTED_MESSAGE =
   "This PDF isn't password-protected, so there's nothing to unlock.";
 const WRONG_PASSWORD_MESSAGE =
@@ -198,10 +224,13 @@ async function preflight(
  * Encrypt a PDF with qpdf. Honest guarantees:
  *  - `unsupported` when qpdf is not wired (nothing is executed);
  *  - `too_large` / `invalid_pdf` on a rejected input (before any engine call);
- *  - `already_encrypted` when the input is itself encrypted (qpdf cannot re-encrypt
- *    it without its current password) — a distinct, non-retryable user error;
- *  - `failed` when the engine errors OR produces output that is not a readable,
- *    genuinely-encrypted PDF (proven by re-inspecting the output);
+ *  - `already_encrypted` when opening the input already needs a password — a
+ *    distinct, non-retryable user error;
+ *  - `restrictions_only` when the input opens without a password but an owner
+ *    password locks its permissions — also non-retryable, and never reported as
+ *    "already password-protected", which that user has just seen to be false;
+ *  - `failed` when the engine errors OR produces output that is not a readable PDF
+ *    that needs the new password to open (proven by re-inspecting the output);
  *  - success carrying the encrypted bytes and content-free size metrics otherwise.
  * The password is used only to call the runner; it is never placed in a result or
  * a message.
@@ -216,19 +245,27 @@ export async function runProtect(
   const qpdf = deps.qpdf!;
   const validate = deps.validate ?? looksLikePdf;
 
-  // A PDF that is already encrypted cannot be re-encrypted without its current
-  // password, so reject it honestly rather than let qpdf fail opaquely.
-  let alreadyEncrypted: boolean;
+  // Ask the question each message states. `isEncrypted` answers "yes" for a
+  // file that opens with no password and only restricts printing or copying, so
+  // it cannot tell the two refusals apart.
+  let requirement: QpdfPasswordRequirement;
   try {
-    alreadyEncrypted = await qpdf.isEncrypted(input);
+    requirement = await qpdf.requiresPassword(input);
   } catch {
     return failed();
   }
-  if (alreadyEncrypted) {
+  if (requirement === "needs-password") {
     return {
       ok: false,
       kind: "already_encrypted",
       message: ALREADY_ENCRYPTED_MESSAGE,
+    };
+  }
+  if (requirement === "opens-freely") {
+    return {
+      ok: false,
+      kind: "restrictions_only",
+      message: RESTRICTIONS_ONLY_MESSAGE,
     };
   }
 
@@ -243,16 +280,19 @@ export async function runProtect(
     return failed();
   }
 
-  // Never accept the engine's output without proving it is a readable PDF that is
-  // genuinely encrypted — a passthrough or a botched run can never look like success.
+  // Never accept the engine's output without proving it is a readable PDF that
+  // needs a password to OPEN — the promise the user was made. "Encrypted" is not
+  // that promise: a permissions-only file is encrypted and opens for anyone, so
+  // a user password lost on its way to qpdf would have passed an isEncrypted
+  // check. A passthrough or a botched run can never look like success.
   if (!(await validate(output))) return failed();
-  let outputEncrypted: boolean;
+  let outputRequirement: QpdfPasswordRequirement;
   try {
-    outputEncrypted = await qpdf.isEncrypted(output);
+    outputRequirement = await qpdf.requiresPassword(output);
   } catch {
     return failed();
   }
-  if (!outputEncrypted) return failed();
+  if (outputRequirement !== "needs-password") return failed();
 
   return {
     ok: true,

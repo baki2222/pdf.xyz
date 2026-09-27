@@ -127,6 +127,46 @@ async function textPdf(): Promise<Buffer> {
 }
 
 /**
+ * A PDF that opens in every viewer but that qpdf must REPAIR first: a classic
+ * xref table and trailer (`useObjectStreams: false`; pdf-lib's default xref
+ * stream leaves qpdf nothing to reconstruct from), with the `startxref` offset
+ * replaced by one past the end of the file. qpdf rebuilds the xref, writes its
+ * output, and exits 3 ("warnings, output written").
+ *
+ * The digits are spliced, never overwritten in place: this document's offset
+ * has three or four digits, and writing a longer lie over them eats the
+ * `%%EOF` after it — the worker's preflight then refuses the upload as not a
+ * PDF, and the proof fails for a reason that has nothing to do with qpdf.
+ */
+async function damagedXrefPdf(): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText("pdf.xyz proof: a damaged xref", {
+    x: 60,
+    y: 770,
+    size: 20,
+    font,
+  });
+  const whole = Buffer.from(await doc.save({ useObjectStreams: false }));
+  const at = whole.lastIndexOf("startxref");
+  const offset = /^startxref\s+(\d+)/.exec(
+    whole.subarray(at).toString("latin1"),
+  );
+  if (at < 0 || !offset) throw new Error("fixture has no startxref offset");
+  const digitsAt = at + offset[0].length - offset[1]!.length;
+  const damaged = Buffer.concat([
+    whole.subarray(0, digitsAt),
+    Buffer.from(String(whole.length * 10), "latin1"),
+    whole.subarray(digitsAt + offset[1]!.length),
+  ]);
+  if (!damaged.subarray(-16).toString("latin1").includes("%%EOF")) {
+    throw new Error("damaged fixture lost its %%EOF");
+  }
+  return damaged;
+}
+
+/**
  * A deliberately LONG text PDF, used only by the chat conversation proof.
  *
  * Size is the point. Providers cache a long prompt prefix automatically and only
@@ -798,6 +838,24 @@ const SPECS: ProofSpec[] = [
     options: { password: PROOF_PASSWORD },
     expect: isPdf,
     want: "decrypted PDF",
+  },
+  // A damaged-but-recoverable input. qpdf repairs it on the way in and exits 3;
+  // until 2026-09 the security runner treated any non-zero exit as failure, so
+  // Protect refused every such file with "could not process this file". The
+  // clean `textPdf` above could never have shown that.
+  {
+    tool: "protect-pdf",
+    label: "protect-pdf (damaged xref)",
+    make: damagedXrefPdf,
+    name: "scanner-export.pdf",
+    type: PDF_MIME,
+    options: { password: PROOF_PASSWORD, keyLength: 256 },
+    expect: isPdf,
+    verify: async (buf) =>
+      buf.includes("/Encrypt")
+        ? { ok: true, detail: "the output carries an /Encrypt dictionary" }
+        : { ok: false, detail: "no /Encrypt in the output: not encrypted" },
+    want: "encrypted PDF",
   },
   {
     tool: "pdf-to-pdfa",

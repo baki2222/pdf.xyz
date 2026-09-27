@@ -385,6 +385,8 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
 
   const fakeQpdf = (over: Partial<QpdfRunner> = {}): QpdfRunner => ({
     isEncrypted: async (b) => isTagged(b, "ENC"),
+    requiresPassword: async (b) =>
+      isTagged(b, "ENC") ? "needs-password" : "not-encrypted",
     protect: async () => taggedPdf("ENC"),
     unlock: async () => ({ ok: true, output: taggedPdf("DEC") }),
     ...over,

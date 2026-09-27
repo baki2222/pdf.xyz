@@ -22,10 +22,18 @@ const PROTECT: ProtectPdfOptions = {
 };
 const UNLOCK: UnlockPdfOptions = { password: "open-sesame" };
 
-/** A fake qpdf runner whose `isEncrypted` answers by byte identity. */
+/**
+ * A fake qpdf runner whose `isEncrypted` answers by byte identity. Unless a test
+ * overrides it, `requiresPassword` agrees with `isEncrypted` the way a file with
+ * a real open password does ("encrypted" ⇒ "needs-password"); the
+ * restrictions-only case, where the two disagree, is always spelled out.
+ */
 function fakeQpdf(over: Partial<QpdfRunner> = {}): QpdfRunner {
+  const isEncrypted = over.isEncrypted ?? (async () => false);
   return {
-    isEncrypted: async () => false,
+    isEncrypted,
+    requiresPassword: async (b) =>
+      (await isEncrypted(b)) ? "needs-password" : "not-encrypted",
     protect: async () => pdf(64),
     unlock: async () => ({ ok: true, output: pdf(64) }),
     ...over,
@@ -65,12 +73,64 @@ describe("runProtect", () => {
     if (!run.ok) expect(run.kind).toBe("invalid_pdf");
   });
 
-  it("refuses to re-encrypt an already-encrypted input", async () => {
+  // INVERTED, not deleted. This was "refuses to re-encrypt an already-encrypted
+  // input", driven by `isEncrypted` — which qpdf answers "yes" for ANY
+  // encryption, including a file that opens with no password and only restricts
+  // printing or copying. Those files were refused as "already
+  // password-protected", which the user had just seen to be false. The gate is
+  // now the property the message states: a password is needed to OPEN it.
+  it("refuses a PDF that already needs a password to open", async () => {
+    let protectCalls = 0;
     const run = await runProtect(pdf(), PROTECT, {
-      qpdf: fakeQpdf({ isEncrypted: async () => true }),
+      qpdf: fakeQpdf({
+        isEncrypted: async () => true,
+        requiresPassword: async () => "needs-password",
+        protect: async () => {
+          protectCalls += 1;
+          return pdf(64);
+        },
+      }),
     });
     expect(run.ok).toBe(false);
-    if (!run.ok) expect(run.kind).toBe("already_encrypted");
+    if (run.ok) return;
+    expect(run.kind).toBe("already_encrypted");
+    expect(run.message).toMatch(/needs a password to open/);
+    expect(protectCalls).toBe(0);
+  });
+
+  it("refuses a restrictions-only PDF truthfully — never as 'already password-protected'", async () => {
+    let protectCalls = 0;
+    const run = await runProtect(pdf(), PROTECT, {
+      qpdf: fakeQpdf({
+        // qpdf --is-encrypted says yes; --requires-password says it opens freely.
+        isEncrypted: async () => true,
+        requiresPassword: async () => "opens-freely",
+        protect: async () => {
+          protectCalls += 1;
+          return pdf(64);
+        },
+      }),
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("restrictions_only");
+    expect(run.message).toMatch(/opens without a password/);
+    expect(run.message).not.toMatch(/already password-protected/i);
+    expect(run.message).not.toMatch(/needs a password to open/);
+    // The owner-password rule: its protection is not changed without it.
+    expect(protectCalls).toBe(0);
+  });
+
+  it("fails when the engine cannot tell whether the input needs a password", async () => {
+    const run = await runProtect(pdf(), PROTECT, {
+      qpdf: fakeQpdf({
+        requiresPassword: async () => {
+          throw new Error("qpdf exit 1");
+        },
+      }),
+    });
+    expect(run.ok).toBe(false);
+    if (!run.ok) expect(run.kind).toBe("failed");
   });
 
   it("encrypts and returns bytes + content-free meta", async () => {
@@ -111,6 +171,25 @@ describe("runProtect", () => {
   it("fails when the produced output is not a valid PDF", async () => {
     const run = await runProtect(pdf(), PROTECT, {
       qpdf: fakeQpdf({ protect: async () => new Uint8Array([9, 9, 9]) }),
+    });
+    expect(run.ok).toBe(false);
+    if (!run.ok) expect(run.kind).toBe("failed");
+  });
+
+  it("fails when the output is encrypted but opens without a password", async () => {
+    // What the user was promised is "anyone opening the PDF will need this
+    // password". `isEncrypted` cannot see the difference between that and a
+    // permissions-only file (e.g. a user password that went missing on its way
+    // to qpdf), so the output proof asks the promised question instead.
+    const input = pdf();
+    const output = pdf(80);
+    const run = await runProtect(input, PROTECT, {
+      qpdf: fakeQpdf({
+        isEncrypted: async (b) => b === output,
+        requiresPassword: async (b) =>
+          b === output ? "opens-freely" : "not-encrypted",
+        protect: async () => output,
+      }),
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("failed");

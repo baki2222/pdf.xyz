@@ -51,11 +51,17 @@ type PdfSecurityFailure = Extract<PdfSecurityRun, { ok: false }>;
  * non-retryable except a genuine engine crash (`failed`), which MAY be transient:
  *  - `unsupported` → `not_implemented` (retrying won't install qpdf);
  *  - `too_large` → `payload_too_large` (retrying the same bytes can't shrink them);
- *  - `invalid_pdf` / `already_encrypted` / `not_encrypted` / `wrong_password` →
- *    `unprocessable_entity` (a deterministic property of THIS input/request);
+ *  - `invalid_pdf` / `already_encrypted` / `restrictions_only` / `not_encrypted` /
+ *    `wrong_password` → `unprocessable_entity` (a deterministic property of THIS
+ *    input/request);
  *  - `failed` → retryable `internal_error` (a transient worker failure the executor
  *    may re-attempt, bounded by the attempt cap).
  * The message is the engine's fixed, content-free string — never a password.
+ *
+ * Exhaustive by type. The `default` arm used to share `failed`'s return, so a
+ * newly added kind landed there silently as a RETRYABLE internal error — a
+ * deterministic refusal re-run up to the attempt cap and then reported as a
+ * crash. It is now a `never` check: a new kind fails `tsc` until it is mapped.
  */
 export function pdfSecurityJobError(run: PdfSecurityFailure): JobError {
   switch (run.kind) {
@@ -73,6 +79,7 @@ export function pdfSecurityJobError(run: PdfSecurityFailure): JobError {
       };
     case "invalid_pdf":
     case "already_encrypted":
+    case "restrictions_only":
     case "not_encrypted":
     case "wrong_password":
       return {
@@ -81,8 +88,17 @@ export function pdfSecurityJobError(run: PdfSecurityFailure): JobError {
         retryable: false,
       };
     case "failed":
-    default:
       return { code: "internal_error", message: run.message, retryable: true };
+    default: {
+      // Unreachable while the switch is exhaustive; `tsc` enforces that. At
+      // runtime a kind from a newer engine still yields a well-formed error.
+      const unmapped: never = run;
+      return {
+        code: "internal_error",
+        message: (unmapped as PdfSecurityFailure).message,
+        retryable: false,
+      };
+    }
   }
 }
 

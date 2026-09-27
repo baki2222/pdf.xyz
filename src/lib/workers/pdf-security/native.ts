@@ -35,7 +35,13 @@ import { existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { looksLikePdf } from "../compression/engine";
+import {
+  QPDF_EXIT_ERROR,
+  QPDF_EXIT_WARNINGS,
+  qpdfWroteOutput,
+} from "../qpdf-exit";
 import type {
+  QpdfPasswordRequirement,
   QpdfProtectInput,
   QpdfRunner,
   QpdfUnlockInput,
@@ -62,7 +68,9 @@ export interface QpdfExecResult {
  * Run qpdf by argv (never a shell) and resolve with its exit code — it does NOT
  * reject on a non-zero exit, because for this engine a non-zero code is a normal
  * signal (e.g. `--is-encrypted` returns 2 for "not encrypted", `--decrypt` returns
- * 2 for a wrong password). Injectable so tests never spawn a real process.
+ * 2 for a wrong password, and any write returns 3 when it had to repair the
+ * input on the way — see `../qpdf-exit`). Injectable so tests never spawn a real
+ * process.
  */
 export type QpdfExec = (
   command: string,
@@ -164,9 +172,6 @@ export function resolveOnPath(binary: string): boolean {
   return false;
 }
 
-/** qpdf exit code that means "not encrypted" (`--is-encrypted`) or "wrong password" (`--decrypt`). */
-const QPDF_EXIT_STATUS_2 = 2;
-
 /**
  * Build the qpdf argument vector for encrypting a PDF. qpdf 11 uses positional
  * encryption operands: `--encrypt <user> <owner> <bits> -- input output`.
@@ -206,6 +211,15 @@ export function unlockArgs(
 /** Build the qpdf argument vector for the presence-only encryption check. */
 export function isEncryptedArgs(inputPath: string): string[] {
   return ["--is-encrypted", inputPath];
+}
+
+/**
+ * Build the qpdf argument vector for "does opening this file need a password?".
+ * No `--password` is passed, so qpdf tries the empty user password: a file that
+ * opens with it answers 3, one that does not answers 0.
+ */
+export function requiresPasswordArgs(inputPath: string): string[] {
+  return ["--requires-password", inputPath];
 }
 
 /**
@@ -293,8 +307,26 @@ export function createNativeQpdfRunner(
         async (result) => {
           if (result.timedOut) throw new Error("qpdf timed out.");
           if (result.code === 0) return true;
-          if (result.code === QPDF_EXIT_STATUS_2) return false;
+          if (result.code === QPDF_EXIT_ERROR) return false;
           throw new Error("qpdf could not determine encryption status.");
+        },
+        false,
+      );
+    },
+
+    async requiresPassword(input): Promise<QpdfPasswordRequirement> {
+      // No password involved (qpdf tries the empty one), so not sensitive.
+      return withJob(
+        input,
+        (inputPath) => requiresPasswordArgs(inputPath),
+        async (result): Promise<QpdfPasswordRequirement> => {
+          if (result.timedOut) throw new Error("qpdf timed out.");
+          // qpdf's documented answers to `--requires-password`. 3 here is NOT
+          // "warnings": it is "encrypted, and the (empty) password opens it".
+          if (result.code === 0) return "needs-password";
+          if (result.code === QPDF_EXIT_ERROR) return "not-encrypted";
+          if (result.code === QPDF_EXIT_WARNINGS) return "opens-freely";
+          throw new Error("qpdf could not determine the password requirement.");
         },
         false,
       );
@@ -305,7 +337,11 @@ export function createNativeQpdfRunner(
         input,
         (inputPath, outputPath) => protectArgs(inputPath, outputPath, opts),
         async (result, readOutput) => {
-          if (result.timedOut || result.code !== 0) {
+          // 0, or 3 = "warnings, output written": qpdf had to repair the input
+          // (a broken xref, a wrong startxref) and then encrypted it. The output
+          // is still read and validated here, and the engine re-proves it needs
+          // the new password to open, so accepting 3 accepts no unproven bytes.
+          if (!qpdfWroteOutput(result)) {
             throw new Error("qpdf encryption failed.");
           }
           return readOutput();
@@ -321,10 +357,13 @@ export function createNativeQpdfRunner(
         async (result, readOutput): Promise<QpdfUnlockOutcome> => {
           if (result.timedOut) throw new Error("qpdf timed out.");
           // Exit 2 on a decrypt of a known-encrypted file is a wrong password.
-          if (result.code === QPDF_EXIT_STATUS_2) {
+          if (result.code === QPDF_EXIT_ERROR) {
             return { ok: false, wrongPassword: true };
           }
-          if (result.code !== 0) throw new Error("qpdf decryption failed.");
+          // 0, or 3 = decrypted a damaged file with warnings (see protect).
+          if (!qpdfWroteOutput(result)) {
+            throw new Error("qpdf decryption failed.");
+          }
           return { ok: true, output: await readOutput() };
         },
         true,
