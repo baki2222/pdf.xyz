@@ -22,6 +22,7 @@ import { HandoffLoadedBadge } from "./handoff-notice";
 import { RotateRunner } from "./rotate-runner";
 import { OrganizeRunner } from "./organize-runner";
 import { documentLevelState, wholeDocumentPdf } from "@/tests/whole-document";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 
 /**
  * Whole runners, driven the way a person drives them: pick a file, press the
@@ -98,6 +99,83 @@ describe("PDF to Text reads a restricted (owner-only) PDF end to end", () => {
     });
     expect(alert.textContent).toMatch(/password-protected/);
     expect(alert.textContent).not.toMatch(/No password given/);
+  }, 30_000);
+});
+
+/**
+ * A PDF whose pages carry `texts` — an empty string is a page with no text
+ * layer at all (a scanned sheet, a blank separator).
+ */
+async function pagesPdf(texts: readonly string[]): Promise<File> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const text of texts) {
+    const page = doc.addPage([300, 300]);
+    if (text) page.drawText(text, { x: 40, y: 200, size: 14, font });
+  }
+  return new File([new Uint8Array(await doc.save())], "mixed.pdf", {
+    type: "application/pdf",
+  });
+}
+
+async function extractThrough(file: File) {
+  const { container } = renderRunner(<PdfToTextRunner />);
+  pick(container, [file]);
+  fireEvent.click(
+    await screen.findByRole(
+      "button",
+      { name: /extract text/i },
+      { timeout: 10_000 },
+    ),
+  );
+  await screen.findByRole("group", undefined, { timeout: 10_000 });
+  return container;
+}
+
+/**
+ * A partly scanned document — signed pages, a stapled-in scan — came out as
+ * "Text extracted: 18,402 characters from 40 pages" when twelve of the forty
+ * contributed nothing, and the TXT joins the survivors with the same blank
+ * line as a paragraph break, so nothing downstream shows where they were.
+ * Read at the result panel, which is what the person reads.
+ */
+describe("PDF to Text says which pages gave no text", () => {
+  const MIXED = ["ALPHA-TEXT", "", "", "DELTA-TEXT", ""] as const;
+  const blank = MIXED.flatMap((text, i) => (text ? [] : [i + 1]));
+  const withText = MIXED.length - blank.length;
+
+  it("the summary counts the pages text came from, and a note names the rest", async () => {
+    // Health check: the fixture really is mixed.
+    expect(blank).toEqual([2, 3, 5]);
+    const container = await extractThrough(await pagesPdf(MIXED));
+    expect(container.textContent).toContain(
+      `from ${withText} of ${MIXED.length} pages`,
+    );
+    const note = screen.getByRole("status");
+    expect(note.textContent).toContain("Pages 2–3, 5");
+    expect(note.textContent).toMatch(/no selectable text/i);
+    const ocr = note.querySelector("a");
+    expect(ocr?.getAttribute("href")).toBe("/tools/ocr-pdf");
+    // The text that WAS there is still delivered.
+    expect(container.textContent).toContain("DELTA-TEXT");
+  }, 30_000);
+
+  it("CONTROL: every page has text — no note, and the plain page count", async () => {
+    const all = ["ALPHA-TEXT", "BRAVO-TEXT"];
+    const container = await extractThrough(await pagesPdf(all));
+    expect(container.textContent).toContain(`from ${all.length} pages`);
+    expect(container.textContent).not.toMatch(/ of \d+ pages/);
+    expect(screen.queryByRole("status")).toBeNull();
+  }, 30_000);
+
+  it("no page has text — the OCR pointer is a real link, with no stale hedge", async () => {
+    const container = await extractThrough(await pagesPdf(["", ""]));
+    expect(container.textContent).toContain("No selectable text found");
+    expect(container.textContent).not.toMatch(/when OCR is enabled/);
+    const links = [...container.querySelectorAll("a")].map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(links).toContain("/tools/ocr-pdf");
   }, 30_000);
 });
 

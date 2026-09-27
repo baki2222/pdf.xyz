@@ -120,6 +120,26 @@ export function pageTextChunks(
     .filter((chunk) => chunk.text.length > 0);
 }
 
+/**
+ * The page numbers `joinPageTexts` DROPS — pages whose text normalizes to
+ * nothing (a scanned sheet with no text layer, a blank separator).
+ *
+ * The join leaves no marker where they were: survivors are joined with the
+ * same blank line as a paragraph break, which the worker parse path and the
+ * AI page-offset math rely on. So a caller that reports "from N pages" must
+ * name these, or a partly scanned document reads as complete. Derived as the
+ * complement of {@link pageTextChunks}, so "empty" means exactly what the join
+ * means by it — `text.test.ts` pins the two as a partition.
+ */
+export function pagesWithoutText(
+  pages: Pick<ExtractedTextPage, "text" | "pageNumber">[],
+): number[] {
+  const kept = new Set(pageTextChunks(pages).map((chunk) => chunk.pageNumber));
+  return pages
+    .map((page) => page.pageNumber)
+    .filter((pageNumber) => !kept.has(pageNumber));
+}
+
 /** Join page blocks with a single blank line between non-empty pages. */
 export function joinPageTexts(
   pages: Pick<ExtractedTextPage, "text" | "pageNumber">[],

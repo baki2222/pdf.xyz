@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSplitParts,
+  formatPageNumbers,
   formatRange,
   PageRangeError,
   parsePageList,
@@ -125,5 +126,28 @@ describe("buildSplitParts", () => {
   it("falls back to a default base name when blank", () => {
     const parts = buildSplitParts("  ", [{ start: 0, end: 0 }]);
     expect(parts[0]!.name).toBe("document-1-page-1.pdf");
+  });
+});
+
+describe("formatPageNumbers", () => {
+  it("compresses runs into en-dash ranges", () => {
+    expect(formatPageNumbers([2, 7, 8, 9])).toBe("2, 7–9");
+    expect(formatPageNumbers([1])).toBe("1");
+    expect(formatPageNumbers([3, 4])).toBe("3–4");
+    expect(formatPageNumbers([])).toBe("");
+  });
+
+  it("sorts and de-duplicates its input", () => {
+    expect(formatPageNumbers([9, 2, 8, 7, 8])).toBe("2, 7–9");
+  });
+
+  it("round-trips through the parser users type ranges into", () => {
+    // The label must name the same pages the reader could type back in.
+    const pageCount = 40;
+    const sets = [[2], [1, 2, 3], [2, 7, 8, 9], [1, 3, 5, 6, 7, 40], [40]];
+    for (const pages of sets) {
+      const typed = formatPageNumbers(pages).replace(/–/g, "-");
+      expect(parsePageList(typed, pageCount).map((i) => i + 1)).toEqual(pages);
+    }
   });
 });
