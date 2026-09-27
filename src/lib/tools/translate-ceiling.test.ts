@@ -266,17 +266,44 @@ describe("the published ceiling describes a pass, not a document", () => {
     // Not "the panel mentions chunking" — the panel must call the same planner,
     // or two hand-written versions of "does this fit" drift and the stricter
     // one silently hides the other.
+    //
+    // THE PANEL'S ASSERTION MOVED THE SAME WAY THE ENGINE'S DID (below), one
+    // release later. It read `expect(panel).toContain("planTranslateChunks")`;
+    // on 2026-09-27 the refusal moved into `translate/preflight.ts`, because
+    // "no chunks" had two causes and the panel read both as "too long" — a
+    // scanned PDF was told it had 0 characters and should be split. The
+    // property is unchanged — the panel still plans with the one planner — so
+    // the guard now follows the import rather than the name: the panel either
+    // calls the planner itself, or calls a preflight that does.
     const CHUNKING = "src/lib/workers/translate/chunking.ts";
+    const PREFLIGHT = "src/lib/workers/translate/preflight.ts";
     const panel = read("src/components/tools/translate-worker-panel.tsx");
+    const plansDirectly =
+      panel.includes('from "@/lib/workers/translate/chunking"') &&
+      panel.includes("planTranslateChunks(");
+    const plansViaPreflight =
+      panel.includes('from "@/lib/workers/translate/preflight"') &&
+      panel.includes("translatePreflight(");
     expect(
-      panel,
-      "the translate panel must plan with planTranslateChunks, or its pre-upload " +
-        "refusal can be stricter than the worker and make chunking unreachable",
-    ).toContain("planTranslateChunks");
-    expect(
-      panel,
-      "the panel plans with something other than the worker's chunking module",
-    ).toContain('from "@/lib/workers/translate/chunking"');
+      plansDirectly || plansViaPreflight,
+      "the translate panel must plan with planTranslateChunks (directly or via " +
+        "translate/preflight), or its pre-upload refusal can be stricter than " +
+        "the worker and make chunking unreachable",
+    ).toBe(true);
+    if (plansViaPreflight) {
+      const preflight = read(PREFLIGHT);
+      expect(
+        preflight,
+        "the preflight plans with something other than the worker's chunking module",
+      ).toContain('from "./chunking"');
+      expect(
+        /export function translatePreflight[\s\S]*?planTranslateChunks\(/.test(
+          preflight,
+        ),
+        "translatePreflight no longer delegates to planTranslateChunks — the " +
+          "panel and the worker can now disagree about what fits",
+      ).toBe(true);
+    }
 
     /**
      * THE ENGINE'S ASSERTION WAS A STRING, AND THE STRING MOVED.
