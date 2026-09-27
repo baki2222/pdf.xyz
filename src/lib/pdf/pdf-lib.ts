@@ -89,10 +89,11 @@ function normalizeImageBytes(bytes: Uint8Array): Uint8Array {
  * arrives disguised as bad input.
  *
  * Fixing it HERE rather than at each engine is the point: there were five call
- * sites when this was written, two of them (`grayscalePdf`, `redactPdf`) in
- * code that no unit test can reach because its bytes come from a browser
- * canvas. Five copies of the same three lines is how the sixth call site gets
- * missed.
+ * sites when this was written, two of them (`grayscalePdf`, `redactPdf`) fed
+ * by a browser canvas that no unit test could reach. (`grayscalePdf` has since
+ * stopped embedding canvas output: it embeds its own one-component JPEG from
+ * `gray-jpeg.ts`, and a jsdom runner test drives it end to end.) Five copies
+ * of the same three lines is how the sixth call site gets missed.
  *
  * Upstream is not the answer for now: `pdf-lib@1.17.1` is still `latest` on npm
  * (published 2021-11-06) and `Hopding/pdf-lib@master` carries the same line, so

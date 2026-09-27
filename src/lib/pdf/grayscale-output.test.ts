@@ -311,6 +311,11 @@ describe("grayscale builder output", () => {
 });
 
 describe("grayscale output title", () => {
+  // The UNIT only: this supplies the title itself, so it stayed green when
+  // `grayscalePdf` was changed to save `grayscaleTitle(null, undefined)`. The
+  // chain that produces the title — upload, pdf.js metadata, the runner's file
+  // name, the downloaded Blob — is pinned by
+  // src/components/tools/runner/grayscale-runner.test.tsx.
   it("carries the source's title, else the file's stem, into the saved Info", async () => {
     const cases: Array<[string | null, string | undefined, string]> = [
       ["Quarterly Report", "q3.pdf", "Quarterly Report (grayscale)"],

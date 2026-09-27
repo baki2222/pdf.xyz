@@ -40,6 +40,12 @@ export interface TextPdfOptions {
    * "the output has no colour" would be true of it before the tool ran.
    */
   colorful?: boolean;
+  /**
+   * The Info dictionary's /Title. Unset by default, as pdf-lib writes none.
+   * The grayscale proof sets it: its output is titled after the source's own
+   * title, a branch that is only exercised when the source has one.
+   */
+  title?: string;
 }
 
 /** A valid multi-page PDF with per-page marker text and an ink rectangle. */
@@ -51,9 +57,11 @@ export async function makeTextPdf(
     bodyLines = [],
     unoptimized,
     colorful,
+    title,
   }: TextPdfOptions = {},
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  if (title !== undefined) doc.setTitle(title);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (let i = 0; i < pages; i++) {
     const page = doc.addPage(size);

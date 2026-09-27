@@ -5,6 +5,10 @@ import type { RunnerKind } from "../../src/lib/pdf/registry";
 import { organizePages } from "../../src/lib/pdf/engine";
 import { jpegComponentCount } from "../../src/lib/pdf/gray-jpeg";
 import {
+  createGrayscaleBuilder,
+  grayscaleTitle,
+} from "../../src/lib/pdf/grayscale";
+import {
   addDocumentStructure,
   lostStructure,
   readDocumentStructure,
@@ -117,6 +121,37 @@ async function uploadPayloads(
 }
 
 /** Generate a text PDF, stash its bytes in ctx, upload it, return the bytes. */
+/** The grayscale proof's upload name, shared by its run and its assert. */
+const GRAYSCALE_SOURCE = "colorful.pdf";
+
+/**
+ * A two-page grayscale-pdf artifact that is right in every respect but its
+ * title: DeviceGray pages from the tool's own builder, with a mid-grey block
+ * of ink over ~40% of each, saved as `title`.
+ */
+async function makeGrayArtifactTitled(
+  title: string,
+  [width, height]: [number, number],
+): Promise<Buffer> {
+  const builder = await createGrayscaleBuilder();
+  for (let index = 0; index < 2; index++) {
+    const plane = new Uint8Array(width * height).fill(255);
+    for (let y = Math.floor(height * 0.2); y < height * 0.8; y++) {
+      for (let x = Math.floor(width * 0.1); x < width * 0.8; x++) {
+        plane[y * width + x] = 96;
+      }
+    }
+    await builder.addPage(plane, {
+      index,
+      width,
+      height,
+      pageWidth: width,
+      pageHeight: height,
+    });
+  }
+  return Buffer.from(await builder.save(title));
+}
+
 async function uploadTextPdf(
   ctx: CaseContext,
   name: string,
@@ -840,7 +875,15 @@ export const CASES: Record<string, ToolCase> = {
       // A COLOUR fixture. With the default black-ink fixture "the output has
       // no colour" is already true of the input, so the assertion would pass
       // on an engine that did nothing to the pixels.
-      await uploadTextPdf(ctx, "colorful.pdf", { pages: 2, colorful: true });
+      //
+      // It carries its own /Title, so the output's title is exercised on the
+      // source-title branch, read by pdf.js in the browser: the one hop of the
+      // title chain the Node tests do not run in a real browser engine.
+      await uploadTextPdf(ctx, GRAYSCALE_SOURCE, {
+        pages: 2,
+        colorful: true,
+        title: "Colour Proof Sheet",
+      });
       return runAndDownload(
         ctx,
         /convert to grayscale/i,
@@ -893,10 +936,30 @@ export const CASES: Record<string, ToolCase> = {
           ).toBe(1);
         }
       }
+
+      // And it is titled after what was uploaded, not "Grayscale PDF" like
+      // every output before it. Derived from the bytes this run uploaded, so
+      // the expectation cannot drift from the fixture. Checked after the
+      // colour-space block so the first three controls keep failing on their
+      // own property.
+      const source = ctx.data[GRAYSCALE_SOURCE];
+      if (!Buffer.isBuffer(source))
+        throw new Error("the uploaded source's bytes were not recorded");
+      const sourceTitle = (await PDFDocument.load(source)).getTitle();
+      expect(
+        sourceTitle,
+        "the source carries no /Title, so only the file-name fallback is exercised",
+      ).toBeTruthy();
+      const title = (await PDFDocument.load(buf)).getTitle();
+      expect(title, "the output lost the source's title").toContain(
+        sourceTitle,
+      );
+      expect(title).toBe(grayscaleTitle(sourceTitle, GRAYSCALE_SOURCE));
     },
-    // Three controls, one per claimed property: a rasterized output that
-    // rendered nothing, one that kept its colour, and one that LOOKS grey but
-    // is a three-component (DeviceRGB) image — the pre-fix artifact exactly.
+    // Four controls, one per claimed property: a rasterized output that
+    // rendered nothing, one that kept its colour, one that LOOKS grey but is a
+    // three-component (DeviceRGB) image — the pre-fix pages exactly — and a
+    // correct DeviceGray artifact carrying the pre-fix title.
     control: async (ctx) => {
       const size: [number, number] = [320, 240];
       const colour = await makeJpegFixtureInPage(
@@ -917,6 +980,7 @@ export const CASES: Record<string, ToolCase> = {
           2,
           size,
         ),
+        await makeGrayArtifactTitled(grayscaleTitle(null, undefined), size),
       ];
     },
   },
