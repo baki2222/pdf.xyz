@@ -7,6 +7,7 @@ import {
   type RasterPage,
   type RasterizeOptions,
 } from "./render";
+import type { RedactionFill, RedactionRect } from "./redact-defaults";
 
 /**
  * Privacy-safe, in-browser PDF redaction.
@@ -31,55 +32,16 @@ import {
 
 const PRODUCER = "pdf.xyz";
 
-/** Fill colors offered for a redaction box. */
-export type RedactionFill = "black" | "white";
-
-/**
- * Every fill the tool offers, in the order the runner shows them. The runner's
- * fill control renders THIS list, and `redact-paint.test.ts` walks it — so a
- * fill added here is offered and proven to reach the pixels in the same edit,
- * rather than offered by one list and tested against another.
- */
-export const REDACTION_FILL_OPTIONS: readonly {
-  value: RedactionFill;
-  label: string;
-}[] = [
-  { value: "black", label: "Black" },
-  { value: "white", label: "White" },
-];
-
-/**
- * A rectangle to redact, in PDF points with a bottom-left origin (the standard
- * PDF coordinate space), on a specific 1-based page. `x`/`y` locate the box's
- * lower-left corner; `width`/`height` size it.
- */
-export interface RedactionRect {
-  /** 1-based page number. */
-  page: number;
-  /** Distance of the box's left edge from the page's left edge, in points. */
-  x: number;
-  /** Distance of the box's bottom edge from the page's bottom edge, in points. */
-  y: number;
-  /** Box width in points. */
-  width: number;
-  /** Box height in points. */
-  height: number;
-}
-
-/**
- * The box the runner's form starts with — what "Add area" adds when the user
- * touches nothing. Exported because it is the one rectangle every redaction
- * proof can name without a drag: the unit paint test and the browser proof
- * (e2e/client-proof/cases.ts) both locate their pixel regions from it, so
- * moving the default moves the checks with it.
- */
-export const DEFAULT_REDACTION_DRAFT: Readonly<RedactionRect> = {
-  page: 1,
-  x: 36,
-  y: 36,
-  width: 200,
-  height: 72,
-};
+// The tool's plain data lives in a leaf module because the browser proof
+// (e2e/client-proof/cases.ts) imports it under Playwright's CommonJS loader,
+// where `./render`'s `import.meta.url` is a SyntaxError. Re-exported here so
+// the runner and the unit tests keep one import site.
+export {
+  DEFAULT_REDACTION_DRAFT,
+  REDACTION_FILL_OPTIONS,
+  type RedactionFill,
+  type RedactionRect,
+} from "./redact-defaults";
 
 /** A page's displayed size in PDF points. */
 export interface PageSize {

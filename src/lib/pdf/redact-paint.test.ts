@@ -277,4 +277,53 @@ describe("the redaction paint reaches the bitmap that is encoded", () => {
       expect(tally(untouched, rect, 792, black).insideFilled).toBe(0);
     }
   });
+
+  it("several boxes: every box on a page is painted, and each page gets only its own", async () => {
+    // Every case above paints exactly ONE box, so a loop that painted only the
+    // first box per page — or a grouping that kept only the first box per
+    // page — passed them all (the review mutated both loops to
+    // `rects.slice(0, 1)` and every test stayed green). Two boxes share page
+    // 1, a third sits on page 3 at page 1's SECOND box position, and page 2
+    // carries none.
+    const { rasterize, encoded } = pixelRasterizer();
+    const first = { ...DEFAULT_REDACTION_DRAFT, page: 1 };
+    const second = {
+      ...DEFAULT_REDACTION_DRAFT,
+      page: 1,
+      y: DEFAULT_REDACTION_DRAFT.y + DEFAULT_REDACTION_DRAFT.height + 200,
+    };
+    const third = { ...second, page: 3 };
+    const rects = [first, second, third];
+    const result = await redactPdf(
+      await textPdf(3),
+      { rects, dpi: 96 },
+      rasterize,
+    );
+    expect(result.redactionCount).toBe(rects.length);
+    expect(encoded).toHaveLength(3);
+    const black = parseHex(redactionFillHex(undefined));
+
+    encoded.forEach((canvas, index) => {
+      const own = rects.filter((r) => r.page === index + 1);
+      const others = rects.filter((r) => r.page !== index + 1);
+      for (const rect of own) {
+        const hit = tally(canvas, rect, 792, black);
+        expect(hit.inside).toBeGreaterThan(10_000);
+        expect(
+          hit.insideFilled,
+          `page ${index + 1}: box at y=${rect.y} kept its content`,
+        ).toBe(hit.inside);
+      }
+      // A box that belongs to another page must leave this page's region as
+      // rendered (the regions overlap across pages by construction).
+      for (const rect of others) {
+        if (own.some((o) => o.y === rect.y && o.x === rect.x)) continue;
+        expect(
+          tally(canvas, rect, 792, black).insideFilled,
+          `page ${index + 1} painted page ${rect.page}'s box`,
+        ).toBe(0);
+      }
+      expect(canvas.fillRectCalls).toBe(own.length);
+    });
+  });
 });

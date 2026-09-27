@@ -6,7 +6,7 @@ import {
   rasterScaleForDpi,
   resolutionById,
 } from "../../src/lib/pdf/pdf-to-image";
-import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact";
+import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
 import { fileInput, waitForHydration } from "../helpers";
 import {
   inkBlockRect,
