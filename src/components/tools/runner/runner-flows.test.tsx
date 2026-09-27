@@ -384,3 +384,70 @@ describe("Organize PDF downloads the whole document when it removes no page", ()
     }
   }, 30_000);
 });
+
+/**
+ * A picked .txt or .md file reaches the editor as the text its author wrote.
+ *
+ * Both runners used `file.text()`, which is UTF-8 or nothing: a Windows-1252
+ * note showed up as "caf� �q�" and a Notepad "Unicode" save as U+FFFD plus a
+ * NUL between every letter, and "PDF created" followed either way. This reads
+ * what the USER sees — the editor's value and the notes beside it — through
+ * the real file input, rather than calling the decoder the runner is supposed
+ * to use.
+ */
+describe("Text and Markdown to PDF read a file in the encoding it was saved in", () => {
+  const FFFD = String.fromCharCode(0xfffd);
+  // "café “q”" as Windows-1252 — the bytes from the finding, verbatim.
+  const CP1252 = [0x63, 0x61, 0x66, 0xe9, 0x20, 0x93, 0x71, 0x94];
+  const UTF16LE_BOM = [0xff, 0xfe, ...Buffer.from("Hi café", "utf16le")];
+
+  const runners = [
+    {
+      name: "Text to PDF",
+      ui: () => <TextToPdfRunner />,
+      file: "note.txt",
+      type: "text/plain",
+    },
+    {
+      name: "Markdown to PDF",
+      ui: () => <MarkdownToPdfRunner />,
+      file: "note.md",
+      type: "text/markdown",
+    },
+  ];
+
+  for (const runner of runners) {
+    it(`${runner.name}: Windows-1252 and UTF-16 files, and a warning for U+FFFD`, async () => {
+      const { container } = renderRunner(runner.ui());
+      const box = () => {
+        const el = container.querySelector("textarea");
+        if (!el) throw new Error("no editor rendered");
+        return el;
+      };
+
+      pick(container, [
+        new File([new Uint8Array(CP1252)], runner.file, { type: runner.type }),
+      ]);
+      await waitFor(() => expect(box().value).toBe("café “q”"));
+      expect(box().value).not.toContain(FFFD);
+      // The guess is named where the user checks the text, and NOT as an error.
+      const note = await screen.findByText(/read as Windows-1252/);
+      expect(note.closest('[role="alert"]')).toBeNull();
+
+      pick(container, [
+        new File([new Uint8Array(UTF16LE_BOM)], runner.file, {
+          type: runner.type,
+        }),
+      ]);
+      await waitFor(() => expect(box().value).toBe("Hi café"));
+      expect(box().value).not.toContain(String.fromCharCode(0));
+      // A declared encoding is not a guess, so the Windows-1252 note is gone.
+      expect(screen.queryByText(/read as Windows-1252/)).toBeNull();
+
+      // Second, independent bound: damaged text however it arrived is flagged.
+      expect(screen.queryByText(/could not be read/)).toBeNull();
+      fireEvent.change(box(), { target: { value: `caf${FFFD} ok` } });
+      await screen.findByText(/1 character in this text could not be read/);
+    }, 30_000);
+  }
+});

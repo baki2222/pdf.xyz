@@ -21,12 +21,16 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import { TextSourceNotes } from "./text-source-notes";
+import { decodeTextFile, describeDecoding } from "@/lib/text/decode-text-file";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
 
 interface TextSource {
   name: string;
   text: string;
+  /** How the picked file was decoded, when that was a guess worth checking. */
+  readNote?: string | null;
 }
 
 export function TextToPdfRunner() {
@@ -51,8 +55,16 @@ export function TextToPdfRunner() {
       );
       return;
     }
-    const text = await file.text();
-    setSource({ name: file.name || "text.txt", text });
+    // Not `file.text()`: that is UTF-8 or nothing, and it turned a
+    // Windows-1252 note into "caf� �q�" and a Notepad "Unicode" save into
+    // U+FFFD and NULs — then reported "PDF created". The size gate above stays
+    // on bytes, so this is one decode of at most MAX_SOURCE_BYTES.
+    const decoded = await decodeTextFile(file);
+    setSource({
+      name: file.name || "text.txt",
+      text: decoded.text,
+      readNote: describeDecoding(decoded),
+    });
     setLoadError(null);
   }, []);
 
@@ -154,11 +166,12 @@ function TextToPdfEditor({
         <textarea
           value={source.text}
           onChange={(event) =>
-            onSource({ name: source.name, text: event.target.value })
+            onSource({ ...source, text: event.target.value })
           }
           placeholder="Paste or type plain text here…"
           className="border-line text-fg focus:border-accent focus:ring-accent/50 [min-height:18rem] w-full resize-y rounded-[4px] border bg-black/20 px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
         />
+        <TextSourceNotes readNote={source.readNote} text={source.text} />
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
             icon={ShieldCheck}

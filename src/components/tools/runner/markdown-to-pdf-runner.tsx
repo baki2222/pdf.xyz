@@ -30,12 +30,16 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import { TextSourceNotes } from "./text-source-notes";
+import { decodeTextFile, describeDecoding } from "@/lib/text/decode-text-file";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
 
 interface MarkdownSource {
   name: string;
   text: string;
+  /** How the picked file was decoded, when that was a guess worth checking. */
+  readNote?: string | null;
 }
 
 export function MarkdownToPdfRunner() {
@@ -60,8 +64,13 @@ export function MarkdownToPdfRunner() {
       );
       return;
     }
-    const text = await file.text();
-    setSource({ name: file.name || "document.md", text });
+    // Not `file.text()`, which is UTF-8 or nothing — see decode-text-file.ts.
+    const decoded = await decodeTextFile(file);
+    setSource({
+      name: file.name || "document.md",
+      text: decoded.text,
+      readNote: describeDecoding(decoded),
+    });
     setLoadError(null);
   }, []);
 
@@ -163,11 +172,12 @@ function MarkdownToPdfEditor({
         <textarea
           value={source.text}
           onChange={(event) =>
-            onSource({ name: source.name, text: event.target.value })
+            onSource({ ...source, text: event.target.value })
           }
           placeholder="# Title\n\nWrite or paste Markdown here…"
           className="border-line text-fg focus:border-accent focus:ring-accent/50 [min-height:18rem] w-full resize-y rounded-[4px] border bg-black/20 px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
         />
+        <TextSourceNotes readNote={source.readNote} text={source.text} />
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
             icon={ShieldCheck}
