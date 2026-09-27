@@ -7,6 +7,7 @@
 // pretending to have verified anything — the unit tests already cover every branch
 // with an injected exec.
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -22,6 +23,7 @@ import {
   type QpdfExecResult,
 } from "./native";
 import { resolveNativePdfSecurityConfig } from "./native-config";
+import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
 
 const HAS_QPDF = resolveOnPath("qpdf");
 const suite = HAS_QPDF ? describe : describe.skip;
@@ -33,35 +35,15 @@ async function realPdf(pages = 2): Promise<Uint8Array> {
 }
 
 /**
- * A PDF qpdf must REPAIR before it can do anything with it: a classic xref table
- * and trailer (`useObjectStreams: false` — pdf-lib's default xref stream leaves
- * qpdf no trailer to reconstruct from, so it refuses outright), with the
- * `startxref` offset replaced by a lie past the end of the file.
- *
- * The digits are SPLICED, not overwritten in place. A small document's offset
- * has three or four digits, so writing seven over it eats the `%%EOF` that
- * follows — and the engine's preflight (`looksLikePdf`) then refuses the file
- * as `invalid_pdf` before qpdf ever runs: a failure for the wrong reason.
- * Truncating the file has the same problem. The positive control below checks
- * the fixture against the preflight rather than trusting this comment.
+ * A PDF qpdf must REPAIR before it can do anything with it. The builder is
+ * shared with the production proof (`scripts/worker-prove-tools.ts`); its shape
+ * is checked without qpdf in `src/tests/damaged-xref.test.ts`, and the positive
+ * control below checks that qpdf really answers 3 for it.
  */
 async function damagedXrefPdf(pages = 2): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   for (let i = 0; i < pages; i++) doc.addPage([320, 240]);
-  const whole = Buffer.from(await doc.save({ useObjectStreams: false }));
-  const at = whole.lastIndexOf("startxref");
-  const offset = /^startxref\s+(\d+)/.exec(
-    whole.subarray(at).toString("latin1"),
-  );
-  if (at < 0 || !offset) throw new Error("fixture has no startxref offset");
-  const digitsAt = at + offset[0].length - offset[1]!.length;
-  return new Uint8Array(
-    Buffer.concat([
-      whole.subarray(0, digitsAt),
-      Buffer.from(String(whole.length * 10), "latin1"),
-      whole.subarray(digitsAt + offset[1]!.length),
-    ]),
-  );
+  return spliceStartxrefPastEnd(await doc.save({ useObjectStreams: false }));
 }
 
 /** Run the real qpdf binary directly (no runner), resolving with its exit code. */
@@ -84,14 +66,28 @@ async function withScratch<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+/** One recorded qpdf run: its argv (at-file expanded) and how it exited. */
+interface RecordedCall {
+  argv: string[];
+  code: number;
+}
+
 /**
- * The real exec, recording every exit status, so a test can prove WHICH path it
- * exercised — a protect that passed on a clean exit 0 proves nothing about 3.
+ * The real exec, recording every run's argv and exit status, so a test can prove
+ * WHICH call took which path — a protect that passed on a clean exit 0 proves
+ * nothing about 3, and neither does a 3 from some other call (`--requires-password`
+ * answers 3 for an owner-only file). The protect argv travels in an at-file,
+ * which the runner deletes afterwards, so it is read here, before qpdf runs.
  */
-function recordingExec(): { exec: QpdfExec; codes: number[] } {
-  const codes: number[] = [];
-  const exec: QpdfExec = (command, args, options) =>
-    new Promise<QpdfExecResult>((resolve) => {
+function recordingExec(): { exec: QpdfExec; calls: RecordedCall[] } {
+  const calls: RecordedCall[] = [];
+  const exec: QpdfExec = (command, args, options) => {
+    const argv = args.flatMap((arg) =>
+      arg.startsWith("@")
+        ? readFileSync(arg.slice(1), "utf8").split("\n")
+        : [arg],
+    );
+    return new Promise<QpdfExecResult>((resolve) => {
       execFile(command, [...args], { ...options }, (error) => {
         const result: QpdfExecResult = !error
           ? { code: 0, timedOut: false }
@@ -99,11 +95,12 @@ function recordingExec(): { exec: QpdfExec; codes: number[] } {
               code: typeof error.code === "number" ? error.code : -1,
               timedOut: error.killed === true,
             };
-        codes.push(result.code);
+        calls.push({ argv, code: result.code });
         resolve(result);
       });
     });
-  return { exec, codes };
+  };
+  return { exec, calls };
 }
 
 suite("qpdf runner (real binary)", () => {
@@ -175,7 +172,7 @@ suite("qpdf runner (real binary) — damaged input (exit 3)", () => {
   });
 
   it("protects a damaged PDF through the engine, and the result needs the password", async () => {
-    const { exec, codes } = recordingExec();
+    const { exec, calls } = recordingExec();
     const qpdf = createNativeQpdfRunner(config, { exec });
     const deps: PdfSecurityDeps = { qpdf };
     const run = await runProtect(
@@ -185,8 +182,10 @@ suite("qpdf runner (real binary) — damaged input (exit 3)", () => {
     );
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    // The exit-3 path, not a clean 0, is what this test is about.
-    expect(codes).toContain(QPDF_EXIT_WARNINGS);
+    // The exit-3 path, not a clean 0, is what this test is about — and it must
+    // be the ENCRYPT call that took it, not another run that happened to say 3.
+    const encrypts = calls.filter((c) => c.argv.includes("--encrypt"));
+    expect(encrypts.map((c) => c.code)).toEqual([QPDF_EXIT_WARNINGS]);
     expect(await qpdf.requiresPassword(run.output)).toBe("needs-password");
 
     const unlocked = await runUnlock(run.output, { password }, deps);

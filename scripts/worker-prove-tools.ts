@@ -66,6 +66,7 @@ import { embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
+import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
 import { webpageFetchMessage } from "@/lib/workers/html-render/engine";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
@@ -127,16 +128,10 @@ async function textPdf(): Promise<Buffer> {
 }
 
 /**
- * A PDF that opens in every viewer but that qpdf must REPAIR first: a classic
- * xref table and trailer (`useObjectStreams: false`; pdf-lib's default xref
- * stream leaves qpdf nothing to reconstruct from), with the `startxref` offset
- * replaced by one past the end of the file. qpdf rebuilds the xref, writes its
- * output, and exits 3 ("warnings, output written").
- *
- * The digits are spliced, never overwritten in place: this document's offset
- * has three or four digits, and writing a longer lie over them eats the
- * `%%EOF` after it — the worker's preflight then refuses the upload as not a
- * PDF, and the proof fails for a reason that has nothing to do with qpdf.
+ * A PDF that opens in every viewer but that qpdf must REPAIR first, so Protect
+ * reaches qpdf's exit 3 ("warnings, output written"). How it is damaged, and
+ * the two ways that could fail for the wrong reason, are in
+ * `src/tests/damaged-xref.ts`.
  */
 async function damagedXrefPdf(): Promise<Buffer> {
   const doc = await PDFDocument.create();
@@ -148,22 +143,11 @@ async function damagedXrefPdf(): Promise<Buffer> {
     size: 20,
     font,
   });
-  const whole = Buffer.from(await doc.save({ useObjectStreams: false }));
-  const at = whole.lastIndexOf("startxref");
-  const offset = /^startxref\s+(\d+)/.exec(
-    whole.subarray(at).toString("latin1"),
+  // The splice (and why it is a splice) lives in one builder shared with the
+  // real-qpdf integration suite, so the two cannot drift apart.
+  return Buffer.from(
+    spliceStartxrefPastEnd(await doc.save({ useObjectStreams: false })),
   );
-  if (at < 0 || !offset) throw new Error("fixture has no startxref offset");
-  const digitsAt = at + offset[0].length - offset[1]!.length;
-  const damaged = Buffer.concat([
-    whole.subarray(0, digitsAt),
-    Buffer.from(String(whole.length * 10), "latin1"),
-    whole.subarray(digitsAt + offset[1]!.length),
-  ]);
-  if (!damaged.subarray(-16).toString("latin1").includes("%%EOF")) {
-    throw new Error("damaged fixture lost its %%EOF");
-  }
-  return damaged;
 }
 
 /**

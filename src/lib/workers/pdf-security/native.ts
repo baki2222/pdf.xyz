@@ -67,8 +67,9 @@ export interface QpdfExecResult {
 /**
  * Run qpdf by argv (never a shell) and resolve with its exit code — it does NOT
  * reject on a non-zero exit, because for this engine a non-zero code is a normal
- * signal (e.g. `--is-encrypted` returns 2 for "not encrypted", `--decrypt` returns
- * 2 for a wrong password, and any write returns 3 when it had to repair the
+ * signal (e.g. `--is-encrypted` returns 2 for "not encrypted" — or for a file it
+ * could not open at all, the same number — `--decrypt` returns 2 for a wrong
+ * password, and any write returns 3 when it had to repair the
  * input on the way — see `../qpdf-exit`). Injectable so tests never spawn a real
  * process.
  */
@@ -323,6 +324,8 @@ export function createNativeQpdfRunner(
           if (result.timedOut) throw new Error("qpdf timed out.");
           // qpdf's documented answers to `--requires-password`. 3 here is NOT
           // "warnings": it is "encrypted, and the (empty) password opens it".
+          // 2 is "not encrypted" OR "qpdf could not open the file" — one
+          // number; an unreadable file then fails at the protect step.
           if (result.code === 0) return "needs-password";
           if (result.code === QPDF_EXIT_ERROR) return "not-encrypted";
           if (result.code === QPDF_EXIT_WARNINGS) return "opens-freely";

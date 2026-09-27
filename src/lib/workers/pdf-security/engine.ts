@@ -70,7 +70,10 @@ export interface QpdfUnlockInput {
  *    owner password): anyone can open it, printing/copying/editing may be
  *    restricted. `isEncrypted` answers "yes" for this case too, which is why it
  *    cannot be what decides "already password-protected";
- *  - `not-encrypted` — no encryption at all.
+ *  - `not-encrypted` — qpdf's exit 2: no encryption at all, OR qpdf could not
+ *    open the file (its error status is the same number). It is not proof the
+ *    file is readable; `runProtect` goes on to `protect`, where an unreadable
+ *    file fails as an engine failure.
  */
 export type QpdfPasswordRequirement =
   "needs-password" | "opens-freely" | "not-encrypted";

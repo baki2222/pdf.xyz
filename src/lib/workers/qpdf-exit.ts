@@ -26,7 +26,10 @@ export const QPDF_EXIT_WARNINGS = 3;
 
 /**
  * qpdf's error status. Also the answer "not encrypted" to `--is-encrypted` and
- * `--requires-password`, and "invalid password" from a `--decrypt`.
+ * `--requires-password`, and "invalid password" from a `--decrypt` — and, for
+ * every one of those options, "qpdf could not open the file at all". The number
+ * cannot tell "not encrypted" from "unreadable"; a caller that acts on
+ * "not encrypted" must let a later step fail on an unreadable file.
  */
 export const QPDF_EXIT_ERROR = 2;
 
