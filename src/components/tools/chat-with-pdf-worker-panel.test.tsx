@@ -15,7 +15,7 @@
  * REAL engine — so the answer the panel shows and carries forward is one that was really
  * recovered from a real package, not a string handed to the component by the test.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
@@ -28,17 +28,19 @@ import type { AiProvider } from "@/lib/workers/ai/provider";
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
 import { resetTelemetry } from "@/lib/telemetry/track";
 
-const runWorkerChatWithPdf = vi.hoisted(() => vi.fn());
+import { chatWithPdfDeps } from "@/lib/workers/chat-with-pdf-client";
+import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
 
-vi.mock("@/lib/workers/chat-with-pdf-client", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@/lib/workers/chat-with-pdf-client")
-  >()),
-  runWorkerChatWithPdf,
-}));
-
-// Imported after the mock so the panel picks up the stubbed driver.
-const { ChatWithPdfWorkerPanel } = await import("./chat-with-pdf-worker-panel");
+// The panel's driver, swapped through `chatWithPdfDeps` and put back after
+// each test. This file used to `vi.mock` the client and import the panel
+// after the mock — which silently stopped working once other files in the
+// same worker (the tool-page guards) imported the panel first: the cached
+// panel kept the real driver, and all nine tests failed only in a full run.
+const runWorkerChatWithPdf = vi.fn();
+const realRun = chatWithPdfDeps.run;
+beforeEach(() => {
+  chatWithPdfDeps.run = runWorkerChatWithPdf;
+});
 
 const chatTool = getToolBySlug("chat-with-pdf")!;
 
@@ -170,6 +172,7 @@ async function ask(question: string) {
 }
 
 afterEach(() => {
+  chatWithPdfDeps.run = realRun;
   resetTelemetry();
   runWorkerChatWithPdf.mockReset();
   vi.unstubAllGlobals();

@@ -22,7 +22,7 @@ import {
 } from "@/lib/workers/ai-tool-availability";
 import {
   canRunChatWithPdf,
-  runWorkerChatWithPdf,
+  chatWithPdfDeps,
   type ChatWithPdfWorkerResult,
 } from "@/lib/workers/chat-with-pdf-client";
 import {
@@ -307,7 +307,7 @@ function ChatBuilder() {
     asking.current = asked;
     const outcome = await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = await runWorkerChatWithPdf(
+      const result = await chatWithPdfDeps.run(
         {
           filename: file.name,
           bytes,
