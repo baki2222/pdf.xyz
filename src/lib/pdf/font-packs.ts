@@ -40,20 +40,48 @@
 
 /** A face we ship. */
 export type FontPackId =
-  "latin" | "bengali" | "japanese" | "korean" | "chinese";
+  "latin" | "bengali" | "mono" | "japanese" | "korean" | "chinese";
+
+/**
+ * The built-in faces our tools ask for. Western text is drawn in exactly this
+ * face; anything else is routed to a shipped pack by {@link packsForFace}.
+ */
+export type StandardFace =
+  "sans" | "sans-bold" | "sans-oblique" | "mono" | "serif-italic";
 
 /** A closed, inclusive Unicode code-point range. */
 export type CodePointRange = readonly [number, number];
 
+/**
+ * What a pack is FOR.
+ *
+ * - `script` — the face for an alphabet, used by every caller whatever face it
+ *   asked for. These are what {@link SUPPORTED_SCRIPTS} and every refusal
+ *   describe.
+ * - `monospace` — a face used ONLY where a caller asked for `"mono"`, and
+ *   preferred there over every script pack that could also draw the text.
+ *   Text to PDF promises monospace typography and Markdown sets code in it;
+ *   before this role existed, one arrow or `tree` connector sent the whole
+ *   document to Noto Sans JP — proportional for Latin (i=275, W=878) and
+ *   5.4 MB — because it was the only shipped face with those glyphs. Kept out
+ *   of every other face deliberately: it is smaller than Noto Sans and covers
+ *   Cyrillic, so without the gate it would win the size tiebreak and set every
+ *   Cyrillic watermark and page number in a typewriter face.
+ */
+export type FontPackRole = "script" | "monospace";
+
 export interface FontPack {
   readonly id: FontPackId;
-  /** Shown to a user in a refusal: "Bengali", "Chinese". */
+  readonly role: FontPackRole;
+  /** Shown to a user in a message: "Bengali", "Chinese", "monospace". */
   readonly label: string;
   /** The scripts a reader would say this face is for. */
   readonly scripts: readonly string[];
   /** npm package the TTF is copied out of. */
   readonly pkg: string;
-  /** The TTF's basename, inside `<pkg>/400Regular/`. */
+  /** Directory inside the package that holds the TTF. */
+  readonly dir: string;
+  /** The TTF's basename, inside `<pkg>/<dir>/`. */
   readonly file: string;
   /**
    * Version stamped into the served URL, pinned to the npm package version so
@@ -80,19 +108,43 @@ export interface FontPack {
 export const FONT_PACKS: readonly FontPack[] = [
   {
     id: "bengali",
+    role: "script",
     label: "Bengali",
     scripts: ["Bengali"],
     pkg: "@expo-google-fonts/noto-sans-bengali",
+    dir: "400Regular",
     file: "NotoSansBengali_400Regular.ttf",
     version: "0.4.4",
     bytes: 141064,
     signals: [[0x980, 0x9ff]],
   },
   {
+    // Geist Mono, from the `geist` package the site already depends on for its
+    // own typography (SIL Open Font License). Every glyph is 600 units wide
+    // except combining marks — measured with fontkit, not taken from its
+    // `isFixedPitch` flag. It draws Latin, Cyrillic, box drawing, arrows and
+    // common math; NOT Greek and NOT dingbats such as ✓. Text needing those
+    // falls through to a script pack, which draws it correctly but
+    // proportionally — the runner's copy says monospace only for what this
+    // face covers.
+    id: "mono",
+    role: "monospace",
+    label: "monospace",
+    scripts: ["Latin", "Cyrillic"],
+    pkg: "geist",
+    dir: "dist/fonts/geist-mono",
+    file: "GeistMono-Regular.ttf",
+    version: "1.7.2",
+    bytes: 148516,
+    signals: [],
+  },
+  {
     id: "latin",
+    role: "script",
     label: "Latin, Greek, Cyrillic and Devanagari",
     scripts: ["Latin", "Greek", "Cyrillic", "Devanagari"],
     pkg: "@expo-google-fonts/noto-sans",
+    dir: "400Regular",
     file: "NotoSans_400Regular.ttf",
     version: "0.4.2",
     bytes: 629024,
@@ -106,9 +158,11 @@ export const FONT_PACKS: readonly FontPack[] = [
   },
   {
     id: "japanese",
+    role: "script",
     label: "Japanese",
     scripts: ["Hiragana", "Katakana", "Kanji"],
     pkg: "@expo-google-fonts/noto-sans-jp",
+    dir: "400Regular",
     file: "NotoSansJP_400Regular.ttf",
     version: "0.4.3",
     bytes: 5472784,
@@ -119,9 +173,11 @@ export const FONT_PACKS: readonly FontPack[] = [
   },
   {
     id: "korean",
+    role: "script",
     label: "Korean",
     scripts: ["Hangul"],
     pkg: "@expo-google-fonts/noto-sans-kr",
+    dir: "400Regular",
     file: "NotoSansKR_400Regular.ttf",
     version: "0.4.3",
     bytes: 6185868,
@@ -133,9 +189,11 @@ export const FONT_PACKS: readonly FontPack[] = [
   },
   {
     id: "chinese",
+    role: "script",
     label: "Chinese",
     scripts: ["Han"],
     pkg: "@expo-google-fonts/noto-sans-sc",
+    dir: "400Regular",
     file: "NotoSansSC_400Regular.ttf",
     version: "0.4.3",
     bytes: 10559284,
@@ -153,9 +211,23 @@ export function fontPack(id: FontPackId): FontPack {
   return pack;
 }
 
-/** Every script any shipped pack can draw — the "what we DO cover" half. */
+/**
+ * The packs a caller asking for `face` may be given: every script pack, plus
+ * the monospace pack only when `"mono"` was asked for.
+ */
+export function packsForFace(face: StandardFace): readonly FontPack[] {
+  return FONT_PACKS.filter((pack) => pack.role === "script" || face === "mono");
+}
+
+/**
+ * Every script any shipped SCRIPT pack can draw — the "what we DO cover" half
+ * of a refusal. The monospace pack adds a typeface, not an alphabet, so it is
+ * not counted: no script becomes drawable only because it exists.
+ */
 export const SUPPORTED_SCRIPTS: readonly string[] = [
-  ...new Set(FONT_PACKS.flatMap((p) => p.scripts)),
+  ...new Set(
+    FONT_PACKS.filter((p) => p.role === "script").flatMap((p) => p.scripts),
+  ),
 ];
 
 /**

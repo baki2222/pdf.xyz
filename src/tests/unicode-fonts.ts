@@ -162,28 +162,108 @@ export function toUnicodeMap(doc: PDFDocument): Map<number, string> {
     if (!(ref instanceof PDFRef)) continue;
     const stream = doc.context.lookup(ref);
     if (!(stream instanceof PDFRawStream)) continue;
-    const text = Buffer.from(inflateMaybe(rawBytes(stream))).toString("latin1");
-    for (const block of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
-      for (const pair of block[1]!.matchAll(
-        /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
-      )) {
-        map.set(parseInt(pair[1]!, 16), utf16beToString(pair[2]!));
-      }
+    readToUnicodeStream(stream, map);
+  }
+  return map;
+}
+
+function readToUnicodeStream(
+  stream: PDFRawStream,
+  map: Map<number, string>,
+): void {
+  const text = Buffer.from(inflateMaybe(rawBytes(stream))).toString("latin1");
+  for (const block of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+    for (const pair of block[1]!.matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
+    )) {
+      map.set(parseInt(pair[1]!, 16), utf16beToString(pair[2]!));
     }
-    for (const block of text.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
-      for (const row of block[1]!.matchAll(
-        /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
-      )) {
-        const lo = parseInt(row[1]!, 16);
-        const hi = parseInt(row[2]!, 16);
-        const start = parseInt(row[3]!, 16);
-        for (let id = lo; id <= hi; id++) {
-          map.set(id, String.fromCodePoint(start + (id - lo)));
-        }
+  }
+  for (const block of text.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+    for (const row of block[1]!.matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
+    )) {
+      const lo = parseInt(row[1]!, 16);
+      const hi = parseInt(row[2]!, 16);
+      const start = parseInt(row[3]!, 16);
+      for (let id = lo; id <= hi; id++) {
+        map.set(id, String.fromCodePoint(start + (id - lo)));
       }
     }
   }
-  return map;
+}
+
+/** One embedded (Type0) face, as a reader of the saved file receives it. */
+export interface EmbeddedFace {
+  readonly baseFont: string;
+  /** The characters this face draws, per `/ToUnicode`. */
+  readonly characters: string;
+  /**
+   * Advance width, in the EMBEDDED subset's own units, of every glyph the face
+   * maps to a character. One distinct value means the face is monospaced for
+   * everything it draws in this file; that is the property a column of `tree`
+   * output depends on, and it is read from the bytes, not from a font's name.
+   */
+  readonly advanceWidths: ReadonlySet<number>;
+  /**
+   * Characters whose glyph in the subset has no drawing commands although the
+   * character is not whitespace — blanks where a letter should be. The same
+   * question {@link proveGlyphs} asks, per face.
+   */
+  readonly blankCharacters: readonly string[];
+}
+
+/**
+ * Every embedded Unicode face in a saved PDF, each with the characters it
+ * draws and the widths of their glyphs.
+ *
+ * Per face, where {@link proveGlyphs} insists on exactly one: a document that
+ * sets code in a monospace face and prose in a proportional one legitimately
+ * carries two, and the question is which face drew which characters.
+ */
+export async function embeddedFaces(
+  bytes: Uint8Array,
+): Promise<EmbeddedFace[]> {
+  const doc = await PDFDocument.load(bytes);
+  const out: EmbeddedFace[] = [];
+  for (const [, object] of doc.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFDict)) continue;
+    if (object.get(PDFName.of("Subtype"))?.toString() !== "/Type0") continue;
+    const unicode = new Map<number, string>();
+    const toUnicode = doc.context.lookup(object.get(PDFName.of("ToUnicode")));
+    if (toUnicode instanceof PDFRawStream) {
+      readToUnicodeStream(toUnicode, unicode);
+    }
+    const descendants = doc.context.lookup(
+      object.get(PDFName.of("DescendantFonts")),
+    );
+    if (!(descendants instanceof PDFArray)) continue;
+    const cidFont = doc.context.lookup(descendants.get(0));
+    if (!(cidFont instanceof PDFDict)) continue;
+    const descriptor = doc.context.lookup(
+      cidFont.get(PDFName.of("FontDescriptor")),
+    );
+    if (!(descriptor instanceof PDFDict)) continue;
+    const file = doc.context.lookup(descriptor.get(PDFName.of("FontFile2")));
+    if (!(file instanceof PDFRawStream)) continue;
+    const subset = await openNotoFont(inflateMaybe(rawBytes(file)));
+    const advanceWidths = new Set<number>();
+    const blankCharacters: string[] = [];
+    for (const [id, text] of unicode) {
+      const glyph = subset.getGlyph(id);
+      advanceWidths.add(glyph.advanceWidth);
+      if (glyph.path.commands.length === 0 && text.trim() !== "") {
+        blankCharacters.push(text);
+      }
+    }
+    out.push({
+      baseFont: String(object.get(PDFName.of("BaseFont"))),
+      characters: [...unicode.values()].join(""),
+      advanceWidths,
+      blankCharacters,
+    });
+  }
+  return out;
 }
 
 function utf16beToString(hex: string): string {

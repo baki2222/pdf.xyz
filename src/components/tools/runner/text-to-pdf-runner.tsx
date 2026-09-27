@@ -23,8 +23,27 @@ import {
 import { useToolHandoff } from "./use-tool-handoff";
 import { TextSourceNotes } from "./text-source-notes";
 import { decodeTextFile, describeDecoding } from "@/lib/text/decode-text-file";
+import { FONT_PACKS } from "@/lib/pdf/font-packs";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
+
+/**
+ * The typography promise, derived from the face that keeps it.
+ *
+ * It used to read "readable monospace typography" unconditionally, and one
+ * arrow made it false: the whole document moved to a proportional Japanese
+ * face. The monospace pack now keeps it for the scripts it covers, and ONLY
+ * those — a Greek, Bengali or CJK document is still set in a proportional Noto
+ * face — so the sentence names them from the pack table rather than a
+ * hand-typed list that could outlive a font change.
+ */
+const MONOSPACE_CLAIM = `Paginated Letter-size PDF. ${FONT_PACKS.filter(
+  (pack) => pack.role === "monospace",
+)
+  .flatMap((pack) => pack.scripts)
+  .join(
+    " and ",
+  )} text, arrows and box drawing are set in a monospace face. A document with any other script or symbol is set in a proportional Noto face.`;
 
 interface TextSource {
   name: string;
@@ -178,11 +197,7 @@ function TextToPdfEditor({
             title="Private"
             body="The text never leaves your browser."
           />
-          <InfoTile
-            icon={Type}
-            title="Formatted"
-            body="Paginated Letter-size PDF with readable monospace typography."
-          />
+          <InfoTile icon={Type} title="Formatted" body={MONOSPACE_CLAIM} />
           <InfoTile
             icon={Keyboard}
             title="Flexible"

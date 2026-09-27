@@ -63,6 +63,7 @@ import {
   unsupportedScriptFor,
   type FontPack,
   type FontPackId,
+  type StandardFace,
 } from "./font-packs";
 import {
   candidatePacks,
@@ -72,15 +73,20 @@ import {
 } from "./font-coverage";
 
 /**
- * The built-in faces our tools ask for. When a string needs a Unicode face they
- * all collapse to the single Regular Noto weight we ship, which is a visible
- * change (a Chinese watermark is not bold) and never a lossy one. Shipping bold
- * and italic cuts of five faces would roughly double 23 MB of static assets to
+ * The built-in faces our tools ask for (defined in `font-packs.ts`, beside the
+ * routing that reads it). When a string needs a Unicode face they all collapse
+ * to the single Regular Noto weight we ship, which is a visible change (a
+ * Chinese watermark is not bold) and never a lossy one. Shipping bold and
+ * italic cuts of five faces would roughly double 23 MB of static assets to
  * make a watermark heavier; if that trade is ever worth making, this type is
  * where it lands.
+ *
+ * The one exception is `"mono"`: it collapses to the monospace pack whenever
+ * that pack covers the text, because monospace is a promise about LAYOUT —
+ * the text-to-PDF runner makes it and `tree` output depends on it — where
+ * bold is only emphasis.
  */
-export type StandardFace =
-  "sans" | "sans-bold" | "sans-oblique" | "mono" | "serif-italic";
+export type { StandardFace };
 
 /**
  * Where a pack's bytes come from. The default fetches from our own origin —
@@ -358,10 +364,10 @@ export async function embedDrawingFont(
   const joined = texts.join("");
   const coverage = await loadCoverage();
 
-  const uncovered = uncoveredCodePoints(coverage, joined);
+  const uncovered = uncoveredCodePoints(coverage, joined, face);
   if (uncovered.length > 0) refuseUncovered(uncovered);
 
-  const candidates = candidatePacks(coverage, joined);
+  const candidates = candidatePacks(coverage, joined, face);
   if (candidates.length === 0) {
     refuseMixedScripts(packLabelsInText(coverage, joined));
   }
@@ -382,7 +388,8 @@ export async function embedDrawingFont(
       continue;
     }
     // Markdown asks for four faces — body, bold, mono, italic — and on the
-    // Unicode path all four resolve to the same Noto Regular. Without this memo
+    // Unicode path three of them (four, when the monospace pack cannot draw
+    // the text) resolve to the same Noto Regular. Without this memo
     // that is four independent subsets of one face in a single file, which for
     // Chinese means four copies of the same outlines. Keyed by PACK, not by the
     // fact that some Unicode face was needed: a document whose title is Bengali
@@ -446,12 +453,15 @@ export function assertFormFieldTextDrawable(texts: readonly string[]): void {
 }
 
 /** Start fetching what `texts` will need, without waiting for it. */
-export function warmDrawingFont(rawTexts: readonly string[]): void {
+export function warmDrawingFont(
+  rawTexts: readonly string[],
+  face: StandardFace = "sans",
+): void {
   const texts = rawTexts.map((text) => text.replace(/[\r\n\t]+/g, " "));
   if (allWinAnsi(texts)) return;
   void (async () => {
     const coverage = await loadCoverage();
-    const [first] = candidatePacks(coverage, texts.join(""));
+    const [first] = candidatePacks(coverage, texts.join(""), face);
     if (first) await loadPackBytes(first);
     await loadFontkit();
   })().catch(() => {
