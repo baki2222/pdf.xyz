@@ -23,6 +23,7 @@ import {
 import {
   canRunChatWithPdf,
   runWorkerChatWithPdf,
+  type ChatWithPdfWorkerResult,
 } from "@/lib/workers/chat-with-pdf-client";
 import {
   buildChatContext,
@@ -33,7 +34,9 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, WorkerRunButton } from "./runner/runner-kit";
+import { Dropzone, WorkerRunButton } from "./runner/runner-kit";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { TruncationNotice } from "./truncation-notice";
 import type { Job } from "@/lib/jobs/types";
 import { NotifyMe } from "./notify-me";
@@ -214,9 +217,46 @@ interface TranscriptEntry {
 function ChatBuilder() {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  /** The question the job in flight (or left running) is answering. */
+  const asking = useRef<string | null>(null);
+
+  /** Add an answered job to the transcript. */
+  const record = useCallback(
+    async (result: ChatWithPdfWorkerResult, asked: string) => {
+      if (!result.ok) return;
+      const answer = await readAnswerFromPackage(result.output, asked);
+      setTranscript((prev) => [
+        ...prev,
+        {
+          id: prev.length,
+          question: asked,
+          answer,
+          filename: result.artifact.filename,
+          output: result.output,
+          job: result.job,
+        },
+      ]);
+    },
+    [],
+  );
+
+  const job = useWorkerJob<ChatWithPdfWorkerResult>({
+    tool: "chat-with-pdf",
+    // Picking up an answer the browser stopped waiting for. After a reload
+    // the question is no longer on screen, and the transcript says so rather
+    // than inventing it.
+    resume: async (id, controls) => {
+      const result = await resumeSecurityJob(id, {
+        ...controls,
+        tool: "chat-with-pdf",
+      });
+      await record(result, asking.current ?? "Your earlier question");
+      if (result.ok) setQuestion("");
+      return result;
+    },
+  });
+  const { busy, setOutcome, run } = job;
 
   const requestReady = question.trim().length > 0;
   const canRun = file != null && !busy && requestReady;
@@ -250,70 +290,60 @@ function ChatBuilder() {
    */
   const fileToken = useRef(0);
 
-  const chooseFile = useCallback((next: File | null) => {
-    fileToken.current += 1;
-    setFile(next);
-    setTranscript([]);
-    setError(null);
-  }, []);
+  const chooseFile = useCallback(
+    (next: File | null) => {
+      fileToken.current += 1;
+      setFile(next);
+      setTranscript([]);
+      setOutcome(null);
+    },
+    [setOutcome],
+  );
 
   const start = useCallback(async () => {
     if (!file || !requestReady) return;
     const asked = question.trim();
     const startedFor = fileToken.current;
-    setBusy(true);
-    setError(null);
-    // Every exit from here — the two file-swap bail-outs, the happy path, and a
-    // rejected fetch — has to stop the spinner. A rejection used to escape this
-    // callback entirely, so `setBusy(false)` never ran and the button spun
-    // forever with no error, recoverable only by reloading the page.
-    try {
+    asking.current = asked;
+    const outcome = await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = await runWorkerChatWithPdf({
-        filename: file.name,
-        bytes,
-        question: asked,
-        ...(context.turns.length > 0 ? { context: context.turns } : {}),
-      });
-      // The document changed while this was running: the answer is about a file the user
-      // has already replaced, so it belongs to no transcript on screen. Drop it rather
-      // than showing it under the wrong PDF.
-      if (fileToken.current !== startedFor) {
-        return;
-      }
+      const result = await runWorkerChatWithPdf(
+        {
+          filename: file.name,
+          bytes,
+          question: asked,
+          ...(context.turns.length > 0 ? { context: context.turns } : {}),
+        },
+        controls,
+      );
+      // The document changed while this was running: the answer is about a
+      // file the user has already replaced, so it belongs to no transcript on
+      // screen. Drop it rather than showing it under the wrong PDF.
+      if (fileToken.current !== startedFor) return result;
+      // Re-checked after the await: reading the package is itself asynchronous.
       if (result.ok) {
         const answer = await readAnswerFromPackage(result.output, asked);
-        // Re-checked after the await: reading the package is itself asynchronous.
-        if (fileToken.current !== startedFor) {
-          return;
+        if (fileToken.current === startedFor) {
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: prev.length,
+              question: asked,
+              answer,
+              filename: result.artifact.filename,
+              output: result.output,
+              job: result.job,
+            },
+          ]);
+          setQuestion("");
         }
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: prev.length,
-            question: asked,
-            answer,
-            filename: result.artifact.filename,
-            output: result.output,
-            job: result.job,
-          },
-        ]);
-        setQuestion("");
-      } else {
-        setError(result.message);
       }
-    } catch {
-      // No response to inspect: offline, DNS failure, a reset connection, or a
-      // file that could not be read. Say what is true and nothing more.
-      if (fileToken.current === startedFor) {
-        setError(
-          "Lost the connection before the answer came back. Check your network and try again.",
-        );
-      }
-    } finally {
-      setBusy(false);
-    }
-  }, [file, question, requestReady, context]);
+      return result;
+    });
+    // Whatever came back for a file that is no longer on screen — an answer
+    // or an error — is not about the document the user is looking at.
+    if (outcome && fileToken.current !== startedFor) setOutcome(null);
+  }, [file, question, requestReady, context, run, setOutcome]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -382,14 +412,14 @@ function ChatBuilder() {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Answering…"
+        busyLabel={jobBusyLabel(job.phase, "Answering…")}
         icon={MessageSquare}
         tone="violet"
       >
         {transcript.length > 0 ? "Send follow-up" : "Ask the PDF"}
       </WorkerRunButton>
 
-      {error !== null && <ErrorNote message={error} />}
+      <WorkerJobStatus job={job} />
     </div>
   );
 }

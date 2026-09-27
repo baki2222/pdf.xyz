@@ -35,11 +35,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -370,8 +371,15 @@ function SecurityRunArea({
   const [keyLength, setKeyLength] = useState<PdfKeyLength>(
     DEFAULT_PDF_KEY_LENGTH,
   );
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfSecurityWorkerResult | null>(null);
+  const job = useWorkerJob<PdfSecurityWorkerResult>({
+    tool: mode === "protect" ? "protect-pdf" : "unlock-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, {
+        ...controls,
+        tool: mode === "protect" ? "protect-pdf" : "unlock-pdf",
+      }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
@@ -379,33 +387,26 @@ function SecurityRunArea({
 
   const start = useCallback(async () => {
     if (!file || password.length === 0 || tooLong) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
         mode === "protect"
-          ? await runWorkerProtect({
-              filename: file.name,
-              bytes,
-              password,
-              keyLength,
-            })
-          : await runWorkerUnlock({ filename: file.name, bytes, password });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, password, keyLength, mode, tooLong]);
+          ? await runWorkerProtect(
+              {
+                filename: file.name,
+                bytes,
+                password,
+                keyLength,
+              },
+              controls,
+            )
+          : await runWorkerUnlock(
+              { filename: file.name, bytes, password },
+              controls,
+            );
+      return result;
+    });
+  }, [file, password, keyLength, mode, tooLong, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -523,13 +524,13 @@ function SecurityRunArea({
         busy={busy}
         // `canSubmit` already folds in `!busy`; both go through one blocked branch.
         disabled={!canSubmit}
-        busyLabel={COPY[mode].running}
+        busyLabel={jobBusyLabel(job.phase, COPY[mode].running)}
         icon={mode === "protect" ? Lock : Unlock}
       >
         {COPY[mode].cta}
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
 
       {outcome?.ok === true && (
         <ResultCard

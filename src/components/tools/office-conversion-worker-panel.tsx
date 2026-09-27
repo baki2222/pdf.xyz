@@ -17,11 +17,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -188,34 +189,26 @@ function SpecRow({
 
 function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<OfficeConversionWorkerResult | null>(
-    null,
-  );
+  const job = useWorkerJob<OfficeConversionWorkerResult>({
+    tool: tool,
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: tool }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
-      const result = await runWorkerOfficeToPdf({
-        tool,
-        filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, tool]);
+    await run(async (controls) => {
+      const result = await runWorkerOfficeToPdf(
+        {
+          tool,
+          filename: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, tool, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -252,12 +245,12 @@ function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel="Converting PDF…"
+        busyLabel={jobBusyLabel(job.phase, "Converting PDF…")}
         icon={FileText}
       >
         Convert to PDF
       </WorkerRunButton>
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">
           <p className="text-ok text-sm">Your PDF is ready.</p>

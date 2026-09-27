@@ -17,11 +17,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -188,29 +189,23 @@ function ArchiveUnavailable({
 
 function ArchiveRunArea({ localDevOnly }: { localDevOnly: boolean }) {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfArchiveWorkerResult | null>(null);
+  const job = useWorkerJob<PdfArchiveWorkerResult>({
+    tool: "pdf-to-pdfa",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "pdf-to-pdfa" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = await runWorkerPdfToPdfA({ filename: file.name, bytes });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file]);
+      const result = await runWorkerPdfToPdfA(
+        { filename: file.name, bytes },
+        controls,
+      );
+      return result;
+    });
+  }, [file, run]);
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
@@ -247,12 +242,12 @@ function ArchiveRunArea({ localDevOnly }: { localDevOnly: boolean }) {
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel="Converting to PDF/A…"
+        busyLabel={jobBusyLabel(job.phase, "Converting to PDF/A…")}
         icon={Archive}
       >
         Convert to PDF/A
       </WorkerRunButton>
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF/A file is ready.">
           {/* Above the download: a user who clicks and leaves is exactly the

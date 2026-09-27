@@ -33,11 +33,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -207,38 +208,32 @@ function SummaryBuilder() {
   const [length, setLength] = useState<SummaryLength>(DEFAULT_SUMMARY_LENGTH);
   const [format, setFormat] = useState<SummaryFormat>(DEFAULT_SUMMARY_FORMAT);
   const [focus, setFocus] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<SummarizeWorkerResult | null>(null);
+  const job = useWorkerJob<SummarizeWorkerResult>({
+    tool: "summarize-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "summarize-pdf" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const canRun = file != null && !busy;
 
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const trimmedFocus = focus.trim();
-      const result = await runWorkerSummarize({
-        filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-        length,
-        format,
-        ...(trimmedFocus ? { focus: trimmedFocus } : {}),
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, length, format, focus]);
+      const result = await runWorkerSummarize(
+        {
+          filename: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+          length,
+          format,
+          ...(trimmedFocus ? { focus: trimmedFocus } : {}),
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, length, format, focus, run]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -323,14 +318,14 @@ function SummaryBuilder() {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Summarizing…"
+        busyLabel={jobBusyLabel(job.phase, "Summarizing…")}
         icon={FileText}
         tone="violet"
       >
         Summarize PDF
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce="Your AI summary package is ready.">
           <TruncationNotice

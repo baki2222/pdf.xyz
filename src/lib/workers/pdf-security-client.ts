@@ -25,14 +25,17 @@ import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
 import type { ApiError } from "@/lib/jobs/responses";
 import type { PdfKeyLength } from "@/lib/jobs/pdf-security";
 import type { WorkerStatus } from "./status";
-import { pollJobToTerminal } from "./job-polling";
+import {
+  phaseOfJob,
+  pollJobToTerminal,
+  type WorkerJobPhase,
+} from "./job-polling";
+import { jobPollFor } from "@/lib/jobs/client-wait";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
 import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
 
 const PROTECT_TOOL = "protect-pdf";
 const UNLOCK_TOOL = "unlock-pdf";
-const DEFAULT_POLL_INTERVAL_MS = 800;
-const DEFAULT_MAX_POLL_ATTEMPTS = 150; // ~2 minutes at the default cadence.
 
 /** What the caller wants protected, and how. */
 export interface ProtectWorkerInput {
@@ -68,6 +71,17 @@ export interface PdfSecurityWorkerFailure {
   message: string;
   /** The contract error code or job error code, when one is available. */
   code?: string;
+  /**
+   * The job this failure is about, once one exists. It used to be folded into
+   * the message as "(job job_…)" — text a user could read and nothing could
+   * act on.
+   */
+  jobId?: string;
+  /**
+   * True when the client stopped WAITING, not when the job failed: it may
+   * still finish, and {@link resumeSecurityJob} picks it up by `jobId`.
+   */
+  stillRunning?: boolean;
 }
 
 export type PdfSecurityWorkerResult =
@@ -99,6 +113,10 @@ export interface PdfSecurityWorkerOptions {
   maxPollAttempts?: number;
   /** Injectable delay so polling is instant under test. */
   sleep?: (ms: number) => Promise<void>;
+  /** Called once the job exists, with its id — what a Cancel button needs. */
+  onJobCreated?: (jobId: string) => void;
+  /** Called as the run moves between upload, queue, work and download. */
+  onPhase?: (phase: WorkerJobPhase) => void;
 }
 
 const defaultFetch: FetchLike = (input, init) =>
@@ -168,8 +186,7 @@ export async function runSecurityJob(
 ): Promise<PdfSecurityWorkerResult> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
-  const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const maxPollAttempts = opts.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
+  opts.onPhase?.("uploading");
 
   // 1. Reserve an upload slot for exactly this file.
   //
@@ -236,27 +253,53 @@ export async function runSecurityJob(
   if (!jobRes.ok) {
     return readError(jobRes, "The worker could not create the job.");
   }
-  let job = (await jobRes.json()) as Job;
+  const job = (await jobRes.json()) as Job;
+  opts.onJobCreated?.(job.jobId);
+
+  // 4–5. Wait for it and download the result — the half a resume re-enters.
+  return finishSecurityJob(tool, job, opts);
+}
+
+/**
+ * Wait for `job` to finish and download its single result. Shared by a fresh
+ * run and by {@link resumeSecurityJob}, so the two cannot drift apart.
+ *
+ * The wait is `jobPollFor(tool)` unless the caller names one: an AI job gets
+ * the AI budget here, in one place, rather than in each of four clients.
+ */
+export async function finishSecurityJob(
+  tool: string,
+  started: Job,
+  opts: PdfSecurityWorkerOptions,
+): Promise<PdfSecurityWorkerResult> {
+  const fetchImpl = opts.fetchImpl ?? defaultFetch;
+  const { signal } = opts;
+  const budget = jobPollFor(tool);
+  opts.onPhase?.(phaseOfJob(started.status));
 
   // 4. Poll to a terminal state (a production worker is async; local-dev is already
   //    terminal on create, so this returns immediately).
   const polled = await pollJobToTerminal({
-    job,
+    job: started,
     fetchImpl,
-    pollIntervalMs,
-    maxPollAttempts,
+    pollIntervalMs: opts.pollIntervalMs ?? budget.intervalMs,
+    maxPollAttempts: opts.maxPollAttempts ?? budget.maxAttempts,
+    onJob: (next) => opts.onPhase?.(phaseOfJob(next.status)),
     ...(signal ? { signal } : {}),
     ...(opts.sleep ? { sleepImpl: opts.sleep } : {}),
   });
   if (!polled.ok) {
+    // The id travels as DATA. Folded into the message it was text a user
+    // could read and nothing could act on, so a job that finished a minute
+    // later was unreachable.
     return {
       ok: false,
-      message: polled.stillRunning
-        ? `${polled.message} (job ${polled.jobId})`
-        : polled.message,
+      message: polled.message,
+      jobId: polled.jobId,
+      ...(polled.stillRunning ? { stillRunning: true } : {}),
     };
   }
-  job = polled.job;
+  const job = polled.job;
 
   if (job.status !== "completed") {
     return {
@@ -265,21 +308,42 @@ export async function runSecurityJob(
         job.error?.message ??
         `The job ended as "${job.status}" without producing a file.`,
       code: job.error?.code,
+      jobId: job.jobId,
     };
   }
 
   const artifact = job.artifacts?.[0];
   if (!artifact) {
-    return { ok: false, message: "The job completed but produced no file." };
+    return {
+      ok: false,
+      message: "The job completed but produced no file.",
+      jobId: job.jobId,
+    };
   }
 
   // 5. Download the real output.
+  opts.onPhase?.("downloading");
   const downloadRes = await fetchImpl(artifact.url, { signal });
   if (!downloadRes.ok) {
     return readError(downloadRes, "Downloading the result failed.");
   }
   const output = new Uint8Array(await downloadRes.arrayBuffer());
   return { ok: true, job, artifact, output };
+}
+
+/**
+ * Pick up a job this browser stopped waiting for — by id, with no new upload,
+ * no new job and no new charge — and download its result when it finishes.
+ * Returns the same result shape as the run that created it.
+ */
+export function resumeSecurityJob(
+  jobId: string,
+  opts: PdfSecurityWorkerOptions & { tool?: string } = {},
+): Promise<PdfSecurityWorkerResult> {
+  // "processing" so the first read happens after one interval: the job was
+  // already running when the previous wait ended.
+  const job = { jobId, status: "processing" } as Job;
+  return finishSecurityJob(opts.tool ?? "", job, opts);
 }
 
 /**

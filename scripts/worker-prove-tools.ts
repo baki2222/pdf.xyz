@@ -83,6 +83,7 @@ import {
 } from "@/tests/table-extract-fixtures";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
+import { browserStoppedWaitingAt } from "@/lib/jobs/client-wait";
 import {
   harnessExitCode,
   orderSpecsForAllowance,
@@ -1248,13 +1249,28 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       detail: "the job was accepted but carried no id",
     };
   }
-  const deadline = Date.now() + JOB_TIMEOUT_MS;
+  const createdAt = Date.now();
+  const deadline = createdAt + JOB_TIMEOUT_MS;
   let job = created.body;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2500));
     const poll = await fetch(`${BASE}/api/jobs/${jobId}`);
     job = (await poll.json().catch(() => ({}))) as ApiResponse;
     if (job.status && TERMINAL_STATUSES.has(job.status)) break;
+  }
+  // This proof waits JOB_TIMEOUT_MS; a browser waits what `jobPollFor` gives
+  // its tool. A job that finished between the two was a PASS here and a
+  // "still working" to every real user (CLAUDE.md rule 5: check what the
+  // reader receives). Measured from creation, as the browser's wait is.
+  const stoppedAt = browserStoppedWaitingAt(spec.tool, Date.now() - createdAt);
+  if (stoppedAt !== null && job.status && TERMINAL_STATUSES.has(job.status)) {
+    return {
+      label,
+      outcome: "failed",
+      seconds: seconds(),
+      stage: "browser wait",
+      detail: `the job ended "${job.status}" after ${Math.round((Date.now() - createdAt) / 1000)}s; a browser stops waiting for ${spec.tool} at ${Math.round(stoppedAt / 1000)}s`,
+    };
   }
   if (spec.expectFailure) {
     const want = spec.expectFailure;

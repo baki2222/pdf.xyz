@@ -36,18 +36,22 @@ import {
   type OcrResultMeta,
 } from "@/lib/jobs/ocr";
 import type { WorkerStatus } from "@/lib/workers/status";
-import { runWorkerOcr, type OcrWorkerResult } from "@/lib/workers/ocr-client";
+import {
+  resumeWorkerOcr,
+  runWorkerOcr,
+  type OcrWorkerResult,
+} from "@/lib/workers/ocr-client";
 import type { Tool } from "@/lib/tools/types";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -512,35 +516,28 @@ function OcrRunArea({
   // How many files a drop brought beyond the one OCR reads. A drop bypasses
   // `multiple={false}`, so without this the rest vanished without a word.
   const [discarded, setDiscarded] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<OcrWorkerResult | null>(null);
+  const job = useWorkerJob<OcrWorkerResult>({
+    tool: "ocr-pdf",
+    resume: (id, controls) => resumeWorkerOcr(id, controls),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = await runWorkerOcr({
-        filename: file.name,
-        bytes,
-        contentType: contentTypeFor(file),
-        options: request,
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, request]);
+      const result = await runWorkerOcr(
+        {
+          filename: file.name,
+          bytes,
+          contentType: contentTypeFor(file),
+          options: request,
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, request, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-3 rounded-[4px] border p-4">
@@ -599,13 +596,13 @@ function OcrRunArea({
         onClick={start}
         busy={busy}
         disabled={!file || !runnable}
-        busyLabel="Recognizing on the worker…"
+        busyLabel={jobBusyLabel(job.phase, "Recognizing on the worker…")}
         icon={ScanText}
       >
         Run OCR on the worker
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
 
       {outcome?.ok === true && (
         <ResultCard

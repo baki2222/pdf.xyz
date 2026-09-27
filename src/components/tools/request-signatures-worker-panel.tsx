@@ -30,11 +30,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -240,10 +241,12 @@ function RequestBuilder() {
   const [page, setPage] = useState(1);
   const [includeDate, setIncludeDate] = useState(true);
   const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<RequestSignaturesWorkerResult | null>(
-    null,
-  );
+  const job = useWorkerJob<RequestSignaturesWorkerResult>({
+    tool: "request-signatures",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "request-signatures" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const cleanSigners = useMemo(
     () =>
@@ -277,32 +280,22 @@ function RequestBuilder() {
 
   const start = useCallback(async () => {
     if (!file || cleanSigners.length === 0) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const fields = buildFields(cleanSigners.length, page, includeDate);
-      const result = await runWorkerRequestSignatures({
-        filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-        signers: cleanSigners,
-        fields,
-        routing,
-        ...(title.trim() ? { title: title.trim() } : {}),
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, cleanSigners, page, includeDate, routing, title]);
+      const result = await runWorkerRequestSignatures(
+        {
+          filename: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+          signers: cleanSigners,
+          fields,
+          routing,
+          ...(title.trim() ? { title: title.trim() } : {}),
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, cleanSigners, page, includeDate, routing, title, run]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -440,14 +433,14 @@ function RequestBuilder() {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Preparing request…"
+        busyLabel={jobBusyLabel(job.phase, "Preparing request…")}
         icon={PenLine}
         tone="violet"
       >
         Prepare signature request
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce="Your signature-request package is ready.">
           <p className="text-ok text-sm">

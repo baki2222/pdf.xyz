@@ -44,11 +44,13 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { translateJobPoll, type JobPollBudget } from "@/lib/jobs/client-wait";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -210,6 +212,14 @@ function SpecRow({
   );
 }
 
+/** A poll budget in the shape the job client's options take. */
+function waitOptions(budget: JobPollBudget) {
+  return {
+    pollIntervalMs: budget.intervalMs,
+    maxPollAttempts: budget.maxAttempts,
+  };
+}
+
 function TranslateBuilder() {
   const [file, setFile] = useState<File | null>(null);
   const [targetLanguage, setTargetLanguage] =
@@ -218,16 +228,18 @@ function TranslateBuilder() {
     DEFAULT_TRANSLATE_SOURCE,
   );
   const [instructions, setInstructions] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<TranslateWorkerResult | null>(null);
+  const job = useWorkerJob<TranslateWorkerResult>({
+    tool: "translate-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "translate-pdf" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const canRun = file != null && !busy;
 
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const trimmed = instructions.trim();
       const bytes = new Uint8Array(await file.arrayBuffer());
 
@@ -263,48 +275,44 @@ function TranslateBuilder() {
         ? extracted.characterCount > TRANSLATE_MAX_INPUT_CHARS
         : plan.chunks.length === 0;
       if (nothingFits) {
-        setOutcome({
+        return {
           ok: false,
           message: translateTooLongMessage(
             extracted.characterCount,
             TRANSLATE_MAX_INPUT_CHARS,
           ),
-        });
-        return;
+        };
       }
 
-      const result = await runWorkerTranslate({
-        filename: file.name,
-        bytes,
-        targetLanguage,
-        sourceLanguage,
-        ...(trimmed ? { instructions: trimmed } : {}),
-        // The count this panel already extracted, declared so the job reserves
-        // what it will use instead of a whole per-call ceiling. Required by the
-        // client's type rather than optional: the route's fallback is correct
-        // and silent, so the one caller that can count must not be able to stop
-        // quietly.
-        declaredCharacters: extracted.characterCount,
-        // PAGES WITH TEXT, not `extracted.pageCount`. Blank, whitespace-only
-        // and image-only pages are dropped before chunking, so the page count
-        // would over-declare a document with any of them — and the bound this
-        // feeds is the one that is supposed to be exact.
-        declaredTextPages: textPages.length,
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, targetLanguage, sourceLanguage, instructions]);
+      const result = await runWorkerTranslate(
+        {
+          filename: file.name,
+          bytes,
+          targetLanguage,
+          sourceLanguage,
+          ...(trimmed ? { instructions: trimmed } : {}),
+          // The count this panel already extracted, declared so the job reserves
+          // what it will use instead of a whole per-call ceiling. Required by the
+          // client's type rather than optional: the route's fallback is correct
+          // and silent, so the one caller that can count must not be able to stop
+          // quietly.
+          declaredCharacters: extracted.characterCount,
+          // PAGES WITH TEXT, not `extracted.pageCount`. Blank, whitespace-only
+          // and image-only pages are dropped before chunking, so the page count
+          // would over-declare a document with any of them — and the bound this
+          // feeds is the one that is supposed to be exact.
+          declaredTextPages: textPages.length,
+        },
+        {
+          ...controls,
+          // One provider call per chunk, one after another: the wait scales
+          // with the plan computed above, not a flat two minutes.
+          ...waitOptions(translateJobPoll(plan.chunks.length)),
+        },
+      );
+      return result;
+    });
+  }, [file, targetLanguage, sourceLanguage, instructions, run]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -396,14 +404,14 @@ function TranslateBuilder() {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Translating…"
+        busyLabel={jobBusyLabel(job.phase, "Translating…")}
         icon={Languages}
         tone="violet"
       >
         Translate PDF
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard
           announce={

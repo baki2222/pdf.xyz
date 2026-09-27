@@ -24,10 +24,8 @@
  * control — so a claim that no panel renders any more cannot sit here as
  * decoration, and an absence check that cannot see its string cannot pass.
  */
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createElement, type ComponentType } from "react";
+import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import {
   act,
@@ -37,8 +35,6 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { getToolBySlug } from "@/lib/tools";
-import type { Tool } from "@/lib/tools/types";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
@@ -46,68 +42,18 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { NotifyMe } from "./notify-me";
+import {
+  catalogTool,
+  panelComponent,
+  panelDispatchArms,
+} from "@/tests/worker-panel-dispatch";
 
-const PAGE = path.resolve("src/app/tools/[slug]/page.tsx");
-
-interface Arm {
-  slugs: string[];
-  component: string;
-  specifier: string;
-}
-
-/** The tool page's dispatch, read from the page. Throws on any loose end. */
-function dispatchArms(): Arm[] {
-  const source = readFileSync(PAGE, "utf8");
-  const imports = new Map<string, string>();
-  for (const m of source.matchAll(
-    /import \{ (\w+) \} from "(@\/components\/tools\/[^"]+)";/g,
-  ))
-    imports.set(m[1]!, m[2]!);
-  const arms: Arm[] = [];
-  for (const m of source.matchAll(
-    /((?:tool\.slug === "[^"]+"\s*(?:\|\|\s*)?)+)\?\s*\(([\s\S]*?)<(\w+) tool=\{tool\} \/>/g,
-  )) {
-    const slugs = [...m[1]!.matchAll(/"([^"]+)"/g)].map((s) => s[1]!);
-    const component = m[3]!;
-    const specifier = imports.get(component);
-    if (!specifier)
-      throw new Error(`${component} is dispatched but not imported`);
-    arms.push({ slugs, component, specifier });
-  }
-  // A broken link is FATAL, not a smaller corpus: every slug comparison in
-  // the page must have landed in an arm.
-  const compared = [...source.matchAll(/tool\.slug === "/g)].length;
-  const parsed = arms.reduce((n, arm) => n + arm.slugs.length, 0);
-  if (compared !== parsed)
-    throw new Error(
-      `page.tsx compares ${compared} slugs; the dispatch parse found ${parsed}`,
-    );
-  return arms;
-}
-
-const ARMS = dispatchArms();
+const ARMS = panelDispatchArms();
 const SUBJECTS = ARMS.flatMap((arm) =>
   arm.slugs.map((slug) => ({ slug, ...arm })),
 );
-
-async function componentOf(arm: Arm): Promise<ComponentType<{ tool: Tool }>> {
-  const mod = (await import(
-    /* @vite-ignore */ arm.specifier.replace(
-      /^@\//,
-      `${path.resolve("src").replace(/\\/g, "/")}/`,
-    )
-  )) as Record<string, unknown>;
-  const component = mod[arm.component];
-  if (typeof component !== "function")
-    throw new Error(`${arm.specifier} does not export ${arm.component}`);
-  return component as ComponentType<{ tool: Tool }>;
-}
-
-function toolOf(slug: string): Tool {
-  const tool = getToolBySlug(slug);
-  if (!tool) throw new Error(`dispatched slug ${slug} is not in the catalog`);
-  return tool;
-}
+const componentOf = panelComponent;
+const toolOf = catalogTool;
 
 function textOf(html: string): string {
   const doc = new DOMParser().parseFromString(html, "text/html");

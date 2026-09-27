@@ -22,12 +22,15 @@
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
 import type { ApiError } from "@/lib/jobs/responses";
 import type { OcrOptions } from "@/lib/jobs/ocr";
-import { pollJobToTerminal } from "./job-polling";
+import {
+  phaseOfJob,
+  pollJobToTerminal,
+  type WorkerJobPhase,
+} from "./job-polling";
+import { OCR_JOB_POLL } from "@/lib/jobs/client-wait";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
 
 const OCR_TOOL = "ocr-pdf";
-const DEFAULT_POLL_INTERVAL_MS = 800;
-const DEFAULT_MAX_POLL_ATTEMPTS = 225; // ~3 minutes at the default cadence (OCR is slower)
 
 /** The file to OCR, and how. */
 export interface OcrWorkerInput {
@@ -58,6 +61,15 @@ export interface OcrWorkerFailure {
   message: string;
   /** The contract error code or job error code, when one is available. */
   code?: string;
+  /** The job this failure is about, once one exists — as data, not prose. */
+  jobId?: string;
+  /**
+   * True when the client stopped WAITING and the job may still finish;
+   * {@link resumeWorkerOcr} picks it up by `jobId`. A long scan outlives the
+   * browser's wait (the worker allows five minutes a run by default, the
+   * browser three), and this is what keeps its result reachable.
+   */
+  stillRunning?: boolean;
 }
 
 export type OcrWorkerResult = OcrWorkerSuccess | OcrWorkerFailure;
@@ -88,6 +100,10 @@ export interface OcrWorkerOptions {
   maxPollAttempts?: number;
   /** Injectable delay so polling is instant under test. */
   sleep?: (ms: number) => Promise<void>;
+  /** Called once the job exists, with its id — what a Cancel button needs. */
+  onJobCreated?: (jobId: string) => void;
+  /** Called as the run moves between upload, queue, recognition and download. */
+  onPhase?: (phase: WorkerJobPhase) => void;
 }
 
 const defaultFetch: FetchLike = (input, init) =>
@@ -142,8 +158,7 @@ export async function runWorkerOcr(
 ): Promise<OcrWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const { signal } = options;
-  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const maxPollAttempts = options.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
+  options.onPhase?.("uploading");
 
   // 1. Reserve an upload slot for exactly this file.
   const sessionRes = await fetchImpl("/api/uploads", {
@@ -202,26 +217,43 @@ export async function runWorkerOcr(
   if (!jobRes.ok) {
     return readError(jobRes, "The worker could not create the OCR job.");
   }
-  let job = (await jobRes.json()) as Job;
+  const job = (await jobRes.json()) as Job;
+  options.onJobCreated?.(job.jobId);
+
+  // 4–5. Wait for it and download the results — the half a resume re-enters.
+  return finishOcrJob(job, options);
+}
+
+/** Wait for an OCR job and download every artifact; shared with a resume. */
+async function finishOcrJob(
+  started: Job,
+  options: OcrWorkerOptions,
+): Promise<OcrWorkerResult> {
+  const fetchImpl = options.fetchImpl ?? defaultFetch;
+  const { signal } = options;
+  options.onPhase?.(phaseOfJob(started.status));
 
   // 4. Poll to a terminal state (a production worker is async).
   const polled = await pollJobToTerminal({
-    job,
+    job: started,
     fetchImpl,
-    pollIntervalMs,
-    maxPollAttempts,
+    pollIntervalMs: options.pollIntervalMs ?? OCR_JOB_POLL.intervalMs,
+    maxPollAttempts: options.maxPollAttempts ?? OCR_JOB_POLL.maxAttempts,
+    onJob: (next) => options.onPhase?.(phaseOfJob(next.status)),
     ...(signal ? { signal } : {}),
     ...(options.sleep ? { sleepImpl: options.sleep } : {}),
   });
   if (!polled.ok) {
+    // The id travels as DATA, so the panel can keep waiting on this job
+    // instead of telling the user to upload the scan again.
     return {
       ok: false,
-      message: polled.stillRunning
-        ? `${polled.message} (job ${polled.jobId})`
-        : polled.message,
+      message: polled.message,
+      jobId: polled.jobId,
+      ...(polled.stillRunning ? { stillRunning: true } : {}),
     };
   }
-  job = polled.job;
+  const job = polled.job;
 
   if (job.status !== "completed") {
     return {
@@ -230,15 +262,21 @@ export async function runWorkerOcr(
         job.error?.message ??
         `The job ended as "${job.status}" without producing a result.`,
       code: job.error?.code,
+      jobId: job.jobId,
     };
   }
 
   const artifacts = job.artifacts ?? [];
   if (artifacts.length === 0) {
-    return { ok: false, message: "The job completed but produced no output." };
+    return {
+      ok: false,
+      message: "The job completed but produced no output.",
+      jobId: job.jobId,
+    };
   }
 
   // 5. Download every real output (searchable PDF and/or text sidecar).
+  options.onPhase?.("downloading");
   const downloaded: OcrArtifactResult[] = [];
   for (const artifact of artifacts) {
     const res = await fetchImpl(artifact.url, { signal });
@@ -252,4 +290,15 @@ export async function runWorkerOcr(
   }
 
   return { ok: true, job, artifacts: downloaded };
+}
+
+/**
+ * Pick up an OCR job this browser stopped waiting for — by id, with no new
+ * upload and no new job — and download its results when it finishes.
+ */
+export function resumeWorkerOcr(
+  jobId: string,
+  options: OcrWorkerOptions = {},
+): Promise<OcrWorkerResult> {
+  return finishOcrJob({ jobId, status: "processing" } as Job, options);
 }

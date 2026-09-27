@@ -43,11 +43,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -209,8 +210,12 @@ function AiExtractBuilder() {
   const [mode, setMode] = useState<ExtractionMode>("schema");
   const [prompt, setPrompt] = useState("");
   const [fields, setFields] = useState<ExtractionField[]>([{ ...EMPTY_FIELD }]);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<AiExtractWorkerResult | null>(null);
+  const job = useWorkerJob<AiExtractWorkerResult>({
+    tool: "ai-extract",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "ai-extract" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const namedFields = fields.filter((f) => f.name.trim().length > 0);
   const requestReady =
@@ -219,9 +224,7 @@ function AiExtractBuilder() {
 
   const start = useCallback(async () => {
     if (!file || !requestReady) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await runWorkerAiExtract(
         mode === "prompt"
@@ -243,21 +246,11 @@ function AiExtractBuilder() {
                   : {}),
               })),
             },
+        controls,
       );
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, mode, prompt, namedFields, requestReady]);
+      return result;
+    });
+  }, [file, mode, prompt, namedFields, requestReady, run]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -394,14 +387,14 @@ function AiExtractBuilder() {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Extracting…"
+        busyLabel={jobBusyLabel(job.phase, "Extracting…")}
         icon={ScanSearch}
         tone="violet"
       >
         Extract data
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce="Your AI extraction package is ready.">
           <TruncationNotice

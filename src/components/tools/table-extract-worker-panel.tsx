@@ -17,11 +17,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -167,31 +168,25 @@ function SpecRow({
 
 function TableExtractRunArea() {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<TableExtractWorkerResult | null>(null);
+  const job = useWorkerJob<TableExtractWorkerResult>({
+    tool: "extract-tables",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "extract-tables" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
-      const result = await runWorkerTableExtract({
-        filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file]);
+    await run(async (controls) => {
+      const result = await runWorkerTableExtract(
+        {
+          filename: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -228,18 +223,14 @@ function TableExtractRunArea() {
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel="Extracting tables…"
+        busyLabel={jobBusyLabel(job.phase, "Extracting tables…")}
         icon={Table}
       >
         Extract tables
       </WorkerRunButton>
-      {outcome?.ok === false && (
-        <>
-          <ErrorNote message={outcome.message} />
-          {/* The tool that fixes a document-level failure, keyed on the
-              job error CODE the processor sets — never on message text. */}
-          <OfficeExportNextStep code={outcome.code} />
-        </>
+      <WorkerJobStatus job={job} />
+      {outcome?.ok === false && !outcome.stillRunning && (
+        <OfficeExportNextStep code={outcome.code} />
       )}
       {outcome?.ok === true && (
         <ResultCard announce="Your tables are ready as a ZIP of CSV files plus a combined Excel workbook.">

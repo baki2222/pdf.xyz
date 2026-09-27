@@ -25,11 +25,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -244,34 +245,31 @@ function StructureRunArea({
   localDevOnly: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfStructureWorkerResult | null>(null);
+  const job = useWorkerJob<PdfStructureWorkerResult>({
+    tool: mode === "repair" ? "repair-pdf" : "optimize-web",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, {
+        ...controls,
+        tool: mode === "repair" ? "repair-pdf" : "optimize-web",
+      }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const copy = COPY[mode];
 
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
         mode === "repair"
-          ? await runWorkerRepairPdf({ filename: file.name, bytes })
-          : await runWorkerOptimizeWeb({ filename: file.name, bytes });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, mode]);
+          ? await runWorkerRepairPdf({ filename: file.name, bytes }, controls)
+          : await runWorkerOptimizeWeb(
+              { filename: file.name, bytes },
+              controls,
+            );
+      return result;
+    });
+  }, [file, mode, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -311,13 +309,13 @@ function StructureRunArea({
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel={copy.running}
+        busyLabel={jobBusyLabel(job.phase, copy.running)}
         icon={copy.icon}
       >
         {copy.cta}
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce={copy.done}>
           {/* Before the download button: a user who clicks and leaves is

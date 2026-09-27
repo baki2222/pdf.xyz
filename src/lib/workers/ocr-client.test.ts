@@ -362,10 +362,15 @@ describe("runWorkerOcr", () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    // See the equivalent assertion in `client.test.ts`: the client gives up on
-    // waiting, not on the job, and it now says so and names the job it left.
+    // The client gives up on waiting, not on the job, and says so.
     expect(result.message).toMatch(/stopped waiting/i);
     expect(result.message).toMatch(/may still finish/i);
-    expect(result.message).toContain("job_");
+    // INVERTED 2026-09-27. This asserted `message` CONTAINS "job_": the id was
+    // folded into prose, which a user could read and nothing could act on, so
+    // no panel could resume the job. The id is data now, and stays out of the
+    // sentence; `resumeWorkerOcr(result.jobId)` picks the job back up.
+    expect(result.message).not.toContain("job_");
+    expect(result.jobId).toMatch(/^job_/);
+    expect(result.stillRunning).toBe(true);
   });
 });

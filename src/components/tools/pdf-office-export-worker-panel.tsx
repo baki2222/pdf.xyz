@@ -17,11 +17,12 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -203,34 +204,26 @@ function PdfOfficeRunArea({
   output: string;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfOfficeExportWorkerResult | null>(
-    null,
-  );
+  const job = useWorkerJob<PdfOfficeExportWorkerResult>({
+    tool: tool,
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: tool }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
-      const result = await runWorkerPdfOfficeExport({
-        tool,
-        filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, tool]);
+    await run(async (controls) => {
+      const result = await runWorkerPdfOfficeExport(
+        {
+          tool,
+          filename: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, tool, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -267,16 +260,14 @@ function PdfOfficeRunArea({
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel={`Exporting ${output}…`}
+        busyLabel={jobBusyLabel(job.phase, `Exporting ${output}…`)}
         icon={FileText}
       >
         Export {output}
       </WorkerRunButton>
-      {outcome?.ok === false && (
-        <>
-          <ErrorNote message={outcome.message} />
-          <OfficeExportNextStep code={outcome.code} />
-        </>
+      <WorkerJobStatus job={job} />
+      {outcome?.ok === false && !outcome.stillRunning && (
+        <OfficeExportNextStep code={outcome.code} />
       )}
       {outcome?.ok === true && (
         <ResultCard announce={`Your ${output} file is ready.`}>
