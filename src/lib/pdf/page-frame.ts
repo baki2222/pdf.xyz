@@ -18,20 +18,23 @@ import { loadPdfLib } from "./pdf-lib";
  * the viewer's frame and map it here.
  *
  * ONE reader and ONE mapping, shared by every tool that places content (Edit,
- * Sign, stamps, Crop, Request signatures), so they cannot disagree about what
- * "the page" is:
+ * Sign, Annotate, Create forms, stamps, Crop, Request signatures), so they
+ * cannot disagree about what "the page" is:
  *
  *  - {@link visiblePageFrame} (alias {@link viewerFrame}) reads the frame from a
- *    page; {@link frameFromBoxes} is the same read over plain numbers.
+ *    page; {@link frameFromBoxes} is the same read over plain numbers;
+ *    {@link pageFrame} is the same read, flattened for Annotate and Create forms.
  *  - {@link viewToContent} maps a visible-frame point into content space.
  *    {@link placeVisibleRect} is that mapping expressed as the anchor +
- *    rotation pdf-lib's widget API expects.
+ *    rotation pdf-lib's widget API expects, and {@link toContentSpace} is it
+ *    over a flattened frame.
  *
  * The geometry is pure numbers so it is unit-tested without a document
  * (`page-frame.test.ts`, against a rotation-matrix oracle); only
  * {@link readPdfFrames} loads pdf-lib, and it does so through the one dynamic
  * boundary in `./pdf-lib`. The consumer-side proofs — pdfjs reading the saved
- * file — are in `edit-placement.test.ts`, `signature-placement.test.ts` and the
+ * file — are in `edit-placement.test.ts`, `signature-placement.test.ts`,
+ * `annotate.pdfjs.test.ts`, `create-forms.pdfjs.test.ts` and the
  * request-signatures integration test.
  */
 
@@ -138,6 +141,30 @@ export function visiblePageFrame(page: FramedPage): VisiblePageFrame {
 export const viewerFrame: (page: FramedPage) => ViewerFrame = visiblePageFrame;
 
 /**
+ * A page's visible frame, flattened: the visible box in unrotated content
+ * space (`x, y, width, height` — the box's own, NOT the displayed size) plus
+ * the page's normalized `/Rotate`. The shape Annotate and Create forms place
+ * with; read by {@link pageFrame}, the same reader as {@link visiblePageFrame}.
+ */
+export interface PageFrame extends Box {
+  rotation: PageRotation;
+}
+
+/** Read a page's visible frame, flattened — {@link visiblePageFrame}, reshaped. */
+export function pageFrame(page: FramedPage): PageFrame {
+  const { box, rotation } = visiblePageFrame(page);
+  return { ...box, rotation };
+}
+
+/** The size a reader sees of a flattened frame: a quarter turn swaps the axes. */
+export function displayedSize(frame: PageFrame): {
+  width: number;
+  height: number;
+} {
+  return displayedPageSize(frame.width, frame.height, frame.rotation);
+}
+
+/**
  * Map a point in the VIEWER's frame — points from the bottom-left corner of the
  * page as a reader sees it, i.e. `box` shown after the page's clockwise
  * `/Rotate` — into the unrotated content space pdf-lib draws in.
@@ -169,6 +196,14 @@ export function viewToContent(
     default:
       return { x: box.x + vx, y: box.y + vy };
   }
+}
+
+/** {@link viewToContent} over a flattened {@link PageFrame}. */
+export function toContentSpace(
+  point: { x: number; y: number },
+  frame: PageFrame,
+): { x: number; y: number } {
+  return viewToContent(point.x, point.y, frame, frame.rotation);
 }
 
 /**

@@ -148,6 +148,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     // knowing anything about the question.
     chunkedTranslate: boolOf(src.chunkedTranslate),
     deliveryCap: boolOf(src.deliveryCap),
+    aiReadCap: boolOf(src.aiReadCap),
   };
 }
 
@@ -198,6 +199,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       atomicQueue: hb.capabilities.atomicQueue,
       chunkedTranslate: hb.capabilities.chunkedTranslate,
       deliveryCap: hb.capabilities.deliveryCap,
+      aiReadCap: hb.capabilities.aiReadCap,
     },
     at: hb.at,
   });

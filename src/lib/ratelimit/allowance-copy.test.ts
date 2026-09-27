@@ -55,7 +55,10 @@ import {
 import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
 import { AI_ALLOWANCE_USED_MESSAGE } from "./response";
 import { AI_ALLOWANCE_FACT } from "@/lib/tools/tool-facts";
-import { AI_DAILY_ALLOWANCE_NOTE } from "@/lib/workers/ai-tool-availability";
+import {
+  AI_DAILY_ALLOWANCE_NOTE,
+  AI_PER_CALL_ALLOWANCE_NOTE,
+} from "@/lib/workers/ai-tool-availability";
 import { tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 
@@ -76,8 +79,13 @@ const COPY: { where: string; text: string }[] = [
     text: AI_ALLOWANCE_FACT,
   },
   {
-    where: "ai-tool-availability AI_DAILY_ALLOWANCE_NOTE (the AI panels)",
+    where: "ai-tool-availability AI_DAILY_ALLOWANCE_NOTE (the translate panel)",
     text: AI_DAILY_ALLOWANCE_NOTE,
+  },
+  {
+    where:
+      "ai-tool-availability AI_PER_CALL_ALLOWANCE_NOTE (summarize, chat, extract panels)",
+    text: AI_PER_CALL_ALLOWANCE_NOTE,
   },
   { where: "the 429 body", text: AI_ALLOWANCE_USED_MESSAGE },
 ];

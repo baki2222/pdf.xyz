@@ -27,6 +27,16 @@ export interface SummarizeWorkerInput {
   format: SummaryFormat;
   /** Optional free-text directive steering what the summary emphasizes. */
   focus?: string;
+  /**
+   * Characters of selectable text the panel counted
+   * (`countDeclaredCharacters`), or `null` when it could not count.
+   *
+   * REQUIRED, and nullable rather than optional, for the reason translate's
+   * client gives: the route's fallback is correct and silent. An omitted count
+   * costs a third of the day's allowance per run, whatever the document holds,
+   * and nothing fails — so a caller that stops counting must have to say so.
+   */
+  declaredCharacters: number | null;
 }
 
 export function runWorkerSummarize(
@@ -44,6 +54,7 @@ export function runWorkerSummarize(
     input.bytes,
     jobOptions,
     options,
+    input.declaredCharacters ?? undefined,
   );
 }
 

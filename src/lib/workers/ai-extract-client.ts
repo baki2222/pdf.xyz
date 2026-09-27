@@ -30,6 +30,16 @@ export interface AiExtractWorkerInput {
   prompt?: string;
   /** The typed field list to extract. Required (non-empty) iff `mode === "schema"`. */
   schema?: ExtractionField[];
+  /**
+   * Characters of selectable text the panel counted
+   * (`countDeclaredCharacters`), or `null` when it could not count.
+   *
+   * REQUIRED, and nullable rather than optional, for the reason translate's
+   * client gives: the route's fallback is correct and silent. An omitted count
+   * costs a third of the day's allowance per run, whatever the document holds,
+   * and nothing fails — so a caller that stops counting must have to say so.
+   */
+  declaredCharacters: number | null;
 }
 
 export function runWorkerAiExtract(
@@ -47,6 +57,7 @@ export function runWorkerAiExtract(
     input.bytes,
     jobOptions,
     options,
+    input.declaredCharacters ?? undefined,
   );
 }
 

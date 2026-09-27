@@ -53,6 +53,7 @@ import {
   provesChunkedTranslate,
   provesDeliveryCap,
 } from "@/lib/workers/translate/capability";
+import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
 import { writeSpendProbe } from "@/lib/ratelimit/guard";
 import { shouldWriteSpendProbe } from "@/lib/ratelimit/spend-probe";
 import {
@@ -146,6 +147,7 @@ async function buildHeartbeatPublisher(
       // its silence is read as `false` on the other side.
       chunkedTranslate: await provesChunkedTranslate(),
       deliveryCap: await provesDeliveryCap(),
+      aiReadCap: await provesAiReadCap(),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),

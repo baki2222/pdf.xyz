@@ -446,6 +446,7 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     atomicQueue: false,
     chunkedTranslate: false,
     deliveryCap: false,
+    aiReadCap: false,
     ...extra,
   });
 

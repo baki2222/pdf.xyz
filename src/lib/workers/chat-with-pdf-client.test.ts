@@ -171,12 +171,12 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        documentCharacters: 2_140,
         question: "What is the total?",
         context: [
           { role: "user", content: "hi" },
           { role: "assistant", content: "hello" },
         ],
-        declaration: { characters: 2_140, textPages: 3 },
       },
       { fetchImpl, sleep: async () => {} },
     );
@@ -194,7 +194,12 @@ describe("chat-with-pdf-client", () => {
     // The document the panel measured travels beside the options, so the
     // route reserves what this document uses instead of a whole call's worth.
     expect(jobBody?.declaredCharacters).toBe(2_140);
-    expect(jobBody?.declaredTextPages).toBe(3);
+    // INVERTED 2026-09-27 (integration of the chat and per-call pricing
+    // fixes), history kept: this pinned `declaredTextPages: 3` beside the
+    // count, feeding a page stop in the chat engine. Chat is now priced per
+    // call, bounded in characters, and nothing enforces a page bound on a
+    // per-call run (`aiReservationFor`), so the page count is not declared.
+    expect(jobBody).not.toHaveProperty("declaredTextPages");
   });
 
   it("omits context from the job body when none is provided", async () => {
@@ -254,8 +259,8 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        documentCharacters: null,
         question: "What is the total?",
-        declaration: null,
       },
       { fetchImpl, sleep: async () => {} },
     );
@@ -309,8 +314,8 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        documentCharacters: null,
         question: "What is the total?",
-        declaration: null,
       },
       { fetchImpl, sleep: async () => {} },
     );

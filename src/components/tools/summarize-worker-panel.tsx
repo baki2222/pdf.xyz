@@ -17,9 +17,10 @@ import {
 } from "@/lib/jobs/summarize-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  AI_PER_CALL_ALLOWANCE_NOTE,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
+import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
 import {
   canRunSummarize,
   runWorkerSummarize,
@@ -136,7 +137,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {AI_PER_CALL_ALLOWANCE_NOTE}
           </p>
         )}
         {available ? (
@@ -242,12 +243,17 @@ function SummaryBuilder() {
     try {
       setOutcome(null);
       const trimmedFocus = focus.trim();
+      const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await runWorkerSummarize({
         filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
+        bytes,
         length,
         format,
         ...(trimmedFocus ? { focus: trimmedFocus } : {}),
+        // Counted before upload so the run is charged what this document
+        // holds, not a third of the day. `null` (a scan, a file pdfjs cannot
+        // open) sends it undeclared at the old price rather than refusing it.
+        declaredCharacters: await countDeclaredCharacters(bytes),
       });
       setOutcome(result);
     } catch {

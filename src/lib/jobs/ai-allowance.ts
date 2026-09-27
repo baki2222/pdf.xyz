@@ -190,6 +190,36 @@ export const AI_ALLOWANCE_CLAUSE = `${AI_ALLOWANCE_RUNS} a day`;
 export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection — the allowance resets daily.`;
 
 /**
+ * The most one Summarize, Chat or Extract run can take from the allowance, in
+ * the browser's unit — the same unit as {@link AI_CHARACTER_ALLOWANCE_DELIVERED}.
+ *
+ * It is the undeclared charge (`TRANSLATE_MAX_INPUT_CHARS × h`) with the
+ * headroom taken back out, exactly as the published daily figure is the bucket
+ * with it taken out. `ratelimit/allowance-unit.test.ts` prices a run through
+ * `aiReservationFor` and holds the sentence below to what it returns.
+ */
+export const AI_PER_CALL_RUN_CEILING = TRANSLATE_MAX_INPUT_CHARS;
+
+/**
+ * The offer on the three `per-call` tools, where one run is one provider call.
+ *
+ * ⚠️ WHY IT SAYS "NEVER MORE THAN" AND NOT "THE CHARACTERS IN YOUR DOCUMENT".
+ * A run is charged by what it sends (its declared document, plus the question,
+ * prompt or focus the server measures, plus the engine's instructions) only
+ * while the running worker proves it sends no more than that (`aiReadCap`); an
+ * image built before that proof charges every run the ceiling. Either way the
+ * sentence's ceiling holds: the price is clamped at one whole run. The worker is deployed by hand, after the web
+ * tier, so the stronger sentence would be true of `main` and false of whatever
+ * image is serving — the defect this codebase keeps paying for. This one is
+ * true of both.
+ *
+ * Until 2026-09-27 the three panels showed {@link AI_ALLOWANCE_FACT} alone, and
+ * every run cost the ceiling: three one-page summaries, or three chat
+ * questions, against a published 30,774 characters.
+ */
+export const AI_PER_CALL_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection. One run never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them, however long the document is, and the allowance resets daily.`;
+
+/**
  * What a visitor is told when it runs out.
  *
  * It names the CONNECTION, never the reader. See the module docblock: the bucket

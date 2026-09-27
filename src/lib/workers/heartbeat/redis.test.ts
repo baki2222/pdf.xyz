@@ -27,6 +27,7 @@ const CAPS: HeartbeatCapabilities = {
   atomicQueue: true,
   chunkedTranslate: true,
   deliveryCap: true,
+  aiReadCap: true,
 };
 
 /** A mutable fake clock. */

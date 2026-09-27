@@ -186,13 +186,16 @@ describe("there is exactly one copy of the sentence", () => {
   it("the panels reach the sentence through the shared source", async () => {
     // Reach, not membership: the re-exports must actually resolve to the same
     // string, or "one copy" is true of the source and false of what renders.
-    const { AI_DAILY_ALLOWANCE_NOTE } =
+    const { AI_DAILY_ALLOWANCE_NOTE, AI_PER_CALL_ALLOWANCE_NOTE } =
       await import("@/lib/workers/ai-tool-availability");
+    const { AI_PER_CALL_ALLOWANCE_FACT } =
+      await import("@/lib/jobs/ai-allowance");
     const { AI_ALLOWANCE_FACT: fromTools } = await import("./tool-facts");
     const { AI_ALLOWANCE_USED_MESSAGE: fromRateLimit } =
       await import("@/lib/ratelimit/response");
 
     expect(AI_DAILY_ALLOWANCE_NOTE).toBe(AI_ALLOWANCE_FACT);
+    expect(AI_PER_CALL_ALLOWANCE_NOTE).toBe(AI_PER_CALL_ALLOWANCE_FACT);
     expect(fromTools).toBe(AI_ALLOWANCE_FACT);
     expect(fromRateLimit).toBe(AI_ALLOWANCE_USED_MESSAGE);
   });

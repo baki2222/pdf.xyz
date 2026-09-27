@@ -48,9 +48,10 @@
  *
  * A THIRD CLASS, added 2026-09-27: PER-QUESTION. Chat with PDF read up to the
  * shared 500,000 characters on a 41,032-character charge; its reading ceiling
- * is now its charge ceiling, `CHAT_MAX_CHARACTERS_PER_QUESTION`. That class IS
- * run — {@link PER_QUESTION_PROBES} feeds the engine one character over and
- * measures the document in the request the provider receives.
+ * is now its charge ceiling, `CHAT_MAX_CHARACTERS_PER_QUESTION`, and it covers
+ * the document AND the conversation. That class IS run —
+ * {@link PER_QUESTION_PROBES} feeds the engine one character over and measures
+ * the document and the conversation in the request the provider receives.
  *
  * THE EXIT CONDITION names the property: an entry leaves this guard only when
  * the surface derives its figure from the same constant its engine enforces —
@@ -368,7 +369,14 @@ const OUTPUT_BOUND_PROBES: Record<
 /**
  * Every per-question engine must have a probe here, keyed by slug. A probe RUNS
  * the engine with NO job cap — its own ceiling, the one the page states — and
- * measures the document in the request the provider received.
+ * measures, in the request the provider received, the document plus the
+ * conversation sent with it: the ceiling covers both ("conversation included"
+ * on the panel). Until 2026-09-27 (history kept) it measured the document
+ * alone, and the engine sent a full ceiling of document with the question on
+ * top whenever a job arrived without a cap — which, once chat was priced per
+ * call, is every undeclared question and every question until the worker
+ * proves its read cap. `sentAt` is a document that exactly fits beside the
+ * question, so "all of one that fits" still asks about a whole document.
  */
 const PER_QUESTION_PROBES: Record<
   string,
@@ -377,25 +385,36 @@ const PER_QUESTION_PROBES: Record<
   "chat-with-pdf": async (ceiling) => {
     const START = "--- DOCUMENT START ---\n";
     const END = "\n--- DOCUMENT END ---";
-    const documentIn = (provider: { calls: AiCompletionRequest[] }) => {
-      const system = provider.calls[0]?.system ?? "";
+    const QUESTION = "What does it say?";
+    /** Document plus conversation, read off the request — or -1 if absent. */
+    const readIn = (provider: { calls: AiCompletionRequest[] }) => {
+      const call = provider.calls[0];
+      const system = call?.system ?? "";
       const start = system.indexOf(START);
       const end = system.indexOf(END);
-      return start < 0 || end < 0 ? -1 : end - (start + START.length);
+      if (!call || start < 0 || end < 0) return -1;
+      const conversation = call.messages.reduce(
+        (sum, message) => sum + message.content.length,
+        0,
+      );
+      return end - (start + START.length) + conversation;
     };
     const over = recordingProvider();
     await runChatWithPdf(
       new Uint8Array([1, 2, 3]),
-      { question: "What does it say?" },
+      { question: QUESTION },
       { extract: extractorFor("a".repeat(ceiling + 1)), provider: over },
     );
     const at = recordingProvider();
     await runChatWithPdf(
       new Uint8Array([1, 2, 3]),
-      { question: "What does it say?" },
-      { extract: extractorFor("a".repeat(ceiling)), provider: at },
+      { question: QUESTION },
+      {
+        extract: extractorFor("a".repeat(ceiling - QUESTION.length)),
+        provider: at,
+      },
     );
-    return { sentOver: documentIn(over), sentAt: documentIn(at) };
+    return { sentOver: readIn(over), sentAt: readIn(at) };
   },
 };
 
@@ -518,14 +537,15 @@ describe("the enforcement honours the classified ceiling (run, not read)", () =>
 
 describe("the per-question engine reads exactly its ceiling (run, not read)", () => {
   it.each(Object.keys(PER_QUESTION_PROBES))(
-    "%s sends the model no more document than its ceiling, and all of one that fits",
+    "%s sends the model no more than its ceiling, conversation included, and all of a document that fits",
     async (slug) => {
       const ceiling = honouredCeiling(slug);
       const probe = await PER_QUESTION_PROBES[slug]!(ceiling);
       expect(
         probe.sentOver,
-        `${slug} sent ${probe.sentOver} characters of a ${ceiling + 1}-character ` +
-          "document — the ceiling the page states is not the one it reads to",
+        `${slug} sent ${probe.sentOver} characters of document and conversation ` +
+          `for a ${ceiling + 1}-character document — the ceiling the page ` +
+          "states is not the one it reads to",
       ).toBe(ceiling);
       expect(probe.sentAt).toBe(ceiling);
     },

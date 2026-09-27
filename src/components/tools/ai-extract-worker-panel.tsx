@@ -27,9 +27,10 @@ import {
 } from "@/lib/jobs/ai-extract";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  AI_PER_CALL_ALLOWANCE_NOTE,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
+import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
 import {
   canRunAiExtract,
   runWorkerAiExtract,
@@ -135,7 +136,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {AI_PER_CALL_ALLOWANCE_NOTE}
           </p>
         )}
         {available ? (
@@ -247,6 +248,9 @@ function AiExtractBuilder() {
     try {
       setOutcome(null);
       const bytes = new Uint8Array(await file.arrayBuffer());
+      // Counted before upload so the run is charged what this document holds,
+      // not a third of the day. `null` sends it undeclared at the old price.
+      const declaredCharacters = await countDeclaredCharacters(bytes);
       const result = await runWorkerAiExtract(
         mode === "prompt"
           ? {
@@ -254,10 +258,12 @@ function AiExtractBuilder() {
               bytes,
               mode: "prompt",
               prompt: prompt.trim(),
+              declaredCharacters,
             }
           : {
               filename: file.name,
               bytes,
+              declaredCharacters,
               mode: "schema",
               schema: namedFields.map((f) => ({
                 name: f.name.trim(),

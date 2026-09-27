@@ -16,7 +16,7 @@ import {
 } from "@/lib/jobs/chat-with-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  AI_PER_CALL_ALLOWANCE_NOTE,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
 import {
@@ -127,7 +127,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE} {CHAT_QUESTION_COST_NOTE}
+            {AI_PER_CALL_ALLOWANCE_NOTE} {CHAT_QUESTION_COST_NOTE}
           </p>
         )}
         {available ? (
@@ -200,12 +200,24 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
 /**
  * What one question costs — the chat-specific half of the allowance.
  *
- * The shared allowance sentence says how much a connection gets; it cannot say
- * what a chat question takes, and chat is the one AI tool whose cost repeats:
- * the document is re-sent with every question. Stated from the same constant
- * the route caps the reservation at and the worker caps the read at.
+ * The shared per-call sentence (`AI_PER_CALL_ALLOWANCE_NOTE`) says how much a
+ * connection gets and the most one run can take; it cannot say that a chat
+ * RUN is a question, and chat is the one AI tool whose cost repeats: the
+ * document is re-sent with every question.
+ *
+ * TRUE OF EVERY WORKER IMAGE, like the sentence it follows. Until 2026-09-27
+ * this said each question counts "this PDF's text, plus the question and the
+ * conversation" and that "a short document leaves room for many follow-ups".
+ * That is how a question is priced only while the running worker proves its
+ * read cap (`aiReadCap`, see `aiReservationFor`); on an image that has not,
+ * every question costs one whole run and the day holds three. It also said
+ * "at most 41,032 characters a question" beside a daily figure of 30,774: the
+ * per-question ceiling in the bucket's unit, next to the allowance in the
+ * reader's. The most a question can take, in the reader's unit, is in the
+ * per-call sentence; the ceiling on what one question reads is the Limit row.
  */
-const CHAT_QUESTION_COST_NOTE = `Each question counts this PDF's text, plus the question and the conversation sent with it, against the daily allowance — at most ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters a question, so a short document leaves room for many follow-ups.`;
+const CHAT_QUESTION_COST_NOTE =
+  "Each question counts against the allowance as a run of its own, because this PDF's text and the conversation so far are sent again with every question.";
 
 /** Shown instead of uploading a PDF the browser found no text in. */
 const NO_TEXT_MESSAGE =
@@ -340,7 +352,10 @@ function ChatBuilder() {
         bytes,
         question: asked,
         ...(context.turns.length > 0 ? { context: context.turns } : {}),
-        declaration: measured.kind === "counted" ? measured.count : null,
+        // Only the DOCUMENT is declared: the route measures the question and
+        // the carried turns off the job's options and charges them itself.
+        documentCharacters:
+          measured.kind === "counted" ? measured.count.characters : null,
       });
       // The document changed while this was running: the answer is about a file the user
       // has already replaced, so it belongs to no transcript on screen. Drop it rather
