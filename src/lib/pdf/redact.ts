@@ -2,7 +2,13 @@ import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { displayedPageSize } from "./page-frame";
-import { rasterizePdf, type RasterCanvasInfo, type RasterPage } from "./render";
+import {
+  rasterizePdf,
+  type RasterCanvasInfo,
+  type RasterPage,
+  type RasterizeOptions,
+} from "./render";
+import type { RedactionFill, RedactionRect } from "./redact-defaults";
 
 /**
  * Privacy-safe, in-browser PDF redaction.
@@ -19,32 +25,24 @@ import { rasterizePdf, type RasterCanvasInfo, type RasterPage } from "./render";
  * is exactly what makes the redaction permanent.
  *
  * The geometry (validation + point→pixel mapping) is pure so it can be unit
- * tested with plain numbers; only {@link getRedactPageSizes}/{@link redactPdf}
- * touch pdf-lib/pdfjs and must run in the browser.
+ * tested with plain numbers. Only the pdfjs page render inside
+ * {@link rasterizePdf} needs a browser: {@link getRedactPageSizes} runs in Node,
+ * and so does {@link redactPdf} when handed a rasterizer, which is how
+ * `redact-paint.test.ts` reads the painted bitmap the encoder receives.
  */
 
 const PRODUCER = "pdf.xyz";
 
-/** Fill colors offered for a redaction box. */
-export type RedactionFill = "black" | "white";
-
-/**
- * A rectangle to redact, in PDF points with a bottom-left origin (the standard
- * PDF coordinate space), on a specific 1-based page. `x`/`y` locate the box's
- * lower-left corner; `width`/`height` size it.
- */
-export interface RedactionRect {
-  /** 1-based page number. */
-  page: number;
-  /** Distance of the box's left edge from the page's left edge, in points. */
-  x: number;
-  /** Distance of the box's bottom edge from the page's bottom edge, in points. */
-  y: number;
-  /** Box width in points. */
-  width: number;
-  /** Box height in points. */
-  height: number;
-}
+// The tool's plain data lives in a leaf module because the browser proof
+// (e2e/client-proof/cases.ts) imports it under Playwright's CommonJS loader,
+// where `./render`'s `import.meta.url` is a SyntaxError. Re-exported here so
+// the runner and the unit tests keep one import site.
+export {
+  DEFAULT_REDACTION_DRAFT,
+  REDACTION_FILL_OPTIONS,
+  type RedactionFill,
+  type RedactionRect,
+} from "./redact-defaults";
 
 /** A page's displayed size in PDF points. */
 export interface PageSize {
@@ -309,6 +307,18 @@ function paintRedactions(
 export async function redactPdf(
   bytes: Uint8Array,
   options: RedactOptions,
+  /**
+   * The rasterizer. Always {@link rasterizePdf} in the product; a parameter so
+   * `redact-paint.test.ts` can hand the REAL paint path a pixel canvas in Node
+   * and read the bitmap the encoder would receive — the pdfjs render itself
+   * needs a browser, but the paint that makes a redaction a redaction does not.
+   * (A `vi.mock` of ./render would poison this module in the shared test cache:
+   * see src/tests/mock-isolation.test.ts.)
+   */
+  rasterize: (
+    bytes: Uint8Array,
+    options: RasterizeOptions,
+  ) => Promise<RasterPage[]> = rasterizePdf,
 ): Promise<RedactResult> {
   const rects = options.rects ?? [];
   if (rects.length === 0) {
@@ -332,7 +342,7 @@ export async function redactPdf(
   const fillHex = redactionFillHex(options.fill);
   const byPage = groupByPage(rects);
 
-  const pages = await rasterizePdf(bytes, {
+  const pages = await rasterize(bytes, {
     format: "jpg",
     dpi: options.dpi ?? 150,
     quality: options.quality ?? 0.85,

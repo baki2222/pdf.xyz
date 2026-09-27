@@ -10,6 +10,7 @@ import {
   type PdfArchiveResultMeta,
   type PdfArchiveRun,
 } from "../pdf-archive/engine";
+import { PDF_ARCHIVE_PASSWORD_REQUIRED_CODE } from "../pdf-archive/contract";
 import {
   processorFail,
   processorOk,
@@ -55,9 +56,23 @@ function jobError(run: PdfArchiveFailure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "password_required":
+      // Its own code so the panel can point at Unlock PDF instead of leaving
+      // the user at "could not process this file".
+      return {
+        code: PDF_ARCHIVE_PASSWORD_REQUIRED_CODE,
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
-    default:
-      return { code: "internal_error", message: run.message, retryable: true };
+      // WAS `retryable: true` for every failure, so the same bytes failed the
+      // same way three times — and a 120 s timeout held the serial worker for
+      // ~6 minutes. Only a failure that is not about the bytes is retried.
+      return {
+        code: "internal_error",
+        message: run.message,
+        retryable: run.reason === "transient",
+      };
   }
 }
 
@@ -99,7 +114,7 @@ export function createPdfArchiveProcessor(deps: PdfArchiveDeps): Processor {
         ready,
         detail: ready
           ? "PDF/A conversion ready: Ghostscript converts PDFs on an encrypted, auto-deleting secure worker."
-          : "PDF/A conversion needs the native Ghostscript engine, which isn't installed on this worker.",
+          : "PDF/A conversion needs the native Ghostscript engine and its sRGB colour profile, which aren't installed on this worker.",
       };
     },
     async process(input): Promise<ProcessorResult> {

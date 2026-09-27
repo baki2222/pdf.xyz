@@ -122,6 +122,18 @@ jobs:
       - name: Worker image OCRmyPDF searchable-PDF proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:ocrmypdf-proof
 
+      # PDF/A proof: the only place the PDF/A argv meets a real Ghostscript before
+      # production. Every unit test of it runs where gs is not installed, so they
+      # prove the code asks the right question, never that gs answers it. This
+      # converts a generated document with the REAL runner, the image's own sRGB
+      # profile and the output gate, and fails unless the result declares
+      # PDF/A-2b (a /GTS_PDFA1 OutputIntent and XMP part 2 / B). It also proves,
+      # with the image's qpdf, that an open-password file is refused as
+      # password_required and a permissions-only file is not. No user document,
+      # cloud service, secret, queue or store; content-free output.
+      - name: Worker image PDF/A conversion proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:pdfa-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)

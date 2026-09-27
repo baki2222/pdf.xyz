@@ -1,7 +1,6 @@
 import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
-import type { PDFPage } from "pdf-lib";
 import {
   clamp,
   embedStampFont,
@@ -10,6 +9,7 @@ import {
   placeCenteredStamp,
   stampProducer,
   toRgb,
+  visibleBox,
   WATERMARK_INK,
   type RGB,
 } from "./stamp";
@@ -67,38 +67,6 @@ export interface WatermarkReport {
   shrunkPages: number;
   /** The smallest size actually drawn, in points. */
   smallestFontSize: number;
-}
-
-interface Box {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-function normalizeBox(box: Box): Box {
-  return {
-    x: Math.min(box.x, box.x + box.width),
-    y: Math.min(box.y, box.y + box.height),
-    width: Math.abs(box.width),
-    height: Math.abs(box.height),
-  };
-}
-
-/**
- * The box a viewer shows: the CropBox clipped to the MediaBox, falling back to
- * the MediaBox when they do not overlap — the same rule pdfjs applies to
- * `page.view`. Neither box has to start at the origin.
- */
-export function visibleBox(page: PDFPage): Box {
-  const media = normalizeBox(page.getMediaBox());
-  const crop = normalizeBox(page.getCropBox());
-  const x0 = Math.max(media.x, crop.x);
-  const y0 = Math.max(media.y, crop.y);
-  const x1 = Math.min(media.x + media.width, crop.x + crop.width);
-  const y1 = Math.min(media.y + media.height, crop.y + crop.height);
-  if (x1 - x0 <= 0 || y1 - y0 <= 0) return media;
-  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
 
 /**
@@ -185,9 +153,10 @@ export async function watermarkPdf(
 
     // Centred on the visible box, not on (0,0)-(w,h): a CropBox, or a
     // MediaBox that does not start at the origin, moves what a reader sees.
+    // `placeCenteredStamp` takes the box origin included and returns where to
+    // draw, so nothing is added to its answer here.
     const placement = placeCenteredStamp({
-      pageWidth: box.width,
-      pageHeight: box.height,
+      box,
       pageRotation,
       textWidth: textWidth * scale,
       textHeight: textHeight * scale,
@@ -195,8 +164,8 @@ export async function watermarkPdf(
     });
 
     page.drawText(value, {
-      x: box.x + placement.x,
-      y: box.y + placement.y,
+      x: placement.x,
+      y: placement.y,
       size,
       font,
       color,

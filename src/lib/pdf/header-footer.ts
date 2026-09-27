@@ -1,6 +1,7 @@
 import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import { canDrawInOneFace } from "./unicode-font";
 import {
   applyTokens,
   clamp,
@@ -10,6 +11,7 @@ import {
   placeStamp,
   stampProducer,
   toRgb,
+  visibleBox,
   type HAlign,
   type RGB,
   type VAlign,
@@ -78,6 +80,87 @@ export function validateHeaderFooter(options: HeaderFooterOptions): void {
   }
 }
 
+/**
+ * Invisible bidi controls. Intl wraps the separators of right-to-left dates in
+ * U+200F (some locales use U+061C / U+200E). A reader sees nothing of them, and
+ * left in they are not WinAnsi, so an otherwise all-Latin "27/9/2026" (`ar`)
+ * would leave the free built-in face for a downloaded Unicode one.
+ */
+const BIDI_CONTROLS = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+function localIsoDate(now: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/**
+ * The ways `{date}` can be written for `locale`, best first:
+ *
+ *  1. the reader's own locale format, exactly as the browser writes it —
+ *     Bengali digits for a Bengali reader, a Buddhist year for a Thai one;
+ *  2. the same locale's order, in Latin digits on the Gregorian calendar —
+ *     `ar-EG` writes "٢٧/٩/٢٠٢٦" and `fa-IR` "۱۴۰۵/۷/۵", neither of which any
+ *     face we ship can draw, and both of which the header tool used to refuse
+ *     after a preview that showed them without complaint;
+ *  3. ISO 8601 (local date), which every face can draw.
+ *
+ * Bidi controls are removed from all of them; duplicates collapse.
+ */
+export function stampDateCandidates(
+  now: Date = new Date(),
+  locale?: string | readonly string[],
+): string[] {
+  const out: string[] = [];
+  const add = (format: () => string) => {
+    try {
+      const value = format().replace(BIDI_CONTROLS, "").trim();
+      if (value.length > 0 && !out.includes(value)) out.push(value);
+    } catch {
+      // An engine without this locale or option: fall through to the next.
+    }
+  };
+  const locales = locale as string | string[] | undefined;
+  add(() => new Intl.DateTimeFormat(locales).format(now));
+  add(() =>
+    new Intl.DateTimeFormat(locales, {
+      numberingSystem: "latn",
+      calendar: "gregory",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).format(now),
+  );
+  add(() => localIsoDate(now));
+  return out;
+}
+
+/**
+ * The `{date}` value to stamp: the first of {@link stampDateCandidates} that,
+ * substituted into the header and footer templates the user wrote, can be
+ * drawn with one shipped face. The choice depends on the templates because the
+ * whole run shares one font — a Bengali date beside a Japanese header is two
+ * scripts, however drawable each is alone.
+ *
+ * When no candidate fits, the ISO form is returned and the embed refuses on
+ * the TEMPLATE's own characters, which is the honest error: the date is no
+ * longer the thing it cannot draw.
+ */
+export async function resolveStampDate(
+  templates: readonly string[],
+  now: Date = new Date(),
+  locale?: string | readonly string[],
+): Promise<string> {
+  const candidates = stampDateCandidates(now, locale);
+  const fallback = candidates[candidates.length - 1] ?? localIsoDate(now);
+  for (const date of candidates) {
+    const drawn = templates.map((t) =>
+      applyTokens(t, { n: 1, total: 1, date }),
+    );
+    if (await canDrawInOneFace(drawn)) return date;
+  }
+  return fallback;
+}
+
 export function headerFooterOutputName(sourceName: string): string {
   return outputName(sourceName || "document", "header-footer");
 }
@@ -117,7 +200,7 @@ export async function addHeaderFooter(
 
   pages.forEach((page, index) => {
     const tokens = { n: index + 1, total, date: options.date };
-    const { width, height } = page.getSize();
+    const box = visibleBox(page);
     const pageRotation = page.getRotation().angle;
 
     for (const slot of slots) {
@@ -127,8 +210,7 @@ export async function addHeaderFooter(
       const textWidth = font.widthOfTextAtSize(text, fontSize);
       const textHeight = font.heightAtSize(fontSize);
       const placement = placeStamp({
-        pageWidth: width,
-        pageHeight: height,
+        box,
         pageRotation,
         textWidth,
         textHeight,

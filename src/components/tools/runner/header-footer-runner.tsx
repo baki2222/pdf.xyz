@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, PanelTop } from "lucide-react";
 import {
   addHeaderFooter,
   headerFooterOutputName,
+  resolveStampDate,
+  stampDateCandidates,
   type HeaderFooterZone,
 } from "@/lib/pdf/header-footer";
 import { applyTokens, type HAlign } from "@/lib/pdf/stamp";
@@ -41,15 +43,6 @@ export const TOKENS = [
   { token: "{date}", label: "{date}" },
 ];
 
-/** A single locale date string for the whole run — computed once on submit. */
-function today(): string {
-  try {
-    return new Date().toLocaleDateString();
-  } catch {
-    return "";
-  }
-}
-
 export function HeaderFooterRunner() {
   return (
     <SinglePdfRunner
@@ -62,7 +55,7 @@ export function HeaderFooterRunner() {
   );
 }
 
-function HeaderFooterEditor({
+export function HeaderFooterEditor({
   pdf,
   onReset,
 }: {
@@ -75,9 +68,29 @@ function HeaderFooterEditor({
   const [footerAlign, setFooterAlign] = useState<HAlign>("center");
   const { busy, error, result, run } = useAsyncRun<Uint8Array>();
 
+  // `{date}` in the reader's own locale format when a face we ship can draw it
+  // beside what they typed, else the same day in Latin digits, else ISO. The
+  // preview shows the value Run will stamp — it used to show an Arabic-Indic
+  // date that Run then refused (see resolveStampDate).
+  const [date, setDate] = useState(() => stampDateCandidates()[0] ?? "");
+  useEffect(() => {
+    let live = true;
+    resolveStampDate([headerText, footerText])
+      .then((resolved) => {
+        if (live) setDate(resolved);
+      })
+      .catch(() => {
+        // Coverage tables failed to load: keep the current value; Run resolves
+        // again and reports any real failure through the engine's own error.
+      });
+    return () => {
+      live = false;
+    };
+  }, [headerText, footerText]);
+
   const sampleTokens = useMemo(
-    () => ({ n: 1, total: pdf.pageCount, date: today() }),
-    [pdf.pageCount],
+    () => ({ n: 1, total: pdf.pageCount, date }),
+    [pdf.pageCount, date],
   );
   const headerPreview = applyTokens(headerText, sampleTokens);
   const footerPreview = applyTokens(footerText, sampleTokens);
@@ -92,8 +105,12 @@ function HeaderFooterEditor({
     const footer: HeaderFooterZone | undefined = footerText.trim()
       ? { [footerAlign]: footerText }
       : undefined;
-    return run(() =>
-      addHeaderFooter(pdf.bytes, { header, footer, date: today() }),
+    return run(async () =>
+      addHeaderFooter(pdf.bytes, {
+        header,
+        footer,
+        date: await resolveStampDate([headerText, footerText]),
+      }),
     );
   };
 

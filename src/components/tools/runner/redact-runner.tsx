@@ -16,7 +16,9 @@ import {
   redactPresetById,
   redactedOutputName,
   validateRedactions,
+  DEFAULT_REDACTION_DRAFT,
   REDACT_DPI_PRESETS,
+  REDACTION_FILL_OPTIONS,
   type PageSize,
   type RedactionFill,
   type RedactionRect,
@@ -43,14 +45,6 @@ interface Box extends RedactionRect {
   id: number;
 }
 
-const DEFAULT_DRAFT: RedactionRect = {
-  page: 1,
-  x: 36,
-  y: 36,
-  width: 200,
-  height: 72,
-};
-
 export function RedactRunner() {
   return (
     <SinglePdfRunner
@@ -73,7 +67,9 @@ function RedactEditor({
   const { busy, error, result, run } = useAsyncRun<RedactResult>();
   const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
   const [boxes, setBoxes] = useState<Box[]>([]);
-  const [draft, setDraft] = useState<RedactionRect>(DEFAULT_DRAFT);
+  const [draft, setDraft] = useState<RedactionRect>({
+    ...DEFAULT_REDACTION_DRAFT,
+  });
   const [fill, setFill] = useState<RedactionFill>("black");
   const [presetId, setPresetId] = useState("print");
   const [formError, setFormError] = useState<string | null>(null);
@@ -272,10 +268,7 @@ function RedactEditor({
             label="Redaction fill"
             value={fill}
             onChange={setFill}
-            options={[
-              { value: "black", label: "Black" },
-              { value: "white", label: "White" },
-            ]}
+            options={[...REDACTION_FILL_OPTIONS]}
           />
         </RunnerSection>
 

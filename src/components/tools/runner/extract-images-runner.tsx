@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Download,
   FileArchive,
@@ -57,7 +58,7 @@ export interface Extraction extends ExtractImagesResult {
   totalBytes: number;
 }
 
-function ExtractImagesEditor({
+export function ExtractImagesEditor({
   pdf,
   onReset,
 }: {
@@ -109,12 +110,12 @@ function ExtractImagesEditor({
           <InfoTile
             icon={Images}
             title="The real images"
-            body="Embedded JPEGs are saved as-is; RGB & grayscale images are rebuilt as PNGs — at their native pixel size, not page screenshots."
+            body="Embedded JPEGs are saved as-is; RGB, grayscale and palette images are rebuilt as PNGs with their transparency — at their native pixel size, not page screenshots."
           />
           <InfoTile
             icon={Layers}
             title="Honest about limits"
-            body="JPEG 2000, CCITT/JBIG2 fax, palette (indexed) and CMYK images can't be recovered yet — they're listed as skipped, never faked."
+            body="JPEG 2000, CCITT/JBIG2 fax, CMYK and inline images can't be recovered yet — they're listed as skipped, never faked. Transparency that can't be kept, such as a JPEG's, is flagged."
           />
         </div>
       </RunnerSection>
@@ -172,9 +173,22 @@ export function ExtractionResult({
               No extractable images found
             </h3>
             <p className="text-muted text-sm">
-              {skipped.length > 0
-                ? "This PDF's images are in formats this tool doesn't recover yet (see below), so nothing was extracted."
-                : "We scanned every page but found no embedded raster images in this PDF."}
+              {skipped.length > 0 ? (
+                "This PDF's images are in formats this tool doesn't recover yet (see below), so nothing was extracted."
+              ) : (
+                <>
+                  No image objects were found in this PDF. Pictures drawn as
+                  vector graphics aren&apos;t embedded images, so they
+                  can&apos;t be extracted —{" "}
+                  <Link
+                    href="/tools/pdf-to-png"
+                    className="text-fg underline underline-offset-2"
+                  >
+                    PDF to PNG
+                  </Link>{" "}
+                  captures each page as an image instead.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -299,6 +313,8 @@ function ExtractionActions({
 
       <ImageGrid images={images} onDownload={downloadOne} />
 
+      <ImageNotes images={images} />
+
       {skipped.length > 0 && <SkippedNote skipped={skipped} />}
     </div>
   );
@@ -379,6 +395,46 @@ function ImageGrid({
     </div>
   );
 }
+
+/**
+ * Images that WERE extracted but differ from how the PDF shows them (today:
+ * saved without their transparency). Kept apart from `SkippedNote`, which
+ * counts images that were not extracted at all, so nothing is counted twice.
+ */
+function ImageNotes({ images }: { images: ExtractedImage[] }) {
+  const groups = new Map<string, string[]>();
+  for (const image of images) {
+    if (!image.note) continue;
+    groups.set(image.note, [...(groups.get(image.note) ?? []), image.name]);
+  }
+  if (groups.size === 0) return null;
+  const noted = [...groups.values()].reduce((n, names) => n + names.length, 0);
+  const rows = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+
+  return (
+    <div className="border-line bg-wash rounded-[4px] border p-4">
+      <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
+        <FileWarning className="text-warn size-4" aria-hidden />
+        {noted} image{noted === 1 ? "" : "s"} saved with a caveat
+      </div>
+      <ul className="text-muted flex flex-col gap-2 text-xs leading-relaxed">
+        {rows.map(([note, names]) => (
+          <li key={note} className="flex flex-col gap-0.5">
+            <span>{note}.</span>
+            <span className="text-muted break-all">
+              {names.slice(0, NOTE_NAME_LIMIT).join(", ")}
+              {names.length > NOTE_NAME_LIMIT &&
+                ` and ${names.length - NOTE_NAME_LIMIT} more`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** How many file names a caveat lists before summarising the rest. */
+const NOTE_NAME_LIMIT = 6;
 
 /** Honest disclosure of the images we found but did not extract, with reasons. */
 function SkippedNote({ skipped }: { skipped: SkippedImage[] }) {

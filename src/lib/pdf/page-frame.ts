@@ -18,12 +18,15 @@ import { loadPdfLib } from "./pdf-lib";
  * the viewer's frame and map it here.
  *
  * ONE reader and ONE mapping, shared by every tool that places content (Edit,
- * Sign, Annotate, Create forms, stamps, Crop, Request signatures), so they
- * cannot disagree about what "the page" is:
+ * Sign, Annotate, Create forms, stamps — header/footer, page numbers,
+ * watermark — Crop, Request signatures), so they cannot disagree about what
+ * "the page" is:
  *
  *  - {@link visiblePageFrame} (alias {@link viewerFrame}) reads the frame from a
  *    page; {@link frameFromBoxes} is the same read over plain numbers;
- *    {@link pageFrame} is the same read, flattened for Annotate and Create forms.
+ *    {@link pageFrame} is the same read, flattened for Annotate and Create
+ *    forms; {@link visibleBox} is its box alone, for the stamps and the
+ *    watermark.
  *  - {@link viewToContent} maps a visible-frame point into content space.
  *    {@link placeVisibleRect} is that mapping expressed as the anchor +
  *    rotation pdf-lib's widget API expects, and {@link toContentSpace} is it
@@ -132,6 +135,18 @@ export function visiblePageFrame(page: FramedPage): VisiblePageFrame {
     page.getCropBox(),
     page.getRotation().angle,
   );
+}
+
+/**
+ * The part of a page a reader sees, as a box in content space: the `box` of
+ * {@link visiblePageFrame}, for callers that need no rotation (stamps
+ * centre on it and turn separately; the watermark fits inside it). Takes only
+ * the two boxes, so a caller that has no `/Rotate` in hand can still ask.
+ */
+export function visibleBox(
+  page: Pick<FramedPage, "getMediaBox" | "getCropBox">,
+): Box {
+  return frameFromBoxes(page.getMediaBox(), page.getCropBox(), 0).box;
 }
 
 /**

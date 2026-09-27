@@ -481,6 +481,30 @@ export function formTextsDrawnOnRegeneration(
   });
 }
 
+/**
+ * Would {@link embedDrawingFont} find ONE shipped face for all of `texts`?
+ *
+ * The same three questions it asks before fetching a face — the WinAnsi fast
+ * path, "does some face have every code point", "does one face have them all" —
+ * asked without embedding, so a caller choosing BETWEEN renderings of the same
+ * value (a date the locale writes in Arabic-Indic digits, or in Latin ones) can
+ * pick one that will draw instead of one that will be refused. It does not
+ * shape, so it is a necessary condition, not a promise; the embed stays the
+ * authority and still refuses on `.notdef`.
+ */
+export async function canDrawInOneFace(
+  rawTexts: readonly string[],
+): Promise<boolean> {
+  const texts = rawTexts.map((text) => text.replace(/[\r\n\t]+/g, " "));
+  if (allWinAnsi(texts)) return true;
+  const joined = texts.join("");
+  const coverage = await loadCoverage();
+  return (
+    uncoveredCodePoints(coverage, joined).length === 0 &&
+    candidatePacks(coverage, joined).length > 0
+  );
+}
+
 /** Start fetching what `texts` will need, without waiting for it. */
 export function warmDrawingFont(rawTexts: readonly string[]): void {
   const texts = rawTexts.map((text) => text.replace(/[\r\n\t]+/g, " "));
