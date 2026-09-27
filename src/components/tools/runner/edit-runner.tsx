@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import {
   checkEditImage,
+  checkEditTextFit,
   editPdf,
   editedOutputName,
   getEditPageSizes,
@@ -301,9 +302,11 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   const [draft, setDraft] = useState<Draft>(DEFAULT_DRAFT);
   const [image, setImage] = useState<LoadedImage | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const idRef = useRef(0);
 
-  // Content-space page sizes back the preview and validation. The editor subtree
+  // Displayed page sizes (the visible CropBox, turned by any /Rotate) back the
+  // preview and validation — the same frame editPdf maps every op from. The editor subtree
   // is keyed by file, so this runs once per document.
   useEffect(() => {
     let alive = true;
@@ -353,8 +356,8 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     }
   };
 
-  const addEdit = () => {
-    if (!pageSizes) return;
+  const addEdit = async () => {
+    if (!pageSizes || adding) return;
     const op = buildOp(draft, image);
     if (!op) {
       setFormError("Choose a PNG or JPG image to insert first.");
@@ -364,6 +367,26 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     if (issues.length > 0) {
       setFormError(issues[0]!.message);
       return;
+    }
+    if (op.type === "text") {
+      // Measure with the font the export will use for the whole batch, so text
+      // that would be cut off at a page edge is caught here, not in the file.
+      setAdding(true);
+      try {
+        const batch = [...edits.map((edit) => edit.op), op];
+        const fit = await checkEditTextFit(batch, pageSizes);
+        if (fit.length > 0) {
+          setFormError(fit[0]!.message);
+          return;
+        }
+      } catch (err) {
+        setFormError(
+          err instanceof Error ? err.message : "That text can't be added.",
+        );
+        return;
+      } finally {
+        setAdding(false);
+      }
     }
     setFormError(null);
     setEdits((prev) => [...prev, { id: idRef.current++, op }]);
@@ -456,9 +479,12 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={addEdit}
+              onClick={() => void addEdit()}
               aria-disabled={
-                !pageSizes || (draft.type === "image" && !image) || undefined
+                !pageSizes ||
+                adding ||
+                (draft.type === "image" && !image) ||
+                undefined
               }
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
@@ -692,7 +718,7 @@ function TypeFields({
             label="Wrap (pt)"
             value={draft.wrapWidth}
             min={0}
-            max={maxW}
+            max={Math.max(0, maxW - draft.x)}
             onChange={(v) => setField("wrapWidth", v)}
           />
         </div>
@@ -710,7 +736,8 @@ function TypeFields({
           />
           <span className="text-muted text-[11px]">
             Y is the baseline of the first line; wrapped lines flow downward.
-            Wrap 0 = one line per line break.
+            Wrap 0 = one line per line break. Text that would run off the page
+            is refused rather than cut off — set a Wrap width for long lines.
           </span>
         </div>
         <RangeField

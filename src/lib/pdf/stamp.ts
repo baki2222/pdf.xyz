@@ -1,6 +1,7 @@
 import type { PDFDocument, PDFFont, RGB as PdfLibRGB } from "pdf-lib";
 import { loadPdf } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
+import { normalizeRotation, viewToContent } from "./page-frame";
 
 /**
  * Shared, pure primitives for stamping text onto existing PDF pages — used by
@@ -19,6 +20,7 @@ import { embedDrawingFont } from "./unicode-font";
  */
 
 export { loadPdf };
+export { normalizeRotation, viewToContent };
 
 export const STAMP_PRODUCER = "pdf.xyz";
 
@@ -86,12 +88,6 @@ export function toRgb(
 export function clamp(value: number, min: number, max: number): number {
   if (Number.isNaN(value)) return min;
   return Math.min(max, Math.max(min, value));
-}
-
-/** Snap any angle to the nearest 0/90/180/270, normalized to [0, 360). */
-export function normalizeRotation(angle: number): 0 | 90 | 180 | 270 {
-  const snapped = (((Math.round(angle / 90) * 90) % 360) + 360) % 360;
-  return snapped as 0 | 90 | 180 | 270;
 }
 
 const TOKEN_PATTERNS: { re: RegExp; key: "n" | "total" | "date" }[] = [
@@ -177,18 +173,13 @@ export function placeStamp(input: PlaceStampInput): StampPlacement {
         ? visualH - input.margin - input.textHeight
         : (visualH - input.textHeight) / 2;
 
-  const w = input.pageWidth;
-  const h = input.pageHeight;
-  switch (rot) {
-    case 90:
-      return { x: w - vy, y: vx, rotate: 90 };
-    case 180:
-      return { x: w - vx, y: h - vy, rotate: 180 };
-    case 270:
-      return { x: vy, y: h - vx, rotate: 270 };
-    default:
-      return { x: vx, y: vy, rotate: 0 };
-  }
+  const { x, y } = viewToContent(
+    vx,
+    vy,
+    { x: 0, y: 0, width: input.pageWidth, height: input.pageHeight },
+    rot,
+  );
+  return { x, y, rotate: rot };
 }
 
 export interface PlaceCenteredInput {

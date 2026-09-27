@@ -268,14 +268,29 @@ export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
   return { ref, tabIndex: -1 } as const;
 }
 
-export function ErrorNote({ message }: { message: string }) {
+/**
+ * A failure, announced. `action` is the next step when there is one — a link
+ * to the tool that can do what this one could not — and it renders INSIDE the
+ * alert, so it is announced with the error and reached by keyboard right after
+ * it, rather than sitting somewhere the reader has to go and find.
+ */
+export function ErrorNote({
+  message,
+  action,
+}: {
+  message: string;
+  action?: ReactNode;
+}) {
   return (
     <p
       role="alert"
       className="border-err/40 bg-err/10 text-err flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-      <span>{message}</span>
+      <span>
+        {message}
+        {action ? <> {action}</> : null}
+      </span>
     </p>
   );
 }

@@ -150,6 +150,70 @@ export function translateTooLongMessage(
 }
 
 /**
+ * The refusal for a PDF with no selectable text — ONE sentence, said by the
+ * browser and the worker alike.
+ *
+ * It lives here, in the client-safe module, because both sides need it and the
+ * engine's module pulls in server-side extraction. Before it was shared, the
+ * browser never said it at all: a scan produced no text pages, the planner
+ * produced no chunks, and "no chunks" was read as "too long" — so the most
+ * common thing people try to translate was told it had "0 characters of text"
+ * and should be split into smaller files, which cannot help.
+ *
+ * "Run OCR PDF first, then translate the result" is a promise, and it holds:
+ * OCR PDF's default output is a searchable PDF, which carries a selectable
+ * text layer (`DEFAULT_OCR_OUTPUT_MODE` in `@/lib/jobs/ocr`) — exactly what
+ * this tool reads. `workers/translate/preflight.test.ts` pins that
+ * relationship, so a change of default that broke the promise fails there.
+ */
+export const TRANSLATE_NO_TEXT_MESSAGE =
+  "This PDF has no selectable text to translate. It may be a scan or image-only PDF — run OCR PDF first, then translate the result.";
+
+/**
+ * The refusal when every page that has text is, on its own, larger than one
+ * pass — so there is nothing to deliver.
+ *
+ * {@link translateTooLongMessage} is the wrong sentence here, and was shipped
+ * here: it tells the reader to "split it into smaller files", but translate
+ * already splits a document between pages and never inside one, so splitting
+ * the file leaves the offending page exactly as long as it was. This names the
+ * page(s) and their sizes instead — the same data `missingPageMarker` puts in a
+ * delivered package — and gives no advice that cannot work.
+ */
+export function translateEveryPageTooLongMessage(
+  oversize: readonly { pageNumber: number; characters: number }[],
+  ceiling: number,
+): string {
+  const limit = ceiling.toLocaleString("en-US");
+  const size = (n: number) => n.toLocaleString("en-US");
+  const tail =
+    "Translate PDF splits a long document between pages, never inside one, " +
+    "so splitting the file would not make ";
+  if (oversize.length === 1) {
+    const [page] = oversize;
+    return (
+      `Page ${page!.pageNumber} alone holds ${size(page!.characters)} characters of text, ` +
+      `more than one pass of Translate PDF can translate (about ${limit}). ` +
+      `${tail}that page any shorter.`
+    );
+  }
+  const SHOWN = 3;
+  const named = oversize
+    .slice(0, SHOWN)
+    .map((page) => `page ${page.pageNumber} holds ${size(page.characters)}`);
+  const rest = oversize.length - named.length;
+  const list =
+    rest > 0
+      ? `${named.join(", ")}, and ${rest} more ${rest === 1 ? "page is" : "pages are"} over it too`
+      : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
+  return (
+    `Every page with text in this document holds more than one pass of ` +
+    `Translate PDF can translate (about ${limit} characters): ${list}. ` +
+    `${tail}any of those pages shorter.`
+  );
+}
+
+/**
  * The output budget translate actually sends today.
  *
  * It lives here rather than in the engine so the published ceiling and the

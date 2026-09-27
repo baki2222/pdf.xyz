@@ -25,6 +25,7 @@ export function PdfToTextRunner() {
       hint="One PDF · extracts selectable text locally in your browser"
       handoffSlug="pdf-to-text"
       toolName="PDF to Text"
+      writesPdf={false}
     >
       {(pdf, reset) => <PdfToTextEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
