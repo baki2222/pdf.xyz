@@ -2,6 +2,7 @@ import type { PDFEmbeddedPage } from "pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdf, stampProducer } from "./stamp";
+import type { OverlayFit } from "./offered-kinds";
 
 /**
  * Overlay one PDF on top of another, entirely in-browser with pdf-lib. The
@@ -19,36 +20,13 @@ import { loadPdf, stampProducer } from "./stamp";
  * page but is oriented to the content, not the viewer's rotation.
  */
 
-/** How the overlay page is sized onto each base page. */
-export type OverlayFit = "fit" | "stretch" | "actual";
+// The offered scale modes live in the offered-kinds leaf, where the tool page's
+// answer reads them too; re-exported so existing importers keep working.
+export type { OverlayFit, OverlayFitOption } from "./offered-kinds";
+export { OVERLAY_FITS } from "./offered-kinds";
 
 /** Which overlay page is used for each base page. */
 export type OverlayPaging = "repeat" | "cycle";
-
-export interface OverlayFitOption {
-  id: OverlayFit;
-  label: string;
-  hint: string;
-}
-
-/** The scale modes offered in the UI, in a sensible reading order. */
-export const OVERLAY_FITS: readonly OverlayFitOption[] = [
-  {
-    id: "fit",
-    label: "Fit page",
-    hint: "Scale to fit, keeping the overlay's proportions (centered).",
-  },
-  {
-    id: "stretch",
-    label: "Stretch",
-    hint: "Stretch the overlay to exactly cover each page.",
-  },
-  {
-    id: "actual",
-    label: "Actual size",
-    hint: "Place the overlay at its original size, centered.",
-  },
-] as const;
 
 /** A download name for an overlaid document, derived from the base file. */
 export function overlayOutputName(sourceName: string): string {

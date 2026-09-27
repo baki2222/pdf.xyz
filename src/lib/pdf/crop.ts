@@ -1,6 +1,7 @@
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { clamp, loadPdf, stampProducer } from "./stamp";
+import { MIN_CROP_DIMENSION } from "./page-geometry";
 
 /**
  * Crop PDF pages entirely in-browser by shrinking each page's CropBox — the
@@ -30,8 +31,9 @@ export interface CropMargins {
   left: number;
 }
 
-/** Never shrink a page below this on either axis — avoids invalid page boxes. */
-export const MIN_CROP_DIMENSION = 24;
+// The floor lives in the page-geometry leaf, where the tool page's answer reads
+// it too; re-exported so existing importers keep working.
+export { MIN_CROP_DIMENSION };
 
 /** A no-op crop, handy as an initial UI state. */
 export const NO_CROP: CropMargins = { top: 0, right: 0, bottom: 0, left: 0 };

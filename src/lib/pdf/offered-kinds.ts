@@ -127,3 +127,54 @@ export const SIGNATURE_SOURCE_FACT: Record<SignatureSource, string> = {
   // "pick", not "upload": the image never leaves the device (in-browser tool).
   upload: "pick a PNG or JPG image",
 };
+
+/*
+ * The presets and modes below were private to their engine or runner until the
+ * tool pages started answering questions about them ("What resolution…?",
+ * "What size is the overlay?"). An answer that names them has to read THESE
+ * arrays — the ones the runner renders — or it is a second copy that drifts.
+ */
+
+/** Overlay / Stamp — how the overlay page is sized onto each base page. */
+export type OverlayFit = "fit" | "stretch" | "actual";
+
+export interface OverlayFitOption {
+  id: OverlayFit;
+  label: string;
+  hint: string;
+}
+
+/** The scale modes offered in the UI, in a sensible reading order. */
+export const OVERLAY_FITS: readonly OverlayFitOption[] = [
+  {
+    id: "fit",
+    label: "Fit page",
+    hint: "Scale to fit, keeping the overlay's proportions (centered).",
+  },
+  {
+    id: "stretch",
+    label: "Stretch",
+    hint: "Stretch the overlay to exactly cover each page.",
+  },
+  {
+    id: "actual",
+    label: "Actual size",
+    hint: "Place the overlay at its original size, centered.",
+  },
+] as const;
+
+/** Grayscale PDF — the rasterization presets the runner offers. */
+export const GRAYSCALE_DPI_PRESETS = [
+  { id: "screen", label: "Screen", dpi: 96 },
+  { id: "print", label: "Print", dpi: 150 },
+] as const;
+
+/**
+ * Compress PDF — the image resolutions the optional secure-worker step offers,
+ * sent as `targetDpi` (the worker's Ghostscript downsamples every image to it).
+ */
+export const DEEP_COMPRESSION_PRESETS = [
+  { dpi: 96, label: "Smaller" },
+  { dpi: 150, label: "Balanced" },
+  { dpi: 300, label: "High quality" },
+] as const;

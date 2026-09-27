@@ -42,6 +42,19 @@ import {
 } from "@/lib/jobs/request-signatures";
 import { LANGUAGE_NAMES, TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
+  DEFAULT_PDF_KEY_LENGTH,
+  PDF_ENCRYPTION_LEVELS,
+  describePdfKeyLength,
+} from "@/lib/jobs/pdf-security";
+import { SUMMARY_FORMATS, SUMMARY_LENGTHS } from "@/lib/jobs/summarize-pdf";
+import {
+  EXTRACTION_FIELD_TYPES,
+  MAX_EXTRACTION_FIELDS,
+} from "@/lib/jobs/ai-extract";
+import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
+import { IMAGE_HEAVY_SHARE } from "@/lib/pdf/analyze";
+import { buildSplitParts } from "@/lib/pdf/ranges";
+import {
   DEFAULT_REDACT_PRESET_ID,
   REDACTED_PDF_TITLE,
   REDACT_DPI_PRESETS,
@@ -50,10 +63,13 @@ import {
 import {
   ANNOTATION_FACT,
   ANNOTATION_TYPES,
+  DEEP_COMPRESSION_PRESETS,
   EDIT_OP_FACT,
   EDIT_OP_TYPES,
   FIELD_TYPE_FACT,
+  GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
+  OVERLAY_FITS,
   SIGNATURE_SOURCE_FACT,
   SIGNATURE_SOURCES,
   SPLIT_MODE_FACT,
@@ -61,6 +77,8 @@ import {
 } from "@/lib/pdf/offered-kinds";
 import {
   IMAGE_PAGE_MARGIN_PT,
+  MIN_CROP_DIMENSION,
+  PT_PER_INCH,
   TEXT_PAGE_MARGIN_PT,
   US_LETTER_LABEL,
   inches,
@@ -573,15 +591,57 @@ export function offlineAnswer(slug: string): string {
 export const EVERY_OTHER_PAGE_EXAMPLE = "2, 4, 6, 8";
 
 /**
- * What the page tools' exports keep. Organize, Rotate and Delete all rebuild
- * the PDF with `PDFDocument.create()` + `copyPages` (`src/lib/pdf/engine.ts`),
- * which copies each page as it is and nothing from the document around it —
- * so the outline and the interactive form do not survive.
- * `tool-page-substance.test.ts` runs those engines on a PDF that has both and
- * holds this sentence to what comes out.
+ * What the page tools' exports keep. Organize, Delete, Merge, Split and
+ * Extract all rebuild the PDF with `PDFDocument.create()` + `copyPages`
+ * (`src/lib/pdf/engine.ts`), which copies each page as it is and nothing from
+ * the document around it — so the outline and the interactive form do not
+ * survive. `tool-page-substance.test.ts` runs the engine each of those runners
+ * calls on a PDF that has both and holds this sentence to what comes out.
  */
 export const PAGE_REBUILD_KEEPS =
   "The pages themselves — text, images and drawings — are copied as they are, but the export is rebuilt from the pages alone, so the document's bookmarks and its fillable form are not carried over.";
+
+/** The bookmarks question, asked of every runner whose engine rebuilds the PDF. */
+function rebuildEntry(tool: Tool): ToolFaqEntry {
+  return {
+    question: `Does ${tool.name} keep bookmarks and form fields?`,
+    answer: `No. ${PAGE_REBUILD_KEEPS}`,
+  };
+}
+
+/**
+ * Names Split PDF gives two pieces of `report.pdf`, built by the same
+ * `buildSplitParts` the runner calls — so the example cannot drift from the
+ * names a reader actually downloads.
+ */
+export const SPLIT_NAME_EXAMPLES: readonly string[] = buildSplitParts(
+  "report",
+  [
+    { start: 0, end: 2 },
+    { start: 3, end: 3 },
+  ],
+).map((part) => part.name);
+
+/**
+ * Asked of the in-browser tools that read a PDF's text layer and nothing else
+ * (`extractPdfText` performs no OCR, and says so by returning `hasText:false`).
+ */
+function scannedTextEntry(tool: Tool): ToolFaqEntry {
+  return {
+    question: `Does ${tool.name} work on a scanned PDF?`,
+    answer: `Not on its own. ${tool.name} reads the text a PDF already contains, and a scanned page is a picture with no text inside it, so there is nothing to read. Run the scan through OCR PDF first, then use the result here.`,
+  };
+}
+
+/** A whole-number percentage of a 0–1 share, as the answers print it. */
+const percent = (share: number) => Math.round(share * 100);
+
+/** "Label (N DPI)" for each preset, the way the runners label their buttons. */
+const dpiChoices = (presets: readonly { label: string; dpi: number }[]) =>
+  listed(
+    presets.map((p) => `${p.label} (${p.dpi} DPI)`),
+    "or",
+  );
 
 /**
  * Questions only one runner can answer, keyed by the runner a tool mounts
@@ -598,17 +658,11 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           answer:
             "Yes. “Undo” and “Redo” (Ctrl/⌘+Z and Ctrl/⌘+Shift+Z) step back and forward through your moves, rotations, duplicates and deletions before you export, and “Reset” returns the board to the file as you opened it. Your original file is never changed — the export is a new PDF.",
         },
-        {
-          question: `Does ${tool.name} keep bookmarks and form fields?`,
-          answer: `No. ${PAGE_REBUILD_KEEPS}`,
-        },
+        rebuildEntry(tool),
       ];
     case "delete-pages":
       return [
-        {
-          question: `Does ${tool.name} keep bookmarks and form fields?`,
-          answer: `No. ${PAGE_REBUILD_KEEPS}`,
-        },
+        rebuildEntry(tool),
         {
           question: "How do I delete every other page?",
           answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”; those pages are selected, and “Delete” removes them.`,
@@ -684,6 +738,250 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           question: `What does the PDF from ${tool.name} look like?`,
           answer: `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
         },
+      ];
+    /*
+     * Below: the questions a searcher asks of each remaining in-browser tool
+     * (audited at 67e8d0f, twenty-eight pages answered only the templated
+     * upload / offline / size questions). `tool-faq-substance.test.ts` runs the
+     * engine each answer describes and reads the answer off the served page.
+     */
+    case "merge":
+      return [
+        {
+          question: "Can I merge PDFs with different page sizes?",
+          answer:
+            "Yes. Every page keeps its own size and orientation: nothing is resized or turned to match the others, so a Letter page and an A4 page sit side by side in the merged file, each as it was.",
+        },
+        {
+          question: "Can I merge password-protected PDFs?",
+          answer:
+            "Not while they are locked. A password-protected PDF is turned away when you add it, with a note saying so; remove the password with Unlock PDF, then add the unlocked copy.",
+        },
+        rebuildEntry(tool),
+      ];
+    case "split":
+      return [
+        {
+          question: `How are the files from ${tool.name} named?`,
+          answer: `After your file, then each piece's number and the pages it holds — for example ${listed(SPLIT_NAME_EXAMPLES)}. More than one piece downloads as a ZIP; a single piece saves as a PDF.`,
+        },
+        rebuildEntry(tool),
+      ];
+    case "extract-pages":
+      return [
+        {
+          question: `Can ${tool.name} change the order of the pages?`,
+          answer:
+            "No. The new PDF keeps the pages you pick in their original order, whatever order you pick them in. To put pages in a new order, use Organize Pages.",
+        },
+        rebuildEntry(tool),
+      ];
+    case "compress":
+      // A hybrid tool: the privacy answers above already split the two paths,
+      // and these keep the same split — the browser step is lossless, and only
+      // the worker step the user starts changes any pixel.
+      return [
+        {
+          question: "Does compressing reduce the quality of my PDF?",
+          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-worker step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}.`,
+        },
+        {
+          question: "How much smaller will my PDF get?",
+          answer: `That depends on what the file holds, so no figure is promised in advance. The in-browser step measures the exact saving before you download, and offers the download only when the file got smaller. When it saves little and images make up ${percent(IMAGE_HEAVY_SHARE)}% or more of the file, it points you to the secure-worker step, which is where the images themselves are made smaller.`,
+        },
+      ];
+    case "sign":
+      return [
+        {
+          question: `Is a signature from ${tool.name} legally binding?`,
+          answer: `That depends on the document, the law that governs it and the person who receives it — pdf.xyz cannot decide it for you. What ${tool.name} makes is a visible mark on the page: you ${listed(
+            SIGNATURE_SOURCES.map((s) => SIGNATURE_SOURCE_FACT[s]),
+            "or",
+          )}. It is not a certificate-based digital signature — the file carries no certificate and nothing that would show a later change. Where a verifiable signature is required, use a certificate-based signing service.`,
+        },
+        {
+          question: "Can I sign more than one page?",
+          answer: `Each run places one signature, on the page you choose. To sign another page, open the signed PDF in ${tool.name} again and place the next one.`,
+        },
+      ];
+    case "edit":
+      return [
+        {
+          question: `Can ${tool.name} change the text already in my PDF?`,
+          answer: `No. ${tool.name} adds new content on top of the page — ${listed(
+            EDIT_OP_TYPES.map((t) => EDIT_OP_FACT[t]),
+          )} — and leaves what is already there as it was. It cannot retype, move or delete the existing text.`,
+        },
+        {
+          question: "How do I cover something up?",
+          answer:
+            "Draw a filled box over it. That hides it on the page, but the text underneath is still in the file, where it can be selected, copied or searched. To remove something for good, use Redact PDF.",
+        },
+      ];
+    case "annotate":
+      return [
+        {
+          question: "Will my markup show up as comments in other PDF readers?",
+          answer: `No. ${tool.name} draws its ${listed(
+            ANNOTATION_TYPES.map((t) => ANNOTATION_FACT[t]),
+          )} into the page itself rather than adding comment objects, so a reader shows them as part of the page: they are not listed as comments, and they cannot be replied to, hidden or edited there.`,
+        },
+        {
+          question: "How do I place a highlight?",
+          answer: `By position and size, in points measured from the page's bottom-left corner (${PT_PER_INCH} points to an inch): set “X (pt)”, “Y (pt)”, “Width (pt)” and “Height (pt)”. A highlight is a see-through box, so it covers whatever lies under it rather than following the words.`,
+        },
+      ];
+    case "watermark":
+      return [
+        {
+          question: "Can I use an image or logo as the watermark?",
+          answer: `Not in ${tool.name}: it draws text. To put a logo or letterhead on every page, save it as a PDF and use Overlay / Stamp, which draws a page of that PDF over each of yours.`,
+        },
+        {
+          question: "Can someone remove the watermark?",
+          answer:
+            "Not by switching it off: it is drawn into every page's content, not added as a layer or a comment a reader can hide. Anyone with a PDF editor can still delete drawn text, though, so a watermark labels a document; it does not lock it.",
+        },
+      ];
+    case "page-numbers":
+      return [
+        {
+          question: "Can I leave the cover page unnumbered?",
+          answer:
+            "Yes. Set “Start on page” to the first page that should carry a number — the pages before it are left as they are — and “First number” to the number that page should show. {total} is the last number printed, so it counts only the numbered pages.",
+        },
+      ];
+    case "header-footer":
+      return [
+        {
+          question: "What can a header or footer show?",
+          answer:
+            "Any text you type, plus {n} for the page number, {total} for the number of pages and {date} for today's date, written the way your device writes dates. Each is one line, aligned left, center or right.",
+        },
+        {
+          question: "Can I leave the first page without a header or footer?",
+          answer:
+            "No: the header and footer go on every page. To number the pages but skip a cover, use Page Numbers, which can start on a later page.",
+        },
+      ];
+    case "crop":
+      return [
+        {
+          question: "Does cropping delete what is outside the crop?",
+          answer: `No. ${tool.name} changes each page's visible area — the crop box every viewer and printer follows — so what lies outside it is hidden, not removed, and is still in the file. To take something out for good, use Redact PDF.`,
+        },
+        {
+          question: "What units are the crop margins in?",
+          answer: `Points, measured in from each edge — ${PT_PER_INCH} points to an inch. A page is never cropped smaller than ${MIN_CROP_DIMENSION} points in either direction.`,
+        },
+      ];
+    case "flatten":
+      return [
+        {
+          question: "Can a flattened form be edited again?",
+          answer:
+            "No. Each field's current value is drawn into the page and the field itself is removed, so no PDF reader offers it for editing. Keep your original if you might need to change an answer.",
+        },
+        {
+          question: `Does ${tool.name} flatten comments and annotations too?`,
+          answer:
+            "No — only fillable form fields: text boxes, checkboxes, radio buttons, dropdowns and lists. Comments, ink drawings and layers are saved as they were.",
+        },
+      ];
+    case "overlay":
+      return [
+        {
+          question: "Can I add a letterhead or logo to every page?",
+          answer:
+            "Yes. Save it as a PDF and add it as the overlay: its first page is drawn over every page of your document. With a multi-page overlay you can choose “Cycle pages” instead, to use its pages in turn.",
+        },
+        {
+          question: "How is the overlay sized on each page?",
+          answer: `${OVERLAY_FITS.map((f) => `${f.label}: ${f.hint}`).join(" ")} Your own pages keep their size either way.`,
+        },
+      ];
+    case "grayscale":
+      return [
+        {
+          question: "Can I still select and search the text after converting?",
+          answer:
+            "No. Every page is rendered to a grayscale JPEG image and the PDF is rebuilt from those images, so text, links and form fields become part of the picture. Keep your original for anything you need to search or copy.",
+        },
+        {
+          question: `What resolution does ${tool.name} use?`,
+          answer: `You choose: ${dpiChoices(GRAYSCALE_DPI_PRESETS)}. The higher setting gives sharper pages and a larger file.`,
+        },
+      ];
+    case "fill-forms":
+      return [
+        {
+          question:
+            "Can I stop the answers being changed after I fill them in?",
+          answer:
+            "Yes. Tick “Flatten after filling”: the values are drawn into the page and the fields removed, so the download can no longer be edited as a form. Leave it unticked and the fields stay fillable.",
+        },
+        {
+          question: `Why does ${tool.name} find no fields in my PDF?`,
+          answer:
+            "Because the PDF has no fillable form. A scanned form, or one with only printed lines and boxes, has nothing to fill: add fields with Create Forms first, or place text with Edit PDF. A form built only in XFA, an older dynamic format, is not read either.",
+        },
+      ];
+    case "create-forms":
+      return [
+        {
+          question: `Can ${tool.name} add a signature field?`,
+          answer: `No. It adds ${listed(
+            NEW_FIELD_TYPES.map((t) => FIELD_TYPE_FACT[t]),
+          )}. To sign a document yourself, use Sign PDF; to prepare one for other people to sign, use Request Signatures.`,
+        },
+        {
+          question: "How do I place a field?",
+          answer: `By numbers: pick the “Page”, then set “X” and “Y” — points from the page's bottom-left corner, ${PT_PER_INCH} to an inch — and the field's “Width” and “Height”.`,
+        },
+      ];
+    case "extract-images":
+      return [
+        {
+          question: "Are the images extracted at full quality?",
+          answer:
+            "Yes. Each image is taken out of the file as it is stored, at its own resolution: a JPEG is saved byte for byte, and other images are rebuilt losslessly as PNG. No page is rendered and nothing is re-compressed.",
+        },
+        {
+          question: "Why are some images skipped?",
+          answer:
+            "Some ways of storing an image cannot be turned back into an ordinary picture file faithfully — JPEG 2000, black-and-white fax images (CCITT and JBIG2), palette (indexed) images and CMYK images among them. Those are listed as skipped, with the reason, instead of being guessed at.",
+        },
+      ];
+    case "compare":
+      return [
+        {
+          question: `What does ${tool.name} compare?`,
+          answer:
+            "The selectable text, line by line, plus the page count and the file size. A change to images, layout, fonts or colors that leaves the text the same does not show up.",
+        },
+        {
+          question: `Can ${tool.name} compare scanned PDFs?`,
+          answer:
+            "Not on their own: a scanned page is a picture with no text inside it, so there is nothing to compare. Run both files through OCR PDF first, then compare the results.",
+        },
+      ];
+    case "pdf-to-text":
+      return [
+        {
+          question: `Does ${tool.name} keep the layout?`,
+          answer:
+            "No. You get the words as plain text — one block per page, with a blank line between pages — without fonts, images, columns or table layout.",
+        },
+        scannedTextEntry(tool),
+      ];
+    case "pdf-to-markdown":
+      return [
+        {
+          question: `Does ${tool.name} keep headings, bold text and tables?`,
+          answer:
+            'No. A PDF stores text as positioned lines, not as headings or tables, and this converter does not guess at them. The file\'s name becomes the title, each page gets a "Page N" heading when there is more than one, lines are joined into paragraphs, and lines that begin with a bullet (-, * or +) or a number stay list items. Bold, italics, links and table layout are not carried over.',
+        },
+        scannedTextEntry(tool),
       ];
     case "redact":
       // The two questions a searcher asks before trusting a redaction tool.
@@ -859,9 +1157,113 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
           answer: `A public web page, by its http:// or https:// address. Addresses on a private network, such as ${listed(PRIVATE_ADDRESS_EXAMPLES, "or")}, are refused, and so is an address with a username or password written into it. The browser on our server has none of your cookies, so the page prints the way it looks to a first-time visitor — anything a site shows only to you will not be in it.`,
         },
       ];
+    case "html-to-pdf":
+      return [
+        {
+          question: "Will the images and styles my HTML links to appear?",
+          answer:
+            "Only those it can reach without other files from your computer: the .html file is uploaded on its own, so an image, stylesheet or script it links by a relative path (such as images/logo.png) is missing from the PDF. Styles written into the file itself, and files linked by a full web address, are loaded.",
+        },
+      ];
+    case "protect-pdf": {
+      const others = PDF_ENCRYPTION_LEVELS.filter(
+        (level) => level.keyLength !== DEFAULT_PDF_KEY_LENGTH,
+      ).map((level) => level.label);
+      return [
+        {
+          question: `Which encryption does ${tool.name} use?`,
+          answer: `${describePdfKeyLength(DEFAULT_PDF_KEY_LENGTH)} by default, or ${listed(others, "or")} for older PDF readers. Both are AES; the older RC4 cipher is never used. The password you set is the one needed to open the file.`,
+        },
+        {
+          question: `Can ${tool.name} protect a PDF that already has a password?`,
+          answer:
+            "No — it is turned away rather than encrypted twice. Remove the current password with Unlock PDF first, then protect the unlocked copy.",
+        },
+      ];
+    }
+    case "unlock-pdf":
+      return [
+        {
+          question: `Can ${tool.name} remove a password I don't know?`,
+          answer:
+            "No. You type the PDF's current password and the worker uses it to decrypt the file; it does not guess or crack passwords. With a wrong password the job fails and no file is produced.",
+        },
+        {
+          question: "What if my PDF has no password?",
+          answer:
+            "Then there is nothing to unlock: the job stops and says so, and no file is produced.",
+        },
+      ];
+    case "optimize-web":
+      return [
+        {
+          question: `What does ${tool.name} change?`,
+          answer:
+            "The order of the file's contents, not the contents: it linearizes the PDF (Fast Web View), arranging it so a browser can show the first page while the rest is still downloading. Pages, text and images are not changed.",
+        },
+        {
+          question: `Does ${tool.name} make my PDF smaller?`,
+          answer:
+            "That is not what it is for. Linearizing rearranges the file rather than compressing it, so any change in size is a side effect. To make a PDF smaller, use Compress PDF.",
+        },
+      ];
+    case "extract-tables":
+      return [
+        {
+          question: `What does ${tool.name} download?`,
+          answer:
+            "A ZIP with one CSV file per table it found (table-1.csv, table-2.csv and so on) and tables.xlsx, an Excel workbook holding every table on its own sheet, named after the table's number and page.",
+        },
+        {
+          question: `How does ${tool.name} find a table?`,
+          answer:
+            "By where the text sits: it groups the PDF's selectable text into rows and columns by position, and keeps a grid only where columns and rows line up and most of its cells hold text. Ruled lines and cell borders are not read, so a table is found by its alignment alone.",
+        },
+        {
+          question: `Can ${tool.name} read a scanned PDF?`,
+          answer:
+            "No. A scanned page is a picture with no selectable text, so the job stops and says so rather than guessing. Run the scan through OCR PDF first, then extract from the result.",
+        },
+      ];
+    case "summarize-pdf":
+      return [
+        {
+          question: "Can I choose how long the summary is?",
+          answer: `Yes. Pick a length — ${listed(SUMMARY_LENGTHS, "or")} — and a shape — ${listed(SUMMARY_FORMATS, "or")} — and, if you like, name what it should focus on.`,
+        },
+      ];
+    case "chat-with-pdf":
+      return [
+        {
+          question: `Does ${tool.name} remember my earlier questions?`,
+          answer: `The recent ones. Each new question is sent with up to the last ${MAX_CONTEXT_EXCHANGES} questions and answers — fewer when they are long — and the panel says when older ones are left out or a long message is shortened.`,
+        },
+      ];
+    case "ai-extract":
+      return [
+        {
+          question: `What can ${tool.name} pull out of my PDF?`,
+          answer: `What you ask for, in one of two ways: list the fields you want — up to ${MAX_EXTRACTION_FIELDS}, each a ${listed(EXTRACTION_FIELD_TYPES, "or")} — or describe it in a prompt. You download a ZIP with the extracted data as JSON, a readable Markdown version of it and a manifest recording how it was made.`,
+        },
+      ];
     default:
       return [];
   }
+}
+
+/**
+ * Asked of every AI tool. The result is a model's reading of the text, and a
+ * page that answered only where the file goes and what it costs never said so.
+ */
+function aiReliabilityFaq(tool: Tool): ToolFaqEntry[] {
+  if (capabilityForMode(tool.processing) !== "ai") return [];
+  return [
+    {
+      question: `Can ${tool.name} get things wrong?`,
+      answer:
+        "Yes. The result is written by an AI model from the PDF's selectable text, and a model can miss or misread details. Check anything you rely on against the document itself.",
+    },
+  ];
 }
 
 /**
@@ -1041,6 +1443,7 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
   entries.push(...runnerFaq(tool));
   entries.push(...workerFaq(tool));
   entries.push(...officeInputFaq(tool));
+  entries.push(...aiReliabilityFaq(tool));
 
   if (tool.slug === "ocr-pdf") {
     entries.push({

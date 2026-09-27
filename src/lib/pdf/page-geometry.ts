@@ -29,3 +29,6 @@ export function inches(points: number): string {
 
 /** "US Letter (8.5 × 11 in)" — the page size, as a reader would name it. */
 export const US_LETTER_LABEL = `US Letter (${inches(US_LETTER_PT.width)} × ${inches(US_LETTER_PT.height)} in)`;
+
+/** Crop PDF never shrinks a page below this on either axis (points). */
+export const MIN_CROP_DIMENSION = 24;

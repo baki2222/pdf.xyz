@@ -40,7 +40,13 @@ import { tools } from "@/lib/tools";
 import type { Tool } from "./types";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { deletePages, organizePages } from "@/lib/pdf/engine";
+import {
+  deletePages,
+  extractPages,
+  mergePdfs,
+  organizePages,
+  splitPdf,
+} from "@/lib/pdf/engine";
 import { imagesToPdf } from "@/lib/pdf/image-to-pdf";
 import { parseMarkdownBlocks } from "@/lib/pdf/markdown-to-pdf";
 import { MARKDOWN_BLOCK_KINDS } from "@/lib/pdf/markdown-blocks";
@@ -290,6 +296,18 @@ const ENGINE_FOR_RUNNER: Record<
       ]),
   },
   "delete-pages": { call: "deletePages(", run: (b) => deletePages(b, [1]) },
+  // Added with the merge, split and extract answers: their bookmarks question
+  // is discovered by the test below, which fails for a runner not mapped here.
+  merge: { call: "mergePdfs(", run: (b) => mergePdfs([b, b]) },
+  split: {
+    call: "splitPdf(",
+    run: async (b) =>
+      (await splitPdf(b, [{ name: "part.pdf", indices: [0, 1] }]))[0]!.bytes,
+  },
+  "extract-pages": {
+    call: "extractPages(",
+    run: (b) => extractPages(b, [0, 2]),
+  },
   rotate: {
     call: "organizePages(",
     run: (b) =>
@@ -316,7 +334,15 @@ describe("the page tools' answers are what their engines produce", () => {
     expect(
       answered.map((t) => t.slug).sort(),
       "the bookmarks answer is on no page — blind",
-    ).toEqual(expect.arrayContaining(["organize-pages", "remove-pages"]));
+    ).toEqual(
+      expect.arrayContaining([
+        "organize-pages",
+        "remove-pages",
+        "merge-pdf",
+        "split-pdf",
+        "extract-pages",
+      ]),
+    );
     for (const tool of answered) {
       const kind = getRunnerKind(tool.slug)!;
       const engine = ENGINE_FOR_RUNNER[kind];
