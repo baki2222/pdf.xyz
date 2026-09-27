@@ -48,6 +48,7 @@ import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
   MAX_REQUEST_SIGNERS,
   REQUEST_PACKAGE_FILES,
+  signatureBlockFields,
   type SignatureRequestOptions,
 } from "@/lib/jobs/request-signatures";
 import { LANGUAGE_NAMES, TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
@@ -402,9 +403,23 @@ describe("Request Signatures: the download is the page's list", () => {
     );
     expect(panel).toMatch(/signers\.length >= MAX_REQUEST_SIGNERS/);
     expect(panel).toContain("Add a date field next to each signature");
+    // Since L12 (067e62f) the panel builds the fields with
+    // signatureBlockFields(...) instead of pushing them inline, so the date
+    // choice is RUN here rather than matched in the panel's source.
     expect(panel).toMatch(
-      /if \(includeDate\) \{\s*fields\.push\(\{[^}]*type: "date"/,
+      /signatureBlockFields\(\s*cleanSigners\.length,\s*page,\s*includeDate,?\s*\)/,
     );
+    const types = (includeDate: boolean) =>
+      signatureBlockFields(2, 1, includeDate).map(
+        (f) => `${f.signer}:${f.type}`,
+      );
+    expect(types(true)).toEqual([
+      "0:signature",
+      "0:date",
+      "1:signature",
+      "1:date",
+    ]);
+    expect(types(false)).toEqual(["0:signature", "1:signature"]);
     expect(page("request-signatures").text).toContain(
       `Up to ${MAX_REQUEST_SIGNERS} per request`,
     );

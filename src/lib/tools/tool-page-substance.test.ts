@@ -45,6 +45,7 @@ import {
   extractPages,
   mergePdfs,
   organizePages,
+  setPageRotations,
   splitPdf,
 } from "@/lib/pdf/engine";
 import { imagesToPdf } from "@/lib/pdf/image-to-pdf";
@@ -308,14 +309,14 @@ const ENGINE_FOR_RUNNER: Record<
     call: "extractPages(",
     run: (b) => extractPages(b, [0, 2]),
   },
+  // Since L08 (0045616) the rotate runner turns the pages of the document it
+  // loaded instead of rebuilding it through organizePages, which dropped the
+  // outline, the form, the title and the language. This entry followed it:
+  // the check below reads the call from the runner, so a runner that went
+  // back to rebuilding would fail on the call, not pass on a stale mapping.
   rotate: {
-    call: "organizePages(",
-    run: (b) =>
-      organizePages(b, [
-        { sourceIndex: 0, rotation: 90 },
-        { sourceIndex: 1, rotation: 0 },
-        { sourceIndex: 2, rotation: 0 },
-      ]),
+    call: "setPageRotations(",
+    run: (b) => setPageRotations(b, [90, 0, 0]),
   },
 };
 

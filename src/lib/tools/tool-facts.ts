@@ -805,7 +805,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `Does rotating reduce the quality of my PDF?`,
           answer:
-            "No. The turn is saved as each page's orientation setting in the file; the page's text, images and drawings are copied as they are, not re-rendered.",
+            "No. The turn is saved as each page's orientation setting in the file; the page's text, images and drawings are left as they are, not re-rendered.",
         },
         {
           question: "Is the rotation permanent?",
@@ -1043,7 +1043,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "Can I still select and search the text after converting?",
           answer:
-            "No. Every page is rendered to a grayscale JPEG image and the PDF is rebuilt from those images, so text, links and form fields become part of the picture. Keep your original for anything you need to search or copy.",
+            "No. Every page is rendered to a grayscale image and the PDF is rebuilt from those images, so text, links and form fields become part of the picture. Keep your original for anything you need to search or copy.",
         },
         {
           question: `What resolution does ${tool.name} use?`,

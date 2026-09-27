@@ -101,7 +101,9 @@ import {
 import {
   runProtect,
   runUnlock,
+  type QpdfPasswordRequirement,
   type QpdfRunner,
+  type QpdfUnlockOutcome,
 } from "@/lib/workers/pdf-security/engine";
 import { protectArgs } from "@/lib/workers/pdf-security/native";
 import { linearizeArgs } from "@/lib/workers/pdf-structure/native";
@@ -110,8 +112,8 @@ import {
   type PdfLayout,
   type PdfLayoutPage,
 } from "@/lib/workers/table-extract/engine";
-import { createNativeChromiumPdfRunner } from "@/lib/workers/html-render/native";
-import { resolveNativeHtmlRenderConfig } from "@/lib/workers/html-render/native-config";
+import { HTML_DOCUMENT_URL } from "@/lib/workers/html-render/native";
+import { createRenderNetwork } from "@/lib/workers/html-render/network";
 import {
   SUMMARY_FORMATS,
   SUMMARY_LENGTHS,
@@ -482,6 +484,9 @@ describe("compress answers what each of its two paths does", () => {
         imageCount: 1,
         imageBytes: Math.round(share * 1000),
         optimizedBytes: 1000,
+        // L12 (c27ec09) added this; an unsigned file is the case the
+        // image-heavy share switches on.
+        signatureCount: 0,
       }).recommendation;
     expect(at(IMAGE_HEAVY_SHARE)).toBe("needs-worker");
     expect(at(IMAGE_HEAVY_SHARE - 0.01)).toBe("already-lean");
@@ -957,16 +962,20 @@ describe("the remaining in-browser tools answer what their engines do", () => {
   it("grayscale rebuilds every page from an image, at the offered presets", () => {
     expect(ENGINE_GRAYSCALE_PRESETS).toBe(GRAYSCALE_DPI_PRESETS);
     // The engine rasterizes (it cannot run without a canvas here), so its
-    // SHAPE is the precondition: pages come only from rendered JPEGs.
+    // SHAPE is the precondition: pages come only from rendered page images.
+    // Since L08 (85ee451) each is a one-channel plane stored as a JPEG or,
+    // when smaller, losslessly — so the answer says "image", not "JPEG".
     const engine = withoutComments(read("src/lib/pdf/grayscale.ts"));
-    expect(engine).toMatch(/rasterizePdf\(bytes, \{\s*format: "jpg"/);
+    expect(engine).toMatch(/capturePdfPages\(bytes, \{/);
     expect(engine).toContain("PDFDocument.create()");
     expect(engine).not.toMatch(/copyPages|embedPage|embedPdf|drawText/);
     for (const tool of mounting("grayscale")) {
       const src = runnerSource(tool.slug);
       expect(src).toContain("GRAYSCALE_DPI_PRESETS.map(");
       expect(src).toContain("dpi: preset.dpi");
-      expect(answer(tool.slug, /select and search/)).toMatch(/^No\./);
+      const search = answer(tool.slug, /select and search/);
+      expect(search).toMatch(/^No\./);
+      expect(search, "the encoding is chosen per page").not.toMatch(/JPEG/);
       const res = answer(tool.slug, /resolution/);
       for (const p of GRAYSCALE_DPI_PRESETS)
         expect(res).toContain(`${p.label} (${p.dpi} DPI)`);
@@ -1155,26 +1164,41 @@ describe("the remaining in-browser tools answer what their engines do", () => {
  *  3. The secure-worker and AI tools
  * ------------------------------------------------------------------ */
 
+/**
+ * A qpdf that answers the questions the engine asks. Since L02 (a214a10,
+ * a50c54c) the engine gates on `requiresPassword` — which tells a file that
+ * needs a password to OPEN from one that opens freely and only restricts
+ * printing or copying — and a refused decrypt says WHY. `opensFreely` models
+ * the second kind.
+ */
 function fakeQpdf(state: {
   encrypted: boolean;
+  opensFreely?: boolean;
   wrongPassword?: boolean;
 }): QpdfRunner & { protects: number } {
+  const requirement = (input: Uint8Array): QpdfPasswordRequirement => {
+    // The output of protect/unlock is judged by a marker byte we set below.
+    if (input[input.length - 1] === 0xee) return "needs-password";
+    if (input[input.length - 1] === 0xdd) return "not-encrypted";
+    if (!state.encrypted) return "not-encrypted";
+    return state.opensFreely ? "opens-freely" : "needs-password";
+  };
   const runner = {
     protects: 0,
     async isEncrypted(input: Uint8Array) {
-      // The output of protect/unlock is judged by a marker byte we set below.
-      if (input[input.length - 1] === 0xee) return true;
-      if (input[input.length - 1] === 0xdd) return false;
-      return state.encrypted;
+      return requirement(input) !== "not-encrypted";
+    },
+    async requiresPassword(input: Uint8Array) {
+      return requirement(input);
     },
     async protect(input: Uint8Array) {
       runner.protects += 1;
       return Uint8Array.from([...input, 0xee]);
     },
-    async unlock(input: Uint8Array) {
+    async unlock(input: Uint8Array): Promise<QpdfUnlockOutcome> {
       return state.wrongPassword
-        ? ({ ok: false, wrongPassword: true } as const)
-        : ({ ok: true, output: Uint8Array.from([...input, 0xdd]) } as const);
+        ? { ok: false, reason: "wrong-password" }
+        : { ok: true, output: Uint8Array.from([...input, 0xdd]) };
     },
   };
   return runner;
@@ -1214,14 +1238,24 @@ describe("the secure-worker tools answer what their engines do", () => {
       { qpdf: fakeQpdf({ encrypted: false }), validate },
     );
     expect(ok.ok).toBe(true);
+    // A PDF that opens freely but restricts printing or copying is turned
+    // away too (L02), and the answer below says so.
+    const restricted = fakeQpdf({ encrypted: true, opensFreely: true });
+    const refused = await runProtect(
+      INPUT,
+      { password: "x", ownerPassword: "x", keyLength: 256 },
+      { qpdf: restricted, validate },
+    );
+    expect(refused).toMatchObject({ ok: false, kind: "restrictions_only" });
+    expect(restricted.protects).toBe(0);
     const tool = tools.find((t) => t.slug === "protect-pdf")!;
     const which = answer(tool.slug, /Which encryption/);
     for (const level of PDF_ENCRYPTION_LEVELS)
       expect(which).toContain(level.label);
     expect(which).toContain("RC4 cipher is never used");
-    expect(answer(tool.slug, /already has a password/)).toMatch(
-      /^No — it is turned away/,
-    );
+    const already = answer(tool.slug, /already has a password/);
+    expect(already).toMatch(/^No — it is turned away/);
+    expect(already).toMatch(/owner \(permissions\) password/);
   });
 
   it("unlock: a wrong password or an unlocked file produces no file", async () => {
@@ -1244,11 +1278,28 @@ describe("the secure-worker tools answer what their engines do", () => {
       { qpdf: fakeQpdf({ encrypted: true }), validate },
     );
     expect(right.ok).toBe(true);
+    // A PDF that opens freely DOES have a password — the owner's — and a
+    // wrong one is refused as that, not as "nothing to unlock" (L02).
+    const owner = await runUnlock(
+      INPUT,
+      { password: "guess" },
+      {
+        qpdf: fakeQpdf({
+          encrypted: true,
+          opensFreely: true,
+          wrongPassword: true,
+        }),
+        validate,
+      },
+    );
+    expect(owner).toMatchObject({ ok: false, kind: "owner_password_required" });
     const slug = "unlock-pdf";
     expect(answer(slug, /don't know/)).toContain(
       "does not guess or crack passwords",
     );
-    expect(answer(slug, /no password/)).toMatch(/nothing to unlock/);
+    const none = answer(slug, /no password/);
+    expect(none).toMatch(/nothing to unlock/);
+    expect(none).toMatch(/owner \(permissions\) password/);
   });
 
   it("optimize for web linearizes and nothing else", () => {
@@ -1339,37 +1390,58 @@ describe("the secure-worker tools answer what their engines do", () => {
     expect(answer(slug, /scanned/)).toMatch(/^No\./);
   });
 
+  /*
+   * REWRITTEN 2026-09-27 at the merge with L02 (ba4bfb0), history kept. This
+   * ran the renderer with a fake filesystem and asserted it wrote ONE file,
+   * input.html, and handed Chromium a file:// URL. L02 closed that path: the
+   * upload is now served to Chromium from memory at HTML_DOCUMENT_URL, and
+   * every other request goes through the render network's policy. The
+   * property is unchanged — a relative link has nothing to resolve to — so it
+   * is asked of the path that exists now. L08's
+   * `unbundled-assets.chromium.test.ts` runs the same chain in a real Chromium.
+   */
   it("HTML to PDF uploads the .html file alone — relative links have nothing to resolve to", async () => {
-    const written: string[] = [];
-    let source = "";
-    const pdf = await pdfWithPages([[200, 200]]);
-    const runner = createNativeChromiumPdfRunner(
-      { ...resolveNativeHtmlRenderConfig({}), enabled: true },
-      {
-        resolveOnPath: () => true,
-        exec: async (_command, args) => {
-          source = args[args.length - 1]!;
-          return { code: 0, timedOut: false };
-        },
-        fs: {
-          mkdtemp: async (prefix) => `${prefix}fixed`,
-          writeFile: async (file) => {
-            written.push(file);
-          },
-          readFile: async () => pdf,
-          rm: async () => {},
-        },
+    const native = withoutComments(
+      read("src/lib/workers/html-render/native.ts"),
+    );
+    // The upload is served once, as the main document, at one address.
+    expect(native).toMatch(/p\.request\.url === HTML_DOCUMENT_URL/);
+    const relative = new URL("images/logo.png", HTML_DOCUMENT_URL).href;
+    expect(new URL(relative).host).toBe(new URL(HTML_DOCUMENT_URL).host);
+    const fetched: string[] = [];
+    const resolved: string[] = [];
+    const network = createRenderNetwork({
+      resolve: async (host) => {
+        resolved.push(host);
+        return [{ address: "93.184.215.14", family: 4 }];
       },
-    );
-    await runner.renderHtml(
-      new TextEncoder().encode('<img src="images/logo.png">'),
-    );
-    expect(written).toHaveLength(1);
-    expect(path.basename(written[0]!)).toBe("input.html");
-    expect(source.startsWith("file://")).toBe(true);
-    expect(answer("html-to-pdf", /images and styles/)).toContain(
-      "the .html file is uploaded on its own",
-    );
+      fetch: async (url) => {
+        fetched.push(String(url));
+        return {
+          status: 200,
+          rawHeaders: ["content-type", "image/png"],
+          body: new Uint8Array([1]),
+        };
+      },
+    });
+    const refused = await network.handle({
+      url: relative,
+      method: "GET",
+      headers: {},
+    });
+    expect(refused.action).toBe("fail");
+    // CONTROL: the same image at a full public address is fetched.
+    const absolute = await network.handle({
+      url: "https://example.com/images/logo.png",
+      method: "GET",
+      headers: {},
+    });
+    expect(absolute.action).toBe("fulfill");
+    expect(fetched).toEqual(["https://example.com/images/logo.png"]);
+    expect(resolved).toEqual(["example.com"]);
+    const served = answer("html-to-pdf", /images and styles/);
+    expect(served).toContain("the .html file is uploaded on its own");
+    expect(served).toContain("files linked by a full web address, are loaded");
   });
 });
 
