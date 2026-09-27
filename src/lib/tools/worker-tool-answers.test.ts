@@ -43,7 +43,8 @@ import {
   XLSX_CELL_BREAK_PHRASE,
   XLSX_SHEET_NAME,
 } from "@/lib/jobs/pdf-office-export";
-import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import { PDF_A_STANDARD, buildPdfAResultMeta } from "@/lib/jobs/pdfa-results";
+import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
   MAX_REQUEST_SIGNERS,
   REQUEST_PACKAGE_FILES,
@@ -153,6 +154,23 @@ const part = async (zip: JSZip, name: string) => {
   return file.async("string");
 };
 
+/**
+ * What a DOCX would need to carry more than plain paragraphs of text: the body
+ * markup for images, tables, character formatting and paragraph layout, and the
+ * parts that would hold images, styles and a theme.
+ */
+const RICH_MARKUP = ["<w:drawing", "<w:tbl", "<w:rPr", "<w:pPr"] as const;
+const RICH_PART = /media\/|styles\.xml|theme/;
+
+/** Every piece of {@link RICH_MARKUP} in the body, and every rich part's name. */
+async function richContentIn(zip: JSZip): Promise<string[]> {
+  const doc = await part(zip, "word/document.xml");
+  return [
+    ...RICH_MARKUP.filter((tag) => doc.includes(tag)),
+    ...Object.keys(zip.files).filter((name) => RICH_PART.test(name)),
+  ];
+}
+
 describe("PDF to Word: the DOCX is the page's sentence", () => {
   it("each line becomes a paragraph, and nothing but text goes in", async () => {
     const lines = ["Quarterly report", "Revenue rose.", "Costs fell."];
@@ -164,19 +182,47 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
     expect(paragraphs).toEqual(lines);
     // Images, tables, fonts/colors, layout: none of their markup, none of the
     // parts that would carry them.
-    for (const tag of ["<w:drawing", "<w:tbl", "<w:rPr", "<w:pPr"]) {
-      expect(doc, tag).not.toContain(tag);
-    }
-    const names = Object.keys(zip.files);
-    expect(names.filter((n) => /media\/|styles\.xml|theme/.test(n))).toEqual(
-      [],
-    );
+    expect(await richContentIn(zip)).toEqual([]);
     expect(answer("pdf-to-word", /keep/i)).toContain(PDF_TO_WORD_KEEPS);
   });
 
-  it("positive control: the detector sees a styled run when one is there", () => {
-    const styled = "<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>x</w:t></w:r></w:p>";
-    expect(styled).toContain("<w:rPr");
+  /*
+   * HISTORY: the first control built a string literal holding `<w:rPr` and
+   * asserted the literal contained `<w:rPr`. It never went through the
+   * detector, so it passed whatever the detector or the engine did — a control
+   * that cannot fail. This one hands the SAME function a real DOCX package —
+   * the engine's own output, re-zipped with one of each rich thing added — and
+   * requires it to report every one.
+   */
+  it("positive control: the detector reports each rich thing in a real DOCX", async () => {
+    const zip = await exportFile("pdf-to-word", ["Quarterly report"]);
+    const doc = await part(zip, "word/document.xml");
+    const rich =
+      `<w:p><w:pPr><w:jc w:val="center"/></w:pPr>` +
+      `<w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r>` +
+      `<w:r><w:drawing/></w:r></w:p>` +
+      `<w:tbl><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>`;
+    expect(doc, "the engine's body moved").toContain("<w:sectPr/>");
+    zip.file(
+      "word/document.xml",
+      doc.replace("<w:sectPr/>", `${rich}<w:sectPr/>`),
+    );
+    zip.file("word/media/image1.png", new Uint8Array([0x89, 0x50]));
+    zip.file("word/styles.xml", "<w:styles/>");
+    zip.file("word/theme/theme1.xml", "<a:theme/>");
+    // Through bytes and back, so the detector reads a package, not an object.
+    const reread = await JSZip.loadAsync(
+      await zip.generateAsync({ type: "uint8array" }),
+    );
+    const found = await richContentIn(reread);
+    for (const tag of RICH_MARKUP) expect(found, tag).toContain(tag);
+    for (const name of [
+      "word/media/image1.png",
+      "word/styles.xml",
+      "word/theme/theme1.xml",
+    ]) {
+      expect(found, name).toContain(name);
+    }
   });
 });
 
@@ -578,6 +624,31 @@ describe("PDF to PDF/A names the part Ghostscript is asked for", () => {
     expect(read("src/components/tools/pdf-archive-worker-panel.tsx")).toMatch(
       /We do not validate/,
     );
+  });
+});
+
+describe("PDF to PDF/A says how much of Ghostscript's report reaches the reader", () => {
+  /*
+   * HISTORY: the answer said "everything it reports is listed with your
+   * download". The notes pass `boundToolNotes` on the way to the job record,
+   * which keeps at most MAX_TOOL_NOTES lines, withholds path-like ones, and
+   * appends a count of what it dropped — so a conversion reporting more than
+   * that was never listed in full.
+   */
+  it("a report longer than the bound is cut to it, with a count, and the page says so", () => {
+    const extra = 3;
+    const report = Array.from(
+      { length: MAX_TOOL_NOTES + extra },
+      (_, i) => `note ${i + 1}: cannot be represented in XMP, discarding`,
+    );
+    const { notes } = buildPdfAResultMeta({ hadNotes: true, notes: report });
+    // What the panel receives: the bound, then the count line.
+    expect(notes).toHaveLength(MAX_TOOL_NOTES + 1);
+    expect(notes.at(-1)).toMatch(new RegExp(`^${extra} further message`));
+    const served = answer("pdf-to-pdfa", /remove/i);
+    expect(served).toContain(`up to ${MAX_TOOL_NOTES} of its messages`);
+    expect(served).toMatch(/count of any it leaves out/);
+    expect(served).not.toMatch(/\beverything\b/i);
   });
 });
 

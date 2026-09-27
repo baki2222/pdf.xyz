@@ -712,7 +712,7 @@ export const guides: Guide[] = [
         id: "ways-to-make-a-signature",
         heading: `${signatureWays[0]!.toUpperCase()}${signatureWays.slice(1)} ways to make a signature`,
         body: [
-          `Sign PDF offers ${signatureWays} ways to make a signature: draw it, type it, or pick an image. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and it comes in ${countWord(SIGNATURE_STYLES.length)} styles — script, which sets your typed name in an italic serif face, and print, a plain printed name. If you already keep a scanned signature as a PNG or JPG image, pick that image and reuse the mark you have always used.`,
+          `Sign PDF offers ${signatureWays} ways to make a signature: draw it, type it, or pick an image. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and it comes in ${countWord(SIGNATURE_STYLES.length)} styles — script, which sets a name written in the Western European alphabet in an italic serif face, and print, a plain printed name. A name in any other script is set in the same upright face whichever style you pick. If you already keep a scanned signature as a PNG or JPG image, pick that image and reuse the mark you have always used.`,
           "Whichever you choose, the rest works the same way: position the signature precisely on the page, then export.",
         ],
       },

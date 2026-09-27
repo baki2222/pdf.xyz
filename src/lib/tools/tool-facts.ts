@@ -35,6 +35,7 @@ import {
   XLSX_SHEET_NAME,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
   MAX_REQUEST_SIGNERS,
   REQUEST_PACKAGE_FILES,
@@ -820,7 +821,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "What does the conversion remove?",
-          answer: `Whatever ${PDF_A_STANDARD} cannot hold. Ghostscript drops it and reports it, and everything it reports is listed with your download under “What PDF/A could not keep:”. Document metadata is the usual casualty.`,
+          answer: `Whatever ${PDF_A_STANDARD} cannot hold. Ghostscript drops it and reports it, and up to ${MAX_TOOL_NOTES} of its messages are listed with your download under “What PDF/A could not keep:”, followed by a count of any it leaves out. Document metadata is the usual casualty.`,
         },
       ];
     case "request-signatures": {

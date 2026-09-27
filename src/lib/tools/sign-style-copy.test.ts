@@ -51,13 +51,16 @@ const STANDARD_14 = new Set([
   "ZapfDingbats",
 ]);
 
-async function typedFace(style: SignatureStyle): Promise<string> {
+async function typedFace(
+  style: SignatureStyle,
+  text = "Ada Lovelace",
+): Promise<string> {
   const blank = await PDFDocument.create();
   blank.addPage([400, 300]);
   const out = await PDFDocument.load(
     await signPdf(
       await blank.save(),
-      { kind: "typed", text: "Ada Lovelace", style },
+      { kind: "typed", text, style },
       { pageIndex: 0, position: "bottom-right", width: 160 },
     ),
   );
@@ -75,13 +78,19 @@ async function typedFace(style: SignatureStyle): Promise<string> {
   return names[0]!;
 }
 
+/** A typed name outside the Western European alphabet. */
+const BENGALI_NAME = "আডা লভলেস";
+
 let pages: Map<string, RenderedToolPage>;
 const faces = new Map<SignatureStyle, string>();
+const nonLatinFaces = new Map<SignatureStyle, string>();
 
 beforeAll(async () => {
   pages = renderToolPages();
-  for (const style of SIGNATURE_STYLES)
+  for (const style of SIGNATURE_STYLES) {
     faces.set(style, await typedFace(style));
+    nonLatinFaces.set(style, await typedFace(style, BENGALI_NAME));
+  }
 }, 180_000);
 
 /** Every sentence a reader meets about Sign PDF: the served page and its guides. */
@@ -142,5 +151,28 @@ describe("a typed signature is described as the face it is drawn in", () => {
       "no sentence names the Script face",
     ).toBeGreaterThan(0);
     expect(face).toMatch(/^Times-.*Italic$/);
+  });
+
+  /*
+   * HISTORY: the guide said script "sets your typed name in an italic serif
+   * face", and the check above typed only "Ada Lovelace". A name outside the
+   * Western European alphabet takes the Unicode path, where every style
+   * resolves to the same upright Noto face — so the sentence was true of the
+   * one name the test tried. Run with a Bengali name, it must now say so.
+   */
+  it("a name in another script: one upright face in every style, and the copy scopes its italic claim", () => {
+    // Health check: the Unicode path ran, and it is not the Latin face.
+    for (const [style, face] of nonLatinFaces) {
+      expect(face, style).toMatch(/Noto/);
+      expect(face, style).not.toMatch(/Italic/i);
+    }
+    expect(new Set(nonLatinFaces.values()).size).toBe(1);
+    const described = sentences().filter((s) => /italic serif/i.test(s));
+    expect(described.length).toBeGreaterThan(0);
+    for (const s of described) expect(s).toMatch(/Western European alphabet/);
+    expect(
+      sentences().some((s) => /other script[^.]*upright face/i.test(s)),
+      "no sentence says what a name in another script looks like",
+    ).toBe(true);
   });
 });

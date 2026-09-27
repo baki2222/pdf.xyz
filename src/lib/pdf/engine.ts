@@ -16,8 +16,8 @@ import type {
 
 /** Thrown for problems reading or writing PDF bytes, with user-facing copy. */
 export class PdfEngineError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "PdfEngineError";
   }
 }
