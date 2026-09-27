@@ -848,7 +848,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "Can I leave the cover page unnumbered?",
           answer:
-            "Yes. Set “Start on page” to the first page that should carry a number — the pages before it are left as they are — and “First number” to the number that page should show. {total} is the last number printed, so it counts only the numbered pages.",
+            "Yes. Set “Start on page” to the first page that should carry a number — the pages before it are left as they are — and “First number” to the number that page should show. {total} is the last number printed: “First number” plus the count of numbered pages, minus one. Set “First number” to the same value as “Start on page” and the cover is counted, so {total} is the document's full page count.",
         },
       ];
     case "header-footer":

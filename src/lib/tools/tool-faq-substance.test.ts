@@ -654,6 +654,90 @@ describe("the stamping tools answer where and what they stamp", () => {
     }
   });
 
+  /*
+   * ── HISTORY ─────────────────────────────────────────────────────────────
+   * The answer above first shipped as "{total} is the last number printed, so
+   * it counts only the numbered pages", and the test above passed it: its one
+   * fixture uses startAt 1, the only value at which "last number printed" and
+   * "count of numbered pages" agree. On the answer's own cover-page recipe —
+   * start on page 2, first number 2 — the engine draws '2/3', '3/3': {total}
+   * counts the unnumbered cover too. This test sweeps startAt so the two
+   * readings are forced apart, and holds the served sentence to the formula
+   * the engine computes rather than to the easier paraphrase.
+   */
+  it("{total} is “First number” plus the numbered pages minus one, not a count of them", async () => {
+    const sizes: [number, number][] = [
+      [300, 400],
+      [300, 400],
+      [300, 400],
+    ];
+    const bytes = await pdfWithPages(sizes, "Body");
+    const pageCount = sizes.length;
+    let readingsDisagree = 0;
+    for (const startPage of [1, 2, 3]) {
+      for (const startAt of [1, 2, 5]) {
+        const doc = await PDFDocument.load(
+          await addPageNumbers(bytes, {
+            format: "{n}/{total}",
+            startPage,
+            startAt,
+          }),
+        );
+        const numbered = pageCount - (startPage - 1);
+        const total = startAt + numbered - 1;
+        for (let i = startPage - 1; i < pageCount; i += 1) {
+          expect(drawnText(doc, i)).toContain(
+            `${startAt + i - (startPage - 1)}/${total}`,
+          );
+        }
+        if (total !== numbered) readingsDisagree += 1;
+        // The served recipe: “First number” equal to “Start on page” makes
+        // {total} the whole document's page count, cover included.
+        if (startAt === startPage) expect(total).toBe(pageCount);
+      }
+    }
+    // Health: the sweep must contain cases where the two readings differ, or
+    // it cannot tell the true clause from the false one.
+    expect(readingsDisagree).toBeGreaterThan(0);
+
+    // The reviewer's case, verbatim: a cover left unnumbered, then 2, 3.
+    const cover = await PDFDocument.load(
+      await addPageNumbers(bytes, {
+        format: "{n}/{total}",
+        startPage: 2,
+        startAt: 2,
+      }),
+    );
+    expect(drawnText(cover, 0)).not.toContain("1/3");
+    expect(drawnText(cover, 1)).toContain("2/3");
+    expect(drawnText(cover, 2)).toContain("3/3");
+
+    for (const tool of mounting("page-numbers")) {
+      const served = answer(tool.slug, /cover page/);
+      expect(served).toContain(
+        "{total} is the last number printed: “First number” plus the count of numbered pages, minus one.",
+      );
+      expect(served).toMatch(
+        /“First number” to the same value as “Start on page”[^.]*\{total\} is the document's full page count/,
+      );
+      // The false clause, in any of the shapes it could come back in. The
+      // sentence that shipped is the positive control: the ban must catch it.
+      const onlyNumbered =
+        /\{total\}[^.]*\b(counts?|is|equals)\b[^.]*\bonly\b[^.]*numbered pages/i;
+      expect(
+        "{total} is the last number printed, so it counts only the numbered pages.",
+      ).toMatch(onlyNumbered);
+      expect(served).not.toMatch(onlyNumbered);
+      // Every control the answer names is one the runner renders.
+      const src = runnerSource(tool.slug);
+      const labels = [...served.matchAll(/“([^”]+)”/g)].map((m) => m[1]!);
+      expect(new Set(labels)).toEqual(
+        new Set(["Start on page", "First number"]),
+      );
+      for (const label of labels) expect(src).toContain(`label="${label}"`);
+    }
+  });
+
   it("header and footer tokens are the engine's, and the band goes on every page", async () => {
     expect(
       applyTokens("{n}|{total}|{date}", { n: 2, total: 5, date: "D" }),
