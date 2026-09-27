@@ -19,6 +19,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { runOptimizeWeb, runRepair, type QpdfStructureRunner } from "./engine";
+import { QpdfRefusedError, type QpdfRefusalReason } from "./errors";
 
 /** A real, well-formed PDF. */
 async function healthyPdf(pages = 3): Promise<Uint8Array> {
@@ -159,6 +160,79 @@ describe("what qpdf recovered is reported, not discarded", () => {
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     expect(run.meta.warnings.join(" ")).not.toMatch(/[/\\]/);
+  });
+});
+
+/**
+ * A refusal the runner has classified must reach the engine's result AS that
+ * class. The engine's `catch {}` used to turn every throw into `failed` — the
+ * one kind the processor retries — so classifying in the runner alone would
+ * have changed nothing a user sees.
+ */
+describe("a document qpdf refuses is named, not retried", () => {
+  function refusing(reason: QpdfRefusalReason): QpdfStructureRunner {
+    return {
+      async repair() {
+        throw new QpdfRefusedError(reason);
+      },
+      async linearize() {
+        throw new QpdfRefusedError(reason);
+      },
+    };
+  }
+
+  const operations = [
+    ["repair", runRepair],
+    ["optimize-web", runOptimizeWeb],
+  ] as const;
+
+  for (const [name, run] of operations) {
+    it(`${name}: a password-protected PDF is sent to Unlock PDF`, async () => {
+      const result = await run(await healthyPdf(), {
+        qpdf: refusing("password_protected"),
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.kind).toBe("password_protected");
+      expect(result.message).toMatch(/password-protected/);
+      expect(result.message).toMatch(/Unlock PDF/);
+    });
+
+    it(`${name}: an unrecoverable file is named unreadable, without naming qpdf`, async () => {
+      const result = await run(await healthyPdf(), {
+        qpdf: refusing("unrecoverable"),
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.kind).toBe("unreadable");
+      expect(result.message).not.toMatch(/qpdf|Unlock/i);
+    });
+
+    it(`${name}: POSITIVE CONTROL — any other throw is still "failed"`, async () => {
+      const result = await run(await healthyPdf(), {
+        qpdf: {
+          async repair() {
+            throw new Error("qpdf timed out.");
+          },
+          async linearize() {
+            throw new Error("qpdf timed out.");
+          },
+        },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.kind).toBe("failed");
+    });
+  }
+
+  it("optimize-web points a damaged file at Repair PDF; repair does not point at itself", async () => {
+    const optimize = await runOptimizeWeb(await healthyPdf(), {
+      qpdf: refusing("unrecoverable"),
+    });
+    const repair = await runRepair(await healthyPdf(), {
+      qpdf: refusing("unrecoverable"),
+    });
+    expect(!optimize.ok && optimize.message).toMatch(/Repair PDF/);
+    expect(!repair.ok && repair.message).not.toMatch(/Repair PDF/);
   });
 });
 

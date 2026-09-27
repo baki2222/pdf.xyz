@@ -44,9 +44,20 @@ function nextStepFor(code: string | undefined) {
  * the same thing in words, but a link keyed on message text breaks silently the
  * first time someone edits the sentence.
  */
-export function OfficeExportNextStep({ code }: { code: string | undefined }) {
+export function OfficeExportNextStep({
+  code,
+  from,
+}: {
+  code: string | undefined;
+  /**
+   * The slug of the tool the user is on. A next step that is this tool is not
+   * a next step: Repair PDF failing with "unreadable" must not say "Open
+   * Repair PDF".
+   */
+  from?: string;
+}) {
   const step = nextStepFor(code);
-  if (!step) return null;
+  if (!step || (from && step.href === `/tools/${from}`)) return null;
   return (
     <Link
       href={step.href}

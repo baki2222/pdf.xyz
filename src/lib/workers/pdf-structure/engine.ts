@@ -11,6 +11,7 @@
  */
 
 import { looksLikePdf, looksRepairable } from "../compression/engine";
+import { QpdfRefusedError } from "./errors";
 
 export const REPAIR_TOOL = "repair-pdf";
 export const OPTIMIZE_WEB_TOOL = "optimize-web";
@@ -70,6 +71,11 @@ export type PdfStructureRun =
   | { ok: false; kind: "unsupported"; message: string }
   | { ok: false; kind: "invalid_pdf"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
+  /** qpdf needs a password to open it. Final: a retry gets the same answer. */
+  | { ok: false; kind: "password_protected"; message: string }
+  /** qpdf refused the document for any other reason. Final, likewise. */
+  | { ok: false; kind: "unreadable"; message: string }
+  /** The run did not finish (timeout, spawn/IO error, unusable output). */
   | { ok: false; kind: "failed"; message: string };
 
 const UNSUPPORTED_MESSAGE =
@@ -79,6 +85,38 @@ const TOO_LARGE_MESSAGE =
 const INVALID_PDF_MESSAGE = "The input could not be read as a PDF.";
 const FAILED_MESSAGE =
   "The PDF structure engine could not process this file. No output was produced.";
+
+/**
+ * What a user reads when qpdf refuses the document, by operation. Fixed and
+ * content-free like every message here — no filename, no qpdf text. Repair
+ * does not point at itself: the file has just been through the repair.
+ */
+const REFUSAL_MESSAGES: Record<
+  "repair" | "linearize",
+  Record<"password_protected" | "unreadable", string>
+> = {
+  repair: {
+    password_protected:
+      "This PDF is password-protected. Remove the password with Unlock PDF, then repair it.",
+    unreadable:
+      "This file could not be rebuilt into a PDF. It may be too badly damaged to recover, or not be a PDF at all.",
+  },
+  linearize: {
+    password_protected:
+      "This PDF is password-protected. Remove the password with Unlock PDF, then optimize it.",
+    unreadable:
+      "This PDF could not be opened. It may be damaged; Repair PDF can often fix that.",
+  },
+};
+
+function refused(
+  error: QpdfRefusedError,
+  operation: "repair" | "linearize",
+): PdfStructureRun {
+  const kind =
+    error.reason === "password_protected" ? "password_protected" : "unreadable";
+  return { ok: false, kind, message: REFUSAL_MESSAGES[operation][kind] };
+}
 
 const unsupported = (): PdfStructureRun => ({
   ok: false,
@@ -157,7 +195,11 @@ async function runStructure(
       operation === "repair"
         ? await qpdf.repair(input)
         : await qpdf.linearize(input);
-  } catch {
+  } catch (error) {
+    // A classified refusal is a property of the document and must stay one.
+    // This was a bare `catch {}` mapping every throw to `failed` — the kind the
+    // processor retries — so a locked PDF was run three times.
+    if (error instanceof QpdfRefusedError) return refused(error, operation);
     return failed();
   }
 

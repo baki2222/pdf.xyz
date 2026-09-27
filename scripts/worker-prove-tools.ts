@@ -81,6 +81,13 @@ import {
   reportTablesPdf,
   tablesProofVerdict,
 } from "@/tests/table-extract-fixtures";
+import {
+  recoverablyDamagedPdf,
+  repairProofVerdict,
+  unrecoverablePdf,
+} from "@/tests/repair-proof-fixtures";
+import type { JobResults } from "@/lib/jobs/results";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import { browserStoppedWaitingAt } from "@/lib/jobs/client-wait";
@@ -549,8 +556,15 @@ interface ProofSpec {
    * and used the prior turns, and that lives in the manifest inside the ZIP. The
    * returned detail is printed on success, so a measurement (rather than a mere
    * pass) reaches the operator.
+   *
+   * `job` is the completed job record exactly as GET /api/jobs/:id served it,
+   * for a claim that lives on the record rather than in the bytes — what
+   * repair-pdf reported it rebuilt is the sentence the panel shows.
    */
-  verify?: (bytes: Buffer) => Promise<{ ok: boolean; detail: string }>;
+  verify?: (
+    bytes: Buffer,
+    job: ApiResponse,
+  ) => Promise<{ ok: boolean; detail: string }>;
   /**
    * Which artifact to download, by filename, when a job returns several (OCR's
    * "both" mode returns the PDF first). Absent ⇒ the first. A job with no
@@ -577,13 +591,47 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "PDF",
   },
+  // Until 2026-09-27 this sent the healthy `textPdf` under the name
+  // `broken.pdf`, so the only real-job proof of Repair PDF exercised qpdf's
+  // exit 0 and nothing a damaged file goes through. Now it sends real damage —
+  // the recipe measured on the production worker's qpdf, with the fixture
+  // checking itself — and reads what the job record says was rebuilt.
   {
     tool: "repair-pdf",
-    make: textPdf,
+    make: async () => Buffer.from(await recoverablyDamagedPdf()),
     name: "broken.pdf",
     type: PDF_MIME,
     expect: isPdf,
-    want: "PDF",
+    want: "rebuilt PDF",
+    verify: (bytes, job) => repairProofVerdict(bytes, job, "recovered"),
+  },
+  // The other half of the panel's sentence: a healthy file must come back
+  // reported CLEAN, or "qpdf found no structural damage" would never show.
+  {
+    tool: "repair-pdf",
+    label: "repair-pdf (clean)",
+    make: textPdf,
+    name: "healthy.pdf",
+    type: PDF_MIME,
+    expect: isPdf,
+    want: "PDF reported clean",
+    verify: (bytes, job) => repairProofVerdict(bytes, job, "clean"),
+  },
+  // Nothing to rebuild from. Until 2026-09-27 qpdf's refusal was a retryable
+  // internal_error: three identical runs, then "could not process this file".
+  {
+    tool: "repair-pdf",
+    label: "repair-pdf (unrecoverable)",
+    make: async () => Buffer.from(await unrecoverablePdf()),
+    name: "rubble.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: OFFICE_EXPORT_ERROR_CODES.unreadable,
+      retryable: false,
+      message: /could not be rebuilt/,
+    },
+    expect: () => false,
+    want: "a final refusal, not a retry",
   },
   {
     tool: "optimize-web",
@@ -680,6 +728,23 @@ const SPECS: ProofSpec[] = [
       message: /Unlock PDF/,
     },
     // Never reached: with `expectFailure`, a completed job is itself the FAIL.
+    expect: () => false,
+    want: "a final refusal naming Unlock PDF",
+  },
+  // The commonest reason a PDF "won't open" is a password, and Repair PDF is
+  // where a user takes it. Until 2026-09-27 that was retried three times and
+  // then "could not process this file"; it must be one attempt, naming Unlock.
+  {
+    tool: "repair-pdf",
+    label: "repair-pdf (encrypted)",
+    from: "encrypted",
+    name: "locked.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+      retryable: false,
+      message: /Unlock PDF/,
+    },
     expect: () => false,
     want: "a final refusal naming Unlock PDF",
   },
@@ -1035,6 +1100,7 @@ interface ApiResponse {
   status?: string;
   error?: { code: string; message: string; retryable?: boolean };
   artifacts?: { artifactId: string; filename: string }[];
+  results?: JobResults;
 }
 
 const TERMINAL_STATUSES = new Set([
@@ -1353,7 +1419,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   if (spec.verify) {
     let outcome: { ok: boolean; detail: string };
     try {
-      outcome = await spec.verify(buf);
+      outcome = await spec.verify(buf, job);
     } catch (error) {
       outcome = { ok: false, detail: (error as Error).message };
     }

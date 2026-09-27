@@ -5,6 +5,7 @@
  */
 
 import type { JobError } from "@/lib/jobs";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -73,6 +74,25 @@ export function pdfStructureJobError(run: PdfStructureFailure): JobError {
         message: run.message,
         retryable: false,
       };
+    // Properties of the DOCUMENT: qpdf refuses the same bytes the same way on
+    // every attempt, so neither is retryable. Each carries the shared
+    // document-failure code the panel links its next step from (Unlock PDF,
+    // Repair PDF). Both used to fall through to the retryable
+    // `internal_error` below, and a locked PDF was run three times.
+    case "password_protected":
+      return {
+        code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+        message: run.message,
+        retryable: false,
+      };
+    case "unreadable":
+      return {
+        code: OFFICE_EXPORT_ERROR_CODES.unreadable,
+        message: run.message,
+        retryable: false,
+      };
+    // Only a run that did not finish reaches here now: a timeout, a spawn or
+    // IO error, unusable output. Those are what a retry can change.
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };

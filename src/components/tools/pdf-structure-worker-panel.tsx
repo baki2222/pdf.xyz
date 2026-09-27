@@ -36,7 +36,8 @@ import {
   WorkerStatusPending,
   type WorkerPhase,
 } from "./worker-status";
-import { RepairWarnings } from "./repair-warnings";
+import { RepairOutcome, repairDoneSentence } from "./repair-warnings";
+import { OfficeExportNextStep } from "./office-export-notices";
 
 type Phase = WorkerPhase;
 type Mode = "repair" | "optimize";
@@ -85,7 +86,6 @@ const COPY: Record<
     blurb: string;
     cta: string;
     running: string;
-    done: string;
   }
 > = {
   repair: {
@@ -95,7 +95,6 @@ const COPY: Record<
       "Repair rewrites the PDF through qpdf's parser/writer on an isolated secure worker, recovering readable structure when possible. It never fabricates pages or content: if qpdf cannot produce a valid PDF, the job fails honestly.",
     cta: "Repair on the worker",
     running: "Repairing on the worker…",
-    done: "Your repaired PDF is ready.",
   },
   optimize: {
     icon: Zap,
@@ -104,9 +103,14 @@ const COPY: Record<
       "Optimize for Web linearizes the PDF with qpdf so browsers can start rendering before the whole file downloads. The worker produces a real fast-web-view PDF or fails honestly.",
     cta: "Optimize on the worker",
     running: "Optimizing on the worker…",
-    done: "Your web-optimized PDF is ready.",
   },
 };
+
+/**
+ * Optimize for Web makes no repair claim, so its sentence is fixed. A finished
+ * repair's sentence depends on what qpdf reported: see `repairDoneSentence`.
+ */
+const OPTIMIZE_DONE = "Your web-optimized PDF is ready.";
 
 export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "repair-pdf" ? "repair" : "optimize";
@@ -316,12 +320,25 @@ function StructureRunArea({
       </WorkerRunButton>
 
       <WorkerJobStatus job={job} />
+      {outcome?.ok === false && !outcome.stillRunning && (
+        <OfficeExportNextStep
+          code={outcome.code}
+          from={mode === "repair" ? "repair-pdf" : "optimize-web"}
+        />
+      )}
       {outcome?.ok === true && (
-        <ResultCard announce={copy.done}>
+        <ResultCard
+          announce={
+            mode === "repair" ? repairDoneSentence(outcome.job) : OPTIMIZE_DONE
+          }
+        >
           {/* Before the download button: a user who clicks and leaves is
               exactly the user this is for. */}
-          <RepairWarnings job={outcome.job} />
-          <p className="text-ok text-sm">{copy.done}</p>
+          {mode === "repair" ? (
+            <RepairOutcome job={outcome.job} />
+          ) : (
+            <p className="text-ok text-sm">{OPTIMIZE_DONE}</p>
+          )}
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)

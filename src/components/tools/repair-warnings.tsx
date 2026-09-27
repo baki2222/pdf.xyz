@@ -1,7 +1,59 @@
 "use client";
 
+import Link from "next/link";
 import { Wrench } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
+
+/**
+ * The sentence a finished repair ends on — shown AND announced, from the same
+ * function, so the eye and the screen reader cannot be told different things.
+ *
+ * It says what qpdf reported and no more. Until 2026-09-27 every success said
+ * "Your repaired PDF is ready.", including a run where qpdf exited 0 — nothing
+ * to repair — so a user whose file "won't open" for a reason a structural
+ * rewrite cannot see (a password, damage inside the page content) was told it
+ * had been repaired and handed an identical file. Exit 0 means qpdf issued no
+ * warnings; it does not prove the file is undamaged, hence "found no
+ * structural damage", not "the file is fine".
+ *
+ * No `repair` block means the worker did not report (its image deploys by hand
+ * and can be older than this page), so the sentence claims neither outcome.
+ */
+export function repairDoneSentence(job: Job | undefined): string {
+  const recovered = job?.results?.repair?.recoveredWithWarnings;
+  if (recovered === true) return "Your repaired PDF is ready.";
+  if (recovered === false)
+    return "qpdf found no structural damage and rewrote the file cleanly.";
+  return "Your PDF is ready.";
+}
+
+/**
+ * Everything a finished repair shows above its download: what qpdf rebuilt
+ * when it rebuilt something, the outcome sentence, and — on a clean run —
+ * where to go when the file still will not open.
+ */
+export function RepairOutcome({ job }: { job: Job | undefined }) {
+  const clean = job?.results?.repair?.recoveredWithWarnings === false;
+  return (
+    <>
+      <RepairWarnings job={job} />
+      <p className="text-ok text-sm">{repairDoneSentence(job)}</p>
+      {clean && (
+        <p className="text-muted text-sm leading-relaxed">
+          If it still won&apos;t open, it may be password-protected —{" "}
+          <Link
+            href="/tools/unlock-pdf"
+            className="text-fg font-medium underline underline-offset-4"
+          >
+            try Unlock PDF
+          </Link>{" "}
+          — or the problem may be in the page content, which a structural repair
+          cannot rebuild.
+        </p>
+      )}
+    </>
+  );
+}
 
 /**
  * What qpdf had to fix, shown beside a completed repair.

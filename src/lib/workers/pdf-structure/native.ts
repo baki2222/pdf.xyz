@@ -20,6 +20,7 @@ import {
   type NativePdfStructureConfig,
 } from "./native-config";
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
+import { QpdfRefusedError } from "./errors";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -94,6 +95,8 @@ function text(buf: Buffer | string | undefined): string {
 
 /** qpdf's documented "warnings issued, output was created" status. */
 const QPDF_EXIT_WARNINGS = 3;
+/** qpdf's documented "errors, no usable output" status. */
+const QPDF_EXIT_ERRORS = 2;
 
 /**
  * qpdf's diagnostics, made safe to hand a user.
@@ -147,6 +150,17 @@ export function repairArgs(inputPath: string, outputPath: string): string[] {
   return [inputPath, outputPath];
 }
 
+/**
+ * qpdf `--requires-password`: exit 0 when opening the file needs a password, 2
+ * when it is not encrypted, 3 when it is encrypted but opens without one
+ * (owner-password only). NOT `--is-encrypted`, which also exits 0 for that
+ * last kind: qpdf opens those itself, so when one is refused it is because of
+ * damage, and "use Unlock PDF" would send the user somewhere that cannot help.
+ */
+export function requiresPasswordArgs(inputPath: string): string[] {
+  return ["--requires-password", inputPath];
+}
+
 /** qpdf `--linearize` creates a fast-web-view/progressive-loading PDF. */
 export function linearizeArgs(inputPath: string, outputPath: string): string[] {
   return ["--linearize", inputPath, outputPath];
@@ -183,7 +197,28 @@ export function createNativeQpdfStructureRunner(
       // this tool exists to perform, on precisely the inputs it exists for.
       const clean = result.code === 0;
       const recovered = result.code === QPDF_EXIT_WARNINGS;
-      if (result.timedOut || (!clean && !recovered)) {
+      if (result.timedOut) throw new Error("qpdf timed out.");
+      // Exit 2 is qpdf refusing the DOCUMENT, and it will refuse the same bytes
+      // the same way on every attempt. Ask once, while the file is still on
+      // disk, whether the reason is a password — the one cause the user can
+      // remove with another tool — and say which; the engine makes it final.
+      if (result.code === QPDF_EXIT_ERRORS) {
+        const probe = await exec(
+          config.binary,
+          requiresPasswordArgs(inputPath),
+          {
+            timeout: config.timeoutMs,
+            maxBuffer: EXEC_MAX_BUFFER,
+            windowsHide: true,
+          },
+        );
+        throw new QpdfRefusedError(
+          !probe.timedOut && probe.code === 0
+            ? "password_protected"
+            : "unrecoverable",
+        );
+      }
+      if (!clean && !recovered) {
         throw new Error("qpdf structure operation failed.");
       }
       const output = await fs.readFile(outputPath);
