@@ -178,16 +178,26 @@ describe("the guides catalogue is structurally sound", () => {
       "chat-with-pdf":
         "AI on the worker: answer-grounding claims need a real job against the running image",
     };
+    // Only a tool whose claims cannot be checked in this tree may be excused.
+    const excusable = (slug: string): boolean => {
+      const tool = getToolBySlug(slug);
+      return (
+        tool !== undefined &&
+        capabilityForMode(tool.processing) !== "in-browser"
+      );
+    };
     const gaps = untaught(guides);
     const unexcused = gaps.filter((slug) => !(slug in KNOWN_GAPS));
     expect(unexcused, unexcused.join("\n")).toEqual([]);
     for (const [slug, why] of Object.entries(KNOWN_GAPS)) {
-      const tool = getToolBySlug(slug);
-      expect(tool, `ledger names unknown tool ${slug}`).toBeDefined();
       expect(
-        capabilityForMode(tool!.processing),
+        getToolBySlug(slug),
+        `ledger names unknown tool ${slug}`,
+      ).toBeDefined();
+      expect(
+        excusable(slug),
         `${slug} runs in the browser, so "${why}" cannot excuse it`,
-      ).not.toBe("in-browser");
+      ).toBe(true);
       // Stale entries go red: an entry the site stopped promoting is no
       // longer a top intent, and a gap that got its guide leaves the ledger.
       expect(
@@ -207,6 +217,17 @@ describe("the guides catalogue is structurally sound", () => {
     // tool's only guide surfaces that tool.
     const merge = guides.filter((g) => g.tools[0] !== "merge-pdf");
     expect(untaught(merge)).toContain("merge-pdf");
+    // And through the excuse predicate: an in-browser promoted tool (found,
+    // not named) cannot be excused, nor can a slug the catalogue lacks.
+    const inBrowser = promoted.find(
+      (t) => capabilityForMode(t.processing) === "in-browser",
+    );
+    expect(
+      inBrowser,
+      "no promoted in-browser tool to control with",
+    ).toBeDefined();
+    expect(excusable(inBrowser!.slug)).toBe(false);
+    expect(excusable("no-such-tool")).toBe(false);
   });
 
   it("dates are real and ordered", () => {

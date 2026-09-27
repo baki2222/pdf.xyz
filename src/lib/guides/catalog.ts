@@ -688,7 +688,7 @@ export const guides: Guide[] = [
       "Choose what to add: Text, Box, Line, or Image.",
       "Set the page, then the position in points measured from the bottom-left corner of that page. The tool shows the page's size so you know how much room there is.",
       "Fill in the details: the words, size, and color for text; filled or outline for a box; an arrowhead for a line; a PNG or JPG file for an image. Then click Add to page.",
-      "Add anything else you need, check the page preview, then apply the edits and download the edited PDF.",
+      "Add anything else you need, check the schematic page preview, then apply the edits and download the edited PDF.",
     ],
     sections: [
       {
@@ -697,7 +697,7 @@ export const guides: Guide[] = [
         body: [
           "Every item is placed by numbers rather than dragged. Positions are in PDF points, counted from the bottom-left corner of the page, and the tool shows the size of the page you are working on. For text, the position is where the first line sits, and further lines flow downward from there. Give text a wrap width to break long lines automatically; without one, a line breaks only where you start a new line yourself.",
           `Boxes can be filled, with an adjustable opacity, or drawn as an outline. Lines can end in an arrowhead. Images must be PNG or JPG files of up to ${EDIT_IMAGE_MB} MB each; they start at a size that keeps their proportions, and you can set the width, height, and opacity yourself.`,
-          "Everything you add appears in a list and on a preview of its page, and you can remove any item before you apply. Each item carries its own page number, so one pass can add content to as many pages as you like.",
+          "Everything you add appears in a list and on a schematic preview of its page, and you can remove any item before you apply. Each item carries its own page number, so one pass can add content to as many pages as you like.",
         ],
       },
       {
@@ -723,8 +723,8 @@ export const guides: Guide[] = [
         heading: "Your PDF never leaves your device",
         body: [
           "Edit PDF is an in-browser tool. The PDF and any images you insert are read, edited, and saved on your own machine — there is no server step in the path, and no account is needed.",
-          "Text in Western alphabets uses a font built into the engine. For other scripts, the tool fetches a matching font the first time it is needed, and if your text has characters none of its fonts can draw, it tells you before changing anything rather than leaving blanks in the page.",
-          "One honest caveat about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the work runs entirely on your device, so a dropped connection does not interrupt work already in progress.",
+          "Text in English and the other Western European languages uses a font built into the engine. For any other script — Greek, Cyrillic, Bengali, Chinese, and the rest — the tool downloads a matching font the first time it is needed. If your text has characters none of its fonts can draw, or mixes scripts that no single one of its fonts covers, it tells you before changing anything rather than leaving blanks in the page.",
+          "One honest caveat about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, boxes, lines, images, and text in English or another Western European language are added entirely on your device and need no connection. Text in any other script downloads its font when you apply it, so that step needs a connection. The font download carries none of your document; it is the same file for everyone.",
         ],
       },
     ],
@@ -969,7 +969,7 @@ export const guides: Guide[] = [
         heading: "Your file stays on your device",
         body: [
           "Sign PDF is an in-browser tool. It runs entirely in your browser with WebAssembly and browser APIs, which means the contract, lease, or offer letter you open never leaves your device — the file stays local from the moment you pick it to the moment you export. For the kind of paperwork that usually carries a signature, that is the difference that matters most.",
-          "One honest nuance about connectivity: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the processing itself runs on your device, and a dropped connection does not interrupt work in progress.",
+          "One honest nuance about connectivity: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, drawn signatures, signature images, and names typed in English or another Western European language are placed entirely on your device and need no connection. A name typed in any other script downloads a matching font when you apply it, so that step needs a connection. The font download carries none of your document; it is the same file for everyone.",
         ],
       },
       {
@@ -1002,7 +1002,7 @@ export const guides: Guide[] = [
       {
         question: "Does Sign PDF work offline?",
         answer:
-          "Not fully. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the processing runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+          "Not fully. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, drawn signatures, signature images, and names typed in English or another Western European language need no connection. A name typed in any other script downloads its font when you apply it, and that step needs a connection.",
       },
       {
         question: "How large can the PDF be?",
@@ -1015,7 +1015,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-make-a-scanned-pdf-searchable",
