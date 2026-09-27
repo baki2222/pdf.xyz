@@ -44,7 +44,14 @@
  * **no sentence may assert what the reader personally did.** The allowance may
  * be attributed to the connection, which is what the limiter actually counts.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  copyFiles,
+  flattenForPhraseSearch,
+  withoutComments,
+} from "@/lib/tools/copy-surface";
 import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
 import { AI_ALLOWANCE_USED_MESSAGE } from "./response";
 import { AI_ALLOWANCE_FACT } from "@/lib/tools/tool-facts";
@@ -248,6 +255,101 @@ describe("the AI allowance copy matches what the limiter can distinguish", () =>
         `${where} does not say what the allowance is counted against`,
       ).toMatch(/\bconnection\b/i);
     }
+  });
+});
+
+/**
+ * The shapes above, run over every allowance sentence a visitor can READ — not
+ * over the three constants {@link COPY} names.
+ *
+ * WHY, and it is rule 4 in the house style. `COPY` is a hand-typed list, and a
+ * named list cannot see a string it does not name. On 2026-09-27 Chat with PDF
+ * gained `CHAT_QUESTION_COST_NOTE` ("Each question counts this PDF's text ...
+ * against the daily allowance ..."), rendered directly after
+ * `AI_DAILY_ALLOWANCE_NOTE` in the panel. It is allowance copy by any reading,
+ * and not one test in the block above ever saw it: planting "You have used
+ * your allowance" in it left every test above green.
+ *
+ * THE SET IS DERIVED from `copyFiles()` — the one visitor-readable surface the
+ * other honesty guards already walk, and which `copy-surface.test.ts` holds to
+ * every file that DEFINES an allowance sentence. Inside each file, comments are
+ * stripped and wraps flattened (the three evasions `flattenForPhraseSearch`
+ * closes), and a window is cut around every mention of the allowance in any
+ * spelling this product has used for it. The shapes run over the windows.
+ *
+ * KNOWN BOUND, stated rather than discovered: a window is anchored on an
+ * allowance word, so a personal-conduct claim more than {@link WINDOW} flattened
+ * characters from any such word is outside it. A whole-file scan was measured
+ * and rejected: it flags five non-allowance sentences (status, tool, workspace,
+ * guides and facts pages) that are not this property's business, and a guard
+ * that cries wolf gets weakened.
+ */
+const WINDOW = 200;
+const ALLOWANCE_ANCHOR =
+  /allowance|free\s+(?:ai\s+)?(?:runs?|characters)|per\s+day|a\s+day|for\s+today|daily/gi;
+
+/** Every window of readable text around an allowance mention in `source`. */
+const allowanceWindows = (source: string): string[] => {
+  const text = flattenForPhraseSearch(withoutComments(source));
+  return [...text.matchAll(ALLOWANCE_ANCHOR)].map((match) =>
+    text.slice(Math.max(0, match.index - WINDOW), match.index + WINDOW),
+  );
+};
+
+describe("no allowance sentence ANYWHERE a visitor reads claims the reader's conduct", () => {
+  const scanned = copyFiles().map((file) => ({
+    file: path.relative(process.cwd(), file).replaceAll("\\", "/"),
+    windows: allowanceWindows(readFileSync(file, "utf8")),
+  }));
+  const withWindows = scanned.filter(({ windows }) => windows.length > 0);
+  const windowCount = withWindows.reduce((n, s) => n + s.windows.length, 0);
+
+  it("reads a plausibly sized corpus (97 windows in 13 files when written)", () => {
+    // Both directions: a walk that collapses reports the strongest pass, and
+    // one that explodes (an anchor matching code) drowns the signal.
+    expect(windowCount).toBeGreaterThanOrEqual(60);
+    expect(windowCount).toBeLessThan(1000);
+    expect(withWindows.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("reaches the chat panel's per-question cost note, the sentence COPY never named", () => {
+    const chat = withWindows.find(({ file }) =>
+      file.endsWith("components/tools/chat-with-pdf-worker-panel.tsx"),
+    );
+    expect(
+      chat?.windows.some((w) => w.includes("Each question counts")),
+      "the derived corpus does not reach CHAT_QUESTION_COST_NOTE",
+    ).toBe(true);
+  });
+
+  it("POSITIVE CONTROL: every shipped claim is caught when set beside the allowance sentence", () => {
+    // Through the SAME extractor, so a window or anchor bug shows here.
+    const missed = SHIPPED_CLAIMS.filter((claim) => {
+      const source = `export const X = \`${AI_ALLOWANCE_FACT} ${claim}\`;`;
+      return !allowanceWindows(source).some(
+        (w) => offendingPatterns(w).length > 0,
+      );
+    });
+    expect(missed).toEqual([]);
+  });
+
+  it("CONTROL: true sentences beside the allowance sentence pass the same extractor", () => {
+    const rejected = TRUE_SENTENCES.filter((sentence) => {
+      const source = `export const X = \`${AI_ALLOWANCE_FACT} ${sentence}\`;`;
+      return allowanceWindows(source).some(
+        (w) => offendingPatterns(w).length > 0,
+      );
+    });
+    expect(rejected).toEqual([]);
+  });
+
+  it("finds no personal-conduct claim in any window", () => {
+    const offenders = withWindows.flatMap(({ file, windows }) =>
+      windows.flatMap((w) =>
+        offendingPatterns(w).map(({ name }) => `${file}: ${name} — "${w}"`),
+      ),
+    );
+    expect(offenders, offenders.join("\n")).toEqual([]);
   });
 });
 
