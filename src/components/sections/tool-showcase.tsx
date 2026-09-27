@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { getToolsGroupedByCategory } from "@/lib/tools";
+import { categoryHref } from "@/lib/tools/category-href";
 import type { Tool } from "@/lib/tools/types";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -71,10 +72,11 @@ export function ToolShowcase() {
                 {category.description}
               </p>
               <Link
-                href={`/tools?category=${category.id}`}
+                href={categoryHref(category.id)}
                 className="group text-accent mt-1 inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
               >
                 View all
+                <span className="sr-only"> {category.name}</span>
                 <ArrowRight
                   className="size-4 transition-transform group-hover:translate-x-0.5"
                   aria-hidden

@@ -20,15 +20,8 @@ export function sitemapToXml(entries: MetadataRoute.Sitemap): string {
   for (const entry of entries) {
     lines.push("<url>");
     lines.push(`<loc>${escapeXml(entry.url)}</loc>`);
-    if (entry.lastModified) {
-      const date =
-        entry.lastModified instanceof Date
-          ? entry.lastModified
-          : new Date(entry.lastModified);
-      if (!Number.isNaN(date.getTime())) {
-        lines.push(`<lastmod>${date.toISOString()}</lastmod>`);
-      }
-    }
+    const lastmod = lastmodOf(entry);
+    if (lastmod) lines.push(`<lastmod>${lastmod}</lastmod>`);
     if (entry.changeFrequency) {
       lines.push(`<changefreq>${entry.changeFrequency}</changefreq>`);
     }
@@ -39,6 +32,39 @@ export function sitemapToXml(entries: MetadataRoute.Sitemap): string {
   }
   lines.push("</urlset>", "");
   return lines.join("\n");
+}
+
+/**
+ * An entry's `<lastmod>` as the served XML spells it, or `undefined` when the
+ * entry carries no (valid) date — the one normalisation both the urlset and
+ * the index read, so the index cannot compute "newest" over a different
+ * spelling than the child serves.
+ */
+export function lastmodOf(
+  entry: MetadataRoute.Sitemap[number],
+): string | undefined {
+  if (!entry.lastModified) return undefined;
+  const date =
+    entry.lastModified instanceof Date
+      ? entry.lastModified
+      : new Date(entry.lastModified);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+/**
+ * The newest `<lastmod>` among `entries`, or `undefined` when none carries a
+ * date. A sitemap index's `<lastmod>` for a child is this over the child's
+ * entries: the child changed when its newest page changed, and never earlier.
+ */
+export function newestLastmod(
+  entries: MetadataRoute.Sitemap,
+): string | undefined {
+  // ISO-8601 in UTC compares correctly as a string.
+  return entries
+    .map(lastmodOf)
+    .filter((value): value is string => value !== undefined)
+    .sort()
+    .at(-1);
 }
 
 export function escapeXml(value: string): string {

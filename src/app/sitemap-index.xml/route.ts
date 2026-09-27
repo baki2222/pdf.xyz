@@ -1,6 +1,7 @@
+import sitemap from "@/app/sitemap";
 import { siteConfig } from "@/lib/site";
-import { guides } from "@/lib/guides";
 import { tools } from "@/lib/tools";
+import { newestLastmod } from "@/lib/seo/sitemap-xml";
 
 /**
  * /sitemap-index.xml — a sitemap index whose single child is /sitemap.xml.
@@ -55,15 +56,19 @@ import { tools } from "@/lib/tools";
 const CHILD_SITEMAP = new URL("/sitemaps/pages.xml", siteConfig.url).toString();
 
 /**
- * `lastmod` for the child. Derived from the catalogues the child is built
- * from — the guides carry real edit dates — rather than "now", so the value
- * means "the content changed then", which is what a crawler reads it as.
- * Falls back to the build date only if the catalogue somehow carries none.
+ * `lastmod` for the child: the newest `<lastmod>` the child itself serves,
+ * read from `sitemap()` through the same normaliser the child's XML uses.
+ *
+ * WAS the newest `guide.updated` — a DIFFERENT definition from the child's,
+ * which only agreed while the child stamped every entry with "now" and so
+ * was always newer: production's index said 2026-09-17 over a child whose
+ * every entry said 2026-09-20, an index older than its own contents. One
+ * definition now, so it cannot drift below its child. When no entry carries
+ * a real date there is no `<lastmod>` at all — never "now", which is the
+ * defect `src/app/sitemap.ts` describes.
  */
-function childLastModified(): string {
-  const dates = guides.map((guide) => guide.updated).filter(Boolean);
-  const newest = dates.sort().at(-1);
-  return newest ? `${newest}T00:00:00.000Z` : new Date().toISOString();
+function childLastModified(): string | undefined {
+  return newestLastmod(sitemap());
 }
 
 export function GET(): Response {
@@ -75,12 +80,13 @@ export function GET(): Response {
     );
   }
 
+  const lastmod = childLastModified();
   const body = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     "<sitemap>",
     `<loc>${CHILD_SITEMAP}</loc>`,
-    `<lastmod>${childLastModified()}</lastmod>`,
+    ...(lastmod ? [`<lastmod>${lastmod}</lastmod>`] : []),
     "</sitemap>",
     "</sitemapindex>",
     "",

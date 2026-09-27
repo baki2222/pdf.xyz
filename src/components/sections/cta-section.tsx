@@ -4,6 +4,7 @@ import { toolCount } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
+import { UPLOAD_ANCHOR } from "@/components/sections/hero";
 
 /**
  * The colophon: the page's one full-bleed ink band, closing the paper page
@@ -51,13 +52,14 @@ export function CtaSection() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:col-span-4 lg:justify-end lg:pb-2">
-          <Link
-            href="/workspace"
+          {/* To the homepage drop zone, not the empty workspace; see hero.tsx. */}
+          <a
+            href={`#${UPLOAD_ANCHOR}`}
             className={buttonVariants({ variant: "primary", size: "lg" })}
           >
             Start for free
             <ArrowRight className="size-4" aria-hidden />
-          </Link>
+          </a>
           <Link
             href="/tools"
             className="text-fg decoration-line-strong hover:decoration-accent inline-flex items-center gap-1.5 text-[15px] font-medium underline decoration-1 underline-offset-[6px] transition-colors"

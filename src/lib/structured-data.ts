@@ -92,22 +92,46 @@ export function webApplicationSchema(): Json {
 }
 
 /**
- * A tool's steps as HowTo structured data. The steps come from
- * `howToSteps` — the tool's own catalogue steps or the mode-true default —
- * and the structured-steps guard pins that an in-browser tool's steps never
- * claim an upload, because this block ships to crawlers as fact.
+ * A HowTo whose `name` is exactly what the caller passes — no prefix. The
+ * guides call this with `guide.title`, which already reads "How to merge PDF
+ * files".
+ *
+ * WHY THERE ARE TWO BUILDERS: the guide page used to call `howToSchema` below,
+ * which prefixes "How to use", so all eleven guides shipped
+ * `"name": "How to use How to merge PDF files"` to crawlers. The prefix is
+ * right for a TOOL name and wrong for a title that is already a how-to, and a
+ * builder that silently adds words cannot tell which it was handed. So the
+ * prefix lives only in the tool builder.
+ *
+ * `src/app/guides/guide-structured-data.test.tsx` renders every guide page and
+ * reads the name back out of the markup. It does NOT render the tool page (the
+ * chat panel it imports is evaluated under a `vi.mock` elsewhere, and a second
+ * importer would get the stub); tools are covered only through
+ * {@link howToSchema} rendered by `<JsonLd>`, as that test's positive control.
  */
-export function howToSchema(name: string, steps: readonly string[]): Json {
+export function namedHowToSchema(name: string, steps: readonly string[]): Json {
   return {
     "@context": "https://schema.org",
     "@type": "HowTo",
-    name: `How to use ${name}`,
+    name,
     step: steps.map((text, index) => ({
       "@type": "HowToStep",
       position: index + 1,
       text,
     })),
   };
+}
+
+/**
+ * A TOOL's steps as HowTo structured data, named "How to use <tool name>".
+ * `toolName` is a tool's catalogue name ("Merge PDF"), never a title — for a
+ * title that is already a how-to, use `namedHowToSchema`. The steps come from
+ * `howToSteps` — the tool's own catalogue steps or the mode-true default —
+ * and the structured-steps guard pins that an in-browser tool's steps never
+ * claim an upload, because this block ships to crawlers as fact.
+ */
+export function howToSchema(toolName: string, steps: readonly string[]): Json {
+  return namedHowToSchema(`How to use ${toolName}`, steps);
 }
 
 export function faqPageSchema(items: FaqItem[]): Json {
@@ -186,5 +210,40 @@ export function breadcrumbSchema(
       name: crumb.name,
       item: abs(crumb.path),
     })),
+  };
+}
+
+/**
+ * A category landing page: a CollectionPage whose main entity is the ordered
+ * list of the tools on it. The list is the same array the page renders, so the
+ * structured data cannot name a tool the reader does not see.
+ */
+export function categoryCollectionSchema(args: {
+  path: string;
+  name: string;
+  description: string;
+  tools: readonly Pick<Tool, "slug" | "name">[];
+}): Json {
+  const url = abs(args.path);
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "@id": `${url}#collection`,
+    name: args.name,
+    description: args.description,
+    url,
+    inLanguage: "en-US",
+    isPartOf: { "@id": WEBSITE_ID },
+    publisher: { "@id": ORG_ID },
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: args.tools.length,
+      itemListElement: args.tools.map((tool, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        name: tool.name,
+        url: abs(`/tools/${tool.slug}`),
+      })),
+    },
   };
 }

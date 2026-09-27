@@ -283,7 +283,8 @@ describe("RunButton", () => {
  * seconds to minutes, not milliseconds.
  *
  * The panels themselves are guarded by source scan, in
- * `worker-run-trigger.a11y.test.ts` — a component nobody uses fixes nothing.
+ * `src/components/tools/run-trigger-focus.test.ts` — a component nobody uses
+ * fixes nothing.
  */
 describe("WorkerRunButton", () => {
   function Panel({ onRun }: { onRun?: () => void } = {}) {

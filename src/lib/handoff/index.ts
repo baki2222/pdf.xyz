@@ -12,6 +12,8 @@ import { MemoryHandoffBackend, type HandoffBackend } from "./backend";
 import { IndexedDbHandoffBackend, isIndexedDbAvailable } from "./idb";
 import { HANDOFF_MAX_TOTAL_BYTES, totalHandoffBytes } from "./record";
 import { HandoffStore } from "./store";
+import { eligibleFilesFor, handoffCapabilityFor } from "./capability";
+import { HANDOFF_PARAM } from "./url";
 import type { HandoffFileEntry, HandoffRecord } from "./types";
 
 export type { HandoffFileEntry, HandoffRecord, HandoffSummary } from "./types";
@@ -110,4 +112,44 @@ export async function purgeExpiredHandoffs(): Promise<void> {
  */
 export async function clearHandoffs(): Promise<void> {
   await getHandoffStore().clear();
+}
+
+/**
+ * The files a hand-off to `toolSlug` would actually carry: nothing for a tool
+ * that cannot receive one, only the files its runner can open, and just the
+ * first of those for a single-file tool.
+ *
+ * ONE definition of that gating, for every surface that launches a tool with
+ * files: the workspace's launch button and the homepage drop zone. They were
+ * about to be two copies, and two copies of a gate drift.
+ */
+export function handoffPayload(toolSlug: string, files: File[]): File[] {
+  const cap = handoffCapabilityFor(toolSlug);
+  if (!cap.supported) return [];
+  const eligible = eligibleFilesFor(toolSlug, files);
+  return cap.mode === "single" ? eligible.slice(0, 1) : eligible;
+}
+
+/**
+ * Stash `files` for `toolSlug` and return the URL that opens the tool with
+ * them pre-loaded: `/tools/<slug>?handoff=<id>`. Falls back to the plain tool
+ * URL when nothing can travel (an unsupported tool, no eligible file, over
+ * {@link HANDOFF_MAX_TOTAL_BYTES}, or a storage failure) — an honest open,
+ * never a claim that files came along when they did not. Never throws.
+ */
+export async function handoffHref(
+  toolSlug: string,
+  files: File[],
+): Promise<string> {
+  const target = `/tools/${toolSlug}`;
+  const payload = handoffPayload(toolSlug, files);
+  if (payload.length === 0) return target;
+  try {
+    const token = await stashHandoff(toolSlug, payload);
+    return token
+      ? `${target}?${HANDOFF_PARAM}=${encodeURIComponent(token)}`
+      : target;
+  } catch {
+    return target;
+  }
 }
