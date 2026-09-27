@@ -114,7 +114,7 @@ as in-browser tools, and no processor claims their slugs today.
 
 **OCR** has a dedicated, honest secure-worker page (`/tools/ocr-pdf`) and a full
 request/capability contract (`src/lib/jobs/ocr.ts`, `src/lib/workers/ocr.ts`): it
-validates recognition options (languages, output mode, skip-text), reports its
+validates recognition options (languages, output mode, redo-OCR), reports its
 capability **presence-only**, and mounts an uploader **only** when a worker
 genuinely offers OCR. Phase 23 ships a **real, optional** OCR backend
 (`src/lib/workers/ocr-native.ts`) that shells out to OCRmyPDF/Tesseract on the

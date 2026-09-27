@@ -1,8 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
-import { OCR_LANGUAGE_CODES, buildOcrResultMeta } from "@/lib/jobs/ocr";
+import {
+  OCR_LANGUAGES,
+  OCR_LANGUAGE_CODES,
+  OCR_MAX_INPUT_FILES,
+  buildOcrResultMeta,
+  describeOcrLanguage,
+} from "@/lib/jobs/ocr";
+import { JOB_LIMITS } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
@@ -205,6 +212,135 @@ describe("OcrWorkerPanel", () => {
     ).toBeInTheDocument();
     // Still no uploader when availability is unknown.
     expect(fileInput()).toBeNull();
+  });
+});
+
+/** AVAILABLE, but the worker reports only these recognition packs. */
+function availableWith(languages: string[]): WorkerStatus {
+  return {
+    ...AVAILABLE,
+    ocr: {
+      ...AVAILABLE.ocr,
+      languages: languages as (typeof OCR_LANGUAGE_CODES)[number][],
+    },
+  };
+}
+
+/** Every language chip, by its label, from the catalogue the panel renders. */
+function chip(label: string): HTMLElement {
+  return screen.getByRole("button", { name: label });
+}
+
+function summary(): string {
+  return screen.getByText(/This request:/).parentElement!.textContent ?? "";
+}
+
+describe("OcrWorkerPanel — the page says what one job takes", () => {
+  it("states the per-job file count the runner enforces, not the platform's", async () => {
+    stubFetch(AVAILABLE);
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    // Read the row a user reads, and derive its number from the constant the
+    // runner and processor refuse on — a row that merely HAS a constant behind
+    // it is what shipped "up to 20 files" for a one-file tool.
+    const row = screen.getByText("Limits").parentElement!.textContent ?? "";
+    const match = /(\d+) files? per job/.exec(row);
+    expect(match, row).not.toBeNull();
+    expect(Number(match![1])).toBe(OCR_MAX_INPUT_FILES);
+    expect(row).not.toContain(`up to ${JOB_LIMITS.maxInputFiles} files`);
+  });
+
+  it("says so when a drop brings more than one file, and keeps the first", async () => {
+    stubFetch(AVAILABLE);
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    const files = ["first.pdf", "second.pdf", "third.pdf"].map(
+      (name) => new File(["%PDF-1.7"], name, { type: "application/pdf" }),
+    );
+    // A drop bypasses `multiple={false}`; only the dropzone sees all three.
+    fireEvent.drop(fileInput()!.closest("label")!, {
+      dataTransfer: { files },
+    });
+    expect(await screen.findByText("first.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("second.pdf")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/only the first file was added/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no such note for a single file (positive control)", async () => {
+    stubFetch(AVAILABLE);
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    fireEvent.drop(fileInput()!.closest("label")!, {
+      dataTransfer: {
+        files: [
+          new File(["%PDF-1.7"], "only.pdf", { type: "application/pdf" }),
+        ],
+      },
+    });
+    expect(await screen.findByText("only.pdf")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/only the first file was added/i),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("OcrWorkerPanel — the language menu reads the worker's own report", () => {
+  it("marks a language the worker has no pack for as unavailable, and will not select it", async () => {
+    stubFetch(availableWith(["eng", "spa"]));
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByRole("button", { name: /run ocr on the worker/i });
+
+    const bengali = chip(describeOcrLanguage("ben"));
+    expect(bengali).toHaveAttribute("aria-disabled", "true");
+    expect(bengali).toHaveAttribute(
+      "title",
+      expect.stringMatching(/not installed/i),
+    );
+    fireEvent.click(bengali);
+    expect(summary()).not.toContain(describeOcrLanguage("ben"));
+
+    // An installed one is offered and selectable.
+    const spanish = chip(describeOcrLanguage("spa"));
+    expect(spanish).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(spanish);
+    await waitFor(() => expect(summary()).toContain("English, Spanish"));
+  });
+
+  it("disables no language when the worker reports every pack (the mirror)", async () => {
+    stubFetch(AVAILABLE);
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    for (const language of OCR_LANGUAGES) {
+      expect(chip(language.label)).not.toHaveAttribute("aria-disabled");
+    }
+  });
+
+  it("drops a default the worker cannot run, falling back to one it can", async () => {
+    stubFetch(availableWith(["spa", "fra"]));
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    await waitFor(() => expect(summary()).toMatch(/Spanish → /));
+    expect(summary()).not.toContain("English");
+  });
+});
+
+describe("OcrWorkerPanel — a page that already has text", () => {
+  it("offers only the non-destructive opt-in, off by default, and says so in the request", async () => {
+    stubFetch(DISABLED);
+    render(<OcrWorkerPanel tool={ocrTool} />);
+    await screen.findByText(DISABLED.ocr.detail);
+    // The old switch described its OFF state as "re-recognize"; off actually
+    // aborted the job. It is gone.
+    expect(
+      screen.queryByText(/skip pages that already have text/i),
+    ).not.toBeInTheDocument();
+    const redo = screen.getByRole("checkbox", { name: /redo existing ocr/i });
+    expect(redo).not.toBeChecked();
+    expect(summary()).not.toMatch(/redo/i);
+    fireEvent.click(redo);
+    await waitFor(() => expect(summary()).toMatch(/redo existing OCR/i));
   });
 });
 

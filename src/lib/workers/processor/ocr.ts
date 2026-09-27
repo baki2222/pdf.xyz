@@ -17,6 +17,7 @@
 
 import {
   describeOcrLanguage,
+  OCR_MAX_INPUT_FILES,
   parseOcrOptions,
   type OcrOptions,
   type OcrResultMeta,
@@ -26,6 +27,7 @@ import {
   type OcrEngine,
   type OcrEngineAvailability,
 } from "../ocr";
+import { OCR_REFUSAL_MESSAGES, OcrEngineRefusal } from "../ocr-engine-errors";
 import {
   processorFail,
   processorOk,
@@ -175,6 +177,16 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
           retryable: false,
         });
       }
+      // The runner reads one document per job. Refused here, final, rather than
+      // letting the runner throw into the retryable catch below: two files are
+      // two files on every attempt.
+      if (input.inputs.length > OCR_MAX_INPUT_FILES) {
+        return processorFail({
+          code: "unprocessable_entity",
+          message: `OCR runs on ${OCR_MAX_INPUT_FILES} file per job. Submit each document as its own job. Nothing was processed.`,
+          retryable: false,
+        });
+      }
 
       if (!ready || !deps.runner) {
         return processorFail({
@@ -210,21 +222,35 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
       }
 
       // A real runner returns artifacts + safe metadata from ACTUAL recognition, or
-      // throws on any failure (unreadable input, engine error, timeout,
-      // oversized/invalid output). A throw is caught here and mapped to a typed,
-      // content-free failure — never a raw error message and never fabricated output.
-      // It is retryable because an OCR failure MAY be transient (a timed-out or
-      // memory-pressured worker); the executor bounds retries by its attempt cap, so a
-      // deterministic failure exhausts attempts and then fails the job terminally. This
-      // is the OCR analogue of how the compression processor maps a crashed native
-      // engine to a retryable `internal_error`, and it is why `process()` never throws.
+      // throws on any failure. A throw is caught here and mapped to a typed,
+      // content-free failure — never a raw error message and never fabricated
+      // output, which is why `process()` never throws. Two branches:
+      //
+      //  - an {@link OcrEngineRefusal}: the DOCUMENT is the problem (encrypted,
+      //    signed, unreadable, already has text). The same file returns the same
+      //    answer on every attempt, so it is final, and its fixed copy names the
+      //    next step. Until 2026-09-27 this branch did not exist: the bare
+      //    `catch {}` discarded the error object, so a password-protected PDF was
+      //    retried three times and then reported as "could not process this file".
+      //  - anything else: the RUN (a timeout, a memory-pressured worker, a crash, an
+      //    exit we do not recognise). That MAY be transient, so it is a retryable
+      //    `internal_error`; the executor bounds retries by its attempt cap. This is
+      //    the OCR analogue of how the compression processor maps a crashed native
+      //    engine.
       let run: OcrRunResult;
       try {
         run = await deps.runner({
           options: parsed.value,
           inputs: input.inputs,
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof OcrEngineRefusal) {
+          return processorFail({
+            code: "unprocessable_entity",
+            message: OCR_REFUSAL_MESSAGES[error.kind],
+            retryable: false,
+          });
+        }
         return processorFail({
           code: "internal_error",
           message:

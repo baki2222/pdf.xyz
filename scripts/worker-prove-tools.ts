@@ -76,6 +76,7 @@ import {
   invoiceSheetMismatches,
 } from "@/tests/pdf-office-fixtures";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
+import { mixedScanPdf, mixedSidecarVerdict } from "@/tests/ocr-proof-fixtures";
 import {
   reportTablesPdf,
   tablesProofVerdict,
@@ -549,6 +550,18 @@ interface ProofSpec {
    * pass) reaches the operator.
    */
   verify?: (bytes: Buffer) => Promise<{ ok: boolean; detail: string }>;
+  /**
+   * Which artifact to download, by filename, when a job returns several (OCR's
+   * "both" mode returns the PDF first). Absent ⇒ the first. A job with no
+   * artifact matching it is a FAIL, never a fall-back to another artifact.
+   */
+  artifact?: (filename: string) => boolean;
+  /**
+   * A proof that the tool REFUSES an input properly: the job must end `failed`
+   * with exactly this code and retryability, and a message matching `message`.
+   * A job that completes is the FAIL here. `expect` is then never reached.
+   */
+  expectFailure?: { code: string; retryable: boolean; message: RegExp };
   want: string;
   keepArtifactAs?: string;
 }
@@ -609,6 +622,26 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "searchable PDF",
   },
+  // A page that already has text beside a scanned one, with the panel's
+  // defaults plus the text output. The job completing is half the proof (it
+  // aborted on every such file until 2026-09-27); the .txt holding the typed
+  // page's own words is the other half.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (text + scan)",
+    make: async () => Buffer.from(await mixedScanPdf()),
+    name: "mixed.pdf",
+    type: PDF_MIME,
+    options: { languages: ["eng"], outputMode: "both" },
+    artifact: (filename) => filename.endsWith(".txt"),
+    expect: (bytes) => bytes.length > 0,
+    want: "text sidecar",
+    // A page with text AND a scanned one (a scanner app's "searchable PDF", a
+    // scan behind a typed cover). Until 2026-09-27 OCRmyPDF aborted every such
+    // file; the pure-scan `imagePdf` proof above can never hit it. The same
+    // verdict runs through real poppler in `ocr-native.test.ts`.
+    verify: (bytes) => mixedSidecarVerdict(bytes),
+  },
   {
     tool: "protect-pdf",
     make: textPdf,
@@ -629,6 +662,25 @@ const SPECS: ProofSpec[] = [
     options: { password: PROOF_PASSWORD },
     expect: isPdf,
     want: "decrypted PDF",
+  },
+  // The same locked document through OCR. It can never succeed, so the proof is
+  // HOW it fails: final on the first attempt, naming the tool that fixes it.
+  // Until 2026-09-27 it was retried three times and reported as "The OCR engine
+  // could not process this file".
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (encrypted)",
+    from: "encrypted",
+    name: "locked.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: /Unlock PDF/,
+    },
+    // Never reached: with `expectFailure`, a completed job is itself the FAIL.
+    expect: () => false,
+    want: "a final refusal naming Unlock PDF",
   },
   {
     tool: "pdf-to-pdfa",
@@ -980,7 +1032,7 @@ interface ApiResponse {
   jobId?: string;
   id?: string;
   status?: string;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; retryable?: boolean };
   artifacts?: { artifactId: string; filename: string }[];
 }
 
@@ -1204,6 +1256,33 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     job = (await poll.json().catch(() => ({}))) as ApiResponse;
     if (job.status && TERMINAL_STATUSES.has(job.status)) break;
   }
+  if (spec.expectFailure) {
+    const want = spec.expectFailure;
+    const got = job.error;
+    const matches =
+      job.status === "failed" &&
+      got?.code === want.code &&
+      got.retryable === want.retryable &&
+      want.message.test(got.message);
+    return matches
+      ? {
+          label,
+          outcome: "proven",
+          seconds: seconds(),
+          detail: `refused as ${want.code} (retryable: ${want.retryable}) — ${spec.want}`,
+        }
+      : {
+          label,
+          outcome: "failed",
+          seconds: seconds(),
+          stage: `job ${job.status ?? "timeout"}`,
+          detail: `wanted ${spec.want}, got ${
+            got
+              ? `${got.code} (retryable: ${String(got.retryable)}): ${got.message}`
+              : "no error"
+          }`.slice(0, 240),
+        };
+  }
   if (job.status !== "completed") {
     return {
       label,
@@ -1216,13 +1295,18 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     };
   }
 
-  const artifact = job.artifacts?.[0];
+  const artifact = spec.artifact
+    ? job.artifacts?.find((a) => spec.artifact!(a.filename))
+    : job.artifacts?.[0];
   if (!artifact)
     return {
       label,
       outcome: "failed",
       seconds: seconds(),
       stage: "no artifact",
+      detail: spec.artifact
+        ? `none of ${job.artifacts?.length ?? 0} artifact(s) is the ${spec.want}`
+        : "",
     };
 
   const download = await fetch(`${BASE}/api/artifacts/${artifact.artifactId}`, {

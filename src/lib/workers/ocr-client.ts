@@ -194,7 +194,7 @@ export async function runWorkerOcr(
       options: {
         languages: input.options.languages,
         outputMode: input.options.outputMode,
-        skipTextPages: input.options.skipTextPages,
+        redoOcr: input.options.redoOcr,
       },
     }),
     signal,

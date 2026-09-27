@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildOcrResultMeta, type OcrResultMeta } from "@/lib/jobs/ocr";
+import {
+  OCR_MAX_INPUT_FILES,
+  buildOcrResultMeta,
+  type OcrResultMeta,
+} from "@/lib/jobs/ocr";
+import {
+  OCR_REFUSAL_KINDS,
+  OCR_REFUSAL_MESSAGES,
+  OcrEngineRefusal,
+} from "../ocr-engine-errors";
+import { createNativeOcrRunner } from "../ocr-native";
 import { createOcrProcessor, ocrProcessorMeta, type OcrRunner } from "./ocr";
 import type { ProcessorInputFile } from "./types";
 
@@ -215,6 +225,12 @@ describe("ocr processor — maps a runner failure to a typed, content-free error
     if (result.ok) return;
     // A crashed/timed-out engine is a retryable internal error (the executor bounds
     // retries) — never a fabricated success, and never the raw error text.
+    //
+    // Until 2026-09-27 this was the ONLY failure mapping, and this case asserted
+    // it for every throw — which pinned the defect: a password-protected, signed,
+    // or damaged PDF was retried three times and reported as "could not process
+    // this file". It stays true of the run (a timeout, a crash, an unknown exit),
+    // and the typed document refusals below now take the other branch.
     expect(result.error.code).toBe("internal_error");
     expect(result.error.retryable).toBe(true);
     const serialized = JSON.stringify(result.error);
@@ -233,5 +249,100 @@ describe("ocr processor — maps a runner failure to a typed, content-free error
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("internal_error");
+  });
+});
+
+describe("ocr processor — a refusal that belongs to the document is final and actionable", () => {
+  const readyDeps = (runner: OcrRunner) => ({
+    engines: { ocrmypdf: true, tesseract: false },
+    runner,
+  });
+
+  // Derived from the declared kinds: a kind added without a mapping fails here.
+  for (const kind of OCR_REFUSAL_KINDS) {
+    it(`maps a "${kind}" refusal to a non-retryable unprocessable_entity with its own copy`, async () => {
+      const proc = createOcrProcessor(
+        readyDeps(async () => {
+          throw new OcrEngineRefusal(kind);
+        }),
+      );
+      const result = await proc.process({
+        tool: "ocr-pdf",
+        options: { languages: ["eng"] },
+        inputs: [scan],
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toEqual({
+        code: "unprocessable_entity",
+        message: OCR_REFUSAL_MESSAGES[kind],
+        retryable: false,
+      });
+    });
+  }
+
+  it("refuses more files than OCR_MAX_INPUT_FILES before the runner, and finally", async () => {
+    let ran = false;
+    const proc = createOcrProcessor(
+      readyDeps(async () => {
+        ran = true;
+        return { artifacts: [], meta: fakeMeta() };
+      }),
+    );
+    const result = await proc.process({
+      tool: "ocr-pdf",
+      options: { languages: ["eng"] },
+      inputs: Array.from({ length: OCR_MAX_INPUT_FILES + 1 }, () => scan),
+    });
+    expect(ran).toBe(false);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("unprocessable_entity");
+    expect(result.error.retryable).toBe(false);
+  });
+
+  it("the composed chain: an encrypted PDF through the REAL runner reaches the user as Unlock PDF, once", async () => {
+    // Each boundary can pass alone while the path through them drops the type:
+    // the runner must classify execFile's rejection, and the processor must read
+    // the class it throws. This drives the production runner with an exec that
+    // rejects exactly as `promisify(execFile)` does for `ocrmypdf` exit 8.
+    const runner = createNativeOcrRunner(
+      {
+        enabled: true,
+        binaries: { ocrmypdf: "ocrmypdf", tesseract: "tesseract" },
+        overridden: { ocrmypdf: false, tesseract: false },
+        timeoutMs: 1_000,
+        maxInputBytes: 1024,
+        maxOutputBytes: 1024,
+      },
+      {
+        resolveOnPath: (bin) => bin === "ocrmypdf",
+        exec: async () => {
+          throw Object.assign(new Error("Command failed: ocrmypdf"), {
+            code: 8,
+            killed: false,
+            signal: null,
+            stderr: "EncryptedPdfError: Input PDF is encrypted.",
+          });
+        },
+        fs: {
+          mkdtemp: async (prefix) => `${prefix}x`,
+          writeFile: async () => {},
+          readFile: async () => new Uint8Array(),
+          rm: async () => {},
+        },
+      },
+    );
+    const result = await createOcrProcessor(readyDeps(runner)).process({
+      tool: "ocr-pdf",
+      options: { languages: ["eng"] },
+      inputs: [scan],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.retryable).toBe(false);
+    expect(result.error.code).toBe("unprocessable_entity");
+    expect(result.error.message).toMatch(/Unlock PDF/);
+    expect(result.error.message).not.toContain("EncryptedPdfError");
   });
 });

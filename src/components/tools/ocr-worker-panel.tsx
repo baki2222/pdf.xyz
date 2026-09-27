@@ -22,6 +22,8 @@ import {
   DEFAULT_OCR_OUTPUT_MODE,
   MAX_OCR_LANGUAGES,
   OCR_LANGUAGES,
+  OCR_LANGUAGE_CODES,
+  OCR_MAX_INPUT_FILES,
   OCR_OUTPUT_MODES,
   describeOcrLanguage,
   describeOcrRequest,
@@ -124,7 +126,7 @@ function badgeFor(
  *
  * It is the honest OCR counterpart to the generic {@link WorkerPreview}: it reads
  * the live, presence-only `/api/worker/status` endpoint, lets the user configure
- * a real OCR request (languages, output, skip-text) that is validated with the
+ * a real OCR request (languages, output, redo-OCR) that is validated with the
  * shared `parseOcrOptions` contract, and shows exactly what a secure worker would
  * do with the file — encrypted upload → scan → isolated recognition → download →
  * auto-delete. It never fabricates recognized text or a searchable PDF: when OCR
@@ -142,7 +144,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
   const [outputMode, setOutputMode] = useState<OcrOutputMode>(
     DEFAULT_OCR_OUTPUT_MODE,
   );
-  const [skipTextPages, setSkipTextPages] = useState(false);
+  const [redoOcr, setRedoOcr] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -171,26 +173,61 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
     };
   }, []);
 
-  const toggleLanguage = useCallback((code: OcrLanguage) => {
-    setLanguages((prev) => {
+  // The packs the worker reports it actually has. Until 2026-09-27 the menu
+  // rendered the static catalogue whatever the status said — the heartbeat's
+  // report reached the status payload and stopped there, while the FAQ told
+  // search results the page reflects it. With no report to read (status still
+  // loading, unreachable, or OCR not available — no uploader is mounted then)
+  // there is nothing to narrow by, so the catalogue stands.
+  const installed = useMemo<ReadonlySet<string>>(
+    () =>
+      new Set(
+        status?.ocr.available ? status.ocr.languages : OCR_LANGUAGE_CODES,
+      ),
+    [status],
+  );
+
+  // What is really selected: the user's picks minus any pack the worker lacks.
+  // Derived rather than stored, so the report arriving AFTER a pick still
+  // removes it. If that empties the selection (the default English on a worker
+  // without it), fall back to the first installed language — the request must
+  // never carry a code the worker will refuse.
+  const selected = useMemo<OcrLanguage[]>(() => {
+    const kept = languages.filter((code) => installed.has(code));
+    if (kept.length > 0) return kept;
+    const first = OCR_LANGUAGE_CODES.find((code) => installed.has(code));
+    return first ? [first] : languages;
+  }, [languages, installed]);
+
+  const toggleLanguage = useCallback(
+    (code: OcrLanguage) => {
+      // No check for an uninstalled code here: `selected` drops it on the next
+      // render, so a click on a chip the worker cannot run changes nothing.
+      const prev = selected;
       if (prev.includes(code)) {
-        if (prev.length === 1) return prev; // keep at least one language
-        return prev.filter((entry) => entry !== code);
+        if (prev.length === 1) return; // keep at least one language
+        setLanguages(prev.filter((entry) => entry !== code));
+        return;
       }
-      if (prev.length >= MAX_OCR_LANGUAGES) return prev; // respect the cap
-      return [...prev, code];
-    });
-  }, []);
+      if (prev.length >= MAX_OCR_LANGUAGES) return; // respect the cap
+      setLanguages([...prev, code]);
+    },
+    [selected],
+  );
 
   // Run the free-form options through the real contract validator, so the "what
   // will happen" summary and any submitted job carry exactly the validated value.
   const parsed = useMemo(
-    () => parseOcrOptions({ languages, outputMode, skipTextPages }),
-    [languages, outputMode, skipTextPages],
+    () => parseOcrOptions({ languages: selected, outputMode, redoOcr }),
+    [selected, outputMode, redoOcr],
   );
   const request: OcrOptions = parsed.ok
     ? parsed.value
-    : { languages, outputMode, skipTextPages };
+    : { languages: selected, outputMode, redoOcr };
+  // A worker reporting no pack at all can run nothing; say so rather than
+  // submit a job it will refuse.
+  const runnable =
+    parsed.ok && request.languages.every((code) => installed.has(code));
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && status?.ocr.available === true;
@@ -254,8 +291,9 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
               aria-label="OCR languages"
             >
               {OCR_LANGUAGES.map((language) => {
-                const active = languages.includes(language.code);
-                const atCap = !active && languages.length >= MAX_OCR_LANGUAGES;
+                const active = selected.includes(language.code);
+                const notInstalled = !installed.has(language.code);
+                const atCap = !active && selected.length >= MAX_OCR_LANGUAGES;
                 return (
                   <button
                     key={language.code}
@@ -263,14 +301,16 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
                     // aria-disabled, never native: the cap flips exactly while the
                     // user is picking languages, and a natively disabled chip would
                     // eject their focus and leave the tab order (the #46 rule).
-                    // toggleLanguage already respects the cap.
+                    // toggleLanguage respects the cap; `selected` the report.
                     onClick={() => toggleLanguage(language.code)}
-                    aria-disabled={atCap || undefined}
+                    aria-disabled={notInstalled || atCap || undefined}
                     aria-pressed={active}
                     title={
-                      atCap
-                        ? `Deselect a language first — at most ${MAX_OCR_LANGUAGES} at once.`
-                        : undefined
+                      notInstalled
+                        ? "Not installed on the current worker — it has no recognition pack for this language."
+                        : atCap
+                          ? `Deselect a language first — at most ${MAX_OCR_LANGUAGES} at once.`
+                          : undefined
                     }
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
@@ -325,21 +365,29 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
             </p>
           </div>
 
-          {/* Skip-text toggle */}
+          {/*
+            Redo toggle. Until 2026-09-27 this was "Skip pages that already have
+            text", off by default, and its copy described the off state as
+            re-recognizing those pages. Off actually passed no flag at all, and
+            OCRmyPDF aborted the whole job on the first page with text. Keeping
+            existing text is now the default, and the only opt-in is the
+            non-destructive redo (never --force-ocr, which rasterizes pages).
+          */}
           <label className="text-muted flex items-start gap-2.5 text-sm">
             <input
               type="checkbox"
-              checked={skipTextPages}
-              onChange={(event) => setSkipTextPages(event.target.checked)}
+              checked={redoOcr}
+              onChange={(event) => setRedoOcr(event.target.checked)}
               className="border-line-strong bg-wash accent-accent mt-0.5 size-4 rounded"
             />
             <span className="flex flex-col gap-0.5">
-              <span className="text-fg font-medium">
-                Skip pages that already have text
-              </span>
+              <span className="text-fg font-medium">Redo existing OCR</span>
               <span className="text-muted text-xs leading-relaxed">
-                Leave pages with an existing text layer untouched instead of
-                re-recognizing them.
+                Pages that already have text keep it, and only the pages without
+                text are recognized. Turn this on when a PDF&apos;s existing OCR
+                text is poor: that text is removed and those pages are
+                recognized again. Text typed into the document is kept either
+                way. PDFs only.
               </span>
             </span>
           </label>
@@ -347,13 +395,17 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
           <p className="border-line bg-wash text-muted rounded-[3px] border px-3 py-2 text-xs">
             <span className="text-muted font-medium">This request:</span>{" "}
             {describeOcrRequest(request)}
-            {skipTextPages ? " · skip text pages" : ""}
+            {redoOcr ? " · redo existing OCR" : ""}
           </p>
         </div>
 
         {/* Status-dependent action area */}
         {available && status ? (
-          <OcrRunArea request={request} localDevOnly={status.localDevOnly} />
+          <OcrRunArea
+            request={request}
+            localDevOnly={status.localDevOnly}
+            runnable={runnable}
+          />
         ) : (
           <OcrUnavailable
             phase={phase}
@@ -410,7 +462,9 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limits"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · up to ${JOB_LIMITS.maxInputFiles} files`}
+            // OCR's own per-job count, not the platform's JOB_LIMITS.maxInputFiles:
+            // this row said "up to 20 files" above an uploader that kept one.
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${OCR_MAX_INPUT_FILES} ${OCR_MAX_INPUT_FILES === 1 ? "file" : "files"} per job`}
           />
         </div>
 
@@ -475,11 +529,17 @@ function OcrUnavailable({
 function OcrRunArea({
   request,
   localDevOnly,
+  runnable,
 }: {
   request: OcrOptions;
   localDevOnly: boolean;
+  /** False when the request names a language the worker reports it lacks. */
+  runnable: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  // How many files a drop brought beyond the one OCR reads. A drop bypasses
+  // `multiple={false}`, so without this the rest vanished without a word.
+  const [discarded, setDiscarded] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<OcrWorkerResult | null>(null);
 
@@ -526,6 +586,7 @@ function OcrRunArea({
             type="button"
             onClick={() => {
               setFile(null);
+              setDiscarded(0);
               setOutcome(null);
             }}
             className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
@@ -535,7 +596,10 @@ function OcrRunArea({
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          onFiles={(files) => {
+            setFile(files[0] ?? null);
+            setDiscarded(Math.max(0, files.length - OCR_MAX_INPUT_FILES));
+          }}
           accept="application/pdf,image/jpeg,image/png"
           multiple={false}
           compact
@@ -544,10 +608,25 @@ function OcrRunArea({
         />
       )}
 
+      {discarded > 0 && (
+        <p className="text-warn text-xs leading-relaxed" role="status">
+          Only the first file was added — OCR runs one document per job. The
+          other {discarded === 1 ? "file was" : `${discarded} files were`} not
+          uploaded; run each as its own job.
+        </p>
+      )}
+
+      {!runnable && (
+        <p className="text-warn text-xs leading-relaxed">
+          This worker reports no recognition pack for the selected language, so
+          OCR can&apos;t run here right now.
+        </p>
+      )}
+
       <WorkerRunButton
         onClick={start}
         busy={busy}
-        disabled={!file}
+        disabled={!file || !runnable}
         busyLabel="Recognizing on the worker…"
         icon={ScanText}
       >

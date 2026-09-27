@@ -131,7 +131,7 @@ function completedJob(): Job {
 const options: OcrOptions = {
   languages: ["eng", "spa"],
   outputMode: "both",
-  skipTextPages: false,
+  redoOcr: false,
 };
 
 const input = {
@@ -207,7 +207,7 @@ describe("runWorkerOcr", () => {
       options: {
         languages: ["eng", "spa"],
         outputMode: "both",
-        skipTextPages: false,
+        redoOcr: false,
       },
     });
 
