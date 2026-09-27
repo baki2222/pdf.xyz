@@ -108,6 +108,7 @@ export function markdownPdfOutputName(sourceName: string): string {
  *    1. code spans first (N backticks close on exactly N), contents verbatim;
  *    2. backslash escapes, which make a punctuation mark literal;
  *    3. links and images, printed as "label (url)" — the URL is literal;
+ *       so is a bare `https://…` or `www.…` address (GFM autolinks);
  *    4. emphasis by the flanking rules: `*` must hug the text it wraps, and
  *       `_` additionally may not be intraword, so snake_case is not markup.
  *
@@ -312,7 +313,61 @@ function scanLinkTail(
 const AUTOLINK =
   /^<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*|[^\s<>@]+@[^\s<>@]+)>/;
 
-function tokenizeInline(src: string): InlineUnit[] {
+/** GFM's trailing punctuation: the sentence's, not the address's. */
+const URL_TRAILING = "?!.,:*_~";
+
+/**
+ * Where a bare address starting at `at` ends, or -1. GFM's autolink extension
+ * — what GitHub shows a README reader — takes `https://…` and `www.…` before
+ * emphasis is looked for, so `https://x.com/_private_` keeps its underscores.
+ * CommonMark alone would print "https://x.com/private": a copied address that
+ * no longer works. Any `scheme://` counts, not only GFM's http(s): an address
+ * printed as typed can only be wrong by being unstyled, never by a missing
+ * character. The address must start a word (after whitespace, `*`, `_`, `~`
+ * or `(`), and runs to whitespace, `<` or a code span; trailing punctuation
+ * and a `)` with no `(` to match are left to the sentence, as GFM does.
+ */
+function bareUrlEnd(src: string, at: number): number {
+  const before = src[at - 1];
+  if (before !== undefined && !/[\s*_~(]/.test(before)) return -1;
+  let i = at;
+  if (src.startsWith("www.", at)) i += 4;
+  else {
+    if (!/[A-Za-z]/.test(src[at] ?? "")) return -1;
+    while (i - at < 32 && /[A-Za-z0-9+.-]/.test(src[i] ?? "")) i++;
+    if (!src.startsWith("://", i)) return -1;
+    i += 3;
+  }
+  const body = i;
+  let opens = 0;
+  let closes = 0;
+  while (i < src.length && !/[\s<`]/.test(src[i]!)) {
+    if (src[i] === "(") opens++;
+    else if (src[i] === ")") closes++;
+    i++;
+  }
+  while (i > body) {
+    const last = src[i - 1]!;
+    if (URL_TRAILING.includes(last)) i--;
+    else if (last === ")" && closes > opens) {
+      closes--;
+      i--;
+    } else break;
+  }
+  return i > body ? i : -1;
+}
+
+/**
+ * How deep link and image labels are read as markup. A badge,
+ * `[![alt](img)](url)`, is two; CommonMark allows nothing deeper than an image
+ * inside a link. Each level builds its own {@link InlineSource} and a stack
+ * frame, so without a bound `"[".repeat(k) + "a" + "](b)".repeat(k)` cost
+ * O(k·n) and, at 20 KB, threw "Maximum call stack size exceeded". Past the
+ * bound, brackets print as typed: raw markup, never a missing character.
+ */
+const MAX_LABEL_DEPTH = 3;
+
+function tokenizeInline(src: string, depth = 0): InlineUnit[] {
   const source = new InlineSource(src);
   const out: InlineUnit[] = [];
   let i = 0;
@@ -347,10 +402,10 @@ function tokenizeInline(src: string): InlineUnit[] {
       continue;
     }
     const isImage = c === "!" && src[i + 1] === "[";
-    if (c === "[" || isImage) {
+    if ((c === "[" || isImage) && depth < MAX_LABEL_DEPTH) {
       const link = matchLink(source, isImage ? i + 1 : i);
       if (link) {
-        const label = tokenizeInline(link.label);
+        const label = tokenizeInline(link.label, depth + 1);
         const labelText = label.map((u) => u.ch).join("");
         // Images cannot be drawn here, so their alt text and address stand in
         // for them — the output stays honest about what was left out.
@@ -372,6 +427,12 @@ function tokenizeInline(src: string): InlineUnit[] {
         i += auto[0].length;
         continue;
       }
+    }
+    const url = bareUrlEnd(src, i);
+    if (url > i) {
+      pushAll(out, literalUnits(src.slice(i, url)));
+      i = url;
+      continue;
     }
     const cp = src.codePointAt(i)!;
     const ch = String.fromCodePoint(cp);

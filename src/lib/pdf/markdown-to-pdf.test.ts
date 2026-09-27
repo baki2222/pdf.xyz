@@ -166,6 +166,26 @@ describe("the markdown corpus (health check)", () => {
  *  `_em_`, so it was green over this; it pins correct behaviour and stays.
  * ------------------------------------------------------------------ */
 
+/** Every snake_case token in the repository's Markdown, bounded below. */
+function repoSnakeTokens(): Set<string> {
+  const tokens = new Set<string>();
+  for (const file of MARKDOWN_FILES) {
+    const text = readRepoMarkdown(file);
+    for (const match of text.matchAll(
+      // Intraword underscores only. A prose `__init__` IS strong emphasis by
+      // CommonMark (GitHub shows a bold "init"); the dunder case this tool
+      // broke was inside a code span, and the span corpus covers it.
+      /(?<![\w*~])[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+(?![\w*~])/g,
+    )) {
+      tokens.add(match[0]);
+    }
+  }
+  expect(tokens.size, "the token corpus is implausibly small").toBeGreaterThan(
+    50,
+  );
+  return tokens;
+}
+
 describe("inline markup never deletes the user's characters", () => {
   it.each([
     [
@@ -205,6 +225,8 @@ describe("inline markup never deletes the user's characters", () => {
     ["`code` span", "code span"],
     ['[label](https://e.com "title")', "label (https://e.com)"],
     ["![alt text](img.png)", "alt text (img.png)"],
+    // A badge: an image inside a link. The label-depth bound must not stop it.
+    ["[![CI](badge.svg)](actions)", "CI (badge.svg) (actions)"],
   ])("control: %j is markup and prints as %j", (source, expected) => {
     expect(paragraphText(source)).toBe(expected);
   });
@@ -238,22 +260,7 @@ describe("inline markup never deletes the user's characters", () => {
   });
 
   it("keeps every snake_case token in the repository's Markdown", () => {
-    const tokens = new Set<string>();
-    for (const file of MARKDOWN_FILES) {
-      const text = readRepoMarkdown(file);
-      for (const match of text.matchAll(
-        // Intraword underscores only. A prose `__init__` IS strong emphasis by
-        // CommonMark (GitHub shows a bold "init"); the dunder case this tool
-        // broke was inside a code span, and the span corpus above covers it.
-        /(?<![\w*~])[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+(?![\w*~])/g,
-      )) {
-        tokens.add(match[0]);
-      }
-    }
-    expect(
-      tokens.size,
-      "the token corpus is implausibly small",
-    ).toBeGreaterThan(50);
+    const tokens = repoSnakeTokens();
     const lost = [...tokens].filter(
       (token) => paragraphText(`Use ${token} here.`) !== `Use ${token} here.`,
     );
@@ -277,6 +284,115 @@ describe("inline markup never deletes the user's characters", () => {
   });
 });
 
+/* ------------------------------------------------------------------ *
+ *  Finding (review note): a bare URL lost its characters to emphasis.
+ *
+ *  "See https://x.com/_private_ now" printed "https://x.com/private", and a
+ *  bare ".../main/__init__.py" printed ".../main/init.py". CommonMark's
+ *  flanking rules allow it, but GFM's autolink extension — what GitHub shows
+ *  a README reader — takes the URL before emphasis is looked for, so the
+ *  address a reader copies out of the PDF was a broken one. The corpus above
+ *  puts its tokens in prose and code spans, never in a bare address.
+ * ------------------------------------------------------------------ */
+
+/** Bare URLs in the repository's prose, found without the tokenizer. */
+function repoBareUrls(): Set<string> {
+  const urls = new Set<string>();
+  for (const file of MARKDOWN_FILES) {
+    for (const line of proseLines(readRepoMarkdown(file))) {
+      for (const match of line.matchAll(
+        /(?<=^|[\s(*_~])(?:https?:\/\/|www\.)[^\s<`]+/g,
+      )) {
+        // GFM leaves trailing punctuation to the sentence; drop it, and any
+        // closing paren, so the sample is an address on its own.
+        const url = match[0].replace(/[?!.,:*_~)]+$/, "");
+        if (!/^(?:https?:\/\/|www\.)$/.test(url)) urls.add(url);
+      }
+    }
+  }
+  expect(urls.size, "the URL corpus is implausibly small").toBeGreaterThan(2);
+  return urls;
+}
+
+describe("a bare URL keeps its characters", () => {
+  it.each([
+    "See https://x.com/_private_ now",
+    "Get https://github.com/a/b/blob/main/__init__.py here.",
+    "a https://x.com/*star*/p, then.",
+    "Visit www.x.com/a_b_/c today",
+    "Read (https://x.com/wiki/Foo_(bar)) first",
+  ])("%j prints as typed", (source) => {
+    expect(paragraphText(source)).toBe(source);
+  });
+
+  it.each([
+    // Positive controls: the address is literal, the markup around it is not.
+    ["**https://x.com/a_b**", "https://x.com/a_b"],
+    ["_https://x.com/a_", "https://x.com/a"],
+    ["*see www.x.com/p*.", "see www.x.com/p."],
+    // Not an address: a scheme with nothing after it, or no word boundary.
+    ["_http://_ is a scheme", "http:// is a scheme"],
+    ["x/https://y.com/_a_", "x/https://y.com/a"],
+  ])("control: %j prints as %j", (source, expected) => {
+    expect(paragraphText(source)).toBe(expected);
+  });
+
+  it("keeps every bare URL in the repository's Markdown, and every snake_case token as a path", () => {
+    const urls = [...repoBareUrls()];
+    for (const token of repoSnakeTokens()) {
+      urls.push(
+        `https://x.dev/${token}`,
+        `https://x.dev/_${token}_/`,
+        `https://x.dev/__${token}__.py`,
+        `www.x.dev/*${token}*/p`,
+      );
+    }
+    const lost = urls.filter(
+      (url) => paragraphText(`See ${url} now.`) !== `See ${url} now.`,
+    );
+    expect(lost).toEqual([]);
+  });
+});
+
+/** Every construct whose label the tokenizer reads as inline Markdown. */
+const NESTED_OPENERS = [
+  ["links", "["],
+  ["images", "!["],
+] as const;
+
+/** `open` nested as deep as the source cap allows, around one `label`. */
+function nestedAtCap(open: string, label: string, url: string) {
+  const closer = `](${url})`;
+  const k = Math.floor(
+    (MAX_SOURCE_BYTES - label.length) / (open.length + closer.length),
+  );
+  return { k, source: open.repeat(k) + label + closer.repeat(k) };
+}
+
+const occurrences = (text: string, ch: string) => text.split(ch).length - 1;
+
+/**
+ * No character of a nested label is lost, whichever levels are read as links:
+ * each destination survives, once, and each level is either consumed whole
+ * (its brackets, and for an image its `!`) or printed whole.
+ */
+function expectEveryNestedLevelKept(
+  text: string,
+  open: string,
+  k: number,
+  label: string,
+  url: string,
+) {
+  expect(occurrences(text, label)).toBe(1);
+  expect(occurrences(text, url)).toBe(k);
+  expect(occurrences(text, "(")).toBe(k);
+  expect(occurrences(text, ")")).toBe(k);
+  expect(occurrences(text, "]")).toBe(occurrences(text, "["));
+  expect(occurrences(text, "!")).toBe(
+    open.startsWith("!") ? occurrences(text, "[") : 0,
+  );
+}
+
 describe("the inline tokenizer stays linear up to the source cap", () => {
   // One paragraph, as large as the tool accepts. A scan that restarts per
   // candidate is quadratic here: `[a](b` repeated took 19.5 s before the
@@ -293,12 +409,30 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
     ["openers only", "*a "],
     ["closers only", "a* "],
     ["underscores", "_a _b "],
+    ["bare URLs", "(https://x/_a_) "],
+    ["scheme candidates", "abcdefghijklmnopqrstuvwxyz012345:/ "],
+    ["unbalanced parens", "https://x" + ")".repeat(64) + " "],
   ])("%s", (_label, unit) => {
     const source = repeat(unit);
     const started = performance.now();
     const text = paragraphText(source);
     const elapsed = performance.now() - started;
     expect(text).toBe(source.trim());
+    expect(elapsed).toBeLessThan(5_000);
+  });
+
+  // Nesting. Every label used to be read by a fresh recursive call, one stack
+  // frame and one O(n) bracket pass per level: at 5 KB this took 396 ms, and
+  // at 20 KB it threw "Maximum call stack size exceeded" - an input the
+  // renderer before links drew in 23 ms. The flat shapes above never nest, so
+  // the suite's title held for them and not for this. The stack half of the
+  // property is proved in a child process below; this is the time half.
+  it.each(NESTED_OPENERS)("nested %s", (_label, open) => {
+    const { k, source } = nestedAtCap(open, "a", "b");
+    const started = performance.now();
+    const text = paragraphText(source);
+    const elapsed = performance.now() - started;
+    expectEveryNestedLevelKept(text, open, k, "a", "b");
     expect(elapsed).toBeLessThan(5_000);
   });
 });
@@ -384,8 +518,13 @@ let tableRun: {
   cases: Record<"tall" | "wide", TableCase>;
 } | null = null;
 
-function renderTablesInChild() {
-  tableRun ??= JSON.parse(
+/**
+ * Runs `script` in a child `node`, on its main thread, with a fifth of node's
+ * default stack; the tool's real module is at `MD_MODULE`, the source cap at
+ * `MD_CAP`, and anything in `env` is passed too. Returns what it printed.
+ */
+function runInConsumerStack<T>(script: string, env: Record<string, string>) {
+  return JSON.parse(
     execFileSync(
       process.execPath,
       [
@@ -394,7 +533,7 @@ function renderTablesInChild() {
         "tsx",
         "--input-type=module",
         "-e",
-        TABLE_CHILD,
+        script,
       ],
       {
         cwd: ROOT,
@@ -404,11 +543,20 @@ function renderTablesInChild() {
           ...process.env,
           MD_MODULE: pathToFileURL(path.join(__dirname, "markdown-to-pdf.ts"))
             .href,
+          MD_CAP: String(MAX_SOURCE_BYTES),
+          ...env,
         },
       },
     ),
+  ) as T;
+}
+
+function renderTablesInChild() {
+  tableRun ??= runInConsumerStack<NonNullable<typeof tableRun>>(
+    TABLE_CHILD,
+    {},
   );
-  return tableRun!;
+  return tableRun;
 }
 
 describe("a table stays renderable up to the source cap", () => {
@@ -450,6 +598,109 @@ describe("a table stays renderable up to the source cap", () => {
         expect(count("c")).toBe(n - 2);
         expect(count("z")).toBe(1);
       }
+    },
+    120_000,
+  );
+});
+
+/* ------------------------------------------------------------------ *
+ *  Finding: nested link labels overflowed the stack far below the cap.
+ *
+ *  Each link or image label was tokenized by a recursive call, so the stack
+ *  depth was the nesting depth: `"[".repeat(k) + "a" + "](b)".repeat(k)`
+ *  threw "Maximum call stack size exceeded" at 20 KB. A stack-depth property
+ *  is not provable in vitest's 4 MB worker stack, so, as for tables, the
+ *  render runs in the child. The shape is built at the cap, and the positive
+ *  control is a walk that spends one frame per nesting level: it MUST throw
+ *  there, or the shape is too shallow to tell a bounded tokenizer from the
+ *  recursive one.
+ * ------------------------------------------------------------------ */
+
+const NESTED_CHILD = String.raw`
+const { markdownToPdf, parseMarkdownBlocks } = await import(process.env.MD_MODULE);
+const cap = Number(process.env.MD_CAP);
+const openers = JSON.parse(process.env.MD_OPENERS);
+const down = (n) => (n === 0 ? 0 : 1 + down(n - 1));
+let lo = 1, hi = 1 << 24;
+while (lo < hi) {
+  const mid = (lo + hi + 1) >> 1;
+  try { down(mid); lo = mid; } catch { hi = mid - 1; }
+}
+const out = { depthLimit: lo, cases: {} };
+for (const [name, open] of openers) {
+  const closer = "](y)";
+  const k = Math.floor((cap - 1) / (open.length + closer.length));
+  const source = open.repeat(k) + "x" + closer.repeat(k);
+  let walkThrows = false;
+  try { down(k); } catch (e) { walkThrows = e instanceof RangeError; }
+  const result = { k, bytes: Buffer.byteLength(source), walkThrows };
+  const started = performance.now();
+  try {
+    result.blocks = parseMarkdownBlocks(source).length;
+    const pdf = await markdownToPdf(source, { title: name + ".md" });
+    result.pdf = Buffer.from(pdf).toString("base64");
+  } catch (error) {
+    result.error = String(error);
+  }
+  result.ms = performance.now() - started;
+  out.cases[name] = result;
+}
+process.stdout.write(JSON.stringify(out));
+`;
+
+interface NestedCase {
+  k: number;
+  bytes: number;
+  walkThrows: boolean;
+  blocks?: number;
+  pdf?: string;
+  error?: string;
+  ms: number;
+}
+
+let nestedRun: {
+  depthLimit: number;
+  cases: Record<string, NestedCase>;
+} | null = null;
+
+function renderNestedInChild() {
+  nestedRun ??= runInConsumerStack<NonNullable<typeof nestedRun>>(
+    NESTED_CHILD,
+    { MD_OPENERS: JSON.stringify(NESTED_OPENERS) },
+  );
+  return nestedRun;
+}
+
+describe("nested link labels stay renderable up to the source cap", () => {
+  it("the child's stack cannot recurse once per level of the shape (health check)", () => {
+    const run = renderNestedInChild();
+    // Plausible: a stack deep enough for the whole shape would let the
+    // recursive tokenizer pass; one a few frames deep is not a main thread.
+    expect(run.depthLimit).toBeGreaterThan(500);
+    expect(Object.keys(run.cases)).toEqual(NESTED_OPENERS.map(([n]) => n));
+    for (const result of Object.values(run.cases)) {
+      expect(result.k).toBeGreaterThan(run.depthLimit);
+      expect(result.walkThrows).toBe(true);
+    }
+  }, 120_000);
+
+  it.each(NESTED_OPENERS)(
+    "%s nested to the cap reach the page, every character kept",
+    async (name, open) => {
+      const result = renderNestedInChild().cases[name]!;
+      expect(result.bytes).toBeLessThanOrEqual(MAX_SOURCE_BYTES);
+      expect(result.error).toBeUndefined();
+      expect(result.blocks).toBe(1);
+      expect(result.ms).toBeLessThan(30_000);
+
+      // What the reader receives: every drawn run. The title ("links.md")
+      // holds none of the characters counted, so it needs no filtering.
+      const runs = await drawnRuns(
+        new Uint8Array(Buffer.from(result.pdf!, "base64")),
+      );
+      const drawn = runs.map((run) => run.text).join("");
+      expect(drawn).toContain(`${name}.md`);
+      expectEveryNestedLevelKept(drawn, open, result.k, "x", "y");
     },
     120_000,
   );
