@@ -38,6 +38,14 @@ export interface Tool {
   /** URL slug: /tools/[slug] */
   slug: string;
   name: string;
+  /**
+   * The page's <title> (and social title) when `name` alone misses the query
+   * a searcher types — "password protect pdf" for Protect PDF, "pdf" at all
+   * for AI Data Extraction. The H1, cards, nav and share-image alt keep `name`.
+   * No brand suffix: the root layout's title template adds it. Every word must
+   * already appear in this tool's own copy — tool-page-content.test.ts.
+   */
+  seoTitle?: string;
   /** Short line used on cards. */
   tagline: string;
   /** Longer description used on the tool page and meta description. */

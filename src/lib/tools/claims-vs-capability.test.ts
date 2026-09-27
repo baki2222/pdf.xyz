@@ -239,11 +239,20 @@ function metadataFields(pageFile: string, entity: string): string[] {
 }
 
 /** Fields of each entity the containers read as served meta copy. */
-const TOOL_META_FIELDS = ["description", "keywords", "name", "slug", "tagline"];
+const TOOL_META_FIELDS = [
+  "description",
+  "keywords",
+  "name",
+  "seoTitle",
+  "slug",
+  "tagline",
+];
 const GUIDE_META_FIELDS = ["description", "keywords", "slug", "title"];
 
 async function toolContainer(tool: Tool): Promise<Container> {
   const texts = [
+    // <title> and og:title when set (the page falls back to the name).
+    ...(tool.seoTitle ? [tool.seoTitle] : []),
     tool.tagline,
     tool.description,
     // og:image:alt, exactly as the page composes it.

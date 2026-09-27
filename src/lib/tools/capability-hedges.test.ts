@@ -110,6 +110,7 @@ function catalogueCopy(): CopyEntry[] {
     const at = (where: string, text: string) =>
       out.push({ slug: tool.slug, where, text });
     at("name", tool.name);
+    if (tool.seoTitle) at("seoTitle", tool.seoTitle);
     at("tagline", tool.tagline);
     at("description", tool.description);
     tool.keywords.forEach((k, i) => at(`keywords[${i}]`, k));

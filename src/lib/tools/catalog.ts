@@ -57,6 +57,7 @@ export const tools: Tool[] = [
   {
     slug: "organize-pages",
     name: "Organize Pages",
+    seoTitle: "Organize PDF Pages — Reorder, Rotate & Delete",
     tagline: "Reorder, rotate, and delete pages visually.",
     description:
       "Rearrange, rotate, duplicate, and delete pages on a visual page board, then export a clean PDF.",
@@ -71,6 +72,7 @@ export const tools: Tool[] = [
   {
     slug: "extract-pages",
     name: "Extract Pages",
+    seoTitle: "Extract Pages from a PDF",
     tagline: "Pull specific pages into a new PDF.",
     description:
       "Pick pages by clicking thumbnails or typing a range like 1-3, 5, then export them as a brand-new PDF — right in your browser. The file stays on your device.",
@@ -85,6 +87,7 @@ export const tools: Tool[] = [
   {
     slug: "remove-pages",
     name: "Delete Pages",
+    seoTitle: "Delete Pages from a PDF",
     tagline: "Remove unwanted pages in seconds.",
     description:
       "Delete pages by clicking thumbnails or typing a range like 1-3, 5, then download the trimmed PDF — right in your browser. The file stays on your device.",
@@ -113,6 +116,7 @@ export const tools: Tool[] = [
   {
     slug: "extract-images",
     name: "Extract Images",
+    seoTitle: "Extract Images from a PDF",
     tagline: "Save the images embedded in a PDF.",
     description:
       "Pull embedded JPEG and RGB/grayscale images out of a PDF at their original resolution — real image files, not page screenshots. Unsupported formats are skipped.",
@@ -530,6 +534,7 @@ export const tools: Tool[] = [
   {
     slug: "extract-tables",
     name: "Extract Tables",
+    seoTitle: "Extract Tables from PDF to CSV & Excel",
     tagline: "Detected tables into CSV/Excel.",
     description:
       "Detect aligned tables inside a PDF's selectable text and export them to clean CSV files plus a combined Excel workbook. Scanned PDFs need OCR first.",
@@ -552,6 +557,7 @@ export const tools: Tool[] = [
   {
     slug: "edit-pdf",
     name: "Edit PDF",
+    seoTitle: "Edit PDF — Add Text, Images & Shapes",
     tagline: "Add text, images, and shapes.",
     description:
       "Add new text, images, boxes, and lines to a PDF, then export a flattened copy — placed by coordinates in your browser. It doesn't rewrite the file's existing text.",
@@ -603,6 +609,7 @@ export const tools: Tool[] = [
   {
     slug: "page-numbers",
     name: "Add Page Numbers",
+    seoTitle: "Add Page Numbers to a PDF",
     tagline: "Insert page numbers your way.",
     description:
       // Count-free deliberately: the runner ships four presets AND a free-form
@@ -619,6 +626,7 @@ export const tools: Tool[] = [
   {
     slug: "watermark-pdf",
     name: "Add Watermark",
+    seoTitle: "Add a Watermark to a PDF",
     tagline: "Stamp a text watermark on every page.",
     description:
       // Text only, drawn once per page (pdf/watermark.ts): no image input, no
@@ -727,6 +735,7 @@ export const tools: Tool[] = [
   {
     slug: "request-signatures",
     name: "Request Signatures",
+    seoTitle: "Request Signatures — Prepare a PDF to Sign",
     tagline: "Prepare a PDF for others to sign.",
     description:
       // Preparation only: no e-signature provider is wired
@@ -750,6 +759,7 @@ export const tools: Tool[] = [
   {
     slug: "fill-forms",
     name: "Fill Forms",
+    seoTitle: "Fill PDF Forms — Text, Checkboxes & Dropdowns",
     tagline: "Complete a PDF's existing form fields.",
     description:
       "Fill a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in your browser.",
@@ -770,6 +780,7 @@ export const tools: Tool[] = [
   {
     slug: "create-forms",
     name: "Create Fillable Forms",
+    seoTitle: "Create Fillable PDF Forms",
     tagline: "Turn a PDF into a fillable form.",
     description:
       "Add text fields, checkboxes, dropdowns, radio groups, and lists by position to build a reusable fillable AcroForm PDF — right in your browser.",
@@ -793,6 +804,7 @@ export const tools: Tool[] = [
   {
     slug: "protect-pdf",
     name: "Protect PDF",
+    seoTitle: "Password Protect PDF — AES Encryption",
     tagline: "Encrypt with a password.",
     description:
       "Password-protect a PDF with AES encryption, so only people with the password can open it. Encryption runs on an encrypted, auto-deleting secure worker.",
@@ -858,6 +870,7 @@ export const tools: Tool[] = [
   {
     slug: "flatten-pdf",
     name: "Flatten PDF",
+    seoTitle: "Flatten PDF Forms — Lock Filled Fields",
     tagline: "Lock fillable form fields into the page.",
     description:
       "Flatten a filled PDF form in your browser, so its answers become part of the page and can't be edited. Comments and layers are kept as they are.",
@@ -959,7 +972,8 @@ export const tools: Tool[] = [
   {
     slug: "ai-extract",
     name: "AI Data Extraction",
-    tagline: "Pull structured fields from documents.",
+    seoTitle: "Extract Data from PDF to JSON with AI",
+    tagline: "Pull structured fields from PDFs.",
     description:
       "Extract fields from PDF invoices, receipts and contracts into clean JSON with AI — read from the PDF's selectable text.",
     category: "ai",

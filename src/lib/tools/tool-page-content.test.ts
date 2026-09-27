@@ -57,6 +57,7 @@ import {
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { getRelatedTools, getToolBySlug, tools } from "@/lib/tools";
+import { siteConfig } from "@/lib/site";
 import { guides } from "@/lib/guides";
 import type { Guide } from "@/lib/guides";
 import type { Tool } from "./types";
@@ -99,6 +100,7 @@ const tool = (slug: string): Tool => {
 /** Everything a tool page says in its own voice, as the page renders it. */
 function pageTexts(t: Tool): string[] {
   return [
+    ...(t.seoTitle ? [t.seoTitle] : []),
     t.tagline,
     t.description,
     ...howToSteps(t),
@@ -385,8 +387,10 @@ describe("a tool that takes several files describes them in its own steps", () =
  * ------------------------------------------------------------------ */
 
 /**
- * Tool names without "PDF" in them — each one is the page's <title> and H1,
- * so the query a searcher types is missing from both. RECORDED, not wished:
+ * Tool names without "PDF" in them — each one is the page's H1 (and card and
+ * nav label), so the query a searcher types is missing from it. The <title>
+ * was the other half until each of these gained an `seoTitle`; that half is
+ * now guarded for EVERY tool by "every tool page's <title> says “PDF”" below. RECORDED, not wished:
  * this list must equal what the catalogue holds, in both directions, so a
  * rename takes its entry out and a new tool cannot join silently. Shrink it;
  * never add to it to ship.
@@ -436,6 +440,153 @@ describe("tool names carry the head term", () => {
       15,
     );
     expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  The served <title>: the query a searcher types, in words the page backs.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The <title> the tool page serves — composed the way Next composes it, from
+ * the page's OWN expression and the root layout's OWN template, both read out
+ * of source and evaluated, so neither the page's choice of field nor the
+ * layout's suffix is restated here.
+ *
+ * WHY NOT IMPORT THE PAGE: importing it evaluates every worker panel, and
+ * under `isolate: false` that caches a panel another file mocks
+ * (claims-vs-capability.test.ts records the same constraint).
+ *
+ * The defect this was built on (audit at 67e8d0f, re-verified at 0db7b13):
+ * the title was `tool.name`, full stop. So "Protect PDF — pdf.xyz" never said
+ * "password" to a searcher typing "password protect pdf", and eleven pages —
+ * "AI Data Extraction — pdf.xyz", "Add Watermark — pdf.xyz", "Extract Images
+ * — pdf.xyz" — never said "PDF", the head term, at all. A rename would have
+ * fixed the <title> by changing the H1, the cards, the nav and the worker's
+ * own package text with it; `seoTitle` changes the <title> alone.
+ */
+function servedToolTitle(): (t: Tool) => string {
+  const page = withoutComments(read("src/app/tools/[slug]/page.tsx"));
+  const body = /export async function generateMetadata[\s\S]*?\n\}\r?\n/.exec(
+    page,
+  )?.[0];
+  if (!body) throw new Error("tool page: no generateMetadata found");
+  // The found-tool branch is the buildMetadata call that sets a `path`.
+  const call = [...body.matchAll(/buildMetadata\(\{([\s\S]*?)\}\)/g)]
+    .map((m) => m[1]!)
+    .find((args) => /\bpath:/.test(args));
+  const expr = call && /\btitle:\s*([^,\n]+),/.exec(call)?.[1]?.trim();
+  if (!expr) throw new Error("tool page: no title in its buildMetadata call");
+  // Only property reads of `tool` may be evaluated — never arbitrary source.
+  if (!/^tool\.\w+(\s*\?\?\s*tool\.\w+)*$/.test(expr))
+    throw new Error(`tool page: unexpected title expression "${expr}"`);
+  const pick = new Function("tool", `return (${expr});`) as (t: Tool) => string;
+
+  const layout = withoutComments(read("src/app/layout.tsx"));
+  const raw = /template:\s*`([^`]*)`/.exec(layout)?.[1];
+  if (!raw) throw new Error("root layout: no title template found");
+  const template = raw.replace("${siteConfig.name}", siteConfig.name);
+  if (!template.includes("%s") || template.includes("${"))
+    throw new Error(`root layout: template "${raw}" did not resolve`);
+  return (t) => template.replace("%s", pick(t));
+}
+
+/** Google shows about 60 characters of a title before it truncates. */
+const TITLE_BUDGET = 60;
+const TITLE_STOPWORDS = new Set(
+  "a an and for from in of on the to with your".split(" "),
+);
+const stem = (word: string) =>
+  word.length > 3 && word.endsWith("s") ? word.slice(0, -1) : word;
+const words = (text: string) =>
+  text
+    .toLowerCase()
+    .split(/[^a-z0-9-]+/)
+    .flatMap((w) => [w, ...w.split("-")])
+    .filter((w) => w && !TITLE_STOPWORDS.has(w))
+    .map(stem);
+
+/**
+ * Words of an seoTitle that the tool's own copy never uses. The title is the
+ * one line a searcher reads before choosing the page, and it must not promise
+ * what the page does not: every word in it has to come from copy the honesty
+ * guards already read (name, tagline, description, keywords), or the formats
+ * the page lists it taking and producing (`accept`, `outputs`) — Add Page
+ * Numbers never writes "PDF" in its prose, and it only takes PDFs.
+ */
+function unbackedTitleWords(t: Tool, seoTitle: string): string[] {
+  const backed = new Set(
+    words(
+      [
+        t.name,
+        t.tagline,
+        t.description,
+        ...t.keywords,
+        ...t.accept,
+        ...t.outputs,
+      ].join(" "),
+    ),
+  );
+  return [...new Set(words(seoTitle))].filter((w) => !backed.has(w));
+}
+
+describe("the served <title> carries the head term", () => {
+  const title = servedToolTitle();
+
+  it("every tool page's <title> says “PDF”", () => {
+    expect(tools.length, "catalogue implausibly small").toBeGreaterThanOrEqual(
+      40,
+    );
+    const lacking = tools
+      .map((t) => title(t))
+      .filter((served) => !/\bPDF\b/.test(served));
+    expect(lacking, lacking.join("\n")).toEqual([]);
+  });
+
+  it("every <title> fits the width a result shows", () => {
+    const long = tools
+      .map((t) => title(t))
+      .filter((served) => served.length > TITLE_BUDGET)
+      .map((served) => `${served.length}: ${served}`);
+    expect(long, long.join("\n")).toEqual([]);
+  });
+
+  it("an seoTitle promises nothing the tool's own copy does not say", () => {
+    const withTitle = tools.filter((t) => t.seoTitle !== undefined);
+    // Health: the branch is exercised, and the served title really is it.
+    expect(withTitle.length).toBeGreaterThanOrEqual(1);
+    for (const t of withTitle) expect(title(t)).toContain(t.seoTitle);
+
+    const offenders = withTitle.flatMap((t) => {
+      const extra = unbackedTitleWords(t, t.seoTitle!);
+      const same = t.seoTitle === t.name ? ["(identical to the name)"] : [];
+      return [...extra, ...same].length
+        ? [`${t.slug}: ${[...extra, ...same].join(", ")}`]
+        : [];
+    });
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+
+  it("controls: the checks see a bare name, an overlong title and an invented promise", () => {
+    const edit = tool("edit-pdf");
+    // The shipped title of AI Data Extraction, before seoTitle.
+    const bare = { ...tool("ai-extract"), seoTitle: undefined };
+    expect(/\bPDF\b/.test(title(bare))).toBe(false);
+    expect(
+      // Both fields, so the control holds whichever one the page reads.
+      title({
+        ...edit,
+        name: "x".repeat(TITLE_BUDGET),
+        seoTitle: "x".repeat(TITLE_BUDGET),
+      }).length,
+    ).toBeGreaterThan(TITLE_BUDGET);
+    expect(
+      unbackedTitleWords(edit, "Edit PDF Online Free — AI Translate"),
+    ).toEqual(["online", "free", "ai", "translate"]);
+    // Plurals and hyphens are the same word: "Images" is backed by "images".
+    expect(unbackedTitleWords(edit, "Edit PDF — Add Text & Images")).toEqual(
+      [],
+    );
   });
 });
 
