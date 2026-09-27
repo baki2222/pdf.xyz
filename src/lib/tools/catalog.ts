@@ -716,7 +716,13 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["watermark pdf", "stamp pdf", "brand pdf", "confidential"],
-    related: ["overlay-pdf", "header-footer", "page-numbers", "edit-pdf"],
+    related: [
+      "overlay-pdf",
+      "grayscale-pdf",
+      "header-footer",
+      "page-numbers",
+      "edit-pdf",
+    ],
   },
   {
     slug: "crop-pdf",
