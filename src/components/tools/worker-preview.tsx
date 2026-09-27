@@ -63,7 +63,7 @@ function SpecRow({
  * Implementation-ready preview for tools that will run on a secure worker (or
  * an AI worker / hybrid fallback). It honestly states that the backend is not
  * yet enabled, then shows exactly what the future flow will be — encrypted
- * upload → scan → isolated processing → download → auto-delete — plus the
+ * upload → checks → processing → download → auto-delete — plus the
  * expected inputs, outputs, retention, and limits. Nothing is uploaded or
  * processed here. Live in-browser tools never render this.
  */
@@ -100,7 +100,7 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
         </div>
 
         <ol className="flex flex-col gap-1">
-          {workerPipelineStages(false).map((stage, i, all) => (
+          {workerPipelineStages(null, tool).map((stage, i, all) => (
             <li key={stage.id} className="flex items-start gap-3">
               <div className="flex flex-col items-center self-stretch">
                 <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
@@ -149,7 +149,7 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
           <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           <p className="text-muted text-xs leading-relaxed">
             No account required. When this ships, files are encrypted in transit
-            and at rest, processed in an isolated sandbox, and deleted
+            and at rest, processed on a separate processing server, and deleted
             automatically — see our{" "}
             <span className="text-muted">worker architecture</span> and security
             docs.

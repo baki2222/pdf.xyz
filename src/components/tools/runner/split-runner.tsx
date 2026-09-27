@@ -11,6 +11,11 @@ import {
 } from "@/lib/pdf/ranges";
 import type { NamedBytes, SplitPart } from "@/lib/pdf/types";
 import {
+  SPLIT_MODE_LABEL,
+  SPLIT_MODES,
+  type SplitMode,
+} from "@/lib/pdf/offered-kinds";
+import {
   downloadBlob,
   downloadBytes,
   totalBytes,
@@ -31,13 +36,11 @@ import {
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 
-type SplitMode = "ranges" | "everyN" | "perPage";
-
-const MODES: { id: SplitMode; label: string }[] = [
-  { id: "ranges", label: "Custom ranges" },
-  { id: "everyN", label: "Every N pages" },
-  { id: "perPage", label: "Each page" },
-];
+/** The modes offered — the same list the tool page counts (`offered-kinds`). */
+const MODES: { id: SplitMode; label: string }[] = SPLIT_MODES.map((id) => ({
+  id,
+  label: SPLIT_MODE_LABEL[id],
+}));
 
 export function SplitRunner() {
   return (

@@ -218,7 +218,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, i, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -260,12 +260,13 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         <p className="text-muted text-xs leading-relaxed">
-          No account required. This runs on an isolated secure worker: files are
-          encrypted in transit and at rest, processed in a temporary per-job
-          folder that is erased when the job ends, and deleted automatically.
-          Your password is never logged. It waits in our job queue only until
-          the job finishes or is cancelled (or, if no worker picks it up, until
-          the queue&apos;s retention lapses), then it is deleted.
+          No account required. This runs on a separate processing server, not in
+          your browser: files are encrypted in transit and at rest, processed in
+          a temporary per-job folder that is erased when the job ends, and
+          deleted automatically. Your password is never logged. It waits in our
+          job queue only until the job finishes or is cancelled (or, if no
+          worker picks it up, until the queue&apos;s retention lapses), then it
+          is deleted.
         </p>
       </div>
     </div>

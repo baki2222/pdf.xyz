@@ -22,10 +22,7 @@ import {
   enforceRateLimit,
   peekAiSpendCeiling,
 } from "@/lib/ratelimit/guard";
-import {
-  TRANSLATE_EXTRACTOR_HEADROOM,
-  TRANSLATE_MAX_INPUT_CHARS,
-} from "@/lib/jobs/translate-limits";
+import { AI_JOB_DELIVERY_LIMITS } from "@/lib/jobs/ai-allowance";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
 import { CHAT_TOOL_SLUG, chatReservationTerms } from "@/lib/jobs/chat-with-pdf";
 import { apiError } from "@/lib/jobs/responses";
@@ -124,14 +121,17 @@ export async function POST(request: Request): Promise<Response> {
      * caller pays it and receives whatever the document happens to hold.
      */
     /**
+     * The limits object the published allowance is computed from, not a
+     * second literal of it: each AI page states what ITS jobs cost, and the
+     * per-run count is `deliveryCapFor({}, AI_JOB_DELIVERY_LIMITS)`.
+     *
      * CHAT RE-SENDS ITS DOCUMENT ON EVERY TURN, so its reservation has two
      * terms the shared formula lacks: the conversation, charged exactly, and a
      * cap at the undeclared reservation so a long PDF declared honestly is not
      * refused on its first question. See `chatReservationTerms`.
      */
     delivery = deliveryCapFor(parsed.value, {
-      fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
-      headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+      ...AI_JOB_DELIVERY_LIMITS,
       ...(parsed.value.tool === CHAT_TOOL_SLUG
         ? chatReservationTerms(parsed.value.options)
         : {}),

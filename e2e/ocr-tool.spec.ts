@@ -49,7 +49,15 @@ test.describe("OCR secure-worker tool page", () => {
     // This line used to assert the opposite, which is how the false claim shipped.
     await expect(page.getByText("Structural preflight")).toBeVisible();
     await expect(page.getByText("Malware scan")).toHaveCount(0);
-    await expect(page.getByText("Isolated processing")).toBeVisible();
+    // Inverted, not deleted: this line used to assert "Isolated processing" was
+    // VISIBLE — the title of a stage that promised "a single-job sandbox with no
+    // network egress", which the long-running worker daemon never had. The claim
+    // shipped with this assertion standing behind it.
+    await expect(
+      page.getByText("3. Processing", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Isolated processing")).toHaveCount(0);
+    await expect(page.getByText(/sandbox|network egress/i)).toHaveCount(0);
     await expect(page.getByText("5. Auto-delete")).toBeVisible();
 
     // No uploader is mounted while OCR is unavailable — nothing can be submitted.

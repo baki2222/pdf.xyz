@@ -56,6 +56,11 @@
 import type { PDFDocument, PDFFont } from "pdf-lib";
 import { loadPdfLib } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
+import {
+  FontNetworkError,
+  fetchedOverNetwork,
+  importedOverNetwork,
+} from "./font-network";
 import { allWinAnsi, nonWinAnsiCharacters } from "./winansi";
 import {
   SUPPORTED_SCRIPTS,
@@ -96,17 +101,81 @@ export type StandardFace =
 export type FontByteSource = (pack: FontPack) => Promise<Uint8Array>;
 
 const fetchFromOrigin: FontByteSource = async (pack) => {
-  const response = await fetch(fontPackUrl(pack));
+  const response = await fetchedOverNetwork(() => fetch(fontPackUrl(pack)));
   if (!response.ok) {
     throw new PdfEngineError(
       `The ${pack.label} font could not be loaded (${response.status}). ` +
         "Check your connection and try again.",
     );
   }
-  return new Uint8Array(await response.arrayBuffer());
+  const body = await fetchedOverNetwork(() => response.arrayBuffer());
+  return new Uint8Array(body);
 };
 
 let byteSource: FontByteSource = fetchFromOrigin;
+
+/**
+ * The refusal when something drawing this text needs could not be downloaded.
+ *
+ * The three things `embedDrawingFont` fetches mid-run — the coverage tables,
+ * the font engine, and the face itself — used to surface whatever the network
+ * threw. Offline, that is a bare `TypeError: Failed to fetch` (or a chunk-load
+ * error for the two dynamic imports), and the runners print any error's
+ * message, so a reader who lost their connection after the page loaded was
+ * shown "Failed to fetch" beside a FAQ that says this step needs a connection.
+ * Exported for the test that takes the connection away.
+ */
+export function fontDownloadFailedMessage(what: string): string {
+  return (
+    `${what} could not be downloaded — this text needs it, and it is fetched ` +
+    "from our site the first time it is used. Check your connection and try again."
+  );
+}
+
+/**
+ * The refusal when something drawing this text arrived and was not usable — a
+ * coverage table that decoded to almost nothing, a font engine with no
+ * `create()`, a module that threw while it evaluated. Those are faults in our
+ * build, and "check your connection" would send the reader to retry something
+ * a retry is unlikely to fix. Exported for the test that breaks the build.
+ */
+export function fontBrokenMessage(what: string): string {
+  return (
+    `${what} did not load correctly. This is a fault on our side, not in ` +
+    "your file or your connection, so trying again is unlikely to help."
+  );
+}
+
+/**
+ * Await one mid-run download and say, in words, what went wrong.
+ *
+ * Only a failure the loader marked as the NETWORK's ({@link FontNetworkError}:
+ * a rejected `fetch`, a body read that failed, a chunk that did not load) is
+ * reported as a connection problem. A `PdfEngineError` already says what
+ * happened (the face's own `!response.ok` message, with its status) and passes
+ * through untouched. Everything else — the integrity checks in `loadCoverage`
+ * and `loadFontkit`, a bug in our own decoding — is reported as ours. Either
+ * way the original error rides along as `cause`, so the diagnostic survives.
+ *
+ * This used to rewrite EVERY non-`PdfEngineError` as the network's, on the
+ * argument that a dynamic import's only realistic failure is the network. The
+ * two integrity guards those imports feed were then shown to every non-Latin
+ * reader as "check your connection", and their message was dropped.
+ * `font-download.test.ts` breaks each one and reads what the reader is shown.
+ */
+async function downloaded<T>(step: Promise<T>, what: string): Promise<T> {
+  try {
+    return await step;
+  } catch (error) {
+    if (error instanceof PdfEngineError) throw error;
+    if (error instanceof FontNetworkError) {
+      throw new PdfEngineError(fontDownloadFailedMessage(what), {
+        cause: error.cause,
+      });
+    }
+    throw new PdfEngineError(fontBrokenMessage(what), { cause: error });
+  }
+}
 
 /** Replace the byte source (tests and Node callers). Returns the previous one. */
 export function setFontByteSource(source: FontByteSource): FontByteSource {
@@ -141,6 +210,33 @@ export function resetFontCache(): void {
   fontkitPromise = null;
 }
 
+const importFontkit = () => import("fontkit");
+
+/** Where fontkit comes from: the package, loaded on demand. */
+export type FontkitModuleSource = typeof importFontkit;
+
+let fontkitModule: FontkitModuleSource = importFontkit;
+
+/**
+ * Replace where fontkit comes from (tests only). Returns the previous source
+ * and forgets the loaded engine. A seam rather than `vi.mock("fontkit")`,
+ * which under this suite's shared module cache would leave every module that
+ * imports this one bound to the stub.
+ */
+export function setFontkitModuleSource(
+  source: FontkitModuleSource,
+): FontkitModuleSource {
+  const previous = fontkitModule;
+  fontkitModule = source;
+  fontkitPromise = null;
+  return previous;
+}
+
+/** The source a browser uses, so a guard can assert nothing swapped it for good. */
+export function defaultFontkitModuleSource(): FontkitModuleSource {
+  return importFontkit;
+}
+
 type FontkitFace = import("fontkit").FontkitFont;
 
 interface PdfLibFontkit {
@@ -163,7 +259,8 @@ let fontkitPromise: Promise<{
  * of the two.
  */
 function loadFontkit() {
-  fontkitPromise ??= import("fontkit")
+  const source = fontkitModule;
+  fontkitPromise ??= importedOverNetwork(source)
     .then((mod) => {
       // Both spellings, because the bundler picks the entry point: the ESM
       // browser build exposes named exports and the CJS interop hands back a
@@ -356,7 +453,10 @@ export async function embedDrawingFont(
   }
 
   const joined = texts.join("");
-  const coverage = await loadCoverage();
+  const coverage = await downloaded(
+    loadCoverage(),
+    "The table of which fonts can draw this text",
+  );
 
   const uncovered = uncoveredCodePoints(coverage, joined);
   if (uncovered.length > 0) refuseUncovered(uncovered);
@@ -366,12 +466,15 @@ export async function embedDrawingFont(
     refuseMixedScripts(packLabelsInText(coverage, joined));
   }
 
-  const fontkit = await loadFontkit();
+  const fontkit = await downloaded(loadFontkit(), "The font engine");
   doc.registerFontkit(fontkit.forPdfLib as never);
 
   let lastBad: { pack: FontPack; characters: string[] } | null = null;
   for (const pack of candidates) {
-    const bytes = await loadPackBytes(pack);
+    const bytes = await downloaded(
+      loadPackBytes(pack),
+      `The ${pack.label} font`,
+    );
     const bad = notdefCharacters(fontkit.open(bytes), texts);
     if (bad.length > 0) {
       // Coverage said this face had the code points and shaping disagreed. Try

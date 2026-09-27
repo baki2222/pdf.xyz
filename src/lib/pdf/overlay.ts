@@ -3,6 +3,7 @@ import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
+import type { OverlayFit } from "./offered-kinds";
 
 /**
  * Overlay one PDF onto another, entirely in-browser with pdf-lib. The
@@ -28,36 +29,13 @@ import { loadPdf, stampProducer } from "./stamp";
  * unit-tested with plain numbers.
  */
 
-/** How the overlay page is sized onto each base page. */
-export type OverlayFit = "fit" | "stretch" | "actual";
+// The offered scale modes live in the offered-kinds leaf, where the tool page's
+// answer reads them too; re-exported so existing importers keep working.
+export type { OverlayFit, OverlayFitOption } from "./offered-kinds";
+export { OVERLAY_FITS } from "./offered-kinds";
 
 /** Which overlay page is used for each base page. */
 export type OverlayPaging = "repeat" | "cycle";
-
-export interface OverlayFitOption {
-  id: OverlayFit;
-  label: string;
-  hint: string;
-}
-
-/** The scale modes offered in the UI, in a sensible reading order. */
-export const OVERLAY_FITS: readonly OverlayFitOption[] = [
-  {
-    id: "fit",
-    label: "Fit page",
-    hint: "Scale to fit, keeping the overlay's proportions (centered).",
-  },
-  {
-    id: "stretch",
-    label: "Stretch",
-    hint: "Stretch the overlay to exactly cover each page.",
-  },
-  {
-    id: "actual",
-    label: "Actual size",
-    hint: "Place the overlay at its original size, centered.",
-  },
-] as const;
 
 /** Where the overlay goes relative to the base page's own content. */
 export type OverlayLayer = "front" | "back" | "multiply";

@@ -20,6 +20,14 @@
  */
 import { boundToolNotes } from "./tool-notes";
 
+/**
+ * The PDF/A part and level the worker asks Ghostscript for. Defined here, in a
+ * client-safe module, so the tool page can name the standard without importing
+ * the engine; the engine re-exports it, and `worker-tool-answers.test.ts` holds
+ * its part number to the `-dPDFA=` flag Ghostscript is actually given.
+ */
+export const PDF_A_STANDARD = "PDF/A-2b" as const;
+
 export interface PdfAResultMeta {
   /**
    * True when Ghostscript reported anything at all while converting. A separate

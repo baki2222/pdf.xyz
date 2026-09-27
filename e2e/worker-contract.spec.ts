@@ -29,7 +29,18 @@ test.describe("secure-worker AI tool panel", () => {
     // This line used to assert the opposite, which is how the false claim shipped.
     await expect(page.getByText("Structural preflight")).toBeVisible();
     await expect(page.getByText("Malware scan")).toHaveCount(0);
-    await expect(page.getByText("Isolated processing")).toBeVisible();
+    // Inverted, not deleted: this line used to assert "Isolated processing" was
+    // VISIBLE — on the one tool that sends the document's text to a third-party
+    // AI provider, under a stage promising "no network egress". The AI stage now
+    // says where the text goes.
+    await expect(
+      page.getByText("3. AI processing", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/third-party AI provider/i).first(),
+    ).toBeVisible();
+    await expect(page.getByText("Isolated processing")).toHaveCount(0);
+    await expect(page.getByText(/sandbox|network egress/i)).toHaveCount(0);
     await expect(page.getByText("5. Auto-delete")).toBeVisible();
     await expect(page.getByText(/wiped after processing/i)).toBeVisible();
 

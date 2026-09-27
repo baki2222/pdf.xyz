@@ -20,6 +20,7 @@ import {
   decodeBmp,
   type PackCoverage,
 } from "./coverage-bitmap";
+import { importedOverNetwork } from "./font-network";
 
 interface DecodedCoverage {
   bmp: Uint8Array;
@@ -29,9 +30,47 @@ interface DecodedCoverage {
 
 let decoded: Promise<Record<FontPackId, DecodedCoverage>> | null = null;
 
-/** Load (once) and decode the per-face coverage bitmaps. */
+/** Where the generated tables come from: the module, loaded on demand. */
+export type CoverageModuleSource = () => Promise<{
+  FONT_COVERAGE: Record<FontPackId, PackCoverage>;
+}>;
+
+const importGenerated: CoverageModuleSource = () =>
+  import("./font-coverage.generated");
+
+let coverageModule: CoverageModuleSource = importGenerated;
+
+/**
+ * Replace where the tables come from (tests only). Returns the previous source
+ * and forgets any decoded result, so the next load asks the new one. This is
+ * how a test hands the integrity check below a broken artifact without a
+ * `vi.mock`, which under this suite's shared module cache would bind every
+ * module that imports this one to the stub.
+ */
+export function setCoverageModuleSource(
+  source: CoverageModuleSource,
+): CoverageModuleSource {
+  const previous = coverageModule;
+  coverageModule = source;
+  decoded = null;
+  return previous;
+}
+
+/** The source a browser uses, so a guard can assert nothing swapped it for good. */
+export function defaultCoverageModuleSource(): CoverageModuleSource {
+  return importGenerated;
+}
+
+/**
+ * Load (once) and decode the per-face coverage bitmaps.
+ *
+ * A failure to LOAD the chunk is marked as the network's
+ * ({@link importedOverNetwork}); the integrity check after it is not, because a
+ * table that decoded to nothing is a broken build, and no connection fixes it.
+ */
 export function loadCoverage(): Promise<Record<FontPackId, DecodedCoverage>> {
-  decoded ??= import("./font-coverage.generated")
+  const source = coverageModule;
+  decoded ??= importedOverNetwork(source)
     .then(({ FONT_COVERAGE }) => {
       const out = {} as Record<FontPackId, DecodedCoverage>;
       for (const pack of FONT_PACKS) {

@@ -24,8 +24,8 @@ import type { JobResults } from "./results";
  * maps 1:1 from the catalog's {@link ProcessingMode} via `capabilities.ts`.
  * - `in-browser`   : runs fully on the device; never uploaded (no job).
  * - `secure-worker`: processed on an encrypted, isolated, auto-deleting worker.
- * - `hybrid`       : browser-first, with a secure-worker fallback for hard files.
- * - `ai`           : runs on secure AI infrastructure; content never trains models.
+ * - `hybrid`       : browser-first; an optional worker step the user starts.
+ * - `ai`           : the PDF's text is sent to a third-party AI provider.
  */
 export type ToolCapability = "in-browser" | "secure-worker" | "hybrid" | "ai";
 

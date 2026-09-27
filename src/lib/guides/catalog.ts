@@ -16,14 +16,65 @@
  *    guides never say upload; worker-backed guides always do.
  */
 import { getToolBySlug } from "@/lib/tools";
-import { forgottenPasswordAnswer } from "@/lib/tools/tool-facts";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
-import { MAX_IMAGE_MB } from "@/lib/tools/limits";
+import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "@/lib/tools/limits";
+import {
+  IMAGE_PAGE_MARGIN_PT,
+  US_LETTER_LABEL,
+  inches,
+} from "@/lib/pdf/page-geometry";
+import { HYBRID_WORKER_STEP } from "@/lib/tools/processing";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
-import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
+import {
+  EVERY_OTHER_PAGE_EXAMPLE,
+  MARKDOWN_SYNTAX_FACT,
+  PAGE_REBUILD_KEEPS,
+  PDF_TO_WORD_KEEPS,
+  REDACT_MECHANISM,
+  REDACT_OUTPUT_FACT,
+  REDACT_PRESET_CHOICES,
+  REDACT_RECOVERY_ANSWER,
+  REDACT_SEARCH_ANSWER,
+  REPAIR_TAKES,
+  REPAIR_WARNINGS_ANSWER,
+  TEXT_PAGE_FACT,
+  TRANSLATE_LANGUAGES_ANSWER,
+  countWord,
+  forgottenPasswordAnswer,
+  offlineAnswer,
+} from "@/lib/tools/tool-facts";
+import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
+import {
+  DEFAULT_RESOLUTION_ID,
+  RASTER_MAX_DEVICE_PX,
+  RASTER_PREVIEW_LIMIT,
+  RASTER_RESOLUTION_CHOICES,
+  RASTER_RESOLUTION_DPIS,
+  pageImageName,
+  resolutionById,
+} from "@/lib/pdf/pdf-to-image";
+import {
+  SIGNATURE_SOURCES,
+  SIGNATURE_STYLE_LABEL,
+  SIGNATURE_STYLES,
+} from "@/lib/pdf/offered-kinds";
 import type { Guide } from "./types";
+
+/**
+ * Sign PDF's counts, from the lists the runner offers. The guide used to say
+ * "five ways to make a signature", counting the typed signature once per font
+ * style and naming a "print-and-scan style" the runner does not have.
+ */
+const signatureWays = countWord(SIGNATURE_SOURCES.length);
+
+/** The raster preset selected when PDF to JPG / PNG opens, by its label. */
+const DEFAULT_RESOLUTION_LABEL = resolutionById(DEFAULT_RESOLUTION_ID).label;
+const signatureStyles = SIGNATURE_STYLES.map((s) =>
+  SIGNATURE_STYLE_LABEL[s].toLowerCase(),
+);
 
 /**
  * The per-file cap a guide states, read from the SAME source the tool's own
@@ -67,7 +118,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To merge PDF files, open the Merge PDF tool, add two or more PDFs, and drag them into the order you want. The tool combines them into a single PDF that you save straight to your device.",
-      "What makes this approach different is where the work happens. Merge PDF runs entirely in your browser using WebAssembly and browser APIs, so your files stay on your device from start to finish — there is no server step in the middle. There is also no account: open the page, add your files, and merge.",
+      "What makes this approach different is where the work happens. Merge PDF runs entirely in your browser, so your files stay on your device from start to finish — there is no server step in the middle. There is also no account: open the page, add your files, and merge.",
       "The combined PDF follows your list from top to bottom, so a stack of scans, chapters, or exhibits comes out exactly as you arranged it. If you later need the reverse operation, Split PDF breaks one document into separate files by page range, fixed intervals, or one file per page, and Organize Pages rearranges pages inside a single document.",
     ],
     steps: [
@@ -91,8 +142,8 @@ export const guides: Guide[] = [
         id: "where-the-merge-runs",
         heading: "Where the merge actually runs",
         body: [
-          "Merge PDF is an in-browser tool. The processing runs on your own device using WebAssembly and browser APIs, and your files stay there from start to finish — they are never sent to a server as part of the merge. That also means there is no account: the browser you already have does the work.",
-          "One honest nuance: the tool is not fully offline. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the merge itself runs entirely on your device, and a dropped connection does not interrupt work already in progress.",
+          "Merge PDF is an in-browser tool. The processing runs on your own device, and your files stay there from start to finish — they are never sent to a server as part of the merge. That also means there is no account: the browser you already have does the work.",
+          `One honest nuance: the tool is not fully offline. ${offlineAnswer("merge-pdf")}`,
         ],
       },
       {
@@ -108,7 +159,7 @@ export const guides: Guide[] = [
       {
         question: "Do my files get sent to a server when I merge PDFs?",
         answer:
-          "No. Merge PDF runs entirely in your browser with WebAssembly and browser APIs, and your files stay on your device from start to finish.",
+          "No. Merge PDF runs entirely in your browser, and your files stay on your device from start to finish.",
       },
       {
         question: "How large can each PDF file be?",
@@ -121,8 +172,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does merging PDFs work offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. From there, the merge runs entirely on your device, and a dropped connection does not interrupt work already in progress.",
+        answer: `Not fully. ${offlineAnswer("merge-pdf")}`,
       },
       {
         question: "How do I control the page order in the combined PDF?",
@@ -147,8 +197,8 @@ export const guides: Guide[] = [
       "separate pdf pages",
     ],
     intro: [
-      "To split a PDF into separate files, open the Split PDF tool, pick your document, and choose how to divide it: custom page ranges, every N pages, or one file per page. The split runs immediately and the resulting PDFs download together as a ZIP.",
-      "What sets this approach apart is where the work happens. Split PDF runs entirely in your browser using WebAssembly and browser APIs, so the file stays on your device from start to finish — nothing is sent anywhere to be processed. There is no account to create and nothing to install; you pick a file, split it, and save the results.",
+      "To split a PDF into separate files, open the Split PDF tool, pick your document, and choose how to divide it: custom page ranges, every N pages, or one file per page. The split runs immediately; a single piece saves as a PDF, and several pieces download together as one ZIP.",
+      "What sets this approach apart is where the work happens. Split PDF runs entirely in your browser, so the file stays on your device from start to finish — nothing is sent anywhere to be processed. There is no account to create and nothing to install; you pick a file, split it, and save the results.",
       "This guide walks through each split mode, what the output looks like, and the limits worth knowing before you start — including when a neighboring tool like Extract Pages is the better fit for the job.",
     ],
     steps: [
@@ -157,7 +207,7 @@ export const guides: Guide[] = [
       "Choose a split mode: custom page ranges, every N pages, or one file per page.",
       "Define the split: for ranges, list the page spans that should become separate files; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF.",
       "Run the split — the processing happens in your browser, not on a server.",
-      "Download the resulting files as a ZIP. Each piece inside is a complete, standard PDF.",
+      "Download the result. When there is more than one piece they arrive together as a ZIP, and a single piece saves as a plain PDF. Every piece is a complete, standard PDF.",
     ],
     sections: [
       {
@@ -172,15 +222,15 @@ export const guides: Guide[] = [
         id: "what-you-get",
         heading: "What the output looks like",
         body: [
-          "Every piece the split produces is a complete, standard PDF that opens in any reader — no special format, no wrapper. The results download together as a single ZIP, so a split that produces many pieces still arrives as one download instead of a scatter of separate saves. Unzip it and each range, interval, or page is there as its own file. If you later need some pieces back together as one document, the Merge PDF tool combines PDFs into one, in any order — also in your browser.",
+          "Every piece the split produces is a complete, standard PDF that opens in any reader — no special format, no wrapper. When the split produces more than one piece, the results download together as a single ZIP, so they arrive as one download instead of a scatter of separate saves; unzip it and each range, interval, or page is there as its own file. A split that produces only one piece saves it as a plain PDF, with no archive around it. If you later need some pieces back together as one document, the Merge PDF tool combines PDFs into one, in any order — also in your browser.",
         ],
       },
       {
         id: "where-the-split-runs",
         heading: "Where the split happens",
         body: [
-          "Split PDF is an in-browser tool. The processing runs entirely on your device using WebAssembly and browser APIs, and the file never leaves it — there is no server step in the path from picking a file to saving the ZIP. That also means no account: nothing about the flow requires identifying yourself.",
-          "One honest nuance about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the split itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+          "Split PDF is an in-browser tool. The processing runs entirely on your device, and the file never leaves it — there is no server step in the path from picking a file to saving the result. That also means no account: nothing about the flow requires identifying yourself.",
+          `One honest nuance: the tool is not fully offline. ${offlineAnswer("split-pdf")}`,
         ],
       },
       {
@@ -195,7 +245,7 @@ export const guides: Guide[] = [
       {
         question: "Does Split PDF send my file to a server?",
         answer:
-          "No. The tool runs entirely in your browser with WebAssembly and browser APIs — the file stays on your device from start to finish, and the split output is produced and saved locally.",
+          "No. The tool runs entirely in your browser — the file stays on your device from start to finish, and the split output is produced and saved locally.",
       },
       {
         question: "How large can the PDF be?",
@@ -204,12 +254,11 @@ export const guides: Guide[] = [
       {
         question: "Can I split a PDF so every page becomes its own file?",
         answer:
-          "Yes. Choose the one-file-per-page mode and each page of the document becomes its own PDF. The results download together as a ZIP so you get everything in one save.",
+          "Yes. Choose the one-file-per-page mode and each page of the document becomes its own PDF. When the document has more than one page, the results download together as a ZIP so you get everything in one save.",
       },
       {
         question: "Does Split PDF work offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, with the engine fetched when you first use the tool. After that, the split runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+        answer: `Not fully. ${offlineAnswer("split-pdf")}`,
       },
       {
         question: "What if I only need a few specific pages?",
@@ -218,7 +267,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-compress-a-pdf",
@@ -289,8 +338,9 @@ export const guides: Guide[] = [
       },
       {
         question: "Is my PDF uploaded when I compress it?",
-        answer:
-          "Not for the analysis or the lossless repack — both run in your browser, and on that path the file stays on your device. The optional deep image compression step is the exception: there, your PDF is uploaded to a secure, auto-deleting worker, and the page checks a worker is available before anything leaves your device.",
+        // The worker sentence is the tool page's own (HYBRID_WORKER_STEP): the
+        // page and this guide answer the same question, so they share the words.
+        answer: `Not for the analysis or the lossless repack — both run in your browser, and on that path the file stays on your device. The exception is deep image compression. ${HYBRID_WORKER_STEP}`,
       },
       {
         question: "How large can my PDF be?",
@@ -324,7 +374,7 @@ export const guides: Guide[] = [
       "turn a pdf into word",
     ],
     intro: [
-      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The DOCX holds the PDF's selectable text as editable paragraphs, so you edit the words instead of retyping them — the formatting is not rebuilt.",
+      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word, one paragraph per line, so you edit the words instead of retyping them — the formatting is not rebuilt.",
       `PDF to Word is a server tool: your PDF travels over an encrypted connection to an encrypted, isolated worker, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let the worker convert it, and save the DOCX before the link expires.`,
     ],
@@ -334,15 +384,16 @@ export const guides: Guide[] = [
       "Start the conversion.",
       "Wait while the secure worker converts the PDF into a Word document. The worker deletes the input when the job finishes.",
       `Download the DOCX. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
-      "Open the downloaded DOCX in Word and start editing.",
+      "Open the downloaded DOCX in Word and format the text the way you need it — the words arrive as plain paragraphs, one per line of the PDF.",
     ],
     sections: [
       {
         id: "what-you-get",
         heading: "What to expect from the converted document",
         body: [
-          "The output is a DOCX file, the standard editable Word format. It holds the PDF's selectable text, one Word paragraph for each line of the original, and that text is live: rewrite a sentence, fix a date, or reuse a passage directly in Word.",
-          "What does not come across is the look. Images, fonts, tables and multi-column layout are not recreated, and a paragraph that wrapped across several lines in the PDF arrives as several short paragraphs. Expect to restyle the document; the conversion saves you the retyping, not the formatting.",
+          `The output is a DOCX file, the standard editable Word format. ${PDF_TO_WORD_KEEPS}`,
+          "A paragraph that wrapped across several lines in the PDF arrives as several short paragraphs, so expect to restyle the document: the conversion saves you the retyping, not the formatting.",
+          "That makes PDF to Word the right tool when you need the words back to rework them — rewrite a paragraph, fix a date, reuse a section — and the wrong one when the look of the page is what matters. For that, keep the PDF itself.",
         ],
       },
       {
@@ -391,8 +442,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Will the Word document look like my original PDF?",
-        answer:
-          "No — it carries over the text, not the look. Each line of selectable text becomes a paragraph in Word; images, fonts, tables and multi-column layout are not recreated. If your PDF is a scanned image rather than typed text, run it through OCR PDF first so there is recognized text to convert.",
+        answer: `No. It holds the PDF's words, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.`,
       },
     ],
     published: "2026-09-17",
@@ -402,7 +452,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-jpg-to-pdf",
     title: "How to convert JPG to PDF",
     description:
-      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per US Letter page, no account needed.",
+      "Combine JPG photos into one PDF right in your browser — your files never leave your device. One photo per US Letter page, in the order you set.",
     tools: ["jpg-to-pdf", "png-to-pdf", "pdf-to-jpg"],
     keywords: [
       "jpg to pdf",
@@ -413,32 +463,35 @@ export const guides: Guide[] = [
       "turn pictures into pdf",
     ],
     intro: [
-      "To turn JPG photos into a single PDF, open the JPG to PDF tool on pdf.xyz, pick your images, and run the conversion right in your browser. The tool combines your JPGs into one tidy PDF, one photo per page, in the order you set.",
-      "What sets this converter apart is where the work happens: entirely in your own browser. It is built on WebAssembly and browser APIs, so your photos stay on your device from the moment you pick them to the moment you save the finished PDF — and no account is needed.",
+      "To turn JPG photos into a single PDF, open the JPG to PDF tool on pdf.xyz, pick your images, put them in order, and create the PDF right in your browser. Each photo becomes one page of the finished file.",
+      "What sets this converter apart is where the work happens: entirely in your own browser. Nothing is sent to a server, so your photos stay on your device from the moment you pick them to the moment you save the finished PDF — and no account is needed.",
       `Each image can be up to ${MAX_IMAGE_MB} MB, and the output is one PDF assembled on your device. That makes the tool a natural fit for photographed receipts, scanned pages saved as JPGs, or any batch of pictures that belongs together in a single file.`,
     ],
     steps: [
       "Open the JPG to PDF tool.",
       "Pick the JPG or JPEG photos you want in the PDF — they stay on your device the whole time.",
-      "Put the photos in order with each one's move buttons — the first photo becomes page one.",
-      "Run the conversion — it happens in your browser, not on a server.",
+      "Put them in page order with each photo's Move up and Move down buttons.",
+      "Create the PDF — it is assembled in your browser, not on a server.",
       "Save the finished PDF to your device.",
     ],
     sections: [
       {
-        id: "page-layout",
-        heading: "How each photo is placed on the page",
+        id: "what-each-page-looks-like",
+        heading: "What each page looks like",
         body: [
-          "Every photo gets its own US Letter page in portrait orientation, centered with a half-inch white margin. A photo larger than that space is scaled down to fit, keeping its proportions; a smaller one is not enlarged, so it sits at its own size in the middle of the page.",
-          "The page size, orientation and margin are fixed — there is no setting to change them — so a stack of mismatched photos still comes out as one consistent document. A landscape photo is shrunk to the width of the portrait page, leaving white space above and below it. Photos are placed as their pixels are stored, so a phone photo that relies on a rotation tag to display upright may come out sideways; Rotate PDF can turn those pages afterward.",
+          // This section used to be "Page size, orientation, and margins" —
+          // three settings the tool has never had. The page is fixed, and
+          // these sentences are built from the constants the engine draws with.
+          `Every photo goes on its own ${US_LETTER_LABEL} portrait page, centred with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin of white around it. A photo larger than that space is scaled down to fit, keeping its proportions; a smaller one is placed at its own size and never enlarged.`,
+          "There is no page-size, orientation or margin setting: the page is the same for every photo, which keeps a stack of mismatched pictures reading as one document. Photos are placed as their pixels are stored, so a phone photo that relies on a rotation tag to display upright may come out sideways; Rotate PDF can turn those pages afterward, in your browser too.",
         ],
       },
       {
         id: "where-it-runs",
         heading: "Your photos never leave your device",
         body: [
-          "JPG to PDF is an in-browser tool. The conversion runs on your own machine using WebAssembly and browser APIs, and your files stay on your device from start to finish — there is no server step in the path, and no account is needed.",
-          "One honest caveat about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the assembly itself runs entirely on your device, so a dropped connection does not interrupt work already in progress.",
+          "JPG to PDF is an in-browser tool. The conversion runs on your own machine, and your files stay on your device from start to finish — there is no server step in the path, and no account is needed.",
+          `One honest caveat: the tool is not fully offline. ${offlineAnswer("jpg-to-pdf")}`,
         ],
       },
       {
@@ -454,17 +507,16 @@ export const guides: Guide[] = [
       {
         question: "Does my photo leave my device when I convert JPG to PDF?",
         answer:
-          "No. The tool runs entirely in your browser using WebAssembly and browser APIs, so your files stay on your device from start to finish.",
+          "No. The tool runs entirely in your browser, so your files stay on your device from start to finish.",
       },
       {
         question: "Can I combine multiple JPG photos into one PDF?",
         answer:
-          "Yes — that is exactly what the tool does. It assembles your JPG images into a single PDF, one image per US Letter page, in the order you set.",
+          "Yes — that is exactly what the tool does. Each photo becomes one page of a single PDF, in the order you set with the Move up and Move down buttons.",
       },
       {
         question: "Does JPG to PDF have page size or margin settings?",
-        answer:
-          "No. Every image goes on a US Letter portrait page with a half-inch margin, scaled down to fit if it is larger than that space.",
+        answer: `No. Every image goes on a ${US_LETTER_LABEL} portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space.`,
       },
       {
         question: "How large can my JPG files be?",
@@ -472,8 +524,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does JPG to PDF work offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, with the engine fetched the first time you use the tool. After that, the conversion itself runs on your device, and a dropped connection does not interrupt work in progress.",
+        answer: `Not fully. ${offlineAnswer("jpg-to-pdf")}`,
       },
       {
         question: "Can I convert PNG images with this tool?",
@@ -500,7 +551,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To create a fillable PDF form, open the Create Fillable Forms tool, place fields on the pages where answers belong, and save the result. You get a reusable fillable AcroForm PDF — real form fields that anyone can complete on a screen instead of printing and writing.",
-      "The difference is where the work happens. This is a client-side tool: it builds the form in your browser with WebAssembly and browser APIs, so the document stays on your device from the moment you pick it to the moment you save the finished file. There is no account to create — open the page and start placing fields.",
+      "The difference is where the work happens. This is a client-side tool: it builds the form in your browser, so the document stays on your device from the moment you pick it to the moment you save the finished file. There is no account to create — open the page and start placing fields.",
       "The output is built to be reused. Because the fields are genuine AcroForm fields, the same PDF can be sent out and completed again and again, and it pairs naturally with the Fill Forms tool for the people on the receiving end.",
     ],
     steps: [
@@ -524,8 +575,8 @@ export const guides: Guide[] = [
         id: "where-the-work-happens",
         heading: "Where the work happens",
         body: [
-          "Create Fillable Forms is a client-side tool. The processing runs in your browser using WebAssembly and browser APIs, not on a server — the PDF you pick stays on your device from start to finish. That is also why no account is required: there is nothing to set up before you start placing fields.",
-          "One honest note about connectivity: the page and its processing engine arrive over the network, and the engine is fetched the first time you use the tool. From there, the work itself happens on your device, so a connection that drops mid-build does not interrupt work already in progress.",
+          "Create Fillable Forms is a client-side tool. The processing runs in your browser, not on a server — the PDF you pick stays on your device from start to finish. That is also why no account is required: there is nothing to set up before you start placing fields.",
+          `One honest note: the tool is not fully offline. ${offlineAnswer("create-forms")}`,
         ],
       },
       {
@@ -541,7 +592,7 @@ export const guides: Guide[] = [
       {
         question: "Is my PDF sent to a server when I create a fillable form?",
         answer:
-          "No. Create Fillable Forms runs entirely in your browser with WebAssembly and browser APIs — the file stays on your device from start to finish. There is also no account to create.",
+          "No. Create Fillable Forms runs entirely in your browser — the file stays on your device from start to finish. There is also no account to create.",
       },
       {
         question: "What kinds of form fields can I add to a PDF?",
@@ -554,8 +605,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I create a fillable PDF offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, with the engine fetched the first time you use the tool. After that, the processing itself runs on your device, and a dropped connection does not interrupt work already in progress.",
+        answer: `Not fully. ${offlineAnswer("create-forms")}`,
       },
       {
         question: "How do people fill out the form I made?",
@@ -564,7 +614,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-fill-out-a-pdf-form",
@@ -582,7 +632,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To fill out a PDF form, open the Fill Forms tool in your web browser, pick the PDF, and work straight through its fields — text boxes, checkboxes, radio buttons, dropdowns, and lists. When you run the tool, your answers are written into the PDF and the completed file saves back to your device.",
-      "What sets this approach apart is where the work happens: on your own device. Fill Forms is an in-browser tool — it runs entirely in your browser using WebAssembly and browser APIs, so the form you picked and everything you type into it stays on your device from start to finish. That matters for forms in particular, because forms are where names, addresses, and other personal details go. There is nothing to install and no account to create — the tool runs in your web browser.",
+      "What sets this approach apart is where the work happens: on your own device. Fill Forms is an in-browser tool — it runs entirely in your browser, so the form you picked and everything you type into it stays on your device from start to finish. That matters for forms in particular, because forms are where names, addresses, and other personal details go. There is nothing to install and no account to create — the tool runs in your web browser.",
       "Fill Forms completes the interactive fields the PDF already contains — its AcroForm fields. The steps below walk through filling a form from start to finish, then cover which field kinds the tool fills, what to do when a PDF has no fields at all, and how signing and locking the finished form fit in.",
     ],
     steps: [
@@ -606,8 +656,8 @@ export const guides: Guide[] = [
         id: "where-the-work-happens",
         heading: "Where the work happens",
         body: [
-          "Fill Forms is an in-browser tool. It runs entirely on your device using WebAssembly and browser APIs, and your PDF stays on your device from start to finish. The finished form does not pass through a server on its way back to you — you save the completed file straight to your device.",
-          "The page and its processing engine do load over the network, and the engine is fetched the first time you use the tool, so the very first run needs a connection. After that, the filling itself runs entirely on your device, and a dropped connection does not interrupt a run that is already underway. No account is needed at any point.",
+          "Fill Forms is an in-browser tool. It runs entirely on your device, and your PDF stays on your device from start to finish. The finished form does not pass through a server on its way back to you — you save the completed file straight to your device.",
+          `The tool is not fully offline. ${offlineAnswer("fill-forms")} No account is needed at any point.`,
         ],
       },
       {
@@ -631,12 +681,11 @@ export const guides: Guide[] = [
       {
         question: "Does my PDF leave my device when I fill out a form?",
         answer:
-          "No. Fill Forms runs entirely in your browser with WebAssembly and browser APIs, and the file stays on your device from start to finish.",
+          "No. Fill Forms runs entirely in your browser, and the file stays on your device from start to finish.",
       },
       {
         question: "Can I fill out a PDF form offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the filling itself runs entirely on your device, and a dropped connection does not interrupt a run that is already underway.",
+        answer: `Not fully. ${offlineAnswer("fill-forms")}`,
       },
       {
         question: "How large can the PDF form be?",
@@ -654,7 +703,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-sign-a-pdf",
@@ -672,23 +721,23 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To add a signature to a PDF, open the Sign PDF tool, create your signature by drawing it, typing it, or picking a signature image, and place it exactly where the document needs it. Export the result and you have a signed PDF ready to send.",
-      "What sets this approach apart is where the work happens. Sign PDF runs entirely in your browser using WebAssembly and browser APIs, so the PDF and the signature you create stay on your device from start to finish. No account is needed — open the page, make your mark, and export.",
-      "You also get more range than a single scribble box. There are five ways to make a signature — draw it, type it, pick an image, use a script font, or choose a print-and-scan style — so the result can be as personal or as formal as the document calls for.",
+      "What sets this approach apart is where the work happens. Sign PDF runs entirely in your browser, so the PDF and the signature you create stay on your device from start to finish. No account is needed — open the page, make your mark, and export.",
+      `You also get more range than a single scribble box. There are ${signatureWays} ways to make a signature — draw it, type it in a ${signatureStyles.join(" or ")} style, or pick an image of the signature you already use — so the result can be as personal or as formal as the document calls for.`,
     ],
     steps: [
       "Open the Sign PDF tool.",
       "Pick the PDF you need to sign — the file stays on your device the entire time.",
       "Create your signature: draw it, type it, or pick a signature image you already have.",
-      "For a different look, use the script font style or the print-and-scan style instead.",
+      `If you type it, pick the look: ${signatureStyles.join(" or ")} style.`,
       "Place the signature exactly where the document needs it — the tool is built for precise placement.",
       "Export your signed PDF and save it to your device.",
     ],
     sections: [
       {
-        id: "five-ways-to-make-a-signature",
-        heading: "Five ways to make a signature",
+        id: "ways-to-make-a-signature",
+        heading: `${signatureWays[0]!.toUpperCase()}${signatureWays.slice(1)} ways to make a signature`,
         body: [
-          "Sign PDF offers five ways to make a signature: draw it, type it, pick an image, use a script font, or go with a print-and-scan style. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and the script font gives a typed name a handwritten look without any drawing at all. If you already keep a scanned signature as an image file, pick that image and reuse the mark you have always used. The print-and-scan style rounds out the five.",
+          `Sign PDF offers ${signatureWays} ways to make a signature: draw it, type it, or pick an image. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and it comes in ${countWord(SIGNATURE_STYLES.length)} styles — script, which sets a name written in the Western European alphabet in an italic serif face, and print, a plain printed name. A name in any other script is set in the same upright face whichever style you pick. If you already keep a scanned signature as a PNG or JPG image, pick that image and reuse the mark you have always used.`,
           "Whichever you choose, the rest works the same way: position the signature precisely on the page, then export.",
         ],
       },
@@ -696,8 +745,8 @@ export const guides: Guide[] = [
         id: "your-file-stays-on-your-device",
         heading: "Your file stays on your device",
         body: [
-          "Sign PDF is an in-browser tool. It runs entirely in your browser with WebAssembly and browser APIs, which means the contract, lease, or offer letter you open never leaves your device — the file stays local from the moment you pick it to the moment you export. For the kind of paperwork that usually carries a signature, that is the difference that matters most.",
-          "One honest nuance about connectivity: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the processing itself runs on your device, and a dropped connection does not interrupt work in progress.",
+          "Sign PDF is an in-browser tool. It runs entirely in your browser, which means the contract, lease, or offer letter you open never leaves your device — the file stays local from the moment you pick it to the moment you export. For the kind of paperwork that usually carries a signature, that is the difference that matters most.",
+          `One honest nuance: the tool is not fully offline. ${offlineAnswer("sign-pdf")}`,
         ],
       },
       {
@@ -711,7 +760,7 @@ export const guides: Guide[] = [
         id: "when-someone-else-needs-to-sign",
         heading: "When someone else needs to sign",
         body: [
-          "Sign PDF covers self-signing: you create and place your own signature on a document you already have. When the signature you need is someone else's, use Request Signatures instead. It prepares a copy of the PDF with a fillable signature field for each signer, plus a manifest and an audit trail. pdf.xyz does not email it or track who has signed: you send it and gather the signed copies yourself.",
+          "Sign PDF covers self-signing: you create and place your own signature on a document you already have. When the signature you need is someone else's, Request Signatures prepares the document for them: it adds a named, fillable field for each signer and packages the PDF with a manifest and an audit trail, for you to send. It does not send the request or collect the signatures itself.",
           "And when the document is a form as much as it is a contract, pair signing with Fill Forms, which completes a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in your browser. Fill the fields in Fill Forms and export the completed PDF, then open that file in Sign PDF to add your signature.",
         ],
       },
@@ -725,12 +774,11 @@ export const guides: Guide[] = [
       {
         question: "Does my PDF leave my device when I sign it?",
         answer:
-          "No. Sign PDF runs entirely in your browser with WebAssembly and browser APIs, so the file stays on your device from start to finish.",
+          "No. Sign PDF runs entirely in your browser, so the file stays on your device from start to finish.",
       },
       {
         question: "Does Sign PDF work offline?",
-        answer:
-          "Not fully. The page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the processing runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+        answer: `Not fully. ${offlineAnswer("sign-pdf")}`,
       },
       {
         question: "How large can the PDF be?",
@@ -739,7 +787,7 @@ export const guides: Guide[] = [
       {
         question: "Can I collect signatures from other people?",
         answer:
-          "Not automatically. Sign PDF handles your own signature. Request Signatures prepares a PDF with a signature field for each person, which you then send to them yourself; pdf.xyz does not deliver, track, or certify the signatures.",
+          "Sign PDF handles your own signature. For signatures from others, Request Signatures prepares the PDF with a named, fillable field for each signer and packages it for you to send — pdf.xyz does not send it to them or collect the signatures.",
       },
     ],
     published: "2026-09-17",
@@ -935,14 +983,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To translate a PDF into another language, open the Translate PDF tool on pdf.xyz, pick your file, and choose the language you want. AI translates the PDF's selectable text and returns it as translated Markdown and plain text, ready to download.",
-      `Translate PDF is one of the AI tools, so the work does not happen in your browser: your PDF uploads over an encrypted connection to an encrypted, isolated worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed at any point.`,
+      `Translate PDF is one of the AI tools, so the work does not happen in your browser: your PDF uploads over an encrypted connection to our processing server, which extracts its selectable text and sends that text — not the file — to a third-party AI provider to translate. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed at any point.`,
       "Know what you are getting before you start: a text translation, not a page-by-page rebuild. The output is the document's words in the new language, packaged as Markdown and plain text rather than a re-laid-out PDF. That focus on the text is also what lets long documents be handled sensibly — split at page boundaries, translated in ordered passes, and reassembled rather than refused.",
     ],
     steps: [
       "Open the Translate PDF tool.",
       "Pick the PDF you want translated. The tool reads selectable text, so if your document is a scan, run it through OCR PDF first.",
       "Upload your PDF — it travels over an encrypted connection to the secure worker that runs the job.",
-      "Choose your options, including the language you want the text translated into.",
+      `In “Translate into”, pick one of the ${TRANSLATE_LANGUAGES.length} languages offered, and leave “Source language” on “Auto-detect” or set it yourself.`,
       "Start the translation. A long document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order. The worker deletes the input when the job finishes.",
       `Download the result — translated Markdown and plain text, packaged together. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
     ],
@@ -960,14 +1008,14 @@ export const guides: Guide[] = [
         heading: "Long documents, oversized pages, and the allowance",
         body: [
           "Each translation pass carries a bounded amount of selectable text, because translation writes roughly as much as it reads. The exact character figures, and the approximate page ranges they work out to, are stated on the Translate PDF page itself. A longer document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order, so the result reads front to back like the original.",
-          `Two limits can still show up in the output, and both announce themselves. A single page holding more text than one pass can carry cannot be translated at all — it is skipped, and the result says so in place, right where that page was. And the amount translated in a day is bounded by the free allowance. ${AI_ALLOWANCE_FACT} A document longer than the allowance covers is translated as far as the allowance reaches, with the rest marked in place and the reason named — nothing stops silently. Files themselves are capped at ${ceilingMb("translate-pdf")} MB.`,
+          `Two limits can still show up in the output, and both announce themselves. A single page holding more text than one pass can carry cannot be translated at all — it is skipped, and the result says so in place, right where that page was. And the amount translated in a day is bounded by the free allowance. ${aiAllowanceFactFor("translate-pdf")} A document longer than the allowance covers is translated as far as the allowance reaches, with the rest marked in place and the reason named — nothing stops silently. Files themselves are capped at ${ceilingMb("translate-pdf")} MB.`,
         ],
       },
       {
         id: "where-your-file-goes",
         heading: "Where your file goes",
         body: [
-          `Translate PDF is one of the AI tools, so processing does not run in your browser. Your PDF uploads over an encrypted connection to an encrypted, isolated worker, which is where the AI reads the text and writes the translation. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `Translate PDF is one of the AI tools, so processing does not run in your browser. Your PDF uploads over an encrypted connection to our processing server. The server extracts the PDF's selectable text and sends that text to a third-party AI provider, which writes the translation — the PDF file itself is not sent to the provider. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. Section 3 of our privacy policy covers the provider's side.`,
           "No account is needed for any of this. Open the tool, translate, and download the result.",
         ],
       },
@@ -983,11 +1031,15 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Can I translate a PDF for free?",
-        answer: `Yes, with no account. ${AI_ALLOWANCE_FACT} If a document needs more than the allowance has left, it is translated as far as the allowance reaches, and the untranslated remainder is marked in place with the reason named.`,
+        answer: `Yes, with no account. ${aiAllowanceFactFor("translate-pdf")} If a document needs more than the allowance has left, it is translated as far as the allowance reaches, and the untranslated remainder is marked in place with the reason named.`,
       },
       {
         question: "What happens to my PDF after it is translated?",
-        answer: `The file is processed on an encrypted, isolated worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `Our processing server extracts its selectable text and sends that text — not the file — to a third-party AI provider for translation. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      },
+      {
+        question: "Which languages can I translate a PDF into?",
+        answer: TRANSLATE_LANGUAGES_ANSWER,
       },
       {
         question: "Will the translation look like the original PDF?",
@@ -1006,7 +1058,394 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-delete-pages-from-a-pdf",
+    title: "How to delete pages from a PDF",
+    description:
+      "Remove unwanted pages from a PDF by clicking thumbnails or typing a range — right in your browser, so the file never leaves your device. No account needed.",
+    tools: ["remove-pages", "extract-pages", "organize-pages"],
+    keywords: [
+      "delete pages from pdf",
+      "remove pages from pdf",
+      "delete a page in a pdf",
+      "trim pdf pages",
+    ],
+    intro: [
+      "To delete pages from a PDF, open the Delete Pages tool, pick your file, select the pages you want gone, and download the trimmed copy. Every page appears as a thumbnail, so you can see exactly what you are removing before anything changes.",
+      "The work happens in your browser: the PDF stays on your device from start to finish, and there is no account to create. Your original file is never changed — the download is a new PDF without the pages you removed.",
+      "This guide covers the ways to select pages, what the trimmed file keeps, and when Extract Pages or Organize Pages is the better fit.",
+    ],
+    steps: [
+      "Open the Delete Pages tool.",
+      "Pick the PDF you want to trim — it stays on your device the whole time.",
+      "Click each page you want to delete. Hold Shift and click to select a whole run of pages at once.",
+      "Or type the pages as a list, such as 1-3, 5, and press Select.",
+      "Delete the selected pages. At least one page has to stay, so the tool will not remove every page.",
+      "Download the trimmed PDF.",
+    ],
+    sections: [
+      {
+        id: "selecting-pages",
+        heading: "Three ways to select pages",
+        body: [
+          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one — the quick way to clear out a run of pages at the end of a scan.",
+          `Typing is faster in a long document. Enter single pages and ranges separated by commas — 1-3, 5 selects pages one to three and page five — and press Select. A range can be left open: 10- runs from page ten to the end. To delete every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}.`,
+          "Select all, Clear and Invert work on the whole selection. Invert flips it — every selected page becomes unselected and every other page becomes selected — which helps when it is easier to pick the pages you want to keep.",
+        ],
+      },
+      {
+        id: "what-the-file-keeps",
+        heading: "What the trimmed file keeps",
+        body: [
+          `${PAGE_REBUILD_KEEPS} If you rely on either, keep the original alongside the trimmed copy.`,
+          "Your original is never modified. Deleting pages produces a new PDF, and the file you started from stays exactly as it was on your device — so a page removed by mistake is still there to go back to.",
+        ],
+      },
+      {
+        id: "related-tools",
+        heading: "When another tool fits better",
+        body: [
+          "If you want to keep a few pages rather than remove a few, Extract Pages is the mirror image: select the pages to keep and export them as a new PDF. Organize Pages lets you delete, reorder, rotate and duplicate pages on one board in a single pass.",
+          `Both run in your browser as well. Delete Pages accepts PDFs up to ${ceilingMb("remove-pages")} MB per file.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent to a server when I delete pages?",
+        answer:
+          "No. Delete Pages runs entirely in your browser, and the file stays on your device from start to finish.",
+      },
+      {
+        question: "Can I get a deleted page back?",
+        answer:
+          "Yes, from your original: it is never changed. The download is a new PDF, so every page you removed is still in the file on your device.",
+      },
+      {
+        question: "Does the trimmed PDF keep bookmarks and form fields?",
+        answer: `No. ${PAGE_REBUILD_KEEPS}`,
+      },
+      {
+        question: "How do I delete every other page?",
+        answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press Select; those pages are selected, and Delete removes them.`,
+      },
+      {
+        question: "How large can the PDF be?",
+        answer: `Up to ${ceilingMb("remove-pages")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-convert-pdf-to-jpg-or-png",
+    title: "How to convert PDF pages to JPG or PNG images",
+    description: `Turn every page of a PDF into a JPG or PNG image at ${RASTER_RESOLUTION_DPIS} DPI — rendered in your browser, so the file never leaves your device. No account needed.`,
+    tools: ["pdf-to-jpg", "pdf-to-png", "extract-images"],
+    keywords: [
+      "pdf to jpg",
+      "pdf to png",
+      "convert pdf to image",
+      "pdf page to image",
+      "pdf to jpg high resolution",
+    ],
+    intro: [
+      "To turn PDF pages into images, open PDF to JPG or PDF to PNG, pick your file, choose a resolution, and render. Every page becomes one image: a one-page PDF gives you a single file, and when there is more than one page they arrive as a ZIP holding every page.",
+      "Rendering happens in your browser, so the PDF stays on your device from start to finish, and there is no account to create.",
+      "This guide explains the resolutions, the difference between JPG and PNG, what you download, and when Extract Images is the better tool.",
+    ],
+    steps: [
+      "Open PDF to JPG, or PDF to PNG for lossless images.",
+      "Pick your PDF — it stays on your device the whole time.",
+      `Choose a resolution: ${RASTER_RESOLUTION_CHOICES}.`,
+      "Render — every page becomes one image, in your browser.",
+      `Download the result. More than one page arrives together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
+    ],
+    sections: [
+      {
+        id: "choosing-a-resolution",
+        heading: "Choosing a resolution",
+        body: [
+          `DPI is how many image pixels each inch of the page becomes. The presets are ${RASTER_RESOLUTION_CHOICES}; ${DEFAULT_RESOLUTION_LABEL} is selected when you open the tool. A higher DPI gives sharper images and larger files — pick it for printing or zooming in, and a lower one for sharing on screen.`,
+          `Neither side of a rendered page may exceed ${RASTER_MAX_DEVICE_PX.toLocaleString("en-US")} pixels, which keeps the memory a page needs in check. A very large page, such as a poster or an engineering drawing, is rendered below the preset rather than failing.`,
+        ],
+      },
+      {
+        id: "jpg-or-png",
+        heading: "JPG or PNG?",
+        body: [
+          "JPG files are smaller and suit photographs and scanned pages. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.",
+          "Both are rendered on a white background, so any transparent areas of a page come out white.",
+        ],
+      },
+      {
+        id: "what-you-download",
+        heading: "What you download",
+        body: [
+          `A one-page PDF downloads as a single image named after your file. With more than one page, every page goes into one ZIP, named in reading order with zero-padded page numbers — ${pageImageName("report.pdf", 2, 12, "png")} — so the images sort correctly in any file browser. The first ${RASTER_PREVIEW_LIMIT} pages also get a preview with their own download button.`,
+          `If what you want is the pictures embedded inside the PDF rather than images of whole pages, Extract Images pulls them out at their original resolution. PDF to JPG and PDF to PNG accept PDFs up to ${ceilingMb("pdf-to-jpg")} MB per file.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent to a server when I convert it to images?",
+        answer:
+          "No. The pages are rendered entirely in your browser, and the file stays on your device from start to finish.",
+      },
+      {
+        question: "What resolution should I choose?",
+        answer: `The choices are ${RASTER_RESOLUTION_CHOICES}. Choose a higher DPI for printing or zooming in, and a lower one for smaller files.`,
+      },
+      {
+        question: "Can I convert just one page?",
+        answer: `Every page is rendered, and the first ${RASTER_PREVIEW_LIMIT} each get their own download button, so you can save only the page you need. When there are more pages than that, the rest are in the ZIP, which holds every page.`,
+      },
+      {
+        question: "How large can the PDF be?",
+        answer: `Up to ${ceilingMb("pdf-to-jpg")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-convert-markdown-to-pdf",
+    title: "How to convert Markdown to PDF",
+    description:
+      "Paste Markdown or pick a .md file and get a typeset PDF — headings, lists, quotes and code — made in your browser, so nothing leaves your device.",
+    tools: ["markdown-to-pdf", "text-to-pdf", "pdf-to-markdown"],
+    keywords: [
+      "markdown to pdf",
+      "md to pdf",
+      "convert markdown to pdf",
+      "readme to pdf",
+      "markdown pdf converter",
+    ],
+    intro: [
+      "To turn Markdown into a PDF, open the Markdown to PDF tool, paste your Markdown or pick a .md file, and create the PDF. Headings, lists, quotes and code blocks are typeset into pages right in your browser.",
+      "Nothing is sent to a server: the text stays on your device from start to finish, and there is no account to create.",
+      "This guide lists the Markdown the tool supports, what the finished page looks like, and when Text to PDF is the simpler choice.",
+    ],
+    steps: [
+      "Open the Markdown to PDF tool.",
+      "Paste your Markdown into the editor, or pick a .md file — it stays on your device.",
+      "Create the PDF — it is typeset in your browser.",
+      "Download the PDF.",
+    ],
+    sections: [
+      {
+        id: "supported-markdown",
+        heading: "The Markdown it supports",
+        body: [
+          MARKDOWN_SYNTAX_FACT,
+          "Headings run from # to ######, lists can be bulleted or numbered, and code inside triple-backtick fences is set in a fixed-width font with its line breaks kept.",
+        ],
+      },
+      {
+        id: "the-page",
+        heading: "What the PDF looks like",
+        body: [
+          `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
+          `Sources can be up to ${MAX_SOURCE_MB} MB. For plain notes without any Markdown, Text to PDF paginates the text as it is; to go the other way, PDF to Markdown turns a PDF's selectable text back into Markdown.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my Markdown sent to a server?",
+        answer:
+          "No. Markdown to PDF runs entirely in your browser, and the text stays on your device from start to finish.",
+      },
+      {
+        question: "Does it support tables?",
+        answer:
+          "Not as tables. A table's rows print as plain text, cell dividers included, so reformat a table as a list if its layout matters.",
+      },
+      {
+        question: "Can I choose the page size?",
+        answer: `No. ${TEXT_PAGE_FACT}`,
+      },
+      {
+        question: "Does Markdown to PDF work offline?",
+        answer: `Not fully. ${offlineAnswer("markdown-to-pdf")}`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-redact-a-pdf",
+    title: "How to redact a PDF permanently",
+    description:
+      "Redact a PDF so the text under each box is gone, not hidden: every page is rebuilt as an image, right in your browser. No account needed.",
+    tools: ["redact-pdf", "ocr-pdf", "protect-pdf"],
+    keywords: [
+      "redact pdf",
+      "how to redact a pdf",
+      "black out text in pdf",
+      "redact text in a pdf",
+      "remove sensitive information from pdf",
+      "redact pdf in browser",
+    ],
+    intro: [
+      "To redact a PDF, open the Redact PDF tool, add a box over each area that has to go, and download the result. The box is not drawn on top of the text: the page is turned into an image and the box is painted into its pixels, so what was underneath no longer exists in the file.",
+      `That is the whole difference between redacting and covering, and it has a cost worth knowing before you start. ${REDACT_OUTPUT_FACT}`,
+      "Redact PDF runs in your browser, so the document you are redacting stays on your device. No account is needed.",
+    ],
+    steps: [
+      "Open the Redact PDF tool.",
+      "Pick the PDF you need to redact — it stays on your device the entire time.",
+      "For each area to remove, enter its “Page” and its position and size in PDF points, measured from the bottom-left corner of the page, then press “Add area”. The preview shows where each box lands.",
+      `Choose the “Redaction fill” — “Black” or “White” — and the output quality: ${REDACT_PRESET_CHOICES}.`,
+      "Press “Redact PDF” and save the new file to your device. Your original file is not changed.",
+    ],
+    sections: [
+      {
+        id: "redacting-is-not-covering",
+        heading: "Redacting is not the same as covering",
+        body: [
+          "A black rectangle drawn over text in a PDF editor hides it from view and nothing more. The text is still in the file, and anyone can select it, copy it or find it with a search — which is how redacted documents leak.",
+          `Redact PDF removes it instead. ${REDACT_MECHANISM}`,
+        ],
+      },
+      {
+        id: "every-page-becomes-an-image",
+        heading: "The trade-off: every page becomes an image",
+        body: [
+          REDACT_OUTPUT_FACT,
+          "If the rest of the document needs to stay searchable, run the redacted file through OCR PDF afterwards. OCR recognizes the text that is still visible on the pages; the text under a box is gone, so there is nothing there for it to find.",
+          `Choose the resolution before you run: ${REDACT_PRESET_CHOICES}. A higher resolution keeps small print legible and makes a larger file.`,
+        ],
+      },
+      {
+        id: "your-file-stays-on-your-device",
+        heading: "Your file stays on your device",
+        body: [
+          "Redact PDF is an in-browser tool: your browser renders the pages and rebuilds the file, so the document you are redacting never leaves your device. That matters most for exactly the files people redact — contracts, statements and records with personal details in them.",
+          `It is not fully offline. ${offlineAnswer("redact-pdf")}`,
+        ],
+      },
+      {
+        id: "before-you-share-it",
+        heading: "Before you share it",
+        body: [
+          "Open the downloaded PDF and check that each box sits where you meant it to before you send the file anywhere: a box placed a little off leaves the edge of a word readable.",
+          "Redaction removes content; it does not lock the file. If the redacted PDF should also need a password to open, run it through Protect PDF afterwards.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can redacted text be recovered?",
+        answer: REDACT_RECOVERY_ANSWER,
+      },
+      {
+        question: "Is a redacted PDF still searchable?",
+        answer: REDACT_SEARCH_ANSWER,
+      },
+      {
+        question: "Does my PDF leave my device when I redact it?",
+        answer:
+          "No. Redact PDF runs entirely in your browser, so the file stays on your device from start to finish.",
+      },
+      {
+        question: "Does Redact PDF work offline?",
+        answer: `Not fully. ${offlineAnswer("redact-pdf")}`,
+      },
+      {
+        question: "How large can the PDF be?",
+        answer: `Up to ${ceilingMb("redact-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-repair-a-damaged-pdf",
+    title: "How to repair a damaged or corrupted PDF",
+    description:
+      "Rebuild a damaged PDF with qpdf on an encrypted, isolated worker that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+    tools: ["repair-pdf", "unlock-pdf", "ocr-pdf"],
+    keywords: [
+      "repair pdf",
+      "fix corrupted pdf",
+      "repair damaged pdf",
+      "pdf file is damaged",
+      "recover a broken pdf",
+      "repair pdf online",
+    ],
+    intro: [
+      "To repair a damaged PDF, open the Repair PDF tool, upload the file, and download the rebuilt copy. The worker runs the file through qpdf, which reads what it can of the damaged structure and writes it out as a new, well-formed PDF.",
+      `Repair PDF is a server tool: your file travels over an encrypted connection to an encrypted, isolated worker, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed.`,
+    ],
+    steps: [
+      "Open the Repair PDF tool.",
+      `Upload the damaged PDF — it travels over an encrypted connection, and files up to ${ceilingMb("repair-pdf")} MB are accepted. It only has to start like a PDF, so a truncated file is taken in.`,
+      "Press “Repair on the worker”. qpdf rewrites the file's structure on the secure worker, which deletes the input when the job finishes.",
+      "If the file had to be rebuilt, read the list above the download: it names what was reconstructed.",
+      `Download the repaired PDF. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+    ],
+    sections: [
+      {
+        id: "what-it-can-take",
+        heading: "Which files Repair PDF can take",
+        body: [
+          REPAIR_TAKES,
+          "How much comes back depends on what survived. The repair rebuilds the file around the content it can still read; it cannot recreate content that is no longer in the file.",
+        ],
+      },
+      {
+        id: "reading-the-warnings",
+        heading: "Reading the warnings",
+        body: [
+          REPAIR_WARNINGS_ANSWER,
+          "Compare those parts against the original, or against another copy of the document if you have one, before you rely on the repaired file.",
+        ],
+      },
+      {
+        id: "where-the-repair-runs",
+        heading: "Where the repair runs",
+        body: [
+          `Repair PDF runs on an encrypted, isolated worker, not in your browser. Your file is uploaded over an encrypted connection, qpdf rebuilds it there, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        ],
+      },
+      {
+        id: "when-it-is-not-damage",
+        heading: "When the problem is not damage",
+        body: [
+          "A PDF that asks for a password is locked, not broken. If you know the password, Unlock PDF removes it and gives you an unprotected copy; it cannot recover a password you do not know.",
+          "A scanned document that opens but has no text you can select is not damaged either — its pages are pictures. OCR PDF recognizes the text in them.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Which damaged PDFs can be repaired?",
+        answer: REPAIR_TAKES,
+      },
+      {
+        question: "What do the warnings after a repair mean?",
+        answer: REPAIR_WARNINGS_ANSWER,
+      },
+      {
+        question: "What happens to my PDF after the repair runs?",
+        answer: `The file is processed on an encrypted, isolated worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      },
+      {
+        question: "How large can the PDF be?",
+        answer: `Up to ${ceilingMb("repair-pdf")} MB per file.`,
+      },
+      {
+        question: "Do I need an account to repair a PDF?",
+        answer:
+          "No account is needed. Open Repair PDF, upload the file, and download the repaired copy.",
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-add-text-to-a-pdf",

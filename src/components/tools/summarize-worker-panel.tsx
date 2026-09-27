@@ -17,7 +17,7 @@ import {
 } from "@/lib/jobs/summarize-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
 import {
@@ -136,7 +136,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {aiDailyAllowanceNote(tool.slug)}
           </p>
         )}
         {available ? (
@@ -159,7 +159,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">

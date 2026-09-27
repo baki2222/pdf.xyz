@@ -33,6 +33,7 @@ import {
   type EditResult,
   type PageSize,
 } from "@/lib/pdf/edit";
+import { EDIT_OP_LABEL, EDIT_OP_TYPES } from "@/lib/pdf/offered-kinds";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -120,16 +121,20 @@ const DEFAULT_DRAFT: Draft = {
   arrow: false,
 };
 
-const TYPE_OPTIONS: {
-  value: EditOpType;
-  label: string;
-  icon: typeof Square;
-}[] = [
-  { value: "text", label: "Text", icon: Type },
-  { value: "rect", label: "Box", icon: Square },
-  { value: "line", label: "Line", icon: PenLine },
-  { value: "image", label: "Image", icon: ImageIcon },
-];
+/** Per-kind icon. A `Record`, so a kind added to EDIT_OP_TYPES without one is a type error. */
+const TYPE_ICON: Record<EditOpType, typeof Square> = {
+  text: Type,
+  rect: Square,
+  line: PenLine,
+  image: ImageIcon,
+};
+
+/** The kinds offered — the same list the tool page counts (`offered-kinds`). */
+const TYPE_OPTIONS = EDIT_OP_TYPES.map((value) => ({
+  value,
+  label: EDIT_OP_LABEL[value],
+  icon: TYPE_ICON[value],
+}));
 
 /** A curated palette — dark ink first, then bright accents. */
 const PALETTE: { hex: string; label: string }[] = [
@@ -142,12 +147,7 @@ const PALETTE: { hex: string; label: string }[] = [
   { hex: "#a855f7", label: "Violet" },
 ];
 
-const TYPE_LABEL: Record<EditOpType, string> = {
-  text: "Text",
-  rect: "Box",
-  line: "Line",
-  image: "Image",
-};
+const TYPE_LABEL = EDIT_OP_LABEL;
 
 const MAX_IMAGE_MB = Math.round(MAX_EDIT_IMAGE_BYTES / (1024 * 1024));
 

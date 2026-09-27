@@ -20,6 +20,7 @@
  */
 
 import { getToolInputKind } from "@/lib/jobs/capabilities";
+import { acceptsDamagedPdf } from "@/lib/jobs/damaged-input";
 import {
   familyForExtension,
   familyForMime,
@@ -46,6 +47,7 @@ function checkOne(
   policy: SoundnessPolicy,
   accepted: ReadonlySet<UploadFamily>,
   file: ProcessorInputFile,
+  tool: string,
 ): SoundnessResult | null {
   const bytes = file.bytes;
 
@@ -111,7 +113,13 @@ function checkOne(
     if (policy.requireHeader && !sniff.hasHeader) {
       return soundnessReject("malformed_pdf");
     }
-    if (policy.requireEof && !sniff.hasEof) {
+    // The trailer check is the one that refuses a TRUNCATED file, which is the
+    // commonest damage and the exact file a repair tool exists for. Without this
+    // exemption, an operator switching on the opt-in `%%EOF` check would silently
+    // close repair-pdf to its whole purpose — while its page says damaged files
+    // are accepted. The header stays required: a file with no PDF header is not a
+    // damaged PDF, it is not a PDF.
+    if (policy.requireEof && !sniff.hasEof && !acceptsDamagedPdf(tool)) {
       return soundnessReject("malformed_pdf");
     }
   }
@@ -153,7 +161,7 @@ export function checkSoundness(
 
   const accepted = acceptedFamiliesForTool(input.tool);
   for (const file of input.inputs) {
-    const rejection = checkOne(policy, accepted, file);
+    const rejection = checkOne(policy, accepted, file, input.tool);
     if (rejection) return rejection;
   }
   return soundnessPass();

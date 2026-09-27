@@ -38,6 +38,7 @@ import { getToolBySlug, tools } from "./index";
 import { modeUploadsFiles } from "./processing-split";
 import { withoutComments } from "./copy-surface";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
+import { REQUEST_PACKAGE_FILES } from "@/lib/jobs/request-signatures";
 
 /** Tools whose downloadable artifact is a ZIP bundle, and the engine that writes it. */
 const BUNDLE_TOOLS: readonly { slug: string; engine: string }[] = [
@@ -60,14 +61,40 @@ const BUNDLE_TOOLS: readonly { slug: string; engine: string }[] = [
 function bundledFormats(engineFile: string): Set<string> {
   const source = readFileSync(path.join(process.cwd(), engineFile), "utf8");
   const formats = new Set<string>();
-  for (const match of source.matchAll(/zip\.file\(\s*[`"']([^`"']+)[`"']/g)) {
-    const name = match[1]!;
-    if (name.includes("/")) continue;
+  const add = (name: string) => {
+    if (name.includes("/")) return;
     const ext = name.split(".").pop();
     if (ext && ext !== name) formats.add(ext.toUpperCase());
+  };
+  // Every `zip.file(` call is accounted for: a literal name, or a member of a
+  // name record the engine shares with its tool page. An argument this can
+  // not read is FATAL rather than skipped — a skipped entry is a format this
+  // guard silently never sees, which is how a literal-only scan would have
+  // read request-signatures' package as writing nothing at all.
+  for (const match of source.matchAll(/zip\.file\(\s*([^,)]+)/g)) {
+    const arg = match[1]!.trim();
+    const literal = /^[`"']([^`"']+)[`"']$/.exec(arg);
+    if (literal) {
+      add(literal[1]!);
+      continue;
+    }
+    const member = /^([A-Z][A-Z0-9_]*)\.(\w+)$/.exec(arg);
+    const record = member ? ZIP_NAME_RECORDS[member[1]!] : undefined;
+    const name = member && record ? record[member[2]!] : undefined;
+    if (name === undefined) {
+      throw new Error(
+        `${engineFile}: cannot read the zip entry name \`${arg}\` — add its record to ZIP_NAME_RECORDS`,
+      );
+    }
+    add(name);
   }
   return formats;
 }
+
+/** Name records an engine may pass to `zip.file`, resolved to their values. */
+const ZIP_NAME_RECORDS: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = { REQUEST_PACKAGE_FILES };
 
 describe("a tool's advertised outputs match what its engine writes", () => {
   it.each(BUNDLE_TOOLS)(

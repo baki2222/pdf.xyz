@@ -12,12 +12,12 @@ it client-side.
 
 Every tool declares one of these, shown on its card and page:
 
-| Mode                         | Meaning                                                                                       |
-| ---------------------------- | --------------------------------------------------------------------------------------------- |
-| **In-browser** (`client`)    | Runs entirely on your device. Files are never uploaded.                                       |
-| **Hybrid**                   | Runs in the browser when possible, with an encrypted server fallback for large/complex files. |
-| **Secure worker** (`server`) | Processed on an encrypted, isolated worker and deleted shortly after.                         |
-| **AI**                       | Uses an AI model on secure infrastructure; your content is never used to train models.        |
+| Mode                         | Meaning                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **In-browser** (`client`)    | Runs entirely on your device. Files are never uploaded.                                                          |
+| **Hybrid**                   | Runs in the browser; an optional, clearly labeled worker step uploads the file only when the user starts it.     |
+| **Secure worker** (`server`) | Processed on an encrypted, isolated worker and deleted shortly after.                                            |
+| **AI**                       | Sends the PDF's selectable text (not the file) to a third-party AI provider whose terms prohibit training on it. |
 
 ## What runs where (honest status)
 
@@ -136,8 +136,8 @@ this gate exists to prevent.
 
 They run inside the same envelope as every other worker job
 ([`docs/ENGINE_ROADMAP.md`](ENGINE_ROADMAP.md)): short-lived encrypted storage,
-isolated per-job processing, inputs wiped as soon as the job
-ends, outputs dropped on their retention TTL (`DEFAULT_RETENTION`), and **no
+processing on the separate worker process (not the web tier), inputs wiped as soon
+as the job ends, outputs dropped on their retention TTL (`DEFAULT_RETENTION`), and **no
 document contents in logs**. Malware scanning is the one item that is _not_
 universal: it is optional and off unless an operator configures a scanner, and an
 unscanned upload is never reported as scanned.
@@ -192,7 +192,9 @@ is on, so the production build is unaffected. The full design is in
   own network is disabled, the uploaded HTML is never loaded from `file://`,
   and Chromium runs without the worker's environment. There is no network
   restriction on the worker process itself: it reaches storage, the queue and
-  AI providers by design.
+  AI providers by design. Per-job isolation and egress limits are NOT
+  implemented; see `src/lib/jobs/pipeline-honesty.test.ts` for the property
+  that would have to be proven before any page may claim them.
 - Rate limits (`RATE_LIMITS`) are published in the contract and enforced at the
   gateway. Phase 33 adds an in-app **abuse guard** (`src/lib/ratelimit`) as
   defense-in-depth behind that gateway — see **Abuse guard & rate limiting** below.

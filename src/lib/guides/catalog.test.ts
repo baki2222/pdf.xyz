@@ -21,7 +21,7 @@ import { guides } from "./catalog";
 import type { Guide } from "./types";
 import { getToolBySlug } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
-import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 
 /** Every string a reader (or a crawler, via JSON-LD) receives from a guide. */
@@ -222,9 +222,12 @@ describe("guide copy tells the truth about where the work runs", () => {
       }
       const primary = getToolBySlug(guide.tools[0]!)!;
       if (capabilityForMode(primary.processing) === "ai") {
+        // Per tool: the allowance is stated in the unit the route charges the
+        // guide's primary tool (characters for translate, runs for the rest).
+        const fact = aiAllowanceFactFor(primary.slug);
         expect(
-          copyStrings(guide).some((text) => text.includes(AI_ALLOWANCE_FACT)),
-          `${guide.slug}: an AI guide must carry the allowance sentence verbatim (interpolate AI_ALLOWANCE_FACT)`,
+          copyStrings(guide).some((text) => text.includes(fact)),
+          `${guide.slug}: an AI guide must carry its tool's allowance sentence verbatim (interpolate aiAllowanceFactFor)`,
         ).toBe(true);
       }
     }

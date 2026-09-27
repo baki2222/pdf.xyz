@@ -27,6 +27,7 @@ import {
   AI_ALLOWANCE_RUNS,
   AI_ALLOWANCE_USED_MESSAGE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
+  aiAllowanceFactFor,
 } from "@/lib/jobs/ai-allowance";
 import { flattenForPhraseSearch, withoutComments } from "./copy-surface";
 
@@ -186,13 +187,32 @@ describe("there is exactly one copy of the sentence", () => {
   it("the panels reach the sentence through the shared source", async () => {
     // Reach, not membership: the re-exports must actually resolve to the same
     // string, or "one copy" is true of the source and false of what renders.
-    const { AI_DAILY_ALLOWANCE_NOTE } =
+    //
+    // INVERTED 2026-09-27, history kept. This asserted
+    // `AI_DAILY_ALLOWANCE_NOTE === AI_ALLOWANCE_FACT` — one note for four
+    // panels — and so pinned the defect: that sentence is translate's
+    // character figure, and Summarize, Chat and Extract are charged per run.
+    // "One copy" is still the rule; it is now one FUNCTION, keyed by tool, and
+    // the panel note must be exactly what the tool's own fact line says.
+    const { aiDailyAllowanceNote } =
       await import("@/lib/workers/ai-tool-availability");
-    const { AI_ALLOWANCE_FACT: fromTools } = await import("./tool-facts");
+    const { AI_ALLOWANCE_FACT: fromTools, toolFacts } =
+      await import("./tool-facts");
     const { AI_ALLOWANCE_USED_MESSAGE: fromRateLimit } =
       await import("@/lib/ratelimit/response");
+    const { tools } = await import("./index");
+    const { capabilityForMode } = await import("@/lib/jobs/capabilities");
 
-    expect(AI_DAILY_ALLOWANCE_NOTE).toBe(AI_ALLOWANCE_FACT);
+    const ai = tools.filter((t) => capabilityForMode(t.processing) === "ai");
+    expect(ai.length, "no AI tool in the catalogue — blind").toBeGreaterThan(0);
+    for (const tool of ai) {
+      const fact = toolFacts(tool.slug).find(
+        (f) => f.label === "Free allowance",
+      );
+      expect(fact, `${tool.slug} publishes no allowance fact`).toBeDefined();
+      expect(aiDailyAllowanceNote(tool.slug)).toBe(fact!.value);
+      expect(fact!.value).toBe(aiAllowanceFactFor(tool.slug));
+    }
     expect(fromTools).toBe(AI_ALLOWANCE_FACT);
     expect(fromRateLimit).toBe(AI_ALLOWANCE_USED_MESSAGE);
   });

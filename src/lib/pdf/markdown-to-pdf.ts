@@ -3,11 +3,16 @@ import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
+import { TEXT_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
+import { MARKDOWN_BLOCK_KINDS } from "./markdown-blocks";
+
+export { MARKDOWN_BLOCK_KINDS };
 
 const PRODUCER = "pdf.xyz";
-const PAGE_WIDTH = 612;
-const PAGE_HEIGHT = 792;
-const MARGIN = 54;
+// The page geometry the tool page states — one value, see ./page-geometry.
+const PAGE_WIDTH = US_LETTER_PT.width;
+const PAGE_HEIGHT = US_LETTER_PT.height;
+const MARGIN = TEXT_PAGE_MARGIN_PT;
 const BODY_SIZE = 11;
 const BODY_LINE_HEIGHT = 16;
 // The cap the tool page advertises, so the gate and the promise are one value.
@@ -22,6 +27,24 @@ export type MarkdownBlock =
   | { kind: "list-item"; ordered: boolean; index?: number; text: string }
   | { kind: "quote"; text: string }
   | { kind: "code"; language?: string; text: string };
+
+// Both directions, at compile time: no kind the renderer draws is missing from
+// the list, and the list names nothing the renderer lacks.
+type UnlistedBlockKind = Exclude<
+  MarkdownBlock["kind"],
+  (typeof MARKDOWN_BLOCK_KINDS)[number]
+>;
+type PhantomBlockKind = Exclude<
+  (typeof MARKDOWN_BLOCK_KINDS)[number],
+  MarkdownBlock["kind"]
+>;
+const blockKindsAgree: [UnlistedBlockKind, PhantomBlockKind] extends [
+  never,
+  never,
+]
+  ? true
+  : never = true;
+void blockKindsAgree;
 
 export interface MarkdownToPdfOptions {
   title?: string;

@@ -55,7 +55,7 @@ import {
 import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
 import { AI_ALLOWANCE_USED_MESSAGE } from "./response";
 import { AI_ALLOWANCE_FACT } from "@/lib/tools/tool-facts";
-import { AI_DAILY_ALLOWANCE_NOTE } from "@/lib/workers/ai-tool-availability";
+import { aiDailyAllowanceNote } from "@/lib/workers/ai-tool-availability";
 import { tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 
@@ -75,10 +75,15 @@ const COPY: { where: string; text: string }[] = [
     where: "tool-facts AI_ALLOWANCE_FACT (4 tool pages + FAQPage JSON-LD)",
     text: AI_ALLOWANCE_FACT,
   },
-  {
-    where: "ai-tool-availability AI_DAILY_ALLOWANCE_NOTE (the AI panels)",
-    text: AI_DAILY_ALLOWANCE_NOTE,
-  },
+  // Per tool since the allowance became per-tool copy: ONE panel note used to
+  // serve all four AI panels, quoting translate's character figure on the
+  // three tools charged per run. Walked from the catalogue, never listed.
+  ...tools
+    .filter((t) => capabilityForMode(t.processing) === "ai")
+    .map((t) => ({
+      where: `ai-tool-availability aiDailyAllowanceNote("${t.slug}") (its panel, its fact line, its FAQPage answer)`,
+      text: aiDailyAllowanceNote(t.slug),
+    })),
   { where: "the 429 body", text: AI_ALLOWANCE_USED_MESSAGE },
 ];
 
@@ -270,7 +275,9 @@ describe("the AI allowance copy matches what the limiter can distinguish", () =>
  * against the daily allowance ..."), rendered directly after
  * `AI_DAILY_ALLOWANCE_NOTE` in the panel. It is allowance copy by any reading,
  * and not one test in the block above ever saw it: planting "You have used
- * your allowance" in it left every test above green.
+ * your allowance" in it left every test above green. (The same day the
+ * sentence moved into chat's own allowance fact, which `COPY` now walks too;
+ * the derived walk below is what does not depend on that.)
  *
  * THE SET IS DERIVED from `copyFiles()` — the one visitor-readable surface the
  * other honesty guards already walk, and which `copy-surface.test.ts` holds to
@@ -314,14 +321,19 @@ describe("no allowance sentence ANYWHERE a visitor reads claims the reader's con
     expect(withWindows.length).toBeGreaterThanOrEqual(8);
   });
 
-  it("reaches the chat panel's per-question cost note, the sentence COPY never named", () => {
-    const chat = withWindows.find(({ file }) =>
-      file.endsWith("components/tools/chat-with-pdf-worker-panel.tsx"),
+  it("reaches chat's per-question cost sentence, wherever it is defined", () => {
+    // It was CHAT_QUESTION_COST_NOTE in the chat panel when this was written,
+    // and this asserted that FILE. Since 2026-09-27 the sentence is part of
+    // chat's own allowance fact (`aiAllowanceFactFor` in jobs/ai-allowance.ts),
+    // so the panel, the fact line and the FAQPage answer are one string. What
+    // this checks is unchanged: the derived corpus reaches the sentence.
+    const reached = withWindows.filter(({ windows }) =>
+      windows.some((w) => w.includes("Each question counts")),
     );
     expect(
-      chat?.windows.some((w) => w.includes("Each question counts")),
-      "the derived corpus does not reach CHAT_QUESTION_COST_NOTE",
-    ).toBe(true);
+      reached.map(({ file }) => file),
+      "the derived corpus does not reach chat's per-question cost sentence",
+    ).not.toEqual([]);
   });
 
   it("POSITIVE CONTROL: every shipped claim is caught when set beside the allowance sentence", () => {
@@ -402,11 +414,37 @@ describe("the allowance refusal is true on every AI tool's page", () => {
     );
   });
 
-  it("names no single tool's action", () => {
+  /** The AI tools whose action `text` names, as a sorted list. */
+  const named = (text: string) =>
+    [...new Set(toolSpecific(text).map(({ slug }) => slug))].sort();
+  const everyTool = aiTools.map((tool) => tool.slug).sort();
+
+  /*
+   * AMENDED 2026-09-27, when two lanes met: this asserted the refusal names NO
+   * tool's action (`toEqual([])`). The copy lane had meanwhile made the refusal
+   * state what the allowance covers in each tool's unit — true on every page,
+   * because it names every tool — and the two rules could not both hold. The
+   * property was always "never ONE tool's use"; naming none is one way to keep
+   * it, naming all is the other. Naming some is what is refused.
+   */
+  it("names every AI tool's action or none — never one tool's use", () => {
     expect(
-      toolSpecific(AI_ALLOWANCE_USED_MESSAGE),
-      "the refusal every AI tool serves describes one tool's use — false on " +
-        "the others' pages",
-    ).toEqual([]);
+      [[], everyTool],
+      "the refusal every AI tool serves names only some tools — false on " +
+        `the others' pages (it names: ${named(AI_ALLOWANCE_USED_MESSAGE).join(", ")})`,
+    ).toContainEqual(named(AI_ALLOWANCE_USED_MESSAGE));
+  });
+
+  it("CONTROL: the same refusal with one tool's clause dropped is caught", () => {
+    // Through the same detector: without chat's clause the sentence still
+    // names the other three, and says nothing true about a chat question.
+    const withoutChat = AI_ALLOWANCE_USED_MESSAGE.replace(
+      /(?:,| and) a chat question[^—]*/,
+      "",
+    );
+    expect(withoutChat, "the control's edit did not land").not.toBe(
+      AI_ALLOWANCE_USED_MESSAGE,
+    );
+    expect([[], everyTool]).not.toContainEqual(named(withoutChat));
   });
 });

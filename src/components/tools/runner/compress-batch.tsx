@@ -55,11 +55,13 @@ async function repackOrExplain(bytes: Uint8Array): Promise<LosslessResult> {
       if (access.kind === "restricted") {
         throw new PdfEngineError(
           `${LOCKED_PDF_COPY.restricted} Compress it on its own to use the secure worker.`,
-          "encrypted",
+          { kind: "encrypted" },
         );
       }
       if (access.kind !== "unencrypted") {
-        throw new PdfEngineError(LOCKED_PDF_COPY[access.kind], "encrypted");
+        throw new PdfEngineError(LOCKED_PDF_COPY[access.kind], {
+          kind: "encrypted",
+        });
       }
     }
     throw err;

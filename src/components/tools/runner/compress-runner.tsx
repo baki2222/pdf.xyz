@@ -21,6 +21,7 @@ import {
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
+import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
 import { outputName, partitionPdfFiles } from "@/lib/pdf/files";
 import {
   runWorkerCompression,
@@ -544,11 +545,7 @@ function CompressEditor({
 }
 
 /** Quality presets for deep compression, mapped to a target image DPI. */
-const DEEP_QUALITY = [
-  { dpi: 96, label: "Smaller" },
-  { dpi: 150, label: "Balanced" },
-  { dpi: 300, label: "High quality" },
-] as const;
+const DEEP_QUALITY = DEEP_COMPRESSION_PRESETS;
 
 /**
  * True when the UI may offer the secure-worker deep compression flow.

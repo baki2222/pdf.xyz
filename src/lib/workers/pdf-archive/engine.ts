@@ -1,11 +1,12 @@
 import { looksLikePdf } from "../compression/engine";
+import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 
 export const PDF_TO_PDFA_TOOL = "pdf-to-pdfa";
 export const PDF_ARCHIVE_TOOLS = [PDF_TO_PDFA_TOOL] as const;
 export type PdfArchiveTool = (typeof PDF_ARCHIVE_TOOLS)[number];
 
 export const PDF_ARCHIVE_ENGINE = "ghostscript" as const;
-export const PDF_A_STANDARD = "PDF/A-2b" as const;
+export { PDF_A_STANDARD };
 
 /**
  * What a PDF/A conversion produced, and what Ghostscript said about producing it.

@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { XLSX_CELL_BREAK, XLSX_SHEET_NAME } from "@/lib/jobs/pdf-office-export";
 
 export const PDF_TO_WORD_TOOL = "pdf-to-word";
 export const PDF_TO_EXCEL_TOOL = "pdf-to-excel";
@@ -85,7 +86,7 @@ async function docx(text: string): Promise<Uint8Array> {
 function rows(text: string): string[][] {
   return lines(text).map((l) =>
     l
-      .split(/\t| {2,}|,/)
+      .split(XLSX_CELL_BREAK)
       .map((c) => c.trim())
       .filter(Boolean),
   );
@@ -106,7 +107,7 @@ async function xlsx(text: string): Promise<Uint8Array> {
   );
   zip.file(
     "xl/workbook.xml",
-    `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Extracted text" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(XLSX_SHEET_NAME)}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
   );
   const sheetData = rows(text)
     .map(

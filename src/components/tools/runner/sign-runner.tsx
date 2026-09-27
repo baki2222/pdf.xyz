@@ -12,6 +12,13 @@ import {
   type SignaturePosition,
   type SignatureStyle,
 } from "@/lib/pdf/signature";
+import {
+  SIGNATURE_SOURCE_LABEL,
+  SIGNATURE_SOURCES,
+  SIGNATURE_STYLE_LABEL,
+  SIGNATURE_STYLES,
+  type SignatureSource,
+} from "@/lib/pdf/offered-kinds";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -36,7 +43,7 @@ import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { SignaturePad } from "./signature-pad";
 import type { LoadedPdf } from "./use-single-pdf";
 
-type Source = "draw" | "type" | "upload";
+type Source = SignatureSource;
 
 export function SignRunner() {
   return (
@@ -130,11 +137,10 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           label="Signature source"
           value={source}
           onChange={setSource}
-          options={[
-            { value: "draw", label: "Draw" },
-            { value: "type", label: "Type" },
-            { value: "upload", label: "Upload" },
-          ]}
+          options={SIGNATURE_SOURCES.map((value) => ({
+            value,
+            label: SIGNATURE_SOURCE_LABEL[value],
+          }))}
         />
 
         {source === "type" && (
@@ -151,10 +157,10 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
                 label="Signature style"
                 value={style}
                 onChange={setStyle}
-                options={[
-                  { value: "signature", label: "Script" },
-                  { value: "print", label: "Print" },
-                ]}
+                options={SIGNATURE_STYLES.map((value) => ({
+                  value,
+                  label: SIGNATURE_STYLE_LABEL[value],
+                }))}
               />
             </div>
             <TypedPreview text={text} style={style} />

@@ -1,11 +1,13 @@
 import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
+import { IMAGE_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
 
 const PRODUCER = "pdf.xyz";
-const PAGE_WIDTH = 612;
-const PAGE_HEIGHT = 792;
-const MARGIN = 36;
+// The page geometry the tool pages state — one value, see ./page-geometry.
+const PAGE_WIDTH = US_LETTER_PT.width;
+const PAGE_HEIGHT = US_LETTER_PT.height;
+const MARGIN = IMAGE_PAGE_MARGIN_PT;
 // The cap the tool page advertises, so the gate and the promise are one value.
 import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from "@/lib/tools/limits";
 

@@ -23,13 +23,21 @@ import type {
  */
 export type PdfEngineErrorKind = "encrypted" | "unreadable";
 
+/**
+ * What a {@link PdfEngineError} may carry beside its message: the standard
+ * `cause` (so a wrapped failure keeps its diagnostic) and the refusal `kind`.
+ */
+export interface PdfEngineErrorOptions extends ErrorOptions {
+  readonly kind?: PdfEngineErrorKind;
+}
+
 /** Thrown for problems reading or writing PDF bytes, with user-facing copy. */
 export class PdfEngineError extends Error {
   readonly kind: PdfEngineErrorKind | undefined;
-  constructor(message: string, kind?: PdfEngineErrorKind) {
-    super(message);
+  constructor(message: string, options?: PdfEngineErrorOptions) {
+    super(message, options);
     this.name = "PdfEngineError";
-    this.kind = kind;
+    this.kind = options?.kind;
   }
 }
 
@@ -60,10 +68,10 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
     if (/encrypt/i.test(message)) {
       throw new PdfEngineError(
         "This PDF is password-protected. Unlock it first, then try again.",
-        "encrypted",
+        { kind: "encrypted" },
       );
     }
-    throw new PdfEngineError(UNREADABLE_PDF_MESSAGE, "unreadable");
+    throw new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
   }
 }
 

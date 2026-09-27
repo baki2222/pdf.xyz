@@ -16,7 +16,7 @@ import {
 } from "@/lib/jobs/chat-with-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
 import {
@@ -127,7 +127,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE} {CHAT_QUESTION_COST_NOTE}
+            {aiDailyAllowanceNote(tool.slug)}
           </p>
         )}
         {available ? (
@@ -150,7 +150,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -196,16 +196,6 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
     </div>
   );
 }
-
-/**
- * What one question costs — the chat-specific half of the allowance.
- *
- * The shared allowance sentence says how much a connection gets; it cannot say
- * what a chat question takes, and chat is the one AI tool whose cost repeats:
- * the document is re-sent with every question. Stated from the same constant
- * the route caps the reservation at and the worker caps the read at.
- */
-const CHAT_QUESTION_COST_NOTE = `Each question counts this PDF's text, plus the question and the conversation sent with it, against the daily allowance — at most ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters a question, so a short document leaves room for many follow-ups.`;
 
 /** Shown instead of uploading a PDF the browser found no text in. */
 const NO_TEXT_MESSAGE =

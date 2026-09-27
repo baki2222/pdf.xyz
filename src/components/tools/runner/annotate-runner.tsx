@@ -25,6 +25,7 @@ import {
   type AnnotateResult,
   type PageSize,
 } from "@/lib/pdf/annotate";
+import { ANNOTATION_LABEL, ANNOTATION_TYPES } from "@/lib/pdf/offered-kinds";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -99,16 +100,20 @@ const DEFAULT_DRAFT: Draft = {
   arrow: true,
 };
 
-const TYPE_OPTIONS: {
-  value: AnnotationType;
-  label: string;
-  icon: typeof Square;
-}[] = [
-  { value: "highlight", label: "Highlight", icon: Highlighter },
-  { value: "rect", label: "Box", icon: Square },
-  { value: "note", label: "Note", icon: Type },
-  { value: "line", label: "Line", icon: PenLine },
-];
+/** Per-kind icon. A `Record`, so a kind added to ANNOTATION_TYPES without one is a type error. */
+const TYPE_ICON: Record<AnnotationType, typeof Square> = {
+  highlight: Highlighter,
+  rect: Square,
+  note: Type,
+  line: PenLine,
+};
+
+/** The kinds offered — the same list the tool page counts (`offered-kinds`). */
+const TYPE_OPTIONS = ANNOTATION_TYPES.map((value) => ({
+  value,
+  label: ANNOTATION_LABEL[value],
+  icon: TYPE_ICON[value],
+}));
 
 /** A curated markup palette — bright enough to read over page content. */
 const PALETTE: { hex: string; label: string }[] = [
@@ -173,12 +178,7 @@ function buildAnnotation(draft: Draft): Annotation {
   }
 }
 
-const TYPE_LABEL: Record<AnnotationType, string> = {
-  highlight: "Highlight",
-  rect: "Box",
-  note: "Note",
-  line: "Line",
-};
+const TYPE_LABEL = ANNOTATION_LABEL;
 
 /** A one-line summary of a placed markup for the list. */
 function describeMarkup(annotation: Annotation): string {

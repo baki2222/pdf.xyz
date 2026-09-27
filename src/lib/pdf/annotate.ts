@@ -4,6 +4,7 @@ import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
 import { isWinAnsiEncodable, nonWinAnsiCharacters } from "./winansi";
+import type { AnnotationType } from "./offered-kinds";
 
 // Re-exported from their new home. Five modules needed the same predicate once
 // a Unicode face could be embedded, and two copies of an alphabet are two
@@ -47,8 +48,13 @@ const NOTE_LINE_HEIGHT_RATIO = 1.18;
 /** Guard against pasting a whole document into a single note. */
 const MAX_NOTE_CHARS = 2000;
 
-/** The four markup shapes this tool can flatten onto a page. */
-export type AnnotationType = "highlight" | "rect" | "note" | "line";
+/**
+ * The markup shapes this tool can flatten onto a page — defined in the
+ * `offered-kinds` leaf so the runner's buttons and the tool page's count read the
+ * same list this union is derived from. (This docblock used to say "four", and
+ * the page said "six".)
+ */
+export type { AnnotationType };
 
 interface AnnotationBase {
   /** 1-based page the markup lands on. */

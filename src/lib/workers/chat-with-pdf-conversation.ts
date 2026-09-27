@@ -46,8 +46,8 @@ export interface ChatContext {
   shortenedTurns: number;
 }
 
-/** Most recent exchanges that fit within the contract's turn budget (2 turns each). */
-const MAX_CONTEXT_EXCHANGES = Math.floor(MAX_CONTEXT_TURNS / 2);
+/** Most recent exchanges that fit within the contract's turn budget (2 turns each). Exported for the tool page's answer. */
+export const MAX_CONTEXT_EXCHANGES = Math.floor(MAX_CONTEXT_TURNS / 2);
 
 /**
  * Byte budget for the serialized `context` — the limit that actually binds.

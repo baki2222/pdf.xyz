@@ -1,6 +1,17 @@
 import type { Tool } from "./types";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
+import { US_LETTER_LABEL } from "@/lib/pdf/page-geometry";
+import {
+  RASTER_RESOLUTION_CHOICES as RESOLUTION_CHOICES,
+  RASTER_PREVIEW_LIMIT,
+  RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS,
+} from "@/lib/pdf/pdf-to-image";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import {
+  MAX_REQUEST_SIGNERS,
+  REQUEST_PACKAGE_FILES,
+} from "@/lib/jobs/request-signatures";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -51,7 +62,7 @@ export const tools: Tool[] = [
     how: [
       "Pick the PDF you want to split — it stays on your device.",
       "Choose page ranges or a split-every-N-pages rule.",
-      "Download the resulting files as a ZIP.",
+      "Download the result — a single piece saves as a PDF, and several arrive together as one ZIP.",
     ],
   },
   {
@@ -68,6 +79,12 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["organize pdf", "reorder pages", "rearrange pdf", "sort pages"],
     related: ["merge-pdf", "remove-pages", "page-numbers", "rotate-pdf"],
+    how: [
+      "Pick your PDF — every page opens as a tile on a page board, and the file stays on your device.",
+      "Drag tiles into a new order, or use each tile's move buttons; rotate, duplicate or delete any page from its tile.",
+      "Change your mind with “Undo” and “Redo” (Ctrl/⌘+Z and Ctrl/⌘+Shift+Z), or start over with “Reset”.",
+      "Click “Apply & export”, then “Download organized PDF”.",
+    ],
   },
   {
     slug: "extract-pages",
@@ -98,6 +115,12 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["delete pages", "remove pages", "trim pdf", "cut pages"],
     related: ["extract-pages", "organize-pages", "split-pdf"],
+    how: [
+      "Pick your PDF — a thumbnail of every page appears, and the file stays on your device.",
+      "Click the pages to delete, Shift-click to select a run of pages, or type a list like 2-4, 9 and press “Select”.",
+      "Click “Delete” to remove them — at least one page has to stay.",
+      "Click “Download PDF” to save the trimmed copy.",
+    ],
   },
   {
     slug: "rotate-pdf",
@@ -112,6 +135,12 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["rotate pdf", "turn pages", "orientation", "landscape pdf"],
     related: ["organize-pages", "crop-pdf", "merge-pdf"],
+    how: [
+      "Pick your PDF — every page appears as a thumbnail, and the file stays on your device.",
+      "Select the pages to turn, or select none to turn them all; Shift-click selects a run.",
+      "Turn them with “Left”, “Right” or “180°”, or with the arrows on a single page.",
+      "Click “Apply rotation”, then “Download rotated PDF”.",
+    ],
   },
   {
     slug: "extract-images",
@@ -184,6 +213,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["repair pdf", "fix pdf", "recover pdf", "corrupt pdf"],
     related: ["compress-pdf", "optimize-web", "pdf-to-pdfa"],
+    how: [
+      "Upload the damaged PDF over an encrypted connection — it only has to start like a PDF, so a truncated file is taken in.",
+      "Press “Repair on the worker”: qpdf rewrites the file's structure on the secure worker, which deletes the input when the job finishes.",
+      `Download the repaired PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. If the file had to be rebuilt, a list above the download says what was reconstructed.`,
+    ],
   },
   {
     slug: "optimize-web",
@@ -267,11 +301,12 @@ export const tools: Tool[] = [
     name: "JPG to PDF",
     tagline: "Images into a single tidy PDF.",
     description:
-      // The layout is FIXED by the engine (pdf/image-to-pdf.ts): one US Letter
-      // portrait page per image, a 36pt margin, no runner setting to change
-      // it. claims-vs-capability.test.ts decodes the output PDF and checks
-      // every paper size and margin this copy names.
-      "Combine JPG images into one PDF in your browser — each image centered on its own US Letter portrait page with a half-inch margin. The file stays on your device.",
+      // Was "with control over orientation, margins, and page size" — the
+      // engine has none of the three. The layout is FIXED (pdf/image-to-pdf.ts
+      // via pdf/page-geometry.ts): one US Letter portrait page per image and a
+      // 36pt margin. claims-vs-capability.test.ts decodes the output PDF and
+      // checks every paper size and margin this copy names.
+      `Combine JPG images into one PDF — each centered on its own ${US_LETTER_LABEL} portrait page with a half-inch margin. Files stay on your device.`,
     category: "convert-to",
     icon: "jpg",
     processing: "client",
@@ -284,10 +319,10 @@ export const tools: Tool[] = [
     // say "pick your file" (tool-page-content.test.ts discovers multi-file
     // runners and requires their own steps).
     how: [
-      "Pick one or more JPG images — they stay on your device.",
-      "Use Move up and Move down to set the page order.",
-      "Select Create PDF — each image is centered on its own US Letter portrait page.",
-      "Download the PDF.",
+      "Pick one or more JPG or JPEG photos — they stay on your device.",
+      "Put them in page order with each image's “Move up” and “Move down” buttons.",
+      `Click “Create PDF” — each image is centered on its own ${US_LETTER_LABEL} portrait page, assembled in your browser.`,
+      "Click “Download PDF” to save it.",
     ],
   },
   {
@@ -304,9 +339,9 @@ export const tools: Tool[] = [
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],
     how: [
       "Pick one or more PNG images — they stay on your device.",
-      "Use Move up and Move down to set the page order.",
-      "Select Create PDF — each image is placed on its own page.",
-      "Download the PDF.",
+      "Put them in page order with each image's “Move up” and “Move down” buttons.",
+      "Click “Create PDF” — each image goes on its own page, assembled in your browser.",
+      "Click “Download PDF” to save it.",
     ],
   },
   {
@@ -371,6 +406,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["markdown to pdf", "md to pdf", "readme to pdf", "docs to pdf"],
     related: ["pdf-to-markdown", "html-to-pdf", "text-to-pdf"],
+    how: [
+      "Paste Markdown into the editor, or pick a .md file — it stays on your device.",
+      "Click “Create PDF” — the Markdown is typeset into pages in your browser.",
+      "Click “Download PDF” to save it.",
+    ],
   },
   {
     slug: "text-to-pdf",
@@ -384,18 +424,25 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["text to pdf", "txt to pdf", "notes to pdf", "plain text pdf"],
     related: ["markdown-to-pdf", "word-to-pdf", "pdf-to-text"],
+    how: [
+      "Paste or type your text, or pick a .txt file — it stays on your device.",
+      "Click “Create PDF” — the text is paginated in your browser.",
+      "Click “Download PDF” to save it.",
+    ],
   },
 
   // ─────────────────────────────── Convert from PDF ───────────────────────
   {
     slug: "pdf-to-word",
     name: "PDF to Word",
-    tagline: "A PDF's text as an editable DOCX.",
+    // Was "Editable DOCX from any PDF" and "while preserving layout and text
+    // flow": the engine writes one plain paragraph per line of selectable
+    // text — no styles, images, tables or columns — and refuses a PDF with
+    // none. `worker-tool-answers.test.ts` and claims-vs-capability.test.ts
+    // decode a real export against this copy.
+    tagline: "Editable DOCX from a PDF's text.",
     description:
-      // The engine writes one bare <w:p> per extracted line — no styles,
-      // images, tables or columns (workers/pdf-office-export/engine.ts).
-      // claims-vs-capability.test.ts decodes a real export against this copy.
-      "Convert a PDF’s selectable text into an editable Word DOCX, one paragraph per line. Images, fonts, tables and page layout are not recreated.",
+      "Turn a PDF's selectable text into an editable Word (DOCX) file, one paragraph per line. Images, fonts, tables and layout are not recreated; scans need OCR first.",
     category: "convert-from",
     icon: "word",
     processing: "server",
@@ -409,18 +456,25 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-excel",
     name: "PDF to Excel",
-    tagline: "Selectable PDF text into an XLSX sheet.",
+    // Was "Convert tables … with rows and columns intact": the engine detects
+    // no tables — it splits each line of text at separators, so "1,250" lands
+    // in two cells. Every separator named here is one the engine splits on,
+    // and every one it splits on is named — checked on a decoded XLSX by
+    // claims-vs-capability.test.ts.
+    tagline: "A PDF's text, line by line, in a sheet.",
     description:
-      // No table detection: every separator named here is one the engine
-      // splits on, and every one it splits on is named — checked on a decoded
-      // XLSX by claims-vs-capability.test.ts.
-      "Export a PDF’s selectable text to an XLSX sheet: one row per line, cells split at tabs, wide gaps and commas. Runs on a worker that deletes the input after the job.",
+      "Export a PDF’s selectable text to an XLSX sheet: one row per line, cells split at tabs, wide gaps and commas. For tables, use Extract Tables.",
     category: "convert-from",
     icon: "excel",
     processing: "server",
     accept: ["PDF"],
     outputs: ["XLSX"],
-    keywords: ["pdf to excel", "pdf to xlsx", "table to excel", "convert pdf"],
+    keywords: [
+      "pdf to excel",
+      "pdf to xlsx",
+      "pdf text to excel",
+      "convert pdf",
+    ],
     related: ["extract-tables", "ocr-pdf", "excel-to-pdf", "pdf-to-word"],
   },
   {
@@ -454,15 +508,22 @@ export const tools: Tool[] = [
     outputs: ["JPG", "ZIP"],
     keywords: ["pdf to jpg", "pdf to image", "pdf to jpeg", "convert pages"],
     related: ["jpg-to-pdf", "pdf-to-png", "extract-images"],
+    how: [
+      "Pick your PDF — it stays on your device.",
+      `Choose a resolution: ${RESOLUTION_CHOICES}.`,
+      "Click “Render” — every page becomes a JPG image, in your browser.",
+      `Download the result — several pages arrive together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
+    ],
   },
   {
     slug: "pdf-to-png",
     name: "PDF to PNG",
     tagline: "Export pages as lossless PNGs.",
     description:
-      // The runner passes no background, so the rasterizer paints white;
+      // Was "with a transparent or white background": every page is rendered
+      // onto white (render.ts), and the runner offers no transparent option;
       // claims-vs-capability.test.ts goes red the day that changes.
-      "Render PDF pages as crisp, lossless PNG images on a white background — right in your browser, so the file stays on your device.",
+      `Render PDF pages as crisp, lossless PNG images on a white background, at ${RESOLUTION_DPIS} DPI — right in your browser, so the file stays on your device.`,
     category: "convert-from",
     icon: "png",
     processing: "client",
@@ -470,13 +531,18 @@ export const tools: Tool[] = [
     outputs: ["PNG", "ZIP"],
     keywords: ["pdf to png", "pdf to image", "lossless png", "convert pages"],
     related: ["png-to-pdf", "pdf-to-jpg", "extract-images"],
+    how: [
+      "Pick your PDF — it stays on your device.",
+      `Choose a resolution: ${RESOLUTION_CHOICES}.`,
+      "Click “Render” — every page becomes a PNG image, in your browser.",
+      `Download the result — several pages arrive together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
+    ],
   },
   {
     slug: "pdf-to-pdfa",
     name: "PDF to PDF/A",
-    tagline: "Archive-oriented PDF/A-2b, made with Ghostscript.",
-    description:
-      "Convert PDFs to PDF/A-2b for long-term archiving — processed by Ghostscript on a secure worker that deletes the input when the job finishes.",
+    tagline: `Archive-oriented ${PDF_A_STANDARD}, made with Ghostscript.`,
+    description: `Convert PDFs to ${PDF_A_STANDARD} for long-term archiving — processed by Ghostscript on a secure worker that deletes the input when the job finishes.`,
     category: "convert-from",
     icon: "pdfa",
     processing: "server",
@@ -484,6 +550,11 @@ export const tools: Tool[] = [
     outputs: ["PDF/A"],
     keywords: ["pdf to pdfa", "pdf/a", "archive pdf", "iso 19005"],
     related: ["repair-pdf", "compress-pdf", "flatten-pdf"],
+    how: [
+      "Upload your PDF over an encrypted connection.",
+      `Press “Convert to PDF/A”: Ghostscript converts it to ${PDF_A_STANDARD} on the secure worker, which deletes the input when the job finishes.`,
+      `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Anything the conversion had to remove is listed with the download.`,
+    ],
   },
   {
     slug: "pdf-to-markdown",
@@ -736,12 +807,14 @@ export const tools: Tool[] = [
     slug: "request-signatures",
     name: "Request Signatures",
     seoTitle: "Request Signatures — Prepare a PDF to Sign",
+    // Was "Collect legally-binding e-signatures" and "Send a document to
+    // others, track status": the engine prepares a package, and with no
+    // e-signature provider wired (workers/request-signatures/native.ts) it
+    // sends nothing and tracks nothing. claims-vs-capability.test.ts calls
+    // the production deps and goes red the day a delivery provider is
+    // wired. The tagline also renders on Sign PDF's related-tools card.
     tagline: "Prepare a PDF for others to sign.",
     description:
-      // Preparation only: no e-signature provider is wired
-      // (workers/request-signatures/native.ts), so nothing is sent, tracked,
-      // collected or legally bound. claims-vs-capability.test.ts calls the
-      // production deps and goes red the day a delivery provider is wired.
       "Add a fillable signature field (and an optional date) for each signer, then download a ZIP with the prepared PDF, a signer manifest and an audit trail. You send it.",
     category: "sign",
     icon: "requestSign",
@@ -751,9 +824,10 @@ export const tools: Tool[] = [
     keywords: ["request signature", "prepare pdf for signing", "sign request"],
     related: ["sign-pdf", "fill-forms", "create-forms"],
     how: [
-      "Upload the PDF over an encrypted connection.",
-      "Add each signer's name and email, choose the page for their signature fields, and choose whether to add a date field beside each signature.",
-      "Download the ZIP with the prepared PDF, manifest and audit trail, then send the PDF to your signers yourself — pdf.xyz does not email it or track who has signed.",
+      "Upload your PDF over an encrypted connection.",
+      `Add up to ${MAX_REQUEST_SIGNERS} signers — a name and an email each — with “Add signer”, then choose the “Signing order”, the “Signature page” their fields go on, and whether each signature gets a date field beside it.`,
+      "Press “Prepare signature request”: the secure worker adds a named, fillable field for each signer and deletes the input when the job finishes.",
+      `Download the ZIP — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes — and send ${REQUEST_PACKAGE_FILES.prepared} to your signers yourself: pdf.xyz does not email it or track who has signed.`,
     ],
   },
   {
@@ -967,7 +1041,9 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["MD", "TXT", "ZIP"],
     keywords: ["translate pdf", "pdf translation", "ai translate", "language"],
-    related: ["summarize-pdf", "chat-with-pdf", "ocr-pdf"],
+    // Translate writes Markdown, so the tool that typesets Markdown into a PDF
+    // is the next step a reader needs; it had no link from here.
+    related: ["markdown-to-pdf", "summarize-pdf", "ocr-pdf"],
   },
   {
     slug: "ai-extract",

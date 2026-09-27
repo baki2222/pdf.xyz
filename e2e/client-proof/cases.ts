@@ -1261,9 +1261,9 @@ export const PROOF_LIMITS: Record<string, string> = {
   "sign-pdf":
     "Only the TYPED signature source is exercised. The drawn-signature path (signature-pad.tsx) needs real pointer strokes on a canvas, and the uploaded-image source is untested.",
   "annotate-pdf":
-    "Only the Note markup type, added through the form controls. Freehand/highlight/shape markups placed by dragging on the page canvas are not exercised, and neither is placement accuracy.",
+    "Only the Note markup type, added through the form controls. The Highlight, Box and Line/arrow types are not exercised, and neither is placement accuracy. (There is no freehand or drag-to-place canvas: markups are placed by numeric coordinates.)",
   "edit-pdf":
-    "Only a text insertion at the default position through the form controls. Image insertion and drag-positioning on the page canvas are not exercised.",
+    "Only a text insertion at the default position through the form controls. The Box, Line/arrow and Image elements are not exercised, and neither is placement accuracy. (There is no drag-to-place canvas: elements are placed by numeric coordinates.)",
   "redact-pdf":
     "Only the default draft area added via the Add area button. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven.",
   "fill-forms":

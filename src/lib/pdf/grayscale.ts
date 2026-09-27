@@ -8,13 +8,13 @@ import {
   type RasterCanvasInfo,
   type RasterPage,
 } from "./render";
+import { GRAYSCALE_DPI_PRESETS } from "./offered-kinds";
 
 const PRODUCER = "pdf.xyz";
 
-export const GRAYSCALE_DPI_PRESETS = [
-  { id: "screen", label: "Screen", dpi: 96 },
-  { id: "print", label: "Print", dpi: 150 },
-] as const;
+// The presets live in the offered-kinds leaf, where the tool page's answer
+// reads them too; re-exported so existing importers keep working.
+export { GRAYSCALE_DPI_PRESETS };
 
 export type GrayscaleDpiPreset = (typeof GRAYSCALE_DPI_PRESETS)[number]["id"];
 

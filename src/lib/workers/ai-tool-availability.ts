@@ -17,7 +17,7 @@
 
 import type { WorkerStatus } from "./status";
 import { canRunPdfSecurity } from "./pdf-security-client";
-import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 
 /**
  * True when the UI may offer a secure-worker AI flow. Three conditions, all
@@ -39,9 +39,13 @@ import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
  * the API actually enforces. "Per device" is the honest name for a
  * per-client limit identified from the request.
  */
-// A third independent copy of the same sentence until 2026-08-11. The name
-// stays because four panels import it; the words come from one place now.
-export const AI_DAILY_ALLOWANCE_NOTE = AI_ALLOWANCE_FACT;
+// A third independent copy of the same sentence until 2026-08-11. Then ONE
+// constant for four panels — which was the next defect: the figure is
+// translate's, and Summarize, Chat and Extract are charged per run. So the note
+// is per tool now, from the same function the tool page's fact line reads.
+export function aiDailyAllowanceNote(slug: string): string {
+  return aiAllowanceFactFor(slug);
+}
 
 export function canRunAiTool(status: WorkerStatus | null | undefined): boolean {
   if (!status) return false;

@@ -49,17 +49,23 @@ function textOf(markup: string): string {
     .trim();
 }
 
+/**
+ * `--markup` prints each page's raw markup instead of its text, for a reader
+ * that must parse what a crawler parses — the JSON-LD script bodies — rather
+ * than a flattened string (see `rendered-tool-pages.ts`).
+ */
+const RAW = process.argv.includes("--markup");
+
 async function main(): Promise<void> {
   const census: Record<string, string> = {};
   for (const tool of tools) {
     const element = await ToolPage({
       params: Promise.resolve({ slug: tool.slug }),
     });
-    census[tool.slug] = textOf(
-      renderToStaticMarkup(
-        createElement(AppRouterContext.Provider, { value: ROUTER }, element),
-      ),
+    const markup = renderToStaticMarkup(
+      createElement(AppRouterContext.Provider, { value: ROUTER }, element),
     );
+    census[tool.slug] = RAW ? markup : textOf(markup);
   }
   process.stdout.write(JSON.stringify(census));
 }
