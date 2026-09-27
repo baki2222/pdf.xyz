@@ -5,9 +5,10 @@
 #   * `web`    — the Next.js App Router site (`pnpm start`). Serves users. Ships
 #                NO native PDF engines and never imports or starts the daemon.
 #   * `worker` — the out-of-band secure-worker daemon (`pnpm worker:daemon`).
-#                Ships Ghostscript / qpdf / mutool for deep compression AND the
-#                OCRmyPDF / Tesseract OCR stack (English language data), drains the
-#                queue, and never serves HTTP.
+#                Ships Ghostscript / qpdf / mutool for deep compression, the
+#                OCRmyPDF / Tesseract OCR stack, and LibreOffice and Chromium with
+#                the fonts they draw documents in; drains the queue, and never
+#                serves HTTP.
 #
 # The targets share the dependency + build stages but have completely separate
 # final images, which is what keeps the web app and the worker physically
@@ -123,6 +124,21 @@ ENV PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
 #     "The OCR engine could not process this file", blaming their document for
 #     our missing dependency. `src/deploy/ocr-languages.test.ts` fails the build
 #     if the two ever drift apart again.
+#   * Fonts — LibreOffice (Word/Excel/PowerPoint to PDF) and Chromium (HTML and
+#     webpage to PDF) draw a document in the fonts it names, and a font the image
+#     lacks is replaced by whatever fontconfig has. Debian lists every font only
+#     as a Recommends of `libreoffice`, so `--no-install-recommends` shipped an
+#     image with NONE of them until 2026-09-27: Calibri and Cambria (Word's body
+#     and heading faces) came out in a face with other metrics — lines rewrap,
+#     pages move — and Chinese, Japanese, Korean, Bengali, Hindi and Thai had no
+#     glyphs at all. Carlito, Caladea and Liberation are metric-compatible clones
+#     of Calibri, Cambria and Arial / Times New Roman / Courier New; Noto draws
+#     the scripts. The list is `src/lib/workers/office-conversion/fonts.ts`
+#     (clones, plus a script for every OCR language the product offers);
+#     `src/deploy/worker-fonts.test.ts` fails if the two drift, and
+#     `pnpm worker:prove-tools word-to-pdf` reads the embedded font names out of
+#     a PDF the live worker converted. `fontconfig` provides `fc-cache`, so the
+#     cache is built once here rather than by every soffice process at run time.
 #   * Proof-only tooling — `poppler-utils` provides `pdftotext`, used ONLY by the
 #     deterministic OCRmyPDF searchable-PDF proof (`worker:ocrmypdf-proof`) to confirm
 #     the synthetic source PDF carries no selectable text and the OCRmyPDF output does
@@ -162,6 +178,13 @@ RUN apt-get update \
       tesseract-ocr-hin \
       tesseract-ocr-ben \
       poppler-utils \
+      fontconfig \
+      fonts-crosextra-carlito \
+      fonts-crosextra-caladea \
+      fonts-liberation2 \
+      fonts-noto-core \
+      fonts-noto-cjk \
+ && fc-cache -f \
  && rm -rf /var/lib/apt/lists/*
 # Run as a non-root user. Corepack may need to hydrate pnpm shims at runtime
 # (`docker run … pnpm worker:smoke` in CI), so the worker-owned HOME/cache and

@@ -77,6 +77,10 @@ import {
   invoiceSheetMismatches,
 } from "@/tests/pdf-office-fixtures";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
+import {
+  officeFontProofDocx,
+  officeFontProofVerdict,
+} from "@/tests/office-font-fixtures";
 import { mixedScanPdf, mixedSidecarVerdict } from "@/tests/ocr-proof-fixtures";
 import {
   reportTablesPdf,
@@ -419,28 +423,6 @@ const rootRels = (target: string, type: string) =>
   `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${type}" Target="${target}"/></Relationships>`;
 
-/** A real DOCX. LibreOffice rejects a stub, so the required parts are all here. */
-async function docxFile(): Promise<Buffer> {
-  const zip = new JSZip();
-  zip.file(
-    "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
-  );
-  zip.file(
-    "_rels/.rels",
-    rootRels("word/document.xml", `${ODOC_NS}/officeDocument`),
-  );
-  zip.file(
-    "word/document.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
-<w:p><w:r><w:t>Word to PDF — pdf.xyz deployment proof</w:t></w:r></w:p>
-<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>`,
-  );
-  return zip.generateAsync({ type: "nodebuffer" });
-}
-
 /** A real XLSX with one inline-string worksheet. */
 async function xlsxFile(): Promise<Buffer> {
   const zip = new JSZip();
@@ -777,13 +759,20 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "PDF",
   },
+  // Until 2026-09-27 this sent one unstyled English line and accepted any
+  // `%PDF-`, which the worker passed while its image had no fonts at all:
+  // Calibri and Cambria came out in a face with other metrics, and CJK,
+  // Bengali, Hindi and Thai as empty boxes. Now the document asks for every
+  // Office font and writes every script `office-conversion/fonts.ts` names,
+  // and the verdict reads which faces the returned PDF actually embeds.
   {
     tool: "word-to-pdf",
-    make: docxFile,
+    make: officeFontProofDocx,
     name: "letter.docx",
     type: DOCX_MIME,
     expect: isPdf,
     want: "PDF",
+    verify: (bytes) => officeFontProofVerdict(bytes),
   },
   {
     tool: "excel-to-pdf",
