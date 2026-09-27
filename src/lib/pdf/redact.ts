@@ -2,6 +2,21 @@ import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { rasterizePdf, type RasterCanvasInfo, type RasterPage } from "./render";
+import {
+  DEFAULT_REDACT_PRESET_ID,
+  REDACTED_PDF_TITLE,
+  REDACT_DPI_PRESETS,
+  REDACT_IMAGE_FORMAT,
+  type RedactDpiPreset,
+} from "./redact-output";
+
+export {
+  DEFAULT_REDACT_PRESET_ID,
+  REDACTED_PDF_TITLE,
+  REDACT_DPI_PRESETS,
+  REDACT_IMAGE_FORMAT,
+  type RedactDpiPreset,
+};
 
 /**
  * Privacy-safe, in-browser PDF redaction.
@@ -59,13 +74,6 @@ export interface PixelRect {
   height: number;
 }
 
-export const REDACT_DPI_PRESETS = [
-  { id: "screen", label: "Screen", dpi: 96 },
-  { id: "print", label: "Print", dpi: 150 },
-] as const;
-
-export type RedactDpiPreset = (typeof REDACT_DPI_PRESETS)[number]["id"];
-
 export interface RedactOptions {
   /** The rectangles to redact. Must contain at least one box. */
   rects: RedactionRect[];
@@ -114,7 +122,7 @@ export function redactPresetById(
 ): (typeof REDACT_DPI_PRESETS)[number] {
   return (
     REDACT_DPI_PRESETS.find((preset) => preset.id === id) ??
-    REDACT_DPI_PRESETS[1]!
+    REDACT_DPI_PRESETS.find((preset) => preset.id === DEFAULT_REDACT_PRESET_ID)!
   );
 }
 
@@ -343,8 +351,8 @@ export async function redactPdf(
   const byPage = groupByPage(rects);
 
   const pages = await rasterizePdf(bytes, {
-    format: "jpg",
-    dpi: options.dpi ?? 150,
+    format: REDACT_IMAGE_FORMAT,
+    dpi: options.dpi ?? redactPresetById(DEFAULT_REDACT_PRESET_ID).dpi,
     quality: options.quality ?? 0.85,
     signal: options.signal,
     onProgress: options.onProgress,
@@ -359,11 +367,38 @@ export async function redactPdf(
     throw new PdfEngineError("No pages could be rendered from this PDF.");
   }
 
+  return {
+    bytes: await assembleRedactedPdf(pages),
+    pageCount: pages.length,
+    redactionCount: rects.length,
+    totalImageBytes: pages.reduce(
+      (sum, page) => sum + page.bytes.byteLength,
+      0,
+    ),
+    undecodedImages: pages.reduce((sum, page) => sum + page.undecodedImages, 0),
+  };
+}
+
+/**
+ * Build the redacted document from the page images ALONE — a fresh
+ * `PDFDocument`, one page per image, nothing else. It is given no access to the
+ * original file, which is what makes the tool page's answers true: nothing of
+ * the original's text, drawings, form, annotations, outline or document
+ * information can reach the output, because none of it is in scope here.
+ * Exported so `redact-answers.test.ts` can build a real output from real JPEG
+ * bytes — the rasterizer needs a browser canvas, this does not.
+ */
+export async function assembleRedactedPdf(
+  pages: readonly Pick<
+    RasterPage,
+    "bytes" | "pageWidth" | "pageHeight" | "width" | "height"
+  >[],
+): Promise<Uint8Array> {
   const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
-  doc.setTitle("Redacted PDF");
+  doc.setTitle(REDACTED_PDF_TITLE);
 
   for (const page of pages) {
     const [pageWidth, pageHeight] = pageSizeForRaster(page);
@@ -375,7 +410,7 @@ export async function redactPdf(
       height: pageHeight,
       color: rgb(1, 1, 1),
     });
-    const image = await embedRasterImage(doc, page.bytes, "jpg");
+    const image = await embedRasterImage(doc, page.bytes, REDACT_IMAGE_FORMAT);
     outPage.drawImage(image, {
       x: 0,
       y: 0,
@@ -384,14 +419,5 @@ export async function redactPdf(
     });
   }
 
-  return {
-    bytes: await doc.save(),
-    pageCount: pages.length,
-    redactionCount: rects.length,
-    totalImageBytes: pages.reduce(
-      (sum, page) => sum + page.bytes.byteLength,
-      0,
-    ),
-    undecodedImages: pages.reduce((sum, page) => sum + page.undecodedImages, 0),
-  };
+  return doc.save();
 }

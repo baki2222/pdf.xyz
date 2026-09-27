@@ -108,6 +108,40 @@ const fetchFromOrigin: FontByteSource = async (pack) => {
 
 let byteSource: FontByteSource = fetchFromOrigin;
 
+/**
+ * The refusal when something drawing this text needs could not be downloaded.
+ *
+ * The three things `embedDrawingFont` fetches mid-run — the coverage tables,
+ * the font engine, and the face itself — used to surface whatever the network
+ * threw. Offline, that is a bare `TypeError: Failed to fetch` (or a chunk-load
+ * error for the two dynamic imports), and the runners print any error's
+ * message, so a reader who lost their connection after the page loaded was
+ * shown "Failed to fetch" beside a FAQ that says this step needs a connection.
+ * Exported for the test that takes the connection away.
+ */
+export function fontDownloadFailedMessage(what: string): string {
+  return (
+    `${what} could not be downloaded — this text needs it, and it is fetched ` +
+    "from our site the first time it is used. Check your connection and try again."
+  );
+}
+
+/**
+ * Await one mid-run download, turning a network failure into the typed
+ * refusal. A `PdfEngineError` already says what happened (the face's own
+ * `!response.ok` message, with its status) and passes through untouched.
+ * The two dynamic imports' only realistic failure is the network, which is
+ * why they are routed through here too.
+ */
+async function downloaded<T>(step: Promise<T>, what: string): Promise<T> {
+  try {
+    return await step;
+  } catch (error) {
+    if (error instanceof PdfEngineError) throw error;
+    throw new PdfEngineError(fontDownloadFailedMessage(what));
+  }
+}
+
 /** Replace the byte source (tests and Node callers). Returns the previous one. */
 export function setFontByteSource(source: FontByteSource): FontByteSource {
   const previous = byteSource;
@@ -356,7 +390,10 @@ export async function embedDrawingFont(
   }
 
   const joined = texts.join("");
-  const coverage = await loadCoverage();
+  const coverage = await downloaded(
+    loadCoverage(),
+    "The table of which fonts can draw this text",
+  );
 
   const uncovered = uncoveredCodePoints(coverage, joined);
   if (uncovered.length > 0) refuseUncovered(uncovered);
@@ -366,12 +403,15 @@ export async function embedDrawingFont(
     refuseMixedScripts(packLabelsInText(coverage, joined));
   }
 
-  const fontkit = await loadFontkit();
+  const fontkit = await downloaded(loadFontkit(), "The font engine");
   doc.registerFontkit(fontkit.forPdfLib as never);
 
   let lastBad: { pack: FontPack; characters: string[] } | null = null;
   for (const pack of candidates) {
-    const bytes = await loadPackBytes(pack);
+    const bytes = await downloaded(
+      loadPackBytes(pack),
+      `The ${pack.label} font`,
+    );
     const bad = notdefCharacters(fontkit.open(bytes), texts);
     if (bad.length > 0) {
       // Coverage said this face had the code points and shaping disagreed. Try

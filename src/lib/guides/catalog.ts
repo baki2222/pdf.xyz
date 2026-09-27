@@ -31,10 +31,20 @@ import {
   EVERY_OTHER_PAGE_EXAMPLE,
   MARKDOWN_SYNTAX_FACT,
   PAGE_REBUILD_KEEPS,
+  PDF_TO_WORD_KEEPS,
+  REDACT_MECHANISM,
+  REDACT_OUTPUT_FACT,
+  REDACT_PRESET_CHOICES,
+  REDACT_RECOVERY_ANSWER,
+  REDACT_SEARCH_ANSWER,
+  REPAIR_TAKES,
+  REPAIR_WARNINGS_ANSWER,
   TEXT_PAGE_FACT,
+  TRANSLATE_LANGUAGES_ANSWER,
   countWord,
   offlineAnswer,
 } from "@/lib/tools/tool-facts";
+import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
   DEFAULT_RESOLUTION_ID,
   RASTER_MAX_DEVICE_PX,
@@ -344,7 +354,7 @@ export const guides: Guide[] = [
       "turn a pdf into word",
     ],
     intro: [
-      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion turns the PDF into an editable Word document while preserving layout and text flow, so you edit the text instead of retyping it.",
+      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word, one paragraph per line, so you edit the words instead of retyping them.",
       `PDF to Word is a server tool: your PDF travels over an encrypted connection to an encrypted, isolated worker, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let the worker convert it, and save the DOCX before the link expires.`,
     ],
@@ -354,15 +364,15 @@ export const guides: Guide[] = [
       "Start the conversion.",
       "Wait while the secure worker converts the PDF into a Word document. The worker deletes the input when the job finishes.",
       `Download the DOCX. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
-      "Open the downloaded DOCX in Word and start editing — the conversion preserves layout and text flow.",
+      "Open the downloaded DOCX in Word and format the text the way you need it — the words arrive as plain paragraphs, one per line of the PDF.",
     ],
     sections: [
       {
         id: "what-you-get",
         heading: "What to expect from the converted document",
         body: [
-          "The output is a DOCX file, the standard editable Word format. The conversion preserves layout and text flow, so the document keeps its structure and reads the way the original did — but the text is live, so you can rewrite a paragraph, fix a date, or restructure a section directly in Word.",
-          "That is the point of converting rather than copying and pasting: pasted text loses its arrangement on the page, while the converted DOCX carries the layout with it.",
+          `The output is a DOCX file, the standard editable Word format. ${PDF_TO_WORD_KEEPS}`,
+          "That makes PDF to Word the right tool when you need the words back to rework them — rewrite a paragraph, fix a date, reuse a section — and the wrong one when the look of the page is what matters. For that, keep the PDF itself.",
         ],
       },
       {
@@ -411,12 +421,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Will the Word document look like my original PDF?",
-        answer:
-          "The conversion is built to preserve layout and text flow, so the DOCX follows the structure of the original while staying fully editable. If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.",
+        answer: `No. It holds the PDF's words, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.`,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-09-27",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -703,7 +712,7 @@ export const guides: Guide[] = [
         id: "ways-to-make-a-signature",
         heading: `${signatureWays[0]!.toUpperCase()}${signatureWays.slice(1)} ways to make a signature`,
         body: [
-          `Sign PDF offers ${signatureWays} ways to make a signature: draw it, type it, or pick an image. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and it comes in ${countWord(SIGNATURE_STYLES.length)} styles — script, which gives a typed name a handwritten look without any drawing at all, and print, a plain printed name. If you already keep a scanned signature as a PNG or JPG image, pick that image and reuse the mark you have always used.`,
+          `Sign PDF offers ${signatureWays} ways to make a signature: draw it, type it, or pick an image. Drawing produces a mark that looks like your handwriting and suits documents where a personal touch matters. Typing is the fastest option, and it comes in ${countWord(SIGNATURE_STYLES.length)} styles — script, which sets your typed name in an italic serif face, and print, a plain printed name. If you already keep a scanned signature as a PNG or JPG image, pick that image and reuse the mark you have always used.`,
           "Whichever you choose, the rest works the same way: position the signature precisely on the page, then export.",
         ],
       },
@@ -726,7 +735,7 @@ export const guides: Guide[] = [
         id: "when-someone-else-needs-to-sign",
         heading: "When someone else needs to sign",
         body: [
-          "Sign PDF covers self-signing: you create and place your own signature on a document you already have. When the signature you need is someone else's, use Request Signatures instead — it sends a document to others, tracks status, and collects audited e-signatures in order.",
+          "Sign PDF covers self-signing: you create and place your own signature on a document you already have. When the signature you need is someone else's, Request Signatures prepares the document for them: it adds a named, fillable field for each signer and packages the PDF with a manifest and an audit trail, for you to send. It does not send the request or collect the signatures itself.",
           "And when the document is a form as much as it is a contract, pair signing with Fill Forms, which completes a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in your browser. Fill the fields in Fill Forms and export the completed PDF, then open that file in Sign PDF to add your signature.",
         ],
       },
@@ -753,7 +762,7 @@ export const guides: Guide[] = [
       {
         question: "Can I collect signatures from other people?",
         answer:
-          "Sign PDF handles your own signature. To collect signatures from others, use the Request Signatures tool, which sends a document to recipients, tracks status, and collects audited e-signatures in order.",
+          "Sign PDF handles your own signature. For signatures from others, Request Signatures prepares the PDF with a named, fillable field for each signer and packages it for you to send — pdf.xyz does not send it to them or collect the signatures.",
       },
     ],
     published: "2026-09-17",
@@ -956,7 +965,7 @@ export const guides: Guide[] = [
       "Open the Translate PDF tool.",
       "Pick the PDF you want translated. The tool reads selectable text, so if your document is a scan, run it through OCR PDF first.",
       "Upload your PDF — it travels over an encrypted connection to the secure worker that runs the job.",
-      "Choose your options, including the language you want the text translated into.",
+      `In “Translate into”, pick one of the ${TRANSLATE_LANGUAGES.length} languages offered, and leave “Source language” on “Auto-detect” or set it yourself.`,
       "Start the translation. A long document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order. The worker deletes the input when the job finishes.",
       `Download the result — translated Markdown and plain text, packaged together. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
     ],
@@ -1002,6 +1011,10 @@ export const guides: Guide[] = [
       {
         question: "What happens to my PDF after it is translated?",
         answer: `Our processing server extracts its selectable text and sends that text — not the file — to a third-party AI provider for translation. Inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      },
+      {
+        question: "Which languages can I translate a PDF into?",
+        answer: TRANSLATE_LANGUAGES_ANSWER,
       },
       {
         question: "Will the translation look like the original PDF?",
@@ -1233,6 +1246,177 @@ export const guides: Guide[] = [
       {
         question: "Does Markdown to PDF work offline?",
         answer: `Not fully. ${offlineAnswer("markdown-to-pdf")}`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-redact-a-pdf",
+    title: "How to redact a PDF permanently",
+    description:
+      "Redact a PDF so the text under each box is gone, not hidden: every page is rebuilt as an image, right in your browser. No account needed.",
+    tools: ["redact-pdf", "ocr-pdf", "protect-pdf"],
+    keywords: [
+      "redact pdf",
+      "how to redact a pdf",
+      "black out text in pdf",
+      "redact text in a pdf",
+      "remove sensitive information from pdf",
+      "redact pdf in browser",
+    ],
+    intro: [
+      "To redact a PDF, open the Redact PDF tool, add a box over each area that has to go, and download the result. The box is not drawn on top of the text: the page is turned into an image and the box is painted into its pixels, so what was underneath no longer exists in the file.",
+      `That is the whole difference between redacting and covering, and it has a cost worth knowing before you start. ${REDACT_OUTPUT_FACT}`,
+      "Redact PDF runs in your browser, so the document you are redacting stays on your device. No account is needed.",
+    ],
+    steps: [
+      "Open the Redact PDF tool.",
+      "Pick the PDF you need to redact — it stays on your device the entire time.",
+      "For each area to remove, enter its “Page” and its position and size in PDF points, measured from the bottom-left corner of the page, then press “Add area”. The preview shows where each box lands.",
+      `Choose the “Redaction fill” — “Black” or “White” — and the output quality: ${REDACT_PRESET_CHOICES}.`,
+      "Press “Redact PDF” and save the new file to your device. Your original file is not changed.",
+    ],
+    sections: [
+      {
+        id: "redacting-is-not-covering",
+        heading: "Redacting is not the same as covering",
+        body: [
+          "A black rectangle drawn over text in a PDF editor hides it from view and nothing more. The text is still in the file, and anyone can select it, copy it or find it with a search — which is how redacted documents leak.",
+          `Redact PDF removes it instead. ${REDACT_MECHANISM}`,
+        ],
+      },
+      {
+        id: "every-page-becomes-an-image",
+        heading: "The trade-off: every page becomes an image",
+        body: [
+          REDACT_OUTPUT_FACT,
+          "If the rest of the document needs to stay searchable, run the redacted file through OCR PDF afterwards. OCR recognizes the text that is still visible on the pages; the text under a box is gone, so there is nothing there for it to find.",
+          `Choose the resolution before you run: ${REDACT_PRESET_CHOICES}. A higher resolution keeps small print legible and makes a larger file.`,
+        ],
+      },
+      {
+        id: "your-file-stays-on-your-device",
+        heading: "Your file stays on your device",
+        body: [
+          "Redact PDF is an in-browser tool: your browser renders the pages and rebuilds the file, so the document you are redacting never leaves your device. That matters most for exactly the files people redact — contracts, statements and records with personal details in them.",
+          `It is not fully offline. ${offlineAnswer("redact-pdf")}`,
+        ],
+      },
+      {
+        id: "before-you-share-it",
+        heading: "Before you share it",
+        body: [
+          "Open the downloaded PDF and check that each box sits where you meant it to before you send the file anywhere: a box placed a little off leaves the edge of a word readable.",
+          "Redaction removes content; it does not lock the file. If the redacted PDF should also need a password to open, run it through Protect PDF afterwards.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can redacted text be recovered?",
+        answer: REDACT_RECOVERY_ANSWER,
+      },
+      {
+        question: "Is a redacted PDF still searchable?",
+        answer: REDACT_SEARCH_ANSWER,
+      },
+      {
+        question: "Does my PDF leave my device when I redact it?",
+        answer:
+          "No. Redact PDF runs entirely in your browser, so the file stays on your device from start to finish.",
+      },
+      {
+        question: "Does Redact PDF work offline?",
+        answer: `Not fully. ${offlineAnswer("redact-pdf")}`,
+      },
+      {
+        question: "How large can the PDF be?",
+        answer: `Up to ${ceilingMb("redact-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-repair-a-damaged-pdf",
+    title: "How to repair a damaged or corrupted PDF",
+    description:
+      "Rebuild a damaged PDF with qpdf on an encrypted, isolated worker that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+    tools: ["repair-pdf", "unlock-pdf", "ocr-pdf"],
+    keywords: [
+      "repair pdf",
+      "fix corrupted pdf",
+      "repair damaged pdf",
+      "pdf file is damaged",
+      "recover a broken pdf",
+      "repair pdf online",
+    ],
+    intro: [
+      "To repair a damaged PDF, open the Repair PDF tool, upload the file, and download the rebuilt copy. The worker runs the file through qpdf, which reads what it can of the damaged structure and writes it out as a new, well-formed PDF.",
+      `Repair PDF is a server tool: your file travels over an encrypted connection to an encrypted, isolated worker, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed.`,
+    ],
+    steps: [
+      "Open the Repair PDF tool.",
+      `Upload the damaged PDF — it travels over an encrypted connection, and files up to ${ceilingMb("repair-pdf")} MB are accepted. It only has to start like a PDF, so a truncated file is taken in.`,
+      "Press “Repair on the worker”. qpdf rewrites the file's structure on the secure worker, which deletes the input when the job finishes.",
+      "If the file had to be rebuilt, read the list above the download: it names what was reconstructed.",
+      `Download the repaired PDF. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+    ],
+    sections: [
+      {
+        id: "what-it-can-take",
+        heading: "Which files Repair PDF can take",
+        body: [
+          REPAIR_TAKES,
+          "How much comes back depends on what survived. The repair rebuilds the file around the content it can still read; it cannot recreate content that is no longer in the file.",
+        ],
+      },
+      {
+        id: "reading-the-warnings",
+        heading: "Reading the warnings",
+        body: [
+          REPAIR_WARNINGS_ANSWER,
+          "Compare those parts against the original, or against another copy of the document if you have one, before you rely on the repaired file.",
+        ],
+      },
+      {
+        id: "where-the-repair-runs",
+        heading: "Where the repair runs",
+        body: [
+          `Repair PDF runs on an encrypted, isolated worker, not in your browser. Your file is uploaded over an encrypted connection, qpdf rebuilds it there, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        ],
+      },
+      {
+        id: "when-it-is-not-damage",
+        heading: "When the problem is not damage",
+        body: [
+          "A PDF that asks for a password is locked, not broken. If you know the password, Unlock PDF removes it and gives you an unprotected copy; it cannot recover a password you do not know.",
+          "A scanned document that opens but has no text you can select is not damaged either — its pages are pictures. OCR PDF recognizes the text in them.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Which damaged PDFs can be repaired?",
+        answer: REPAIR_TAKES,
+      },
+      {
+        question: "What do the warnings after a repair mean?",
+        answer: REPAIR_WARNINGS_ANSWER,
+      },
+      {
+        question: "What happens to my PDF after the repair runs?",
+        answer: `The file is processed on an encrypted, isolated worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      },
+      {
+        question: "How large can the PDF be?",
+        answer: `Up to ${ceilingMb("repair-pdf")} MB per file.`,
+      },
+      {
+        question: "Do I need an account to repair a PDF?",
+        answer:
+          "No account is needed. Open Repair PDF, upload the file, and download the repaired copy.",
       },
     ],
     published: "2026-09-27",

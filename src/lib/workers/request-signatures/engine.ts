@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import {
+  REQUEST_PACKAGE_FILES,
   REQUEST_SIGNATURE_FIELD_TYPES,
   type RequestSignatureFieldType,
   type SignatureRequestOptions,
@@ -429,14 +430,15 @@ function renderReadme(manifest: RequestManifest): string {
   }
   lines.push("");
   lines.push("Contents:");
+  const entry = (file: string) => `  ${file.padEnd(17)}`;
   lines.push(
-    "  prepared.pdf     The document with real, named fillable fields for each signer.",
+    `${entry(REQUEST_PACKAGE_FILES.prepared)}The document with real, named fillable fields for each signer.`,
   );
   lines.push(
-    "  manifest.json    A structured record of the request (signers, fields, routing).",
+    `${entry(REQUEST_PACKAGE_FILES.manifest)}A structured record of the request (signers, fields, routing).`,
   );
   lines.push(
-    "  audit-trail.json The request's audit trail — one 'request.prepared' event.",
+    `${entry(REQUEST_PACKAGE_FILES.audit)}The request's audit trail — one 'request.prepared' event.`,
   );
   lines.push("");
   lines.push("HONEST SCOPE:");
@@ -444,7 +446,7 @@ function renderReadme(manifest: RequestManifest): string {
   lines.push("  " + manifest.delivery.detail);
   lines.push("");
   lines.push(
-    "To complete the signatures, open prepared.pdf and fill each signer's fields",
+    `To complete the signatures, open ${REQUEST_PACKAGE_FILES.prepared} and fill each signer's fields`,
   );
   lines.push(
     "(use the pdf.xyz Sign PDF tool or any PDF viewer that supports form fields).",
@@ -459,10 +461,10 @@ async function buildPackage(
   audit: AuditTrail,
 ): Promise<Uint8Array> {
   const zip = new JSZip();
-  zip.file("prepared.pdf", preparedPdf);
-  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
-  zip.file("audit-trail.json", JSON.stringify(audit, null, 2));
-  zip.file("README.txt", renderReadme(manifest));
+  zip.file(REQUEST_PACKAGE_FILES.prepared, preparedPdf);
+  zip.file(REQUEST_PACKAGE_FILES.manifest, JSON.stringify(manifest, null, 2));
+  zip.file(REQUEST_PACKAGE_FILES.audit, JSON.stringify(audit, null, 2));
+  zip.file(REQUEST_PACKAGE_FILES.readme, renderReadme(manifest));
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
 

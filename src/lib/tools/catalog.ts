@@ -6,6 +6,13 @@ import {
   RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS,
 } from "@/lib/pdf/pdf-to-image";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { XLSX_CELL_BREAK_PHRASE } from "@/lib/jobs/pdf-office-export";
+import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import {
+  MAX_REQUEST_SIGNERS,
+  REQUEST_PACKAGE_FILES,
+} from "@/lib/jobs/request-signatures";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -203,6 +210,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["repair pdf", "fix pdf", "recover pdf", "corrupt pdf"],
     related: ["compress-pdf", "optimize-web", "pdf-to-pdfa"],
+    how: [
+      "Upload the damaged PDF over an encrypted connection — it only has to start like a PDF, so a truncated file is taken in.",
+      "Press “Repair on the worker”: qpdf rewrites the file's structure on the secure worker, which deletes the input when the job finishes.",
+      `Download the repaired PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. If the file had to be rebuilt, a list above the download says what was reconstructed.`,
+    ],
   },
   {
     slug: "optimize-web",
@@ -401,9 +413,12 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-word",
     name: "PDF to Word",
-    tagline: "Editable DOCX from any PDF.",
+    // Was "Editable DOCX from any PDF" and "while preserving layout and text
+    // flow": the engine writes one plain paragraph per line of selectable
+    // text and refuses a PDF with none. `worker-tool-answers.test.ts` runs it.
+    tagline: "Editable DOCX from a PDF's text.",
     description:
-      "Convert PDFs into editable Word documents while preserving layout and text flow.",
+      "Turn a PDF's selectable text into an editable Word (DOCX) file, one paragraph per line. Images and layout are not carried over; scans need OCR first.",
     category: "convert-from",
     icon: "word",
     processing: "server",
@@ -417,15 +432,22 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-excel",
     name: "PDF to Excel",
-    tagline: "Extract tables into spreadsheets.",
-    description:
-      "Convert tables inside PDFs into editable Excel spreadsheets with rows and columns intact.",
+    // Was "Convert tables … with rows and columns intact": the engine detects
+    // no tables — it splits each line of text at separators, so "1,250" lands
+    // in two cells. Extract Tables is the tool that finds tables.
+    tagline: "A PDF's text, line by line, in a sheet.",
+    description: `A PDF's selectable text in an Excel (XLSX) sheet: one row per line, split into cells at ${XLSX_CELL_BREAK_PHRASE}. For tables, use Extract Tables.`,
     category: "convert-from",
     icon: "excel",
     processing: "server",
     accept: ["PDF"],
     outputs: ["XLSX"],
-    keywords: ["pdf to excel", "pdf to xlsx", "table to excel", "convert pdf"],
+    keywords: [
+      "pdf to excel",
+      "pdf to xlsx",
+      "pdf text to excel",
+      "convert pdf",
+    ],
     related: ["excel-to-pdf", "extract-tables", "pdf-to-word"],
   },
   {
@@ -488,9 +510,8 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-pdfa",
     name: "PDF to PDF/A",
-    tagline: "Archive-oriented PDF/A-2b, made with Ghostscript.",
-    description:
-      "Convert PDFs to PDF/A-2b for long-term archiving — processed by Ghostscript on a secure worker that deletes the input when the job finishes.",
+    tagline: `Archive-oriented ${PDF_A_STANDARD}, made with Ghostscript.`,
+    description: `Convert PDFs to ${PDF_A_STANDARD} for long-term archiving — processed by Ghostscript on a secure worker that deletes the input when the job finishes.`,
     category: "convert-from",
     icon: "pdfa",
     processing: "server",
@@ -498,6 +519,11 @@ export const tools: Tool[] = [
     outputs: ["PDF/A"],
     keywords: ["pdf to pdfa", "pdf/a", "archive pdf", "iso 19005"],
     related: ["repair-pdf", "compress-pdf", "flatten-pdf"],
+    how: [
+      "Upload your PDF over an encrypted connection.",
+      `Press “Convert to PDF/A”: Ghostscript converts it to ${PDF_A_STANDARD} on the secure worker, which deletes the input when the job finishes.`,
+      `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Anything the conversion had to remove is listed with the download.`,
+    ],
   },
   {
     slug: "pdf-to-markdown",
@@ -703,9 +729,13 @@ export const tools: Tool[] = [
   {
     slug: "request-signatures",
     name: "Request Signatures",
-    tagline: "Collect legally-binding e-signatures.",
+    // Was "Collect legally-binding e-signatures" and "Send a document to
+    // others, track status": the engine prepares a package, and with no
+    // e-signature provider wired it sends nothing and tracks nothing. The
+    // tagline also renders on Sign PDF's related-tools card.
+    tagline: "Prepare a PDF for others to sign.",
     description:
-      "Send a document to others, track status, and collect audited e-signatures in order.",
+      "Add a named, fillable field for each signer and download a request package: the prepared PDF, a manifest and an audit trail. Sending it is up to you.",
     category: "sign",
     icon: "requestSign",
     processing: "server",
@@ -713,6 +743,12 @@ export const tools: Tool[] = [
     outputs: ["PDF", "JSON", "ZIP"],
     keywords: ["request signature", "esignature workflow", "sign request"],
     related: ["sign-pdf", "fill-forms", "create-forms"],
+    how: [
+      "Upload your PDF over an encrypted connection.",
+      `Add up to ${MAX_REQUEST_SIGNERS} signers — a name and an email each — with “Add signer”, then choose the “Signing order” and the “Signature page” their fields go on.`,
+      "Press “Prepare signature request”: the secure worker adds a named, fillable field for each signer and deletes the input when the job finishes.",
+      `Download the ZIP — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes — and send ${REQUEST_PACKAGE_FILES.prepared} to your signers yourself.`,
+    ],
   },
   {
     slug: "fill-forms",

@@ -38,6 +38,19 @@ export const MAX_REQUEST_TITLE_CHARS = 200;
 export const MAX_REQUEST_MESSAGE_CHARS = 1000;
 export const MAX_FIELD_LABEL_CHARS = 80;
 
+/**
+ * The files in the package a request produces, by role. The engine names its
+ * ZIP entries and its README from this record and the tool page lists them
+ * from it, so the page cannot name a file the download does not hold —
+ * `worker-tool-answers.test.ts` unzips a real package and compares both ways.
+ */
+export const REQUEST_PACKAGE_FILES = {
+  prepared: "prepared.pdf",
+  manifest: "manifest.json",
+  audit: "audit-trail.json",
+  readme: "README.txt",
+} as const;
+
 /** Floating-point slack when checking a fractional box fits inside the page. */
 const COORD_EPS = 1e-3;
 

@@ -31,6 +31,22 @@ import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
 import { HYBRID_SUMMARY } from "./processing";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import {
+  XLSX_CELL_BREAK_PHRASE,
+  XLSX_SHEET_NAME,
+} from "@/lib/jobs/pdf-office-export";
+import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import {
+  MAX_REQUEST_SIGNERS,
+  REQUEST_PACKAGE_FILES,
+} from "@/lib/jobs/request-signatures";
+import { LANGUAGE_NAMES, TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
+import {
+  DEFAULT_REDACT_PRESET_ID,
+  REDACTED_PDF_TITLE,
+  REDACT_DPI_PRESETS,
+  REDACT_IMAGE_FORMAT,
+} from "@/lib/pdf/redact-output";
+import {
   ANNOTATION_FACT,
   ANNOTATION_TYPES,
   EDIT_OP_FACT,
@@ -210,7 +226,55 @@ function rasterFact(slug: string): ToolFact {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ *  Redact PDF — what the output is, from the constants its assembler
+ *  uses (src/lib/pdf/redact-output.ts). `redact-answers.test.ts` builds
+ *  a real redacted file with `assembleRedactedPdf` and reads it back.
+ * ------------------------------------------------------------------ */
+
+/** "JPEG", as a reader calls the format the engine embeds. */
+const IMAGE_FORMAT_NAME: Readonly<Record<"jpg" | "png", string>> = {
+  jpg: "JPEG",
+  png: "PNG",
+};
+const REDACT_IMAGE_NAME = IMAGE_FORMAT_NAME[REDACT_IMAGE_FORMAT];
+
+/** "Screen (96 DPI) or Print (150 DPI)" — the runner's own option labels. */
+export const REDACT_PRESET_CHOICES = REDACT_DPI_PRESETS.map(
+  (p) => `${p.label} (${p.dpi} DPI)`,
+).join(" or ");
+
+const REDACT_DEFAULT_PRESET = REDACT_DPI_PRESETS.find(
+  (p) => p.id === DEFAULT_REDACT_PRESET_ID,
+)!;
+
+/**
+ * What a redacted PDF is — every page, not only the ones with a box. The
+ * catalogue says "the text and vectors underneath are permanently removed",
+ * which is true and undersells the cost: `redactPdf` renders EVERY page to an
+ * image and `assembleRedactedPdf` builds a new document from the images alone,
+ * so nothing on any page stays selectable, searchable or clickable. A reader
+ * choosing a redaction tool needs that before they run it, not after.
+ */
+export const REDACT_OUTPUT_FACT = `Every page — not only the ones with a box — is rebuilt as a flat ${REDACT_IMAGE_NAME} image, so the result has no selectable or searchable text, links, form fields, annotations or bookmarks on any page.`;
+
+/** Why a redaction cannot be undone, as the assembler makes it. */
+export const REDACT_MECHANISM = `The box is not laid over the text: each page is rendered to a ${REDACT_IMAGE_NAME} image, the box is painted into that image's pixels, and a new PDF is built from the images alone. None of the original's text, drawings, form fields or annotations is copied into it, and neither is its document information — the new file's only title is “${REDACTED_PDF_TITLE}”.`;
+
+export const REDACT_RECOVERY_ANSWER = `No. ${REDACT_MECHANISM}`;
+
+/** The searchability trade-off, and the one tool that recovers part of it. */
+export const REDACT_SEARCH_ANSWER =
+  "No — and that is true of every page, including the ones you did not redact, because every page is now an image. To make the text you left visible searchable again, run the redacted file through OCR PDF. The text under a box is gone, so OCR cannot bring it back.";
+
 const FACTS: Record<string, readonly ToolFact[]> = {
+  "redact-pdf": [
+    {
+      label: "Resolution",
+      value: `${REDACT_PRESET_CHOICES} — ${REDACT_DEFAULT_PRESET.label} is selected when the tool opens.`,
+    },
+    { label: "What you get", value: REDACT_OUTPUT_FACT },
+  ],
   "rotate-pdf": [
     {
       label: "Angles",
@@ -369,6 +433,16 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Free allowance",
       value: aiAllowanceFactFor("translate-pdf"),
+    },
+    {
+      label: "Languages",
+      value: `${TRANSLATE_LANGUAGES.length} languages to translate into — the source language is detected automatically, or picked from the same list.`,
+    },
+  ],
+  "request-signatures": [
+    {
+      label: "Signers",
+      value: `Up to ${MAX_REQUEST_SIGNERS} per request, each given a named, fillable signature field — with a date field beside it if you ask for one.`,
     },
   ],
   "ai-extract": [
@@ -610,10 +684,207 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           answer: `${TEXT_PAGE_FACT} There is no page-size or margin setting.`,
         },
       ];
+    case "redact":
+      // The two questions a searcher asks before trusting a redaction tool.
+      // `redact-answers.test.ts` holds both to the file `assembleRedactedPdf`
+      // writes.
+      return [
+        {
+          question: "Can the redacted text be recovered?",
+          answer: REDACT_RECOVERY_ANSWER,
+        },
+        {
+          question: "Is the redacted PDF still searchable?",
+          answer: REDACT_SEARCH_ANSWER,
+        },
+      ];
     default:
       return [];
   }
 }
+
+/** What each file in a signature-request package is for, keyed like the package. */
+const REQUEST_PACKAGE_ROLE: Readonly<
+  Record<keyof typeof REQUEST_PACKAGE_FILES, string>
+> = {
+  prepared: "the PDF with each signer's fields added",
+  manifest:
+    "a manifest recording the signers, their fields and the signing order",
+  audit: "an audit trail holding the request's preparation event",
+  readme: "a README explaining the package",
+};
+
+/** "a, b, c and d" (or "a, b or c"). */
+function listed(
+  items: readonly string[],
+  conjunction: "and" | "or" = "and",
+): string {
+  return items.length <= 1
+    ? items.join("")
+    : `${items.slice(0, -1).join(", ")} ${conjunction} ${items.at(-1)}`;
+}
+
+/**
+ * What PDF to Word's DOCX holds — one paragraph per line of selectable text,
+ * nothing else. The catalogue and the guide said "preserving layout and text
+ * flow" for the life of the product; `worker-tool-answers.test.ts` decodes the
+ * DOCX the engine writes and holds this sentence (and bans that one) to it.
+ */
+export const PDF_TO_WORD_KEEPS =
+  "Each line of the PDF's selectable text becomes its own paragraph in the DOCX. Images, tables, fonts, colors and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.";
+
+/** Every language Translate PDF offers, named, from the list its panel renders. */
+export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(
+  TRANSLATE_LANGUAGES.map((c) => LANGUAGE_NAMES[c]),
+)}. The source language is detected automatically (“Auto-detect”), or you can pick it from the same list.`;
+
+/**
+ * What Repair PDF takes in and what it refuses to hand back — the input floor
+ * (`looksRepairable`, via `acceptsDamagedPdf`) and the output check
+ * (`looksLikePdf`) of `workers/pdf-structure/engine.ts`, which
+ * `worker-tool-answers.test.ts` runs on a truncated file, a non-PDF and a
+ * repair that returns rubble.
+ */
+export const REPAIR_TAKES =
+  "Any file that starts like a PDF, including one that is truncated or whose internal structure is broken: the worker rewrites what it can read into a new, well-formed PDF. If what comes back is still not a readable PDF, the job fails and you get no file rather than a broken one. A file that does not start like a PDF is refused.";
+
+/** What the warning list beside a repaired download means (`RepairWarnings`). */
+export const REPAIR_WARNINGS_ANSWER =
+  "That the file was damaged and has been rebuilt. The repair succeeded, and the list under “This PDF was damaged and has been rebuilt.” names what had to be reconstructed, so you can check those parts against your original. A file that needed no reconstruction comes back without the list.";
+
+/**
+ * Addresses the URL check refuses, named in Webpage to PDF's answer —
+ * exported so `worker-tool-answers.test.ts` can put each one through the
+ * worker's own `isSafePublicHttpUrl` and require a refusal.
+ */
+export const PRIVATE_ADDRESS_EXAMPLES = ["localhost", "192.168.1.1"] as const;
+
+/**
+ * Questions only one secure-worker tool can answer. Each answer describes what
+ * that tool's engine writes, and `worker-tool-answers.test.ts` RUNS the engine
+ * — decoding the DOCX's paragraphs, the XLSX's cells, the PPTX's slides and
+ * the signature-request package — to hold the served page to it.
+ */
+function workerFaq(tool: Tool): ToolFaqEntry[] {
+  const scanned: ToolFaqEntry = {
+    question: `Can ${tool.name} convert a scanned PDF?`,
+    answer:
+      "Not directly. A scanned page is a picture with no selectable text: a PDF with none at all is refused rather than exported empty, and in a PDF that mixes the two, the scanned pages come through with no text. Run the scan through OCR PDF first, then export the result.",
+  };
+  switch (tool.slug) {
+    case "pdf-to-word":
+      return [
+        {
+          question: `What does ${tool.name} keep from my PDF?`,
+          answer: `Its selectable text, and nothing else. ${PDF_TO_WORD_KEEPS}`,
+        },
+        scanned,
+      ];
+    case "pdf-to-excel":
+      return [
+        {
+          question: `How does ${tool.name} lay out the spreadsheet?`,
+          answer: `In one sheet, named “${XLSX_SHEET_NAME}”. Each line of the PDF's selectable text becomes a row, split into cells at ${XLSX_CELL_BREAK_PHRASE}. Because every comma starts a new cell, a number written with a thousands separator, such as 1,250, lands in two cells. Every cell holds text: nothing is converted to a number, a date or a formula.`,
+        },
+        {
+          question: `Should I use ${tool.name} or Extract Tables?`,
+          answer: `For a table, Extract Tables: it looks for tables by where the text sits on the page and exports each one it finds. ${tool.name} does not look for tables — it splits every line of text at those separators — so it suits text you want in a grid, not a table you want reproduced.`,
+        },
+        scanned,
+      ];
+    case "pdf-to-powerpoint":
+      return [
+        {
+          question: "What goes on each slide?",
+          answer:
+            "One slide per PDF page, in the same order. Each slide holds that page's selectable text in a single text box, one paragraph per line. Images, drawings and the page's layout are not carried over, and a page with no selectable text becomes an empty slide.",
+        },
+        scanned,
+      ];
+    case "repair-pdf":
+      return [
+        {
+          question: `Which damaged files can ${tool.name} take?`,
+          answer: REPAIR_TAKES,
+        },
+        {
+          question: "What does it mean when the repair lists warnings?",
+          answer: REPAIR_WARNINGS_ANSWER,
+        },
+      ];
+    case "pdf-to-pdfa":
+      return [
+        {
+          question: `Is the ${PDF_A_STANDARD} file validated?`,
+          answer: `No. Ghostscript converts the file to ${PDF_A_STANDARD}, but the result is not checked against the PDF/A specification, so treat it as a best-effort conversion rather than a certificate of compliance.`,
+        },
+        {
+          question: "What does the conversion remove?",
+          answer: `Whatever ${PDF_A_STANDARD} cannot hold. Ghostscript drops it and reports it, and everything it reports is listed with your download under “What PDF/A could not keep:”. Document metadata is the usual casualty.`,
+        },
+      ];
+    case "request-signatures": {
+      const files = (
+        Object.keys(
+          REQUEST_PACKAGE_FILES,
+        ) as (keyof typeof REQUEST_PACKAGE_FILES)[]
+      ).map((k) => `${REQUEST_PACKAGE_FILES[k]} (${REQUEST_PACKAGE_ROLE[k]})`);
+      return [
+        {
+          question: `Does ${tool.name} email my signers?`,
+          answer: `No. It prepares the request: you add up to ${MAX_REQUEST_SIGNERS} signers, and the worker adds a named, fillable field for each of them to the PDF and packages it for you to send. Nothing is sent from pdf.xyz, and nothing is signed until each signer fills in their fields.`,
+        },
+        {
+          question: "What is in the download?",
+          answer: `A ZIP holding ${listed(files)}.`,
+        },
+        {
+          question: "How do my signers fill it in?",
+          answer: `Each signer opens ${REQUEST_PACKAGE_FILES.prepared} and types into the fields named for them — in Fill Forms, or in any PDF reader that fills form fields. They are text fields, not certified digital signatures.`,
+        },
+      ];
+    }
+    case "translate-pdf":
+      return [
+        {
+          question: `Which languages can ${tool.name} translate into?`,
+          answer: TRANSLATE_LANGUAGES_ANSWER,
+        },
+      ];
+    case "webpage-to-pdf":
+      return [
+        {
+          question: `Which pages can ${tool.name} convert?`,
+          answer: `A public web page, by its http:// or https:// address. Addresses on a private network, such as ${listed(PRIVATE_ADDRESS_EXAMPLES, "or")}, are refused, and so is an address with a username or password written into it. The browser on our server has none of your cookies, so the page prints the way it looks to a first-time visitor — anything a site shows only to you will not be in it.`,
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Which files an Office → PDF tool takes, from its catalogue `accept` — which
+ * `worker-tool-answers.test.ts` holds to the extension check the worker runs
+ * (`supportsOfficeInput`) in both directions.
+ */
+function officeInputFaq(tool: Tool): ToolFaqEntry[] {
+  if (!OFFICE_TO_PDF_SLUGS.has(tool.slug)) return [];
+  const extensions = tool.accept.map((f) => `.${f.toLowerCase()}`);
+  return [
+    {
+      question: `Which files can ${tool.name} convert?`,
+      answer: `Files ending in ${listed(extensions, "or")}. The worker checks the extension before converting, and a file with any other extension is refused.`,
+    },
+  ];
+}
+
+/** The Office → PDF tools; `worker-tool-answers.test.ts` checks this is the engine's set. */
+export const OFFICE_TO_PDF_SLUGS: ReadonlySet<string> = new Set([
+  "word-to-pdf",
+  "excel-to-pdf",
+  "powerpoint-to-pdf",
+]);
 
 export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
   const capability = capabilityForMode(tool.processing);
@@ -767,6 +1038,8 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
   }
 
   entries.push(...runnerFaq(tool));
+  entries.push(...workerFaq(tool));
+  entries.push(...officeInputFaq(tool));
 
   if (tool.slug === "ocr-pdf") {
     entries.push({
@@ -789,7 +1062,8 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
  */
 function defaultSteps(tool: Tool): readonly string[] {
   const capability = capabilityForMode(tool.processing);
-  const formats = tool.accept.join(", ");
+  // "PPTX or PPT", not "PPTX, PPT": a step names the file a reader has.
+  const formats = listed(tool.accept, "or");
   if (capability === "in-browser") {
     // Deliberately upload-free wording, including the denial: the structured-
     // steps guard bans the claiming form and cannot tell "never uploaded"
