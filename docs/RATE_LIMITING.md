@@ -196,10 +196,19 @@ The reservation is what the allowance is debited by, so a probe that declares
 one character pays four and no more.
 
 **A refusal costs nothing at all.** The allowance guard peeks before it spends
-(`spendIfItFits` in `ratelimit/guard.ts`): when the budget cannot cover the
+(`allowanceRefusal` in `ratelimit/guard.ts`): when the budget cannot cover the
 reservation it refuses without recording anything, so asking "am I out?" while
 you are out does not push your reset further away. Asking twice returns the same
 `Retry-After`.
+
+**The upload route asks the same question for free.** `POST /api/uploads` for an
+AI tool peeks the allowance (`peekAiCharacterAllowance` in
+`ratelimit/guard.ts`) for the smallest reservation any job could make, before a
+slot is minted, and answers the same `429` + allowance message when no job could
+be admitted. It never spends a character; it costs one of `uploads.create`'s 60
+an hour. The route exists to spare a user the upload of a file whose job was
+certain to be refused — pinned against the job route's own verdict by
+`src/app/api/uploads/ai-admission.chain.test.ts`.
 
 **A job that is not created costs nothing.** The allowance is reserved before
 the route asks the adapter to create the job, and a creation that fails (the

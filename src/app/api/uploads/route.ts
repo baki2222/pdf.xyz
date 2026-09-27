@@ -9,9 +9,20 @@
  * docs/WORKER_ARCHITECTURE.md.
  */
 
-import { parseCreateUploadSessionRequest } from "@/lib/jobs";
+import {
+  capabilityForMode,
+  parseCreateUploadSessionRequest,
+  smallestAiReservation,
+} from "@/lib/jobs";
+import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
-import { enforceRateLimit } from "@/lib/ratelimit/guard";
+import {
+  enforceRateLimit,
+  peekAiCharacterAllowance,
+  peekAiSpendCeiling,
+} from "@/lib/ratelimit/guard";
+import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
+import { apiError } from "@/lib/jobs/responses";
 import {
   evaluateUploadDescriptors,
   intakeErrorResult,
@@ -44,6 +55,37 @@ export async function POST(request: Request): Promise<Response> {
 
   const parsed = parseCreateUploadSessionRequest(body.value);
   if (!parsed.ok) return respond(parsed.error);
+
+  /**
+   * AN UPLOAD WHOSE JOB CANNOT BE ADMITTED IS REFUSED BEFORE THE BYTES MOVE.
+   *
+   * `POST /api/jobs` decides whether an AI job may run — the global spend
+   * ceiling, then the caller's daily allowance — and the client reaches it
+   * only after this route AND the byte PUT. So a connection whose allowance
+   * was already gone uploaded the whole file and was refused afterwards
+   * (audit at 67e8d0f). Both are asked here too, with the same answers the
+   * job route would give, and both are PEEKS: this route never spends.
+   *
+   * The allowance is asked about the SMALLEST reservation any job could make,
+   * not the file's likely cost — an upload does not know what its job will
+   * declare, and refusing a file some honest declaration could still run
+   * would be the opposite defect. Pinned against the job route's own verdict
+   * in `ai-admission.chain.test.ts`.
+   */
+  const tool = getToolBySlug(parsed.value.tool);
+  if (tool && capabilityForMode(tool.processing) === "ai") {
+    const ceiling = await peekAiSpendCeiling();
+    if (!ceiling.affordable) {
+      return respond(
+        apiError("service_unavailable", AI_CEILING_REACHED_MESSAGE),
+      );
+    }
+    const allowance = await peekAiCharacterAllowance(
+      smallestAiReservation(),
+      request,
+    );
+    if (!allowance.allowed) return respondRateLimited(allowance);
+  }
 
   const adapter = await getWorkerAdapter();
   const outcome = await adapter.createUploadSession(parsed.value);

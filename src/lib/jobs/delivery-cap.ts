@@ -41,6 +41,11 @@
  * that permits the exploit is how the exploit eventually gets written.
  */
 
+import {
+  TRANSLATE_EXTRACTOR_HEADROOM,
+  TRANSLATE_MAX_INPUT_CHARS,
+} from "./translate-limits";
+
 /** Which bound stopped a delivery. */
 export type DeliveryBound = "characters" | "pages";
 
@@ -159,4 +164,33 @@ export function deliveryCapFor(
       ? { pages: request.declaredTextPages }
       : {}),
   };
+}
+
+/**
+ * The limits every AI job's cap is derived under.
+ *
+ * ONE OBJECT, because two routes read it: `POST /api/jobs` charges
+ * `deliveryCapFor(request, AI_DELIVERY_LIMITS).characters`, and
+ * `POST /api/uploads` asks whether ANY such charge could still fit before a
+ * byte is uploaded (see {@link smallestAiReservation}). Two copies of these two
+ * numbers would let the question and the charge drift apart.
+ */
+export const AI_DELIVERY_LIMITS = {
+  fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
+  headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+} as const;
+
+/**
+ * The least any AI job can reserve: the smallest declaration the job contract
+ * accepts (one character — `declaredCharacters` must be a positive whole
+ * number), under the same limits the charge uses.
+ *
+ * It is a LOWER bound on purpose. The upload route uses it to refuse a file
+ * whose job no declaration could get admitted — never one that some honest
+ * declaration could. The relationship to the validator and to the job route's
+ * own refusal is pinned in `api/uploads/ai-admission.chain.test.ts`.
+ */
+export function smallestAiReservation(): number {
+  return deliveryCapFor({ declaredCharacters: 1 }, AI_DELIVERY_LIMITS)
+    .characters;
 }
