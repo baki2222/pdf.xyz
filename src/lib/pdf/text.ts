@@ -21,22 +21,248 @@ export interface ExtractedPdfText {
 interface TextItemLike {
   str?: unknown;
   hasEOL?: unknown;
+  /** pdfjs `[a, b, c, d, e, f]`: scale/skew, then the baseline origin. */
+  transform?: unknown;
+  width?: unknown;
+  height?: unknown;
+  dir?: unknown;
 }
 
 /**
  * Convert pdfjs text items into readable page text. pdfjs already provides real
  * space glyphs for most PDFs; this helper preserves them, honors explicit EOLs,
  * and avoids inventing text that is not present in the document.
+ *
+ * Lines come out in READING order — see {@link readingOrder}. Items without
+ * geometry (as in unit tests) keep the order they were given in.
  */
 export function textItemsToPlainText(items: TextItemLike[]): string {
+  const lines = itemLines(items);
+  const order = lines ? readingOrder(lines) : null;
+  if (!lines || !order) {
+    let text = "";
+    for (const item of items) {
+      if (typeof item.str !== "string") continue;
+      text += item.str;
+      if (item.hasEOL === true) text += "\n";
+    }
+    return normalizeExtractedText(text);
+  }
+  return normalizeExtractedText(
+    order
+      .map((block) => {
+        const text = block.map((i) => lines[i]!.text).join("");
+        return text.endsWith("\n") ? text : `${text}\n`;
+      })
+      .join(""),
+  );
+}
+
+/** A line's extent in PDF user space (y grows upward). */
+interface Box {
+  left: number;
+  right: number;
+  bottom: number;
+  top: number;
+  /** Font size of its largest item — the unit every tolerance is measured in. */
+  size: number;
+}
+
+interface ItemLine {
+  /** The line's text exactly as stream order emits it, EOL included. */
+  text: string;
+  /** `null` for a line with no visible text (blank, or only whitespace). */
+  box: Box | null;
+}
+
+/**
+ * The box of one item, or `undefined` when its geometry cannot be trusted for
+ * ordering: rotated or skewed (b, c ≠ 0), mirrored, vertical writing, or no
+ * transform at all. Returns `null` for an item that draws nothing visible.
+ */
+function itemBox(item: TextItemLike): Box | null | undefined {
+  if (typeof item.str !== "string" || item.str.trim() === "") return null;
+  const t = item.transform;
+  if (!Array.isArray(t) || t.length < 6) return undefined;
+  const [a, b, c, d, e, f] = t as unknown[];
+  if (
+    ![a, b, c, d, e, f].every((n) => typeof n === "number" && isFinite(n)) ||
+    b !== 0 ||
+    c !== 0 ||
+    (a as number) <= 0 ||
+    (d as number) <= 0 ||
+    item.dir === "ttb"
+  ) {
+    return undefined;
+  }
+  const size = d as number;
+  const width =
+    typeof item.width === "number" && isFinite(item.width) ? item.width : 0;
+  return {
+    left: e as number,
+    right: (e as number) + Math.max(width, 0),
+    bottom: f as number,
+    top: (f as number) + size,
+    size,
+  };
+}
+
+/**
+ * Split items into lines at pdfjs's own EOLs, keeping each line's text as
+ * stream order emits it. `null` when any visible item's geometry is untrusted
+ * — the whole page then keeps stream order.
+ */
+function itemLines(items: TextItemLike[]): ItemLine[] | null {
+  const lines: ItemLine[] = [];
   let text = "";
+  let box: Box | null = null;
   for (const item of items) {
     if (typeof item.str !== "string") continue;
+    const own = itemBox(item);
+    if (own === undefined) return null;
+    if (own) {
+      box = box
+        ? {
+            left: Math.min(box.left, own.left),
+            right: Math.max(box.right, own.right),
+            bottom: Math.min(box.bottom, own.bottom),
+            top: Math.max(box.top, own.top),
+            size: Math.max(box.size, own.size),
+          }
+        : own;
+    }
     text += item.str;
-    if (item.hasEOL === true) text += "\n";
+    if (item.hasEOL === true) {
+      lines.push({ text: `${text}\n`, box });
+      text = "";
+      box = null;
+    }
   }
-  return normalizeExtractedText(text);
+  if (text !== "") lines.push({ text, box });
+  return lines;
 }
+
+const overlapsX = (a: Box, b: Box) =>
+  Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0;
+
+const overlapsY = (a: Box, b: Box) =>
+  Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom) > 0;
+
+/**
+ * The order to emit a page's lines in, as blocks of line indices — or `null`
+ * when stream order already is the reading order (the common case, which then
+ * stays byte-identical).
+ *
+ * pdfjs gives items in CONTENT-STREAM order, and generators draw out of visual
+ * order constantly: a title after the body it heads, a running header last, a
+ * footer first. A global sort by y then x is NOT the fix — a two-column page
+ * is drawn a column at a time, stream order is right for it, and a y-sort
+ * interleaves the columns line by line. So:
+ *
+ *  1. Consecutive lines form a BLOCK while each sits just below the last
+ *     (no upward step, no gap over two line heights) and overlaps it
+ *     horizontally — a paragraph, a column run.
+ *  2. Blocks keep stream order, except that a block is moved in front of the
+ *     first earlier block it overlaps horizontally AND lies wholly above.
+ *     Side-by-side columns never overlap horizontally, so they are never
+ *     reordered against each other; a title, header or earlier paragraph
+ *     drawn late in the same column is put back above what it heads.
+ *  3. Except: a block that runs beside one already placed is a later column,
+ *     and does not jump a block that spans that column too (a full-width
+ *     footnote joined to the left column's foot) — that would interleave.
+ *
+ * Rotated, mirrored or vertical text anywhere on the page, or items without
+ * geometry, keep the whole page in stream order: no judgement is better than
+ * a wrong one.
+ *
+ * `text-reading-order.test.ts` pins both directions on real PDFs.
+ */
+function readingOrder(lines: ItemLine[]): number[][] | null {
+  const blocks: { lines: number[]; box: Box }[] = [];
+  let current: { lines: number[]; box: Box } | null = null;
+  let last: Box | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const box = lines[i]!.box;
+    if (!box) {
+      // A blank line belongs to whatever it follows.
+      if (current) current.lines.push(i);
+      else blocks.push((current = { lines: [i], box: emptyBox() }));
+      continue;
+    }
+    const unit = Math.max(box.size, last?.size ?? 0);
+    const continues =
+      current !== null &&
+      last !== null &&
+      box.bottom <= last.bottom + unit * 0.5 &&
+      last.bottom - box.top <= unit * 2 &&
+      overlapsX(box, current.box);
+    if (continues && current) {
+      current.lines.push(i);
+      current.box = union(current.box, box);
+    } else {
+      blocks.push((current = { lines: [i], box }));
+    }
+    last = box;
+  }
+
+  const ordered: typeof blocks = [];
+  let moved = false;
+  for (const block of blocks) {
+    let at = isEmptyBox(block.box)
+      ? -1
+      : ordered.findIndex(
+          (earlier) =>
+            !isEmptyBox(earlier.box) &&
+            overlapsX(block.box, earlier.box) &&
+            block.box.bottom >= earlier.box.top - earlier.box.size * 0.25,
+        );
+    // A block that runs BESIDE something already placed is a later column.
+    // If the block it would jump spans that column too (a full-width footnote
+    // that joined the bottom of the left column), jumping it would interleave
+    // the columns — so it keeps stream order instead.
+    if (at >= 0) {
+      const target = ordered[at]!.box;
+      const beside = ordered
+        .slice(0, at)
+        .some(
+          (placed) =>
+            !isEmptyBox(placed.box) &&
+            !overlapsX(placed.box, block.box) &&
+            overlapsY(placed.box, block.box) &&
+            overlapsX(placed.box, target),
+        );
+      if (beside) at = -1;
+    }
+    if (at < 0) {
+      ordered.push(block);
+    } else {
+      ordered.splice(at, 0, block);
+      moved = true;
+    }
+  }
+  return moved ? ordered.map((block) => block.lines) : null;
+}
+
+function union(a: Box, b: Box): Box {
+  if (isEmptyBox(a)) return b;
+  return {
+    left: Math.min(a.left, b.left),
+    right: Math.max(a.right, b.right),
+    bottom: Math.min(a.bottom, b.bottom),
+    top: Math.max(a.top, b.top),
+    size: Math.max(a.size, b.size),
+  };
+}
+
+const emptyBox = (): Box => ({
+  left: Infinity,
+  right: -Infinity,
+  bottom: Infinity,
+  top: -Infinity,
+  size: 0,
+});
+
+const isEmptyBox = (box: Box) => box.left > box.right;
 
 /** Normalize line endings and whitespace without changing the words themselves. */
 export function normalizeExtractedText(text: string): string {
