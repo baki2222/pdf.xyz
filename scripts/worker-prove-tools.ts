@@ -63,10 +63,20 @@ import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
+import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
+import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
+import { unsupportedEncryptionPdf } from "@/tests/unsupported-encryption";
+import {
+  UNREADABLE_MESSAGE,
+  WRONG_PASSWORD_MESSAGE,
+} from "@/lib/workers/pdf-security/engine";
+import { webpageFetchMessage } from "@/lib/workers/html-render/engine";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
   harnessExitCode,
+  judgeExpectedRefusal,
   orderSpecsForAllowance,
   refusalVerdict,
   specKey,
@@ -120,6 +130,29 @@ async function textPdf(): Promise<Buffer> {
     font,
   });
   return Buffer.from(await doc.save());
+}
+
+/**
+ * A PDF that opens in every viewer but that qpdf must REPAIR first, so Protect
+ * reaches qpdf's exit 3 ("warnings, output written"). How it is damaged, and
+ * the two ways that could fail for the wrong reason, are in
+ * `src/tests/damaged-xref.ts`.
+ */
+async function damagedXrefPdf(): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText("pdf.xyz proof: a damaged xref", {
+    x: 60,
+    y: 770,
+    size: 20,
+    font,
+  });
+  // The splice (and why it is a splice) lives in one builder shared with the
+  // real-qpdf integration suite, so the two cannot drift apart.
+  return Buffer.from(
+    spliceStartxrefPastEnd(await doc.save({ useObjectStreams: false })),
+  );
 }
 
 /**
@@ -363,15 +396,101 @@ function rasterJpg(): Buffer {
   return minimalJpeg();
 }
 
+/**
+ * The title appears nowhere in the body, so finding it in the PDF means
+ * Chromium's print header put it there (see `printChromeLeaks`).
+ */
+const HTML_PROOF_TITLE = "pdf.xyz proof";
+const HTML_PROOF_VISIBLE = "HTML to PDF";
 function htmlFile(): Buffer {
   return Buffer.from(
-    `<!doctype html><html><head><meta charset="utf-8"><title>pdf.xyz proof</title>
+    `<!doctype html><html><head><meta charset="utf-8"><title>${HTML_PROOF_TITLE}</title>
 <style>body{font-family:sans-serif;padding:40px}h1{color:#4c1d95}</style></head>
-<body><h1>HTML to PDF</h1><p>Rendered by Chromium on the secure worker.</p>
+<body><h1>${HTML_PROOF_VISIBLE}</h1><p>Rendered by Chromium on the secure worker.</p>
 <table border="1"><tr><th>Row</th><th>Value</th></tr><tr><td>1</td><td>alpha</td></tr></table>
 </body></html>`,
     "utf8",
   );
+}
+
+/**
+ * The renderer-isolation proof's page. Until 2026-09 the worker rendered an
+ * uploaded page from `file://` with Chromium's network open, and this exact
+ * page came back with the worker's local files and internal answers printed in
+ * it. Each reach below must come back EMPTY, while the visible line proves the
+ * page itself rendered (so an empty PDF cannot pass).
+ */
+const ISOLATION_VISIBLE = "pdf.xyz renderer isolation proof";
+function isolationHtmlFile(): Buffer {
+  return Buffer.from(
+    `<!doctype html><html><head><meta charset="utf-8"><title>isolation</title></head>
+<body><h1>${ISOLATION_VISIBLE}</h1>
+<iframe src="file:///etc/passwd" width="600" height="200"></iframe>
+<iframe src="file:///proc/self/environ" width="600" height="200"></iframe>
+<iframe src="http://169.254.169.254/latest/meta-data/" width="600" height="200"></iframe>
+<iframe src="http://127.0.0.1:3000/" width="600" height="200"></iframe>
+<pre id="out"></pre>
+<script>
+for (const u of ["file:///etc/passwd", "http://169.254.169.254/latest/meta-data/"])
+  fetch(u).then(r => r.text()).then(t => { out.textContent += "REACHED:" + t.slice(0, 200); })
+    .catch(() => {});
+</script></body></html>`,
+    "utf8",
+  );
+}
+
+/** Markers any one of which means the page read something it must not. */
+const ISOLATION_LEAKS: readonly { marker: RegExp; what: string }[] = [
+  { marker: /root:[^:\s]*:0:0/, what: "/etc/passwd" },
+  { marker: /PDFXYZ_|PATH=|HOSTNAME=/, what: "a process environment" },
+  { marker: /ami-id|instance-id|local-ipv4/, what: "a metadata service" },
+  { marker: /REACHED:/, what: "a script-side read" },
+];
+
+/**
+ * The PDF a user downloads must carry the page and nothing else: until 2026-09
+ * every page came back with a print date and the `<title>` along the top and
+ * the worker's `file:///tmp/pdfxyz-html-…/input.html` (or the webpage's URL)
+ * along the bottom, and `isPdf` could not see any of it. `visible` is the
+ * positive control — an empty PDF cannot pass by containing no header.
+ */
+function verifyPageOnly(
+  visible: string,
+  context: Parameters<typeof printChromeLeaks>[1],
+) {
+  return async (bytes: Buffer) => {
+    const text = await pdfPlainText(bytes);
+    if (!text.includes(visible))
+      return {
+        ok: false,
+        detail: `the page's own text is missing (${text.length} chars extracted), so an absent header proves nothing`,
+      };
+    const leaks = printChromeLeaks(text, context);
+    return leaks.length === 0
+      ? { ok: true, detail: "page rendered; no print header or footer" }
+      : {
+          ok: false,
+          detail: `the PDF carries a print header/footer: ${leaks.join(", ")}`,
+        };
+  };
+}
+
+async function pdfPlainText(bytes: Buffer): Promise<string> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    data: new Uint8Array(bytes),
+  });
+  const doc = await task.promise;
+  let text = "";
+  for (let i = 1; i <= doc.numPages; i++) {
+    const content = await (await doc.getPage(i)).getTextContent();
+    text += content.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join(" ");
+  }
+  await task.destroy();
+  return text.replace(/\s+/g, " ");
 }
 
 function csvFile(): Buffer {
@@ -622,6 +741,12 @@ interface ProofSpec {
    * pass) reaches the operator.
    */
   verify?: (bytes: Buffer) => Promise<{ ok: boolean; detail: string }>;
+  /**
+   * The proof passes only if the job FAILS with exactly this user-facing
+   * message (see `judgeExpectedRefusal`). A delivered artifact is itself the
+   * failure, so `expect` and `verify` are never reached for such a spec.
+   */
+  refuses?: string;
   want: string;
   keepArtifactAs?: string;
 }
@@ -703,6 +828,51 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "decrypted PDF",
   },
+  // qpdf exits 2 for a wrong password AND for every other error; until 2026-09
+  // the runner called every 2 a wrong password. The two specs below prove both
+  // halves of the split on the running worker: a genuinely wrong password is
+  // still named as one (established by qpdf's password check, not the 2), and
+  // a file qpdf cannot open is not.
+  {
+    tool: "unlock-pdf",
+    label: "unlock-pdf (wrong password)",
+    from: "encrypted",
+    name: "secret-protected.pdf",
+    type: PDF_MIME,
+    options: { password: `${PROOF_PASSWORD}-not-it` },
+    expect: isPdf,
+    refuses: WRONG_PASSWORD_MESSAGE,
+    want: "the job refused with 'The password is incorrect'",
+  },
+  {
+    tool: "unlock-pdf",
+    label: "unlock-pdf (unsupported encryption)",
+    make: async () => Buffer.from(await unsupportedEncryptionPdf()),
+    name: "certificate-encrypted.pdf",
+    type: PDF_MIME,
+    options: { password: PROOF_PASSWORD },
+    expect: isPdf,
+    refuses: UNREADABLE_MESSAGE,
+    want: "the job refused as damaged/unsupported — not 'incorrect password' or 'isn't password-protected'",
+  },
+  // A damaged-but-recoverable input. qpdf repairs it on the way in and exits 3;
+  // until 2026-09 the security runner treated any non-zero exit as failure, so
+  // Protect refused every such file with "could not process this file". The
+  // clean `textPdf` above could never have shown that.
+  {
+    tool: "protect-pdf",
+    label: "protect-pdf (damaged xref)",
+    make: damagedXrefPdf,
+    name: "scanner-export.pdf",
+    type: PDF_MIME,
+    options: { password: PROOF_PASSWORD, keyLength: 256 },
+    expect: isPdf,
+    verify: async (buf) =>
+      buf.includes("/Encrypt")
+        ? { ok: true, detail: "the output carries an /Encrypt dictionary" }
+        : { ok: false, detail: "no /Encrypt in the output: not encrypted" },
+    want: "encrypted PDF",
+  },
   {
     tool: "pdf-to-pdfa",
     make: textPdf,
@@ -717,13 +887,61 @@ const SPECS: ProofSpec[] = [
     name: "page.html",
     type: "text/html",
     expect: isPdf,
-    want: "PDF",
+    verify: verifyPageOnly(HTML_PROOF_VISIBLE, { title: HTML_PROOF_TITLE }),
+    want: "PDF of the page with no print header or footer",
+  },
+  // The renderer must not read the worker's files or reach its private
+  // network on an uploaded page's say-so. `verify` decodes the PDF the user
+  // gets back; the visible line is the positive control.
+  {
+    tool: "html-to-pdf",
+    label: "html-to-pdf (isolation)",
+    make: isolationHtmlFile,
+    name: "isolation.html",
+    type: "text/html",
+    expect: isPdf,
+    verify: async (bytes) => {
+      const text = await pdfPlainText(bytes);
+      if (!text.includes(ISOLATION_VISIBLE))
+        return {
+          ok: false,
+          detail: `the page's own text is missing (${text.length} chars extracted), so an absent leak proves nothing`,
+        };
+      const leaks = ISOLATION_LEAKS.filter((l) => l.marker.test(text));
+      return leaks.length === 0
+        ? {
+            ok: true,
+            detail: "page rendered; no local file or internal address reached",
+          }
+        : {
+            ok: false,
+            detail: `the PDF contains ${leaks.map((l) => l.what).join(", ")}`,
+          };
+    },
+    want: "PDF showing the page and nothing of the worker",
   },
   {
     tool: "webpage-to-pdf",
     url: "https://example.com/",
     expect: isPdf,
-    want: "PDF",
+    // example.com's <title> is also its <h1>, so only the URL — which the
+    // page body never prints — can show the footer.
+    verify: verifyPageOnly("Example Domain", {
+      sourceUrl: "https://example.com/",
+    }),
+    want: "PDF of the page with no print header or footer",
+  },
+  {
+    // The NEGATIVE control for the spec above, and the only proof that the
+    // worker reads the site's answer at all. example.com answers any other
+    // path with a 404 carrying ITS HOME PAGE ("Example Domain"), so until
+    // 2026-09 this printed a PDF the spec above would have passed.
+    tool: "webpage-to-pdf",
+    label: "webpage-to-pdf (404 refused)",
+    url: "https://example.com/pdfxyz-proof-404",
+    refuses: webpageFetchMessage({ reason: "http", status: 404 }),
+    expect: () => false,
+    want: "the job refused with the site's 404, not a PDF of the error page",
   },
   {
     tool: "word-to-pdf",
@@ -1193,6 +1411,23 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     const poll = await fetch(`${BASE}/api/jobs/${jobId}`);
     job = (await poll.json().catch(() => ({}))) as ApiResponse;
     if (job.status && TERMINAL_STATUSES.has(job.status)) break;
+  }
+  if (spec.refuses !== undefined) {
+    const verdict = judgeExpectedRefusal(spec.refuses, job);
+    return verdict.ok
+      ? {
+          label,
+          outcome: "proven",
+          seconds: seconds(),
+          detail: verdict.detail,
+        }
+      : {
+          label,
+          outcome: "failed",
+          seconds: seconds(),
+          stage: "expected refusal",
+          detail: verdict.detail,
+        };
   }
   if (job.status !== "completed") {
     return {

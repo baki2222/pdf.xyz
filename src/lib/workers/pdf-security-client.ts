@@ -11,8 +11,11 @@
  *
  * Password handling on the client: the password is placed ONLY in the job
  * request's `options` body, which is exactly what the worker needs to perform the
- * encryption/decryption. It is never logged, never put in a URL, and never stored;
- * the request is sent over the same origin as every other job call. It never
+ * encryption/decryption. It is never logged and never put in a URL. It IS stored
+ * — in the job's queue spec, until FINALIZE deletes it (complete, fail, cancel,
+ * expire) or the queue TTL lapses — sealed to the worker's key when the operator
+ * has configured one (`../workers/queue/sealed-options.ts`). Until 2026-09 this
+ * line said "never stored", and the panel repeated it to users. It never
  * fabricates output: when qpdf isn't available on the worker, the first job call
  * returns the server's honest `not_implemented` / `worker_not_configured` error and
  * this driver surfaces it as a typed failure — never a fake protected/unlocked file.
@@ -50,7 +53,10 @@ export interface ProtectWorkerInput {
 export interface UnlockWorkerInput {
   filename: string;
   bytes: Uint8Array;
-  /** The password that currently opens the encrypted PDF. */
+  /**
+   * The password that opens the encrypted PDF — or, for one that opens without
+   * a password and only restricts printing/copying/editing, its owner password.
+   */
   password: string;
 }
 

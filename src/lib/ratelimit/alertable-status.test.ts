@@ -37,6 +37,7 @@ const CONFIGURED: Record<string, string> = {
   [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
   [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
   [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+  [RATE_LIMIT_ENV.clientIpHeader]: "cf-connecting-ip",
   [RATE_LIMIT_ENV.keySalt]: "test-shared-salt",
 };
 

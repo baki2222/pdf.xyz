@@ -46,7 +46,7 @@
  * when they drift, so a `pdfjs-dist` bump cannot silently point the browser at
  * a stale directory.
  */
-export const PDFJS_WASM_VERSION = "6.1.200";
+export const PDFJS_WASM_VERSION = "6.2.108";
 
 /** Directory pdfjs appends its filenames to. Must keep the trailing slash. */
 export const PDFJS_WASM_URL = `/pdfjs-wasm/${PDFJS_WASM_VERSION}/`;

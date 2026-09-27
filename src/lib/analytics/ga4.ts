@@ -10,6 +10,18 @@
  * GA4 sees has already been through `redactValue` (no filenames, no handoff
  * tokens, no URLs).
  *
+ * PAGE VIEWS GO THROUGH THE SAME DISCIPLINE, and until 2026-09 they did not.
+ * `gtag("config", ID)` with no options sends an automatic page_view whose
+ * `page_location` is `location.href` — query string and all — so every
+ * workspace → tool launch (`router.push("/tools/x?handoff=<token>")`) shipped
+ * its handoff token to Google, while the privacy page promised events are
+ * "stripped of filenames, links, and query strings". Now the config sends no
+ * page_view, and {@link sendGa4PageView} sends one per route with
+ * `page_location` = origin + pathname: no query, no fragment, by construction.
+ * (A GA4 web stream can ALSO send history-change page_views from its
+ * server-side "Enhanced measurement" setting; that switch lives in the GA4
+ * admin, not in code, and must be off.)
+ *
  * The measurement id is public by design: it is served in the page source of
  * every consenting visitor, exactly like every other GA4 site. Keeping it a
  * source constant (not a NEXT_PUBLIC_ bake) means `container.yml`'s
@@ -29,6 +41,18 @@ type GtagWindow = Window & {
 };
 
 let enabled = false;
+
+/** Google's documented hard opt-out: gtag.js sends nothing while this is true. */
+export const GA_DISABLE_PROPERTY = `ga-disable-${GA4_MEASUREMENT_ID}`;
+
+/** A URL (or path) reduced to origin + path: no query, no fragment. */
+export function withoutQuery(url: string): string {
+  return url.split(/[?#]/, 1)[0] ?? "";
+}
+
+function setDisabled(win: GtagWindow, disabled: boolean): void {
+  (win as unknown as Record<string, unknown>)[GA_DISABLE_PROPERTY] = disabled;
+}
 
 function gtagOn(win: GtagWindow): (...args: unknown[]) => void {
   win.dataLayer = win.dataLayer ?? [];
@@ -82,20 +106,32 @@ export function enableGa4(
   if (!win || !doc || enabled) return;
   enabled = true;
 
-  const gtag = gtagOn(win);
-  // Consent Mode v2 defaults, declared before config: analytics only. The ad
-  // signals are denied PERMANENTLY — this product runs no advertising, and no
-  // later consent flow exists that could turn them on.
-  gtag("consent", "default", {
-    ad_storage: "denied",
-    ad_user_data: "denied",
-    ad_personalization: "denied",
-    analytics_storage: "granted",
-  });
-  gtag("js", new Date());
-  gtag("config", GA4_MEASUREMENT_ID);
+  // Consent given again after a withdrawal on this same page: lift the hard
+  // opt-out, and grant with an UPDATE — gtag.js ignores a `consent default`
+  // that arrives after it has initialised, so re-sending the default would
+  // leave analytics silently denied.
+  setDisabled(win, false);
+  const alreadyLoaded = !!doc.querySelector(`script[src="${GTAG_SRC}"]`);
 
-  if (!doc.querySelector(`script[src="${GTAG_SRC}"]`)) {
+  const gtag = gtagOn(win);
+  if (alreadyLoaded) {
+    gtag("consent", "update", { analytics_storage: "granted" });
+  } else {
+    // Consent Mode v2 defaults, declared before config: analytics only. The ad
+    // signals are denied PERMANENTLY — this product runs no advertising, and
+    // no later consent flow exists that could turn them on.
+    gtag("consent", "default", {
+      ad_storage: "denied",
+      ad_user_data: "denied",
+      ad_personalization: "denied",
+      analytics_storage: "granted",
+    });
+  }
+  gtag("js", new Date());
+  // No automatic page_view: it would report location.href, query included.
+  gtag("config", GA4_MEASUREMENT_ID, { send_page_view: false });
+
+  if (!alreadyLoaded) {
     const script = doc.createElement("script");
     script.async = true;
     script.src = GTAG_SRC;
@@ -109,18 +145,80 @@ export function enableGa4(
 }
 
 /**
- * Withdrawn consent: tell an already-loaded tag to stop persisting, and detach
- * the telemetry sink. If the tag was never loaded this is a no-op — there is
- * nothing to stop.
+ * One page view for the route the visitor is on, with `page_location` built
+ * from origin + pathname — never `location.href`. No-op until consent has
+ * enabled the tag, so an undecided or declined visitor sends nothing.
+ */
+export function sendGa4PageView(
+  pathname: string,
+  win: GtagWindow | undefined = typeof window === "undefined"
+    ? undefined
+    : (window as GtagWindow),
+  doc: Document | undefined = typeof document === "undefined"
+    ? undefined
+    : document,
+): void {
+  if (!enabled || !win?.gtag || !doc) return;
+  const path = withoutQuery(pathname) || "/";
+  const referrer = withoutQuery(doc.referrer ?? "");
+  win.gtag("event", "page_view", {
+    page_location: `${win.location.origin}${path}`,
+    page_path: path,
+    page_title: doc.title,
+    ...(referrer ? { page_referrer: referrer } : {}),
+  });
+}
+
+/**
+ * Delete every `_ga` / `_ga_*` cookie. GA sets them on the registrable domain
+ * (`.pdf.xyz`), and a delete only matches a cookie written with the same
+ * domain attribute — so each name is expired at every parent domain of the
+ * host AND host-only. A level the browser refuses (a public suffix) is a
+ * write that does nothing. Returns the names it found.
+ */
+export function clearGaCookies(doc: Document, hostname: string): string[] {
+  const names = doc.cookie
+    .split(";")
+    .map((part) => part.split("=")[0]?.trim() ?? "")
+    .filter((name) => name === "_ga" || name.startsWith("_ga_"));
+  const labels = hostname.split(".").filter(Boolean);
+  const domains = labels.map((_, i) => `.${labels.slice(i).join(".")}`);
+  const expire = "=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+  for (const name of names) {
+    doc.cookie = `${name}${expire}`;
+    for (const domain of domains)
+      doc.cookie = `${name}${expire}; domain=${domain}`;
+  }
+  return names;
+}
+
+/**
+ * Withdrawn consent. Three things, because each alone falls short:
+ *  - Google's documented hard opt-out (`ga-disable-<id>`), which stops a tag
+ *    that is already running from sending ANYTHING. A `consent update` to
+ *    denied alone leaves it free to send cookieless pings — Google's
+ *    "advanced" mode, which `./consent.ts` rejects;
+ *  - `consent update` → denied, so it also stops persisting;
+ *  - deleting the `_ga` cookies it already wrote — also when the tag never
+ *    loaded on this page, since a choice made on an earlier visit left them.
+ * The telemetry sink is detached, so `track()` reaches Google exactly never.
+ *
+ * Until 2026-09 only the second happened, while the privacy page's control
+ * told the visitor "nothing is loaded".
  */
 export function disableGa4(
   win: GtagWindow | undefined = typeof window === "undefined"
     ? undefined
     : (window as GtagWindow),
+  doc: Document | undefined = typeof document === "undefined"
+    ? undefined
+    : document,
 ): void {
+  if (win) setDisabled(win, true);
   if (enabled && win?.gtag) {
     win.gtag("consent", "update", { analytics_storage: "denied" });
   }
+  if (win && doc) clearGaCookies(doc, win.location.hostname);
   enabled = false;
   configureTelemetry(null);
 }

@@ -416,9 +416,10 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         <p className="text-muted text-xs leading-relaxed">
           No account required. OCR runs on an isolated secure worker: files are
-          encrypted in transit and at rest, recognized in a sandbox with no
-          network egress, and deleted automatically. It&apos;s enabled per
-          deployment — see our worker architecture and security docs.
+          encrypted in transit and at rest, recognized in a temporary per-job
+          folder that is erased when the job ends, and deleted automatically.
+          It&apos;s enabled per deployment — see our worker architecture and
+          security docs.
         </p>
       </div>
     </div>

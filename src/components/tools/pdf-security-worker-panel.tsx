@@ -118,7 +118,7 @@ const COPY: Record<
     icon: Lock,
     badge: "Secure-worker encryption",
     blurb:
-      "Encrypting a PDF needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker rather than in your browser. Your password is sent to that worker only to encrypt the file, and the input is wiped right after.",
+      "Encrypting a PDF needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker rather than in your browser. Your password is used only to encrypt the file and is deleted from our job queue when the job ends; the input is wiped right after.",
     cta: "Encrypt on the worker",
     running: "Encrypting on the worker…",
   },
@@ -126,7 +126,7 @@ const COPY: Record<
     icon: Unlock,
     badge: "Secure-worker unlock",
     blurb:
-      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that already opens the file — Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
+      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that opens the file — or, if it opens without one and only printing, copying or editing is locked, its owner (permissions) password. Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
     cta: "Unlock on the worker",
     running: "Unlocking on the worker…",
   },
@@ -261,9 +261,11 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
 
         <p className="text-muted text-xs leading-relaxed">
           No account required. This runs on an isolated secure worker: files are
-          encrypted in transit and at rest, processed in a sandbox with no
-          network egress, and deleted automatically. Your password is used only
-          to perform the operation and is never stored or logged.
+          encrypted in transit and at rest, processed in a temporary per-job
+          folder that is erased when the job ends, and deleted automatically.
+          Your password is never logged. It waits in our job queue only until
+          the job finishes or is cancelled (or, if no worker picks it up, until
+          the queue&apos;s retention lapses), then it is deleted.
         </p>
       </div>
     </div>
@@ -440,7 +442,7 @@ function SecurityRunArea({
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker — the file and password are processed in-process on this machine, not sent to any third party."
-          : "Running this uploads your file to the encrypted secure worker; your password is sent to it only to perform the operation."}
+          : "Running this uploads your file to the encrypted secure worker; your password travels with the job through our queue and is used only to perform the operation."}
       </p>
 
       {file ? (
@@ -491,7 +493,11 @@ function SecurityRunArea({
       >
         {mode === "protect"
           ? "Anyone opening the PDF will need this password. Store it somewhere safe — it can't be recovered."
-          : "Enter the password that currently opens this PDF."}
+          : // A PDF that opens freely but locks printing or copying has no
+            // password that "opens" it; its owner password is the one qpdf
+            // accepts. Until 2026-09 this hint named only the open password,
+            // so that user had nothing true to type.
+            "Enter the password that opens this PDF — or, if it opens without one, its owner (permissions) password."}
         {tooLong
           ? ` Too long: ${passwordBytes}/${MAX_PDF_PASSWORD_BYTES} bytes.`
           : ""}

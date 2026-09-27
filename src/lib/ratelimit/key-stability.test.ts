@@ -21,7 +21,7 @@ import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import { resolveRateLimitStatus } from "./status";
 
 const headers = (address: string) =>
-  new Headers({ "x-forwarded-for": address });
+  new Headers({ "cf-connecting-ip": address });
 
 /** A deployment that has done everything required to enforce per client. */
 const PER_CLIENT: Record<string, string> = {
@@ -29,6 +29,7 @@ const PER_CLIENT: Record<string, string> = {
   [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
   [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
   [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+  [RATE_LIMIT_ENV.clientIpHeader]: "cf-connecting-ip",
   [RATE_LIMIT_ENV.keySalt]: "a-shared-secret-set-on-every-instance",
 };
 
@@ -114,6 +115,7 @@ describe("the combination an operator reaches by setting one variable", () => {
     [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
     [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
     [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+    [RATE_LIMIT_ENV.clientIpHeader]: "cf-connecting-ip",
     // NO keySalt, deliberately — that is the entire subject of this block. A
     // blanket "add the salt to every trusted fixture" sweep put one here and
     // both assertions below went green against nothing.

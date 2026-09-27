@@ -20,6 +20,7 @@ import {
   type NativePdfStructureConfig,
 } from "./native-config";
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
+import { QPDF_EXIT_WARNINGS } from "../qpdf-exit";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -91,9 +92,6 @@ function text(buf: Buffer | string | undefined): string {
   if (buf === undefined) return "";
   return typeof buf === "string" ? buf : buf.toString("utf8");
 }
-
-/** qpdf's documented "warnings issued, output was created" status. */
-const QPDF_EXIT_WARNINGS = 3;
 
 /**
  * qpdf's diagnostics, made safe to hand a user.

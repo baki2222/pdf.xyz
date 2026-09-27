@@ -109,7 +109,10 @@ export interface ProtectPdfOptions {
 
 /** Validated options for an `unlock-pdf` (decrypt) job. */
 export interface UnlockPdfOptions {
-  /** The password that currently opens the encrypted PDF. */
+  /**
+   * The password that opens the encrypted PDF — or, for one that opens without
+   * a password and only restricts printing/copying/editing, its owner password.
+   */
   password: string;
 }
 
@@ -210,9 +213,11 @@ export function parseProtectPdfOptions(
 /**
  * Parse the free-form `options` bag of an `unlock-pdf` job into typed, validated
  * options. Strict: a missing/empty/oversized/illegal password is rejected with a
- * content-free field error. Unlock only ever needs the password that opens the
- * document — it removes encryption you can already prove you may access; it never
- * recovers or bypasses an unknown password.
+ * content-free field error. Unlock only ever needs a password the document
+ * accepts — the one that opens it, or, for a file that opens freely but restricts
+ * printing/copying/editing, its owner password. It removes encryption you can
+ * already prove you may access; it never recovers or bypasses an unknown password,
+ * so an empty password is refused here even for a file that opens without one.
  */
 export function parseUnlockPdfOptions(
   options: Record<string, unknown>,

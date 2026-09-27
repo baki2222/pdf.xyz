@@ -6,6 +6,7 @@
  * and the worker image separated, and prove no artifact carries a real-looking
  * secret. They are the testable stand-in for a Docker build.
  */
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -488,20 +489,73 @@ describe("worker OCRmyPDF searchable-PDF PROOF script is present, wired, and ima
 // --------------------------------------------------------------------------- //
 // Secret hygiene — no committed artifact may carry a real-looking credential.
 // --------------------------------------------------------------------------- //
-const CONFIG_FILES = [
-  "Dockerfile",
-  "docker-compose.worker.yml",
-  ".env.worker.example",
-];
+/**
+ * BOTH CORPORA ARE DERIVED FROM `git ls-files`, never typed.
+ *
+ * History: until 2026-09 these were hand-typed lists. CONFIG_FILES named three
+ * files and missed `.env.local.example` — the tracked example developers copy
+ * and fill, with PDFXYZ_AI_API_KEY, PDFXYZ_S3_SECRET_ACCESS_KEY and
+ * PDFXYZ_REDIS_REST_TOKEN in it — so a real key pasted there and committed
+ * passed CI. DOC_FILES named 4 of 109 tracked docs, and a renamed one turned
+ * its test into a silent pass (`if (!existsSync(…)) return;`).
+ */
+const tracked = (...pathspec: string[]): string[] =>
+  execFileSync("git", ["ls-files", "-z", "--", ...pathspec], {
+    cwd: ROOT,
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter(Boolean);
+
+/**
+ * Root-level env examples, Dockerfiles and compose files. Root-only on
+ * purpose: `docs/examples/deployment/**` is guarded by
+ * `deployment-blueprint.test.ts` under its own, stricter rules.
+ */
+const CONFIG_FILES = tracked().filter((f) =>
+  /^(?:\.env[^/]*\.example|Dockerfile[^/]*|docker-compose[^/]*\.ya?ml)$/.test(
+    f,
+  ),
+);
+
+/** Binary formats the AWS-key scan cannot meaningfully read. */
+const BINARY = /\.(?:png|jpe?g|gif|webp|ico|pdf|zip|gz|woff2?|ttf|otf)$/i;
+
+/** Every tracked text file under docs/, plus the root Markdown. */
 const DOC_FILES = [
-  "docs/DEPLOYMENT.md",
-  "docs/WORKER_ARCHITECTURE.md",
-  "docs/RUNBOOK.md",
-  "docs/OCR_BACKEND.md",
-];
+  ...tracked("docs"),
+  ...tracked().filter((f) => /^[^/]+\.md$/.test(f)),
+].filter((f) => !BINARY.test(f));
 
 /** AWS-style access-key ids — a hard fail wherever they appear. */
 const AWS_KEY = /\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/;
+
+describe("the secret-hygiene corpora are derived, and plausible", () => {
+  it("config: every root env example, Dockerfile and compose file", () => {
+    expect(CONFIG_FILES.length).toBeGreaterThanOrEqual(4);
+    // Positive controls: the file the hand-typed list missed, and one it had.
+    expect(CONFIG_FILES).toContain(".env.local.example");
+    expect(CONFIG_FILES).toContain(".env.worker.example");
+    expect(CONFIG_FILES).toContain("Dockerfile");
+  });
+
+  it("docs: every tracked text doc, and a broken link is fatal", () => {
+    // 77 text files under docs/ today; a collapsed listing would pass
+    // everything below vacuously.
+    expect(DOC_FILES.length).toBeGreaterThanOrEqual(70);
+    expect(DOC_FILES).toContain("docs/DEPLOYMENT.md");
+    for (const rel of DOC_FILES)
+      expect(
+        existsSync(path.join(ROOT, rel)),
+        `${rel} is listed but missing`,
+      ).toBe(true);
+  });
+
+  it("the key pattern catches a key-shaped string (mutation control)", () => {
+    expect(`id=${"AKIA"}${"A".repeat(16)}`).toMatch(AWS_KEY);
+    expect("AKIA-not-a-key").not.toMatch(AWS_KEY);
+  });
+});
 
 /** A value is safe-by-inspection when it is empty, an interpolation, or a placeholder. */
 const PLACEHOLDER =
@@ -591,10 +645,11 @@ describe("deployment artifacts carry no real-looking secrets", () => {
     });
   }
 
-  for (const rel of DOC_FILES) {
-    it(`${rel}: documents provider variables without embedding AWS keys`, () => {
-      if (!existsSync(path.join(ROOT, rel))) return;
-      expect(read(rel)).not.toMatch(AWS_KEY);
-    });
-  }
+  it("no tracked doc embeds an AWS key", () => {
+    // One assertion over the derived set, naming every offender. There is no
+    // `if (!existsSync) return` here any more: the corpus comes from git, and
+    // the health check above makes a listed-but-missing file fatal.
+    const offenders = DOC_FILES.filter((rel) => AWS_KEY.test(read(rel)));
+    expect(offenders).toEqual([]);
+  });
 });

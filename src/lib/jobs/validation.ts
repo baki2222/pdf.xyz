@@ -11,6 +11,7 @@
  *    separators or traversal.
  */
 
+import { isInternalHostname } from "@/lib/net/public-address";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import {
@@ -109,10 +110,20 @@ function byteLength(text: string): number {
 }
 
 /**
- * SSRF guard for URL-input tools. Blocks non-http(s), localhost, private and
- * link-local ranges, and internal TLDs at the edge. The worker's egress policy
- * is the real enforcement layer; this is defense in depth and keeps the contract
- * from ever accepting an arbitrary URL.
+ * Early SSRF rejection for URL-input tools, at the edge.
+ *
+ * This is NOT the enforcement layer and does not pretend to be: the edge cannot
+ * see what DNS will return at render time, nor where a redirect or a
+ * sub-resource will point. The enforcement is the worker renderer's request
+ * interceptor (`src/lib/workers/html-render/network.ts`), which applies the
+ * same classifier to every address DNS returns for every request Chromium
+ * makes, and dials the address it checked. This check exists so an obviously
+ * internal URL is refused with a clear message before a job is ever queued.
+ *
+ * History: until 2026-09 this matched host strings (`/^127\./`,
+ * `host === "[::1]"`) and `localhost.`, `[::ffff:127.0.0.1]`, `[fd00::1]`,
+ * `[::]` and CGNAT addresses all passed. It now classifies the address, not
+ * its spelling (`@/lib/net/public-address`).
  */
 export function isSafePublicHttpUrl(raw: string): boolean {
   let url: URL;
@@ -123,19 +134,9 @@ export function isSafePublicHttpUrl(raw: string): boolean {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   if (url.username || url.password) return false; // no embedded credentials
-
-  const host = url.hostname.toLowerCase();
-  if (host.length === 0) return false;
-  if (host === "localhost" || host.endsWith(".localhost")) return false;
-  if (host.endsWith(".local") || host.endsWith(".internal")) return false;
-  if (host === "::1" || host === "[::1]") return false;
-  if (host === "0.0.0.0") return false;
-  if (/^127\./.test(host)) return false; // loopback
-  if (/^10\./.test(host)) return false; // private
-  if (/^192\.168\./.test(host)) return false; // private
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false; // private
-  if (/^169\.254\./.test(host)) return false; // link-local / cloud metadata
-  return true;
+  // WHATWG URL has already canonicalised numeric IPv4 spellings
+  // (`0x7f000001`, `2130706433`, `127.1` → `127.0.0.1`) and compressed IPv6.
+  return !isInternalHostname(url.hostname);
 }
 
 // ─────────────────────────────── Error helpers ───────────────────────────────

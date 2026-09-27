@@ -2,9 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   HTML_TO_PDF_TOOL,
   WEBPAGE_TO_PDF_TOOL,
+  WebpageFetchError,
+  isRetryableWebpageFetch,
   runHtmlToPdf,
   runWebpageToPdf,
+  webpageFetchMessage,
   type ChromiumPdfRunner,
+  type WebpageFetchFailure,
 } from "./engine";
 
 const PDF = new TextEncoder().encode(
@@ -83,5 +87,82 @@ describe("html-render engine", () => {
         chromium: runner(new TextEncoder().encode("no pdf")),
       }),
     ).resolves.toMatchObject({ ok: false, kind: "failed" });
+  });
+
+  /*
+   * Until 2026-09 this catch returned "Chromium could not render this
+   * webpage." for EVERY error — so even once the renderer could tell a 404
+   * from a crash, the user could not. What the site did is now what they read.
+   */
+  it("tells the user what the site did, not that Chromium failed", async () => {
+    const failures: WebpageFetchFailure[] = [
+      { reason: "http", status: 404 },
+      { reason: "http", status: 403 },
+      { reason: "http", status: 503 },
+      { reason: "http", status: 429 },
+      { reason: "http", status: 418 },
+      { reason: "challenge", status: 403 },
+      { reason: "blocked" },
+      { reason: "unresolved" },
+      { reason: "unreachable" },
+      { reason: "unreadable" },
+      { reason: "navigation", errorText: "net::ERR_ABORTED" },
+    ];
+    const generic = await runWebpageToPdf("https://example.com/", {
+      chromium: {
+        renderHtml: vi.fn(),
+        renderUrl: vi.fn(async () => {
+          throw new Error("boom");
+        }),
+      },
+    });
+    const messages = new Set<string>();
+    for (const failure of failures) {
+      const result = await runWebpageToPdf("https://example.com/", {
+        chromium: {
+          renderHtml: vi.fn(),
+          renderUrl: vi.fn(async () => {
+            throw new WebpageFetchError(failure);
+          }),
+        },
+      });
+      expect(result).toEqual({
+        ok: false,
+        kind: "page_unavailable",
+        failure,
+        retryable: isRetryableWebpageFetch(failure),
+        message: webpageFetchMessage(failure),
+      });
+      if (!result.ok) {
+        expect(result.message).not.toBe(generic.ok ? "" : generic.message);
+        messages.add(result.message);
+      }
+      // An HTTP answer names its status; the user can act on a number.
+      if ("status" in failure)
+        expect(webpageFetchMessage(failure)).toContain(String(failure.status));
+    }
+    // Every failure reads differently: none is a catch-all in disguise.
+    expect(messages.size).toBe(failures.length);
+    // Positive control: an error that is NOT the site's keeps the generic
+    // sentence, so the typed branch above is what changed the message.
+    expect(generic).toMatchObject({
+      ok: false,
+      kind: "failed",
+      message: "Chromium could not render this webpage.",
+    });
+  });
+
+  it("retries only what could answer differently next time", () => {
+    const retryable = (failure: WebpageFetchFailure) =>
+      isRetryableWebpageFetch(failure);
+    expect(retryable({ reason: "http", status: 500 })).toBe(true);
+    expect(retryable({ reason: "http", status: 503 })).toBe(true);
+    expect(retryable({ reason: "http", status: 429 })).toBe(true);
+    expect(retryable({ reason: "unreachable" })).toBe(true);
+    expect(retryable({ reason: "http", status: 404 })).toBe(false);
+    expect(retryable({ reason: "http", status: 499 })).toBe(false);
+    expect(retryable({ reason: "challenge", status: 503 })).toBe(false);
+    expect(retryable({ reason: "blocked" })).toBe(false);
+    expect(retryable({ reason: "unresolved" })).toBe(false);
   });
 });

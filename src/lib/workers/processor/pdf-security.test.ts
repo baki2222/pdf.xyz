@@ -18,10 +18,16 @@ function file(name = "report.pdf", bytes = pdf()): ProcessorInputFile {
   };
 }
 
-/** A fake qpdf runner whose `isEncrypted` answers by byte identity. */
+/**
+ * A fake qpdf runner whose `isEncrypted` answers by byte identity, and whose
+ * `requiresPassword` agrees with it unless a test spells out the disagreement.
+ */
 function fakeQpdf(over: Partial<QpdfRunner> = {}): QpdfRunner {
+  const isEncrypted = over.isEncrypted ?? (async () => false);
   return {
-    isEncrypted: async () => false,
+    isEncrypted,
+    requiresPassword: async (b) =>
+      (await isEncrypted(b)) ? "needs-password" : "not-encrypted",
     protect: async () => pdf(64),
     unlock: async () => ({ ok: true, output: pdf(64) }),
     ...over,
@@ -123,6 +129,29 @@ describe("pdf-security processor — protect", () => {
     assertNoSecret(result);
   });
 
+  // What the user reads is `job.error.message`, so this is asserted at the job
+  // error the processor returns, not at the engine's constant.
+  it("tells a restrictions-only PDF the truth (non-retryable), not 'already password-protected'", async () => {
+    const proc = createPdfSecurityProcessor(
+      wired({
+        isEncrypted: async () => true,
+        requiresPassword: async () => "opens-freely",
+      }),
+    );
+    const result = await proc.process({
+      tool: "protect-pdf",
+      options: { password: SECRET },
+      inputs: [file("statement.pdf")],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("unprocessable_entity");
+    expect(result.error.retryable).toBe(false);
+    expect(result.error.message).toMatch(/opens without a password/);
+    expect(result.error.message).not.toMatch(/already password-protected/i);
+    assertNoSecret(result);
+  });
+
   it("rejects a missing password with invalid_request before running", async () => {
     const proc = createPdfSecurityProcessor(wired());
     const result = await proc.process({
@@ -193,7 +222,7 @@ describe("pdf-security processor — unlock", () => {
     const proc = createPdfSecurityProcessor(
       wired({
         isEncrypted: async (b) => b === enc,
-        unlock: async () => ({ ok: false, wrongPassword: true }),
+        unlock: async () => ({ ok: false, reason: "wrong-password" }),
       }),
     );
     const result = await proc.process({
@@ -208,6 +237,66 @@ describe("pdf-security processor — unlock", () => {
     }
     assertNoSecret(result);
   });
+
+  // What the user reads is `job.error.message`, so both new refusals are
+  // asserted at the job error the processor returns.
+  it("tells the owner of a restrictions-only PDF which password Unlock needs (non-retryable)", async () => {
+    const proc = createPdfSecurityProcessor(
+      wired({
+        isEncrypted: async () => true,
+        requiresPassword: async () => "opens-freely",
+        unlock: async () => ({ ok: false, reason: "wrong-password" }),
+      }),
+    );
+    const result = await proc.process({
+      tool: "unlock-pdf",
+      options: { password: SECRET },
+      inputs: [file("statement.pdf")],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("unprocessable_entity");
+    expect(result.error.retryable).toBe(false);
+    expect(result.error.message).toMatch(/owner \(permissions\) password/);
+    expect(result.error.message).not.toMatch(/password is incorrect/i);
+    assertNoSecret(result);
+  });
+
+  it.each([
+    [
+      "before the decrypt",
+      { requiresPassword: async () => "unreadable" as const },
+    ],
+    [
+      "at the decrypt",
+      {
+        isEncrypted: async () => true,
+        unlock: async () => ({
+          ok: false as const,
+          reason: "unreadable" as const,
+        }),
+      },
+    ],
+  ])(
+    "reports a PDF qpdf cannot open (%s) as a non-retryable job error, not a crash to re-run",
+    async (_where, over) => {
+      const proc = createPdfSecurityProcessor(wired(over));
+      const result = await proc.process({
+        tool: "unlock-pdf",
+        options: { password: SECRET },
+        inputs: [file("damaged.pdf")],
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe("unprocessable_entity");
+      expect(result.error.retryable).toBe(false);
+      expect(result.error.message).toMatch(/damaged/);
+      expect(result.error.message).not.toMatch(
+        /incorrect|isn't password-protected/i,
+      );
+      assertNoSecret(result);
+    },
+  );
 
   it("reports a non-encrypted input honestly", async () => {
     const proc = createPdfSecurityProcessor(

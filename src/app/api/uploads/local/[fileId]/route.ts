@@ -19,7 +19,7 @@ import {
 import { isLocalDevWorker } from "@/lib/workers";
 import { devWorkerStore } from "@/lib/workers/store";
 import { evaluateUploadedBytes, intakeErrorResult } from "@/lib/uploads/intake";
-import { respond } from "../../../_lib/http";
+import { rejectCrossSite, respond } from "../../../_lib/http";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -30,6 +30,10 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ fileId: string }> },
 ): Promise<Response> {
+  // Cross-site browser writes are refused before anything else — including
+  // the rate-limit charge they would otherwise spend (see rejectCrossSite).
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   if (!isLocalDevWorker()) return respond(workerNotConfigured());
 
   const { fileId } = await context.params;

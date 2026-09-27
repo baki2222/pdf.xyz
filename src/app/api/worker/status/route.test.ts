@@ -157,15 +157,17 @@ describe("GET /api/worker/status — abuse guard", () => {
     resetRateLimitGuardForTests();
     delete process.env[RATE_LIMIT_ENV.provider];
     delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+    delete process.env[RATE_LIMIT_ENV.clientIpHeader];
   });
 
   it("still serves the normal probe when a request is passed, never echoing identity", async () => {
     // Trust the forwarding header so the address is actually read (and hashed);
     // it must still never appear in the response body.
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     const res = await GET(
       new Request("http://localhost/api/worker/status", {
-        headers: { "x-forwarded-for": "203.0.113.77" },
+        headers: { "cf-connecting-ip": "203.0.113.77" },
       }),
     );
     expect(res.status).toBe(200);

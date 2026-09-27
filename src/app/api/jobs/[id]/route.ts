@@ -11,7 +11,7 @@
 import { apiError, isValidJobId } from "@/lib/jobs";
 import { getWorkerAdapter } from "@/lib/workers";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
-import { respond, respondRateLimited } from "../../_lib/http";
+import { rejectCrossSite, respond, respondRateLimited } from "../../_lib/http";
 
 // Status is never cached: it always reflects the live job state. Node runtime —
 // the local-dev adapter uses Node built-ins (lazily imported only in that mode).
@@ -57,6 +57,10 @@ export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  // Cross-site browser writes are refused before anything else — including
+  // the rate-limit charge they would otherwise spend (see rejectCrossSite).
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   const limit = await enforceRateLimit("jobs.delete", request);
   if (!limit.allowed) return respondRateLimited(limit);
 

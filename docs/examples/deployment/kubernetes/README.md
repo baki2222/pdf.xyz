@@ -63,9 +63,12 @@ env:
     valueFrom:
       secretKeyRef:
         { name: pdfxyz-ratelimit, key: PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN }
-  # Only behind a proxy/CDN you trust to set x-forwarded-for:
+  # Only behind an edge that overwrites ONE client-IP header, on an origin
+  # only that edge can reach (see docs/RATE_LIMITING.md):
   # - name: PDFXYZ_RATE_LIMIT_TRUST_PROXY
   #   value: "true"
+  # - name: PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER
+  #   value: "cf-connecting-ip"
 ```
 
 At boot the web pod logs one content-free line (`[pdf.xyz] rate-limit provider:

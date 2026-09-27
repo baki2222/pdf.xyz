@@ -15,6 +15,7 @@ function clear(): void {
   resetRateLimitGuardForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
   delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+  delete process.env[RATE_LIMIT_ENV.clientIpHeader];
   delete process.env[RATE_LIMIT_ENV.keySalt];
 }
 
@@ -70,10 +71,11 @@ describe("enforceRateLimit — providers", () => {
   it("separates clients only when the forwarding header is trusted", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     const policy = policyFor("jobs.create");
-    const clientA = { "x-forwarded-for": "203.0.113.1" };
-    const clientB = { "x-forwarded-for": "203.0.113.2" };
+    const clientA = { "cf-connecting-ip": "203.0.113.1" };
+    const clientB = { "cf-connecting-ip": "203.0.113.2" };
     for (let i = 0; i < policy.limit; i++)
       await enforceRateLimit("jobs.create", req(clientA));
     expect((await enforceRateLimit("jobs.create", req(clientA))).allowed).toBe(
@@ -90,6 +92,7 @@ describe("enforceRateLimit — honesty & safety", () => {
   it("fails OPEN (never closed) if identity derivation throws", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     // A request whose headers access throws — the guard must not break the route.
     const broken = {
@@ -107,9 +110,10 @@ describe("enforceRateLimit — honesty & safety", () => {
   it("never puts request identity into the decision, even with hostile headers", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "local-memory";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     process.env[RATE_LIMIT_ENV.keySalt] = "test-shared-salt";
     const hostile = {
-      "x-forwarded-for": "203.0.113.250",
+      "cf-connecting-ip": "203.0.113.250",
       "user-agent": "EvilBot/6.6",
       cookie: "session=TOPSECRET",
       referer: "http://evil.example/invoice.pdf",
@@ -126,7 +130,7 @@ describe("enforceRateLimit — honesty & safety", () => {
       "EvilBot",
       "TOPSECRET",
       "invoice.pdf",
-      "x-forwarded-for",
+      "cf-connecting-ip",
       "cookie",
     ]) {
       expect(serialized).not.toContain(leak);

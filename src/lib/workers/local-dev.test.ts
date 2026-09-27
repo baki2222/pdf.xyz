@@ -385,6 +385,8 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
 
   const fakeQpdf = (over: Partial<QpdfRunner> = {}): QpdfRunner => ({
     isEncrypted: async (b) => isTagged(b, "ENC"),
+    requiresPassword: async (b) =>
+      isTagged(b, "ENC") ? "needs-password" : "not-encrypted",
     protect: async () => taggedPdf("ENC"),
     unlock: async () => ({ ok: true, output: taggedPdf("DEC") }),
     ...over,
@@ -481,7 +483,9 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
 
   it("maps a wrong unlock password to a failed job, password-free", async () => {
     const adapter = adapterWith(
-      fakeQpdf({ unlock: async () => ({ ok: false, wrongPassword: true }) }),
+      fakeQpdf({
+        unlock: async () => ({ ok: false, reason: "wrong-password" }),
+      }),
     );
     const fileId = await seed(
       adapter,
