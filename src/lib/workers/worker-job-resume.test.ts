@@ -70,10 +70,12 @@ async function discover(): Promise<Subject[]> {
       /* @vite-ignore */ `${DIR.replace(/\\/g, "/")}/${file}`
     )) as Record<string, unknown>;
     const ownResume = Object.entries(mod).find(
-      ([name, value]) => name.startsWith("resume") && typeof value === "function",
+      ([name, value]) =>
+        name.startsWith("resume") && typeof value === "function",
     )?.[1] as ResumeFn | undefined;
     for (const [name, value] of Object.entries(mod)) {
-      if (!name.startsWith("runWorker") || typeof value !== "function") continue;
+      if (!name.startsWith("runWorker") || typeof value !== "function")
+        continue;
       // A module without its own resume must be one that runs through the
       // shared security driver — otherwise nothing can resume its jobs.
       if (!ownResume && !/\brunSecurityJob\b/.test(source))
@@ -178,36 +180,52 @@ describe("the corpus — every job client beside this file", () => {
   });
 });
 
-describe.each(SUBJECTS.map((s) => [s.name, s] as const))("%s", (_n, subject) => {
-  it("hands back the job it stopped waiting for, as data, and resumes it to the file", async () => {
-    const net = network();
-    const created: string[] = [];
-    const result = (await subject.run(INPUT, {
-      fetchImpl: net.fetchImpl,
-      sleep: net.sleep,
-      onJobCreated: (id: string) => created.push(id),
-    })) as { ok: boolean; message?: string; jobId?: string; stillRunning?: boolean };
+describe.each(SUBJECTS.map((s) => [s.name, s] as const))(
+  "%s",
+  (_n, subject) => {
+    it("hands back the job it stopped waiting for, as data, and resumes it to the file", async () => {
+      const net = network();
+      const created: string[] = [];
+      const result = (await subject.run(INPUT, {
+        fetchImpl: net.fetchImpl,
+        sleep: net.sleep,
+        onJobCreated: (id: string) => created.push(id),
+      })) as {
+        ok: boolean;
+        message?: string;
+        jobId?: string;
+        stillRunning?: boolean;
+      };
 
-    expect(result).toMatchObject({ ok: false, jobId: JOB_ID, stillRunning: true });
-    // The sentence a user reads carries no raw id.
-    expect(result.message ?? "").not.toContain(JOB_ID);
-    expect(created).toEqual([JOB_ID]);
+      expect(result).toMatchObject({
+        ok: false,
+        jobId: JOB_ID,
+        stillRunning: true,
+      });
+      // The sentence a user reads carries no raw id.
+      expect(result.message ?? "").not.toContain(JOB_ID);
+      expect(created).toEqual([JOB_ID]);
 
-    // Waited exactly the budget named for this tool, at its cadence.
-    const budget = jobPollFor(net.tool);
-    expect(net.polls).toBe(budget.maxAttempts);
-    expect(new Set(net.sleeps)).toEqual(new Set([budget.intervalMs]));
+      // Waited exactly the budget named for this tool, at its cadence.
+      const budget = jobPollFor(net.tool);
+      expect(net.polls).toBe(budget.maxAttempts);
+      expect(new Set(net.sleeps)).toEqual(new Set([budget.intervalMs]));
 
-    net.complete();
-    const resumed = (await subject.resume(JOB_ID, {
-      fetchImpl: net.fetchImpl,
-      sleep: net.sleep,
-    })) as { ok: boolean; output?: Uint8Array; artifacts?: { bytes: Uint8Array }[] };
-    expect(resumed.ok).toBe(true);
-    const bytes = resumed.output ?? resumed.artifacts?.[0]?.bytes;
-    expect(bytes && [...bytes]).toEqual([...OUTPUT]);
-  });
-});
+      net.complete();
+      const resumed = (await subject.resume(JOB_ID, {
+        fetchImpl: net.fetchImpl,
+        sleep: net.sleep,
+      })) as {
+        ok: boolean;
+        output?: Uint8Array;
+        artifacts?: { bytes: Uint8Array }[];
+      };
+      expect(resumed.ok).toBe(true);
+      const bytes = resumed.output ?? resumed.artifacts?.[0]?.bytes;
+      expect(bytes && [...bytes]).toEqual([...OUTPUT]);
+    });
+  },
+);
 
 describe("the AI budget reaches every AI tool, and only those", () => {
   it("the AI tools the clients reach are exactly the catalog's AI tools", async () => {

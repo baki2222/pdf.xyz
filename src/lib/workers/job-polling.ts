@@ -44,10 +44,7 @@ import { isTerminalStatus } from "@/lib/jobs/types";
  * being recognized.
  */
 export type WorkerJobPhase =
-  | "uploading"
-  | "queued"
-  | "processing"
-  | "downloading";
+  "uploading" | "queued" | "processing" | "downloading";
 
 /** The phase a job record's status puts it in. */
 export function phaseOfJob(status: JobStatus): WorkerJobPhase {
