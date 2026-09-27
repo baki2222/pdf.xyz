@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Download, FileCode, Globe, ShieldCheck, Timer } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
+import { pipelineStagesForStatus } from "@/lib/jobs/pipeline-pending";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
@@ -12,7 +12,6 @@ import {
   type HtmlRenderWorkerResult,
 } from "@/lib/workers/html-render-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
@@ -25,8 +24,13 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 type Mode = "html" | "url";
 
 function badgeFor(
@@ -68,34 +72,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "webpage-to-pdf" ? "url" : "html";
   const Icon = mode === "url" ? Globe : FileCode;
   const ceilingBytes = toolFileCeilingBytes(tool);
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunHtmlRender(status);
@@ -130,6 +107,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
           <HtmlRenderRunArea mode={mode} />
         ) : (
           <HtmlRenderUnavailable
+            onRetry={retry}
             phase={phase}
             status={status}
             toolName={tool.name}
@@ -142,7 +120,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {pipelineStagesForStatus(status?.scan.active).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -202,21 +180,25 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
 
 function HtmlRenderUnavailable({
   phase,
+  onRetry,
   status,
   toolName,
   toolSlug,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
   toolName: string;
   toolSlug: string;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   const detail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
 
   return (
     <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">

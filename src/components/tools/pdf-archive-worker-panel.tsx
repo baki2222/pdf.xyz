@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Archive, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
+import { pipelineStagesForStatus } from "@/lib/jobs/pipeline-pending";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
@@ -11,7 +11,6 @@ import {
   type PdfArchiveWorkerResult,
 } from "@/lib/workers/pdf-archive-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
@@ -23,9 +22,14 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 import { PdfANotes } from "./pdfa-notes";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 function badgeFor(
   phase: Phase,
@@ -64,33 +68,7 @@ function SpecRow({
 }
 
 export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((s) => {
-        if (!active) return;
-        setStatus(s);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: s.mode,
-          enabled: s.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunPdfArchive(status);
@@ -127,7 +105,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
         {available && status ? (
           <ArchiveRunArea localDevOnly={status.localDevOnly} />
         ) : (
-          <ArchiveUnavailable phase={phase} status={status} />
+          <ArchiveUnavailable onRetry={retry} phase={phase} status={status} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -135,7 +113,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {pipelineStagesForStatus(status?.scan.active).map(
               (stage, i, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -181,17 +159,21 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
 
 function ArchiveUnavailable({
   phase,
+  onRetry,
   status,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   const detail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
   return (
     <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
       <p className="text-muted text-sm leading-relaxed">{detail}</p>

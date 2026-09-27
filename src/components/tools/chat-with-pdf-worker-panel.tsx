@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Download,
   MessageSquare,
@@ -8,7 +8,7 @@ import {
   Sparkles,
   Timer,
 } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
+import { pipelineStagesForStatus } from "@/lib/jobs/pipeline-pending";
 import {
   AI_INPUT_LIMITS,
   DEFAULT_RETENTION,
@@ -30,7 +30,6 @@ import {
   type ChatExchange,
 } from "@/lib/workers/chat-with-pdf-conversation";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
@@ -38,8 +37,13 @@ import { Dropzone, ErrorNote, WorkerRunButton } from "./runner/runner-kit";
 import { TruncationNotice } from "./truncation-notice";
 import type { Job } from "@/lib/jobs/types";
 import { NotifyMe } from "./notify-me";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 function badgeFor(
   phase: Phase,
@@ -55,43 +59,13 @@ function badgeFor(
 }
 
 export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunChatWithPdf(status);
-  const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : aiToolUnavailableDetail(status);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
+  const unavailableDetail = aiToolUnavailableDetail(status);
 
   return (
     <div className="">
@@ -130,7 +104,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
         )}
         {available ? (
           <ChatBuilder />
-        ) : (
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -141,6 +115,8 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
             </p>
             <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -148,7 +124,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {pipelineStagesForStatus(status?.scan.active).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">

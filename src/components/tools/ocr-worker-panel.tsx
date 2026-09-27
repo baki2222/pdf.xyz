@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Check,
   Cpu,
@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Timer,
 } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
+import { pipelineStagesForStatus } from "@/lib/jobs/pipeline-pending";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
   DEFAULT_OCR_LANGUAGE,
@@ -37,7 +37,6 @@ import {
 } from "@/lib/jobs/ocr";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { runWorkerOcr, type OcrWorkerResult } from "@/lib/workers/ocr-client";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
@@ -46,12 +45,16 @@ import {
   Dropzone,
   ErrorNote,
   ResultCard,
-  Spinner,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 const CONTENT_TYPE_BY_EXT: Record<string, string> = {
   pdf: "application/pdf",
@@ -135,8 +138,7 @@ function badgeFor(
  * does it mount an uploader and run the real job flow via {@link runWorkerOcr}.
  */
 export function OcrWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
+  const { phase, status, retry } = useWorkerStatus();
 
   const [languages, setLanguages] = useState<OcrLanguage[]>([
     DEFAULT_OCR_LANGUAGE,
@@ -145,33 +147,6 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
     DEFAULT_OCR_OUTPUT_MODE,
   );
   const [redoOcr, setRedoOcr] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((s) => {
-        if (!active) return;
-        setStatus(s);
-        setPhase("ready");
-        // Reuse the Phase 10 privacy-safe event: mode + enabled flag only.
-        track({
-          name: "worker_status_checked",
-          mode: s.mode,
-          enabled: s.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   // The packs the worker reports it actually has. Until 2026-09-27 the menu
   // rendered the static catalogue whatever the status said — the heartbeat's
@@ -408,6 +383,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
           />
         ) : (
           <OcrUnavailable
+            onRetry={retry}
             phase={phase}
             status={status}
             toolName={tool.name}
@@ -421,7 +397,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {pipelineStagesForStatus(status?.scan.active).map(
               (stage, i, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -486,33 +462,29 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
  */
 function OcrUnavailable({
   phase,
+  onRetry,
   status,
   toolName,
   toolSlug,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
   toolName: string;
   toolSlug: string;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   return (
     <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-4">
-      {phase === "loading" ? (
-        <p
-          className="text-muted inline-flex items-center gap-2 text-sm"
-          role="status"
-        >
-          <Spinner className="size-4" />
-          Checking whether a secure worker is available…
-        </p>
-      ) : (
-        <p className="text-warn text-sm leading-relaxed">
-          {phase === "error"
-            ? "We couldn't confirm secure-worker availability just now, so OCR isn't offered here. No file is ever uploaded until OCR is confirmed available."
-            : (status?.ocr.detail ??
-              "OCR isn't enabled in this environment. No file is uploaded.")}
-        </p>
-      )}
+      <p className="text-warn text-sm leading-relaxed">
+        {status?.ocr.detail ??
+          "OCR isn't enabled in this environment. No file is uploaded."}
+      </p>
       <div className="flex flex-col gap-2">
         <NotifyMe toolName={toolName} toolSlug={toolSlug} />
       </div>

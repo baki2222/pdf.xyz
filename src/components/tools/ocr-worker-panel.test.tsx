@@ -207,9 +207,16 @@ describe("OcrWorkerPanel", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
     render(<OcrWorkerPanel tool={ocrTool} />);
 
+    // The fallback used to sit in the "unavailable" box beside "Notify me
+    // when this ships" — an unreachable status endpoint read as a tool that
+    // had not shipped. It is a neutral line with a retry now.
     expect(
-      await screen.findByText(/couldn't confirm secure-worker availability/i),
+      await screen.findByText(/couldn.t reach the worker status service/i),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /check again/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Notify me when this ships/)).toBeNull();
     // Still no uploader when availability is unknown.
     expect(fileInput()).toBeNull();
   });

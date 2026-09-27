@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
+import { pipelineStagesForStatus } from "@/lib/jobs/pipeline-pending";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
@@ -11,7 +11,6 @@ import {
   type OfficeConversionWorkerResult,
 } from "@/lib/workers/office-conversion-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
@@ -23,9 +22,14 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
 type OfficeTool = "word-to-pdf" | "excel-to-pdf" | "powerpoint-to-pdf";
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 function isOfficeTool(slug: string): slug is OfficeTool {
   return (
@@ -57,49 +61,20 @@ function badgeFor(
 }
 
 export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
+  const { phase, status, retry } = useWorkerStatus();
   const officeTool: OfficeTool = isOfficeTool(tool.slug)
     ? tool.slug
     : "word-to-pdf";
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const badge = badgeFor(phase, status);
   const available =
     phase === "ready" &&
     canRunOfficeConversion(status) &&
     isOfficeTool(tool.slug);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
   const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
 
   return (
     <div className="">
@@ -128,7 +103,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
 
         {available ? (
           <OfficeRunArea tool={officeTool} accept={acceptFor(officeTool)} />
-        ) : (
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -139,6 +114,8 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
             </p>
             <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -146,7 +123,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {pipelineStagesForStatus(status?.scan.active).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
