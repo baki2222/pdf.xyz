@@ -69,6 +69,7 @@ const SPEC = {
     atomicQueue: true,
     chunkedTranslate: true,
     deliveryCap: true,
+    pptxPresentationChain: true,
   },
   release: "7.9.3",
   fingerprint: "9a5db1338ee3",
@@ -87,9 +88,14 @@ const EXPECTED: Record<
   (published: Record<string, unknown>) => boolean
 > = {
   mode: (p) => p.mode === "loop",
+  // EVERY capability in the spec, derived from it rather than named. This
+  // used to check `chunkedTranslate` and `deliveryCap` only — two of seven —
+  // so a publisher that dropped any other capability stayed green here.
   capabilities: (p) => {
     const caps = p.capabilities as Record<string, unknown> | undefined;
-    return Boolean(caps?.chunkedTranslate) && Boolean(caps?.deliveryCap);
+    return Object.entries(SPEC.capabilities).every(
+      ([key, value]) => JSON.stringify(caps?.[key]) === JSON.stringify(value),
+    );
   },
   release: (p) => p.release === "7.9",
   fingerprint: (p) => p.fingerprint === "9a5db1338ee3",

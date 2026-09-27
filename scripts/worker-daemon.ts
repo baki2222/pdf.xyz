@@ -53,6 +53,7 @@ import {
   provesChunkedTranslate,
   provesDeliveryCap,
 } from "@/lib/workers/translate/capability";
+import { provesPptxPresentationChain } from "@/lib/workers/pdf-office-export/capability";
 import { writeSpendProbe } from "@/lib/ratelimit/guard";
 import { shouldWriteSpendProbe } from "@/lib/ratelimit/spend-probe";
 import {
@@ -146,6 +147,8 @@ async function buildHeartbeatPublisher(
       // its silence is read as `false` on the other side.
       chunkedTranslate: await provesChunkedTranslate(),
       deliveryCap: await provesDeliveryCap(),
+      // Runs the real PDF to PowerPoint engine and inspects the .pptx it wrote.
+      pptxPresentationChain: await provesPptxPresentationChain(),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),

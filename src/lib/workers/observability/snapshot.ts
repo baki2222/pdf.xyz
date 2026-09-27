@@ -270,6 +270,12 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "a job delivers only what its reservation paid for, and names the bound that stopped it",
     proves: provenByFlag,
   },
+  pptxPresentationChain: {
+    label: "PowerPoint package structure",
+    promise:
+      "PDF to PowerPoint turns each page into an editable slide in a complete presentation (slide master, layout and theme), not the slides-only package PowerPoint for Windows refuses as corrupted",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

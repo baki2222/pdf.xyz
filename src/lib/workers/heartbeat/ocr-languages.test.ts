@@ -34,6 +34,7 @@ const BEAT: WorkerHeartbeat = {
     atomicQueue: true,
     chunkedTranslate: true,
     deliveryCap: true,
+    pptxPresentationChain: true,
   },
   at: 1_700_000_000_000,
 };

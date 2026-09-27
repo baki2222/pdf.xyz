@@ -227,6 +227,16 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     subject: /\bdelivery cap\b|reservation paid|what its reservation/i,
     catalogueCopy: false,
   },
+  pptxPresentationChain: {
+    // The EXPORT to PowerPoint, not PowerPoint to PDF. Measured 2026-09-27
+    // against the live catalogue: 15 sentences mention PowerPoint, slides or
+    // PPTX; this matches the 7 that belong to pdf-to-powerpoint ("an editable
+    // PowerPoint slide" per page, the promise the capability backs) and none
+    // of the 8 that belong to powerpoint-to-pdf ("one slide per page").
+    subject:
+      /PDF to PowerPoint|pdf to (?:pptx|slides)|editable (?:PowerPoint )?slides?/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

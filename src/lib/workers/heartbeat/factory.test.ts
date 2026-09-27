@@ -114,6 +114,7 @@ describe("createHeartbeatPublisher", () => {
         atomicQueue: true,
         chunkedTranslate: true,
         deliveryCap: true,
+        pptxPresentationChain: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -151,6 +152,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             atomicQueue: true,
             chunkedTranslate: true,
             deliveryCap: true,
+            pptxPresentationChain: true,
           },
           at: now,
         }),

@@ -25,6 +25,7 @@ const CAPS: HeartbeatCapabilities = {
   atomicQueue: true,
   chunkedTranslate: true,
   deliveryCap: true,
+  pptxPresentationChain: true,
 };
 
 describe("coarseRelease", () => {
@@ -84,6 +85,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       atomicQueue: false,
       chunkedTranslate: true,
       deliveryCap: true,
+      pptxPresentationChain: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -216,6 +218,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         atomicQueue: true,
         chunkedTranslate: true,
         deliveryCap: true,
+        pptxPresentationChain: false,
       },
       at: 1234,
     });
