@@ -49,6 +49,7 @@ export function ExtractImagesRunner() {
       hint="One PDF · pulls out the images embedded in it, at their original resolution — all in your browser"
       handoffSlug="extract-images"
       toolName="Extract Images"
+      writesPdf={false}
     >
       {(pdf, reset) => <ExtractImagesEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>

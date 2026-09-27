@@ -17,12 +17,7 @@ import {
 } from "./annotate";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
-import {
-  displayedPageSize,
-  normalizeRotation,
-  viewToContent,
-  type PageBox,
-} from "./page-frame";
+import { viewToContent, viewerFrame, type PageBox } from "./page-frame";
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
 
 /**
@@ -423,13 +418,8 @@ interface EditPageFrame {
 }
 
 function editPageFrame(page: PDFPage): EditPageFrame {
-  const { x, y, width, height } = page.getCropBox();
-  const rotation = normalizeRotation(page.getRotation().angle);
-  return {
-    box: { x, y, width, height },
-    rotation,
-    size: displayedPageSize(width, height, rotation),
-  };
+  const { box, rotation, width, height } = viewerFrame(page);
+  return { box, rotation, size: { width, height } };
 }
 
 /**

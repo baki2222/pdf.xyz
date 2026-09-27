@@ -44,7 +44,7 @@ import {
   HandoffLoading,
   HandoffProblem,
 } from "./handoff-notice";
-import { FileHeader } from "./single-pdf-runner";
+import { FileHeader, SignedInputNotice } from "./single-pdf-runner";
 import { useSinglePdf, type LoadedPdf } from "./use-single-pdf";
 import { useToolHandoff } from "./use-tool-handoff";
 
@@ -117,7 +117,7 @@ export function CompressRunner() {
   if (handoff.status === "loading") return <HandoffLoading />;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div data-single-pdf-runner="empty" className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName="Compress PDF" />
       <Dropzone
         onFiles={addFiles}
@@ -178,8 +178,16 @@ function CompressSingle({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div data-single-pdf-runner="loaded" className="flex flex-col gap-4">
       {preloaded && <HandoffLoadedBadge count={1} skipped={skipped} />}
+      {/* Compress uses the single-file hook directly rather than
+          SinglePdfRunner, so it carries the same notice itself. */}
+      {pdf.digitalSignatures > 0 && (
+        <SignedInputNotice
+          count={pdf.digitalSignatures}
+          toolName="Compress PDF"
+        />
+      )}
       <CompressEditor
         key={`${pdf.file.name}:${pdf.file.size}`}
         pdf={pdf}

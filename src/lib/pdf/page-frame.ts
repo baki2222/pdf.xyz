@@ -76,3 +76,33 @@ export function displayedPageSize(
     ? { width: height, height: width }
     : { width, height };
 }
+
+/** The part of a pdf-lib `PDFPage` a viewer frame is read from. */
+export interface FramedPage {
+  getCropBox(): PageBox;
+  getRotation(): { angle: number };
+}
+
+/**
+ * One page as the reader sees it: the visible box in content space (the
+ * CropBox, which pdf-lib falls back to the MediaBox for), its normalized
+ * `/Rotate`, and the displayed size — the space a viewer-frame position lives
+ * in. Every tool that places content from a person's choice reads the page
+ * through here, so they cannot disagree about what "the page" is.
+ */
+export interface ViewerFrame {
+  box: PageBox;
+  rotation: 0 | 90 | 180 | 270;
+  width: number;
+  height: number;
+}
+
+export function viewerFrame(page: FramedPage): ViewerFrame {
+  const { x, y, width, height } = page.getCropBox();
+  const rotation = normalizeRotation(page.getRotation().angle);
+  return {
+    box: { x, y, width, height },
+    rotation,
+    ...displayedPageSize(width, height, rotation),
+  };
+}
