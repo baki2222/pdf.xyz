@@ -7,6 +7,7 @@ import {
   xmlEscape,
 } from "../ooxml/sheet-cells";
 import { CELL_GAP_EMS, isListItem, LONG_CELL_WORDS } from "../pdf-text/flow";
+import { classifyPdfTextFailure } from "../pdf-office-export/encryption";
 
 /**
  * Table extraction engine for the `extract-tables` tool.
@@ -82,6 +83,11 @@ export type PdfLayoutExtractor = (bytes: Uint8Array) => Promise<PdfLayout>;
 
 export interface TableExtractDeps {
   extractLayout?: PdfLayoutExtractor;
+  /**
+   * Asked only after the extractor REFUSED the document: does it need a
+   * password? Injectable for tests; defaults to the pdf-lib + byte-scan probe.
+   */
+  isEncrypted?: (bytes: Uint8Array) => Promise<boolean>;
   limits?: { maxInputBytes?: number; maxOutputBytes?: number };
 }
 
@@ -104,7 +110,14 @@ export type TableExtractRun =
     }
   | {
       ok: false;
-      kind: "unsupported" | "no_text" | "no_tables" | "too_large" | "failed";
+      kind:
+        | "unsupported"
+        | "no_text"
+        | "no_tables"
+        | "too_large"
+        | "password_protected"
+        | "unreadable"
+        | "failed";
       limitBytes?: number;
       message: string;
     };
@@ -786,9 +799,12 @@ export async function runTableExtract(
     const output = await buildTablesZip(tables);
     const maxOutput = deps.limits?.maxOutputBytes;
     if (maxOutput !== undefined && output.byteLength > maxOutput) {
+      // Deterministic: the same PDF builds the same archive on every attempt,
+      // so a retryable `failed` here could only fail again.
       return {
         ok: false,
-        kind: "failed",
+        kind: "too_large",
+        limitBytes: maxOutput,
         message: "The extracted tables archive exceeds the worker size limit.",
       };
     }
@@ -806,11 +822,40 @@ export async function runTableExtract(
         outputBytes: output.byteLength,
       },
     };
-  } catch {
-    return {
-      ok: false,
-      kind: "failed",
-      message: "The PDF could not be processed for table extraction.",
-    };
+  } catch (error) {
+    // Every throw used to land here as one retryable `failed`, so a
+    // password-protected statement was requeued twice with nothing changed
+    // and then reported as "could not be processed". Ask the shared
+    // classifier what the failure says about the DOCUMENT first; only a run
+    // that did not finish stays retryable.
+    switch (await classifyPdfTextFailure(error, input, deps.isEncrypted)) {
+      case "too_large":
+        return {
+          ok: false,
+          kind: "too_large",
+          message:
+            "The text layout extracted from this PDF exceeds the worker's limit.",
+        };
+      case "password_protected":
+        return {
+          ok: false,
+          kind: "password_protected",
+          message:
+            "This PDF is password-protected. Unlock it with Unlock PDF, then extract its tables.",
+        };
+      case "unreadable":
+        return {
+          ok: false,
+          kind: "unreadable",
+          message:
+            "This PDF could not be opened. It may be damaged; Repair PDF can often fix that.",
+        };
+      default:
+        return {
+          ok: false,
+          kind: "failed",
+          message: "The PDF could not be processed for table extraction.",
+        };
+    }
   }
 }

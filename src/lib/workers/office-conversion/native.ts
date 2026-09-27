@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { looksLikePdf } from "../compression/engine";
 import type { LibreOfficePdfRunner, OfficeConversionDeps } from "./engine";
+import { LibreOfficeRunError } from "./errors";
 import {
   resolveNativeOfficeConversionConfig,
   type NativeOfficeConversionConfig,
@@ -155,17 +156,30 @@ export function createNativeLibreOfficePdfRunner(
             windowsHide: true,
           },
         );
-        if (result.timedOut || result.code !== 0)
-          throw new Error("LibreOffice conversion failed.");
-        const output = await fs.readFile(outputPath);
+        // Typed by what a retry could change (see `./errors`). A timeout and
+        // an exit LibreOffice chose are answers about the DOCUMENT; a kill
+        // nobody asked for (code -1, not `timedOut` — an OOM, say) is not, so
+        // it stays a plain, retryable error.
+        if (result.timedOut) throw new LibreOfficeRunError("timeout");
+        if (result.code > 0) throw new LibreOfficeRunError("exit");
+        if (result.code !== 0)
+          throw new Error("LibreOffice was stopped before it finished.");
+        let output: Uint8Array;
+        try {
+          output = await fs.readFile(outputPath);
+        } catch (error) {
+          // soffice exits 0 and writes nothing for a file it cannot load (an
+          // encrypted or corrupt document). Any other read error is IO.
+          if ((error as { code?: unknown } | null)?.code === "ENOENT")
+            throw new LibreOfficeRunError("no_output");
+          throw error;
+        }
         const bytes =
           output instanceof Uint8Array ? output : new Uint8Array(output);
-        if (
-          bytes.byteLength === 0 ||
-          bytes.byteLength > config.maxOutputBytes ||
-          !looksLikePdf(bytes)
-        )
-          throw new Error("LibreOffice produced no usable PDF output.");
+        if (bytes.byteLength > config.maxOutputBytes)
+          throw new LibreOfficeRunError("too_large");
+        if (bytes.byteLength === 0 || !looksLikePdf(bytes))
+          throw new LibreOfficeRunError("bad_output");
         return bytes;
       } finally {
         await fs.rm(dir, { recursive: true, force: true }).catch(() => {});

@@ -26,6 +26,8 @@ import {
 } from "@/tests/table-extract-fixtures";
 import { nativeTableExtractDeps } from "../pdf-text/native";
 import { runTableExtract, type TableExtractDeps } from "./engine";
+import { createTableExtractProcessor } from "../processor/table-extract";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 
 const POPPLER = findPopplerPdfToText();
 const suite = describe.skipIf(!POPPLER);
@@ -92,5 +94,42 @@ suite(label, () => {
       ok: true,
       detail: "2 table(s), 4x4 + 4x3, every cell matches",
     });
+  });
+  it("names a user-password PDF as password-protected through the processor: final, and linked to Unlock", async () => {
+    // The composed chain the executor sees: real poppler refuses the file,
+    // the engine asks the bytes why, the processor decides whether to retry.
+    const locked = officeFixtures.rc4EncryptedPdf({
+      userPassword: "s3cret",
+      ownerPassword: "owner",
+    });
+    const result = await createTableExtractProcessor(deps()).process({
+      tool: "extract-tables",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "statement.pdf",
+          contentType: "application/pdf",
+          bytes: locked,
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+        retryable: false,
+      });
+  });
+
+  it("POSITIVE CONTROL: an owner-password-only PDF is encrypted AND still reads — never called locked", async () => {
+    const ownerOnly = officeFixtures.rc4EncryptedPdf({
+      userPassword: "",
+      ownerPassword: "owner",
+      text: "Owner locked but readable",
+    });
+    const run = await runTableExtract(ownerOnly, deps());
+    // One line of prose: no table, but it OPENED.
+    expect(run.ok ? "a ZIP" : run.kind).toBe("no_tables");
   });
 });

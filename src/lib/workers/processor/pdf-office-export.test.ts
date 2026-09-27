@@ -179,6 +179,20 @@ describe("pdf-office-export processor", () => {
       });
   });
 
+  it("an exported file over the output ceiling is final — the same PDF renders the same file every attempt", async () => {
+    const result = await createPdfOfficeExportProcessor({
+      extract,
+      extractFlow,
+      limits: { maxOutputBytes: 1 },
+    }).process(oneInput());
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: "payload_too_large",
+        retryable: false,
+      });
+  });
+
   it("POSITIVE CONTROL: a run that did not finish stays retryable", async () => {
     const result = await createPdfOfficeExportProcessor({
       extract,

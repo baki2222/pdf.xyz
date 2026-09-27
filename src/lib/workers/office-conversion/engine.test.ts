@@ -60,11 +60,15 @@ describe("office-conversion engine", () => {
     ).resolves.toMatchObject({ ok: false, kind: "too_large", limitBytes: 4 });
   });
 
-  it("rejects non-PDF output", async () => {
+  it("rejects non-PDF output as unreadable — final, not a retryable `failed`", async () => {
+    // INVERTED 2026-09-27. This asserted `kind: "failed"`, which the processor
+    // maps to a RETRYABLE internal_error: the same file was converted again,
+    // twice, to the same non-PDF. The document is the problem, so the answer
+    // is final and says what to try.
     await expect(
       runOfficeToPdf("word-to-pdf", DOCX, "report.docx", {
         libreoffice: runner(new TextEncoder().encode("no pdf")),
       }),
-    ).resolves.toMatchObject({ ok: false, kind: "failed" });
+    ).resolves.toMatchObject({ ok: false, kind: "unreadable" });
   });
 });

@@ -102,21 +102,28 @@ describe("native LibreOffice Office converter", () => {
     });
   });
 
-  it("fails on conversion error or non-PDF output", async () => {
+  it("fails on conversion error or non-PDF output, saying which", async () => {
+    // These asserted only a message pattern. Every failure was the same
+    // untyped Error, so nothing downstream could tell a corrupt document
+    // (final) from a run that did not finish (retryable). The reason is the
+    // contract now; see `./errors`.
     await expect(
       createNativeLibreOfficePdfRunner(config, {
         exec: vi.fn(async () => ({ code: 1, timedOut: false })),
         fs: fsStub(),
         resolveOnPath: () => true,
       }).convertToPdf(DOCX, "x.docx"),
-    ).rejects.toThrow(/failed/i);
+    ).rejects.toMatchObject({ name: "LibreOfficeRunError", reason: "exit" });
     await expect(
       createNativeLibreOfficePdfRunner(config, {
         exec: vi.fn(async () => ({ code: 0, timedOut: false })),
         fs: fsStub(new TextEncoder().encode("bad")),
         resolveOnPath: () => true,
       }).convertToPdf(DOCX, "x.docx"),
-    ).rejects.toThrow(/usable PDF/i);
+    ).rejects.toMatchObject({
+      name: "LibreOfficeRunError",
+      reason: "bad_output",
+    });
   });
 
   it("probes and wires deps only when LibreOffice is available", () => {

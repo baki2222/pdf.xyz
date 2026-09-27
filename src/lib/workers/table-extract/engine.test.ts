@@ -17,7 +17,9 @@ import {
 } from "../ooxml/sheet-read";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { PDFDocument } from "pdf-lib";
 import { parseBboxLayout } from "../pdf-text/parse";
+import { PdfTextExecError } from "../pdf-text/errors";
 import * as popplerSamples from "@/tests/poppler-samples";
 import * as officeFixtures from "@/tests/pdf-office-fixtures";
 import * as tableFixtures from "@/tests/table-extract-fixtures";
@@ -645,5 +647,95 @@ describe("runTableExtract", () => {
     const run = await runTableExtract(PDF, { extractLayout });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("failed");
+  });
+});
+
+/**
+ * A document that will not open used to land in the extractor's bare `catch`
+ * as a retryable `failed`: a password-protected bank statement — the commonest
+ * source of tables — was requeued twice with nothing changed and then reported
+ * as "could not be processed", with no word about the password or the tool
+ * that removes it. Only a REFUSAL (poppler's exit 1 or 3) asks about
+ * encryption; a timeout or a spawn error says nothing about the document.
+ */
+describe("runTableExtract — a PDF that will not open is classified, not retried", () => {
+  const refusal = () =>
+    new PdfTextExecError({ exitCode: 1, killed: false, outputTooLarge: false });
+  const throwing = (error: unknown) => async (): Promise<PdfLayout> => {
+    throw error;
+  };
+
+  it("names a user-password PDF as password-protected (real RC4 fixture, real pdf-lib check)", async () => {
+    const locked = officeFixtures.rc4EncryptedPdf({
+      userPassword: "s3cret",
+      ownerPassword: "owner",
+    });
+    const run = await runTableExtract(locked, {
+      extractLayout: throwing(refusal()),
+    });
+    expect(run).toMatchObject({ ok: false, kind: "password_protected" });
+    if (!run.ok) expect(run.message).toMatch(/Unlock PDF/);
+  });
+
+  it("names an unencrypted PDF that will not open as unreadable", async () => {
+    const plain = await (await PDFDocument.create()).save();
+    const run = await runTableExtract(plain, {
+      extractLayout: throwing(refusal()),
+    });
+    expect(run).toMatchObject({ ok: false, kind: "unreadable" });
+    if (!run.ok) expect(run.message).toMatch(/Repair PDF/);
+  });
+
+  it("POSITIVE CONTROL: a timeout, a spawn failure and an unknown throw stay retryable `failed`, even on an encrypted file", async () => {
+    const locked = officeFixtures.rc4EncryptedPdf({
+      userPassword: "x",
+      ownerPassword: "y",
+    });
+    for (const error of [
+      new PdfTextExecError({
+        exitCode: null,
+        killed: true,
+        outputTooLarge: false,
+      }),
+      new PdfTextExecError({
+        exitCode: null,
+        killed: false,
+        outputTooLarge: false,
+      }),
+      new PdfTextExecError({
+        exitCode: 99,
+        killed: false,
+        outputTooLarge: false,
+      }),
+      new Error("anything else"),
+    ])
+      await expect(
+        runTableExtract(locked, { extractLayout: throwing(error) }),
+      ).resolves.toMatchObject({ ok: false, kind: "failed" });
+  });
+
+  it("reports an extractor output ceiling as too_large, not as a retryable failure", async () => {
+    await expect(
+      runTableExtract(new Uint8Array([0x25, 0x50, 0x44, 0x46]), {
+        extractLayout: throwing(
+          new PdfTextExecError({
+            exitCode: null,
+            killed: false,
+            outputTooLarge: true,
+          }),
+        ),
+      }),
+    ).resolves.toMatchObject({ ok: false, kind: "too_large" });
+  });
+
+  it("reports an archive over the output ceiling as too_large — the same bytes give the same archive on every retry", async () => {
+    const run = await runTableExtract(
+      new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      {
+        extractLayout: async () => layout([tablePage()]),
+        limits: { maxOutputBytes: 1 },
+      },
+    );
+    expect(run).toMatchObject({ ok: false, kind: "too_large" });
   });
 });

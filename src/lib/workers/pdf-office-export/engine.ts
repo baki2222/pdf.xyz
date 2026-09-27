@@ -4,7 +4,6 @@ import {
   measureOfficeExportPages,
   type OfficeExportResultMeta,
 } from "@/lib/jobs/office-export-results";
-import { isPdfOpenRefusal, PdfTextExecError } from "../pdf-text/errors";
 import {
   flowPageText,
   type PdfFlowText,
@@ -17,7 +16,7 @@ import {
   worksheetXml,
   xmlEscape,
 } from "../ooxml/sheet-cells";
-import { pdfHasEncryptionDictionary } from "./encryption";
+import { classifyPdfTextFailure } from "./encryption";
 import { layoutGrid } from "./layout-grid";
 import { pptxPackage } from "./pptx-package";
 
@@ -225,34 +224,34 @@ async function classifyFailure(
   input: Uint8Array,
   deps: PdfOfficeExportDeps,
 ): Promise<Failure> {
-  if (error instanceof PdfTextExecError && error.outputTooLarge)
-    return {
-      ok: false,
-      kind: "too_large",
-      message: "The text extracted from this PDF exceeds the worker's limit.",
-    };
-  if (isPdfOpenRefusal(error)) {
-    const isEncrypted = deps.isEncrypted ?? pdfHasEncryptionDictionary;
-    const encrypted = await isEncrypted(input).catch(() => false);
-    return encrypted
-      ? {
-          ok: false,
-          kind: "password_protected",
-          message:
-            "This PDF is password-protected. Unlock it with Unlock PDF, then convert it.",
-        }
-      : {
-          ok: false,
-          kind: "unreadable",
-          message:
-            "This PDF could not be opened. It may be damaged; Repair PDF can often fix that.",
-        };
+  switch (await classifyPdfTextFailure(error, input, deps.isEncrypted)) {
+    case "too_large":
+      return {
+        ok: false,
+        kind: "too_large",
+        message: "The text extracted from this PDF exceeds the worker's limit.",
+      };
+    case "password_protected":
+      return {
+        ok: false,
+        kind: "password_protected",
+        message:
+          "This PDF is password-protected. Unlock it with Unlock PDF, then convert it.",
+      };
+    case "unreadable":
+      return {
+        ok: false,
+        kind: "unreadable",
+        message:
+          "This PDF could not be opened. It may be damaged; Repair PDF can often fix that.",
+      };
+    default:
+      return {
+        ok: false,
+        kind: "failed",
+        message: "The PDF could not be exported to an Office file.",
+      };
   }
-  return {
-    ok: false,
-    kind: "failed",
-    message: "The PDF could not be exported to an Office file.",
-  };
 }
 
 interface Rendered {
@@ -339,9 +338,12 @@ export async function runPdfOfficeExport(
     if (!rendered) return NO_TEXT;
     const maxOutput = deps.limits?.maxOutputBytes;
     if (maxOutput !== undefined && rendered.output.byteLength > maxOutput)
+      // Deterministic: the same PDF renders the same file on every attempt,
+      // so this was a retryable `failed` that could only fail again.
       return {
         ok: false,
-        kind: "failed",
+        kind: "too_large",
+        limitBytes: maxOutput,
         message: "The exported Office file exceeds the worker size limit.",
       };
     return {

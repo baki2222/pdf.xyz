@@ -37,9 +37,11 @@ export function officePdfOutputName(originalName: unknown): string {
 function jobError(run: OfficeFailure): JobError {
   switch (run.kind) {
     case "unsupported":
+      // No repository path in a user's error: the reader of this message is
+      // on a web page, not in a checkout.
       return {
         code: "not_implemented",
-        message: `${run.message} See docs/WORKER_ARCHITECTURE.md.`,
+        message: run.message,
         retryable: false,
       };
     case "too_large":
@@ -49,6 +51,14 @@ function jobError(run: OfficeFailure): JobError {
         retryable: false,
       };
     case "invalid_input":
+    // The three below are answers about the DOCUMENT: the same bytes get the
+    // same answer on every attempt, so none of them is retried. They used to
+    // fall through to the retryable `internal_error` — three conversions of a
+    // file that could never convert, and three timeouts of one that could not
+    // finish.
+    case "password_protected":
+    case "unreadable":
+    case "timeout":
       return {
         code: "unprocessable_entity",
         message: run.message,

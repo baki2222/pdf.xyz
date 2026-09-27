@@ -23,6 +23,7 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { OfficeExportNextStep } from "./office-export-notices";
 
 type Phase = "loading" | "error" | "ready";
 
@@ -255,7 +256,14 @@ function TableExtractRunArea() {
       >
         Extract tables
       </WorkerRunButton>
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      {outcome?.ok === false && (
+        <>
+          <ErrorNote message={outcome.message} />
+          {/* The tool that fixes a document-level failure, keyed on the
+              job error CODE the processor sets — never on message text. */}
+          <OfficeExportNextStep code={outcome.code} />
+        </>
+      )}
       {outcome?.ok === true && (
         <ResultCard announce="Your tables are ready as a ZIP of CSV files plus a combined Excel workbook.">
           <p className="text-ok text-sm">
