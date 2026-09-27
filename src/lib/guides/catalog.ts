@@ -27,6 +27,7 @@ import {
   RASTER_RESOLUTIONS,
   type RasterResolution,
 } from "@/lib/pdf/pdf-to-image";
+import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
 import type { Guide } from "./types";
 
 /**
@@ -61,6 +62,9 @@ function rasterPreset(id: string): RasterResolution {
 }
 
 const presetText = (r: RasterResolution) => `${r.label} (${r.dpi} DPI)`;
+
+/** Edit PDF's per-image cap, in MB — the same arithmetic its image picker shows. */
+const EDIT_IMAGE_MB = Math.round(MAX_EDIT_IMAGE_BYTES / (1024 * 1024));
 
 /** "Screen (96 DPI), High (150 DPI), and Print (300 DPI)" — from the list. */
 const RASTER_PRESET_LIST = (() => {
@@ -654,6 +658,99 @@ export const guides: Guide[] = [
       {
         question: "How large can my PDF be?",
         answer: `Up to ${ceilingMb("rotate-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-add-text-to-a-pdf",
+    title: "How to add text, images, and shapes to a PDF",
+    description:
+      "Add text, images, boxes, and lines to a PDF right in your browser, so the file stays on your device — and what Edit PDF can and cannot change.",
+    tools: ["edit-pdf", "annotate-pdf", "redact-pdf"],
+    keywords: [
+      "edit pdf",
+      "add text to pdf",
+      "type on a pdf",
+      "insert image in pdf",
+      "add a logo to a pdf",
+      "draw a box on a pdf",
+    ],
+    intro: [
+      "To add text to a PDF, open the Edit PDF tool, add your file, choose Text, type what you want, set the page and position, and add it to the page. Boxes, lines, arrows, and PNG or JPG images go on the same way. When everything is placed, apply the edits and download the new PDF.",
+      "Edit PDF runs entirely in your browser, so your PDF stays on your device and no account is needed. New content is drawn onto the page as real text, shapes, and images, and the original pages are kept as they are rather than turned into pictures, so their own text stays selectable.",
+      `One thing to know before you start: Edit PDF adds new content on top of the page. It does not change, move, restyle, or delete the text that is already in the file. Each PDF can be up to ${ceilingMb("edit-pdf")} MB.`,
+    ],
+    steps: [
+      "Open the Edit PDF tool.",
+      "Add your PDF. It opens in your browser, and the file stays on your device.",
+      "Choose what to add: Text, Box, Line, or Image.",
+      "Set the page, then the position in points measured from the bottom-left corner of that page. The tool shows the page's size so you know how much room there is.",
+      "Fill in the details: the words, size, and color for text; filled or outline for a box; an arrowhead for a line; a PNG or JPG file for an image. Then click Add to page.",
+      "Add anything else you need, check the page preview, then apply the edits and download the edited PDF.",
+    ],
+    sections: [
+      {
+        id: "placing-content",
+        heading: "Placing text, boxes, lines, and images",
+        body: [
+          "Every item is placed by numbers rather than dragged. Positions are in PDF points, counted from the bottom-left corner of the page, and the tool shows the size of the page you are working on. For text, the position is where the first line sits, and further lines flow downward from there. Give text a wrap width to break long lines automatically; without one, a line breaks only where you start a new line yourself.",
+          `Boxes can be filled, with an adjustable opacity, or drawn as an outline. Lines can end in an arrowhead. Images must be PNG or JPG files of up to ${EDIT_IMAGE_MB} MB each; they start at a size that keeps their proportions, and you can set the width, height, and opacity yourself.`,
+          "Everything you add appears in a list and on a preview of its page, and you can remove any item before you apply. Each item carries its own page number, so one pass can add content to as many pages as you like.",
+        ],
+      },
+      {
+        id: "what-it-changes",
+        heading: "What Edit PDF changes, and what it leaves alone",
+        body: [
+          "Edit PDF adds; it does not rewrite. The text, images, and drawings already in your PDF stay exactly where they are, and the tool cannot retype a word, change a font, move a paragraph, or delete anything that was already there. The pages are kept, not redrawn, so the original text stays selectable just as it was.",
+          "When you apply your edits, the new content is written into the page itself. In the downloaded file it is part of the page, not a comment or a separate object that someone can move or delete in their PDF viewer.",
+          "On the uncommon page that is stored with a rotation setting, positions are measured on the page as stored, before that rotation, so new content follows the page's content rather than the way your viewer turns it.",
+        ],
+      },
+      {
+        id: "covering-versus-removing",
+        heading: "Covering something is not the same as removing it",
+        body: [
+          "A filled box can cover a word, a number, or an old date, and the printed page will look clean. But whatever is underneath is still in the file: it can still be selected and copied, and anyone who removes the box in another editor sees it again.",
+          "When information must actually be gone, use Redact PDF instead. It covers the areas you choose and then rebuilds every page as a flattened image, so the text and drawings underneath are removed rather than hidden. The trade-off is that no text in the redacted copy can be selected any more.",
+          "For review marks rather than new content — highlights, outlines, notes, and arrows — use Annotate PDF. It runs in your browser too and flattens its markups into the page in the same way.",
+        ],
+      },
+      {
+        id: "where-it-runs",
+        heading: "Your PDF never leaves your device",
+        body: [
+          "Edit PDF is an in-browser tool. The PDF and any images you insert are read, edited, and saved on your own machine — there is no server step in the path, and no account is needed.",
+          "Text in Western alphabets uses a font built into the engine. For other scripts, the tool fetches a matching font the first time it is needed, and if your text has characters none of its fonts can draw, it tells you before changing anything rather than leaving blanks in the page.",
+          "One honest caveat about working offline: the page and its processing engine load over the network, and the engine is fetched the first time you use the tool. After that, the work runs entirely on your device, so a dropped connection does not interrupt work already in progress.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I change the existing text in my PDF?",
+        answer:
+          "No. Edit PDF adds new text, images, boxes, and lines, but it cannot retype, restyle, move, or delete text that is already in the file. You can draw a filled box over something to hide it; if the information must really be gone, use Redact PDF.",
+      },
+      {
+        question: "Can I add an image or a logo to a PDF?",
+        answer: `Yes. Choose Image, pick a PNG or JPG of up to ${EDIT_IMAGE_MB} MB, then set its page, position, size, and opacity. It starts at a size that keeps the image's proportions.`,
+      },
+      {
+        question: "Can I add content to more than one page?",
+        answer:
+          "Yes. Each item you add has its own page number, so you can place items on as many pages as you like and apply them all in one pass.",
+      },
+      {
+        question: "Does my PDF leave my device when I edit it?",
+        answer:
+          "No. Edit PDF runs entirely in your browser, so the PDF and any images you add stay on your device from start to finish.",
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("edit-pdf")} MB per file.`,
       },
     ],
     published: "2026-09-27",

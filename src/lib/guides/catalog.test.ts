@@ -19,7 +19,7 @@
 import { describe, expect, it } from "vitest";
 import { guides } from "./catalog";
 import type { Guide } from "./types";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolBySlug, tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
@@ -152,6 +152,61 @@ describe("the guides catalogue is structurally sound", () => {
       tools: ["merge-pdf", "split-pdf"],
     };
     expect(unnamed(fixture)).toEqual(["split-pdf"]);
+  });
+
+  it("every tool the site promotes has a guide that teaches it", () => {
+    // Audit at 67e8d0f: the guides covered 11 tasks, and Edit PDF — badged
+    // popular AND featured, the most-promoted in-browser tool in the
+    // catalogue — had no guide at all, not even as a neighbour. The top
+    // intents are the ones the site itself promotes, so the corpus is DERIVED
+    // from the catalogue's own `badge`/`featured`, never typed here.
+    const promoted = tools.filter((t) => t.featured || t.badge === "popular");
+    const untaught = (list: readonly Guide[]) =>
+      promoted
+        .filter((t) => !list.some((g) => g.tools[0] === t.slug))
+        .map((t) => t.slug);
+
+    // The KNOWN gaps, each with the property that excuses it. The excuse is
+    // not "we have not got to it": it is that every claim a guide makes must
+    // be checkable in this tree, and these run on the worker, whose image is
+    // built by hand and can differ from main (the FAQ that advertised
+    // chunking against a nine-day-old worker). An in-browser tool has no such
+    // excuse, so the ledger cannot hold one.
+    const KNOWN_GAPS: Record<string, string> = {
+      "word-to-pdf":
+        "LibreOffice on the worker: fidelity claims need a real job against the running image",
+      "chat-with-pdf":
+        "AI on the worker: answer-grounding claims need a real job against the running image",
+    };
+    const gaps = untaught(guides);
+    const unexcused = gaps.filter((slug) => !(slug in KNOWN_GAPS));
+    expect(unexcused, unexcused.join("\n")).toEqual([]);
+    for (const [slug, why] of Object.entries(KNOWN_GAPS)) {
+      const tool = getToolBySlug(slug);
+      expect(tool, `ledger names unknown tool ${slug}`).toBeDefined();
+      expect(
+        capabilityForMode(tool!.processing),
+        `${slug} runs in the browser, so "${why}" cannot excuse it`,
+      ).not.toBe("in-browser");
+      // Stale entries go red: an entry the site stopped promoting is no
+      // longer a top intent, and a gap that got its guide leaves the ledger.
+      expect(
+        promoted.map((t) => t.slug),
+        `${slug} is not promoted — drop it from KNOWN_GAPS`,
+      ).toContain(slug);
+      expect(
+        gaps,
+        `${slug} has a guide now — drop it from KNOWN_GAPS`,
+      ).toContain(slug);
+    }
+
+    // Health: the promoted set is a real slice of the catalogue.
+    expect(promoted.length).toBeGreaterThanOrEqual(8);
+    expect(promoted.length).toBeLessThan(tools.length / 2);
+    // Positive control, through the same detector: removing a promoted
+    // tool's only guide surfaces that tool.
+    const merge = guides.filter((g) => g.tools[0] !== "merge-pdf");
+    expect(untaught(merge)).toContain("merge-pdf");
   });
 
   it("dates are real and ordered", () => {
