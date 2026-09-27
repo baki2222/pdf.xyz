@@ -482,7 +482,9 @@ one process that actually drains the queue; the Next.js app never becomes it.
   ```
 
   Tuning: `--max-ticks=<n>` caps total ticks, `--idle-sleep-ms=<ms>` sets the poll
-  interval when idle (default 1000), `--lease-ms=<ms>` sets the per-claim lease.
+  interval when idle (default 1000), `--lease-ms=<ms>` requests the per-claim lease.
+  The Redis queue grants no more than `PDFXYZ_QUEUE_LEASE_SECONDS`, and the daemon
+  logs a `lease_clamped` event when that shortens the request (`--help` has the bounds).
 
 - **Smoke-test before advertising processing.** `pnpm worker:daemon --dry-run-status`
   exits `0` only when the queue _and_ storage are both configured (drainable) and
