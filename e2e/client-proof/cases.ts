@@ -752,15 +752,19 @@ export const CASES: Record<string, ToolCase> = {
     kind: "watermark",
     artifact: "pdf",
     run: async (ctx) => {
-      // LETTER, not the 320x240 default. The runner's own default watermark is
-      // 60pt "CONFIDENTIAL" — about 480pt wide — so on the small fixture it
-      // hangs off both edges, and pdfjs omits glyphs that fall outside the page
-      // box from getTextContent. Measured: 320x240 tilt 45 extracts
-      // "NFIDENTIAL", tilt 0 extracts "ONFIDENTIA", 612x792 extracts the whole
-      // word. That is a FIXTURE too small for the tool's defaults, not an
-      // engine defect — and the trap it sets is that the obvious "fix" is to
-      // assert the truncated string, which would pin the wrong behaviour
-      // forever.
+      // LETTER, not the 320x240 default. History: the runner's default
+      // watermark is 60pt "CONFIDENTIAL" — about 480pt wide — and the engine
+      // used to draw it at that size on any page, so on the small fixture it
+      // hung off both edges and pdfjs (which omits glyphs outside the page box
+      // from getTextContent) extracted "NFIDENTIAL" at tilt 45 and
+      // "ONFIDENTIA" at tilt 0. This comment called that a fixture too small
+      // for the defaults, not an engine defect. It WAS an engine defect — a
+      // real A6 page or a long company name hit it — and the engine now
+      // shrinks the text to fit each page's visible box and the result panel
+      // says how many pages it shrank (src/lib/pdf/watermark.test.ts sweeps
+      // every pdf-lib page size through pdfjs). LETTER stays so this proof
+      // exercises the unshrunk, full-size path; asserting a truncated string
+      // would still pin the wrong behaviour.
       await uploadTextPdf(ctx, "stamped.pdf", { pages: 2, size: LETTER });
       // Default watermark text is CONFIDENTIAL; the fixture never contains it.
       return runAndDownload(
@@ -1319,7 +1323,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "crop-pdf":
     "Only the default uniform margins applied to every page of an unrotated PDF. Per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
   "compare-pdf":
-    "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Comparison of scanned/image-only PDFs (the 'no comparable text' branch) is not exercised.",
+    "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text.",
   "compress-pdf":
     "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-worker step this tool offers is a server path and is covered by worker:prove-tools, not here.",
   "split-pdf":
@@ -1327,9 +1331,9 @@ export const PROOF_LIMITS: Record<string, string> = {
   "organize-pages":
     "Only the Reverse bulk action. Drag reordering, duplication and per-page rotation inside the organizer are not exercised.",
   "pdf-to-jpg":
-    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
+    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx drives the same runner and the real rasterizePdf at Print in jsdom, but for PNG output only, so the JPEG encoder at those presets is not exercised anywhere.",
   "pdf-to-png":
-    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
+    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx covers Print in jsdom through the real rasterizePdf: an A2 page and an ARCH D page are capped at 5,000 px and the note names the DPI of the downloaded pixels, while Letter stays at 2550 x 3300 with no note, both as a single PNG and as a ZIP. It uses pdfjs's legacy build, a render that paints nothing, and a stub encoder that writes the canvas size, so it proves pixel dimensions and the note, not pixel content.",
   "extract-images":
     "Only a single Flate-coded RGB PNG. JPEG2000 and JBIG2 embedded images — the formats the wasmUrl defect blanked — are not exercised. Note that e2e/pdfjs-decoders.spec.ts does NOT close this: it proves the decoder assets are SERVED, and says in its own docblock that it does not prove pdfjs decodes with them. Nothing in this repo yet renders a JPEG2000 or JBIG2 fixture end to end.",
   "grayscale-pdf":

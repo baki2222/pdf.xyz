@@ -244,14 +244,25 @@ export function textOutputName(sourceName: string): string {
 }
 
 /**
+ * Which pdfjs build reads the bytes. The browser build is the only one a user
+ * runs; a jsdom test passes pdfjs's legacy build, which is the same parser with
+ * the DOM polyfills Node lacks, so the rest of the extraction — the part that
+ * decides `hasText` — is the code that ships.
+ */
+export type PdfTextReader = () => Promise<
+  Pick<typeof import("pdfjs-dist"), "getDocument">
+>;
+
+/**
  * Open a PDF with pdfjs and hand each page's text items to `perPage`. The one
  * `getDocument` call both extractors share, so they cannot drift in options.
  */
 async function readPageTextItems<T>(
   bytes: Uint8Array,
   perPage: (items: TextItemLike[], pageNumber: number) => T,
+  loadReader: PdfTextReader = loadPdfjs,
 ): Promise<{ pageCount: number; pages: T[] }> {
-  const pdfjs = await loadPdfjs();
+  const pdfjs = await loadReader();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await loadingTask.promise;
@@ -322,8 +333,14 @@ export function assembleExtraction<P extends ExtractedTextPage>(
  */
 export async function extractPdfText(
   bytes: Uint8Array,
+  /** See {@link PdfTextReader}; tests pass pdfjs's legacy build. */
+  loadReader: PdfTextReader = loadPdfjs,
 ): Promise<ExtractedPdfText> {
-  const { pageCount, pages } = await readPageTextItems(bytes, textPage);
+  const { pageCount, pages } = await readPageTextItems(
+    bytes,
+    textPage,
+    loadReader,
+  );
   return assembleExtraction(pageCount, pages);
 }
 

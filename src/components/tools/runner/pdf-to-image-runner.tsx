@@ -7,11 +7,17 @@ import {
   ImageDown,
   Images,
   ShieldCheck,
+  TriangleAlert,
 } from "lucide-react";
 import { rasterizePdf, type RasterPage } from "@/lib/pdf/render";
+import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import {
   DEFAULT_RESOLUTION_ID,
   RASTER_MIME,
+  lowerResolutionThan,
+  rasterCapInches,
+  rasterCapNote,
+  zipFailureFallback,
   RASTER_RESOLUTIONS,
   pageImageName,
   resolutionById,
@@ -19,7 +25,7 @@ import {
   zipOutputName,
   type RasterFormat,
 } from "@/lib/pdf/pdf-to-image";
-import { downloadBlob, downloadBytes, zipFiles } from "@/lib/pdf/browser";
+import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -34,18 +40,23 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { useZipDownload } from "./use-zip-download";
 
 /** Cap on how many page previews render in the grid; the ZIP still holds all. */
 const PREVIEW_LIMIT = 24;
 
-interface RasterResult {
+export interface RasterResult {
   pages: RasterPage[];
   /** Sum of encoded image bytes across every page. */
   totalBytes: number;
   /** True when the output is delivered as a ZIP (more than one page). */
   zip: boolean;
+  /** Preset id the pages were rendered at. */
+  resolutionId: string;
   /** Human label of the resolution the pages were rendered at. */
   resolutionLabel: string;
+  /** The DPI that preset asked for — what a capped page fell short of. */
+  dpi: number;
 }
 
 export function PdfToImageRunner({ format }: { format: RasterFormat }) {
@@ -111,7 +122,9 @@ function PdfToImageEditor({
         pages,
         totalBytes: pages.reduce((sum, p) => sum + p.bytes.byteLength, 0),
         zip: shouldZipPages(pages.length),
+        resolutionId: resolution.id,
         resolutionLabel: resolution.label,
+        dpi: resolution.dpi,
       } satisfies RasterResult;
     });
   };
@@ -156,7 +169,10 @@ function PdfToImageEditor({
               onClick={() => changeResolution(res.id)}
               disabled={busy}
               active={res.id === resolutionId}
-              title={`${res.dpi} DPI`}
+              title={`${res.dpi} DPI for pages up to ${rasterCapInches(
+                res.dpi,
+                RASTER_MAX_DEVICE_PX,
+              )} in on a side; larger pages may render lower`}
             >
               {res.label}
               <span className="text-muted text-[10px]">{res.dpi} DPI</span>
@@ -210,7 +226,7 @@ function PdfToImageEditor({
   );
 }
 
-function ImageResult({
+export function ImageResult({
   pdf,
   format,
   result,
@@ -226,7 +242,7 @@ function ImageResult({
   const label = format.toUpperCase();
   const mime = RASTER_MIME[format];
   const pageCount = result.pages.length;
-  const [zipping, setZipping] = useState(false);
+  const { zipping, zipError, download: downloadZip } = useZipDownload();
 
   // Object URLs for the (capped) preview grid, revoked on change/unmount. URLs
   // are created in a deferred microtask (never a synchronous setState in the
@@ -259,28 +275,34 @@ function ImageResult({
     );
   };
 
+  // What this page can honestly offer when the archive fails: a lower preset
+  // (smaller images, a smaller archive) if there is one, and the per-page
+  // buttons only when every page HAS one — past PREVIEW_LIMIT they do not.
+  const zipFallback = zipFailureFallback({
+    lowerResolution: lowerResolutionThan(result.resolutionId)?.label,
+    everyPageHasButton: pageCount <= PREVIEW_LIMIT,
+  });
+
   const downloadAll = async () => {
     if (!result.zip) {
       const first = result.pages[0];
       if (first) downloadOne(first);
       return;
     }
-    setZipping(true);
-    try {
-      const blob = await zipFiles(
-        result.pages.map((page) => ({
-          name: pageImageName(pdf.file.name, page.index, pageCount, format),
-          bytes: page.bytes,
-        })),
-        { compression: "STORE" },
-      );
-      downloadBlob(blob, zipOutputName(pdf.file.name, format));
-    } finally {
-      setZipping(false);
-    }
+    await downloadZip(
+      result.pages.map((page) => ({
+        name: pageImageName(pdf.file.name, page.index, pageCount, format),
+        bytes: page.bytes,
+      })),
+      zipOutputName(pdf.file.name, format),
+      { compression: "STORE", fallback: zipFallback },
+    );
   };
 
   const hiddenCount = pageCount - previews.length;
+  // The preset names a DPI; pages too large for it were rendered lower, and
+  // the engine said which. Without this the summary overstated every one.
+  const capNote = rasterCapNote(result.pages, result.dpi, RASTER_MAX_DEVICE_PX);
 
   return (
     <ResultPanel
@@ -294,6 +316,13 @@ function ImageResult({
         <UndecodedImagesNotice
           count={result.pages.reduce((sum, p) => sum + p.undecodedImages, 0)}
         />
+        {capNote && (
+          <div className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <p className="leading-relaxed">{capNote}</p>
+          </div>
+        )}
+        {zipError && <ErrorNote message={zipError} />}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <button
             type="button"

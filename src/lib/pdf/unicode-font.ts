@@ -53,8 +53,8 @@
  * and saying which scripts we do and do not draw. A refusal costs the export; a
  * substitution costs the document and lies about it.
  */
-import type { PDFDocument, PDFFont } from "pdf-lib";
-import { loadPdfLib } from "./pdf-lib";
+import type { PDFDocument, PDFField, PDFFont } from "pdf-lib";
+import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { allWinAnsi, nonWinAnsiCharacters } from "./winansi";
 import {
@@ -443,6 +443,42 @@ export function assertFormFieldTextDrawable(texts: readonly string[]): void {
       `cannot yet, because a PDF reader regenerates its appearance from the ` +
       `form's own font. ${NEVER_SUBSTITUTE}`,
   );
+}
+
+/**
+ * The text pdf-lib will draw with the form's own WinAnsi font the next time it
+ * regenerates appearances — in `defaultUpdateAppearances`, `flatten()`, or
+ * implicitly inside `save()` for any field that is dirty or has no stored
+ * appearance. Feed it to {@link assertFormFieldTextDrawable}.
+ *
+ * Fields pdf-lib will NOT regenerate contribute nothing: their stored
+ * appearance is drawn as-is and the font never sees their value, so refusing
+ * them would refuse a file the tool handles correctly.
+ *
+ * What each type draws is what pdf-lib's default appearance providers draw: a
+ * text field's value, a dropdown's selection, EVERY option of a list box (its
+ * appearance lists them all, so checking the selection alone let a
+ * non-WinAnsi option through), and a button's captions. Checkboxes, radios
+ * and signatures draw no field text.
+ */
+export function formTextsDrawnOnRegeneration(
+  fields: readonly PDFField[],
+  lib: PdfLibModule,
+): string[] {
+  const { PDFButton, PDFDropdown, PDFOptionList, PDFTextField } = lib;
+  return fields.flatMap((field) => {
+    if (!field.needsAppearancesUpdate()) return [];
+    if (field instanceof PDFTextField) return [field.getText() ?? ""];
+    if (field instanceof PDFDropdown) return field.getSelected();
+    if (field instanceof PDFOptionList) return field.getOptions();
+    if (field instanceof PDFButton) {
+      return field.acroField.getWidgets().flatMap((widget) => {
+        const captions = widget.getAppearanceCharacteristics()?.getCaptions();
+        return [captions?.normal ?? "", captions?.down ?? ""];
+      });
+    }
+    return [];
+  });
 }
 
 /** Start fetching what `texts` will need, without waiting for it. */
