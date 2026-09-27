@@ -147,7 +147,7 @@ export async function mergePdfs(files: Uint8Array[]): Promise<Uint8Array> {
     sources.push({ doc, indices: doc.getPageIndices() });
   }
   const { out } = await assemblePages(lib, sources, {
-    carryDocumentState: false,
+    documentState: "merge",
   });
   stamp(out);
   return out.save();
@@ -165,7 +165,7 @@ export async function extractPages(
     throw new PdfEngineError("Select at least one page to extract.");
   }
   const { out } = await assemblePages(lib, [{ doc: src, indices: clean }], {
-    carryDocumentState: true,
+    documentState: "subset",
   });
   stamp(out);
   return out.save();
@@ -190,7 +190,7 @@ export async function deletePages(
     );
   }
   const { out } = await assemblePages(lib, [{ doc: src, indices: keep }], {
-    carryDocumentState: true,
+    documentState: "subset",
   });
   stamp(out);
   return out.save();
@@ -241,7 +241,7 @@ export async function splitPdf(
     // Each part is assembled from the same parsed source: the assembler never
     // mutates it, so part 2 cannot inherit part 1's pruning.
     const { out } = await assemblePages(lib, [{ doc: src, indices: clean }], {
-      carryDocumentState: true,
+      documentState: "subset",
     });
     stamp(out);
     results.push({ name: part.name, bytes: await out.save() });
@@ -275,7 +275,7 @@ export async function organizePages(
   const { out, pages } = await assemblePages(
     lib,
     [{ doc: src, indices: valid.map((item) => item.sourceIndex) }],
-    { carryDocumentState: true },
+    { documentState: "subset" },
   );
   pages.forEach((page, i) => {
     page.setRotation(lib.degrees(normalizeAngle(valid[i]!.rotation)));

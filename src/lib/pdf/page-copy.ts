@@ -3,6 +3,7 @@ import type {
   PDFContext,
   PDFDict as PDFDictT,
   PDFDocument,
+  PDFName as PDFNameT,
   PDFObject,
   PDFPage,
   PDFPageLeaf as PDFPageLeafT,
@@ -11,9 +12,11 @@ import type {
 } from "pdf-lib";
 import {
   carryDocumentStructure,
+  carryOutlines,
   destinationMapper,
   namedDestinations,
   resolveNamedLinks,
+  type OutlineSource,
   type PageMap,
 } from "./document-structure";
 import type { PdfLibModule } from "./pdf-lib";
@@ -88,7 +91,10 @@ import type { PdfLibModule } from "./pdf-lib";
  * The document-level structure the output DOES need — bookmarks, page labels,
  * title/author/subject/keywords, `/Lang`, and links through named
  * destinations — is rebuilt fresh from its parts by `document-structure.ts`,
- * never copied, so none of the above is weakened by it.
+ * never copied, so none of the above is weakened by it. The form is
+ * published the same way (`publishForm`): the output's `/AcroForm` is a new
+ * dictionary listing the kept field trees, with only the source form's
+ * appearance defaults (`/DA`, `/DR`, `/NeedAppearances`, `/Q`) copied in.
  *
  * Nor does it prune what kept and dropped pages SHARE. When pages share one
  * `/Resources` dictionary, as some writers emit, every XObject and font in it
@@ -105,14 +111,25 @@ export interface PageSource {
 
 export interface AssembleOptions {
   /**
-   * Publish the kept pages' form fields as the output's `/AcroForm`, and carry
-   * the source's bookmarks, page labels, metadata and language
-   * (`document-structure.ts`). Off for merge: fields from two sources can
-   * share a fully qualified name, and one field tree cannot hold both
-   * honestly; two outlines and two label trees would need merging, not
-   * carrying.
+   * The document-level state the output carries besides its pages.
+   *
+   * - `"subset"`: some pages of ONE source (extract, remove, split,
+   *   organize). The kept pages' form fields are published as the output's
+   *   `/AcroForm`, and the source's bookmarks, page labels, metadata and
+   *   language are carried (`document-structure.ts`).
+   * - `"merge"`: every page of each source, in order. EVERY source's form is
+   *   published in one `/AcroForm` — a root field whose name an earlier file
+   *   already uses is renamed (`name_2`), so two copies of one form stay two
+   *   sets of answers, and a form-resource font whose name an earlier file
+   *   gives a different font is renamed with the `/DA` strings that use it —
+   *   and every source's bookmarks are written one source after another.
+   *   Page labels, title and language are one source's claim about the whole
+   *   file, and are not carried. Measured at d4b37dd, a merge carried no form
+   *   and no bookmarks at all: the widgets stayed on the page with no
+   *   `/AcroForm` behind them, so the fields looked filled and could not be
+   *   filled.
    */
-  carryDocumentState: boolean;
+  documentState: "subset" | "merge";
 }
 
 const MAX_FIELD_DEPTH = 64;
@@ -130,13 +147,16 @@ export async function assemblePages(
   options: AssembleOptions,
 ): Promise<{ out: PDFDocument; pages: PDFPage[] }> {
   const { PDFDocument, PDFName, PDFDict, PDFPage } = lib;
+  if (options.documentState === "subset" && sources.length !== 1) {
+    throw new Error(
+      `a subset is taken from one source, not ${sources.length}: merge them`,
+    );
+  }
   const out = await PDFDocument.create();
   const sentinel = out.context.nextRef();
   const pages: PDFPage[] = [];
-  const formRoots: {
-    acroForm: PDFDictT;
-    copier: ForeignAwareCopier;
-  }[] = [];
+  const forms: FormSource[] = [];
+  const outlines: OutlineSource[] = [];
   let structure: (() => void) | undefined;
 
   for (const { doc: src, indices } of sources) {
@@ -183,32 +203,37 @@ export async function assemblePages(
     const resolve = namedDestinations(lib, src);
     const map = destinationMapper(lib, src, out, pageMap);
     resolveNamedLinks(lib, out, resolve, map, sentinel, copiedRefs);
-    if (options.carryDocumentState) {
-      const acroForm = src.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict);
-      if (acroForm) formRoots.push({ acroForm, copier });
-      structure ??= () =>
+    forms.push({
+      acroForm: src.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict),
+      copier,
+      pages: new Set(copiedRefs),
+      roots: [],
+    });
+    if (options.documentState === "subset") {
+      structure = () =>
         carryDocumentStructure(lib, src, out, copiedIndices, resolve, map);
-    }
+    } else outlines.push({ src, resolve, map });
   }
   structure?.();
+  if (options.documentState === "merge") {
+    carryOutlines(lib, out, outlines);
+  }
 
   const tree = pageTree(lib, out);
   const keptAnnots = repairAnnotations(lib, out, tree, sentinel);
-  const { roots: fields, live } = pruneFieldTrees(lib, out, keptAnnots);
+  const { roots, live } = pruneFieldTrees(lib, out, keptAnnots);
   const deadField = (value: PDFObject) =>
     isDeadField(lib, out.context, live, sentinel, value);
   pruneFieldActions(lib, out.context, deadField);
 
-  if (options.carryDocumentState && fields.length > 0 && formRoots[0]) {
-    const { acroForm, copier } = formRoots[0];
-    const af = out.context.obj({}) as PDFDictT;
-    af.set(PDFName.of("Fields"), out.context.obj(fields));
-    for (const key of ["DA", "DR", "NeedAppearances", "Q"]) {
-      const value = acroForm.get(PDFName.of(key));
-      if (value !== undefined) af.set(PDFName.of(key), copier.copy(value));
-    }
-    out.catalog.set(PDFName.of("AcroForm"), out.context.register(af));
+  // Each root goes back to the source whose pages hold its widgets: that
+  // source's form defaults are the ones its fields were drawn with.
+  for (const { ref, page } of roots) {
+    const form = forms.find((f) => f.pages.has(page));
+    if (!form) throw new Error("a field root on a page no source produced");
+    form.roots.push(ref);
   }
+  publishForm(lib, out, forms);
 
   cutForeignEdges(lib, out, tree, sentinel, deadField);
   collectGarbage(lib, out.context, tree);
@@ -573,18 +598,19 @@ function repairAnnotations(
 
 /**
  * Prune every field tree to the widgets on kept pages and return the roots to
- * publish as `/AcroForm /Fields`. A field keeps a kid only if that kid is a
- * kept widget or has one below it; a root with none is not published.
+ * publish as `/AcroForm /Fields`, each with the page it was first found on. A
+ * field keeps a kid only if that kid is a kept widget or has one below it; a
+ * root with none is not published.
  */
 function pruneFieldTrees(
   lib: PdfLibModule,
   out: PDFDocument,
   keptAnnots: Set<PDFObject>,
-): { roots: PDFRefT[]; live: Set<PDFObject> } {
+): { roots: { ref: PDFRefT; page: PDFRefT }[]; live: Set<PDFObject> } {
   const { PDFName, PDFArray, PDFDict, PDFRef } = lib;
   const context = out.context;
   const live = new Set<PDFObject>();
-  const roots: PDFRefT[] = [];
+  const roots: { ref: PDFRefT; page: PDFRefT }[] = [];
   const rootSeen = new Set<PDFObject>();
 
   for (const pageRef of out.getPages().map((p) => p.ref)) {
@@ -622,7 +648,7 @@ function pruneFieldTrees(
         }
         // Only a field is a root; a bare widget with no field is decoration.
         if (["FT", "Kids", "T"].some((k) => node.has(PDFName.of(k)))) {
-          roots.push(ref as PDFRefT);
+          roots.push({ ref: ref as PDFRefT, page: pageRef });
         }
       }
     }
@@ -638,6 +664,254 @@ function pruneFieldTrees(
     node.set(PDFName.of("Kids"), context.obj(keptKids));
   }
   return { roots, live };
+}
+
+/** One source's form, and the field roots the output kept from it. */
+interface FormSource {
+  /** The source's `/AcroForm`, read in place: it is never copied whole. */
+  acroForm: PDFDictT | undefined;
+  copier: ForeignAwareCopier;
+  /** The output pages copied from this source. */
+  pages: Set<PDFRefT>;
+  roots: PDFRefT[];
+}
+
+/** The keys of a standard-14 font dictionary that names no file. */
+const STANDARD_FONT_KEYS = ["Type", "Subtype", "BaseFont", "Encoding"];
+
+/** A resource name in a `/DA` string, followed by its size and `Tf`. */
+const DA_FONT = /\/([^\s/[\]()<>{}%]+)(\s+[-+]?[\d.]+\s+Tf)/g;
+
+/** `base_2`, `base_3`, ... — the first that `taken` does not claim. */
+function freshName(base: string, taken: (name: string) => boolean): string {
+  for (let n = 2; ; n++) {
+    const candidate = `${base}_${n}`;
+    if (!taken(candidate)) return candidate;
+  }
+}
+
+/**
+ * Publish the kept field trees as the output's `/AcroForm`: a new dictionary
+ * listing every root of every source that had a form, with that form's
+ * appearance defaults (`/DA`, `/DR`, `/NeedAppearances`, `/Q`).
+ *
+ * One source (a subset tool) publishes its form's defaults as they were. More
+ * than one (merge) need three things one form never does:
+ *  - A root field whose name an EARLIER source already published is renamed
+ *    `name_2` (then `_3`, ... past every name in use). Two roots with one
+ *    fully qualified name are one field to a viewer: merging a form with
+ *    itself would otherwise fill both copies with one answer. Renaming the
+ *    root renames everything below it. Names a source repeats among its own
+ *    roots stay repeated — that is the source's own form.
+ *  - `/DR` is merged. A font resource name an earlier source gives a
+ *    DIFFERENT font is renamed, and every `/DA` in that source's field trees,
+ *    and its default `/DA`, is rewritten to match — otherwise its text would
+ *    be regenerated in the other file's font. The same standard font under
+ *    the same name stays one resource. Other resource kinds keep the first
+ *    source's entry: `/DA` names only fonts.
+ *  - A source whose default `/DA` or `/Q` differs from the published one
+ *    gives it to each of its roots that has none, since a root inherits the
+ *    published default otherwise. `/NeedAppearances` is true if any source
+ *    asked for it.
+ * What a rename cannot reach: a script or a submit list that names a renamed
+ * field BY NAME still names the earlier file's field.
+ */
+function publishForm(
+  lib: PdfLibModule,
+  out: PDFDocument,
+  forms: FormSource[],
+): void {
+  const { PDFName, PDFDict, PDFString, PDFHexString, PDFNumber, PDFBool } = lib;
+  const ctx = out.context;
+  const parts = forms.filter(
+    (form): form is FormSource & { acroForm: PDFDictT } =>
+      form.acroForm !== undefined && form.roots.length > 0,
+  );
+  if (parts.length === 0) return;
+  /** A key of a source's form, copied into the output and resolved there. */
+  const read = (part: (typeof parts)[number], key: string) => {
+    const value = part.acroForm.get(PDFName.of(key));
+    return value === undefined
+      ? undefined
+      : ctx.lookup(part.copier.copy(value));
+  };
+  const text = (value: PDFObject | undefined) =>
+    value instanceof PDFString || value instanceof PDFHexString
+      ? value.decodeText()
+      : undefined;
+  /** A literal string; `/DA` holds names and numbers, but escape anyway. */
+  const literal = (value: string) =>
+    PDFString.of(value.replace(/[\\()]/g, "\\$&"));
+  const DA = PDFName.of("DA");
+  const Q = PDFName.of("Q");
+
+  // Resources, and each source's font renames.
+  const resources = new Map<PDFNameT, Map<PDFNameT, PDFObject>>();
+  const plain = new Map<PDFNameT, PDFObject>();
+  const sameStandardFont = (a: PDFObject, b: PDFObject) => {
+    const [x, y] = [ctx.lookup(a), ctx.lookup(b)];
+    if (x === y) return true;
+    if (!(x instanceof PDFDict) || !(y instanceof PDFDict)) return false;
+    const standard = (font: PDFDictT) =>
+      font.keys().every((k) => STANDARD_FONT_KEYS.includes(k.decodeText()));
+    return (
+      standard(x) &&
+      standard(y) &&
+      STANDARD_FONT_KEYS.every(
+        (k) => x.get(PDFName.of(k)) === y.get(PDFName.of(k)),
+      )
+    );
+  };
+  const fontRenames = parts.map((part) => {
+    const renames = new Map<PDFNameT, PDFNameT>();
+    const dr = read(part, "DR");
+    if (!(dr instanceof PDFDict)) return renames;
+    for (const [category, value] of dr.entries()) {
+      const entries = ctx.lookup(value);
+      if (!(entries instanceof PDFDict)) {
+        if (!plain.has(category)) plain.set(category, value);
+        continue;
+      }
+      let merged = resources.get(category);
+      if (!merged) resources.set(category, (merged = new Map()));
+      const own = new Set(entries.keys());
+      for (const [name, resource] of entries.entries()) {
+        const existing = merged.get(name);
+        if (existing === undefined) merged.set(name, resource);
+        else if (
+          category === PDFName.of("Font") &&
+          !sameStandardFont(existing, resource)
+        ) {
+          const fresh = PDFName.of(
+            freshName(name.decodeText(), (c) => {
+              const candidate = PDFName.of(c);
+              return merged.has(candidate) || own.has(candidate);
+            }),
+          );
+          merged.set(fresh, resource);
+          renames.set(name, fresh);
+        }
+      }
+    }
+    return renames;
+  });
+  const rewriteDA = (da: string, renames: Map<PDFNameT, PDFNameT>) =>
+    renames.size === 0
+      ? da
+      : da.replace(DA_FONT, (match, raw: string, rest: string) => {
+          const to = renames.get(PDFName.of(raw));
+          return to ? `${to.asString()}${rest}` : match;
+        });
+  const defaults = parts.map((part, i) => {
+    const raw = read(part, "DA");
+    const da = text(raw);
+    const q = read(part, "Q");
+    const renames = fontRenames[i]!;
+    return {
+      da: da === undefined ? undefined : rewriteDA(da, renames),
+      /** The string to write: the source's own, unless a rename changed it. */
+      daObject:
+        da === undefined
+          ? undefined
+          : renames.size === 0
+            ? raw!
+            : literal(rewriteDA(da, renames)),
+      q: q instanceof PDFNumber ? q.asNumber() : undefined,
+    };
+  });
+  const first = defaults.find((d) => d.da !== undefined);
+  const published = {
+    da: first?.da,
+    q: defaults.find((d) => d.q !== undefined)?.q,
+  };
+
+  // Root names: the first source to publish a name keeps it.
+  const rootDict = (ref: PDFRefT) => ctx.lookup(ref, PDFDict);
+  const nameOf = (ref: PDFRefT) =>
+    text(ctx.lookup(rootDict(ref).get(PDFName.of("T"))));
+  const inUse = new Set(
+    parts.flatMap((part) =>
+      part.roots.map(nameOf).filter((n): n is string => n !== undefined),
+    ),
+  );
+  const claimed = new Set<string>();
+  parts.forEach((part, i) => {
+    const renamed = new Map<string, string>();
+    for (const root of part.roots) {
+      const name = nameOf(root);
+      if (name === undefined) continue;
+      let next = renamed.get(name);
+      if (next === undefined && claimed.has(name)) {
+        next = freshName(name, (c) => inUse.has(c) || claimed.has(c));
+        renamed.set(name, next);
+        claimed.add(next);
+      }
+      if (next !== undefined) {
+        rootDict(root).set(PDFName.of("T"), PDFHexString.fromText(next));
+      }
+    }
+    for (const root of part.roots) {
+      const name = nameOf(root);
+      if (name !== undefined) claimed.add(name);
+    }
+
+    // Fonts: rewrite the trees' own /DA first, then hand down the default.
+    const renames = fontRenames[i]!;
+    const { da, q } = defaults[i]!;
+    for (const root of part.roots) {
+      const dict = rootDict(root);
+      if (renames.size > 0) {
+        const seen = new Set<PDFObject>();
+        const walk = (node: PDFObject | undefined, depth: number) => {
+          const field = node === undefined ? undefined : ctx.lookup(node);
+          if (!(field instanceof PDFDict) || seen.has(field)) return;
+          if (depth > MAX_FIELD_DEPTH) return;
+          seen.add(field);
+          const own = text(ctx.lookup(field.get(DA)));
+          if (own !== undefined) {
+            field.set(DA, literal(rewriteDA(own, renames)));
+          }
+          const kids = field.lookupMaybe(PDFName.of("Kids"), lib.PDFArray);
+          kids?.asArray().forEach((kid) => walk(kid, depth + 1));
+        };
+        walk(root, 0);
+      }
+      if (da !== undefined && da !== published.da && !dict.has(DA)) {
+        dict.set(DA, literal(da));
+      }
+      if ((q ?? 0) !== (published.q ?? 0) && !dict.has(Q)) {
+        dict.set(Q, PDFNumber.of(q ?? 0));
+      }
+    }
+  });
+
+  const acroForm = ctx.obj({}) as PDFDictT;
+  acroForm.set(
+    PDFName.of("Fields"),
+    ctx.obj(parts.flatMap((part) => part.roots)),
+  );
+  if (first?.daObject) acroForm.set(DA, first.daObject);
+  if (resources.size > 0 || plain.size > 0) {
+    const dr = ctx.obj({}) as PDFDictT;
+    for (const [category, value] of plain) dr.set(category, value);
+    for (const [category, entries] of resources) {
+      const dict = ctx.obj({}) as PDFDictT;
+      for (const [name, value] of entries) dict.set(name, value);
+      dr.set(category, dict);
+    }
+    acroForm.set(PDFName.of("DR"), dr);
+  }
+  const needs = parts
+    .map((part) => read(part, "NeedAppearances"))
+    .filter((v) => v instanceof PDFBool);
+  if (needs.length > 0) {
+    acroForm.set(
+      PDFName.of("NeedAppearances"),
+      needs.some((v) => v.asBoolean()) ? PDFBool.True : PDFBool.False,
+    );
+  }
+  if (published.q !== undefined) acroForm.set(Q, PDFNumber.of(published.q));
+  out.catalog.set(PDFName.of("AcroForm"), ctx.register(acroForm));
 }
 
 /**

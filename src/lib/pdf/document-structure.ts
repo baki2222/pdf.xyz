@@ -33,6 +33,13 @@ import type { PdfLibModule } from "./pdf-lib";
  * which reads every string in the output file for the titles that must not
  * ship. At 325da5a a URL child alone kept such a parent alive, title and all.
  *
+ * A merge keeps every page of several sources, so it takes only the part of
+ * this that has one honest answer for many documents: every source's
+ * bookmarks, one source after another (`carryOutlines`). Page labels,
+ * title and language are one source's claim about the whole file, and are
+ * not carried into a merge. Measured at d4b37dd, a merge kept no bookmarks at
+ * all; pinned in page-copy.test.ts ("every file's bookmarks, in file order").
+ *
  * Deliberately NOT carried: custom `/Info` keys, the XMP `/Metadata` stream
  * (it describes the whole source and would need rewriting, not copying), the
  * structure tree of a tagged PDF, embedded files, and document JavaScript.
@@ -276,12 +283,43 @@ export function carryDocumentStructure(
   const lang = text(src.catalog.get(PDFName.of("Lang")));
   if (lang) out.catalog.set(PDFName.of("Lang"), lang);
 
-  const wroteOutline = carryOutline(lib, src, out, resolve, map);
-  const mode = src.catalog.get(PDFName.of("PageMode"));
-  if (wroteOutline && mode === PDFName.of("UseOutlines")) {
-    out.catalog.set(PDFName.of("PageMode"), mode);
-  }
+  carryOutlines(lib, out, [{ src, resolve, map }]);
   carryPageLabels(lib, src, out, keptIndices);
+}
+
+/** One source of a merge, with its own named destinations and page map. */
+export interface OutlineSource {
+  src: PDFDocument;
+  resolve: DestinationResolver;
+  map: DestinationMapper;
+}
+
+/**
+ * Write the bookmarks of every source, one source after another, as ONE
+ * outline: each source's top-level bookmarks follow the previous source's,
+ * each opening its own source's page in the output. No bookmark is invented:
+ * a per-file bookmark would need a title, and the only one to hand is the
+ * file's local name. `/PageMode /UseOutlines` (open with the bookmark panel
+ * showing) is kept when a source asked for it and an outline was written.
+ */
+export function carryOutlines(
+  lib: PdfLibModule,
+  out: PDFDocument,
+  sources: OutlineSource[],
+): void {
+  const { PDFName } = lib;
+  const top = sources.flatMap(({ src, resolve, map }) =>
+    readOutline(lib, src, out, resolve, map),
+  );
+  if (!writeOutline(lib, out, top)) return;
+  const useOutlines = PDFName.of("UseOutlines");
+  if (
+    sources.some(
+      ({ src }) => src.catalog.get(PDFName.of("PageMode")) === useOutlines,
+    )
+  ) {
+    out.catalog.set(PDFName.of("PageMode"), useOutlines);
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -305,21 +343,22 @@ interface Bookmark {
  * is the exception: it is written only when a bookmark below it lands on a
  * kept page, and it opens the first one. Without one, it and everything below
  * it are not written — a URL child does not keep a dropped page's title alive.
- * Anything else — JavaScript, a launch — is not written either. Returns
- * whether an outline was written.
+ * Anything else — JavaScript, a launch — is not written either. Returns the
+ * top-level bookmarks, read into the output's terms; `writeOutline` writes
+ * them.
  */
-function carryOutline(
+function readOutline(
   lib: PdfLibModule,
   src: PDFDocument,
   out: PDFDocument,
   resolve: DestinationResolver,
   map: DestinationMapper,
-): boolean {
+): Bookmark[] {
   const { PDFDict, PDFName, PDFArray, PDFNumber, PDFString, PDFHexString } =
     lib;
   const context = src.context;
   const root = src.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict);
-  if (!root) return false;
+  if (!root) return [];
   const seen = new Set<PDFObject>();
   let budget = MAX_NODES;
 
@@ -402,9 +441,17 @@ function carryOutline(
     return rgb.every(Number.isFinite) ? out.context.obj(rgb) : undefined;
   };
 
-  const top = readSiblings(root.get(PDFName.of("First")), 0);
-  if (top.length === 0) return false;
+  return readSiblings(root.get(PDFName.of("First")), 0);
+}
 
+/** Write `top` as the output's outline; false when there is nothing to write. */
+function writeOutline(
+  lib: PdfLibModule,
+  out: PDFDocument,
+  top: Bookmark[],
+): boolean {
+  const { PDFName } = lib;
+  if (top.length === 0) return false;
   const ctx = out.context;
   /** Items shown when `items`' parent is open (spec: `/Count`). */
   const visible = (items: Bookmark[]): number =>

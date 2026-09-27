@@ -3,11 +3,13 @@ import { join, relative } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   PDFArray,
+  PDFBool,
   PDFContext,
   PDFDict,
   PDFDocument,
   PDFHexString,
   PDFName,
+  PDFNumber,
   PDFPageLeaf,
   PDFRawStream,
   PDFRef,
@@ -1318,22 +1320,23 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
   };
 
   /**
-   * The engine's own answer to "which tools carry document state": every
-   * exported function that assembles with `carryDocumentState: true`. A new
-   * subset tool joins this set without anyone naming it.
+   * The engine's own answer to "which tools carry a subset's document state":
+   * every exported function that assembles with `documentState: "subset"`. A
+   * new subset tool joins this set without anyone naming it. (Until d4b37dd
+   * the option was a boolean, and merge — the one `false` — carried nothing.)
    */
-  const carriers = (flag: boolean) =>
+  const carriers = (state: "subset" | "merge") =>
     readFileSync(join(__dirname, "engine.ts"), "utf8")
       .split(/^export async function /m)
       .slice(1)
-      .filter((body) => body.includes(`carryDocumentState: ${flag}`))
+      .filter((body) => body.includes(`documentState: "${state}"`))
       .map((body) => /^(\w+)/.exec(body)![1]!)
       .sort();
 
   it("the tools under test are exactly the engine's document-state carriers (derived)", () => {
-    // Positive control for the parser: it finds merge as the one that doesn't.
-    expect(carriers(false)).toEqual(["mergePdfs"]);
-    expect(carriers(true)).toEqual(Object.keys(SUBSET_TOOLS).sort());
+    // Positive control for the parser: it finds merge as the one that merges.
+    expect(carriers("merge")).toEqual(["mergePdfs"]);
+    expect(carriers("subset")).toEqual(Object.keys(SUBSET_TOOLS).sort());
   });
 
   it("POSITIVE CONTROL: a viewer reads the whole structure in the input", async () => {
@@ -1490,6 +1493,325 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
     const merged = await mergePdfs([await handbookDoc(), await handbookDoc()]);
     expect((await readAsViewer(merged, 0)).links).toEqual([2, 4, 3]);
     expect((await readAsViewer(merged, 5)).links).toEqual([7, 9, 8]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Merge: every source's form and bookmarks, in one document. Measured at
+// d4b37dd (audit at 67e8d0f): a fillable form merged with a cover letter came
+// out with its widgets still on the page and NO /AcroForm — fields that look
+// filled and can no longer be filled — and every source's bookmarks were gone.
+// Merge was the one assembler caller told to carry no document state, and no
+// test merged a form or an outlined file and read the result.
+// --------------------------------------------------------------------------
+
+/** Every field a viewer finds, by fully qualified name, with its value. */
+async function viewerFields(bytes: Uint8Array) {
+  const pdfjs = await loadPdfjs();
+  const task = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await task.promise;
+  try {
+    const objects = ((await pdf.getFieldObjects()) ?? {}) as Record<
+      string,
+      { value?: unknown; page?: number }[]
+    >;
+    // pdfjs lists a field's non-terminal parents too (page -1, no value);
+    // what a person fills is a widget, which sits on a page.
+    const onPage = (o: { page?: number }) =>
+      typeof o.page === "number" && o.page >= 0;
+    return {
+      /** Field name -> the value shown in each of its widgets. */
+      values: Object.fromEntries(
+        Object.entries(objects)
+          .map(([name, list]) => [name, list.filter(onPage)] as const)
+          .filter(([, widgets]) => widgets.length > 0)
+          .map(([name, widgets]) => [name, widgets.map((o) => o.value)]),
+      ),
+    };
+  } finally {
+    await task.destroy();
+  }
+}
+
+/**
+ * How a viewer draws each field's text when it regenerates it, read the way it
+ * reads it — each key from the nearest dictionary that has it: the widget, the
+ * field, its parents, then the form's default.
+ *  - `font`: the `/DA` names a resource, looked up in the form's `/DR /Font`.
+ *    `undefined` when that chain breaks — no form, no `/DA`, or a name `/DR`
+ *    does not define.
+ *  - `q`: the quadding (0 left, 1 centred, 2 right); absent means 0.
+ */
+async function fieldAppearance(bytes: Uint8Array) {
+  const doc = await PDFDocument.load(bytes);
+  const ctx = doc.context;
+  const acroForm = doc.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict);
+  const fonts = acroForm
+    ?.lookupMaybe(PDFName.of("DR"), PDFDict)
+    ?.lookupMaybe(PDFName.of("Font"), PDFDict);
+  const result: Record<string, { font?: string; q: number }> = {};
+  for (const field of doc.getForm().getFields()) {
+    const chain: (PDFDict | undefined)[] = [
+      field.acroField.getWidgets()[0]?.dict,
+    ];
+    for (
+      let node: PDFDict | undefined = field.acroField.dict;
+      node;
+      node = node.lookupMaybe(PDFName.of("Parent"), PDFDict)
+    ) {
+      chain.push(node);
+    }
+    chain.push(acroForm);
+    const nearest = (key: string) =>
+      chain
+        .map((dict) => dict?.get(PDFName.of(key)))
+        .map((value) => (value === undefined ? undefined : ctx.lookup(value)))
+        .find((value) => value !== undefined);
+    const da = nearest("DA");
+    const daText =
+      da instanceof PDFString || da instanceof PDFHexString
+        ? da.decodeText()
+        : "";
+    const name = /\/([^\s/]+)\s+[-+]?[\d.]+\s+Tf/.exec(daText)?.[1];
+    const font = name
+      ? fonts?.lookupMaybe(PDFName.of(name), PDFDict)
+      : undefined;
+    const base = font?.get(PDFName.of("BaseFont"));
+    const q = nearest("Q");
+    result[field.getName()] = {
+      font: base instanceof PDFName ? base.decodeText() : undefined,
+      q: q instanceof PDFNumber ? q.asNumber() : 0,
+    };
+  }
+  return result;
+}
+
+/** The resource names in the form's `/DR /Font`. */
+async function formFontNames(bytes: Uint8Array) {
+  const doc = await PDFDocument.load(bytes);
+  const fonts = doc.catalog
+    .lookupMaybe(PDFName.of("AcroForm"), PDFDict)
+    ?.lookupMaybe(PDFName.of("DR"), PDFDict)
+    ?.lookupMaybe(PDFName.of("Font"), PDFDict);
+  return (fonts?.keys() ?? []).map((k) => k.decodeText()).sort();
+}
+
+/**
+ * One text field that takes its font from the form's DEFAULT appearance —
+ * `/DA (/Helv 0 Tf 0 g)` on the /AcroForm, `/Helv` defined in its `/DR` as
+ * `baseFont` — the shape Acrobat writes. Two such files give one resource name
+ * two different fonts. `needAppearances` and `quadding`, when given, are set
+ * on the /AcroForm as the form-wide default; `fieldDA`, when given, is the
+ * field's OWN `/DA` (Acrobat writes one on most fields) instead of none.
+ */
+async function defaultFontForm(
+  field: string,
+  baseFont: string,
+  {
+    needAppearances,
+    quadding,
+    fieldDA,
+  }: { needAppearances?: boolean; quadding?: number; fieldDA?: string } = {},
+) {
+  const built = await withBodies(1);
+  const created = built.getForm().createTextField(field);
+  created.setText(`${field.toUpperCase()}-VALUE`);
+  created.addToPage(built.getPage(0), {
+    x: 20,
+    y: 40,
+    width: 200,
+    height: 24,
+  });
+  const doc = await PDFDocument.load(await built.save());
+  const ctx = doc.context;
+  const acroForm = doc.catalog.lookup(PDFName.of("AcroForm"), PDFDict);
+  acroForm.set(PDFName.of("DA"), PDFString.of("/Helv 0 Tf 0 g"));
+  acroForm.set(
+    PDFName.of("DR"),
+    ctx.obj({
+      Font: {
+        Helv: ctx.register(
+          ctx.obj({
+            Type: "Font",
+            Subtype: "Type1",
+            BaseFont: baseFont,
+            Encoding: "WinAnsiEncoding",
+          }),
+        ),
+      },
+    }),
+  );
+  if (needAppearances !== undefined) {
+    acroForm.set(
+      PDFName.of("NeedAppearances"),
+      needAppearances ? PDFBool.True : PDFBool.False,
+    );
+  }
+  if (quadding !== undefined) {
+    acroForm.set(PDFName.of("Q"), PDFNumber.of(quadding));
+  }
+  for (const f of doc.getForm().getFields()) {
+    if (fieldDA === undefined) f.acroField.dict.delete(PDFName.of("DA"));
+    else f.acroField.dict.set(PDFName.of("DA"), PDFString.of(fieldDA));
+    for (const w of f.acroField.getWidgets()) w.dict.delete(PDFName.of("DA"));
+  }
+  return doc.save({ updateFieldAppearances: false });
+}
+
+/** Every widget annotation on every page, whether or not a form lists it. */
+const widgetsOnPages = (doc: PDFDocument) =>
+  doc
+    .getPages()
+    .flatMap(
+      (page) =>
+        page.node.lookupMaybe(PDFName.of("Annots"), PDFArray)?.asArray() ?? [],
+    )
+    .map((ref) => doc.context.lookup(ref))
+    .filter(
+      (a) =>
+        a instanceof PDFDict &&
+        a.get(PDFName.of("Subtype")) === PDFName.of("Widget"),
+    ).length;
+
+/** An outline as a viewer reads it, every page moved on by `by`. */
+const shiftOutline = (items: ViewerOutline[], by: number): ViewerOutline[] =>
+  items.map((item) => ({
+    ...item,
+    page: item.page === null ? null : item.page + by,
+    children: shiftOutline(item.children, by),
+  }));
+
+describe("merge keeps every source's form fillable and its bookmarks", () => {
+  /** A later file's root field whose name an earlier file already uses. */
+  const renamedRoot = (name: string) => name.replace(/^[^.]+/, "$&_2");
+
+  it("POSITIVE CONTROL: the readers see each input's fields, fonts and bookmarks", async () => {
+    const form = await viewerFields(await formDoc());
+    expect(Object.keys(form.values).sort()).toEqual([
+      fieldName(1),
+      fieldName(2),
+      fieldName(3),
+      "topmostSubform.shared",
+    ]);
+    expect(form.values[fieldName(2)]).toEqual([secretMarker(2)]);
+    expect(
+      await fieldAppearance(
+        await defaultFontForm("b", "Courier", { quadding: 1 }),
+      ),
+    ).toEqual({ b: { font: "Courier", q: 1 } });
+    expect(
+      (await readAsViewer(await handbookDoc())).outline.length,
+    ).toBeGreaterThan(3);
+    // ...and the orphan-widget count sees a form's widgets.
+    const doc = await PDFDocument.load(await formDoc());
+    expect(widgetsOnPages(doc)).toBe(5);
+  });
+
+  it("every field of every file is in the merged form, with its value; a name taken by an earlier file is renamed", async () => {
+    const form = await formDoc();
+    const input = (await viewerFields(form)).values;
+    const merged = await mergePdfs([form, await handbookDoc(), form]);
+    const out = (await viewerFields(merged)).values;
+    // The count is the sum of the inputs, each value where it was: the second
+    // copy of the form is a second set of fields, not a second widget on the
+    // first set (which would fill both copies with one answer).
+    expect(out).toEqual({
+      ...input,
+      ...Object.fromEntries(
+        Object.entries(input).map(([name, v]) => [renamedRoot(name), v]),
+      ),
+    });
+    expect(Object.keys(out)).toHaveLength(2 * Object.keys(input).length);
+    // No widget left on a page without a field in the form behind it.
+    const doc = await PDFDocument.load(merged);
+    const listed = doc
+      .getForm()
+      .getFields()
+      .reduce((n, f) => n + f.acroField.getWidgets().length, 0);
+    expect(listed).toBe(widgetsOnPages(doc));
+    expect(listed).toBe(10);
+    const inspected = await inspect(merged);
+    expect(inspected.pageDicts).toBe(inspected.pageCount);
+    expect(inspected.dangling).toEqual([]);
+  });
+
+  it("a merged field can be filled on its own, and the answer survives a save", async () => {
+    const form = await formDoc();
+    const doc = await PDFDocument.load(await mergePdfs([form, form]));
+    doc
+      .getForm()
+      .getTextField(renamedRoot(fieldName(1)))
+      .setText("NEW");
+    const again = (await viewerFields(await doc.save())).values;
+    expect(again[renamedRoot(fieldName(1))]).toEqual(["NEW"]);
+    expect(again[fieldName(1)]).toEqual([secretMarker(1)]);
+  });
+
+  it("every field keeps its own font and alignment, also when two files give one resource name different fonts", async () => {
+    // The first file says "no need to regenerate", the second says "do".
+    const helvetica = await defaultFontForm("a", "Helvetica", {
+      needAppearances: false,
+    });
+    const courier = await defaultFontForm("b", "Courier", {
+      needAppearances: true,
+      quadding: 1,
+    });
+    // A field that names the resource in its own /DA, not through the default.
+    const times = await defaultFontForm("c", "Times-Roman", {
+      fieldDA: "/Helv 12 Tf 0 g",
+    });
+    const expected = {
+      ...(await fieldAppearance(helvetica)),
+      ...(await fieldAppearance(courier)),
+      ...(await fieldAppearance(times)),
+    };
+    expect(expected).toEqual({
+      a: { font: "Helvetica", q: 0 },
+      b: { font: "Courier", q: 1 },
+      c: { font: "Times-Roman", q: 0 },
+    });
+    const merged = await mergePdfs([helvetica, courier, times]);
+    expect(await fieldAppearance(merged)).toEqual(expected);
+    expect(await formFontNames(merged)).toEqual(["Helv", "Helv_2", "Helv_3"]);
+    // A viewer regenerates appearances when any source asked it to.
+    const doc = await PDFDocument.load(merged);
+    const acroForm = doc.catalog.lookup(PDFName.of("AcroForm"), PDFDict);
+    expect(acroForm.get(PDFName.of("NeedAppearances"))).toBe(PDFBool.True);
+  });
+
+  it("the same standard font under the same name is one resource, not two", async () => {
+    const merged = await mergePdfs([
+      await defaultFontForm("a", "Helvetica"),
+      await defaultFontForm("b", "Helvetica"),
+    ]);
+    expect(await fieldAppearance(merged)).toEqual({
+      a: { font: "Helvetica", q: 0 },
+      b: { font: "Helvetica", q: 0 },
+    });
+    expect(await formFontNames(merged)).toEqual(["Helv"]);
+  });
+
+  it("every file's bookmarks, in file order, each opening its own page", async () => {
+    const handbook = await handbookDoc();
+    const form = await formDoc();
+    const input = await readAsViewer(handbook);
+    const pagesOf = async (b: Uint8Array) =>
+      (await PDFDocument.load(b)).getPageCount();
+    const offset = (await pagesOf(handbook)) + (await pagesOf(form));
+    const merged = await mergePdfs([handbook, form, handbook]);
+    const viewer = await readAsViewer(merged);
+    expect(viewer.outline).toEqual([
+      ...input.outline,
+      ...shiftOutline(input.outline, offset),
+    ]);
+    // Every destination is a page of the merged file, not an orphan copy.
+    expect(titles(viewer.outline).length).toBe(
+      2 * titles(input.outline).length,
+    );
+    expect(viewer.pageMode).toBe("UseOutlines");
+    const inspected = await inspect(merged);
+    expect(inspected.pageDicts).toBe(inspected.pageCount);
+    expect(inspected.dangling).toEqual([]);
   });
 });
 
