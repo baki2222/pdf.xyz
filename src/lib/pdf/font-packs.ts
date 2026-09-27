@@ -122,11 +122,11 @@ export const FONT_PACKS: readonly FontPack[] = [
     // Geist Mono, from the `geist` package the site already depends on for its
     // own typography (SIL Open Font License). Every glyph is 600 units wide
     // except combining marks — measured with fontkit, not taken from its
-    // `isFixedPitch` flag. It draws Latin, Cyrillic, box drawing, arrows and
-    // common math; NOT Greek and NOT dingbats such as ✓. Text needing those
-    // falls through to a script pack, which draws it correctly but
-    // proportionally — the runner's copy says monospace only for what this
-    // face covers.
+    // `isFixedPitch` flag. It draws PART of Latin, Cyrillic, the arrows and
+    // math — not ⇒, not pinyin ǐ, not Greek, not ✓. Text needing those falls
+    // through to a script pack, which draws it correctly but proportionally.
+    // What the runner may promise is MONOSPACE_CLAIMS, checked member by
+    // member; `scripts` below is not a promise that the whole script is drawn.
     id: "mono",
     role: "monospace",
     label: "monospace",
@@ -203,6 +203,59 @@ export const FONT_PACKS: readonly FontPack[] = [
     ],
   },
 ];
+
+/**
+ * What the Text to PDF tile may promise is set in the monospace face — each
+ * entry a label a reader sees, and the definition of its members that exists
+ * WITHOUT our font, so a test can expand the label and check every member.
+ *
+ * It used to say "Latin and Cyrillic text, arrows and box drawing". Geist Mono
+ * draws 21 of the 112 arrows (not ⇒ ⇐ ⇔) and misses 202 Latin letters Noto
+ * Sans draws (pinyin ǐ ǔ ǒ ǚ), so "Step 1 ⇒ done" still went to the 5.4 MB
+ * proportional Noto Sans JP under copy promising the opposite. A category the
+ * face only partly draws cannot be named; these are the ones it draws whole:
+ *
+ * - `codePages`: a Windows code page is Microsoft's own definition of the
+ *   letters a language group needs, and the WHATWG decoder is its member list.
+ *   Geist Mono draws every graphic character of 1250, 1251, 1252, 1254 and
+ *   1257 (measured 2026-09-27); NOT 1253 Greek, NOT 1258 Vietnamese (₫).
+ * - `block`: a whole Unicode block.
+ * - `characters`: exactly the characters printed, and nothing they resemble.
+ *
+ * Checked by `font-packs.test.ts` (every member routes to the monospace pack),
+ * `text-to-pdf.test.ts` (every member lands on the page in one face at one
+ * width) and `text-to-pdf-claim.test.tsx` (the rendered tile names no other
+ * category and no other character).
+ */
+export interface MonospaceClaim {
+  readonly label: string;
+  readonly members:
+    | { readonly codePages: readonly string[] }
+    | { readonly block: CodePointRange }
+    | { readonly characters: string };
+}
+
+export const MONOSPACE_CLAIMS: readonly MonospaceClaim[] = [
+  { label: "Western European", members: { codePages: ["windows-1252"] } },
+  { label: "Central European", members: { codePages: ["windows-1250"] } },
+  { label: "Baltic", members: { codePages: ["windows-1257"] } },
+  { label: "Turkish", members: { codePages: ["windows-1254"] } },
+  {
+    label: "Russian, Ukrainian, Bulgarian and Serbian",
+    members: { codePages: ["windows-1251"] },
+  },
+  { label: "box drawing", members: { block: [0x2500, 0x257f] } },
+  { label: "← → ↑ ↓ ↔ ↕", members: { characters: "←→↑↓↔↕" } },
+];
+
+/** The tile's sentence, built from {@link MONOSPACE_CLAIMS} and nothing else. */
+export function monospaceClaimSentence(): string {
+  const languages = MONOSPACE_CLAIMS.filter((c) => "codePages" in c.members);
+  const others = MONOSPACE_CLAIMS.filter((c) => !("codePages" in c.members));
+  return `${languages.map((c) => c.label).join(", ")} text, ${others
+    .map((c) => c.label)
+    .join(" and ")} are set in a monospace face.`;
+}
 
 /** Look a pack up by id; throws rather than returning undefined. */
 export function fontPack(id: FontPackId): FontPack {

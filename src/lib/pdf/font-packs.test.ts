@@ -30,6 +30,7 @@ import path from "node:path";
 import { OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import {
   FONT_PACKS,
+  MONOSPACE_CLAIMS,
   SUPPORTED_SCRIPTS,
   UNSUPPORTED_SCRIPTS,
   fontPackUrl,
@@ -44,6 +45,7 @@ import {
 } from "./font-coverage";
 import { installedPackageVersion, notoTtfPath } from "./noto-source";
 import { copyNotoFonts } from "../../../scripts/copy-noto-fonts";
+import { monospaceClaimMembers } from "@/tests/unicode-fonts";
 
 /**
  * A real phrase per advertised OCR language — "confidential document", the
@@ -239,12 +241,14 @@ describe("what we read and what we can draw", () => {
     expect(drawnMono).toBeGreaterThanOrEqual(10);
   });
 
-  it("the scripts the monospace pack names — which the Text to PDF tile repeats — are ones it draws", async () => {
-    // The tile says "<scripts> text … is set in a monospace face", built from
-    // `scripts`. So `scripts` is a claim, and it is checked against real text:
-    // every OCR sample whose letters all belong to a named script (by the
-    // Unicode Script property of the sample itself, not a typed list of
-    // languages) must be drawn by the monospace pack.
+  it("the scripts the monospace pack names are ones it draws, for real sentences", async () => {
+    // The tile USED to be built from `scripts` ("Latin and Cyrillic text …"),
+    // and this test was offered as its guard. It could not be one: it reads
+    // the OCR sample sentences, which contain no ⇒ and no pinyin ǐ, and the
+    // face draws neither. The tile is now built from MONOSPACE_CLAIMS and
+    // guarded by the next test; this one only says what it can — every OCR
+    // sample written in a named script (by the Unicode Script property of the
+    // sample itself) is drawn by the monospace pack.
     const coverage = await loadCoverage();
     const mono = FONT_PACKS.find((p) => p.role === "monospace")!;
     expect(mono.scripts.length).toBeGreaterThan(0);
@@ -262,6 +266,74 @@ describe("what we read and what we can draw", () => {
         expect(first?.id, `${script} (${code}): "${text}"`).toBe(mono.id);
       }
     }
+  });
+
+  it("every character the Text to PDF tile promises is set in the monospace face", async () => {
+    // Each MONOSPACE_CLAIMS label is expanded from a definition that exists
+    // without our font (a Windows code page, a Unicode block, the literal
+    // characters) and EVERY member must route to the monospace pack — one at
+    // a time, so a miss names itself, and all at once, as a document would.
+    const coverage = await loadCoverage();
+    expect(MONOSPACE_CLAIMS.length).toBeGreaterThan(0);
+    const missed: Record<string, string> = {};
+    const all: string[] = [];
+    for (const claim of MONOSPACE_CLAIMS) {
+      const members = monospaceClaimMembers(claim);
+      expect(
+        members.length,
+        `"${claim.label}" expands to nothing`,
+      ).toBeGreaterThan(0);
+      all.push(...members);
+      const wrong = members.filter(
+        (ch) => candidatePacks(coverage, ch, "mono")[0]?.role !== "monospace",
+      );
+      if (wrong.length > 0) missed[claim.label] = wrong.join("");
+      if ("characters" in claim.members) {
+        // A literal claim is exactly what the reader sees printed.
+        expect(claim.label.replace(/\s+/g, "")).toBe(claim.members.characters);
+      }
+    }
+    expect(
+      missed,
+      "the tile names these, and they are set proportionally",
+    ).toEqual({});
+    expect(candidatePacks(coverage, all.join(""), "mono")[0]?.role).toBe(
+      "monospace",
+    );
+    // Bounded both ways: five code pages and a block are hundreds of
+    // characters (529 distinct on 2026-09-27); a decoder that returned nothing
+    // would make every assertion above vacuous.
+    const distinct = new Set(all).size;
+    expect(distinct).toBeGreaterThan(400);
+    expect(distinct).toBeLessThan(2000);
+  });
+
+  it("drops only the soft hyphen from the claimed code pages, by name", async () => {
+    // `monospaceClaimMembers` keeps graphic characters. What that filter
+    // removes from a code page, other than C0/C1 controls and undefined bytes,
+    // is printed here rather than trusted: it is U+00AD SOFT HYPHEN, which
+    // Geist Mono does not carry, so a note with a soft hyphen AND an arrow is
+    // set proportionally. The tile's second sentence ("other characters … can
+    // move the whole document") covers it; this keeps the exclusion visible.
+    const coverage = await loadCoverage();
+    const mono = FONT_PACKS.find((p) => p.role === "monospace")!;
+    const dropped = new Set<string>();
+    for (const claim of MONOSPACE_CLAIMS) {
+      if (!("codePages" in claim.members)) continue;
+      const kept = new Set(monospaceClaimMembers(claim));
+      for (const label of claim.members.codePages) {
+        const decoded = new TextDecoder(label).decode(
+          Uint8Array.from({ length: 256 }, (_, i) => i),
+        );
+        for (const ch of decoded) {
+          if (kept.has(ch) || /\p{Cc}/u.test(ch)) continue;
+          if (ch.codePointAt(0) === 0xfffd) continue;
+          dropped.add(ch);
+        }
+      }
+    }
+    expect([...dropped].map((ch) => ch.codePointAt(0))).toEqual([0xad]);
+    expect(packCovers(coverage, mono, 0xad)).toBe(false);
   });
 
   it("refusals and the 'what we draw' list are about scripts, and the monospace pack adds none", async () => {

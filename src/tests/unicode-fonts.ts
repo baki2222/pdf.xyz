@@ -45,6 +45,7 @@ import {
   FONT_PACKS,
   type FontPack,
   type FontPackId,
+  type MonospaceClaim,
 } from "@/lib/pdf/font-packs";
 import { openNotoFont, readNotoTtf } from "@/lib/pdf/noto-source";
 import { setFontByteSource, resetFontCache } from "@/lib/pdf/unicode-font";
@@ -366,4 +367,38 @@ export function packById(id: FontPackId): FontPack {
   const pack = FONT_PACKS.find((entry) => entry.id === id);
   if (!pack) throw new Error(`no font pack ${id}`);
   return pack;
+}
+
+/**
+ * Every character a {@link MonospaceClaim} promises, expanded from a
+ * definition that exists without our font: a Windows code page through the
+ * WHATWG decoder, a whole Unicode block, or the literal characters printed.
+ *
+ * Graphic characters only — letters, digits, punctuation, symbols, spaces.
+ * Controls and format characters are not text a reader sees; the one format
+ * character
+ * this drops from the code pages is U+00AD SOFT HYPHEN, which Geist Mono does
+ * not carry (see `font-packs.test.ts`, which pins that exclusion by name).
+ * U+FFFD is dropped too: it is what the decoder returns for a byte the code
+ * page leaves undefined, not a member of it.
+ */
+export function monospaceClaimMembers(claim: MonospaceClaim): string[] {
+  const graphic = /[\p{L}\p{N}\p{P}\p{S}\p{Zs}]/u;
+  const REPLACEMENT = String.fromCharCode(0xfffd);
+  const out = new Set<string>();
+  const { members } = claim;
+  if ("codePages" in members) {
+    for (const label of members.codePages) {
+      const decoded = new TextDecoder(label).decode(
+        Uint8Array.from({ length: 256 }, (_, i) => i),
+      );
+      for (const ch of decoded) if (ch !== REPLACEMENT) out.add(ch);
+    }
+  } else if ("block" in members) {
+    const [lo, hi] = members.block;
+    for (let cp = lo; cp <= hi; cp++) out.add(String.fromCodePoint(cp));
+  } else {
+    for (const ch of members.characters) out.add(ch);
+  }
+  return [...out].filter((ch) => graphic.test(ch));
 }

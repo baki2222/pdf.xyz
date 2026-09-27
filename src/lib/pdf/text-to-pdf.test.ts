@@ -9,12 +9,16 @@ import {
 } from "./text-to-pdf";
 import { markdownToPdf } from "./markdown-to-pdf";
 import { addWatermark } from "./watermark";
-import { FONT_PACKS, type FontPack } from "./font-packs";
+import { FONT_PACKS, MONOSPACE_CLAIMS, type FontPack } from "./font-packs";
 import { loadCoverage, packCovers } from "./font-coverage";
 import { isWinAnsiEncodable } from "./winansi";
 import { readNotoTtf } from "./noto-source";
 import { resetFontCache, setFontByteSource } from "./unicode-font";
-import { embeddedFaces, proveGlyphs } from "@/tests/unicode-fonts";
+import {
+  embeddedFaces,
+  monospaceClaimMembers,
+  proveGlyphs,
+} from "@/tests/unicode-fonts";
 
 describe("text-to-pdf", () => {
   it("rejects empty text", () => {
@@ -148,6 +152,64 @@ describe("the monospace promise holds beyond WinAnsi", () => {
       "characters the face claims but the page does not carry",
     ).toEqual([]);
   }, 60_000);
+
+  it("sets EVERY character the Text to PDF tile promises in one face at one width", async () => {
+    // The tile's sentence is built from MONOSPACE_CLAIMS; each claim expands
+    // from a definition that exists without our font (a Windows code page, a
+    // Unicode block, the literal characters). All of it in one document: the
+    // page must carry every member in ONE embedded face at ONE width.
+    const chars = [...new Set(MONOSPACE_CLAIMS.flatMap(monospaceClaimMembers))];
+    expect(chars.length).toBeGreaterThan(400);
+    const lines: string[] = [];
+    for (let i = 0; i < chars.length; i += 40) {
+      lines.push(chars.slice(i, i + 40).join(""));
+    }
+    const { result, requested } = await recording(() =>
+      textToPdf(lines.join("\n"), { title: "claims" }),
+    );
+    expect(requested.map((pack) => pack.role)).toEqual(["monospace"]);
+    const faces = await embeddedFaces(result);
+    expect(faces).toHaveLength(1);
+    expect([...faces[0]!.advanceWidths]).toHaveLength(1);
+    expect(faces[0]!.blankCharacters).toEqual([]);
+    const onPage = faces[0]!.characters;
+    const missing = chars.filter(
+      (ch) => ch.trim() !== "" && !onPage.includes(ch),
+    );
+    expect(missing, "promised by the tile, absent from the page").toEqual([]);
+  }, 60_000);
+
+  it.each([
+    // ⇒ is the arrow people type in notes; Geist Mono does not draw it, and
+    // the tile once said "arrows". ǐ is pinyin; the tile once said "Latin".
+    ["Step 1 ⇒ done"],
+    ["Nǐ hǎo, wǒ jiào"],
+  ])(
+    "sets %j monospace exactly when the tile promises its characters",
+    async (text) => {
+      // The relationship, read off the page: promised by the tile <=> set at
+      // one width. Promise ⇒ and the bytes disagree; so do the bytes if the
+      // face stops drawing something the tile names.
+      const promised = new Set(MONOSPACE_CLAIMS.flatMap(monospaceClaimMembers));
+      const isPromised = [...text].every(
+        (ch) => promised.has(ch) || isWinAnsiEncodable(ch.codePointAt(0)!),
+      );
+      const { result } = await recording(() =>
+        textToPdf(`${text}\nWide iii`, { title: "notes" }),
+      );
+      const faces = await embeddedFaces(result);
+      expect(faces).toHaveLength(1);
+      const monospaced = faces[0]!.advanceWidths.size === 1;
+      expect(
+        { promised: isPromised, monospaced },
+        `${faces[0]!.baseFont} set "${text}"`,
+      ).toEqual({ promised: monospaced, monospaced });
+      // Today both are false: this text goes to a proportional face and the
+      // tile does not claim otherwise.
+      expect(isPromised).toBe(false);
+    },
+    60_000,
+  );
 
   it("still draws CJK text — a correct proportional face beats a refusal (positive control)", async () => {
     // A CJK title too: `proveGlyphs` reads every `<hex> Tj` as glyph ids, so a
