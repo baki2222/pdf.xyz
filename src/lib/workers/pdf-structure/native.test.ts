@@ -234,6 +234,29 @@ describe("createNativeQpdfStructureRunner", () => {
         });
       }
 
+      // The probe is a second qpdf run, and can itself time out or fail to
+      // spawn. The MAIN run has already refused the document (exit 2), and a
+      // retry would repeat that refusal on the same bytes, so the job ends
+      // final as `unrecoverable` — never retried, and never called locked on
+      // an answer the probe did not give.
+      for (const [name, probe] of [
+        ["times out", { code: -1, timedOut: true }],
+        ["fails to spawn", { code: -1, timedOut: false }],
+      ] as const) {
+        it(`${op}: a refusal whose password probe ${name} is final as unrecoverable`, async () => {
+          const q = refusingQpdf(probe);
+          const runner = createNativeQpdfStructureRunner(config(), q);
+
+          const error = await runner[op](pdf()).catch((e: unknown) => e);
+
+          expect(error).toBeInstanceOf(QpdfRefusedError);
+          expect((error as QpdfRefusedError).reason).toBe("unrecoverable");
+          // Health: the probe really was asked, and the directory still went.
+          expect(q.calls.map((c) => c[0])).toContain("--requires-password");
+          expect(q.order).toEqual(["exec", "exec", "rm"]);
+        });
+      }
+
       it(`${op}: POSITIVE CONTROL — a timeout stays a plain, retryable error and is never probed`, async () => {
         const { fs } = fakeFs(pdf());
         const { exec, calls } = fakeExec({ code: -1, timedOut: true });

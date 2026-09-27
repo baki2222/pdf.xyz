@@ -17,7 +17,15 @@
  * file cut at its `startxref` keyword — xref table and trailer intact, the
  * pointer to them gone, no `%%EOF` — is recovered with exit 3 ("file is
  * damaged", "Attempting to reconstruct cross-reference table"). That is the
- * recoverable fixture; the tail-less prefix is the unrecoverable one.
+ * recoverable fixture.
+ *
+ * The unrecoverable one — the first 60% of the same file — has NOT been run
+ * through real qpdf. What was measured is a different cut (a fixed 900 bytes
+ * off the tail, which took the trailer with it: exit 2). The 60% prefix is
+ * expected to refuse for the same reason — no xref, no trailer — but that is
+ * inference. It fails in the visible direction: if production's qpdf does
+ * rebuild it, the proof's `expectFailure` goes red, never falsely green.
+ * Measure it on the worker before quoting it as evidence.
  *
  * Each maker checks its own output and throws if the damage is not what its
  * name says: without that, a change here could quietly hand the proof a
@@ -80,7 +88,10 @@ export async function recoverablyDamagedPdf(): Promise<Uint8Array> {
   return checked(whole.slice(0, cut), "recoverable");
 }
 
-/** The first 60%: no xref, no trailer — nothing qpdf can rebuild (exit 2). */
+/**
+ * The first 60%: no xref, no trailer — expected to be refused (exit 2), not
+ * yet measured against real qpdf (see the module doc).
+ */
 export async function unrecoverablePdf(): Promise<Uint8Array> {
   const whole = await classicXrefPdf();
   return checked(

@@ -83,12 +83,17 @@ async function jobFrom(
   slug: Slug,
   main: QpdfStructureExecResult,
   probe: QpdfStructureExecResult = { code: 2, timedOut: false },
-): Promise<{ job: Job; artifact?: Uint8Array }> {
+): Promise<{ job: Job; artifact?: Uint8Array; qpdfCalls: string[][] }> {
   let clock = 100_000;
   const store = new DevWorkerStore(() => clock);
   const queue = createLocalDevQueue({ store, now: () => clock });
-  const exec: QpdfStructureExec = async (_c, args) =>
-    args[0] === "--requires-password" ? probe : main;
+  // Every argument list qpdf was actually given, in order: what a test may
+  // conclude about the file depends on what qpdf was asked, not on a stub.
+  const qpdfCalls: string[][] = [];
+  const exec: QpdfStructureExec = async (_c, args) => {
+    qpdfCalls.push([...args]);
+    return args[0] === "--requires-password" ? probe : main;
+  };
   const executor = createWorkerExecutor({
     queue,
     storage: createLocalDevExecutorStorage({ store, now: () => clock }),
@@ -138,6 +143,7 @@ async function jobFrom(
   const art = job.artifacts?.[0];
   return {
     job,
+    qpdfCalls,
     ...(art ? { artifact: store.getArtifact(art.artifactId)!.bytes } : {}),
   };
 }
@@ -216,6 +222,13 @@ async function announced(): Promise<string> {
   return spoken;
 }
 
+/** Every rendered link to `href` — by attribute, whatever its label says. */
+function hrefsTo(href: string): string[] {
+  return Array.from(document.querySelectorAll("a[href]"))
+    .map((a) => a.getAttribute("href") ?? "")
+    .filter((h) => h === href);
+}
+
 afterEach(() => {
   resetTelemetry();
   resetAnnouncer();
@@ -239,6 +252,9 @@ describe("a document qpdf refuses — named once, with the tool that fixes it", 
       expect(
         screen.getByRole("link", { name: "Open Unlock PDF" }),
       ).toHaveAttribute("href", "/tools/unlock-pdf");
+      // POSITIVE CONTROL for the clean run's absence check: the same scan
+      // sees an Unlock link where one belongs.
+      expect(hrefsTo("/tools/unlock-pdf")).toEqual(["/tools/unlock-pdf"]);
     });
 
     it(`${slug}: POSITIVE CONTROL — a run that did not finish links nothing`, async () => {
@@ -303,11 +319,45 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
     expect(group).not.toHaveTextContent(/repaired PDF is ready/);
     expect(await announced()).toMatch(/found no structural damage/);
     expect(await announced()).not.toMatch(/repaired/);
-    // And where to go when it still will not open.
-    expect(screen.getByRole("link", { name: /Unlock PDF/ })).toHaveAttribute(
-      "href",
-      "/tools/unlock-pdf",
-    );
+  });
+
+  /**
+   * INVERTED 2026-09-27. This used to assert the clean run linked Unlock PDF
+   * ("If it still won't open, it may be password-protected — try Unlock PDF"),
+   * and so pinned a false claim in place of the one it had just removed.
+   *
+   * The clean line renders only when qpdf exited 0, and the worker gives qpdf
+   * no password. So on this branch qpdf has just opened the file WITHOUT one:
+   * it cannot need a user password, and an owner-password-only file opens in
+   * viewers anyway. `requiresPasswordArgs` rejects `--is-encrypted` for this
+   * exact reason; the clean screen routed there regardless.
+   *
+   * The premise is read from what qpdf was actually asked, not assumed: if the
+   * worker ever passes a password, the first assertion fails and the advice
+   * has to be re-derived rather than silently becoming true or false.
+   */
+  it("a clean run does not send the user to Unlock PDF — qpdf just opened it without a password", async () => {
+    const { job, artifact, qpdfCalls } = await jobFrom("repair-pdf", {
+      code: 0,
+      timedOut: false,
+    });
+    // Health check: the rewrite ran, exactly once, and nothing else did.
+    expect(qpdfCalls).toHaveLength(1);
+    expect(qpdfCalls[0]!.length).toBeGreaterThan(0);
+    // The premise: no password (or any password-bearing flag) reached qpdf.
+    expect(qpdfCalls[0]!.filter((a) => /password/i.test(a))).toEqual([]);
+    expect(job.results?.repair?.recoveredWithWarnings).toBe(false);
+
+    stubNetwork("repair-pdf", job, artifact);
+    await runOnePdf("repair-pdf");
+    const group = await screen.findByRole("group");
+    // The group rendered its outcome (so an absence below is not a blank card).
+    expect(group).toHaveTextContent(/found no structural damage/);
+
+    expect(hrefsTo("/tools/unlock-pdf")).toEqual([]);
+    expect(document.body).not.toHaveTextContent(/password/i);
+    // What still holds after a clean open: the damage may be in page content.
+    expect(group).toHaveTextContent(/page content/);
   });
 
   it("a worker that did not report (no repair block) claims neither", async () => {
