@@ -1,4 +1,7 @@
-import { loadPdf, stampProducer } from "@/lib/pdf/stamp";
+import { PdfEngineError, UNREADABLE_PDF_MESSAGE } from "@/lib/pdf/engine";
+import { placeVisibleRect, visiblePageFrame } from "@/lib/pdf/page-frame";
+import { INK, loadPdf, stampProducer, toRgb } from "@/lib/pdf/stamp";
+import { loadPdfLib } from "@/lib/pdf/pdf-lib";
 import type {
   PdfFieldPlacer,
   PdfInspector,
@@ -15,11 +18,25 @@ import type {
  * worker entry point without pulling in a Node built-in.
  */
 
-/** Inspect the PDF's page geometry so fractional field boxes can be resolved to points. */
+/**
+ * Inspect each page's VISIBLE frame — the CropBox as a viewer displays it, turned
+ * by `/Rotate` — so fractional field boxes resolve against what the reader sees,
+ * not against the unrotated MediaBox.
+ *
+ * A trailer with no catalog LOADS and then throws a bare TypeError on the page
+ * walk; that is damage in the bytes, so it is reported as the loader reports
+ * damage (a {@link PdfEngineError}), not as a transient crash.
+ */
 const inspect: PdfInspector = async (bytes) => {
   const doc = await loadPdf(bytes);
-  const pageSizes = doc.getPages().map((page) => {
-    const { width, height } = page.getSize();
+  let pages;
+  try {
+    pages = doc.getPages();
+  } catch {
+    throw new PdfEngineError(UNREADABLE_PDF_MESSAGE);
+  }
+  const pageSizes = pages.map((page) => {
+    const { width, height } = visiblePageFrame(page);
     return { width, height };
   });
   return { pageCount: pageSizes.length, pageSizes };
@@ -32,20 +49,39 @@ const inspect: PdfInspector = async (bytes) => {
  * fabricate a cryptographic digital-signature widget (pdf-lib cannot render a
  * usable one), keeping the preparation honest. The source pages and any existing
  * fields are preserved untouched.
+ *
+ * Two things a reader sees, both pinned against pdfjs reading the saved file in
+ * `native.integration.test.ts`:
+ *   - The field is an OUTLINE, not a box. pdf-lib fills a text field white unless
+ *     the `backgroundColor` key is PRESENT (its check is `'backgroundColor' in
+ *     options`), so `undefined` is passed explicitly — omitting it painted an
+ *     opaque rectangle over whatever the page had there.
+ *   - The field lands where the request put it on the page AS DISPLAYED: each
+ *     visible-frame box is mapped through the CropBox origin and `/Rotate` by
+ *     {@link placeVisibleRect}, and turned so it reads upright.
  */
 const place: PdfFieldPlacer = async (bytes, fields) => {
-  const doc = await loadPdf(bytes);
+  const [doc, { degrees, rgb }] = await Promise.all([
+    loadPdf(bytes),
+    loadPdfLib(),
+  ]);
   const pages = doc.getPages();
   const form = doc.getForm();
+  const outline = toRgb(rgb, INK);
   for (const field of fields) {
     const page = pages[field.page - 1];
     if (!page) continue; // Unreachable after engine validation; satisfies the type checker.
+    const at = placeVisibleRect(visiblePageFrame(page), field);
     const widget = form.createTextField(field.name);
     widget.addToPage(page, {
-      x: field.x,
-      y: field.y,
-      width: field.width,
-      height: field.height,
+      x: at.x,
+      y: at.y,
+      width: at.width,
+      height: at.height,
+      rotate: degrees(at.rotate),
+      backgroundColor: undefined,
+      borderColor: outline,
+      borderWidth: 1,
     });
   }
   stampProducer(doc);

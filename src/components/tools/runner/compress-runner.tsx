@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   Boxes,
@@ -17,9 +18,9 @@ import {
   summarizeAnalysis,
   type AnalyzeResult,
   type OptimizeRecommendation,
-  type PdfAnalysis,
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
 import { outputName, partitionPdfFiles } from "@/lib/pdf/files";
 import {
   runWorkerCompression,
@@ -45,8 +46,11 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { FileHeader } from "./single-pdf-runner";
-import { useSinglePdf, type LoadedPdf } from "./use-single-pdf";
+import { useSinglePdf, type LoadedPdf, type LockedPdf } from "./use-single-pdf";
 import { useToolHandoff } from "./use-tool-handoff";
+
+/** Where a PDF that needs a password gets unlocked; pinned to the catalog by the runner test. */
+export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
 
 interface Rejection {
   name: string;
@@ -145,7 +149,12 @@ function CompressSingle({
   preloaded: boolean;
   skipped: number;
 }) {
-  const { pdf, loading, error, open } = useSinglePdf();
+  // Opted in: Compress has a path that does not need pdf-lib to rewrite the
+  // file (the secure worker), so an encrypted file is classified rather than
+  // refused wholesale.
+  const { pdf, locked, loading, error, open } = useSinglePdf({
+    classifyLocked: true,
+  });
 
   useEffect(() => {
     void open(file);
@@ -162,6 +171,15 @@ function CompressSingle({
         >
           Try another file
         </button>
+      </div>
+    );
+  }
+
+  if (locked && !loading) {
+    return (
+      <div className="flex flex-col gap-4">
+        {preloaded && <HandoffLoadedBadge count={1} skipped={skipped} />}
+        <CompressLocked locked={locked} onReset={onReset} />
       </div>
     );
   }
@@ -185,6 +203,97 @@ function CompressSingle({
         pdf={pdf}
         onReset={onReset}
       />
+    </div>
+  );
+}
+
+/**
+ * An encrypted PDF the in-browser engine cannot rewrite, told apart by what a
+ * reader can open.
+ *
+ * Until 2026-09-27 every one of these read "This PDF is password-protected"
+ * and dead-ended, including the owner-password-only files that open in every
+ * viewer with no prompt. Those are RESTRICTED: the lossless repack still cannot
+ * rewrite them (pdf-lib does not decrypt), so the secure worker is offered as
+ * the one path that might. Only a file that really needs a password to open is
+ * sent to Unlock — Unlock asks for that password, which is exactly why it is no
+ * help to a file that has none.
+ *
+ * "Might" is the claim, not "can". The first version of this notice said the
+ * worker "opens files the way a PDF viewer does"; nothing had run a restricted
+ * file through a worker, and the one composed test that later did found the
+ * no-shrink branch reporting the person's own file as "an unreadable PDF"
+ * (fixed in the compression engine). Whether Ghostscript on the production
+ * image compresses these files is still unproven, so the copy says the worker
+ * may not be able to — and the runner test pins that it says so.
+ */
+function CompressLocked({
+  locked,
+  onReset,
+}: {
+  locked: LockedPdf;
+  onReset: () => void;
+}) {
+  const { access, file } = locked;
+  const tryAnother = (
+    <button
+      type="button"
+      onClick={onReset}
+      className="text-muted hover:text-fg self-start text-xs font-medium transition"
+    >
+      Try another file
+    </button>
+  );
+
+  if (access.kind !== "restricted") {
+    return (
+      <div className="flex flex-col gap-4">
+        <ErrorNote message={LOCKED_PDF_COPY[access.kind]} />
+        {access.kind === "password-required" && (
+          <Link
+            href={UNLOCK_TOOL_HREF}
+            className="text-accent self-start text-sm font-medium underline underline-offset-2"
+          >
+            Unlock PDF with its password
+          </Link>
+        )}
+        {tryAnother}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <FileHeader pdf={{ file, pageCount: access.pageCount }} />
+      <div
+        role="status"
+        aria-label="This PDF has permission restrictions"
+        className="border-info/40 bg-info/10 flex items-start gap-3 rounded-[4px] border p-5"
+      >
+        <span className="bg-wash text-info grid size-10 shrink-0 place-items-center rounded-[4px]">
+          <Lock className="size-5" aria-hidden />
+        </span>
+        <div className="flex flex-col gap-1">
+          <h3 className="text-fg text-base font-semibold">
+            This PDF has permission restrictions
+          </h3>
+          <p className="text-muted/90 text-sm">
+            {LOCKED_PDF_COPY.restricted} You can still try the secure worker
+            below, but it may not be able to process an encrypted file. If it
+            can&apos;t, it will say so, and your file stays as it is. If it can,
+            the compressed copy is a new file, and the owner&apos;s restrictions
+            may not carry over to it.
+          </p>
+        </div>
+      </div>
+      <WorkerDeepPanel
+        file={file}
+        bytes={locked.bytes}
+        originalBytes={file.size}
+        signatureCount={null}
+        signaturesConfirmed
+      />
+      {tryAnother}
     </div>
   );
 }
@@ -214,6 +323,25 @@ function pct(ratio: number): number {
   return Math.round(ratio * 100);
 }
 
+/**
+ * The headline, qualified for a signed file. "Lossless" is true of every page
+ * a reader sees and false of the file a signature validator reads, so a signed
+ * file's repack is called what it is: visually lossless.
+ */
+function headlineTitle(
+  recommendation: OptimizeRecommendation,
+  signatureCount: number,
+): string {
+  if (signatureCount > 0 && recommendation === "lossless-helps") {
+    return "Visually lossless cleanup shrank this file";
+  }
+  return HEADLINES[recommendation].title;
+}
+
+function signatureNoun(count: number): string {
+  return count === 1 ? "digital signature" : "digital signatures";
+}
+
 function CompressEditor({
   pdf,
   onReset,
@@ -226,6 +354,8 @@ function CompressEditor({
     error: string | null;
     busy: boolean;
   }>({ result: null, error: null, busy: true });
+  // Keyed by file (see CompressSingle), so a new file always starts unconfirmed.
+  const [signaturesConfirmed, setSignaturesConfirmed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -258,7 +388,10 @@ function CompressEditor({
    * yanking the user out of the upload control, which is what we want.
    */
   const analysisHeadline = result
-    ? HEADLINES[summarizeAnalysis(result.analysis).recommendation].title
+    ? headlineTitle(
+        summarizeAnalysis(result.analysis).recommendation,
+        result.analysis.signatureCount,
+      )
     : "";
   const analysisOutcome = useOutcomeFocus(
     Boolean(result),
@@ -297,6 +430,8 @@ function CompressEditor({
   const summary = summarizeAnalysis(analysis);
   const headline = HEADLINES[summary.recommendation];
   const HeadlineIcon = headline.icon;
+  const title = headlineTitle(summary.recommendation, analysis.signatureCount);
+  const signed = analysis.signatureCount > 0;
   const canDownload = summary.savedBytes > 0;
 
   return (
@@ -306,7 +441,7 @@ function CompressEditor({
       <div
         {...analysisOutcome}
         role="group"
-        aria-label={`Analysis complete. ${headline.title}.`}
+        aria-label={`Analysis complete. ${title}.`}
         className={cn(
           "focus-visible:ring-ok/50 flex items-start gap-3 rounded-[4px] border p-5 outline-none focus-visible:ring-2",
           headline.tone,
@@ -316,10 +451,12 @@ function CompressEditor({
           <HeadlineIcon className="size-5" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
-          <h3 className="text-fg text-base font-semibold">{headline.title}</h3>
+          <h3 className="text-fg text-base font-semibold">{title}</h3>
           <p className="text-muted/90 text-sm">
             {summary.recommendation === "lossless-helps" &&
-              `Repacking this PDF losslessly saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) — no quality lost.`}
+              (signed
+                ? `Repacking this PDF saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) without changing how any page looks.`
+                : `Repacking this PDF losslessly saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) — no quality lost.`)}
             {summary.recommendation === "needs-worker" &&
               `About ${pct(summary.imageShare)}% of this file is images. Real size wins come from downsampling them, which runs on the secure worker below.`}
             {summary.recommendation === "already-lean" &&
@@ -327,6 +464,14 @@ function CompressEditor({
           </p>
         </div>
       </div>
+
+      {signed && (
+        <SignatureWarning
+          count={analysis.signatureCount}
+          confirmed={signaturesConfirmed}
+          onConfirm={setSignaturesConfirmed}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
@@ -351,7 +496,7 @@ function CompressEditor({
         />
         <StatTile
           icon={Gauge}
-          label="Lossless result"
+          label={signed ? "Visually lossless" : "Lossless result"}
           value={
             summary.savedBytes > 0
               ? `−${formatBytes(summary.savedBytes)}`
@@ -365,7 +510,7 @@ function CompressEditor({
         />
       </div>
 
-      {canDownload && (
+      {canDownload && (!signed || signaturesConfirmed) && (
         <DownloadCta
           size="lg"
           onClick={() =>
@@ -379,7 +524,13 @@ function CompressEditor({
         </DownloadCta>
       )}
 
-      <WorkerDeepPanel pdf={pdf} analysis={analysis} />
+      <WorkerDeepPanel
+        file={pdf.file}
+        bytes={pdf.bytes}
+        originalBytes={analysis.originalBytes}
+        signatureCount={analysis.signatureCount}
+        signaturesConfirmed={!signed || signaturesConfirmed}
+      />
 
       <button
         type="button"
@@ -430,11 +581,23 @@ export function canRunDeepCompression(
  * exactly why (not configured, no pipeline, or no native engine installed).
  */
 function WorkerDeepPanel({
-  pdf,
-  analysis,
+  file,
+  bytes,
+  originalBytes,
+  signatureCount,
+  signaturesConfirmed,
 }: {
-  pdf: LoadedPdf;
-  analysis: PdfAnalysis;
+  file: File;
+  bytes: Uint8Array;
+  originalBytes: number;
+  /**
+   * Signatures the worker's rewrite will invalidate; `null` when they could not
+   * be counted (an encrypted file, which pdf-lib cannot read). The worker
+   * re-serialises the file too, so the same warning applies to its output.
+   */
+  signatureCount: number | null;
+  /** False while a known-signed file's warning is unconfirmed: the run waits. */
+  signaturesConfirmed: boolean;
 }) {
   const [status, setStatus] = useState<WorkerStatus | null | undefined>(
     undefined,
@@ -465,8 +628,8 @@ function WorkerDeepPanel({
     setOutcome(null);
     try {
       const res = await runWorkerCompression({
-        filename: pdf.file.name,
-        bytes: pdf.bytes,
+        filename: file.name,
+        bytes,
         profile: "deep",
         targetDpi: dpi,
       });
@@ -500,6 +663,13 @@ function WorkerDeepPanel({
             reliably in the browser, so it runs on an encrypted, auto-deleting
             worker. The analysis above stays 100% on your device.
           </p>
+          {signatureCount === null && (
+            <p className="text-warn text-xs leading-relaxed">
+              We can&apos;t check an encrypted file for digital signatures in
+              your browser. If this one is signed, the compressed copy&apos;s
+              signatures will show as invalid.
+            </p>
+          )}
         </div>
       </div>
 
@@ -516,8 +686,9 @@ function WorkerDeepPanel({
           busy={busy}
           outcome={outcome}
           onRun={run}
-          filename={pdf.file.name}
-          originalBytes={analysis.originalBytes}
+          filename={file.name}
+          originalBytes={originalBytes}
+          blockedBySignatures={!signaturesConfirmed}
         />
       ) : (
         <p className="text-muted pl-6 text-xs leading-relaxed">
@@ -571,6 +742,7 @@ function DeepRunControls({
   onRun,
   filename,
   originalBytes,
+  blockedBySignatures,
 }: {
   localDevOnly: boolean;
   dpi: number;
@@ -580,6 +752,7 @@ function DeepRunControls({
   onRun: () => void;
   filename: string;
   originalBytes: number;
+  blockedBySignatures: boolean;
 }) {
   const savedBytes =
     outcome?.ok === true
@@ -628,11 +801,17 @@ function DeepRunControls({
       <WorkerRunButton
         onClick={onRun}
         busy={busy}
+        disabled={blockedBySignatures}
         busyLabel="Compressing on the worker…"
         icon={ServerCog}
       >
         Compress images on the worker
       </WorkerRunButton>
+      {blockedBySignatures && (
+        <p className="text-muted text-xs">
+          Confirm the digital-signature warning above to run this.
+        </p>
+      )}
 
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
 
@@ -692,6 +871,60 @@ function DeepRunControls({
             quality — the original is already efficient.
           </p>
         ))}
+    </div>
+  );
+}
+
+/**
+ * The warning a signed file gets before either output is one click away.
+ *
+ * A signature covers exact byte ranges of the file, so ANY rewrite — the
+ * lossless repack here, or Ghostscript on the worker — makes every signature
+ * report "the document has been altered", however identical the pages look.
+ * The confirmation is the gate: the download and the worker run both wait on
+ * it (see CompressEditor).
+ */
+function SignatureWarning({
+  count,
+  confirmed,
+  onConfirm,
+}: {
+  count: number;
+  confirmed: boolean;
+  onConfirm: (confirmed: boolean) => void;
+}) {
+  const id = useId();
+  const noun = signatureNoun(count);
+  return (
+    <div
+      role="group"
+      aria-label={`This PDF has ${count} ${noun}`}
+      className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-3 rounded-[4px] border px-4 py-3 text-sm"
+    >
+      <p className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>
+          <strong className="font-semibold">
+            This PDF has {count} {noun}.
+          </strong>{" "}
+          A signature covers the file&apos;s exact bytes, so any change to the
+          file — this repack included, and the secure worker&apos;s compression
+          too — makes {count === 1 ? "it" : "them"} show as invalid, even though
+          every page looks the same. Keep your original if the {noun} matter.
+        </span>
+      </p>
+      <label htmlFor={id} className="text-fg flex items-start gap-2 pl-6">
+        <input
+          id={id}
+          type="checkbox"
+          checked={confirmed}
+          onChange={(e) => onConfirm(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Compress anyway — I understand the {noun} will show as invalid
+        </span>
+      </label>
     </div>
   );
 }

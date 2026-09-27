@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { PdfEngineError } from "@/lib/pdf/engine";
 import {
   REQUEST_SIGNATURE_FIELD_TYPES,
   type RequestSignatureFieldType,
@@ -33,13 +34,20 @@ import {
 export const REQUEST_SIGNATURES_TOOL = "request-signatures" as const;
 export const REQUEST_SIGNATURES_ENGINE = "pdf-lib-signature-request" as const;
 
-/** The page geometry of the input PDF: page count and each page's point size. */
+/**
+ * The page geometry of the input PDF: page count and each page's VISIBLE size in
+ * points — the CropBox as displayed, width and height swapped on a `/Rotate 90`
+ * or `270` page — so fractions scale against the axes the reader sees.
+ */
 export interface PdfGeometry {
   pageCount: number;
   pageSizes: { width: number; height: number }[];
 }
 
-/** A single field to add, already resolved to POINT coordinates (bottom-left origin). */
+/**
+ * A single field to add, resolved to POINTS in the page's visible frame (origin
+ * at the displayed page's bottom-left). The placer maps it into content space.
+ */
 export interface PlacedField {
   /** Unique AcroForm field name. */
   name: string;
@@ -51,7 +59,11 @@ export interface PlacedField {
   height: number;
 }
 
-/** Inspect a PDF's page geometry; throws on an unreadable PDF. */
+/**
+ * Inspect a PDF's page geometry. Throws a {@link PdfEngineError} (user-facing
+ * copy) when the bytes cannot be opened as a PDF; the engine reports that as a
+ * non-retryable bad request. Any other throw is treated as transient.
+ */
 export type PdfInspector = (bytes: Uint8Array) => Promise<PdfGeometry>;
 /** Add the named fillable fields and return the prepared PDF bytes; throws on failure. */
 export type PdfFieldPlacer = (
@@ -144,8 +156,9 @@ function fieldName(
  * Run the full signature-request flow honestly: reject oversized input before
  * touching the preparer, fail as `unsupported` when no preparer is wired, as
  * `delivery_unconfigured` when external delivery is requested without a provider,
- * as `invalid_request` when a field targets a page the document doesn't have, and
- * as `failed` if the preparer throws — never a fabricated "signed" result. On
+ * as `invalid_request` when a field targets a page the document doesn't have or
+ * the inspector cannot open the PDF (a {@link PdfEngineError}: locked or damaged),
+ * and as `failed` if anything else throws — never a fabricated "signed" result. On
  * success, return a real ZIP package (prepared PDF + manifest + README + audit).
  */
 export async function runSignatureRequest(
@@ -188,9 +201,28 @@ export async function runSignatureRequest(
   const digest = deps.digest ?? defaultDigest;
   const now = deps.now ?? (() => new Date().toISOString());
 
+  // A PDF the loader cannot OPEN — password-protected, truncated, not a PDF — is a
+  // property of these bytes, so it is a bad request (non-retryable) and keeps the
+  // loader's own words ("Unlock it first"). This used to fall into the bare catch
+  // below as retryable `failed`: three attempts at a doomed job, then a message
+  // that discarded the one sentence the user could act on. Keyed on the TYPE the
+  // loader throws, and scoped to `inspect`, so a transient crash here or in
+  // `place` still retries.
+  let geometry: PdfGeometry;
   try {
-    const geometry = await inspect(input);
+    geometry = await inspect(input);
+  } catch (err) {
+    if (err instanceof PdfEngineError) {
+      return { ok: false, kind: "invalid_request", message: err.message };
+    }
+    return {
+      ok: false,
+      kind: "failed",
+      message: "The PDF could not be prepared for a signature request.",
+    };
+  }
 
+  try {
     // Resolve each fractional field to POINT coordinates on its target page, giving
     // every one a unique, viewer-safe name. A field that targets a nonexistent page
     // is a deterministic property of THIS request+document → invalid_request.

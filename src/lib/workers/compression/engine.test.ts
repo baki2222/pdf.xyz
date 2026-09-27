@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { countPdfPagesDetailed } from "@/lib/pdf/page-count";
+import { encryptPdf } from "@/tests/encrypted-pdf";
 import {
   DEEP_COMPRESSION_TOOLS,
   looksLikePdf,
@@ -435,5 +437,86 @@ describe("the gate's unknowns are asymmetric on purpose", () => {
     expect(run.ok).toBe(true);
     if (!run.ok) return;
     expect(run.meta.pageCheck).toBe("not-applicable");
+  });
+});
+
+describe("an encrypted input the page check cannot read (restricted, object streams)", () => {
+  /**
+   * A permissions-only PDF from a modern producer — the bank statement or
+   * e-invoice Compress now offers to the worker. Its page tree lives in an
+   * ENCRYPTED object stream, which pdf-lib does not decrypt, so the page check
+   * cannot count it even with `ignoreEncryption`.
+   *
+   * Until 2026-09-27 the no-shrink branch swapped the ORIGINAL back in and then
+   * failed the job because that original could not be counted: the person was
+   * told "The compression engine produced an unreadable PDF." about their own
+   * intact file. The classic-xref fixture could not see it — its page tree is
+   * plaintext — so this uses the object-stream layout.
+   */
+  async function restrictedModernPdf(): Promise<Uint8Array> {
+    return encryptPdf(await makePdf(3, { withText: true }), {
+      userPassword: "",
+      ownerPassword: "owner-secret",
+      objectStreams: true,
+    });
+  }
+  const deepGs = {
+    tools: { ghostscript: true, qpdf: false, mutool: false },
+  } as const;
+
+  it("health check: the fixture is one the page check really cannot count, and a PDF by every other measure", async () => {
+    const input = await restrictedModernPdf();
+    expect(looksLikePdf(input)).toBe(true);
+    expect(
+      await countPdfPagesDetailed(input, Number.POSITIVE_INFINITY),
+    ).toEqual({ ok: false, unknown: "unparseable" });
+  });
+
+  it("no shrink: hands back the person's ORIGINAL as unverified, never 'unreadable'", async () => {
+    const input = await restrictedModernPdf();
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      // The engine could not make it smaller (a text-only statement).
+      { ...deepGs, native: async (bytes) => bytes.slice() },
+    );
+    expect(run.ok ? "ok" : `${run.kind}: ${run.message}`).toBe("ok");
+    if (!run.ok) return;
+    expect(run.output).toBe(input);
+    expect(run.meta.savedBytes).toBe(0);
+    // Nothing was proven about the pages, and the verdict says so.
+    expect(run.meta.pageCheck).toBe("unverified");
+    expect(run.meta.pagesIn).toBeNull();
+    expect(run.meta.pagesOut).toBeNull();
+  });
+
+  it("shrink to a readable file: ships as unverified, with the output's own page count", async () => {
+    const input = await restrictedModernPdf();
+    const smaller = await makePdf(3);
+    expect(smaller.byteLength).toBeLessThan(input.byteLength);
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      { ...deepGs, native: async () => smaller },
+    );
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.output).toBe(smaller);
+    expect(run.meta.pageCheck).toBe("unverified");
+    expect(run.meta.pagesOut).toBe(3);
+  });
+
+  it("control: output the ENGINE made that cannot be counted still fails — the exemption is for the original only", async () => {
+    const input = await restrictedModernPdf();
+    const rubble = pdfShapedBytes(64);
+    expect(rubble.byteLength).toBeLessThan(input.byteLength);
+    expect(looksLikePdf(rubble)).toBe(true);
+    const run = await runCompression(
+      input,
+      { profile: "deep", targetDpi: 150 },
+      { ...deepGs, native: async () => rubble },
+    );
+    expect(run.ok).toBe(false);
+    if (!run.ok) expect(run.kind).toBe("failed");
   });
 });

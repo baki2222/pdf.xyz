@@ -151,7 +151,20 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           <SegmentedControl
             label="Crop mode"
             value={uniform ? "uniform" : "per-side"}
-            onChange={(value) => setUniform(value === "uniform")}
+            onChange={(value) => {
+              const toUniform = value === "uniform";
+              setUniform(toUniform);
+              // "All sides" shows one value, so Uniform must crop with exactly
+              // that value on every edge — never with per-side values the
+              // person can no longer see. Pinned by crop-runner.test.tsx.
+              if (toUniform) {
+                setMargins((m) =>
+                  m.right === m.top && m.bottom === m.top && m.left === m.top
+                    ? m
+                    : { top: m.top, right: m.top, bottom: m.top, left: m.top },
+                );
+              }
+            }}
             options={[
               { value: "uniform", label: "Uniform" },
               { value: "per-side", label: "Per side" },

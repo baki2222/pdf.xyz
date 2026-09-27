@@ -1,6 +1,7 @@
-import type { PDFDocument, PDFRawStream } from "pdf-lib";
+import type { PDFRawStream } from "pdf-lib";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
-import { PdfEngineError } from "./engine";
+import { loadPdf } from "./engine";
+import { countSignatures } from "./signed";
 
 /**
  * Honest compression analysis for the "Compress PDF" tool.
@@ -35,6 +36,13 @@ export interface PdfAnalysis {
   imageBytes: number;
   /** File size after a lossless structural repack. */
   optimizedBytes: number;
+  /**
+   * Digital signatures in the file. Every one of them stops validating after
+   * the repack — or any other rewrite — because a signature covers exact byte
+   * ranges. The repack is visually lossless; for a signed file it is not
+   * lossless, and the UI must say so before the download.
+   */
+  signatureCount: number;
 }
 
 /** Analysis plus the actual losslessly-optimized bytes, ready to download. */
@@ -57,38 +65,35 @@ export interface OptimizationSummary {
   recommendation: OptimizeRecommendation;
 }
 
-async function loadDoc(bytes: Uint8Array): Promise<PDFDocument> {
-  try {
-    const { PDFDocument } = await loadPdfLib();
-    return await PDFDocument.load(bytes);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (/encrypt/i.test(message)) {
-      throw new PdfEngineError(
-        "This PDF is password-protected. Unlock it first, then try again.",
-      );
-    }
-    throw new PdfEngineError(
-      "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
-    );
-  }
-}
-
 function isImageStream(lib: PdfLibModule, obj: unknown): obj is PDFRawStream {
   if (!(obj instanceof lib.PDFRawStream)) return false;
   const subtype = obj.dict.get(lib.PDFName.of("Subtype"));
   return subtype instanceof lib.PDFName && subtype.asString() === "/Image";
 }
 
+/** The batch path's result: the repacked bytes, and what they cost. */
+export interface LosslessResult {
+  bytes: Uint8Array;
+  /** Signatures in the INPUT, every one of which `bytes` has invalidated. */
+  signatureCount: number;
+}
+
 /**
  * Lossless structural repack: re-serialize with object streams and refresh the
- * producer. Never changes rendered content — only how objects are packed.
+ * producer. Never changes rendered content — only how objects are packed. It
+ * DOES change the bytes, which is what a digital signature covers, so the
+ * signature count travels with the result rather than being a second parse a
+ * caller may forget.
  */
-export async function optimizeLossless(bytes: Uint8Array): Promise<Uint8Array> {
-  const doc = await loadDoc(bytes);
+export async function optimizeLossless(
+  bytes: Uint8Array,
+): Promise<LosslessResult> {
+  const lib = await loadPdfLib();
+  const doc = await loadPdf(bytes);
+  const signatureCount = countSignatures(lib, doc);
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
-  return doc.save({ useObjectStreams: true });
+  return { bytes: await doc.save({ useObjectStreams: true }), signatureCount };
 }
 
 /**
@@ -97,7 +102,9 @@ export async function optimizeLossless(bytes: Uint8Array): Promise<Uint8Array> {
  */
 export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
   const lib = await loadPdfLib();
-  const doc = await loadDoc(bytes);
+  const doc = await loadPdf(bytes);
+  // Counted BEFORE the save below: it reads the document as the user gave it.
+  const signatureCount = countSignatures(lib, doc);
 
   let imageCount = 0;
   let imageBytes = 0;
@@ -119,6 +126,7 @@ export async function analyzePdf(bytes: Uint8Array): Promise<AnalyzeResult> {
       imageCount,
       imageBytes,
       optimizedBytes: optimized.byteLength,
+      signatureCount,
     },
     optimized,
   };

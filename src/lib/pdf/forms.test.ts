@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import {
+  ORPHAN_FIELD,
+  VISIBLE_FIELD,
+  formPdf,
+} from "@/tests/unflattenable-form-pdf";
+import {
   applyFormValues,
   filledFormsOutputName,
   inspectFormFields,
@@ -160,6 +165,7 @@ describe("applyFormValues", () => {
       bytes: filled,
       appliedCount,
       flattened,
+      flattenRequested,
       outcomes,
     } = await applyFormValues(bytes, {
       "applicant.name": "Grace Hopper",
@@ -170,6 +176,7 @@ describe("applyFormValues", () => {
     });
 
     expect(flattened).toBe(false);
+    expect(flattenRequested, "nobody asked for a flatten").toBe(false);
     expect(appliedCount).toBe(5);
     expect(outcomes.every((o) => o.status === "applied")).toBe(true);
 
@@ -297,5 +304,59 @@ describe("applyFormValues", () => {
     // After flattening the AcroForm is gone — the values live in page content.
     const after = await inspectFormFields(filled);
     expect(after.hasFields).toBe(false);
+  });
+
+  /*
+   * Audit 2026-09-27: when pdf-lib threw inside `flatten()`, this function
+   * quietly returned the filled-but-editable bytes with `flattened: false` —
+   * the same value it returns when nobody asked. The runner could not tell
+   * "you did not ask" from "you asked and did not get it", so it showed a
+   * green "Form filled" over a form the user believed was locked.
+   *
+   * The fixture is a real structure pdf-lib cannot flatten (an orphan widget),
+   * not a stubbed `flatten()`: the question is what happens to a file a person
+   * can upload.
+   */
+  describe("a flatten that fails", () => {
+    const fill = { [VISIBLE_FIELD]: "Turing", [ORPHAN_FIELD]: "REF-7" };
+
+    it("health check: the fixture really is one pdf-lib cannot flatten", async () => {
+      const broken = await PDFDocument.load(await formPdf({ orphan: true }));
+      expect(() => broken.getForm().flatten()).toThrow(/page/i);
+      // …and its positive control flattens cleanly, so a failure below is the
+      // orphan widget and nothing else about the fixture.
+      const sound = await PDFDocument.load(await formPdf({ orphan: false }));
+      expect(() => sound.getForm().flatten()).not.toThrow();
+    });
+
+    it("says the flatten was asked for and did not happen, and still hands back the filled form", async () => {
+      const result = await applyFormValues(
+        await formPdf({ orphan: true }),
+        fill,
+        { flatten: true },
+      );
+      expect(result.flattenRequested).toBe(true);
+      expect(result.flattened).toBe(false);
+      expect(result.appliedCount).toBe(2);
+
+      // What the user downloads: still a live form, carrying their values.
+      const after = await inspectFormFields(result.bytes);
+      expect(after.hasFields, "the output is still an editable form").toBe(
+        true,
+      );
+      expect(byName(after.fields, VISIBLE_FIELD).text).toBe("Turing");
+      expect(byName(after.fields, ORPHAN_FIELD).text).toBe("REF-7");
+    });
+
+    it("positive control: the same form without the orphan flattens", async () => {
+      const result = await applyFormValues(
+        await formPdf({ orphan: false }),
+        fill,
+        { flatten: true },
+      );
+      expect(result.flattenRequested).toBe(true);
+      expect(result.flattened).toBe(true);
+      expect((await inspectFormFields(result.bytes)).hasFields).toBe(false);
+    });
   });
 });

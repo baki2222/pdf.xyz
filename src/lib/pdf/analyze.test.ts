@@ -8,6 +8,7 @@ import {
   summarizeAnalysis,
   type PdfAnalysis,
 } from "./analyze";
+import { makeSignedPdf, signedBytes } from "@/tests/signed-pdf";
 
 async function makeTextPdf(pageCount: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -41,6 +42,7 @@ const analysis = (over: Partial<PdfAnalysis>): PdfAnalysis => ({
   imageCount: 0,
   imageBytes: 0,
   optimizedBytes: 1000,
+  signatureCount: 0,
   ...over,
 });
 
@@ -69,9 +71,51 @@ describe("analyzePdf", () => {
 
 describe("optimizeLossless", () => {
   it("produces a valid PDF that preserves the page count", async () => {
-    const optimized = await optimizeLossless(await makeTextPdf(5));
-    const reloaded = await PDFDocument.load(optimized);
+    const { bytes } = await optimizeLossless(await makeTextPdf(5));
+    const reloaded = await PDFDocument.load(bytes);
     expect(reloaded.getPageCount()).toBe(5);
+  });
+});
+
+/**
+ * The "lossless" repack re-serialises the whole file. A digital signature
+ * covers exact byte ranges, so the repack invalidates every signature while
+ * the UI said "no quality lost" — and nothing on either path looked.
+ */
+describe("signatures on the lossless path", () => {
+  it("the premise: the repack really does break a signature a validator accepted", async () => {
+    // Asked of the OUTPUT, the way a validator asks it. If a future repack
+    // preserved signed bytes (an incremental save), this goes red and the
+    // warning below should be re-argued, not kept by habit.
+    const original = await makeSignedPdf();
+    const before = await signedBytes(original);
+    expect(before[0], "fixture must validate before the repack").not.toBeNull();
+    const { analysis, optimized } = await analyzePdf(original);
+    expect(analysis.signatureCount).toBe(1);
+    const after = await signedBytes(optimized);
+    expect(after).toHaveLength(1);
+    expect(after[0]).not.toBe(before[0]);
+  });
+
+  it("analyzePdf reports how many signatures the download will break", async () => {
+    expect(
+      (await analyzePdf(await makeSignedPdf({ count: 2 }))).analysis
+        .signatureCount,
+    ).toBe(2);
+    // Negative control: an unsigned file is not flagged.
+    expect(
+      (await analyzePdf(await makeTextPdf(1))).analysis.signatureCount,
+    ).toBe(0);
+  });
+
+  it("optimizeLossless (the batch path) reports the same count from the same parse", async () => {
+    expect(
+      (await optimizeLossless(await makeSignedPdf({ count: 2 })))
+        .signatureCount,
+    ).toBe(2);
+    expect((await optimizeLossless(await makeTextPdf(1))).signatureCount).toBe(
+      0,
+    );
   });
 });
 

@@ -8,6 +8,7 @@ import {
   type SignatureRequestDeps,
 } from "./engine";
 import type { SignatureRequestOptions } from "@/lib/jobs/request-signatures";
+import { PdfEngineError } from "@/lib/pdf/engine";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -200,6 +201,49 @@ describe("runSignatureRequest", () => {
     expect(manifest.delivery.provider).toBe("example-esign");
     // Still honest: handed off, never "completed"/"signed".
     expect(manifest.status).toBe("prepared");
+  });
+
+  // A PDF the worker cannot OPEN — password-protected or damaged — is a property
+  // of the bytes, not of the moment. It used to fall into the same bare catch as
+  // a preparer crash: `failed`, which the processor maps to retryable, so the
+  // executor ran the same doomed job three times and then showed "could not be
+  // prepared" in place of the "Unlock it first" the loader had already written.
+  it.each([
+    "This PDF is password-protected. Unlock it first, then try again.",
+    "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
+  ])(
+    "reports an unreadable PDF as a non-retryable bad request, keeping the reason: %s",
+    async (reason) => {
+      const place = vi.fn(async () => PDF);
+      const run = await runSignatureRequest(PDF, options(), {
+        inspect: async () => {
+          throw new PdfEngineError(reason);
+        },
+        place,
+      });
+      expect(run.ok).toBe(false);
+      if (run.ok) return;
+      expect(run.kind).toBe("invalid_request");
+      expect(run.message).toBe(reason);
+      expect(place).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps an UNEXPECTED inspector crash retryable (positive control for the mapping)", async () => {
+    // The mapping above keys on the TYPE the loader throws, not on "inspect threw":
+    // a transient crash in the same call must stay retryable, or the fix would
+    // quietly turn every worker hiccup into a terminal "your file is bad".
+    const run = await runSignatureRequest(PDF, options(), {
+      inspect: async () => {
+        throw new Error("out of memory");
+      },
+      place: async () => PDF,
+    });
+    expect(run.ok).toBe(false);
+    if (!run.ok) {
+      expect(run.kind).toBe("failed");
+      expect(run.message).not.toMatch(/out of memory/);
+    }
   });
 
   it("maps a preparer crash to a retryable failure", async () => {

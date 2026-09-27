@@ -98,7 +98,8 @@ export function FileHeader({
   pdf,
   aside,
 }: {
-  pdf: LoadedPdf;
+  /** Only the name, size and page count are shown, so only they are required. */
+  pdf: Pick<LoadedPdf, "file" | "pageCount">;
   aside?: ReactNode;
 }) {
   return (

@@ -1,8 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { readNotoTtf } from "@/lib/pdf/noto-source";
 import { setFontByteSource } from "@/lib/pdf/unicode-font";
+import {
+  setPdfjsForAccessSource,
+  type PdfjsForAccess,
+} from "@/lib/pdf/encryption";
 
 // The Noto faces the text tools embed come from `fetch("/fonts/…")` in a
 // browser, and there is no origin to fetch from under vitest. Point the loader
@@ -18,6 +24,22 @@ import { setFontByteSource } from "@/lib/pdf/unicode-font";
 // What this does NOT prove is that the asset is SERVED; `e2e/unicode-fonts.spec.ts`
 // fetches the real URL off the real server for that half.
 setFontByteSource(async (pack) => readNotoTtf(pack));
+
+// Compress asks pdf.js whether an encrypted PDF opens without a password. The
+// browser build needs a worker URL only the bundler produces and refuses to run
+// under Node; the legacy build is the same parser and the same decryption, with
+// a fake worker that runs in-process. Registered globally for the same reason
+// as the font seam: a runner test that forgets it would read every encrypted
+// file as "unreadable" — a confusing red for a correct change.
+const requireFromSetup = createRequire(import.meta.url);
+setPdfjsForAccessSource(
+  () =>
+    import(
+      /* @vite-ignore */ pathToFileURL(
+        requireFromSetup.resolve("pdfjs-dist/legacy/build/pdf.mjs"),
+      ).href
+    ) as Promise<PdfjsForAccess>,
+);
 
 // Unmount anything rendered by a test and reset the DOM after every test.
 //

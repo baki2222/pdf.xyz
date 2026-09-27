@@ -107,6 +107,13 @@ export interface FillFormsResult {
   appliedCount: number;
   /** Whether the output was flattened (only ever true when requested). */
   flattened: boolean;
+  /**
+   * Whether the caller asked for a flatten. Carried with the result because
+   * `flattened: false` alone reads the same for "not asked" and "asked, and
+   * pdf-lib could not do it" — and the second leaves a form the user believes
+   * is locked fully editable. `flattenRequested && !flattened` is that case.
+   */
+  flattenRequested: boolean;
 }
 
 // The two pdf-lib-free helpers the UI renders with live in ./forms-meta (so the
@@ -415,24 +422,30 @@ export async function applyFormValues(
   stampProducer(doc);
   const filledBytes = await doc.save();
   const appliedCount = outcomes.filter((o) => o.status === "applied").length;
+  const flattenRequested = options.flatten === true;
+  const unflattened = {
+    bytes: filledBytes,
+    outcomes,
+    appliedCount,
+    flattened: false,
+    flattenRequested,
+  };
 
   // Flatten from a saved snapshot so a flatten failure can always fall back to
-  // the valid, filled document instead of a half-mutated one.
-  if (options.flatten && fields.length > 0) {
+  // the valid, filled document instead of a half-mutated one. The fallback is
+  // NOT silent: `flattenRequested` stays true, and the runner says the fields
+  // are still editable (pdf-lib throws here on real forms, e.g. a widget that
+  // no page lists).
+  if (flattenRequested && fields.length > 0) {
     try {
       const flatDoc = await loadPdf(filledBytes);
       flatDoc.getForm().flatten();
       stampProducer(flatDoc);
-      return {
-        bytes: await flatDoc.save(),
-        outcomes,
-        appliedCount,
-        flattened: true,
-      };
+      return { ...unflattened, bytes: await flatDoc.save(), flattened: true };
     } catch {
-      return { bytes: filledBytes, outcomes, appliedCount, flattened: false };
+      return unflattened;
     }
   }
 
-  return { bytes: filledBytes, outcomes, appliedCount, flattened: false };
+  return unflattened;
 }

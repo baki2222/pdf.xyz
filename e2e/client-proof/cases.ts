@@ -1271,7 +1271,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "create-forms":
     "Only the default single text-field draft. Adding several fields, other field types, and dragged placement are not exercised.",
   "crop-pdf":
-    "Only the default uniform margins applied to every page. Per-page selection and the drag-to-crop preview are not exercised.",
+    "Only the default uniform margins applied to every page of an unrotated PDF. Per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
   "compare-pdf":
     "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Comparison of scanned/image-only PDFs (the 'no comparable text' branch) is not exercised.",
   "compress-pdf":

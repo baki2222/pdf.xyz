@@ -14,15 +14,34 @@ import type {
  * bindings), which keeps these operations fully in-browser and privacy-safe.
  */
 
+/**
+ * Why the loader refused a file, for callers that must tell the reasons apart.
+ * `encrypted` means the file has an /Encrypt dictionary — which is NOT the same
+ * as "needs a password": most encrypted PDFs open with no password at all and
+ * only restrict editing. A caller that needs to know which asks a reader
+ * (`classifyPdfAccess` in `./encryption`); the message alone cannot say.
+ */
+export type PdfEngineErrorKind = "encrypted" | "unreadable";
+
 /** Thrown for problems reading or writing PDF bytes, with user-facing copy. */
 export class PdfEngineError extends Error {
-  constructor(message: string) {
+  readonly kind: PdfEngineErrorKind | undefined;
+  constructor(message: string, kind?: PdfEngineErrorKind) {
     super(message);
     this.name = "PdfEngineError";
+    this.kind = kind;
   }
 }
 
 const PRODUCER = "pdf.xyz";
+
+/**
+ * The loader's copy for bytes that are not a readable PDF. Exported so a caller
+ * that finds the damage AFTER a successful load (a trailer with no catalog loads
+ * fine and throws on the first page walk) reports it in the same words.
+ */
+export const UNREADABLE_PDF_MESSAGE =
+  "This file couldn't be read as a PDF — it may be corrupted or not a PDF.";
 
 /**
  * Load PDF bytes into a pdf-lib document, translating pdf-lib's raw failures
@@ -34,15 +53,17 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(bytes);
   } catch (err) {
+    // pdf-lib's EncryptedPDFError is an ES5-compiled subclass of Error: its
+    // `name` is "Error" and `instanceof` does not hold, so its message is the
+    // only thing that identifies it.
     const message = err instanceof Error ? err.message : "";
     if (/encrypt/i.test(message)) {
       throw new PdfEngineError(
         "This PDF is password-protected. Unlock it first, then try again.",
+        "encrypted",
       );
     }
-    throw new PdfEngineError(
-      "This file couldn't be read as a PDF — it may be corrupted or not a PDF.",
-    );
+    throw new PdfEngineError(UNREADABLE_PDF_MESSAGE, "unreadable");
   }
 }
 
