@@ -70,9 +70,11 @@ describe("the guides catalogue is structurally sound", () => {
     expect(slugs.length, `guides: ${slugs.join(", ")}`).toBeGreaterThanOrEqual(
       8,
     );
-    // The route-indexability bounds tolerate 17 guide routes today; a count
+    // The route-indexability bounds tolerate 25 guide routes today; a count
     // near that is the signal to revisit both files together, not to creep.
-    expect(slugs.length).toBeLessThanOrEqual(16);
+    // Revisited 2026-09-27: L04 and L05 each added five guides (16 → 21), so
+    // both bounds moved together, keeping this one a guide under that one.
+    expect(slugs.length).toBeLessThanOrEqual(24);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,

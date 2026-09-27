@@ -191,7 +191,10 @@ describe("routes, the sitemap, and the robots directives agree", () => {
     // has to clear the catalogue. A walk that found the static pages but silently
     // failed to expand the dynamic one lands inside the range above.
     expect(routes.length).toBeGreaterThanOrEqual(tools.length + 5);
-    expect(routes.length).toBeLessThan(tools.length + 25);
+    // Raised from +25 on 2026-09-27, with guides/catalog.test.ts's guide
+    // ceiling, when two lanes each added five guides (21 guide routes). It
+    // tolerates 25; a count near that is the signal to revisit both.
+    expect(routes.length).toBeLessThan(tools.length + 33);
     expect(entries.length).toBeGreaterThanOrEqual(tools.length);
   });
 
