@@ -170,9 +170,11 @@ describe("a hybrid tool's copy says the upload is a step the user starts", () =>
         .get(tool.slug)!
         .faq.find((e) => /uploaded/.test(e.question))!.answer;
       expect(pageAnswer).toContain(HYBRID_WORKER_STEP);
+      // L07 (6eb730f) made guidesForTool return { guide, role }; "its own
+      // guide" is the one whose primary tool this is — role "primary".
       const guideAnswers = guidesForTool(tool.slug)
-        .filter((g) => g.tools[0] === tool.slug)
-        .flatMap((g) => g.faq)
+        .filter(({ role }) => role === "primary")
+        .flatMap(({ guide }) => guide.faq)
         .filter((e) => /\bupload(?:ed)?\b/.test(e.question));
       expect(
         guideAnswers.length,
