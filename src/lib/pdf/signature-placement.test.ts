@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument, StandardFonts, degrees, type PDFFont } from "pdf-lib";
+import {
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  StandardFonts,
+  degrees,
+  type PDFFont,
+} from "pdf-lib";
 import { readAsViewer, type Box } from "@/tests/pdf-viewer-read";
 import { encodePng } from "./extract-images";
 import { signPdf, type SignatureInput } from "./signature";
@@ -61,6 +68,36 @@ function solidPng(width: number, height: number): Uint8Array {
   return encodePng(width, height, "rgb8", samples);
 }
 const WIDE_PNG = solidPng(4, 2);
+
+/**
+ * A real 4 x 2 baseline JPEG (Pillow, quality 90) — the shape an upload takes
+ * when "Remove paper background" is off. Same aspect as {@link WIDE_PNG}.
+ */
+const WIDE_JPG = Uint8Array.from(
+  Buffer.from(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAACAAQDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD4UooooA//2Q==",
+    "base64",
+  ),
+);
+
+/** Every image XObject in `bytes`, as its /Filter and raw stream contents. */
+async function imageStreams(
+  bytes: Uint8Array,
+): Promise<{ filter: string; contents: Uint8Array }[]> {
+  const doc = await PDFDocument.load(bytes);
+  return doc.context
+    .enumerateIndirectObjects()
+    .map(([, obj]) => obj)
+    .filter(
+      (obj): obj is PDFRawStream =>
+        obj instanceof PDFRawStream &&
+        obj.dict.get(PDFName.of("Subtype")) === PDFName.of("Image"),
+    )
+    .map((obj) => ({
+      filter: String(obj.dict.get(PDFName.of("Filter"))),
+      contents: obj.contents,
+    }));
+}
 
 /** Where an anchor says a box of `w`×`h` must sit on a `W`×`H` viewer page. */
 function expectedBox(
@@ -136,6 +173,7 @@ describe("Sign PDF places the signature where the reader sees it", () => {
           // pass every placement assertion below vacuously.
           expect(read.imageFrames.length, position).toBe(1);
           const img = read.imageFrames[0]!;
+          expect(img.decoded, `${position} decoded`).toBe(true);
           expect(img.upright, `${position} upright`).toBe(true);
           expectBox(
             img.box,
@@ -188,6 +226,31 @@ describe("Sign PDF places the signature where the reader sees it", () => {
       });
     }
   }
+
+  it("a JPEG signature (paper kept) is embedded as that JPEG and placed where the reader sees it", async () => {
+    const base = await letterPage({ rotate: 90, crop: [72, 72, 468, 648] });
+    const out = await signPdf(
+      base,
+      { kind: "image", bytes: WIDE_JPG, format: "jpg" },
+      { pageIndex: 0, position: "bottom-right", width: 200, margin: MARGIN },
+    );
+    // Embedded as the JPEG it was handed — not re-encoded, not as a PNG.
+    const streams = await imageStreams(out);
+    expect(streams.map((st) => st.filter)).toEqual(["/DCTDecode"]);
+    expect(
+      Buffer.from(streams[0]!.contents).equals(Buffer.from(WIDE_JPG)),
+    ).toBe(true);
+    // And a reader decodes it, upright, at the anchored box.
+    const read = await readAsViewer(out);
+    expect(read.imageFrames.map((f) => [f.decoded, f.upright])).toEqual([
+      [true, true],
+    ]);
+    expectBox(
+      read.imageFrames[0]!.box,
+      expectedBox("bottom-right", read.width, read.height, 200, 100),
+      "jpeg",
+    );
+  });
 
   it("shrinks a tall image to fit the visible page, keeping its shape", async () => {
     // 1:4 portrait image at 400 pt wide would be 1600 pt tall; the page the

@@ -89,11 +89,29 @@ describe("countDigitalSignatures", () => {
     ).toBe(1);
   });
 
+  it("counts a signature whose /ByteRange has more than two ranges", () => {
+    // ISO 32000-1 12.8.1: ByteRange is "an array of pairs of integers". Two
+    // pairs is what every mainstream signer writes; more is legal, and such a
+    // signature is invalidated by a rewrite just the same.
+    const pairs = [
+      "%PDF-1.7\n1 0 obj << /Type /Sig /ByteRange [0 100 200 50 300 40] >> endobj",
+      "%PDF-1.7\n1 0 obj << /Type /Sig /ByteRange [ 0 1000000000 1000000100 1000000000 2000000100 1000000000 3000000100 1000000000 ] >> endobj",
+    ];
+    for (const d of pairs) {
+      expect(countDigitalSignatures(new Uint8Array(Buffer.from(d))), d).toBe(1);
+    }
+  });
+
   it("does not count a placeholder written before signing, or a longer name", () => {
     const decoys = [
       "%PDF-1.7\n1 0 obj << /ByteRange [0 /********** /********** /**********] >> endobj",
       "%PDF-1.7\n1 0 obj << /ByteRangeX [0 10 20 30] >> endobj",
       "%PDF-1.7\n1 0 obj << /ByteRange [0 10 20] >> endobj",
+      // Not pairs, or fewer than two ranges (a signature always excludes its
+      // own /Contents, so it hashes at least two), or a half-patched array.
+      "%PDF-1.7\n1 0 obj << /ByteRange [0 10 20 30 40] >> endobj",
+      "%PDF-1.7\n1 0 obj << /ByteRange [0 10] >> endobj",
+      "%PDF-1.7\n1 0 obj << /ByteRange [0 10 20 30 /**********] >> endobj",
     ];
     for (const d of decoys) {
       expect(countDigitalSignatures(new Uint8Array(Buffer.from(d)))).toBe(0);

@@ -15,6 +15,13 @@
  * SHOULD do comes from the catalog's `outputs` for that slug — the same list
  * the tool page advertises — not from this file.
  *
+ * SCOPE, stated because the title used to claim more: the subjects are the
+ * tools that load ONE file through `useSinglePdf`. Multi-file and batch paths
+ * (Merge, Compress's batch mode, other multi-file runners) also rewrite a
+ * possibly signed input in full, and do NOT warn — a known gap this file does
+ * not cover. `subjects.length < supportedToolSlugs.length` below is that
+ * exclusion, not a pass over them.
+ *
  * The chain is composed end to end: a signed file goes through the Dropzone's
  * real input, the hook's real read and detector, and the notice is read back
  * from the rendered page.
@@ -76,7 +83,7 @@ async function openIn(slug: string, file: File) {
 }
 
 describe("signed-input notice across every single-file tool", () => {
-  it("warns exactly where the tool saves a PDF", async () => {
+  it("warns exactly where a single-file tool saves a PDF", async () => {
     const signed = await signedPdf({ signatures: 2 });
     const plain = await unsignedPdf();
     const subjects: { slug: string; writesPdf: boolean }[] = [];

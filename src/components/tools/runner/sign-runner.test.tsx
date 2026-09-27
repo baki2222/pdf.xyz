@@ -51,6 +51,12 @@ describe("Sign PDF form", () => {
     // Still the same element, only hidden: its pixels (and Clear) survive.
     expect(pad.isConnected).toBe(true);
     expect(pad).not.toBeVisible();
+    // jsdom's toBeVisible reads the `hidden` ATTRIBUTE; a browser applies it
+    // through CSS, where a `display: flex` class on the same element competes
+    // with it. The hidden wrapper carries no display class at all.
+    const hiddenWrapper = pad.closest("[hidden]");
+    expect(hiddenWrapper, "the pad's hidden wrapper").not.toBeNull();
+    expect(hiddenWrapper!.className).not.toMatch(/\b(flex|grid|block)\b/);
 
     source("Draw");
     expect(screen.getByLabelText("Signature drawing area")).toBe(pad);
@@ -98,15 +104,22 @@ class FakeImageData {
   ) {}
 }
 
+/** The photo the NEXT decode will see; a test may swap it between uploads. */
+let photo = { ...PHOTO };
+/** When set, decodes wait here until the test releases them. */
+let held: (() => void)[] | null = null;
+
 class FakeImage {
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  naturalWidth = PHOTO.width;
-  naturalHeight = PHOTO.height;
-  width = PHOTO.width;
-  height = PHOTO.height;
+  naturalWidth = photo.width;
+  naturalHeight = photo.height;
+  width = photo.width;
+  height = photo.height;
   set src(_: string) {
-    queueMicrotask(() => this.onload?.());
+    const load = () => this.onload?.();
+    if (held) held.push(load);
+    else queueMicrotask(load);
   }
 }
 
@@ -148,10 +161,82 @@ function stubBrowserImaging() {
   return { decodedAt, encoded };
 }
 
+/** Width / height of what was encoded, for an upload of `p` (see INK_FRAC). */
+const encodedAspect = (p: { width: number; height: number }) => {
+  const scale = 3000 / Math.max(p.width, p.height);
+  const w = p.width * scale * INK_FRAC.width;
+  const h = p.height * scale * INK_FRAC.height;
+  const pad = Math.max(w, h) * 0.03;
+  return (w + 2 * pad) / (h + 2 * pad);
+};
+
+const uploadSignature = (name: string) => {
+  const input = document.querySelector<HTMLInputElement>(
+    'input[type="file"][accept*="image"]',
+  );
+  expect(input, "the signature image input").not.toBeNull();
+  fireEvent.change(input!, {
+    target: {
+      files: [
+        new File([new Uint8Array([0xff, 0xd8])], name, { type: "image/jpeg" }),
+      ],
+    },
+  });
+};
+
 describe("Sign PDF, uploading a phone photo of a signature", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    photo = { ...PHOTO };
+    held = null;
+  });
+
+  it("a second upload replaces the first — even if the paper toggle moves while it decodes", async () => {
+    await openSignRunner();
+    const { encoded } = stubBrowserImaging();
+    source("Upload");
+    uploadSignature("first.jpg");
+    const keep = await screen.findByRole("checkbox", {
+      name: "Remove paper background",
+    });
+    await vi.waitFor(() => expect(encoded.length).toBe(1));
+    expect(encoded[0]!.width / encoded[0]!.height).toBeCloseTo(
+      encodedAspect(PHOTO),
+      1,
+    );
+    // RunButton blocks with aria-disabled (it stays focusable), not `disabled`.
+    const signButton = screen.getByRole("button", { name: /Sign PDF/ });
+    const blocked = () => signButton.getAttribute("aria-disabled") === "true";
+    expect(blocked()).toBe(false);
+
+    // A different photo, whose decode the test holds open.
+    const second = { width: 4000, height: 4000 };
+    expect(encodedAspect(second)).not.toBeCloseTo(encodedAspect(PHOTO), 1);
+    photo = second;
+    held = [];
+    uploadSignature("second.jpg");
+
+    // While it decodes, the FIRST signature must not be the one Run places.
+    await vi.waitFor(() => expect(held!.length).toBe(1));
+    expect(blocked(), "Run would place the previous file").toBe(true);
+
+    // The person keeps the paper while the new file is still decoding.
+    fireEvent.click(keep);
+    const release = held!;
+    held = null;
+    release.forEach((load) => load());
+
+    // The second file lands, honouring the toggle; the first is not re-encoded.
+    await vi.waitFor(() => expect(blocked()).toBe(false));
+    expect(
+      encoded.slice(1).map((e) => ({
+        type: e.type,
+        aspect: Number((e.width / e.height).toFixed(1)),
+      })),
+    ).toEqual([
+      { type: "image/jpeg", aspect: Number(encodedAspect(second).toFixed(1)) },
+    ]);
   });
 
   it("decodes at a bounded size, crops to the ink, and keys out the paper — or keeps it as a JPEG", async () => {

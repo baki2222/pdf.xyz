@@ -14,6 +14,10 @@
  * fix to the reader reaches every placement proof at once.
  */
 
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
+
 /** [x0, y0, x1, y1] in the viewer's frame. */
 export type Box = [number, number, number, number];
 
@@ -37,6 +41,13 @@ export interface ViewerImage {
    * viewer +y — it is displayed the way it was drawn, not turned or mirrored.
    */
   upright: boolean;
+  /**
+   * pdfjs produced pixels for it. pdfjs emits the paint op for an image it
+   * cannot decode and then resolves the image to `null` — a viewer shows
+   * nothing there. Measured: a JPEG2000 image opened without a reachable
+   * `wasmUrl` keeps its paint op and resolves to null.
+   */
+  decoded: boolean;
 }
 
 export interface ViewerRead {
@@ -45,8 +56,9 @@ export interface ViewerRead {
   texts: ViewerText[];
   /** Path bounding boxes in the viewer's frame (bottom-left origin, y up). */
   paths: Box[];
+  /** Images a viewer actually shows: painted AND decoded. */
   images: Box[];
-  /** The same images as {@link images}, with their orientation. */
+  /** Every painted image, decoded or not, with its orientation. */
   imageFrames: ViewerImage[];
 }
 
@@ -73,14 +85,51 @@ function bboxOf(points: [number, number][]): Box {
 
 const EPS = 1e-6;
 
+/** A pdfjs image object that carries pixels (raw samples or a bitmap). */
+const hasPixels = (img: unknown): boolean => {
+  if (img === null || typeof img !== "object") return false;
+  const { data, bitmap } = img as {
+    data?: ArrayLike<number>;
+    bitmap?: unknown;
+  };
+  return (data !== undefined && data.length > 0) || bitmap !== undefined;
+};
+
+/**
+ * Where THIS process finds pdfjs's decoders and character maps.
+ *
+ * `PDFJS_DOCUMENT_DEFAULTS` is spread first, so this reader inherits every
+ * option the engines set — the reader that proves placement must open a
+ * document the way the engines do, and `wasm-assets.test.ts` refuses any
+ * `getDocument` that does not. But its `wasmUrl` and `cMapUrl` are
+ * same-origin HTTP paths served by the Next app; in the Node test process
+ * pdfjs hands `${url}${file}` to `fs.readFile`, where they resolve to nothing
+ * and a JPEG2000 or JBIG2 image silently drops out of {@link ViewerRead.images}.
+ *
+ * So both are re-pointed at the installed package — the files
+ * `scripts/copy-pdfjs-wasm.ts` copies into `public/`. They are plain
+ * forward-slash FILESYSTEM paths, not `file://` URLs: `fs.readFile` treats a
+ * URL passed as a string as a relative path and fails (ENOENT, measured), and
+ * pdfjs requires the trailing slash. The positive control is the JPEG2000
+ * case in `pdf-viewer-read.test.ts`.
+ */
+const nodeAssetOptions = (): { wasmUrl: string; cMapUrl: string } => {
+  const require = createRequire(join(process.cwd(), "package.json"));
+  const dir = dirname(require.resolve("pdfjs-dist/package.json"))
+    .split("\\")
+    .join("/");
+  return { wasmUrl: `${dir}/wasm/`, cMapUrl: `${dir}/cmaps/` };
+};
+
 /** Page 1 as pdfjs presents it: viewer-frame text, path and image positions. */
 export async function readAsViewer(bytes: Uint8Array): Promise<ViewerRead> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = pdfjs.getDocument({
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...nodeAssetOptions(),
     data: bytes.slice(),
     useWorkerFetch: false,
     disableFontFace: true,
-    verbosity: 0,
   });
   try {
     const doc = await task.promise;
@@ -116,6 +165,14 @@ export async function readAsViewer(bytes: Uint8Array): Promise<ViewerRead> {
     const list = await page.getOperatorList();
     const paths: Box[] = [];
     const imageFrames: ViewerImage[] = [];
+    const decodes: Promise<boolean>[] = [];
+    // An XObject's pixels arrive by object id (page-local, or `g_…` when pdfjs
+    // shares them document-wide); an inline image carries them in the op.
+    const decodedById = (id: string): Promise<boolean> =>
+      new Promise((resolve) => {
+        const store = id.startsWith("g_") ? page.commonObjs : page.objs;
+        store.get(id, (img: unknown) => resolve(hasPixels(img)));
+      });
     let ctm: Matrix = [1, 0, 0, 1, 0, 0];
     const stack: Matrix[] = [];
     list.fnArray.forEach((fn, i) => {
@@ -153,15 +210,24 @@ export async function readAsViewer(bytes: Uint8Array): Promise<ViewerRead> {
             Math.abs(ex[1] - o[1]) < EPS &&
             ey[1] > o[1] &&
             Math.abs(ey[0] - o[0]) < EPS,
+          decoded: false,
         });
+        decodes.push(
+          typeof args[0] === "string"
+            ? decodedById(args[0])
+            : Promise.resolve(hasPixels(args[0])),
+        );
       }
+    });
+    (await Promise.all(decodes)).forEach((ok, k) => {
+      imageFrames[k]!.decoded = ok;
     });
     return {
       width: vp.width,
       height: vp.height,
       texts,
       paths,
-      images: imageFrames.map((f) => f.box),
+      images: imageFrames.filter((f) => f.decoded).map((f) => f.box),
       imageFrames,
     };
   } finally {

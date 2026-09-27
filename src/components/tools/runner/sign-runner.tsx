@@ -69,6 +69,9 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   // an earlier file or toggle state could overwrite the current one.
   const prepareSeq = useRef(0);
   const [removeBackground, setRemoveBackground] = useState(true);
+  // Read by an upload when its decode finishes, so a toggle made while the
+  // file was still decoding is honoured rather than the value at drop time.
+  const removeBackgroundRef = useRef(removeBackground);
   const [uploaded, setUploaded] = useState<ImageSignature | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -120,12 +123,17 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     if (!file) return;
     const seq = ++prepareSeq.current;
     setUploadError(null);
+    // The previous file stops being the signature the moment a new one is
+    // dropped: Run must not place it while this one decodes, and a toggle in
+    // the meantime must not re-prepare it (which would supersede this upload).
+    setUploaded(null);
+    setUploadPixels(null);
     try {
       const pixels = await decodeImageFile(file);
       if (seq !== prepareSeq.current) return;
       setUploadPixels(pixels);
       setUploadIsPhoto(isOpaque(pixels));
-      await prepareUpload(seq, pixels, removeBackground);
+      await prepareUpload(seq, pixels, removeBackgroundRef.current);
     } catch (err) {
       if (seq !== prepareSeq.current) return;
       setUploadPixels(null);
@@ -136,6 +144,7 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   };
 
   const onRemoveBackground = (value: boolean) => {
+    removeBackgroundRef.current = value;
     setRemoveBackground(value);
     if (uploadPixels) {
       void prepareUpload(++prepareSeq.current, uploadPixels, value);
@@ -212,8 +221,12 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 
         {/* Kept mounted while another source is shown, so switching away
             and back keeps the drawing — and its Clear button — in step with
-            the signature that would be placed. */}
-        <div className="flex flex-col gap-3" hidden={source !== "draw"}>
+            the signature that would be placed. No `flex` while hidden, so
+            hiding does not rest on preflight's [hidden] rule beating it. */}
+        <div
+          className={source === "draw" ? "flex flex-col gap-3" : undefined}
+          hidden={source !== "draw"}
+        >
           <SignaturePad onChange={setDrawn} />
           {drawnUrl && <SignaturePreview url={drawnUrl} />}
         </div>

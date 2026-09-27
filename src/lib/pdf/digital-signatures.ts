@@ -11,8 +11,11 @@
  * counterparty signature no longer verifies. The runner warns before Run; this
  * is what it asks.
  *
- * HOW. A byte scan for `/ByteRange [a b c d]` — four integers, the shape only
- * a signature dictionary that has actually been signed carries:
+ * HOW. A byte scan for `/ByteRange [a b c d …]` — two or more PAIRS of
+ * integers (ISO 32000-1 12.8.1: "an array of pairs of integers"; every
+ * mainstream signer writes exactly two, and a signature always excludes its
+ * own `/Contents`, so it hashes at least two ranges). That is the shape only a
+ * signature dictionary that has actually been signed carries:
  *
  *  - An unsigned signature FIELD (a `/FT /Sig` box waiting to be signed) has no
  *    value and so no signature dictionary: it is not counted, and nothing about
@@ -21,7 +24,7 @@
  *    `/ByteRange` names byte offsets in the file and its `/Contents` must be
  *    patched in place at one of them, so both are always literal bytes here.
  *  - Placeholders written before signing (`/ByteRange [0 /********** ...]`)
- *    fail the four-integer shape.
+ *    fail the all-integer, even-count shape.
  *
  * Distinct arrays are counted, so a revision that re-writes the same signature
  * dictionary is one signature, not two. No parse, no pdf-lib: this runs on
@@ -32,9 +35,9 @@
 const SLASH = 0x2f;
 const NAME = "ByteRange";
 const NAME_CODES = Array.from(NAME, (c) => c.charCodeAt(0));
-/** Enough for `/ByteRange [` + four 10-digit integers and generous spacing. */
-const WINDOW = 96;
-const ARRAY = /^\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/;
+/** Enough for `/ByteRange [` + eight 10-digit integers and generous spacing. */
+const WINDOW = 192;
+const ARRAY = /^\s*\[\s*(\d+(?:\s+\d+)*)\s*\]/;
 
 export function countDigitalSignatures(bytes: Uint8Array): number {
   const seen = new Set<string>();
@@ -44,8 +47,10 @@ export function countDigitalSignatures(bytes: Uint8Array): number {
     if (matchesName(bytes, start)) {
       const after = start + NAME_CODES.length;
       const tail = asciiWindow(bytes, after, WINDOW);
-      const m = ARRAY.exec(tail);
-      if (m) seen.add(`${m[1]} ${m[2]} ${m[3]} ${m[4]}`);
+      const ints = ARRAY.exec(tail)?.[1]?.split(/\s+/);
+      if (ints && ints.length >= 4 && ints.length % 2 === 0) {
+        seen.add(ints.join(" "));
+      }
     }
     at = bytes.indexOf(SLASH, start);
   }
