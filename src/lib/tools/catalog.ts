@@ -1,5 +1,6 @@
 import type { Tool } from "./types";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -25,10 +26,10 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["merge pdf", "combine pdf", "join pdf", "concatenate pdf"],
-    related: ["split-pdf", "organize-pages", "compress-pdf"],
+    related: ["split-pdf", "organize-pages", "page-numbers", "compress-pdf"],
     how: [
       "Add two or more PDF files.",
-      "Drag pages or files into the order you want.",
+      "Drag files, or use each row's move buttons, to set the order you want.",
       "Merge and download your combined PDF.",
     ],
   },
@@ -56,6 +57,7 @@ export const tools: Tool[] = [
   {
     slug: "organize-pages",
     name: "Organize Pages",
+    seoTitle: "Organize PDF Pages — Reorder, Rotate & Delete",
     tagline: "Reorder, rotate, and delete pages visually.",
     description:
       "Rearrange, rotate, duplicate, and delete pages on a visual page board, then export a clean PDF.",
@@ -65,11 +67,12 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["organize pdf", "reorder pages", "rearrange pdf", "sort pages"],
-    related: ["merge-pdf", "remove-pages", "rotate-pdf"],
+    related: ["merge-pdf", "remove-pages", "page-numbers", "rotate-pdf"],
   },
   {
     slug: "extract-pages",
     name: "Extract Pages",
+    seoTitle: "Extract Pages from a PDF",
     tagline: "Pull specific pages into a new PDF.",
     description:
       "Pick pages by clicking thumbnails or typing a range like 1-3, 5, then export them as a brand-new PDF — right in your browser. The file stays on your device.",
@@ -84,6 +87,7 @@ export const tools: Tool[] = [
   {
     slug: "remove-pages",
     name: "Delete Pages",
+    seoTitle: "Delete Pages from a PDF",
     tagline: "Remove unwanted pages in seconds.",
     description:
       "Delete pages by clicking thumbnails or typing a range like 1-3, 5, then download the trimmed PDF — right in your browser. The file stays on your device.",
@@ -112,6 +116,7 @@ export const tools: Tool[] = [
   {
     slug: "extract-images",
     name: "Extract Images",
+    seoTitle: "Extract Images from a PDF",
     tagline: "Save the images embedded in a PDF.",
     description:
       "Pull embedded JPEG and RGB/grayscale images out of a PDF at their original resolution — real image files, not page screenshots. Unsupported formats are skipped.",
@@ -164,7 +169,7 @@ export const tools: Tool[] = [
     accept: ["PDF", "JPG", "PNG"],
     outputs: ["PDF", "TXT"],
     keywords: ["ocr pdf", "searchable pdf", "recognize text", "scan to text"],
-    related: ["pdf-to-text", "compress-pdf", "extract-tables"],
+    related: ["pdf-to-text", "extract-tables", "compare-pdf", "compress-pdf"],
   },
   {
     slug: "repair-pdf",
@@ -182,10 +187,11 @@ export const tools: Tool[] = [
   },
   {
     slug: "optimize-web",
-    name: "Optimize for Web",
+    // The name carries the head term: it is the <title>, the H1 and the card.
+    name: "Optimize PDF for Web",
     tagline: "Fast-loading, linearized PDFs.",
     description:
-      "Linearize a PDF for fast web viewing with qpdf on a secure worker — the first page can render while the rest still downloads, and the input is deleted after the job.",
+      "Linearize a PDF for Fast Web View, so its first page can show while the rest downloads — not compression. Runs on a worker that deletes the input after the job.",
     category: "optimize",
     icon: "speed",
     processing: "server",
@@ -199,7 +205,7 @@ export const tools: Tool[] = [
     name: "Grayscale PDF",
     tagline: "Convert to black & white to save ink.",
     description:
-      "Render each page to grayscale and rebuild a print-friendly PDF. This flattens selectable text and vectors into page images.",
+      "Convert a PDF to grayscale (black and white) for printing, right in your browser. Pages become images, so text is no longer selectable.",
     category: "optimize",
     icon: "grayscale",
     processing: "client",
@@ -213,9 +219,12 @@ export const tools: Tool[] = [
   {
     slug: "word-to-pdf",
     name: "Word to PDF",
-    tagline: "DOCX and DOC into pixel-perfect PDF.",
+    tagline: "DOCX and DOC into a shareable PDF.",
     description:
-      "Convert Microsoft Word documents to PDF while preserving layout, fonts, and formatting.",
+      // LibreOffice lays the document out, not Word, and the worker image
+      // installs no Word-metric font packages — claims-vs-capability.test.ts
+      // bans fidelity promises while its Dockerfile probe finds none.
+      "Convert Word documents to PDF, rendered by LibreOffice on a secure worker that deletes the input after the job. Fonts the worker lacks are substituted.",
     category: "convert-to",
     icon: "word",
     processing: "server",
@@ -230,7 +239,7 @@ export const tools: Tool[] = [
     name: "Excel to PDF",
     tagline: "Spreadsheets into clean PDF tables.",
     description:
-      "Convert Excel workbooks to PDF with faithful table layout and print areas — rendered by LibreOffice on a secure worker that deletes the input when the job finishes.",
+      "Convert Excel workbooks and CSV files to PDF — laid out by LibreOffice on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "excel",
     processing: "server",
@@ -258,7 +267,11 @@ export const tools: Tool[] = [
     name: "JPG to PDF",
     tagline: "Images into a single tidy PDF.",
     description:
-      "Combine JPG images into a PDF with control over orientation, margins, and page size.",
+      // The layout is FIXED by the engine (pdf/image-to-pdf.ts): one US Letter
+      // portrait page per image, a 36pt margin, no runner setting to change
+      // it. claims-vs-capability.test.ts decodes the output PDF and checks
+      // every paper size and margin this copy names.
+      "Combine JPG images into one PDF in your browser — each image centered on its own US Letter portrait page with a half-inch margin. The file stays on your device.",
     category: "convert-to",
     icon: "jpg",
     processing: "client",
@@ -267,6 +280,15 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["jpg to pdf", "jpeg to pdf", "image to pdf", "photos to pdf"],
     related: ["png-to-pdf", "pdf-to-jpg", "merge-pdf"],
+    // Authored because the runner takes MANY images, and the default steps
+    // say "pick your file" (tool-page-content.test.ts discovers multi-file
+    // runners and requires their own steps).
+    how: [
+      "Pick one or more JPG images — they stay on your device.",
+      "Use Move up and Move down to set the page order.",
+      "Select Create PDF — each image is centered on its own US Letter portrait page.",
+      "Download the PDF.",
+    ],
   },
   {
     slug: "png-to-pdf",
@@ -280,13 +302,19 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],
+    how: [
+      "Pick one or more PNG images — they stay on your device.",
+      "Use Move up and Move down to set the page order.",
+      "Select Create PDF — each image is placed on its own page.",
+      "Download the PDF.",
+    ],
   },
   {
     slug: "html-to-pdf",
     name: "HTML to PDF",
     tagline: "Render HTML files as PDF.",
     description:
-      "Convert HTML files or snippets into PDF with a real Chromium rendering engine on a secure worker that deletes the input when the job finishes.",
+      "Convert an HTML file into PDF with a real Chromium rendering engine on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "html",
     processing: "server",
@@ -294,6 +322,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["html to pdf", "render html", "web to pdf", "markup to pdf"],
     related: ["webpage-to-pdf", "markdown-to-pdf", "word-to-pdf"],
+    how: [
+      "Upload one .html or .htm file over an encrypted connection.",
+      "Select Render PDF — Chromium renders it on a secure worker that deletes the input when the job finishes.",
+      `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
   },
   {
     slug: "webpage-to-pdf",
@@ -308,6 +341,11 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["webpage to pdf", "url to pdf", "website to pdf", "save page"],
     related: ["html-to-pdf", "markdown-to-pdf", "compress-pdf"],
+    how: [
+      "Paste a public http(s) URL.",
+      "Select Render PDF — Chromium captures the page on a secure worker.",
+      `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
   },
   {
     slug: "markdown-to-pdf",
@@ -352,9 +390,12 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-word",
     name: "PDF to Word",
-    tagline: "Editable DOCX from any PDF.",
+    tagline: "A PDF's text as an editable DOCX.",
     description:
-      "Convert PDFs into editable Word documents while preserving layout and text flow.",
+      // The engine writes one bare <w:p> per extracted line — no styles,
+      // images, tables or columns (workers/pdf-office-export/engine.ts).
+      // claims-vs-capability.test.ts decodes a real export against this copy.
+      "Convert a PDF’s selectable text into an editable Word DOCX, one paragraph per line. Images, fonts, tables and page layout are not recreated.",
     category: "convert-from",
     icon: "word",
     processing: "server",
@@ -368,30 +409,36 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-excel",
     name: "PDF to Excel",
-    tagline: "Extract tables into spreadsheets.",
+    tagline: "Selectable PDF text into an XLSX sheet.",
     description:
-      "Convert tables inside PDFs into editable Excel spreadsheets with rows and columns intact.",
+      // No table detection: every separator named here is one the engine
+      // splits on, and every one it splits on is named — checked on a decoded
+      // XLSX by claims-vs-capability.test.ts.
+      "Export a PDF’s selectable text to an XLSX sheet: one row per line, cells split at tabs, wide gaps and commas. Runs on a worker that deletes the input after the job.",
     category: "convert-from",
     icon: "excel",
     processing: "server",
     accept: ["PDF"],
     outputs: ["XLSX"],
     keywords: ["pdf to excel", "pdf to xlsx", "table to excel", "convert pdf"],
-    related: ["excel-to-pdf", "extract-tables", "pdf-to-word"],
+    related: ["extract-tables", "ocr-pdf", "excel-to-pdf", "pdf-to-word"],
   },
   {
     slug: "pdf-to-powerpoint",
     name: "PDF to PowerPoint",
-    tagline: "Turn PDFs into editable slides.",
+    tagline: "Each PDF page's text on its own slide.",
     description:
-      "Convert each PDF page into an editable PowerPoint slide, rebuilt from the page’s selectable text — on a secure worker that deletes the input when the job finishes.",
+      // Each slide is ONE unpositioned text box — no pictures, no layout.
+      // claims-vs-capability.test.ts decodes the slides and requires the
+      // "text only" qualifier for as long as that holds.
+      "Put each PDF page’s selectable text on its own editable PowerPoint slide. Text only: images, charts and page layout are not carried over.",
     category: "convert-from",
     icon: "powerpoint",
     processing: "server",
     accept: ["PDF"],
     outputs: ["PPTX"],
     keywords: ["pdf to powerpoint", "pdf to pptx", "pdf to slides", "convert"],
-    related: ["powerpoint-to-pdf", "pdf-to-word", "pdf-to-jpg"],
+    related: ["powerpoint-to-pdf", "ocr-pdf", "pdf-to-word", "pdf-to-jpg"],
   },
   {
     slug: "pdf-to-jpg",
@@ -413,7 +460,9 @@ export const tools: Tool[] = [
     name: "PDF to PNG",
     tagline: "Export pages as lossless PNGs.",
     description:
-      "Render PDF pages as crisp, lossless PNG images with a transparent or white background.",
+      // The runner passes no background, so the rasterizer paints white;
+      // claims-vs-capability.test.ts goes red the day that changes.
+      "Render PDF pages as crisp, lossless PNG images on a white background — right in your browser, so the file stays on your device.",
     category: "convert-from",
     icon: "png",
     processing: "client",
@@ -454,25 +503,38 @@ export const tools: Tool[] = [
       "extract markdown",
       "selectable text",
     ],
-    related: ["markdown-to-pdf", "pdf-to-text", "extract-tables"],
+    related: ["markdown-to-pdf", "ocr-pdf", "extract-tables", "pdf-to-text"],
+    how: [
+      "Pick your PDF — it stays on your device.",
+      "Select Create Markdown to convert its selectable text in your browser.",
+      "Preview the Markdown on the page.",
+      "Download the .md file.",
+    ],
   },
   {
     slug: "pdf-to-text",
     name: "PDF to Text",
-    tagline: "Grab plain text from any PDF.",
+    tagline: "Extract selectable text from a PDF to .txt.",
     description:
-      "Extract the raw text content of a PDF as a plain .txt file, right in your browser.",
+      "Extract a PDF’s selectable text as a plain .txt file, right in your browser — the file stays on your device. Scanned PDFs need OCR first.",
     category: "convert-from",
     icon: "align",
     processing: "client",
     accept: ["PDF"],
     outputs: ["TXT"],
     keywords: ["pdf to text", "extract text", "pdf to txt", "copy text"],
-    related: ["ocr-pdf", "pdf-to-markdown", "pdf-to-word"],
+    related: ["ocr-pdf", "compare-pdf", "pdf-to-markdown", "pdf-to-word"],
+    how: [
+      "Pick your PDF — it stays on your device.",
+      "Select Extract text.",
+      "Preview the extracted text on the page.",
+      "Download it as a .txt file.",
+    ],
   },
   {
     slug: "extract-tables",
     name: "Extract Tables",
+    seoTitle: "Extract Tables from PDF to CSV & Excel",
     tagline: "Detected tables into CSV/Excel.",
     description:
       "Detect aligned tables inside a PDF's selectable text and export them to clean CSV files plus a combined Excel workbook. Scanned PDFs need OCR first.",
@@ -495,6 +557,7 @@ export const tools: Tool[] = [
   {
     slug: "edit-pdf",
     name: "Edit PDF",
+    seoTitle: "Edit PDF — Add Text, Images & Shapes",
     tagline: "Add text, images, and shapes.",
     description:
       "Add new text, images, boxes, and lines to a PDF, then export a flattened copy — placed by coordinates in your browser. It doesn't rewrite the file's existing text.",
@@ -511,7 +574,13 @@ export const tools: Tool[] = [
       "add text to pdf",
       "insert image in pdf",
     ],
-    related: ["annotate-pdf", "sign-pdf", "watermark-pdf"],
+    related: [
+      "pdf-to-word",
+      "redact-pdf",
+      "annotate-pdf",
+      "sign-pdf",
+      "watermark-pdf",
+    ],
     how: [
       "Open your PDF — its pages are preserved exactly.",
       "Add text, images, boxes, or lines by page and position.",
@@ -540,6 +609,7 @@ export const tools: Tool[] = [
   {
     slug: "page-numbers",
     name: "Add Page Numbers",
+    seoTitle: "Add Page Numbers to a PDF",
     tagline: "Insert page numbers your way.",
     description:
       // Count-free deliberately: the runner ships four presets AND a free-form
@@ -551,21 +621,25 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["page numbers", "number pages", "pagination", "bates"],
-    related: ["header-footer", "watermark-pdf", "edit-pdf"],
+    related: ["header-footer", "overlay-pdf", "watermark-pdf", "edit-pdf"],
   },
   {
     slug: "watermark-pdf",
     name: "Add Watermark",
-    tagline: "Stamp text or image watermarks.",
+    seoTitle: "Add a Watermark to a PDF",
+    tagline: "Stamp a text watermark on every page.",
     description:
-      "Overlay a text or image watermark with adjustable opacity, rotation, and tiling.",
+      // Text only, drawn once per page (pdf/watermark.ts): no image input, no
+      // tiling. claims-vs-capability.test.ts reads WatermarkOptions and goes
+      // red the day an image or tile option lands, so the copy moves with it.
+      "Stamp a text watermark on every page of a PDF in your browser — set the text, opacity, angle, size and color. The file never leaves your device.",
     category: "edit",
     icon: "watermark",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["watermark pdf", "stamp pdf", "brand pdf", "confidential"],
-    related: ["overlay-pdf", "page-numbers", "edit-pdf"],
+    related: ["overlay-pdf", "header-footer", "page-numbers", "edit-pdf"],
   },
   {
     slug: "crop-pdf",
@@ -588,31 +662,52 @@ export const tools: Tool[] = [
   },
   {
     slug: "header-footer",
-    name: "Header & Footer",
+    // The name carries the head term: it is the <title>, the H1 and the card.
+    name: "PDF Header & Footer",
     tagline: "Add running headers and footers.",
     description:
-      "Insert consistent headers and footers with dynamic fields like date and page number.",
+      // The runner offers ONE text field per band with a Left/Center/Right
+      // picker (not three slots at once) and the {n}/{total}/{date} buttons;
+      // tool-page-content.test.ts pins the steps to those exports.
+      "Add a header and footer to every page of a PDF in your browser — your own text plus the page number, page count or today's date, aligned left, center or right.",
     category: "edit",
     icon: "headerFooter",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["header footer", "running head", "date stamp", "pdf footer"],
-    related: ["page-numbers", "watermark-pdf", "edit-pdf"],
+    keywords: [
+      "add header and footer to pdf",
+      "pdf footer",
+      "running head",
+      "date stamp",
+    ],
+    related: ["page-numbers", "overlay-pdf", "watermark-pdf", "edit-pdf"],
+    how: [
+      "Open the PDF you want to label — it stays on your device.",
+      "Type your header text, footer text, or both — {n}, {total} and {date} insert the page number, the page count and today's date.",
+      "Choose Left, Center or Right alignment for each.",
+      "Download your PDF.",
+    ],
   },
   {
     slug: "overlay-pdf",
-    name: "Overlay / Stamp",
+    // The name carries the head term: it is the <title>, the H1 and the card.
+    name: "Overlay PDF",
     tagline: "Stamp one PDF on top of another.",
     description:
-      "Overlay a stamp, letterhead, or template PDF on top of every page of another PDF.",
+      "Overlay a letterhead, stamp or template PDF on every page of another PDF, with adjustable scale and opacity — right in your browser. Both files stay on your device.",
     category: "edit",
     icon: "overlay",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["overlay pdf", "stamp pdf", "letterhead", "template overlay"],
-    related: ["watermark-pdf", "merge-pdf", "edit-pdf"],
+    keywords: [
+      "overlay pdf",
+      "add letterhead to pdf",
+      "stamp pdf",
+      "template overlay",
+    ],
+    related: ["watermark-pdf", "header-footer", "merge-pdf", "edit-pdf"],
   },
 
   // ─────────────────────────────── Sign & Forms ───────────────────────────
@@ -640,20 +735,31 @@ export const tools: Tool[] = [
   {
     slug: "request-signatures",
     name: "Request Signatures",
-    tagline: "Collect legally-binding e-signatures.",
+    seoTitle: "Request Signatures — Prepare a PDF to Sign",
+    tagline: "Prepare a PDF for others to sign.",
     description:
-      "Send a document to others, track status, and collect audited e-signatures in order.",
+      // Preparation only: no e-signature provider is wired
+      // (workers/request-signatures/native.ts), so nothing is sent, tracked,
+      // collected or legally bound. claims-vs-capability.test.ts calls the
+      // production deps and goes red the day a delivery provider is wired.
+      "Add a fillable signature field (and an optional date) for each signer, then download a ZIP with the prepared PDF, a signer manifest and an audit trail. You send it.",
     category: "sign",
     icon: "requestSign",
     processing: "server",
     accept: ["PDF"],
     outputs: ["PDF", "JSON", "ZIP"],
-    keywords: ["request signature", "esignature workflow", "sign request"],
+    keywords: ["request signature", "prepare pdf for signing", "sign request"],
     related: ["sign-pdf", "fill-forms", "create-forms"],
+    how: [
+      "Upload the PDF over an encrypted connection.",
+      "Add each signer's name and email, choose the page for their signature fields, and choose whether to add a date field beside each signature.",
+      "Download the ZIP with the prepared PDF, manifest and audit trail, then send the PDF to your signers yourself — pdf.xyz does not email it or track who has signed.",
+    ],
   },
   {
     slug: "fill-forms",
     name: "Fill Forms",
+    seoTitle: "Fill PDF Forms — Text, Checkboxes & Dropdowns",
     tagline: "Complete a PDF's existing form fields.",
     description:
       "Fill a PDF's existing AcroForm fields — text, checkboxes, radio buttons, dropdowns, and lists — right in your browser.",
@@ -674,6 +780,7 @@ export const tools: Tool[] = [
   {
     slug: "create-forms",
     name: "Create Fillable Forms",
+    seoTitle: "Create Fillable PDF Forms",
     tagline: "Turn a PDF into a fillable form.",
     description:
       "Add text fields, checkboxes, dropdowns, radio groups, and lists by position to build a reusable fillable AcroForm PDF — right in your browser.",
@@ -697,16 +804,22 @@ export const tools: Tool[] = [
   {
     slug: "protect-pdf",
     name: "Protect PDF",
+    seoTitle: "Password Protect PDF — AES Encryption",
     tagline: "Encrypt with a password.",
     description:
-      "Add a password and real AES encryption (qpdf) so only people with the password can open your PDF. Encryption runs on an encrypted, auto-deleting secure worker.",
+      "Password-protect a PDF with AES encryption, so only people with the password can open it. Encryption runs on an encrypted, auto-deleting secure worker.",
     category: "security",
     icon: "protect",
     processing: "server",
     badge: "popular",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["protect pdf", "password pdf", "encrypt pdf", "secure pdf"],
+    keywords: [
+      "password protect pdf",
+      "encrypt pdf",
+      "add password to pdf",
+      "protect pdf",
+    ],
     related: ["unlock-pdf", "redact-pdf", "flatten-pdf"],
   },
   {
@@ -720,8 +833,19 @@ export const tools: Tool[] = [
     processing: "server",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["unlock pdf", "remove password", "decrypt pdf", "open pdf"],
+    keywords: [
+      "unlock pdf",
+      "remove password from pdf",
+      "decrypt pdf",
+      "open pdf",
+    ],
     related: ["protect-pdf", "flatten-pdf", "compress-pdf"],
+    how: [
+      "Upload the password-protected PDF over an encrypted connection.",
+      "Type the password that currently opens it.",
+      "The secure worker removes the encryption and deletes the input when the job finishes.",
+      `Download the unlocked copy — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
   },
   {
     slug: "redact-pdf",
@@ -746,9 +870,10 @@ export const tools: Tool[] = [
   {
     slug: "flatten-pdf",
     name: "Flatten PDF",
+    seoTitle: "Flatten PDF Forms — Lock Filled Fields",
     tagline: "Lock fillable form fields into the page.",
     description:
-      "Flatten fillable AcroForm fields into the page so their values become permanent and can't be edited. Other annotations and layers are kept as-is.",
+      "Flatten a filled PDF form in your browser, so its answers become part of the page and can't be edited. Comments and layers are kept as they are.",
     category: "security",
     icon: "flatten",
     processing: "client",
@@ -763,7 +888,7 @@ export const tools: Tool[] = [
     related: ["fill-forms", "redact-pdf", "protect-pdf"],
     how: [
       "Open a PDF with fillable form fields.",
-      "We flatten those AcroForm fields into the page content.",
+      "Select Flatten form fields — each field's current value is drawn into the page.",
       "Download a PDF whose field values can no longer be edited.",
     ],
   },
@@ -780,7 +905,14 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["TXT"],
     keywords: ["compare pdf", "pdf diff", "text difference", "version compare"],
-    related: ["redact-pdf", "annotate-pdf", "pdf-to-text"],
+    related: ["ocr-pdf", "pdf-to-text", "redact-pdf", "annotate-pdf"],
+    // Two files, in an order that matters: compare-pdf.ts reports lines only
+    // in the FIRST as removed and lines only in the SECOND as added.
+    how: [
+      "Pick two PDFs — the first is treated as the original, the second as the revised version. Both stay on your device.",
+      "Select Compare PDFs to compare their page count, file size and selectable text.",
+      "Review the lines marked removed (-) and added (+), then download the comparison report as a .txt file.",
+    ],
   },
 
   // ─────────────────────────────── AI Tools ───────────────────────────────
@@ -840,16 +972,22 @@ export const tools: Tool[] = [
   {
     slug: "ai-extract",
     name: "AI Data Extraction",
-    tagline: "Pull structured fields from documents.",
+    seoTitle: "Extract Data from PDF to JSON with AI",
+    tagline: "Pull structured fields from PDFs.",
     description:
-      "Extract structured fields — invoices, receipts, contracts — into clean JSON with AI.",
+      "Extract fields from PDF invoices, receipts and contracts into clean JSON with AI — read from the PDF's selectable text.",
     category: "ai",
     icon: "aiExtract",
     processing: "ai",
     badge: "ai",
     accept: ["PDF"],
     outputs: ["JSON", "MD", "ZIP"],
-    keywords: ["ai extraction", "extract data", "invoice parsing", "idp"],
-    related: ["extract-tables", "chat-with-pdf", "pdf-to-excel"],
+    keywords: [
+      "extract data from pdf",
+      "pdf to json",
+      "invoice data extraction",
+      "ai extraction",
+    ],
+    related: ["extract-tables", "ocr-pdf", "chat-with-pdf", "pdf-to-excel"],
   },
 ];

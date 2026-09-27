@@ -27,13 +27,15 @@ import {
 } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
 
-const ALIGN_OPTIONS: { value: HAlign; label: string }[] = [
+/** Exported so the tool page steps can be pinned to what the picker offers. */
+export const ALIGN_OPTIONS: { value: HAlign; label: string }[] = [
   { value: "left", label: "Left" },
   { value: "center", label: "Center" },
   { value: "right", label: "Right" },
 ];
 
-const TOKENS = [
+/** The token buttons — exported so the page's Fields fact is pinned to them. */
+export const TOKENS = [
   { token: "{n}", label: "{n}" },
   { token: "{total}", label: "{total}" },
   { token: "{date}", label: "{date}" },
@@ -53,7 +55,7 @@ export function HeaderFooterRunner() {
     <SinglePdfRunner
       hint="One PDF · header & footer applied locally in your browser"
       handoffSlug="header-footer"
-      toolName="Header & Footer"
+      toolName="PDF Header & Footer"
     >
       {(pdf, reset) => <HeaderFooterEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>

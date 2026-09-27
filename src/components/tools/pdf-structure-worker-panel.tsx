@@ -96,7 +96,7 @@ const COPY: Record<
     icon: Zap,
     badge: "Fast-web optimization",
     blurb:
-      "Optimize for Web linearizes the PDF with qpdf so browsers can start rendering before the whole file downloads. The worker produces a real fast-web-view PDF or fails honestly.",
+      "Optimize PDF for Web linearizes the PDF with qpdf so browsers can start rendering before the whole file downloads. The worker produces a real fast-web-view PDF or fails honestly.",
     cta: "Optimize on the worker",
     running: "Optimizing on the worker…",
     done: "Your web-optimized PDF is ready.",

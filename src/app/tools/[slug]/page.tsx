@@ -80,7 +80,8 @@ export async function generateMetadata({
     return buildMetadata({ title: "Tool not found", noIndex: true });
   }
   return buildMetadata({
-    title: tool.name,
+    // The searcher's words when the name lacks them; the H1 stays `name`.
+    title: tool.seoTitle ?? tool.name,
     description: tool.description,
     path: `/tools/${tool.slug}`,
     keywords: tool.keywords,
