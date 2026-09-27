@@ -37,7 +37,13 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["merge pdf", "combine pdf", "join pdf", "concatenate pdf"],
-    related: ["split-pdf", "organize-pages", "page-numbers", "compress-pdf"],
+    related: [
+      "split-pdf",
+      "organize-pages",
+      "unlock-pdf",
+      "page-numbers",
+      "compress-pdf",
+    ],
     how: [
       "Add two or more PDF files.",
       "Drag files, or use each row's move buttons, to set the order you want.",
@@ -621,7 +627,7 @@ export const tools: Tool[] = [
       "table to csv",
       "table to excel",
     ],
-    related: ["pdf-to-excel", "pdf-to-markdown", "ai-extract"],
+    related: ["pdf-to-excel", "ocr-pdf", "ai-extract", "pdf-to-markdown"],
   },
 
   // ─────────────────────────────── Edit & Annotate ────────────────────────
@@ -724,7 +730,7 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["crop pdf", "trim margins", "cut pdf", "resize pages"],
-    related: ["rotate-pdf", "organize-pages", "edit-pdf"],
+    related: ["rotate-pdf", "redact-pdf", "organize-pages", "edit-pdf"],
     how: [
       "Open the PDF you want to crop.",
       "Set the crop margins and choose which pages to apply them to.",
@@ -849,7 +855,7 @@ export const tools: Tool[] = [
       "acroform",
       "form filler",
     ],
-    related: ["create-forms", "sign-pdf", "flatten-pdf"],
+    related: ["create-forms", "edit-pdf", "sign-pdf", "flatten-pdf"],
   },
   {
     slug: "create-forms",
@@ -871,7 +877,7 @@ export const tools: Tool[] = [
       "add fields",
       "acroform",
     ],
-    related: ["fill-forms", "sign-pdf", "edit-pdf"],
+    related: ["fill-forms", "sign-pdf", "request-signatures", "edit-pdf"],
   },
 
   // ─────────────────────────────── Security ───────────────────────────────
@@ -934,7 +940,7 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["redact pdf", "black out", "remove sensitive", "hide text"],
-    related: ["flatten-pdf", "annotate-pdf", "protect-pdf"],
+    related: ["flatten-pdf", "ocr-pdf", "annotate-pdf", "protect-pdf"],
     how: [
       "Add your PDF — everything runs privately in your browser.",
       "Add redaction boxes by page and position, in PDF points from the bottom-left.",

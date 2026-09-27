@@ -153,24 +153,29 @@ const GENERIC_OPTIONS_STEP = /^\s*choose (?:your|the) options\.?\s*$/i;
  * In-browser tools that still render the default steps. It may only SHRINK:
  * an entry whose tool gains authored steps must be removed (the second test
  * fails until it is), and a tool may not join it (the first fails).
+ *
+ * SHRUNK 2026-09-27 at the merge with L05, which gave seven of these their
+ * own steps: pdf-to-markdown, pdf-to-text, header-footer and compare-pdf as
+ * authored `how`, grayscale-pdf, page-numbers and overlay-pdf as DERIVED_STEPS
+ * built from their runners' constants.
  */
 const DEFAULT_STEPS_BASELINE = new Set([
   "extract-pages",
-  "grayscale-pdf",
-  "pdf-to-markdown",
-  "pdf-to-text",
-  "page-numbers",
   "watermark-pdf",
-  "header-footer",
-  "overlay-pdf",
   "fill-forms",
   "create-forms",
-  "compare-pdf",
 ]);
 
+/**
+ * The template, as a tool with NO steps of its own would get it. The slug is
+ * one no table can key: L05's DERIVED_STEPS are keyed by slug, so stripping
+ * `how` alone still returned grayscale's own steps, and the detector read
+ * three tool-specific HowTos as the template.
+ */
+const TEMPLATE_SLUG = "⟦template⟧";
 const rendersDefaultSteps = (tool: Tool) =>
   JSON.stringify(page(tool.slug).howTo) ===
-  JSON.stringify(howToSteps({ ...tool, how: undefined }));
+  JSON.stringify(howToSteps({ ...tool, slug: TEMPLATE_SLUG, how: undefined }));
 
 describe("How it works says what the runner does", () => {
   it("the generic options step is caught by its detector, and served on no page", () => {

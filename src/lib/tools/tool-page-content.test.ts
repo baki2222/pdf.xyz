@@ -376,9 +376,19 @@ describe("a tool that takes several files describes them in its own steps", () =
     expect(
       fileInputs(`<Dropzone\n onFiles={onFiles}\n multiple\n title="x"\n/>`),
     ).toEqual({ inputs: 1, many: true });
-    // The template really is what a defaulted tool ships.
-    const defaulted = tools.find((t) => !t.how && t.slug === "repair-pdf")!;
-    expect(howToSteps(defaulted)).toEqual(templateSteps(defaulted));
+    // The template really is what a defaulted tool ships. This named
+    // repair-pdf, which L04 (00e7394) gave authored steps at the same time;
+    // it now asks for ANY tool still on the template, so the next page to
+    // gain its own steps cannot turn the control into a crash.
+    const defaulted = tools.filter(
+      (t) =>
+        !t.how &&
+        JSON.stringify(howToSteps(t)) === JSON.stringify(templateSteps(t)),
+    );
+    expect(
+      defaulted.length,
+      "no tool ships the template — templateSteps is not what pages serve",
+    ).toBeGreaterThan(0);
   });
 });
 
