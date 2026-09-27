@@ -55,7 +55,7 @@
  *  - **Bare identifiers only**, like the spend-probe reachability guard; a
  *    method call on an object is a different binding without a type checker.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type * as TS from "typescript";
 import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
@@ -65,7 +65,13 @@ import { guides } from "./catalog";
 import type { Guide } from "./types";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { editPdf, type EditOp } from "@/lib/pdf/edit";
-import { resetFontCache, setFontByteSource } from "@/lib/pdf/unicode-font";
+import {
+  defaultFontByteSource,
+  fontDownloadFailedMessage,
+  resetFontCache,
+  setFontByteSource,
+} from "@/lib/pdf/unicode-font";
+import { FONT_PACKS } from "@/lib/pdf/font-packs";
 
 /** The compiler as a library — same reason as client-bundle-node-free.test.ts. */
 const ts = createRequire(import.meta.url)("typescript") as typeof TS;
@@ -96,7 +102,27 @@ function copyStrings(guide: Guide): string[] {
 
 /** The unconditional promise: the run survives the network going away. */
 const OFFLINE_PROMISE =
-  /\bdropped connection (?:does not|doesn't|will not|won't|cannot|can't|never) (?:interrupt|stop|break)/i;
+  /\b(?:dropped connection|connection that drops(?:\s+[\w-]+)?)\s+(?:does not|doesn't|will not|won't|cannot|can't|never)\s+(?:interrupt|stop|break)/i;
+
+/**
+ * Every offline promise the guides have SHIPPED, verbatim — the corpus the
+ * pattern above is held to. AMENDED 2026-09-27 at the merge with L04, history
+ * kept: this was `guides.flatMap(copyStrings)`, the CURRENT guides, and L04
+ * (b5809ed) removed every such sentence from them, so "the pattern catches a
+ * shipped sentence" became false for a reason that is not a defect. A corpus
+ * that is today's copy shrinks exactly when the copy is fixed; this one is
+ * history, and cannot. Its first run caught a hole: L04's third sentence
+ * ("a connection that drops mid-build") walked past the old pattern, which
+ * read only "dropped connection".
+ */
+const SHIPPED_PROMISES = [
+  // L07 87bf04e: the Edit PDF and Sign PDF guides.
+  "After that, the work runs entirely on your device, so a dropped connection does not interrupt work already in progress.",
+  // L04 b5809ed's corpus (tools/offline-answer.test.ts SHIPPED_EXCLUSIVITY).
+  "After that, the processing itself runs entirely on your device, and a dropped connection does not interrupt work in progress.",
+  "After that, the filling itself runs entirely on your device, and a dropped connection does not interrupt a run that is already underway.",
+  "From there, the work itself happens on your device, so a connection that drops mid-build does not interrupt work already in progress.",
+] as const;
 /** The guide talks about working without a network at all. */
 const OFFLINE_TOPIC =
   /\boffline\b|\bdropped connection\b|\bconnection drops\b/i;
@@ -508,14 +534,18 @@ describe("an offline promise in a guide agrees with what its tool's run fetches"
       "every offline-discussing guide's tool fetches",
     ).toBeGreaterThan(0);
 
-    // The promise pattern catches shipped sentences (it is not decoration),
-    // and every shipped sentence about a dropped connection is a promise it
-    // catches (no synonym walks past it).
-    const shipped = guides.flatMap(copyStrings);
-    expect(
-      shipped.filter((t) => OFFLINE_PROMISE.test(t)).length,
-    ).toBeGreaterThan(0);
-    for (const t of shipped.filter((t) => /dropped connection/i.test(t))) {
+    // The promise pattern catches every shipped promise (it is not
+    // decoration, and no synonym walks past it), and every sentence the
+    // guides carry TODAY about a connection dropping is one it reads.
+    for (const t of SHIPPED_PROMISES) {
+      expect(OFFLINE_PROMISE.test(t), `uncaught offline promise: "${t}"`).toBe(
+        true,
+      );
+    }
+    const current = guides.flatMap(copyStrings);
+    for (const t of current.filter((t) =>
+      /\bdropped connection\b|\bconnection (?:that )?drops\b/i.test(t),
+    )) {
       expect(OFFLINE_PROMISE.test(t), `uncaught offline promise: "${t}"`).toBe(
         true,
       );
@@ -557,6 +587,16 @@ describe("an offline promise in a guide agrees with what its tool's run fetches"
     expect(falsePromises(fixture("merge-pdf", promise))).toEqual([]);
   });
 
+  /*
+   * AMENDED 2026-09-27 at the merge with L04, history kept. This replaced the
+   * font BYTE SOURCE with one throwing TypeError("Failed to fetch") and
+   * expected that text back. L04 (aa4870f) made unicode-font classify a
+   * failure where it happens: only a rejected fetch or body read is the
+   * network, and anything else is "a fault on our side". A byte source that
+   * throws is the second kind, so the control stopped modelling a dead
+   * connection. It now keeps the browser's byte source and takes the network
+   * away underneath it, as a dropped connection does.
+   */
   it("control: the edit run really stops without the network — and only for text a built-in font cannot draw", async () => {
     // Reachability is not execution. This runs the engine the guard flagged,
     // with the font download failing the way a dead connection fails it.
@@ -573,9 +613,11 @@ describe("an offline promise in a guide agrees with what its tool's run fetches"
     });
     resetFontCache();
     let calls = 0;
-    const previous = setFontByteSource(async () => {
+    const offline = new TypeError("Failed to fetch");
+    const previous = setFontByteSource(defaultFontByteSource());
+    vi.stubGlobal("fetch", () => {
       calls += 1;
-      throw new TypeError("Failed to fetch");
+      return Promise.reject(offline);
     });
     try {
       // Western European text and shapes: no download, the run completes.
@@ -593,13 +635,21 @@ describe("an offline promise in a guide agrees with what its tool's run fetches"
       ]);
       expect(latin.opCount).toBe(2);
       expect(calls).toBe(0);
-      // Bengali: the run needs a font download, and without it the run fails.
-      await expect(editPdf(bytes, [text("বাংলা লেখা")])).rejects.toThrow(
-        /Failed to fetch/,
+      // Bengali: the run needs a font download, and without it the run fails
+      // — worded as the connection it is, with the network's error kept.
+      const bengali = FONT_PACKS.find((p) => p.scripts.includes("Bengali"))!;
+      const refusal = await editPdf(bytes, [text("বাংলা লেখা")]).then(
+        () => null,
+        (error: unknown) => error as Error,
       );
+      expect(refusal?.message).toBe(
+        fontDownloadFailedMessage(`The ${bengali.label} font`),
+      );
+      expect(refusal?.cause).toBe(offline);
       expect(calls).toBeGreaterThan(0);
     } finally {
       setFontByteSource(previous);
+      vi.unstubAllGlobals();
       resetFontCache();
     }
   });
