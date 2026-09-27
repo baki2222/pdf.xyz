@@ -7,7 +7,7 @@ import { jpegComponentCount } from "../../src/lib/pdf/gray-jpeg";
 import {
   createGrayscaleBuilder,
   grayscaleTitle,
-} from "../../src/lib/pdf/grayscale";
+} from "../../src/lib/pdf/grayscale-builder";
 import {
   addDocumentStructure,
   lostStructure,
