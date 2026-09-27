@@ -18,7 +18,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 // for this Latin text it picks the same Helvetica faces, so the captured
 // poppler samples match these fixtures byte for byte in their geometry.
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
-import { cellsByRef, type SheetRead } from "@/lib/workers/ooxml/sheet-read";
+import type { SheetRead } from "@/lib/workers/ooxml/sheet-read";
 
 /** The left column of {@link twoColumnReportPdf}, one printed line each. */
 export const LEFT_COLUMN = [
@@ -527,22 +527,58 @@ export const INVOICE_SHEET: readonly (readonly ExpectedCell[])[] = [
 ];
 
 /**
+ * Lines around an invoice's table that are NOT table rows, each drawn as two
+ * runs on one baseline — what a real invoice page carries and `-layout`
+ * prints as one line with a wide gap in it:
+ *  - `aside`: drawn right-aligned to the Amount column on the address line,
+ *    the line directly above the header (`Period: …` beside `Acme …`);
+ *  - `footer`: a page footer at the bottom of the page, the left run at the
+ *    table's left edge and the right run starting at `x`.
+ * Poppler prints blank lines between each and the table, and nothing else.
+ */
+export interface InvoiceSurroundings {
+  aside?: string;
+  footer?: { left: string; right: string; x: number };
+}
+/** The page footer a real invoice ends on, its right run under Amount. */
+export const INVOICE_FOOTER = {
+  left: "Thank you for your business.",
+  right: "Page 1 of 1",
+  x: 500,
+} as const;
+
+/**
  * {@link INVOICE_ROWS} under {@link INVOICE_HEADING}: text columns flush left,
  * Qty and Amount flush RIGHT (headers included), the way invoices are set.
  * `rowGap` 24 makes poppler print a blank line between rows. `rows` draws a
- * variant table at the same positions ({@link INVOICE_LONE_TOTAL_ROWS}).
+ * variant table at the same positions ({@link INVOICE_LONE_TOTAL_ROWS}), and
+ * `around` the two-run lines of {@link InvoiceSurroundings}.
  */
 export async function invoicePdf(
   rowGap = 16,
   rows: readonly (readonly string[])[] = INVOICE_ROWS,
+  around: InvoiceSurroundings = {},
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const all = [...INVOICE_HEADING, ...rows.flat()];
+  const { aside, footer } = around;
+  const extra = [aside ?? "", footer?.left ?? "", footer?.right ?? ""];
+  const all = [...INVOICE_HEADING, ...rows.flat(), ...extra];
   const font = await embedDrawingFont(doc, all);
   const bold = await embedDrawingFont(doc, all, "sans-bold");
   const page = doc.addPage([612, 792]);
   page.drawText(INVOICE_HEADING[0], { x: 50, y: 740, size: 18, font: bold });
   page.drawText(INVOICE_HEADING[1], { x: 50, y: 716, size: 11, font });
+  if (aside)
+    page.drawText(aside, {
+      x: 520 - font.widthOfTextAtSize(aside, 11),
+      y: 716,
+      size: 11,
+      font,
+    });
+  if (footer) {
+    page.drawText(footer.left, { x: 50, y: 40, size: 11, font });
+    page.drawText(footer.right, { x: footer.x, y: 40, size: 11, font });
+  }
   const left = [50, 130, 220];
   const right = [420, 520];
   rows.forEach((row, r) =>
@@ -579,15 +615,37 @@ export async function wideRowPdf(): Promise<Uint8Array> {
 /**
  * Where the sheet read back differs from {@link INVOICE_SHEET}, one line per
  * cell — every expected cell, AND every cell the sheet has that was not
- * expected. Empty means the sheet is exactly right.
+ * expected. Empty means the sheet is exactly right. `only` narrows the rows
+ * compared, for a page drawn with {@link InvoiceSurroundings}:
+ *  - `"invoice"`: every row of {@link INVOICE_SHEET}, nothing below the
+ *    Total (a page footer there is not compared);
+ *  - `"table"`: the table's rows alone — below {@link INVOICE_HEADING}'s,
+ *    down to the Total (an aside on the address line is not compared).
+ *
+ * Cells are matched by the row and column the READER decoded from each
+ * reference (`@/lib/workers/ooxml/sheet-read`), and named in R1C1 form, so this holds
+ * no reference encoder of its own to be wrong past column Z.
  */
-export function invoiceSheetMismatches(sheet: SheetRead): string[] {
-  const cells = cellsByRef(sheet);
+export function invoiceSheetMismatches(
+  sheet: SheetRead,
+  only: "sheet" | "invoice" | "table" = "sheet",
+): string[] {
+  const at = (row: number, column: number) => `R${row}C${column + 1}`;
+  const first = only === "table" ? INVOICE_HEADING.length + 1 : 1;
+  const last = only === "sheet" ? Infinity : INVOICE_SHEET.length;
+  const cells = new Map(
+    sheet.rows.flatMap((row) =>
+      row.cells
+        .filter((c) => c.row >= first && c.row <= last)
+        .map((c) => [at(c.row, c.column), c] as const),
+    ),
+  );
   const problems: string[] = [];
   const seen = new Set<string>();
   INVOICE_SHEET.forEach((row, r) =>
     row.forEach((want, c) => {
-      const ref = `${String.fromCharCode(65 + c)}${r + 1}`;
+      if (r + 1 < first) return;
+      const ref = at(r + 1, c);
       seen.add(ref);
       const got = cells.get(ref);
       const shown = got
@@ -610,8 +668,8 @@ export function invoiceSheetMismatches(sheet: SheetRead): string[] {
         );
     }),
   );
-  for (const ref of cells.keys())
-    if (!seen.has(ref)) problems.push(`${ref}: unexpected cell`);
+  for (const [ref, cell] of cells)
+    if (!seen.has(ref)) problems.push(`${ref} (${cell.ref}): unexpected cell`);
   return problems;
 }
 

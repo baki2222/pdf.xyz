@@ -34,6 +34,9 @@ import {
   incomeStatementPdf,
   INVOICE_LONE_TOTAL_ROWS,
   INVOICE_SHEET,
+  INVOICE_FOOTER,
+  type InvoiceSurroundings,
+  INVOICE_ROWS,
   invoicePdf,
   invoiceSheetMismatches,
   newsletterPdf,
@@ -272,6 +275,176 @@ suite(label, () => {
       expect(sheetGridProblems(sheet)).toEqual([]);
     },
   );
+
+  describe("PDF to Excel keeps a table's columns with a two-run line a blank line above and below it", () => {
+    // At 4ebfb4a a two-run line joined the table's block whenever only blank
+    // lines separated them, and its runs bridged the gutters: with a page
+    // footer ("Thank you for your business." … "Page 1 of 1") the download
+    // had A3 "Invoice No Date", A4 "1001 2026-01-05", every later value one
+    // column left, and "Page 1 of 1" under Amount. The plain invoice, with
+    // one-run lines around its table, was exact, which is all the proof drew.
+    // `only`: with a footer alone, every row down to the Total must be exact
+    // ("invoice", what the deployment proof checks); with an aside on the
+    // address line, the table's rows ("table").
+    const aside = "Period: January 2026";
+    const cases: {
+      name: string;
+      rowGap: number;
+      around: InvoiceSurroundings & { footer: { left: string; right: string } };
+      only: "invoice" | "table";
+    }[] = [
+      {
+        name: "footer",
+        rowGap: 16,
+        around: { footer: INVOICE_FOOTER },
+        only: "invoice",
+      },
+      {
+        name: "footer",
+        rowGap: 24,
+        around: { footer: INVOICE_FOOTER },
+        only: "invoice",
+      },
+      {
+        name: "aside and footer",
+        rowGap: 16,
+        around: { aside, footer: INVOICE_FOOTER },
+        only: "table",
+      },
+      {
+        name: "aside and footer",
+        rowGap: 24,
+        around: { aside, footer: INVOICE_FOOTER },
+        only: "table",
+      },
+      // The footer's right run past the table's right edge: the union loses
+      // a column AND gains one, so a count of columns alone calls it fine.
+      {
+        name: "footer past the right edge",
+        rowGap: 16,
+        around: { footer: { ...INVOICE_FOOTER, x: 535 } },
+        only: "invoice",
+      },
+    ];
+
+    it.each(cases)(
+      "$name, rows $rowGap pt apart",
+      async ({ rowGap, around, only }) => {
+        const pdf = await invoicePdf(rowGap, INVOICE_ROWS, around);
+        // HEALTH: poppler prints each added line as ONE line of two runs, a
+        // blank line away from the table, and at least one of its runs spans
+        // two headings' positions — the shape that merged columns.
+        const layout = (await deps().extract!(pdf)).pages[0]!.text.split("\n");
+        const header = layout.findIndex((l) =>
+          l.startsWith(INVOICE_ROWS[0][0]),
+        );
+        const headings = INVOICE_ROWS[0].map((h) => layout[header]!.indexOf(h));
+        const added = [
+          ...(around.aside ? [around.aside] : []),
+          around.footer.right,
+        ].map((text) => layout.findIndex((l) => l.includes(text)));
+        expect(added).not.toContain(-1);
+        for (const i of added) {
+          const runs = [...layout[i]!.matchAll(/[^ ]+(?: [^ ]+)*/g)];
+          expect(runs, layout[i]).toHaveLength(2);
+          expect(layout[i < header ? i + 1 : i - 1], layout[i]).toBe("");
+          expect(
+            runs.some(
+              (r) =>
+                headings.filter(
+                  (h) => h >= r.index && h < r.index + r[0].length,
+                ).length >= 2,
+            ),
+            layout[i],
+          ).toBe(true);
+        }
+
+        const run = await runPdfOfficeExport("pdf-to-excel", pdf, deps());
+        if (!run.ok) throw new Error(`pdf-to-excel failed: ${run.kind}`);
+        const sheet = await readXlsxSheet(run.output);
+        expect(sheetGridProblems(sheet)).toEqual([]);
+        expect(invoiceSheetMismatches(sheet, only)).toEqual([]);
+        // The added lines are written, whole, outside the table's rows.
+        const outside = sheet.rows
+          .filter((row) => row.r < 3 || row.r > INVOICE_SHEET.length)
+          .flatMap((row) => row.cells.map((c) => c.value));
+        for (const text of [
+          ...(around.aside ? [around.aside] : []),
+          around.footer.left,
+          around.footer.right,
+        ])
+          expect(outside).toContain(text);
+      },
+    );
+
+    it("HEALTH: the narrowed checks read their rows and nothing else", async () => {
+      const sheet = await readXlsxSheet(
+        (
+          (await runPdfOfficeExport(
+            "pdf-to-excel",
+            await invoicePdf(),
+            deps(),
+          )) as { output: Uint8Array }
+        ).output,
+      );
+      expect(invoiceSheetMismatches(sheet, "table")).toEqual([]);
+      // A cell moved into a table row is seen; the same cell in a heading
+      // row is not the table check's business, and the full check sees it.
+      const moveTo = (r: number): typeof sheet => ({
+        rows: sheet.rows.map((row) =>
+          row.r !== r
+            ? row
+            : {
+                ...row,
+                cells: [
+                  ...row.cells,
+                  {
+                    ref: `Z${r}`,
+                    column: 25,
+                    row: r,
+                    type: "text",
+                    value: "stray",
+                    format: "General",
+                  },
+                ],
+              },
+        ),
+      });
+      expect(invoiceSheetMismatches(moveTo(4), "table")).toEqual([
+        "R4C26 (Z4): unexpected cell",
+      ]);
+      expect(invoiceSheetMismatches(moveTo(2), "table")).toEqual([]);
+      for (const only of ["invoice", "sheet"] as const)
+        expect(invoiceSheetMismatches(moveTo(2), only)).toEqual([
+          "R2C26 (Z2): unexpected cell",
+        ]);
+      // Below the Total (a footer's row): only the full check compares it.
+      const below = INVOICE_SHEET.length + 1;
+      const withFooterRow: typeof sheet = {
+        rows: [
+          ...sheet.rows,
+          {
+            r: below,
+            cells: [
+              {
+                ref: `A${below}`,
+                column: 0,
+                row: below,
+                type: "text",
+                value: "stray",
+                format: "General",
+              },
+            ],
+          },
+        ],
+      };
+      expect(invoiceSheetMismatches(withFooterRow, "invoice")).toEqual([]);
+      expect(invoiceSheetMismatches(withFooterRow, "table")).toEqual([]);
+      expect(invoiceSheetMismatches(withFooterRow)).toEqual([
+        `R${below}C1 (A${below}): unexpected cell`,
+      ]);
+    });
+  });
 
   it.each([16, 24])(
     "PDF to Excel puts a table's amount-only LAST line under Amount — rows %ipt apart",

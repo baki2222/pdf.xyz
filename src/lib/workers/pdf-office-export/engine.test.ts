@@ -426,7 +426,7 @@ describe("pdf-to-excel puts every value in its own column", () => {
       ),
     };
     expect(invoiceSheetMismatches(moved)).toEqual(
-      expect.arrayContaining([expect.stringMatching(/^C5: want absent/)]),
+      expect.arrayContaining([expect.stringMatching(/^R5C3: want absent/)]),
     );
   });
 

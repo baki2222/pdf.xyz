@@ -14,28 +14,48 @@
  *    empty cell in it". Only the position can.
  *
  * So: a line's text runs are its SEGMENTS (words joined by single spaces; two
- * or more spaces end one). Lines with two or more segments are table rows, and
- * a run of them (blank lines between allowed) is a BLOCK. A block's columns are
+ * or more spaces end one). Lines with two or more segments may be table rows;
+ * a run of them with no other line between is a BLOCK, and a block joins the
+ * table above it (across blank lines or a one-run line) only when the union
+ * of their rows keeps the larger one's columns apart. A table's columns are
  * the character spans that some row's segment covers — the gutters between
  * them are blank on every row — so each segment lands in the column it sits
  * in, and a column a row leaves empty stays an empty cell in that row.
  * A one-segment line between a table's rows, or directly below its last row
- * (an unlabeled total), is placed by where it starts, like any other cell.
+ * (an unlabeled total), is placed by where it starts, like any other cell —
+ * and so is a refused LINE alone a blank line below a table with more
+ * columns (a widely spaced row with a straddling cell, a page footer): its
+ * runs land in the columns they start in, and change none of them.
  *
- * Nothing here ever splits a segment's own text. When the rows disagree (one
- * long cell straddling two columns' positions), those columns become one and
- * the texts that share it are joined with a space.
+ * Nothing here ever splits a segment's own text. When the rows of one block
+ * disagree (one long cell straddling two columns' positions), those columns
+ * become one and the texts that share it are joined with a space.
  *
  * What is pinned, by layout-grid.test.ts ("values may be COMBINED, never
  * MOVED under another header"): in a table whose rows agree on the columns,
  * ANY subset of a row's cells, in any row including the last, lands under
- * its own header with the row's other cells empty. What is NOT promised:
- *  - one overlong cell merges columns for its whole group, so a heading and
+ * its own header with the row's other cells empty. And ("a two-run line a
+ * BLANK line away from the table never merges its columns"): a line of two
+ * runs one blank line above the header or below the last row — prose with a
+ * double space, an `Account … Period …` line, a page footer — leaves every
+ * cell of the table where it was, even when its runs straddle the gutters.
+ * And ("a row with one cell straddling the next column moves no value"):
+ * with rows together or a blank line apart, every value stays under a
+ * heading cell that holds its own heading. What is NOT promised:
+ *  - a two-run line with NO blank line between it and the table is a row by
+ *    every measure `-layout` gives, and if its runs straddle a gutter it
+ *    merges those columns for the table (the test's positive control);
+ *  - one overlong cell merges columns for its whole block, so a heading and
  *    the values under it can share a combined cell ("joins, never splits");
+ *  - a second table a blank line below a first with more columns keeps its
+ *    own columns only when two or more of its rows are together; a widely
+ *    spaced one is placed row by row on the first table's columns;
  *  - a one-run line directly below a table that starts inside a column is
  *    taken as the table's (a centred footnote there lands under that column);
- *  - the caller trims each page, so a page's FIRST line loses its indent: a
- *    header row that starts with an empty cell is shifted left.
+ *  - the caller trims each page, so a page's FIRST line loses its indent. A
+ *    header row there that starts with an empty cell has its headings moved
+ *    left (measured: "Date" lands in A, "Qty" and "Amount" share a cell), and
+ *    where a shifted run straddles a gutter those columns merge for the table.
  */
 
 interface Segment {
@@ -50,7 +70,7 @@ interface Span {
 /** Consecutive lines of one page whose multi-segment rows share columns. */
 interface Group {
   first: number;
-  /** The last multi-segment row. */
+  /** The last multi-segment line the group places. */
   last: number;
   /** The last line the group places: `last`, or a one-run line below it. */
   end: number;
@@ -87,11 +107,17 @@ function columnsOf(lines: readonly Segment[][]): Span[] {
   return spans;
 }
 
+/** Whether no span of `union` holds two of `columns` (each lies inside one). */
+function keepsApart(union: readonly Span[], columns: readonly Span[]): boolean {
+  const holder = columns.map((c) => union.findIndex((u) => u.end > c.start));
+  return new Set(holder).size === holder.length;
+}
+
 /**
  * The column a segment belongs to: the span it starts in, else the first span
  * to its right, else the last. Rows that defined the columns always hit the
- * first case; a one-segment line inside a table (a wrapped description) is
- * placed by where it starts.
+ * first case; a one-segment line inside a table (a wrapped description), and
+ * a refused line placed on a table's columns, are placed by where they start.
  */
 function columnFor(columns: readonly Span[], start: number): number {
   const i = columns.findIndex((span) => span.end > start);
@@ -106,36 +132,65 @@ export function layoutGrid(pageText: string): (string | null)[][] {
   const lines = pageText.split("\n");
   const segments = lines.map(segmentsOf);
 
-  // Blocks: runs of multi-segment lines, blank lines allowed between them
-  // (poppler prints one between widely spaced rows), any other line ends one.
+  // Blocks: runs of CONSECUTIVE multi-segment lines. A blank line ends one
+  // as surely as a one-run line does: poppler prints a blank line between
+  // widely spaced rows, but also between a table and the page footer or the
+  // two-run line above its header, and nothing in the text tells those apart.
+  // At 4ebfb4a a blank line let the block run on, so a footer joined the
+  // table unexamined and its runs bridged the gutters. Every block now joins
+  // a table only through the test below.
   const blocks: number[][] = [];
   let open: number[] | null = null;
   for (let i = 0; i < segments.length; i++) {
-    const count = segments[i]!.length;
-    if (count >= 2) {
+    if (segments[i]!.length >= 2) {
       if (!open) {
         open = [];
         blocks.push(open);
       }
       open.push(i);
-    } else if (count === 1) open = null;
+    } else open = null;
   }
 
-  // Groups: a block joins the one above when their rows still share columns —
-  // the union keeps at least as many columns as either had. That rejoins a
-  // table cut by a one-line row (a wrapped cell), and keeps a prose line that
-  // happens to hold a double space from collapsing a table's columns.
+  // Groups: a block joins the group above when the union of their rows keeps
+  // the columns of whichever has MORE of them (on a tie, of both) — no span of
+  // the union holds two of them. That rejoins a table's widely spaced rows
+  // and a table cut by a one-line row (a wrapped cell), whose cells sit in
+  // the table's columns, and keeps out a line whose runs straddle a gutter.
+  // Counting the union's columns is not the same test: a footer that merges
+  // two columns and adds one past the right edge keeps the count.
+  //
+  // A refused LINE, alone and only blank lines below a table with more
+  // columns, is placed on that table's columns by where each run starts —
+  // as a one-run line is — and changes none of them. That is a widely spaced
+  // row whose cell straddles a gutter, which laid out on its own columns
+  // would number its cells in order and move every value after the long one
+  // under the wrong heading; or a page footer, whose runs land in the
+  // columns they start in, the table untouched.
   const groups: Group[] = [];
+  const blankBetween = (from: number, to: number) =>
+    segments.slice(from + 1, to).every((segs) => segs.length === 0);
   for (const block of blocks) {
     const columns = columnsOf(block.map((i) => segments[i]!));
     const prev = groups[groups.length - 1];
     if (prev) {
       const rows = [...prev.rows, ...block];
       const union = columnsOf(rows.map((i) => segments[i]!));
-      if (union.length >= Math.max(prev.columns.length, columns.length)) {
+      const larger = prev.columns.length - columns.length;
+      if (
+        (larger < 0 || keepsApart(union, prev.columns)) &&
+        (larger > 0 || keepsApart(union, columns))
+      ) {
         prev.rows = rows;
         prev.columns = union;
         prev.last = prev.end = block[block.length - 1]!;
+        continue;
+      }
+      if (
+        block.length === 1 &&
+        larger > 0 &&
+        blankBetween(prev.last, block[0]!)
+      ) {
+        prev.last = prev.end = block[0]!;
         continue;
       }
     }

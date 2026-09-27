@@ -70,6 +70,8 @@ import {
   sheetGridProblems,
 } from "@/lib/workers/ooxml/sheet-read";
 import {
+  INVOICE_FOOTER,
+  INVOICE_ROWS,
   invoicePdf,
   invoiceSheetMismatches,
 } from "@/tests/pdf-office-fixtures";
@@ -701,7 +703,10 @@ const SPECS: ProofSpec[] = [
   },
   {
     tool: "pdf-to-excel",
-    make: async () => Buffer.from(await invoicePdf()),
+    make: async () =>
+      Buffer.from(
+        await invoicePdf(16, INVOICE_ROWS, { footer: INVOICE_FOOTER }),
+      ),
     name: "invoice.pdf",
     type: PDF_MIME,
     expect: isZipContainer,
@@ -710,12 +715,14 @@ const SPECS: ProofSpec[] = [
     // `1,250.00` in two columns and moved every value after an empty cell
     // under the wrong header. Read every cell at its reference instead: the
     // invoice carries a thousands separator, a comma inside text, empty
-    // cells, a leading-zero code and currency.
+    // cells, a leading-zero code and currency. And a two-run page footer a
+    // blank line below the table, which until 2026-09-27 joined the table
+    // and merged its first two columns; the footer's own row is not compared.
     verify: async (bytes) => {
       const sheet = await readXlsxSheet(bytes);
       const problems = [
         ...sheetGridProblems(sheet),
-        ...invoiceSheetMismatches(sheet),
+        ...invoiceSheetMismatches(sheet, "invoice"),
       ];
       return problems.length === 0
         ? {
