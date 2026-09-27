@@ -4,6 +4,10 @@
  * `src/lib/tools/file-ceilings.test.ts`, which needs the markup a reader
  * receives rather than the helpers that feed it.
  *
+ * With `--html` it prints the raw markup instead, for a census that must read
+ * structure the text flattens away — which guide each Guides-band card links
+ * and what it is labelled (`src/lib/guides/tool-page-guides-band.test.ts`).
+ *
  * WHY A SUBPROCESS, and it is not performance. `vitest.config.ts` runs
  * `isolate: false`, so every test file in a worker shares one module cache, and
  * `tests/mock-isolation.test.ts` forbids any test file from importing a module
@@ -50,11 +54,15 @@ function textOf(markup: string): string {
 }
 
 /**
- * `--markup` prints each page's raw markup instead of its text, for a reader
- * that must parse what a crawler parses — the JSON-LD script bodies — rather
- * than a flattened string (see `rendered-tool-pages.ts`).
+ * `--markup` (or `--html`) prints each page's raw markup instead of its text,
+ * for a reader that must parse what a crawler parses — the JSON-LD script
+ * bodies, the Guides band's cards — rather than a flattened string. Two lanes
+ * added the same flag under two names (`rendered-tool-pages.ts` passes
+ * `--markup`, `guides/tool-page-guides-band.test.ts` passes `--html`); both
+ * are kept so neither caller changes.
  */
-const RAW = process.argv.includes("--markup");
+const RAW =
+  process.argv.includes("--markup") || process.argv.includes("--html");
 
 async function main(): Promise<void> {
   const census: Record<string, string> = {};

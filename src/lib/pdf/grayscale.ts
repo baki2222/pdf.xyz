@@ -51,6 +51,14 @@ export interface GrayscaleResult {
   undecodedImages: number;
 }
 
+/**
+ * Said on the result screen when the output is larger than the input. Pages
+ * become JPEGs, so a text PDF grows by two orders of magnitude (x146 at 96 DPI,
+ * x310 at 150, measured); a scan can shrink, which is why this is conditional.
+ */
+export const GRAYSCALE_GREW_NOTE =
+  "Pages are now images, so text-based PDFs usually get larger.";
+
 export function grayscaleOutputName(sourceName: string): string {
   return outputName(sourceName || "document", "grayscale");
 }

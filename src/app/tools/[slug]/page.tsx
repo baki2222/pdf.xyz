@@ -110,6 +110,7 @@ export default async function ToolPage({
   const faq = toolFaq(tool);
   // Discovered from each guide's own `tools` field — the band cannot link a
   // guide that does not claim this tool back, and there is no href list here.
+  // Guides that teach this tool come first; a reverse-direction guide is out.
   const toolGuides = guidesForTool(tool.slug);
   const runnerKind = getRunnerKind(tool.slug);
   /*
@@ -512,12 +513,17 @@ export default async function ToolPage({
               </Link>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {toolGuides.map((guide) => (
+              {toolGuides.map(({ guide, role }) => (
                 <Link
                   key={guide.slug}
                   href={`/guides/${guide.slug}`}
                   className="border-line bg-panel hover:border-line-strong flex flex-col gap-2 rounded-[4px] border p-5 transition-colors"
                 >
+                  <span className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">
+                    {role === "primary"
+                      ? "Step-by-step guide"
+                      : "Related guide"}
+                  </span>
                   <h3 className="text-fg text-sm font-semibold text-balance">
                     {guide.title}
                   </h3>

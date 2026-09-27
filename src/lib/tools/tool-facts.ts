@@ -663,11 +663,11 @@ export type MidRunFetch = "drawing-font" | "image-decoder" | "character-map";
 
 export const MID_RUN_FETCH_SENTENCE: Readonly<Record<MidRunFetch, string>> = {
   "drawing-font":
-    "Drawing text in a script outside the Western European alphabet fetches a matching font from our site the first time it is needed, and that step needs a connection.",
+    "Drawing text in a script outside the Western European alphabet downloads a matching font from our site the first time it is needed, and that step needs a connection.",
   "image-decoder":
-    "Rendering a page that holds a JPEG 2000 or JBIG2 image, as scanned documents often do, fetches an image decoder from our site the first time it is needed, and that step needs a connection.",
+    "Rendering a page that holds a JPEG 2000 or JBIG2 image, as scanned documents often do, downloads an image decoder from our site the first time it is needed, and that step needs a connection.",
   "character-map":
-    "Chinese, Japanese or Korean text whose font is not embedded in the PDF needs a character map, fetched from our site the first time it is needed, and that step needs a connection.",
+    "Chinese, Japanese or Korean text whose font is not embedded in the PDF needs a character map, downloaded from our site the first time it is needed, and that step needs a connection.",
 };
 
 /**

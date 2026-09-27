@@ -25,4 +25,4 @@ export const LEGAL_CONTACT = "legal@pdf.xyz";
  * changes — not for a typo fix, and never without changing the text, because a
  * date that moves without the content moving teaches people to ignore it.
  */
-export const LEGAL_UPDATED = "2026-08-25";
+export const LEGAL_UPDATED = "2026-09-27";

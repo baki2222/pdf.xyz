@@ -48,14 +48,17 @@ import {
 } from "@/lib/tools/tool-facts";
 import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
+  DEFAULT_JPEG_QUALITY,
   DEFAULT_RESOLUTION_ID,
   RASTER_MAX_DEVICE_PX,
   RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTION_CHOICES,
-  RASTER_RESOLUTION_DPIS,
+  RASTER_RESOLUTIONS,
   pageImageName,
   resolutionById,
+  type RasterResolution,
 } from "@/lib/pdf/pdf-to-image";
+import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
 import {
   SIGNATURE_SOURCES,
   SIGNATURE_STYLE_LABEL,
@@ -101,6 +104,26 @@ function nameOf(slug: string): string {
   if (!tool) throw new Error(`a guide names unknown tool "${slug}"`);
   return tool.name;
 }
+
+/**
+ * A render-resolution preset a guide describes, by id — read from the list the
+ * PDF-to-image runner offers. Throws rather than falling back: a guide that
+ * describes "Print" must not silently describe the default instead.
+ */
+function rasterPreset(id: string): RasterResolution {
+  const preset = RASTER_RESOLUTIONS.find((r) => r.id === id);
+  if (!preset) {
+    throw new Error(
+      `a guide describes raster preset "${id}", which is not offered`,
+    );
+  }
+  return preset;
+}
+
+const presetText = (r: RasterResolution) => `${r.label} (${r.dpi} DPI)`;
+
+/** Edit PDF's per-image cap, in MB — the same arithmetic its image picker shows. */
+const EDIT_IMAGE_MB = Math.round(MAX_EDIT_IMAGE_BYTES / (1024 * 1024));
 
 export const guides: Guide[] = [
   {
@@ -274,7 +297,7 @@ export const guides: Guide[] = [
     title: "How to compress a PDF",
     description:
       "Compress a PDF with a lossless repack that runs in your browser, or send image-heavy files through deep image compression on a secure, auto-deleting worker.",
-    tools: ["compress-pdf", "optimize-web", "grayscale-pdf"],
+    tools: ["compress-pdf", "optimize-web"],
     keywords: [
       "compress pdf",
       "reduce pdf file size",
@@ -349,6 +372,11 @@ export const guides: Guide[] = [
       {
         question: "What happens to my file after deep image compression runs?",
         answer: `The job runs on an encrypted, isolated worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      },
+      {
+        question: "Will a smaller PDF also open faster on a website?",
+        answer:
+          "Size is only part of it. If the PDF will be read in a browser, run Optimize for Web on the compressed copy: it linearizes the file with qpdf on a secure worker, so the first page can render while the rest still downloads, and the input is deleted after the job. Linearizing reorders the file for streaming; it is not a compression step.",
       },
       {
         question: "Do I need an account to compress a PDF?",
@@ -533,6 +561,292 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
+    updated: "2026-09-27",
+  },
+  {
+    // ONE guide for the intent, from two lanes: L07 wrote this slug for the
+    // top query ("pdf to jpg"), L04 wrote how-to-convert-pdf-to-jpg-or-png for
+    // the same two tools. Folded here: L04's interpolated presets, pixel cap,
+    // preview limit and file names; L07's per-preset advice, JPEG quality and
+    // the embedded-images section. L07's offline paragraph said "a dropped
+    // connection does not interrupt work already in progress" — false for a
+    // renderer that fetches image decoders and character maps mid-run — so
+    // the offline answer is the tool page's own.
+    slug: "how-to-convert-pdf-to-jpg",
+    title: "How to convert a PDF to JPG or PNG images",
+    description:
+      "Turn every page of a PDF into a JPG or PNG image right in your browser — your file never leaves your device. Pick a resolution; several pages arrive as one ZIP.",
+    tools: ["pdf-to-jpg", "pdf-to-png", "extract-images"],
+    keywords: [
+      "pdf to jpg",
+      "convert pdf to jpg",
+      "pdf to jpeg",
+      "pdf to png",
+      "pdf to image",
+      "save pdf pages as images",
+    ],
+    intro: [
+      "To convert a PDF to JPG, open the PDF to JPG tool — or PDF to PNG for lossless images — add your PDF, choose a resolution, and render. Every page becomes its own image, drawn right in your browser. A one-page PDF downloads as a single image; a document with more than one page arrives as one ZIP with an image for each page.",
+      "The rendering happens on your own device. The tool draws each page with pdf.js, a PDF renderer bundled with the site, and encodes it in the browser, so your PDF stays on your device from start to finish. There is no account to create.",
+      `That makes it a quick way to share a page in a chat or on a slide, to drop a page into a document that only takes images, or to show a PDF on a device with no viewer. Each PDF can be up to ${ceilingMb("pdf-to-jpg")} MB.`,
+    ],
+    steps: [
+      "Open the PDF to JPG tool, or PDF to PNG for lossless images.",
+      "Add your PDF. It is read in your browser, and the file stays on your device.",
+      `Choose a resolution: ${RASTER_RESOLUTION_CHOICES}. ${DEFAULT_RESOLUTION_LABEL} is selected to start.`,
+      "Render the pages. A progress count shows each page as it is drawn.",
+      `Download the result: a single page saves as one image, and several pages save as one ZIP with an image for each page. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
+    ],
+    sections: [
+      {
+        id: "choosing-a-resolution",
+        heading: "Choosing a resolution",
+        body: [
+          `DPI is how many image pixels each inch of the page becomes. ${presetText(rasterPreset("screen"))} is enough for a page read on a monitor or in a chat. ${presetText(rasterPreset("high"))} is a sharper all-rounder. ${presetText(rasterPreset("print"))} is for printing, or for zooming in on small text. Every step up draws more pixels per page, so the images get larger and take longer to render.`,
+          `Neither side of a rendered page may exceed ${RASTER_MAX_DEVICE_PX.toLocaleString("en-US")} pixels, which keeps the memory a page needs in check. A very large page, such as a poster or an engineering drawing, is rendered below the preset rather than failing.`,
+        ],
+      },
+      {
+        id: "jpg-or-png",
+        heading: "JPG or PNG?",
+        body: [
+          `JPG files are smaller and suit photographs and scanned pages; each page is encoded at a fixed JPEG quality of ${Math.round(DEFAULT_JPEG_QUALITY * 100)}%. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.`,
+          "Both are rendered on a white background, so any transparent area of a page comes out white.",
+        ],
+      },
+      {
+        id: "what-you-download",
+        heading: "What you download",
+        body: [
+          `A one-page PDF downloads as a single image named after your file. With more than one page, every page goes into one ZIP, named in reading order with zero-padded page numbers — ${pageImageName("report.pdf", 2, 12, "png")} — so the images sort correctly in any file browser. The first ${RASTER_PREVIEW_LIMIT} pages also get a preview with their own download button.`,
+        ],
+      },
+      {
+        id: "pages-or-embedded-images",
+        heading: "Page images, or the images inside the PDF?",
+        body: [
+          "PDF to JPG draws each whole page — text, drawings, and pictures together — as one image, the way a screen shows it. If you want the photos embedded in the PDF at their original resolution instead of pictures of whole pages, use Extract Images: it saves embedded JPEGs as they are, rebuilds RGB and grayscale images as PNGs, and skips formats it cannot read.",
+          "If an image inside the PDF cannot be decoded, the page is still rendered, and the result tells you how many images could not be decoded rather than handing back a page with a silent gap.",
+        ],
+      },
+      {
+        id: "where-it-runs",
+        heading: "Your PDF never leaves your device",
+        body: [
+          "PDF to JPG is an in-browser tool. The PDF is read, drawn, and encoded on your own machine, and the images are saved straight from the browser — there is no server step in the path, and no account is needed.",
+          `One honest caveat about working offline: ${offlineAnswer("pdf-to-jpg")}`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent anywhere when I convert it to JPG?",
+        answer:
+          "No. The pages are drawn and encoded in your browser, so the file stays on your device from start to finish.",
+      },
+      {
+        question: "Why did I get a ZIP file?",
+        answer:
+          "Because the PDF has more than one page. Each page becomes its own image, named with its page number so the files sort in reading order, and when there is more than one page the images are bundled into one ZIP so they download together. A one-page PDF downloads as a single image.",
+      },
+      {
+        question: "Can I convert just one page?",
+        answer: `Every page is rendered, and each of the first ${RASTER_PREVIEW_LIMIT} gets its own download button, so you can save only the page you need. For a page past those, use Extract Pages first to make a one-page PDF — it runs in your browser too — and convert that.`,
+      },
+      {
+        question: "How do I get PNG images instead?",
+        answer:
+          "Use PDF to PNG. It renders pages the same way, at the same resolutions, but saves lossless PNGs — usually larger files, with no JPEG compression around sharp text.",
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("pdf-to-jpg")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-rotate-a-pdf",
+    title: "How to rotate pages in a PDF",
+    description:
+      "Rotate every page of a PDF, or only the pages you pick — left, right, or upside down — right in your browser, so the file stays on your device.",
+    tools: ["rotate-pdf", "organize-pages", "crop-pdf"],
+    keywords: [
+      "rotate pdf",
+      "rotate pdf pages",
+      "turn pdf pages",
+      "fix a sideways pdf",
+      "rotate one page in a pdf",
+      "landscape pdf",
+    ],
+    intro: [
+      "To rotate a PDF, open the Rotate PDF tool, add your file, turn the pages that need it, and download the result. You can turn every page at once or only the ones you select, and each page's thumbnail shows its new orientation before anything is applied.",
+      "Rotate PDF runs entirely in your browser, so your PDF stays on your device and no account is needed. The rotation is written into each page as a setting rather than redrawn, so text stays selectable and images keep their quality.",
+      `It is the quick fix for a scan that came out sideways, a landscape table stuck in a portrait report, or a page someone photographed upside down. Each PDF can be up to ${ceilingMb("rotate-pdf")} MB.`,
+    ],
+    steps: [
+      "Open the Rotate PDF tool.",
+      "Add your PDF. It opens in your browser, and the file stays on your device.",
+      "Choose the pages to turn. Every page starts selected; click Clear, then click pages to pick them, Shift-click to take a range, or use Invert.",
+      "Turn them with Left, Right, or 180°, or use the arrows on one page's thumbnail to turn just that page.",
+      "Check the thumbnails. Reset puts every page back the way it was.",
+      "Apply the rotation and download the rotated PDF.",
+    ],
+    sections: [
+      {
+        id: "every-page-or-some",
+        heading: "Turning every page, or only some",
+        body: [
+          "Every page starts selected, so one click on Left, Right, or 180° turns the whole document — the usual fix for a scan that came out sideways. To turn only some pages, clear the selection and pick the ones you want: click a page to select it, Shift-click another to select everything in between, or Invert to swap what is selected. With nothing selected at all, a turn applies to every page.",
+          "For a single odd page, skip the selection and use the arrows on that page's thumbnail. Pages that were already rotated in the original start from their current angle, so a turn adds to what is there, and Apply stays unavailable until at least one page differs from the original.",
+        ],
+      },
+      {
+        id: "what-rotating-changes",
+        heading: "What rotating changes, and what it leaves alone",
+        body: [
+          "A PDF stores each page's rotation as a setting, and this tool changes that setting instead of redrawing the page. Text stays selectable and searchable, images keep their original quality, and no page is turned into a picture.",
+          "If you also need to reorder, duplicate, or delete pages, use Organize Pages, which does all of that and rotation in one pass on a visual page board, in your browser too. If a page is the right way up but carries too much margin, Crop PDF trims it.",
+        ],
+      },
+      {
+        id: "where-it-runs",
+        heading: "Your PDF never leaves your device",
+        body: [
+          "Rotate PDF is an in-browser tool. The file is opened, turned, and saved on your own machine — there is no server step in the path, and no account is needed.",
+          `One honest caveat about working offline: ${offlineAnswer("rotate-pdf")}`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I rotate just one page of a PDF?",
+        answer:
+          "Yes. Use the arrows on that page's thumbnail, or select only that page and use Left, Right, or 180°. The other pages stay as they were.",
+      },
+      {
+        question: "Does rotating a PDF reduce its quality?",
+        answer:
+          "No. The tool changes each page's rotation setting instead of redrawing the page, so text stays selectable and images keep their quality.",
+      },
+      {
+        question: "Does my PDF leave my device when I rotate it?",
+        answer:
+          "No. Rotate PDF runs entirely in your browser, so the file stays on your device from start to finish.",
+      },
+      {
+        question: "Can I rotate and reorder pages at the same time?",
+        answer:
+          "Use Organize Pages for that. It reorders, rotates, duplicates, and deletes pages in one pass, and it runs in your browser too.",
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("rotate-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
+    updated: "2026-09-27",
+  },
+  {
+    slug: "how-to-add-text-to-a-pdf",
+    title: "How to add text, images, and shapes to a PDF",
+    description:
+      "Add text, images, boxes, and lines to a PDF right in your browser, so the file stays on your device — and what Edit PDF can and cannot change.",
+    tools: ["edit-pdf", "annotate-pdf", "redact-pdf"],
+    keywords: [
+      "edit pdf",
+      "add text to pdf",
+      "type on a pdf",
+      "insert image in pdf",
+      "add a logo to a pdf",
+      "draw a box on a pdf",
+    ],
+    intro: [
+      "To add text to a PDF, open the Edit PDF tool, add your file, choose Text, type what you want, set the page and position, and add it to the page. Boxes, lines, arrows, and PNG or JPG images go on the same way. When everything is placed, apply the edits and download the new PDF.",
+      "Edit PDF runs entirely in your browser, so your PDF stays on your device and no account is needed. New content is drawn onto the page as real text, shapes, and images, and the original pages are kept as they are rather than turned into pictures, so their own text stays selectable.",
+      `One thing to know before you start: Edit PDF adds new content on top of the page. It does not change, move, restyle, or delete the text that is already in the file. Each PDF can be up to ${ceilingMb("edit-pdf")} MB.`,
+    ],
+    steps: [
+      "Open the Edit PDF tool.",
+      "Add your PDF. It opens in your browser, and the file stays on your device.",
+      "Choose what to add: Text, Box, Line, or Image.",
+      "Set the page, then the position in points measured from the bottom-left corner of that page. The tool shows the page's size so you know how much room there is.",
+      "Fill in the details: the words, size, and color for text; filled or outline for a box; an arrowhead for a line; a PNG or JPG file for an image. Then click Add to page.",
+      "Add anything else you need, check the schematic page preview, then apply the edits and download the edited PDF.",
+    ],
+    sections: [
+      {
+        id: "placing-content",
+        heading: "Placing text, boxes, lines, and images",
+        body: [
+          "Every item is placed by numbers rather than dragged. Positions are in PDF points, counted from the bottom-left corner of the page, and the tool shows the size of the page you are working on. For text, the position is where the first line sits, and further lines flow downward from there. Give text a wrap width to break long lines automatically; without one, a line breaks only where you start a new line yourself.",
+          `Boxes can be filled, with an adjustable opacity, or drawn as an outline. Lines can end in an arrowhead. Images must be PNG or JPG files of up to ${EDIT_IMAGE_MB} MB each; they start at a size that keeps their proportions, and you can set the width, height, and opacity yourself.`,
+          "Everything you add appears in a list and on a schematic preview of its page, and you can remove any item before you apply. Each item carries its own page number, so one pass can add content to as many pages as you like.",
+        ],
+      },
+      {
+        id: "what-it-changes",
+        heading: "What Edit PDF changes, and what it leaves alone",
+        body: [
+          "Edit PDF adds; it does not rewrite. The text, images, and drawings already in your PDF stay exactly where they are, and the tool cannot retype a word, change a font, move a paragraph, or delete anything that was already there. The pages are kept, not redrawn, so the original text stays selectable just as it was.",
+          "When you apply your edits, the new content is written into the page itself. In the downloaded file it is part of the page, not a comment or a separate object that someone can move or delete in their PDF viewer.",
+          "On the uncommon page that is stored with a rotation setting, positions are measured on the page as stored, before that rotation, so new content follows the page's content rather than the way your viewer turns it.",
+        ],
+      },
+      {
+        // From L05's guide for the same intent (folded in here): the tool for
+        // the job this one cannot do.
+        id: "changing-existing-text",
+        heading: "Changing the text that is already there",
+        body: [
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, one paragraph per line. Images, fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
+        ],
+      },
+      {
+        id: "covering-versus-removing",
+        heading: "Covering something is not the same as removing it",
+        body: [
+          "A filled box can cover a word, a number, or an old date, and the printed page will look clean. But whatever is underneath is still in the file: it can still be selected and copied, and anyone who removes the box in another editor sees it again.",
+          "When information must actually be gone, use Redact PDF instead. It covers the areas you choose and then rebuilds every page as a flattened image, so the text and drawings underneath are removed rather than hidden. The trade-off is that no text in the redacted copy can be selected any more.",
+          "For review marks rather than new content — highlights, outlines, notes, and arrows — use Annotate PDF. It runs in your browser too and flattens its markups into the page in the same way.",
+        ],
+      },
+      {
+        id: "where-it-runs",
+        heading: "Your PDF never leaves your device",
+        body: [
+          "Edit PDF is an in-browser tool. The PDF and any images you insert are read, edited, and saved on your own machine — there is no server step in the path, and no account is needed.",
+          "Text in English and the other Western European languages uses a font built into the engine. For any other script — Greek, Cyrillic, Bengali, Chinese, and the rest — the tool downloads a matching font the first time it is needed. If your text has characters none of its fonts can draw, or mixes scripts that no single one of its fonts covers, it tells you before changing anything rather than leaving blanks in the page.",
+          `One honest caveat about working offline: ${offlineAnswer("edit-pdf")} The font download carries none of your document; it is the same file for everyone.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I change the existing text in my PDF?",
+        answer: `No. ${nameOf("edit-pdf")} adds new text, images, boxes, and lines, but it cannot retype, restyle, move, or delete text that is already in the file. To rework the existing text, convert the file with ${nameOf("pdf-to-word")}. You can draw a filled box over something to hide it; if the information must really be gone, use ${nameOf("redact-pdf")}.`,
+      },
+      {
+        question: "Can I add an image or a logo to a PDF?",
+        answer: `Yes. Choose Image, pick a PNG or JPG of up to ${EDIT_IMAGE_MB} MB, then set its page, position, size, and opacity. It starts at a size that keeps the image's proportions.`,
+      },
+      {
+        question: "Can I add content to more than one page?",
+        answer:
+          "Yes. Each item you add has its own page number, so you can place items on as many pages as you like and apply them all in one pass.",
+      },
+      {
+        question: "Does my PDF leave my device when I edit it?",
+        answer:
+          "No. Edit PDF runs entirely in your browser, so the PDF and any images you add stay on your device from start to finish.",
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("edit-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-09-27",
     updated: "2026-09-27",
   },
   {
@@ -1140,78 +1454,6 @@ export const guides: Guide[] = [
     updated: "2026-09-27",
   },
   {
-    slug: "how-to-convert-pdf-to-jpg-or-png",
-    title: "How to convert PDF pages to JPG or PNG images",
-    description: `Turn every page of a PDF into a JPG or PNG image at ${RASTER_RESOLUTION_DPIS} DPI — rendered in your browser, so the file never leaves your device. No account needed.`,
-    tools: ["pdf-to-jpg", "pdf-to-png", "extract-images"],
-    keywords: [
-      "pdf to jpg",
-      "pdf to png",
-      "convert pdf to image",
-      "pdf page to image",
-      "pdf to jpg high resolution",
-    ],
-    intro: [
-      "To turn PDF pages into images, open PDF to JPG or PDF to PNG, pick your file, choose a resolution, and render. Every page becomes one image: a one-page PDF gives you a single file, and when there is more than one page they arrive as a ZIP holding every page.",
-      "Rendering happens in your browser, so the PDF stays on your device from start to finish, and there is no account to create.",
-      "This guide explains the resolutions, the difference between JPG and PNG, what you download, and when Extract Images is the better tool.",
-    ],
-    steps: [
-      "Open PDF to JPG, or PDF to PNG for lossless images.",
-      "Pick your PDF — it stays on your device the whole time.",
-      `Choose a resolution: ${RASTER_RESOLUTION_CHOICES}.`,
-      "Render — every page becomes one image, in your browser.",
-      `Download the result. More than one page arrives together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
-    ],
-    sections: [
-      {
-        id: "choosing-a-resolution",
-        heading: "Choosing a resolution",
-        body: [
-          `DPI is how many image pixels each inch of the page becomes. The presets are ${RASTER_RESOLUTION_CHOICES}; ${DEFAULT_RESOLUTION_LABEL} is selected when you open the tool. A higher DPI gives sharper images and larger files — pick it for printing or zooming in, and a lower one for sharing on screen.`,
-          `Neither side of a rendered page may exceed ${RASTER_MAX_DEVICE_PX.toLocaleString("en-US")} pixels, which keeps the memory a page needs in check. A very large page, such as a poster or an engineering drawing, is rendered below the preset rather than failing.`,
-        ],
-      },
-      {
-        id: "jpg-or-png",
-        heading: "JPG or PNG?",
-        body: [
-          "JPG files are smaller and suit photographs and scanned pages. PNG is lossless — every pixel is kept exactly — which suits text, line art and screenshots, at the cost of larger files.",
-          "Both are rendered on a white background, so any transparent areas of a page come out white.",
-        ],
-      },
-      {
-        id: "what-you-download",
-        heading: "What you download",
-        body: [
-          `A one-page PDF downloads as a single image named after your file. With more than one page, every page goes into one ZIP, named in reading order with zero-padded page numbers — ${pageImageName("report.pdf", 2, 12, "png")} — so the images sort correctly in any file browser. The first ${RASTER_PREVIEW_LIMIT} pages also get a preview with their own download button.`,
-          `If what you want is the pictures embedded inside the PDF rather than images of whole pages, Extract Images pulls them out at their original resolution. PDF to JPG and PDF to PNG accept PDFs up to ${ceilingMb("pdf-to-jpg")} MB per file.`,
-        ],
-      },
-    ],
-    faq: [
-      {
-        question: "Is my PDF sent to a server when I convert it to images?",
-        answer:
-          "No. The pages are rendered entirely in your browser, and the file stays on your device from start to finish.",
-      },
-      {
-        question: "What resolution should I choose?",
-        answer: `The choices are ${RASTER_RESOLUTION_CHOICES}. Choose a higher DPI for printing or zooming in, and a lower one for smaller files.`,
-      },
-      {
-        question: "Can I convert just one page?",
-        answer: `Every page is rendered, and the first ${RASTER_PREVIEW_LIMIT} each get their own download button, so you can save only the page you need. When there are more pages than that, the rest are in the ZIP, which holds every page.`,
-      },
-      {
-        question: "How large can the PDF be?",
-        answer: `Up to ${ceilingMb("pdf-to-jpg")} MB per file.`,
-      },
-    ],
-    published: "2026-09-27",
-    updated: "2026-09-27",
-  },
-  {
     slug: "how-to-convert-markdown-to-pdf",
     title: "How to convert Markdown to PDF",
     description:
@@ -1442,78 +1684,6 @@ export const guides: Guide[] = [
         question: "Do I need an account to repair a PDF?",
         answer:
           "No account is needed. Open Repair PDF, upload the file, and download the repaired copy.",
-      },
-    ],
-    published: "2026-09-27",
-    updated: "2026-09-27",
-  },
-  {
-    slug: "how-to-add-text-to-a-pdf",
-    title: "How to add text to a PDF",
-    description:
-      "Add new text, images, boxes and lines to a PDF in your browser, placed by page and position. To change the existing text, convert the PDF to Word first.",
-    tools: ["edit-pdf", "pdf-to-word", "redact-pdf"],
-    keywords: [
-      "how to add text to a pdf",
-      "add text to pdf",
-      "edit pdf",
-      "insert image in pdf",
-      "type on a pdf",
-    ],
-    intro: [
-      `To add text to a PDF, open ${nameOf("edit-pdf")}, pick your file, add a text element with the page and position it belongs on, and export a copy with the text drawn in. It runs in your browser, so the file stays on your device.`,
-      `One thing to know before you start: ${nameOf("edit-pdf")} adds new content on top of the page. It does not edit, reflow or delete the text already in the PDF. If the job is changing existing wording, ${nameOf("pdf-to-word")} converts the PDF's selectable text into an editable Word document instead — one paragraph per line, without the original layout.`,
-    ],
-    steps: [
-      `Open the ${nameOf("edit-pdf")} tool and pick your PDF — it stays on your device.`,
-      "Add a text element, type the text, and choose its color and font size.",
-      "Set the page, then the X and Y position in PDF points, measured from the bottom-left corner of the page.",
-      "Add images, boxes or lines the same way if you need them.",
-      "Apply the edits — your additions are drawn into the pages.",
-      "Download the edited copy.",
-    ],
-    sections: [
-      {
-        id: "what-you-can-add",
-        heading: "What you can add",
-        body: [
-          "Four kinds of new content: text, PNG and JPG images, boxes — filled or outlined — and lines, with an optional arrowhead. Each one is drawn into the page's own content when you apply the edits, and the original pages, their count and their sizes are kept as they were.",
-          "Nothing is turned into a picture along the way, so the text that was already in the PDF stays selectable and searchable after you add to it.",
-        ],
-      },
-      {
-        id: "placing-by-position",
-        heading: "Placing things by position",
-        body: [
-          "There is no click-to-place canvas and no drag handles: every element is placed by numbers — the page it goes on, and an X and Y position in PDF points measured from the bottom-left corner. The page preview shows where your edits land before you apply them, so you can nudge the numbers until they sit where you want.",
-        ],
-      },
-      {
-        id: "changing-or-removing-existing-text",
-        heading: "Changing or removing text that is already there",
-        body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, one paragraph per line. Images, fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
-          `A filled box drawn over existing content hides it, but the text underneath is still in the file and can be copied out. When content must actually be gone, use ${nameOf("redact-pdf")}: it covers the areas you choose with solid boxes, then rebuilds each page as a flattened image so the text and vectors underneath are removed rather than hidden.`,
-        ],
-      },
-    ],
-    faq: [
-      {
-        question: "Can I change the text that is already in my PDF?",
-        answer: `Not with ${nameOf("edit-pdf")} — it adds new content on top and keeps the existing text exactly as it was. To rework the existing text, convert the file with ${nameOf("pdf-to-word")}. To remove content for good, use ${nameOf("redact-pdf")}.`,
-      },
-      {
-        question: "Can I add an image or a logo to a PDF?",
-        answer:
-          "Yes. PNG and JPG images are placed by page and position, just like text.",
-      },
-      {
-        question: "Does my PDF leave my device?",
-        answer: `No. ${nameOf("edit-pdf")} runs entirely in your browser, and the file stays on your device from start to finish.`,
-      },
-      {
-        question: "How large can my PDF be?",
-        answer: `Up to ${ceilingMb("edit-pdf")} MB per file.`,
       },
     ],
     published: "2026-09-27",

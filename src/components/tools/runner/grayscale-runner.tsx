@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   GRAYSCALE_DPI_PRESETS,
+  GRAYSCALE_GREW_NOTE,
   grayscaleOutputName,
   grayscalePdf,
   grayscalePresetById,
@@ -43,7 +44,7 @@ export function GrayscaleRunner() {
   );
 }
 
-function GrayscaleEditor({
+export function GrayscaleEditor({
   pdf,
   onReset,
 }: {
@@ -85,9 +86,16 @@ function GrayscaleEditor({
     return (
       <ResultPanel
         title="Grayscale PDF ready"
-        summary={`${result.pageCount} page${result.pageCount === 1 ? "" : "s"} rasterized · ${formatBytes(pdf.bytes.byteLength)} → ${formatBytes(result.bytes.byteLength)}`}
+        summary={`${result.pageCount} page${result.pageCount === 1 ? "" : "s"} rasterized · ${formatBytes(pdf.file.size)} → ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
       >
+        {/* Both sizes, and a reason when the second is bigger: a text PDF
+            grows by two orders of magnitude here (grayscale-runner-size.test.tsx). */}
+        {result.bytes.byteLength > pdf.file.size && (
+          <p className="text-muted text-sm leading-relaxed">
+            {GRAYSCALE_GREW_NOTE}
+          </p>
+        )}
         <UndecodedImagesNotice count={result.undecodedImages} />
         <button
           type="button"
