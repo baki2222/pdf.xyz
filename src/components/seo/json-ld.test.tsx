@@ -12,6 +12,8 @@
  * the markup contains no early `</script` or `<!--`, and the data a JSON
  * parser reads back out of it is byte-for-byte the node that went in.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { JsonLd, serializeJsonLd } from "./json-ld";
@@ -63,5 +65,30 @@ describe("<JsonLd> escaping", () => {
     // The helper and the component agree — one serialisation.
     expect(body).toBe(serializeJsonLd(HOSTILE));
     expect(body).toContain("\\u003c/script>");
+  });
+});
+
+describe("the docblock names the replacement the helper really writes", () => {
+  it("the escape stated in json-ld.tsx is the one serializeJsonLd emits", () => {
+    // WHAT SHIPPED: the one sentence explaining this defence read
+    // "Every `<` becomes `<`". The escape sequence was unescaped on its way
+    // into the file, so the comment described a no-op. A comment is not a
+    // guard; this pins the sentence to the behaviour instead of to a string.
+    const source = readFileSync(
+      path.join(process.cwd(), "src", "components", "seo", "json-ld.tsx"),
+      "utf8",
+    );
+    const stated = /Every `<` becomes `([^`]*)`/.exec(source)?.[1];
+    expect(
+      stated,
+      "json-ld.tsx no longer states the replacement",
+    ).toBeDefined();
+    const prefix = '{"a":"';
+    const written = serializeJsonLd({ a: "<" }).slice(prefix.length, -2);
+    // Positive control: the helper really does rewrite `<`, so a comment that
+    // names `<` as its own replacement cannot match it.
+    expect(written).not.toBe("<");
+    expect(written.length).toBeGreaterThan(1);
+    expect(stated).toBe(written);
   });
 });

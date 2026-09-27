@@ -12,7 +12,7 @@
  * have broken the page, and the first dynamic field would have been stored
  * XSS.
  *
- * Every `<` becomes `<`: the same string to a JSON parser (so crawlers
+ * Every `<` becomes `\u003c`: the same string to a JSON parser (so crawlers
  * read identical data), and no `</script` or `<!--` the tokenizer can match.
  * `json-ld.test.tsx` renders a hostile node through the component and proves
  * both halves.

@@ -20,9 +20,14 @@ import {
  * WHY THESE EXIST: category links used to go to `/tools?category=<id>`, a
  * filtered view whose canonical is `/tools`. Eight category intents had no page
  * that could rank, and the header, footer and every tool breadcrumb pointed at
- * URLs that declared themselves duplicates. `/tools?category=` still filters
- * (the explorer reads it), but nothing links it any more — links are built by
- * `categoryHref`.
+ * URLs that declared themselves duplicates. The header, footer, homepage and AI
+ * section now link here through `categoryHref`, and `/tools?category=` still
+ * filters (the explorer reads it, so old shared URLs work).
+ *
+ * STILL LINKED FROM the files `category-href.test.ts` holds in `PENDING`,
+ * compared with this list in both directions: `src/app/tools/[slug]/page.tsx`,
+ * whose category chip and middle breadcrumb item point at
+ * `/tools?category=<id>` on all fifty tool pages.
  *
  * The set is `categories`, closed: a ninth category gets a page by existing,
  * and anything else is a real 404, not a 200 that says "not found" (the soft
@@ -41,9 +46,11 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { category } = await params;
   const landing = getCategoryLanding(category);
-  if (!landing) {
-    return buildMetadata({ title: "Category not found", noIndex: true });
-  }
+  // An unknown param gets the 404's own head, never metadata of its own:
+  // `buildMetadata` with no path declares `/` canonical, which is the defect
+  // `not-found-metadata.test.ts` removed from the 404. Unreachable while
+  // `dynamicParams` is false, and held by that test regardless.
+  if (!landing) notFound();
   return buildMetadata({
     title: landing.copy.title,
     description: landing.copy.description,

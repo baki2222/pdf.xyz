@@ -11,10 +11,16 @@ import type { ToolCategoryId } from "./types";
  * declared themselves duplicates, and eight category intents ("PDF converter",
  * "AI PDF tools") had no page that could rank.
  *
- * Every link is built here so a link cannot be spelled on its own and go stale.
+ * Links are built here so a link cannot be spelled on its own and go stale.
  * `category-href.test.ts` DISCOVERS every source file that writes a
- * `?category=` link and fails any outside the explorer, which still reads the
- * query string so old shared URLs keep filtering.
+ * `?category=` link and fails any that is not in its `PENDING` ratchet. The
+ * explorer is not an exemption: it READS the query string, so old shared URLs
+ * keep filtering, and writes no link.
+ *
+ * STILL LINKED FROM, and so not yet true everywhere: the files that test holds
+ * in `PENDING`, compared with this list in both directions —
+ * `src/app/tools/[slug]/page.tsx`, whose category chip and middle
+ * BreadcrumbList item point at `/tools?category=<id>` on all fifty tool pages.
  */
 export const CATEGORY_PATH_PREFIX = "/tools/category/";
 

@@ -9,8 +9,8 @@
  * `www` is a proxied CNAME of the apex (docs/DEPLOYMENT.md §4) and nothing
  * redirected it. Measured 2026-09-27: `https://www.pdf.xyz/tools/merge-pdf`
  * → `200 OK`, `x-nextjs-cache: HIT` — the entire site served on two hosts, with
- * only the canonical tag saying which copy counts, while Google had indexed
- * about 30 of 67 known URLs.
+ * only the canonical tag saying which copy counts, while Search Console knew
+ * about 30 of the site's 67 URLs and had indexed 27 (read 2026-09-20).
  *
  * ── WHAT IS DERIVED, AND FROM WHAT ─────────────────────────────────────────
  *

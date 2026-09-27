@@ -11,9 +11,14 @@ import type { ProcessingMode } from "./types";
  * badge's own docblock said so, and named the reason ("they hardcode the
  * legacy dark palette") — while the badge kept a second table of dot classes
  * and the share card kept a third of literal hexes. Three lists, one of them
- * dead and still looking authoritative. A mode's colour is now defined here or
- * nowhere: `processing-hue.test.ts` fails any other file that maps all four
- * modes to colours.
+ * dead and still looking authoritative. A mode's colour is now defined here,
+ * and today both consumers read it from this row.
+ *
+ * NOT GUARDED: this comment used to say a `processing-hue` test failed any
+ * other file that maps all four modes to colours. No such test was ever
+ * committed, so nothing stops a fourth table today; `card-pixels.test.ts`
+ * checks only that one in-browser tool's share card paints the client
+ * `card.text` hue it reads from here.
  */
 export interface ProcessingHue {
   /** Tailwind utility for the site's status dot. */

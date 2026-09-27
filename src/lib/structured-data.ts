@@ -101,8 +101,13 @@ export function webApplicationSchema(): Json {
  * `"name": "How to use How to merge PDF files"` to crawlers. The prefix is
  * right for a TOOL name and wrong for a title that is already a how-to, and a
  * builder that silently adds words cannot tell which it was handed. So the
- * prefix lives only in the tool builder, and `howto-names.test.tsx` renders
- * every guide and every tool page and reads the name back out of the markup.
+ * prefix lives only in the tool builder.
+ *
+ * `src/app/guides/guide-structured-data.test.tsx` renders every guide page and
+ * reads the name back out of the markup. It does NOT render the tool page (the
+ * chat panel it imports is evaluated under a `vi.mock` elsewhere, and a second
+ * importer would get the stub); tools are covered only through
+ * {@link howToSchema} rendered by `<JsonLd>`, as that test's positive control.
  */
 export function namedHowToSchema(name: string, steps: readonly string[]): Json {
   return {

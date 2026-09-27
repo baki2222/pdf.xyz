@@ -310,11 +310,15 @@ Notes specific to this feature:
    `/sitemaps/pages.xml` precedent in that file, so the watch cannot alarm
    during the deploy window.
 
-   **http → https is a `302`, and it is NOT fixed in this repo.** Measured
-   2026-09-27: `http://pdf.xyz/tools/merge-pdf` → `302 Found`,
-   `Location: https://pdf.xyz/tools/merge-pdf`; `http://www.pdf.xyz/…` →
-   `302` to `https://www.pdf.xyz/…` (so, with the `www` redirect above deployed,
-   http+www takes two hops to the apex).
+   **http → https is a temporary redirect, and it is NOT fixed in this
+   repo.** Measured 2026-09-27: a GET of `http://pdf.xyz/tools/merge-pdf` →
+   `302 Found`, `Location: https://pdf.xyz/tools/merge-pdf`; `http://www.pdf.xyz/…`
+   → `302` to `https://www.pdf.xyz/…` (so, with the `www` redirect above
+   deployed, http+www takes two hops to the apex). **The status depends on the
+   method:** `curl -sI` sends HEAD, and the same URLs answer HEAD with
+   `307 Temporary Redirect` (re-measured 2026-09-27). Re-verify with
+   `curl -s -o /dev/null -w '%{http_code}' <url>` (a GET, which is what a
+   crawler sends), or expect `307` from `-I`.
    Nothing in this repository issues it. Both responses carried
    `cf-cache-status: DYNAMIC` and a 5-byte body reading `Found`, which points
    at the origin proxy (Coolify's Traefik HTTP→HTTPS redirect) rather than a
@@ -323,8 +327,9 @@ Notes specific to this feature:
    **Always Use HTTPS** (documented as a `301` at the edge, before the request
    reaches Coolify), and optionally a Redirect Rule `http://www.pdf.xyz/*` →
    `https://pdf.xyz/${1}`, 301, preserve query string, so http+www is one hop.
-   Then re-curl both `http://` URLs and confirm the status is `301`/`308` —
-   read it, do not assume it from the setting's name.
+   Then re-request both `http://` URLs with a GET and with HEAD, and confirm
+   both statuses are `301`/`308` — read them, do not assume them from the
+   setting's name.
 
 3. `beta.pdf.xyz` also resolves here and is marked **noindex** per-domain in
    Coolify. That pairing is watched hourly by

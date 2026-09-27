@@ -12,8 +12,9 @@
  * URL is not a link).
  *
  * Two properties, both directions of one rule:
- *  1. nothing writes a `?category=` link — the query form still FILTERS (the
- *     explorer parses it, so old shared URLs work) but nothing points at it;
+ *  1. nothing outside `PENDING` writes a `?category=` link — the query form
+ *     still FILTERS (the explorer parses it, so old shared URLs work), and
+ *     only the pending files still point at it;
  *  2. nothing spells `/tools/category/` by hand — the helper is the one place,
  *     so a route rename cannot leave a stale link behind.
  */
@@ -55,6 +56,19 @@ const SPELLED_PATH = /["'`]\/tools\/category\//;
  * outliving it.
  */
 const PENDING = new Set(["src/app/tools/[slug]/page.tsx"]);
+
+/**
+ * The backticked `src/…` paths a docblock lists after `STILL LINKED FROM`, up
+ * to the end of that paragraph — or `null` when the docblock has no such list.
+ */
+function stillLinkedFrom(raw: string): string[] | null {
+  const at = raw.indexOf("STILL LINKED FROM");
+  if (at < 0) return null;
+  const rest = raw.slice(at);
+  const end = rest.search(/\n\s*\*\s*\n|\*\//);
+  const paragraph = end < 0 ? rest : rest.slice(0, end);
+  return [...paragraph.matchAll(/`(src\/[^`]+)`/g)].map((m) => m[1]!).sort();
+}
 
 describe("category links go through categoryHref", () => {
   const files = sourceFiles();
@@ -134,5 +148,58 @@ describe("category links go through categoryHref", () => {
     expect(navHrefs.filter((href) => !prerendered.has(href))).toEqual([]);
     // And the footer names every category — derived, so a new one is linked.
     for (const c of categories) expect(navHrefs).toContain(categoryHref(c.id));
+  });
+});
+
+/**
+ * The prose that describes the rule tells the truth about `PENDING`.
+ *
+ * WHAT SHIPPED: the helper's docblock said "Every link is built here" and the
+ * landing route's said "nothing links it any more", while all fifty tool pages
+ * still linked `/tools?category=<id>` from their category chip and their
+ * BreadcrumbList — the very file `PENDING` exempts. The ratchet above was
+ * honest and the two paragraphs describing it were not; a comment is not a
+ * guard, so the paragraphs now LIST what still links the query form, and the
+ * list is compared with `PENDING` in both directions. Emptying `PENDING`
+ * fails here until the prose is updated to match.
+ *
+ * The two docblocks are found, not named: the module that DEFINES
+ * `categoryHref`, and the route file `CATEGORY_PATH_PREFIX` resolves to.
+ */
+describe("the docblocks list what still links ?category=", () => {
+  const raw = (file: string) =>
+    readFileSync(path.join(ROOT, ...file.split("/")), "utf8");
+  const helper = sourceFiles()
+    .map(rel)
+    .filter((file) => /export function categoryHref\b/.test(raw(file)));
+  const route = `src/app${CATEGORY_PATH_PREFIX}[category]/page.tsx`;
+
+  it("finds exactly one helper and a real route file", () => {
+    expect(helper).toEqual(["src/lib/tools/category-href.ts"]);
+    expect(raw(route)).toMatch(/generateStaticParams/);
+  });
+
+  it("the parser sees a list, and sees the old claim as no list at all", () => {
+    // Positive control: the shape the docblocks use.
+    expect(
+      stillLinkedFrom(
+        " * STILL LINKED FROM: `src/a.tsx` and\n * `src/b/[x].tsx`.\n *\n * `src/c.ts`",
+      ),
+    ).toEqual(["src/a.tsx", "src/b/[x].tsx"]);
+    // The sentence that shipped false carries no list, so it cannot pass.
+    expect(
+      stillLinkedFrom(
+        " * (the explorer reads it), but nothing links it any more — links are built by\n * `categoryHref`.\n */",
+      ),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["helper", () => helper[0]!],
+    ["route", () => route],
+  ])("the %s docblock lists exactly the PENDING files", (_label, file) => {
+    const listed = stillLinkedFrom(raw(file()));
+    expect(listed, `${file()} has no STILL LINKED FROM list`).not.toBeNull();
+    expect(listed).toEqual([...PENDING].sort());
   });
 });

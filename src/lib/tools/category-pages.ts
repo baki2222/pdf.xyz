@@ -16,7 +16,8 @@ import type { ToolCategoryId } from "./types";
  * written and silently false the day one tool moved.
  *
  * `Record<ToolCategoryId, …>` makes a ninth category a compile error until it
- * has copy, and `category-pages.test.ts` holds the H1s and titles unique.
+ * has copy, and `src/app/tools/category/category-page.test.tsx` holds the H1s
+ * and titles unique.
  */
 export interface CategoryPageCopy {
   /** `<title>` (the layout appends " — pdf.xyz"). */
@@ -82,9 +83,9 @@ export const categoryPageCopy: Record<ToolCategoryId, CategoryPageCopy> = {
     title: "Sign PDF and fill PDF forms",
     heading: "Sign PDFs and fill forms",
     description:
-      "Sign a PDF with a drawn, typed or uploaded signature, fill in a PDF form, turn a flat PDF into a fillable one, or request signatures from other people.",
+      "Sign a PDF with a drawn, typed or uploaded signature, fill in or create PDF forms, or prepare signing fields for other people, ready for you to send.",
     intro:
-      "Finish the paperwork step: put your signature on a document, complete the fields in a PDF form, add form fields to a PDF that has none, or ask other people to sign.",
+      "Finish the paperwork step: put your signature on a document, complete the fields in a PDF form, add form fields to a PDF that has none, or prepare a document for other people to sign. You send it to them yourself: pdf.xyz sets up the signing fields and does not deliver it or collect signatures.",
     keywords: ["sign pdf", "pdf signature", "fill pdf form", "pdf forms"],
   },
   security: {
@@ -93,7 +94,7 @@ export const categoryPageCopy: Record<ToolCategoryId, CategoryPageCopy> = {
     description:
       "Password-protect a PDF, remove a password you know, black out sensitive information, flatten form fields, and compare two versions of a document.",
     intro:
-      "Decide who can open a document and what it gives away. Add a password or remove one you know, black out information before you share, lock form fields into the page, or compare two versions to see exactly what changed.",
+      "Decide who can open a document and what it gives away. Add a password or remove one you know, black out information before you share, lock form fields into the page, or compare the text, page count and file size of two versions.",
     keywords: [
       "pdf security",
       "protect pdf",

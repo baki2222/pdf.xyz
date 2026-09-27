@@ -20,7 +20,7 @@
  * built `_not-found` head was also read from `next build` output when this
  * landed — so the model is kept deliberately to that one rule.
  */
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { Metadata } from "next";
 import { describe, expect, it, vi } from "vitest";
@@ -103,5 +103,101 @@ describe("page identity is never inherited from a layout", () => {
     );
     expect(home.robots).toMatchObject({ index: true, follow: true });
     expect(home.openGraph && "url" in home.openGraph).toBeTruthy();
+  });
+});
+
+/**
+ * An unknown param on a dynamic route renders the 404, head and all.
+ *
+ * WHAT WAS THERE: `generateMetadata` on the category and guide routes fell
+ * back to `buildMetadata({ title: "… not found", noIndex: true })` for an
+ * unknown param. With no `path`, `buildMetadata` declares `/` canonical and
+ * og:url — the exact defect the 404 work above removed, one file over. It was
+ * unreachable only because `dynamicParams = false` answers 404 before
+ * metadata runs; flip that flag and every dead category URL would claim to be
+ * the home page again. Now the fallback calls `notFound()`, so the only head
+ * an unknown param can get is the one tested above.
+ *
+ * The routes are DISCOVERED: every `[param]/page.tsx` under `src/app` that
+ * exports `generateMetadata`.
+ */
+function discoverDynamicPages(dir = APP): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (!entry.isDirectory()) continue;
+    found.push(...discoverDynamicPages(full));
+    if (!/^\[[^.\]]+\]$/.test(entry.name)) continue;
+    const page = path.join(full, "page.tsx");
+    try {
+      if (
+        /export async function generateMetadata/.test(
+          readFileSync(page, "utf8"),
+        )
+      )
+        found.push(page);
+    } catch {
+      // a dynamic segment with no page of its own (a route handler, a layout)
+    }
+  }
+  return found;
+}
+
+/**
+ * NOT MINE TO EDIT: the tool page belongs to another lane, and importing it
+ * here is refused by `src/tests/mock-isolation.test.ts` (it pulls in the chat
+ * panel another test evaluates under a `vi.mock`). A RATCHET, not an
+ * allowance: the test below fails once the file stops carrying the fallback.
+ */
+const PENDING_FALLBACK = new Set(["tools/[slug]/page.tsx"]);
+
+describe("an unknown dynamic param renders the 404's head", () => {
+  const pages = discoverDynamicPages().map((file) => ({
+    where: path.relative(APP, file).split(path.sep).join("/"),
+    param: path.basename(path.dirname(file)).slice(1, -1),
+  }));
+
+  it("the walk finds the dynamic routes (health check)", () => {
+    const where = pages.map((p) => p.where);
+    expect(where).toContain("tools/category/[category]/page.tsx");
+    expect(where).toContain("guides/[slug]/page.tsx");
+    expect(where.length).toBeLessThan(20);
+  });
+
+  it("generateMetadata for an unknown param calls notFound()", async () => {
+    const offenders: string[] = [];
+    for (const { where, param } of pages) {
+      if (PENDING_FALLBACK.has(where)) continue;
+      const mod = (await import(
+        /* @vite-ignore */ `./${where.replace(/\.tsx$/, "")}`
+      )) as {
+        generateMetadata: (a: {
+          params: Promise<Record<string, string>>;
+        }) => Promise<Metadata>;
+      };
+      try {
+        const meta = await mod.generateMetadata({
+          params: Promise.resolve({ [param]: "no-such-thing-404" }),
+        });
+        offenders.push(
+          `${where}: returned metadata (canonical ${String(meta.alternates?.canonical)})`,
+        );
+      } catch (error) {
+        const digest = String((error as { digest?: unknown }).digest ?? "");
+        if (!/404/.test(digest))
+          offenders.push(`${where}: threw ${String(error)}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("every pending fallback is still pending", () => {
+    for (const where of PENDING_FALLBACK) {
+      const source = readFileSync(path.join(APP, ...where.split("/")), "utf8");
+      expect(
+        /not found", noIndex: true/.test(source),
+        `${where} no longer builds its own not-found metadata — remove it from PENDING_FALLBACK`,
+      ).toBe(true);
+    }
   });
 });

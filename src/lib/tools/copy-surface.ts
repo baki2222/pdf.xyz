@@ -68,8 +68,13 @@ const ROOT = process.cwd();
  */
 export function copyFiles(): string[] {
   const roots = [
-    path.join(ROOT, "src", "components", "sections"),
-    path.join(ROOT, "src", "components", "tools"),
+    // ALL of `src/components` since 2026-09-27, not `sections` and `tools`
+    // alone. The drop zone's hand-off copy landed in `components/upload`, and
+    // the header and footer live in `components/layout`: visitor-readable
+    // text in two directories no copy guard read. Widening cost nothing (every
+    // guard stayed green), and `copy-surface.test.ts` now requires every
+    // component to be in the walk, so the next directory is read on arrival.
+    path.join(ROOT, "src", "components"),
     path.join(ROOT, "src", "app"),
     path.join(ROOT, "src", "lib", "tools"),
     // The guides catalogue: long-form instructional prose a visitor reads at

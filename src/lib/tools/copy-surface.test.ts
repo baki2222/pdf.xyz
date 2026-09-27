@@ -10,7 +10,7 @@
  * outside the walk must collapse loudly here, not sit silently unread by the
  * three guards that import this walk.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -52,6 +52,30 @@ describe("the copy surface reaches what the guards must read", () => {
         `the walk no longer reaches ${expected} — the guards are blind to it`,
       ).toContain(expected);
     }
+  });
+
+  it("reaches every component, wherever it lives", () => {
+    // Derived, not named: the walk used to take two component directories,
+    // and the drop zone's hand-off buttons (`components/upload`) and the
+    // header and footer (`components/layout`) sat outside it — copy a visitor
+    // reads, which no honesty guard read.
+    const walked = new Set(copyFiles().map(rel));
+    const components: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.tsx$/.test(entry.name) && !entry.name.includes(".test."))
+          components.push(rel(full));
+      }
+    };
+    walk(path.join(process.cwd(), "src", "components"));
+    // Health check: a walk that found nothing passes the ⊆ below.
+    expect(components.length).toBeGreaterThan(60);
+    expect(components).toContain(
+      "src/components/upload/staged-file-actions.tsx",
+    );
+    expect(components.filter((f) => !walked.has(f))).toEqual([]);
   });
 
   it("never walks test files into the copy surface", () => {

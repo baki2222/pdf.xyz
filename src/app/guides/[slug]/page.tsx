@@ -39,9 +39,11 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const guide = getGuideBySlug(slug);
-  if (!guide) {
-    return buildMetadata({ title: "Guide not found", noIndex: true });
-  }
+  // An unknown param gets the 404's own head, never metadata of its own:
+  // `buildMetadata` with no path declares `/` canonical, which is the defect
+  // `not-found-metadata.test.ts` removed from the 404. Unreachable while
+  // `dynamicParams` is false, and held by that test regardless.
+  if (!guide) notFound();
   return buildMetadata({
     title: guide.title,
     description: guide.description,
