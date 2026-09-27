@@ -76,6 +76,10 @@ import {
   invoiceSheetMismatches,
 } from "@/tests/pdf-office-fixtures";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
+import {
+  reportTablesPdf,
+  tablesProofVerdict,
+} from "@/tests/table-extract-fixtures";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
@@ -192,8 +196,13 @@ async function chatDocPdf(): Promise<Buffer> {
 }
 
 /**
- * A PDF whose text is laid out as a column-aligned grid, which is what the table
- * engine detects. Columns sit at fixed x positions and rows at fixed y.
+ * A PDF whose text is laid out as a column-aligned grid under a title, for
+ * AI Extract. Columns sit at fixed x positions and rows at fixed y.
+ *
+ * Until 2026-09-27 this was Extract Tables' proof fixture too, checked only
+ * for a `PK` at byte 0 — while the engine returned its title as a data row
+ * and an empty column in every row. Extract Tables now proves itself on
+ * `reportTablesPdf`, cell by cell (see its spec).
  */
 async function tablePdf(): Promise<Buffer> {
   const doc = await PDFDocument.create();
@@ -777,11 +786,19 @@ const SPECS: ProofSpec[] = [
   },
   {
     tool: "extract-tables",
-    make: tablePdf,
-    name: "table.pdf",
+    make: async () => Buffer.from(await reportTablesPdf()),
+    name: "report.pdf",
     type: PDF_MIME,
     expect: isZipContainer,
     want: "ZIP of CSV+XLSX",
+    // `PK` at byte 0 was true of the ZIP this tool shipped until 2026-09-27,
+    // whose one table had the title as a data row and an empty column in
+    // every row. Read every CSV a user gets instead: a report page with a
+    // title, a paragraph, two tables (multi-word cells, amounts set flush
+    // right), a caption, a two-run note and a footer — both tables, every
+    // cell, nothing else, and the workbook beside them. The same verdict runs
+    // on real poppler in `table-extract/engine.poppler.test.ts`.
+    verify: (bytes) => tablesProofVerdict(bytes),
   },
   {
     tool: "request-signatures",
