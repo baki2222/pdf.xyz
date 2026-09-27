@@ -204,9 +204,11 @@ export const AI_PER_CALL_RUN_CEILING = TRANSLATE_MAX_INPUT_CHARS;
  * The offer on the three `per-call` tools, where one run is one provider call.
  *
  * ⚠️ WHY IT SAYS "NEVER MORE THAN" AND NOT "THE CHARACTERS IN YOUR DOCUMENT".
- * A run is charged its declared size only while the running worker proves it
- * reads no more than that (`aiReadCap`); an image built before that proof
- * charges every run the ceiling. The worker is deployed by hand, after the web
+ * A run is charged by what it sends (its declared document, plus the question,
+ * prompt or focus the server measures, plus the engine's instructions) only
+ * while the running worker proves it sends no more than that (`aiReadCap`); an
+ * image built before that proof charges every run the ceiling. Either way the
+ * sentence's ceiling holds: the price is clamped at one whole run. The worker is deployed by hand, after the web
  * tier, so the stronger sentence would be true of `main` and false of whatever
  * image is serving — the defect this codebase keeps paying for. This one is
  * true of both.

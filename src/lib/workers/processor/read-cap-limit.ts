@@ -4,12 +4,16 @@
  *
  * ── WHY IT EXISTS ───────────────────────────────────────────────────────────
  *
- * The route charges a `per-call` run the characters the browser declared
- * (`aiReservationFor`), and that is only safe if the worker then READS no more
- * than was declared. Before this module the three processors ignored
- * `input.delivery` entirely, so a declared count would have been a discount on
- * a full read: declare one character, pay four, have 500,000 sent to the
- * provider. The cap is what makes a small charge true.
+ * The route charges a `per-call` run the document characters the browser
+ * declared (`aiReservationFor`), and that is only safe if the worker then READS
+ * no more of the document than was declared. Before this module the three
+ * processors ignored `input.delivery` entirely, so a declared count would have
+ * been a discount on a full read: declare one character, pay four, have 500,000
+ * sent to the provider. The cap is what makes a small document charge true.
+ *
+ * It bounds the document and nothing else. The options (a chat question and
+ * its turns, an extract prompt or schema, a summarize focus) reach the model
+ * whatever the cap says; the route measures and charges them itself.
  *
  * ── WHAT IT DOES NOT DO ─────────────────────────────────────────────────────
  *

@@ -13,18 +13,63 @@
  * consumer's input — not the `maxInputChars` the processor computes, because a
  * processor that computed the right bound and failed to hand it on would pass a
  * check of the number and fail this one.
+ *
+ * ── AND NO MORE IN TOTAL THAN IT WAS CHARGED (review, 2026-09-27) ───────────
+ *
+ * The first version of this file counted `MARK`, the document, and nothing
+ * else, and so certified a spend hole: the read cap bounds the document only,
+ * and the chat question and turns, the extract prompt or schema and the
+ * summarize focus reach the model verbatim. The route charged the declared
+ * document alone, so a caller declaring 1 paid 4 and sent 8 KB of
+ * conversation. The route now charges what the server measures of the options
+ * plus an allowance for the engine's own instructions, and the tests below
+ * count EVERY character the provider received against that charge.
  */
 import { describe, expect, it } from "vitest";
-import { AI_RUN_PRICING, aiReservationFor } from "@/lib/jobs/delivery-cap";
+import {
+  AI_PER_CALL_INSTRUCTION_CHARACTERS,
+  AI_RUN_PRICING,
+  aiReservationFor,
+  optionCharacters,
+} from "@/lib/jobs/delivery-cap";
 import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
 } from "@/lib/jobs/translate-limits";
 import {
   PER_CALL_PROCESSORS,
+  PROOF_PAGE_COUNTS,
   documentCharactersSent,
+  providerCharactersSent,
   provesAiReadCap,
 } from "./read-cap-proof";
+
+const WHOLE_RUN = Math.ceil(
+  TRANSLATE_MAX_INPUT_CHARS * TRANSLATE_EXTRACTOR_HEADROOM,
+);
+
+/** Every body a tool is probed with: its minimal one, then the heavy ones. */
+function bodiesOf(tool: string): Record<string, unknown>[] {
+  const entry = PER_CALL_PROCESSORS[tool]!;
+  return [entry.options, ...entry.heavyOptions];
+}
+
+/** The route's price and read bound for `declared` characters and `options`. */
+function priceOf(
+  tool: string,
+  declared: number,
+  options: Record<string, unknown>,
+) {
+  return aiReservationFor(
+    tool,
+    { declaredCharacters: declared, options },
+    {
+      fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
+      headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+      readCapEnforced: async () => true,
+    },
+  );
+}
 
 /** The per-call tools, from the pricing — never typed here. */
 function perCallTools(): string[] {
@@ -96,6 +141,123 @@ describe.each(perCallTools())("%s", (tool) => {
     expect(
       await documentCharactersSent(tool, { characters: Number.NaN }),
     ).toBeNull();
+  });
+});
+
+describe.each(perCallTools())(
+  "%s: every character the provider receives",
+  (tool) => {
+    it("has heavy bodies, each carrying far more than the minimal one", () => {
+      // BOUND THE CORPUS: with no heavy body the tests below ask only about a
+      // six-character question.
+      const entry = PER_CALL_PROCESSORS[tool]!;
+      expect(entry.heavyOptions.length).toBeGreaterThan(0);
+      for (const options of entry.heavyOptions) {
+        expect(optionCharacters(options)).toBeGreaterThan(
+          optionCharacters(entry.options) + 250,
+        );
+      }
+    });
+
+    it("CONTROL: the counter sees the options, not only the document", async () => {
+      // A counter blind to the options (MARK only, or the system prompt only,
+      // which is where two of the three engines put them and the third does not)
+      // would report every body the same. The heavy bodies must arrive.
+      const minimal = await providerCharactersSent(
+        tool,
+        { characters: 400 },
+        PER_CALL_PROCESSORS[tool]!.options,
+      );
+      expect(minimal).not.toBeNull();
+      for (const options of PER_CALL_PROCESSORS[tool]!.heavyOptions) {
+        const heavy = await providerCharactersSent(
+          tool,
+          { characters: 400 },
+          options,
+        );
+        expect(heavy, "a heavy body did not run").not.toBeNull();
+        expect(
+          heavy!.total - minimal!.total,
+          "the heavy body's text did not show up in what the provider received",
+        ).toBeGreaterThanOrEqual(
+          (optionCharacters(options) -
+            optionCharacters(PER_CALL_PROCESSORS[tool]!.options)) /
+            2,
+        );
+      }
+    });
+
+    it.each([1, 100, 2_000])(
+      "declared %i: the route's charge covers every character sent, whatever the body",
+      async (declared) => {
+        // The composed chain: the route's own pricing -> the read bound it hands
+        // the worker -> the processor -> the provider request, counted whole.
+        for (const options of bodiesOf(tool)) {
+          const priced = await priceOf(tool, declared, options);
+          expect(
+            priced.charge,
+            "the run was charged a whole run, so this asks nothing about options",
+          ).toBeLessThan(WHOLE_RUN);
+          for (const pageCount of PROOF_PAGE_COUNTS) {
+            const sent = await providerCharactersSent(
+              tool,
+              priced.delivery,
+              options,
+              pageCount,
+            );
+            expect(sent, "the run did not complete").not.toBeNull();
+            expect(
+              sent!.total,
+              `${optionCharacters(options)} characters of options on ` +
+                `${pageCount} page(s): the provider received more than was charged`,
+            ).toBeLessThanOrEqual(priced.charge);
+          }
+        }
+      },
+    );
+  },
+);
+
+describe("the instruction allowance the route charges", () => {
+  it("covers what every per-call engine adds, and is not a multiple of it", async () => {
+    // The second, independent bound on a constant: measured through the real
+    // processors, over every tool, body and page count the proof uses.
+    let largest = 0;
+    let runs = 0;
+    for (const tool of perCallTools()) {
+      for (const options of bodiesOf(tool)) {
+        for (const pageCount of PROOF_PAGE_COUNTS) {
+          const sent = await providerCharactersSent(
+            tool,
+            { characters: 400 },
+            options,
+            pageCount,
+          );
+          expect(sent).not.toBeNull();
+          runs += 1;
+          largest = Math.max(
+            largest,
+            sent!.total - sent!.document - optionCharacters(options),
+          );
+        }
+      }
+    }
+    expect(
+      runs,
+      "the measurement corpus is implausibly small",
+    ).toBeGreaterThanOrEqual(
+      perCallTools().length * 2 * PROOF_PAGE_COUNTS.length,
+    );
+    expect(largest, "no engine added any text of its own").toBeGreaterThan(0);
+    expect(
+      AI_PER_CALL_INSTRUCTION_CHARACTERS,
+      `an engine adds ${largest} characters of its own; the route charges less`,
+    ).toBeGreaterThanOrEqual(largest);
+    expect(
+      AI_PER_CALL_INSTRUCTION_CHARACTERS,
+      `the route charges ${AI_PER_CALL_INSTRUCTION_CHARACTERS} for ${largest} ` +
+        "characters of instructions: every run is overcharged",
+    ).toBeLessThanOrEqual(largest * 3);
   });
 });
 

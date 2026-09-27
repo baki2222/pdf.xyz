@@ -23,15 +23,28 @@
  * priced by the real `aiReservationFor` and debited from the REAL limiter
  * (`enforceAiCharacterAllowance`, local-memory), so "how many runs fit in a
  * day" is counted by the thing that refuses the next one.
+ *
+ * ── AND THE SECOND DEFECT, FOUND IN REVIEW THE SAME DAY ─────────────────────
+ *
+ * The first fix charged a per-call run its declared DOCUMENT and nothing else,
+ * and this file pinned it ("is never charged for more than it may read"). But
+ * the read cap bounds the document only: the chat question and turns, the
+ * extract prompt or schema and the summarize focus reach the model whatever it
+ * says. A caller declaring 1 paid 4 and sent 8 KB of conversation. A run is
+ * now charged the options the server measured and the engine's instructions
+ * too, and the pin that agreed with the defect is inverted below.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
 import { capabilityForMode } from "./capabilities";
 import {
+  AI_PER_CALL_INSTRUCTION_CHARACTERS,
   AI_RUN_PRICING,
   aiReservationFor,
   deliveryCapFor,
+  optionCharacters,
 } from "./delivery-cap";
+import { PER_CALL_PROCESSORS } from "@/lib/workers/processor/read-cap-proof";
 import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -60,14 +73,24 @@ function perCallTools(): string[] {
 const enforced = async () => true;
 const notEnforced = async () => false;
 
+/** The body each tool's panel sends at its simplest. */
+function minimalOptions(tool: string): Record<string, unknown> {
+  const entry = PER_CALL_PROCESSORS[tool];
+  if (!entry) throw new Error(`no probe body for ${tool}`);
+  return entry.options;
+}
+
 async function reservation(
   tool: string,
   declaredCharacters: number | undefined,
   readCapEnforced: () => Promise<boolean>,
+  options: Record<string, unknown> = minimalOptions(tool),
 ) {
   return aiReservationFor(
     tool,
-    declaredCharacters === undefined ? {} : { declaredCharacters },
+    declaredCharacters === undefined
+      ? { options }
+      : { declaredCharacters, options },
     {
       fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
       headroom: H,
@@ -146,10 +169,18 @@ describe("a per-call run is charged the characters it declares", () => {
         runs,
         `${tool}: a one-page run still costs a third of the day`,
       ).toBeGreaterThan(3);
-      // And exactly the number the published unit implies — the day's
-      // characters divided by the document's, with nothing lost to rounding
-      // but the last run that does not fit.
-      expect(runs).toBe(Math.floor(AI_CHARACTER_ALLOWANCE / (2_000 * H)));
+      // And exactly the number the published unit implies: the day's
+      // characters divided by what one run sends (the document at its
+      // declared size, the body, the engine's instructions), with nothing lost
+      // to rounding but the last run that does not fit.
+      expect(runs).toBe(
+        Math.floor(
+          AI_CHARACTER_ALLOWANCE /
+            (2_000 * H +
+              optionCharacters(minimalOptions(tool)) +
+              AI_PER_CALL_INSTRUCTION_CHARACTERS),
+        ),
+      );
     }
   });
 
@@ -167,19 +198,46 @@ describe("a per-call run is charged the characters it declares", () => {
     }
   });
 
-  it("is never charged for more than it may read", async () => {
-    // The relationship between the two numbers, over the whole range: a run
-    // whose read bound is below its charge would bill for text it cannot see.
+  it("is charged what it may send, up to one whole run, and never more", async () => {
+    // INVERTED 2026-09-27. This was "is never charged for more than it may
+    // read": charge <= read bound, over the whole range. It held, and it
+    // pinned the defect: the read bound is the DOCUMENT, and a run sends its
+    // options and the engine's instructions as well, so a run charged no more
+    // than its read sent those free. The relationship is now to everything
+    // the run may send: exactly that below the clamp, the clamp above it.
     for (const tool of perCallTools()) {
+      const bodies = [
+        minimalOptions(tool),
+        ...PER_CALL_PROCESSORS[tool]!.heavyOptions,
+      ];
+      for (const options of bodies) {
+        for (const declared of [
+          1, 17, 2_000, 10_257, 10_258, 10_259, 400_000,
+        ]) {
+          const priced = await reservation(tool, declared, enforced, options);
+          expect(
+            priced.delivery,
+            `${tool}@${declared}: no read bound`,
+          ).toBeDefined();
+          const mayBeSent =
+            priced.delivery!.characters +
+            optionCharacters(options) +
+            AI_PER_CALL_INSTRUCTION_CHARACTERS;
+          expect(
+            priced.charge,
+            `${tool}@${declared} with ${optionCharacters(options)} ` +
+              "characters of options: charged less than it may send",
+          ).toBe(Math.min(mayBeSent, FALLBACK));
+        }
+        // The charge MOVES with the body: at one declared character the
+        // options are most of the price, and they are not free.
+        const smallest = await reservation(tool, 1, enforced, options);
+        expect(smallest.charge).toBeGreaterThanOrEqual(
+          optionCharacters(options) + AI_PER_CALL_INSTRUCTION_CHARACTERS,
+        );
+      }
       for (const declared of [1, 17, 2_000, 10_257, 10_258, 10_259, 400_000]) {
         const priced = await reservation(tool, declared, enforced);
-        expect(
-          priced.delivery,
-          `${tool}@${declared}: no read bound`,
-        ).toBeDefined();
-        expect(priced.delivery!.characters).toBeGreaterThanOrEqual(
-          priced.charge,
-        );
         // …and an under-declaration buys a SMALLER read, never a cheap full
         // one: the read bound is the declaration times the headroom, exactly.
         expect(priced.delivery!.characters).toBe(Math.ceil(declared * H));
@@ -214,7 +272,7 @@ describe("a declaration nothing enforces is ignored", () => {
   });
 
   it("ignores a declaration on an AI tool it has no pricing for", async () => {
-    const priced = await reservation("some-future-ai-tool", 1, enforced);
+    const priced = await reservation("some-future-ai-tool", 1, enforced, {});
     expect(priced).toEqual({ charge: FALLBACK, delivery: undefined });
   });
 });

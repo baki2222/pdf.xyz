@@ -267,8 +267,9 @@ export function readWorkerHeartbeatLiveness(
 
 /**
  * Does the worker that will run the next job read no more of a document than a
- * per-call AI job declared? The `readCapEnforced` witness `aiReservationFor`
- * asks for before it prices summarize, chat or extract by size.
+ * per-call AI job declared, and send the provider nothing the route's charge
+ * does not count? The `readCapEnforced` witness `aiReservationFor` asks for
+ * before it prices summarize, chat or extract by size.
  *
  * FRESH OR NOTHING. A stale heartbeat describes an image that may already have
  * been replaced, and an unreachable broker or a disabled seam describes no

@@ -300,7 +300,8 @@ describe("the route passes the cap it charged for", () => {
     /**
      * The exit condition names the property, not the mechanism. A per-call
      * tool may be charged its declared size only if the worker that runs the
-     * job reads no more than that; the code that makes that true is merged
+     * job reads no more of the document than that, and sends nothing the
+     * charge does not count; the code that makes that true is merged
      * long before the hand-built image carrying it is running. So the witness
      * handed to `aiReservationFor` must be the heartbeat's proof — a literal
      * `true`, or any function that does not ask the running image, would sell

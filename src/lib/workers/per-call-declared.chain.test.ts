@@ -13,10 +13,23 @@
  * The set of clients is held equal to the tools priced per call, so a per-call
  * tool without a declaring client fails here rather than shipping at the
  * fallback price.
+ *
+ * WHAT A CLIENT DECLARES IS ITS DOCUMENT, AND ONLY ITS DOCUMENT. Until the
+ * review of 2026-09-27 the chat client added its question and carried turns to
+ * the count, and this file pinned that sum. The server trusted it, so a direct
+ * caller could leave them out, declare 1, and send 8 KB of conversation for 4
+ * characters. The route now measures the options itself (`optionCharacters`)
+ * and charges them on top, so a client that still folded them in would pay for
+ * them twice. The pin is inverted: chat declares exactly the counted document.
  */
 import { describe, expect, it } from "vitest";
 import { parseCreateJobRequest } from "@/lib/jobs";
-import { AI_RUN_PRICING, aiReservationFor } from "@/lib/jobs/delivery-cap";
+import {
+  AI_PER_CALL_INSTRUCTION_CHARACTERS,
+  AI_RUN_PRICING,
+  aiReservationFor,
+  optionCharacters,
+} from "@/lib/jobs/delivery-cap";
 import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -80,7 +93,7 @@ type Run = (
 ) => Promise<unknown>;
 
 /** Each per-call client, called the way its panel calls it. */
-const CLIENTS: Record<string, { run: Run; declares: (n: number) => number }> = {
+const CLIENTS: Record<string, { run: Run }> = {
   "summarize-pdf": {
     run: (counted, options) =>
       runWorkerSummarize(
@@ -93,7 +106,6 @@ const CLIENTS: Record<string, { run: Run; declares: (n: number) => number }> = {
         },
         options,
       ),
-    declares: (n) => n,
   },
   "ai-extract": {
     run: (counted, options) =>
@@ -107,7 +119,6 @@ const CLIENTS: Record<string, { run: Run; declares: (n: number) => number }> = {
         },
         options,
       ),
-    declares: (n) => n,
   },
   "chat-with-pdf": {
     run: (counted, options) =>
@@ -121,12 +132,10 @@ const CLIENTS: Record<string, { run: Run; declares: (n: number) => number }> = {
         },
         options,
       ),
-    // Every question re-sends the document, the question and every carried
-    // turn — all of it is read, so all of it is declared.
-    declares: (n) =>
-      n +
-      QUESTION.length +
-      CONTEXT.reduce((sum, turn) => sum + turn.content.length, 0),
+    // INVERTED 2026-09-27. This used to declare the document PLUS the question
+    // and every carried turn ("all of it is read, so all of it is declared"),
+    // and the route trusted that sum, so a caller who left them out sent them
+    // free. The server measures them now; the client declares the document.
   },
 };
 
@@ -161,9 +170,10 @@ describe.each(Object.keys(CLIENTS))("%s", (tool) => {
     expect(body.tool).toBe(tool);
     expect(
       body.declaredCharacters,
-      "the client did not put its count on the wire, so every run silently " +
-        "costs a third of the day",
-    ).toBe(client.declares(COUNTED));
+      "the client did not put its count on the wire (every run silently " +
+        "costs a third of the day), or declared more than its document (and " +
+        "pays for its options twice)",
+    ).toBe(COUNTED);
     expect(
       "declaredTextPages" in body,
       "a page count was declared that no per-call engine enforces",
@@ -177,8 +187,18 @@ describe.each(Object.keys(CLIENTS))("%s", (tool) => {
       headroom: TRANSLATE_EXTRACTOR_HEADROOM,
       readCapEnforced: async () => true,
     });
+    // The document at its declared size, plus what the SERVER measured of the
+    // body it received, plus the engine's instructions. The options term is
+    // read off the parsed body, not the client's input, so it is what the
+    // route saw on the wire.
+    expect(
+      optionCharacters(parsed.value.options),
+      "the body carried no options, so this asks nothing about them",
+    ).toBeGreaterThan(0);
     expect(priced.charge).toBe(
-      Math.ceil(client.declares(COUNTED) * TRANSLATE_EXTRACTOR_HEADROOM),
+      Math.ceil(COUNTED * TRANSLATE_EXTRACTOR_HEADROOM) +
+        optionCharacters(parsed.value.options) +
+        AI_PER_CALL_INSTRUCTION_CHARACTERS,
     );
   });
 

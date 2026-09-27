@@ -34,6 +34,7 @@ import {
   AI_PER_CALL_ALLOWANCE_FACT,
 } from "@/lib/jobs/ai-allowance";
 import { AI_RUN_PRICING, aiReservationFor } from "@/lib/jobs/delivery-cap";
+import { PER_CALL_PROCESSORS } from "@/lib/workers/processor/read-cap-proof";
 import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -148,11 +149,30 @@ describe("the advertised allowance is what a client can actually translate", () 
     ).toBeDefined();
 
     for (const tool of perCall) {
-      for (const declared of [undefined, 1, 2_000, 5_000_000]) {
+      // With the heaviest bodies too: since 2026-09-27 a run is also charged
+      // its options, and the sentence's ceiling has to survive them.
+      const bodies = [
+        undefined,
+        ...(PER_CALL_PROCESSORS[tool]?.heavyOptions ?? []),
+      ];
+      expect(bodies.length, `${tool}: no heavy body to price`).toBeGreaterThan(
+        1,
+      );
+      for (const [declared, options] of [
+        undefined,
+        1,
+        2_000,
+        5_000_000,
+      ].flatMap((d) => bodies.map((o) => [d, o] as const))) {
         for (const enforced of [true, false]) {
           const { charge } = await aiReservationFor(
             tool,
-            declared === undefined ? {} : { declaredCharacters: declared },
+            {
+              ...(declared === undefined
+                ? {}
+                : { declaredCharacters: declared }),
+              ...(options === undefined ? {} : { options }),
+            },
             {
               fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
               headroom: TRANSLATE_EXTRACTOR_HEADROOM,

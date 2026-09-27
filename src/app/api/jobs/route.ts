@@ -112,13 +112,19 @@ export async function POST(request: Request): Promise<Response> {
      * `reservation.delivery` is what the worker is later bound to. Both come
      * from one call, so what is billed and what may be delivered cannot drift:
      * for translate they are the same number, and for a per-call tool (summarize,
-     * chat, extract) the read bound is never below what was charged for.
+     * chat, extract) the charge is the document read bound plus the options the
+     * server measures off `parsed.value` plus the engine's instructions.
      *
      * A per-call tool is priced by its declared size only while the running
-     * worker proves it reads no more than that (`aiReadCap` on a fresh
+     * worker proves it reads no more of the document than that, and sends
+     * nothing else the charge does not count (`aiReadCap` on a fresh
      * heartbeat). Until 2026-09-27 every such run was charged a third of the
      * day whatever the document held — three one-page summaries, or three chat
      * questions, against a published allowance of 30,774 characters.
+     *
+     * The worker bounds the DOCUMENT only. The question, carried turns, prompt,
+     * schema or focus are bounded by the options byte cap and charged here, by
+     * the server's own count of the body, never by the client's declaration.
      */
     reservation = await aiReservationFor(tool.slug, parsed.value, {
       fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,

@@ -169,8 +169,9 @@ export function deliveryCapFor(
  *    `declared × h` with no upper clamp, and the cap it runs under is that same
  *    reservation ({@link deliveryCapFor}).
  *  - `per-call` — one provider call reads the document up to the engine's own
- *    per-run read limit (`AI_INPUT_LIMITS.maxInputCharacters`). A run costs the
- *    characters it declared, and never more than an undeclared run costs.
+ *    per-run read limit (`AI_INPUT_LIMITS.maxInputCharacters`). A run costs
+ *    every character it can send (its declared document, its options, the
+ *    engine's instructions) and never more than an undeclared run costs.
  */
 export type AiRunPricing = "per-character" | "per-call";
 
@@ -197,6 +198,45 @@ export const AI_RUN_PRICING: Readonly<Record<string, AiRunPricing>> = {
   "ai-extract": "per-call",
 };
 
+/**
+ * The characters of a job's OPTIONS, measured by the server from the body it
+ * received — never taken from the caller.
+ *
+ * The serialised JSON rather than a walk of chosen fields, so the measure
+ * DISCOVERS what a body carries instead of naming it: a new option that
+ * reaches the model is counted the day it is added. It over-counts (keys,
+ * quotes, escapes, whitespace the parsers trim) and never under-counts a string
+ * the engines send verbatim. The one thing an engine renders that the JSON may
+ * not hold (a default field type, a label around a value) is its own text, and
+ * {@link AI_PER_CALL_INSTRUCTION_CHARACTERS} covers it; `read-cap-proof`
+ * measures the two together.
+ *
+ * Bounded by the byte cap `POST /api/jobs` puts on every job's options
+ * (`JOB_LIMITS.maxOptionsBytes`, 8 KB): a character is at least one UTF-8 byte.
+ */
+export function optionCharacters(
+  options: Readonly<Record<string, unknown>> | undefined,
+): number {
+  return options === undefined ? 0 : JSON.stringify(options).length;
+}
+
+/**
+ * What a per-call engine sends besides the document and the options: its own
+ * instructions, the delimiters around the text, the truncation notice.
+ *
+ * ⚠️ A CONSTANT ON THE WEB TIER DESCRIBING THE WORKER'S PROMPTS. Nothing
+ * structural can tell it is too small, so it has a second, independent bound:
+ * the worker's start-up proof (`read-cap-proof.ts`) runs every per-call
+ * processor with the heaviest bodies the route accepts and publishes
+ * `aiReadCap: true` only if every character that reached the provider fits
+ * `read bound + optionCharacters + this`. An image whose prompts outgrew it
+ * gets no discount. Measured 2026-09-27 at 1,131 at most (ai-extract, fifty
+ * fields sent by name alone, each rendered with a type the body never held);
+ * `read-cap-proof.test.ts` also fails if it drifts to more than three times
+ * what it covers.
+ */
+export const AI_PER_CALL_INSTRUCTION_CHARACTERS = 2_000;
+
 /** What an AI job is debited, and what it may then read or deliver. */
 export interface AiReservation {
   /** Debited from the daily allowance, in WORKER-EXTRACTED characters. */
@@ -205,6 +245,10 @@ export interface AiReservation {
    * The bound handed to the worker, or `undefined` for "the engine's own
    * per-run limit". Never smaller than what an honest declaration needs: it is
    * `declared × h`, the same headroom the charge carries.
+   *
+   * It bounds the DOCUMENT and nothing else. What else a per-call run sends
+   * (the options, the engine's instructions) is not bounded by the worker; it
+   * is measured by the server and charged, see {@link aiReservationFor}.
    */
   readonly delivery: JobDeliveryCap | undefined;
 }
@@ -214,11 +258,25 @@ export interface AiReservation {
  *
  * ── WHY A DECLARATION IS HONOURED ONLY WHEN THE RUNNING WORKER ENFORCES IT ──
  *
- * A declared count is a client claim. For a `per-call` tool it is safe to
- * charge LESS for a smaller claim only because the worker then reads no more
- * than the claim — declare one character, be read four. Before the summarize,
- * chat and extract processors honoured the cap, that was false: a caller could
- * declare 1, pay 4, and have 500,000 characters sent to the provider.
+ * A declared count is a client claim about the DOCUMENT. For a `per-call` tool
+ * it is safe to charge less of the document for a smaller claim only because
+ * the worker then reads no more of the document than the claim — declare one
+ * character, be read four. Before the summarize, chat and extract processors
+ * honoured the cap, that was false: a caller could declare 1, pay 4, and have
+ * 500,000 characters sent to the provider.
+ *
+ * ── WHAT THE WORKER DOES NOT BOUND, AND SO THE SERVER CHARGES ───────────────
+ *
+ * The read cap bounds the document only. The chat question and carried turns,
+ * the extract prompt or schema, and the summarize focus reach the model
+ * verbatim whatever the cap says, and so do the engine's own instructions.
+ * Until the review of 2026-09-27 the charge was the declared document alone,
+ * and the honest chat client folded its question and turns into its own
+ * declaration, which the route trusted: a direct caller declaring 1 paid 4 and
+ * sent a full 8 KB of conversation, as often as `jobs.create` allowed. Those
+ * characters are now measured HERE, from the body the route received
+ * ({@link optionCharacters}), plus {@link AI_PER_CALL_INSTRUCTION_CHARACTERS},
+ * and a client declares its document and nothing else.
  *
  * The worker image is built by hand and the web tier auto-deploys, so "the code
  * that enforces it is merged" is a MECHANISM, and it arrives first. The PROPERTY
@@ -230,17 +288,24 @@ export interface AiReservation {
  * convenient failure here is a discount nobody can collect on, never a spend
  * hole.
  *
- * ── THE CLAMP ───────────────────────────────────────────────────────────────
+ * ── THE PRICE, AND THE CLAMP ────────────────────────────────────────────────
  *
- * A `per-call` run costs `min(declared, fallback) × h`. The clamp is what keeps
- * this from refusing documents that work today: the engines read up to 500,000
- * characters, and a document that large, charged at its size, would not fit in
- * the bucket at all. With the clamp a large document costs exactly what an
- * undeclared run always cost, and a small one costs what it holds.
+ * A `per-call` run costs
+ *
+ *     min(declared × h + optionCharacters + instructions, fallback × h)
+ *
+ * which is every character it can put in front of the provider, up to the
+ * price of a whole run. The clamp is what keeps this from refusing documents
+ * that work today: the engines read up to 500,000 characters, and a document
+ * that large, charged at its size, would not fit in the bucket at all. With the
+ * clamp a large document costs exactly what an undeclared run always cost, and
+ * a small one costs what it sends.
  *
  * Its read bound is NOT clamped: it stays `declared × h`, so an honest large
  * document is still read to the engine's own limit. Under-declaring buys a
- * smaller read, never a cheaper full one.
+ * smaller read, never a cheaper full one: below the clamp a run pays for all it
+ * sends, and at the clamp it pays what an undeclared run pays and can send no
+ * more than one.
  *
  * An AI tool missing from {@link AI_RUN_PRICING} is treated as a `per-call`
  * tool whose worker enforces nothing: its declaration is ignored.
@@ -250,6 +315,8 @@ export async function aiReservationFor(
   request: {
     readonly declaredCharacters?: number;
     readonly declaredTextPages?: number;
+    /** The body's options, measured here rather than taken from the caller. */
+    readonly options?: Readonly<Record<string, unknown>>;
   },
   limits: {
     readonly fallbackCharacters: number;
@@ -271,12 +338,15 @@ export async function aiReservationFor(
   ) {
     return { charge: fallback, delivery: undefined };
   }
+  const read = Math.ceil(declared * limits.headroom);
+  const sent =
+    read +
+    optionCharacters(request.options) +
+    AI_PER_CALL_INSTRUCTION_CHARACTERS;
   return {
-    charge: Math.ceil(
-      Math.min(declared, limits.fallbackCharacters) * limits.headroom,
-    ),
+    charge: Math.min(sent, fallback),
     // Characters only. The page bound is translate's exact half; a per-call
     // engine reads a prefix of the joined text and has no page loop to stop.
-    delivery: { characters: Math.ceil(declared * limits.headroom) },
+    delivery: { characters: read },
   };
 }

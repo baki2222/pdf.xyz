@@ -273,7 +273,7 @@ const WORKER_CAPABILITY_PROMISES: Record<
   aiReadCap: {
     label: "AI read cap",
     promise:
-      "a summary, answer or extraction is charged by the size of the document, because the worker reads no more of it than was declared",
+      "a summary, answer or extraction is charged for everything it sends the model: no more of the document than was declared, plus the question, prompt or focus the server measured",
     proves: provenByFlag,
   },
 };
