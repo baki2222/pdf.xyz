@@ -2,6 +2,7 @@ import { getToolInputKind } from "@/lib/jobs/capabilities";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
+import { workerFileCeilingBytes } from "@/lib/workers/engine-file-ceilings";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import type { Tool } from "./types";
 
@@ -42,9 +43,17 @@ import type { Tool } from "./types";
  *  - `getToolInputKind(slug)` — the same function `parseCreateUploadSessionRequest`
  *    uses to refuse uploads for a URL tool. A tool with no file input has no
  *    per-file ceiling to state, and `null` here is that fact, not a default.
- *  - everything else is worker-tier, and `JOB_LIMITS.maxFileBytes` is not a
- *    fallback there: it is the constant `parseCreateUploadSessionRequest`,
- *    `evaluateIntake` and the worker store all compare an upload against.
+ *  - everything else is worker-tier, and there the ceiling is the TIGHTER of
+ *    two gates: `JOB_LIMITS.maxFileBytes`, which `evaluateIntake` and the
+ *    worker store compare every upload against, and the input limit of the
+ *    engine the worker routes the tool to — read through
+ *    `workerFileCeilingBytes`, the same function the upload API refuses a
+ *    session with. Until 2026-09-27 this branch returned the global cap alone,
+ *    so Word, Excel and PowerPoint to PDF promised 100 MB against LibreOffice's
+ *    50, and HTML to PDF 100 against Chromium's 20. The global cap is the
+ *    FIRST gate a file meets; a page has to state the tightest one it must
+ *    pass. `worker-engine-ceilings.test.ts` walks the worker's own wiring to
+ *    hold that for every engine, not only the two that bind today.
  */
 
 /**
@@ -86,7 +95,11 @@ export const RUNNER_FILE_CEILINGS: Record<RunnerKind, number> = {
   compare: MAX_PDF_BYTES,
 };
 
-/** What a worker-tier upload is refused above, at the API and in the store. */
+/**
+ * The worker's GLOBAL per-file cap: what any worker-tier upload is refused
+ * above, at the API and in the store. A tool whose engine refuses lower states
+ * that engine's number instead (see {@link toolFileCeiling}).
+ */
 export const WORKER_FILE_CEILING = JOB_LIMITS.maxFileBytes;
 
 /**
@@ -113,7 +126,7 @@ export function toolFileCeiling(tool: Tool): ToolFileCeiling {
   if (runner) {
     return { tier: "in-browser", runner, bytes: RUNNER_FILE_CEILINGS[runner] };
   }
-  return { tier: "worker", bytes: WORKER_FILE_CEILING };
+  return { tier: "worker", bytes: workerFileCeilingBytes(tool.slug) };
 }
 
 /** The tool's ceiling in bytes, or `null` when it takes no file at all. */

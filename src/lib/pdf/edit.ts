@@ -32,8 +32,8 @@ import { embedStampFont, loadPdf, stampProducer } from "./stamp";
  *
  * Coordinate model: PDF points from the page's bottom-left corner, in the page's
  * *unrotated* content space (pdf-lib's draw space) — the same honest caveat the
- * overlay/annotate tools document. On the uncommon page carrying a `/Rotate`
- * flag, new content follows the content, not the viewer's rotation.
+ * annotate tool documents. On the uncommon page carrying a `/Rotate` flag, new
+ * content follows the content, not the viewer's rotation.
  *
  * Geometry, color, wrapping, and validation are pure functions so they can be
  * unit-tested with plain numbers; only {@link getEditPageSizes} and

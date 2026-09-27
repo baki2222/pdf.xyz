@@ -31,11 +31,19 @@ const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 
 const PANEL = "src/components/tools/translate-worker-panel.tsx";
+/**
+ * INVERTED 2026-09-27 for the chat panel, history kept: it was listed here and
+ * this file demanded it state the shared 500,000 reading cap "which is correct
+ * for it" — while each chat question was charged 41,032 and read up to twelve
+ * times that. Bounding chat's read to its charge turned this red; chat's panel
+ * now has its own assertion below, and `ai-ceiling-surfaces.test.ts` derives
+ * the relationship for every AI panel.
+ */
 const SHARED_CAP_PANELS = [
   "src/components/tools/summarize-worker-panel.tsx",
-  "src/components/tools/chat-with-pdf-worker-panel.tsx",
   "src/components/tools/ai-extract-worker-panel.tsx",
 ];
+const CHAT_PANEL = "src/components/tools/chat-with-pdf-worker-panel.tsx";
 
 describe("translate's ceiling is derived, not typed", () => {
   it("is a function of the output budget, so raising the budget raises it", () => {
@@ -172,6 +180,17 @@ describe("the two numbers cannot drift back together", () => {
       ).not.toContain("TRANSLATE_MAX_INPUT_CHARS");
     },
   );
+
+  it("the chat panel states CHAT's per-question number and neither of the others", () => {
+    const source = read(CHAT_PANEL);
+    expect(source).toContain("CHAT_MAX_CHARACTERS_PER_QUESTION");
+    expect(
+      source,
+      `${CHAT_PANEL} states the shared reading cap again — chat reads no more ` +
+        "than one question is charged",
+    ).not.toContain("AI_INPUT_LIMITS");
+    expect(source).not.toContain("TRANSLATE_MAX_INPUT_CHARS");
+  });
 
   it("the engine sends the budget the ceiling was derived from", () => {
     // If the engine's default and the published ceiling stop sharing a source,

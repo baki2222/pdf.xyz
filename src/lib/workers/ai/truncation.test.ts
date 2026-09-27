@@ -85,6 +85,29 @@ describe("describeWindow", () => {
     expect(w.lastCompletePage).toBe(1);
   });
 
+  it("credits a page the cut lands exactly at the END of", () => {
+    // 22 chars: page 2 ends at 22. A cut made by PAGE (a declared page bound)
+    // lands here, and "ends mid-page, pages 1-1" would understate what the
+    // model holds by a whole page. Until 2026-09-27 it said exactly that.
+    const w = describeWindow(ASSEMBLED, STARTS, 3, 22);
+    expect(w.lastCompletePage).toBe(2);
+    expect(w.cutMidPage).toBe(false);
+    expect(userTruncationNotice(w)).toMatch(/pages 1–2 of 3/);
+  });
+
+  it("credits the page when the cut falls in the separator after it", () => {
+    // 23 chars: page 2 whole plus one separator character, page 5 not begun.
+    const w = describeWindow(ASSEMBLED, STARTS, 3, 23);
+    expect(w.lastCompletePage).toBe(2);
+    expect(w.cutMidPage).toBe(false);
+  });
+
+  it("CONTROL: one character short of the end is still mid-page", () => {
+    const w = describeWindow(ASSEMBLED, STARTS, 3, 21);
+    expect(w.lastCompletePage).toBe(1);
+    expect(w.cutMidPage).toBe(true);
+  });
+
   it("reports no page at all when the cut lands inside page one", () => {
     // Better to say "the first part of 3 pages" than to invent page 0.
     const w = describeWindow(ASSEMBLED, STARTS, 3, 5);

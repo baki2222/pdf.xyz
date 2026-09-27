@@ -27,6 +27,7 @@ import {
   TRANSLATE_MAX_INPUT_CHARS,
 } from "@/lib/jobs/translate-limits";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
+import { CHAT_TOOL_SLUG, chatReservationTerms } from "@/lib/jobs/chat-with-pdf";
 import { apiError } from "@/lib/jobs/responses";
 import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
 import {
@@ -122,9 +123,18 @@ export async function POST(request: Request): Promise<Response> {
      * reservation is a number the system takes and does not honour, and the
      * caller pays it and receives whatever the document happens to hold.
      */
+    /**
+     * CHAT RE-SENDS ITS DOCUMENT ON EVERY TURN, so its reservation has two
+     * terms the shared formula lacks: the conversation, charged exactly, and a
+     * cap at the undeclared reservation so a long PDF declared honestly is not
+     * refused on its first question. See `chatReservationTerms`.
+     */
     delivery = deliveryCapFor(parsed.value, {
       fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
       headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+      ...(parsed.value.tool === CHAT_TOOL_SLUG
+        ? chatReservationTerms(parsed.value.options)
+        : {}),
     });
     const aiLimit = await enforceAiCharacterAllowance(
       delivery.characters,

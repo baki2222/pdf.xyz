@@ -31,6 +31,10 @@ import type { WorkerStatus } from "./status";
 import { pollJobToTerminal } from "./job-polling";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
 import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
+import {
+  describeByteCeiling,
+  workerFileCeilingBytes,
+} from "./engine-file-ceilings";
 
 const PROTECT_TOOL = "protect-pdf";
 const UNLOCK_TOOL = "unlock-pdf";
@@ -189,6 +193,18 @@ export async function runSecurityJob(
     return {
       ok: false,
       message: "This tool doesn't accept that file type.",
+    };
+  }
+  // Refused HERE, before a request is made, when the file is over what this
+  // tool's engine accepts — the number its page states. The upload API refuses
+  // the same file too; this is the half that can say so in words, without
+  // `files[0].bytes`, and without the file ever being offered to the network.
+  const ceiling = workerFileCeilingBytes(tool);
+  if (bytes.byteLength > ceiling) {
+    return {
+      ok: false,
+      code: "payload_too_large",
+      message: `This file is larger than ${describeByteCeiling(ceiling)}, the most this tool accepts per file. Nothing was uploaded.`,
     };
   }
   const sessionRes = await fetchImpl("/api/uploads", {

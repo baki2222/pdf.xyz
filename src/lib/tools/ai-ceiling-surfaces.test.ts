@@ -38,13 +38,19 @@
  * exactly the ceiling must reach the provider. Loading a module is not running
  * a function, and a classification the engine never enforces is decoration.
  *
- * WHAT IS NOT PROVEN HERE, recorded rather than discovered: the three
- * read-bound engines are not run against their 500,000-character window —
- * their derivation from the shared constant is pinned by source scan here and
- * in `ai-input-limit.test.ts`, but no probe feeds them 500,001 characters and
- * watches the truncation land. If a read-bound engine ever gains a refusal
- * path, add its probe to {@link OUTPUT_BOUND_PROBES} — the completeness check
- * below will demand it by name.
+ * WHAT IS NOT PROVEN HERE, recorded rather than discovered: the two engines
+ * still on the SHARED reading cap are not run against their 500,000-character
+ * window — their derivation from the shared constant is pinned by source scan
+ * here and in `ai-input-limit.test.ts`, but no probe feeds them 500,001
+ * characters and watches the truncation land. If a read-bound engine ever
+ * gains a refusal path, add its probe to {@link OUTPUT_BOUND_PROBES} — the
+ * completeness check below will demand it by name.
+ *
+ * A THIRD CLASS, added 2026-09-27: PER-QUESTION. Chat with PDF read up to the
+ * shared 500,000 characters on a 41,032-character charge; its reading ceiling
+ * is now its charge ceiling, `CHAT_MAX_CHARACTERS_PER_QUESTION`. That class IS
+ * run — {@link PER_QUESTION_PROBES} feeds the engine one character over and
+ * measures the document in the request the provider receives.
  *
  * THE EXIT CONDITION names the property: an entry leaves this guard only when
  * the surface derives its figure from the same constant its engine enforces —
@@ -69,6 +75,8 @@ import {
   runTranslate,
   type PdfTextExtractor,
 } from "@/lib/workers/translate/engine";
+import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
+import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
 import { tools } from "./index";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
@@ -131,12 +139,49 @@ function discoverEngines(): Map<string, string> {
 const engines = discoverEngines();
 
 /**
+ * The three kinds of bound an AI engine enforces, and the constant each one's
+ * surfaces must state it through. The constant NAMES are what the panel check
+ * below requires and forbids, so they live beside the classification that
+ * picks them rather than in a second table.
+ */
+type BoundKind = "output" | "per-question" | "shared-read";
+const BOUND_CONSTANTS: Record<BoundKind, string> = {
+  output: "TRANSLATE_MAX_INPUT_CHARS",
+  "per-question": "CHAT_MAX_CHARACTERS_PER_QUESTION",
+  "shared-read": "AI_INPUT_LIMITS.maxInputCharacters",
+};
+
+/** Which kind of bound a tool's engine enforces — classified from its source. */
+function boundKind(slug: string): BoundKind {
+  const engineFile = engines.get(slug);
+  if (!engineFile) {
+    throw new Error(
+      `no engine exports a *_TOOL constant for "${slug}" under src/lib/workers/*/engine.ts`,
+    );
+  }
+  const source = read(engineFile);
+  if (/translateMaxInputChars\s*\(/.test(source)) return "output";
+  if (source.includes(BOUND_CONSTANTS["per-question"])) return "per-question";
+  if (source.includes(BOUND_CONSTANTS["shared-read"])) return "shared-read";
+  throw new Error(
+    `${relative(engineFile)} enforces none of ${Object.values(BOUND_CONSTANTS).join(", ")} — ` +
+      "classify its bound here before any page may state one",
+  );
+}
+
+/**
  * The ceiling a tool's enforcement actually compares against, classified from
  * the engine's own refusal/truncation source. Throws on an engine this cannot
  * classify — a new AI engine with a third kind of bound must extend the
  * classification, loudly, not slide past it.
  */
 function honouredCeiling(slug: string): number {
+  if (boundKind(slug) === "per-question") {
+    // A reading ceiling that is also the charge ceiling. The job's delivery
+    // cap can only LOWER it (the conversation is paid out of the same
+    // reservation), so this is the most any page may promise.
+    return CHAT_MAX_CHARACTERS_PER_QUESTION;
+  }
   const engineFile = engines.get(slug);
   if (!engineFile) {
     throw new Error(
@@ -320,6 +365,58 @@ const OUTPUT_BOUND_PROBES: Record<
   },
 };
 
+/**
+ * Every per-question engine must have a probe here, keyed by slug. A probe RUNS
+ * the engine with NO job cap — its own ceiling, the one the page states — and
+ * measures the document in the request the provider received.
+ */
+const PER_QUESTION_PROBES: Record<
+  string,
+  (ceiling: number) => Promise<{ sentOver: number; sentAt: number }>
+> = {
+  "chat-with-pdf": async (ceiling) => {
+    const START = "--- DOCUMENT START ---\n";
+    const END = "\n--- DOCUMENT END ---";
+    const documentIn = (provider: { calls: AiCompletionRequest[] }) => {
+      const system = provider.calls[0]?.system ?? "";
+      const start = system.indexOf(START);
+      const end = system.indexOf(END);
+      return start < 0 || end < 0 ? -1 : end - (start + START.length);
+    };
+    const over = recordingProvider();
+    await runChatWithPdf(
+      new Uint8Array([1, 2, 3]),
+      { question: "What does it say?" },
+      { extract: extractorFor("a".repeat(ceiling + 1)), provider: over },
+    );
+    const at = recordingProvider();
+    await runChatWithPdf(
+      new Uint8Array([1, 2, 3]),
+      { question: "What does it say?" },
+      { extract: extractorFor("a".repeat(ceiling)), provider: at },
+    );
+    return { sentOver: documentIn(over), sentAt: documentIn(at) };
+  },
+};
+
+/**
+ * NO EXEMPTIONS. Every AI tool in the catalogue goes through every per-tool
+ * check below, with no list of slugs to leave out.
+ *
+ * INVERTED 2026-09-27, history kept. For one commit this file carried a
+ * `PENDING_COPY` map that took chat-with-pdf out of both "states its own
+ * ceiling" checks, because chat's FAQ answer "How much of my PDF does Chat
+ * with PDF read?" is built in `tool-facts.ts` (owned by a separate copy
+ * change) and still said 500,000 characters after chat's engine began reading
+ * at most `CHAT_MAX_CHARACTERS_PER_QUESTION`. Each entry was asserted to be
+ * "still wrong", so it would go red when the copy was fixed. That did not make
+ * it safe: while the entry stood, the false answer shipped as FAQPage JSON-LD
+ * with every guard that could see it switched off for that page. A guard that
+ * exempts a defect lets it ship, and the exemption reads like an argument that
+ * it was fine. If a page's copy lags its engine, this file goes RED and the
+ * change waits for the copy. It does not carve the page out.
+ */
+
 /* ------------------------------------------------------------------ *
  *  The checks.
  * ------------------------------------------------------------------ */
@@ -356,6 +453,20 @@ describe("the derived sets are alive", () => {
           `@/components/tools panel for "${tool.slug}"`,
       ).toBeDefined();
       expect(() => read(panel!), `${panel} does not exist`).not.toThrow();
+    }
+  });
+
+  it("every per-question engine has a behavioural probe, by name", () => {
+    const perQuestion = aiTools
+      .map((t) => t.slug)
+      .filter((slug) => boundKind(slug) === "per-question");
+    // Positive control on the classifier: chat IS per-question.
+    expect(perQuestion).toContain("chat-with-pdf");
+    for (const slug of perQuestion) {
+      expect(
+        PER_QUESTION_PROBES[slug],
+        `${slug} is classified per-question but has no probe`,
+      ).toBeDefined();
     }
   });
 
@@ -401,6 +512,22 @@ describe("the enforcement honours the classified ceiling (run, not read)", () =>
         `${slug} refused a document AT its published ceiling — the page ` +
           "under-promises what the engine honours",
       ).toBe(true);
+    },
+  );
+});
+
+describe("the per-question engine reads exactly its ceiling (run, not read)", () => {
+  it.each(Object.keys(PER_QUESTION_PROBES))(
+    "%s sends the model no more document than its ceiling, and all of one that fits",
+    async (slug) => {
+      const ceiling = honouredCeiling(slug);
+      const probe = await PER_QUESTION_PROBES[slug]!(ceiling);
+      expect(
+        probe.sentOver,
+        `${slug} sent ${probe.sentOver} characters of a ${ceiling + 1}-character ` +
+          "document — the ceiling the page states is not the one it reads to",
+      ).toBe(ceiling);
+      expect(probe.sentAt).toBe(ceiling);
     },
   );
 });
@@ -461,24 +588,25 @@ describe("every stated ceiling is the honoured one", () => {
   it.each(aiTools.map((tool) => [tool.slug] as const))(
     "%s's panel references the constant its engine enforces, and not the other",
     (slug) => {
-      const honoured = honouredCeiling(slug);
+      const kind = boundKind(slug);
       const panel = withoutComments(read(panels.get(slug)!));
-      const readBound = honoured === AI_INPUT_LIMITS.maxInputCharacters;
-      const required = readBound
-        ? "AI_INPUT_LIMITS.maxInputCharacters"
-        : "TRANSLATE_MAX_INPUT_CHARS";
-      const forbidden = readBound
-        ? "TRANSLATE_MAX_INPUT_CHARS"
-        : "AI_INPUT_LIMITS";
+      const required = BOUND_CONSTANTS[kind];
       expect(
         panel,
         `${relative(panels.get(slug)!)} must state its limit via ${required}`,
       ).toContain(required);
-      expect(
-        panel,
-        `${relative(panels.get(slug)!)} references ${forbidden}, which is the ` +
-          "other bound's constant — the two numbers were 49x apart on 2026-08-11",
-      ).not.toContain(forbidden);
+      // Every OTHER bound's constant is forbidden — by its root name, so
+      // "AI_INPUT_LIMITS" catches any field of it, not just the one we know.
+      for (const other of Object.keys(BOUND_CONSTANTS) as BoundKind[]) {
+        if (other === kind) continue;
+        const forbidden = BOUND_CONSTANTS[other].split(".")[0]!;
+        expect(
+          panel,
+          `${relative(panels.get(slug)!)} references ${forbidden}, which is ` +
+            "another bound's constant — translate's and the shared cap were " +
+            "49x apart on 2026-08-11, chat's and the shared cap 12x on 2026-09-27",
+        ).not.toContain(forbidden);
+      }
     },
   );
 });
@@ -528,9 +656,8 @@ describe("the third surface someone adds next month", () => {
     const offenders = copyFiles()
       .filter((file) => {
         const source = withoutComments(read(file));
-        return (
-          source.includes("AI_INPUT_LIMITS") ||
-          source.includes("TRANSLATE_MAX_INPUT_CHARS")
+        return Object.values(BOUND_CONSTANTS).some((constant) =>
+          source.includes(constant.split(".")[0]!),
         );
       })
       .map(relative)

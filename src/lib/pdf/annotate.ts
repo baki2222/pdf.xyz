@@ -27,9 +27,10 @@ export { isWinAnsiEncodable, nonWinAnsiCharacters };
  * canvas; shapes are placed by numeric coordinates/endpoints.
  *
  * Coordinate model: PDF points from the page's bottom-left corner, in the page's
- * *unrotated* content space (pdf-lib's draw space) — the same honest caveat the
- * overlay tool documents. On the uncommon page carrying a `/Rotate` flag, the
- * markup follows the content, not the viewer's rotation.
+ * *unrotated* content space (pdf-lib's draw space). On the uncommon page
+ * carrying a `/Rotate` flag, the markup follows the content, not the viewer's
+ * rotation. (The overlay tool no longer shares this caveat: it places in the
+ * viewer's frame, see `overlay.ts`.)
  *
  * The geometry, color, wrapping, and validation are pure functions so they can
  * be unit-tested with plain numbers; only {@link getAnnotatePageSizes} and

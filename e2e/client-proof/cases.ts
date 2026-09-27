@@ -1,6 +1,18 @@
 import JSZip from "jszip";
 import { expect, type Page } from "@playwright/test";
+import { PDFDocument } from "pdf-lib";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
+import { organizePages } from "../../src/lib/pdf/engine";
+import { jpegComponentCount } from "../../src/lib/pdf/gray-jpeg";
+import {
+  createGrayscaleBuilder,
+  grayscaleTitle,
+} from "../../src/lib/pdf/grayscale";
+import {
+  addDocumentStructure,
+  lostStructure,
+  readDocumentStructure,
+} from "../../src/tests/fixtures-structured-pdf";
 import {
   DEFAULT_RESOLUTION_ID,
   rasterScaleForDpi,
@@ -12,6 +24,7 @@ import {
   makeFormPdf,
   makeImageBearingPdf,
   makeJpegFixtureInPage,
+  makeNeutralInkJpegInPage,
   makePngFixture,
   makeRasterizedPdf,
   makeTextPdf,
@@ -21,6 +34,7 @@ import {
 import {
   captureDownload,
   decodeEmbeddedJpegs,
+  decodeEmbeddedPageImages,
   decodeImageInPage,
   expectMagic,
   normalizeText,
@@ -107,6 +121,37 @@ async function uploadPayloads(
 }
 
 /** Generate a text PDF, stash its bytes in ctx, upload it, return the bytes. */
+/** The grayscale proof's upload name, shared by its run and its assert. */
+const GRAYSCALE_SOURCE = "colorful.pdf";
+
+/**
+ * A two-page grayscale-pdf artifact that is right in every respect but its
+ * title: DeviceGray pages from the tool's own builder, with a mid-grey block
+ * of ink over ~40% of each, saved as `title`.
+ */
+async function makeGrayArtifactTitled(
+  title: string,
+  [width, height]: [number, number],
+): Promise<Buffer> {
+  const builder = await createGrayscaleBuilder();
+  for (let index = 0; index < 2; index++) {
+    const plane = new Uint8Array(width * height).fill(255);
+    for (let y = Math.floor(height * 0.2); y < height * 0.8; y++) {
+      for (let x = Math.floor(width * 0.1); x < width * 0.8; x++) {
+        plane[y * width + x] = 96;
+      }
+    }
+    await builder.addPage(plane, {
+      index,
+      width,
+      height,
+      pageWidth: width,
+      pageHeight: height,
+    });
+  }
+  return Buffer.from(await builder.save(title));
+}
+
 async function uploadTextPdf(
   ctx: CaseContext,
   name: string,
@@ -261,7 +306,20 @@ export const CASES: Record<string, ToolCase> = {
     kind: "rotate",
     artifact: "pdf",
     run: async (ctx) => {
-      await uploadTextPdf(ctx, "spin.pdf", { pages: 3 });
+      // A document with something to lose: bookmarks, a filled form field,
+      // Title/Author, page labels, /Lang and tag markers. The plain text PDF
+      // this case used to upload had none of them, so it stayed green while
+      // the tool rebuilt every file and deleted all of them.
+      const doc = await PDFDocument.load(
+        await makeTextPdf("spin.pdf", { pages: 3 }),
+      );
+      await addDocumentStructure(doc);
+      const bytes = Buffer.from(await doc.save());
+      ctx.data["spin.pdf"] = bytes;
+      await uploadPayloads(ctx.page, [
+        { name: "spin.pdf", mimeType: "application/pdf", buffer: bytes },
+      ]);
+      await expect(ctx.page.getByText("spin.pdf")).toBeVisible();
       // All pages are selected by default; one "Right" rotates them all 90°.
       await ctx.page.getByRole("button", { name: /^right$/i }).click();
       return runAndDownload(
@@ -271,10 +329,30 @@ export const CASES: Record<string, ToolCase> = {
         /download rotated pdf/i,
       );
     },
-    assert: async (buf) => {
+    assert: async (buf, ctx) => {
       expect(await pdfRotations(buf)).toEqual([90, 90, 90]);
+      const before = await readDocumentStructure(input(ctx, "spin.pdf"));
+      // Health check: the upload carried structure, so "nothing lost" means
+      // something rather than holding over an empty walk.
+      expect(before.catalog.size).toBeGreaterThanOrEqual(6);
+      expect(before.fields.size).toBe(1);
+      expect(
+        lostStructure(before, await readDocumentStructure(buf)),
+        "members of the uploaded PDF missing from the rotated download",
+      ).toEqual([]);
     },
-    control: async (ctx) => input(ctx, "spin.pdf"),
+    // Two properties, two controls. The untouched input has every member but
+    // no rotation. The rebuild the tool used to ship has the right rotation
+    // and lost the structure — it differs from a correct artifact ONLY in
+    // what it dropped, so it is what keeps the structure half falsifiable.
+    control: async (ctx) => {
+      const original = input(ctx, "spin.pdf");
+      const rebuilt = await organizePages(
+        original,
+        [0, 1, 2].map((sourceIndex) => ({ sourceIndex, rotation: 90 })),
+      );
+      return [original, Buffer.from(rebuilt)];
+    },
   },
 
   "remove-pages": {
@@ -797,7 +875,15 @@ export const CASES: Record<string, ToolCase> = {
       // A COLOUR fixture. With the default black-ink fixture "the output has
       // no colour" is already true of the input, so the assertion would pass
       // on an engine that did nothing to the pixels.
-      await uploadTextPdf(ctx, "colorful.pdf", { pages: 2, colorful: true });
+      //
+      // It carries its own /Title, so the output's title is exercised on the
+      // source-title branch, read by pdf.js in the browser: the one hop of the
+      // title chain the Node tests do not run in a real browser engine.
+      await uploadTextPdf(ctx, GRAYSCALE_SOURCE, {
+        pages: 2,
+        colorful: true,
+        title: "Colour Proof Sheet",
+      });
       return runAndDownload(
         ctx,
         /convert to grayscale/i,
@@ -816,8 +902,9 @@ export const CASES: Record<string, ToolCase> = {
 
       // The pixels, not just the structure. "Contains images and no text" is
       // equally true of two blank white pages — which is exactly what the
-      // pdfjs wasmUrl defect produced through this same rasterizer.
-      const stats = await decodeEmbeddedJpegs(ctx.page, buf);
+      // pdfjs wasmUrl defect produced through this same rasterizer. Every page
+      // image is decoded, whether it was stored as a JPEG or a Flate plane.
+      const stats = await decodeEmbeddedPageImages(ctx.page, buf);
       expect(stats.length).toBeGreaterThanOrEqual(2);
       for (const page of stats) {
         // Ink: the drawn blocks cover ~35% of the page and go mid-grey.
@@ -831,9 +918,48 @@ export const CASES: Record<string, ToolCase> = {
           "saturated colour survived a grayscale conversion",
         ).toBeLessThan(0.01);
       }
+
+      // And the file DECLARES itself grayscale. Neutral pixels in a DeviceRGB
+      // image pass both checks above — that is what this tool shipped until
+      // its pages became DeviceGray — and a print driver, a print shop's
+      // preflight or Acrobat's Output Preview still calls that file colour.
+      // Checked LAST so the two controls above still fail on their own
+      // property rather than on this one.
+      for (const image of images) {
+        expect(image.colorSpace, "a page image is not DeviceGray").toBe(
+          "/DeviceGray",
+        );
+        if (image.filter?.includes("DCTDecode")) {
+          expect(
+            jpegComponentCount(image.bytes),
+            "a DeviceGray JPEG whose frame header is not one-component",
+          ).toBe(1);
+        }
+      }
+
+      // And it is titled after what was uploaded, not "Grayscale PDF" like
+      // every output before it. Derived from the bytes this run uploaded, so
+      // the expectation cannot drift from the fixture. Checked after the
+      // colour-space block so the first three controls keep failing on their
+      // own property.
+      const source = ctx.data[GRAYSCALE_SOURCE];
+      if (!Buffer.isBuffer(source))
+        throw new Error("the uploaded source's bytes were not recorded");
+      const sourceTitle = (await PDFDocument.load(source)).getTitle();
+      expect(
+        sourceTitle,
+        "the source carries no /Title, so only the file-name fallback is exercised",
+      ).toBeTruthy();
+      const title = (await PDFDocument.load(buf)).getTitle();
+      expect(title, "the output lost the source's title").toContain(
+        sourceTitle,
+      );
+      expect(title).toBe(grayscaleTitle(sourceTitle, GRAYSCALE_SOURCE));
     },
-    // Two controls, one per claimed property: a rasterized output that
-    // rendered nothing, and a rasterized output that kept its colour.
+    // Four controls, one per claimed property: a rasterized output that
+    // rendered nothing, one that kept its colour, one that LOOKS grey but is a
+    // three-component (DeviceRGB) image — the pre-fix pages exactly — and a
+    // correct DeviceGray artifact carrying the pre-fix title.
     control: async (ctx) => {
       const size: [number, number] = [320, 240];
       const colour = await makeJpegFixtureInPage(
@@ -849,6 +975,12 @@ export const CASES: Record<string, ToolCase> = {
           size,
         ),
         await makeRasterizedPdf(colour.bytes, 2, size),
+        await makeRasterizedPdf(
+          await makeNeutralInkJpegInPage(ctx.page, 320, 240),
+          2,
+          size,
+        ),
+        await makeGrayArtifactTitled(grayscaleTitle(null, undefined), size),
       ];
     },
   },
@@ -1155,7 +1287,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "extract-images":
     "Only a single Flate-coded RGB PNG. JPEG2000 and JBIG2 embedded images — the formats the wasmUrl defect blanked — are not exercised. Note that e2e/pdfjs-decoders.spec.ts does NOT close this: it proves the decoder assets are SERVED, and says in its own docblock that it does not prove pdfjs decodes with them. Nothing in this repo yet renders a JPEG2000 or JBIG2 fixture end to end.",
   "grayscale-pdf":
-    "Only the default DPI preset. The screen/print preset difference is not exercised.",
+    "Only the default DPI preset. The screen/print preset difference is not exercised. The fixture's pages are flat blocks and text, which the tool stores as lossless Flate DeviceGray planes; the one-component JPEG branch it picks for photographic pages is proven in Node (src/lib/pdf/grayscale-output.test.ts, decoded by pdf.js), not in a browser here.",
   "watermark-pdf":
     "Only the default text, size, tilt and opacity on a Letter page. Note that the tool's own 60pt default overflows a small page and pdfjs then omits the off-page glyphs from extraction — so a watermark's VISUAL placement is not what this proof checks.",
 };

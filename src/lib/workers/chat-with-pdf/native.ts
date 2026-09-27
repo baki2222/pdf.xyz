@@ -16,7 +16,7 @@ import { resolveNativePdfTextExtractor } from "../pdf-text/native";
 import { resolveAiProvider } from "../ai/native";
 import type { AiProviderDeps } from "../ai/native";
 import type { ChatWithPdfDeps } from "./engine";
-import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
+import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -32,7 +32,9 @@ export function chatWithPdfDeps(
     limits: {
       maxInputBytes: 100 * 1024 * 1024,
       maxOutputBytes: 50 * 1024 * 1024,
-      maxInputChars: AI_INPUT_LIMITS.maxInputCharacters,
+      // Chat's reading ceiling is its per-question charge ceiling — never the
+      // shared 500,000-character cap, which it read on a 41,032 charge.
+      maxInputChars: CHAT_MAX_CHARACTERS_PER_QUESTION,
     },
   };
 }

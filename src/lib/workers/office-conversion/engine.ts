@@ -1,14 +1,19 @@
 import { looksLikePdf } from "../compression/engine";
-
-export const WORD_TO_PDF_TOOL = "word-to-pdf";
-export const EXCEL_TO_PDF_TOOL = "excel-to-pdf";
-export const POWERPOINT_TO_PDF_TOOL = "powerpoint-to-pdf";
-export const OFFICE_TO_PDF_TOOLS = [
-  WORD_TO_PDF_TOOL,
+import { describeByteCeiling } from "../engine-file-ceilings";
+import {
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
-] as const;
-export type OfficeToPdfTool = (typeof OFFICE_TO_PDF_TOOLS)[number];
+  WORD_TO_PDF_TOOL,
+  type OfficeToPdfTool,
+} from "./tools";
+
+export {
+  EXCEL_TO_PDF_TOOL,
+  OFFICE_TO_PDF_TOOLS,
+  POWERPOINT_TO_PDF_TOOL,
+  WORD_TO_PDF_TOOL,
+  type OfficeToPdfTool,
+} from "./tools";
 export const OFFICE_TO_PDF_ENGINE = "libreoffice" as const;
 
 export interface LibreOfficePdfRunner {
@@ -81,7 +86,9 @@ export async function runOfficeToPdf(
       ok: false,
       kind: "too_large",
       limitBytes: maxInput,
-      message: "The Office input exceeds the worker's size limit.",
+      // The number, not just the fact: the page stated one before the upload,
+      // and a refusal that cannot be compared with it reads as a broken tool.
+      message: `This document is larger than ${describeByteCeiling(maxInput)}, the most Office to PDF converts per file.`,
     };
   }
   let output: Uint8Array;

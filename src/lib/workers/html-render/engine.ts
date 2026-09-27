@@ -1,13 +1,13 @@
 import { looksLikePdf } from "../compression/engine";
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
+import { describeByteCeiling } from "../engine-file-ceilings";
 
-export const HTML_TO_PDF_TOOL = "html-to-pdf";
-export const WEBPAGE_TO_PDF_TOOL = "webpage-to-pdf";
-export const HTML_RENDER_TOOLS = [
+export {
+  HTML_RENDER_TOOLS,
   HTML_TO_PDF_TOOL,
   WEBPAGE_TO_PDF_TOOL,
-] as const;
-export type HtmlRenderTool = (typeof HTML_RENDER_TOOLS)[number];
+  type HtmlRenderTool,
+} from "./tools";
 
 export const HTML_RENDER_ENGINE = "chromium" as const;
 
@@ -152,7 +152,7 @@ export async function runHtmlToPdf(
       ok: false,
       kind: "too_large",
       limitBytes: limit,
-      message: "The HTML input exceeds the worker's size limit.",
+      message: `This HTML file is larger than ${describeByteCeiling(limit)}, the most HTML to PDF renders per file.`,
     };
   }
   let output: Uint8Array;

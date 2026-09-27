@@ -2,6 +2,20 @@ const TRUE_VALUES = new Set(["1", "true", "yes", "on", "auto"]);
 const FALSE_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 const DEFAULT_CANDIDATES = ["soffice", "libreoffice"];
 
+/**
+ * The largest Office input LibreOffice is handed, in bytes — and the figure
+ * every Word, Excel and PowerPoint to PDF page states, through
+ * `@/lib/workers/engine-file-ceilings`.
+ *
+ * The web tier cannot read this worker's environment, so the number it
+ * publishes is this CODE default. `PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES`
+ * may lower it (an operator's safety valve; the refusal then names the lower
+ * figure) but can never raise it past what the page promised — the upload API
+ * refuses above this anyway, so a higher override would only be a number the
+ * worker believes and no request can reach.
+ */
+export const OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES = 50 * 1024 * 1024;
+
 export interface NativeOfficeConversionConfig {
   enabled: boolean;
   candidates: string[];
@@ -53,9 +67,12 @@ export function resolveNativeOfficeConversionConfig(
       env.PDFXYZ_OFFICE_CONVERSION_TIMEOUT_MS,
       120_000,
     ),
-    maxInputBytes: parsePositiveInt(
-      env.PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES,
-      50 * 1024 * 1024,
+    maxInputBytes: Math.min(
+      parsePositiveInt(
+        env.PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES,
+        OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES,
+      ),
+      OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES,
     ),
     maxOutputBytes: parsePositiveInt(
       env.PDFXYZ_OFFICE_CONVERSION_MAX_OUTPUT_BYTES,

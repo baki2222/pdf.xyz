@@ -29,12 +29,22 @@ import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
 import { resetTelemetry } from "@/lib/telemetry/track";
 
 const runWorkerChatWithPdf = vi.hoisted(() => vi.fn());
+/**
+ * The panel's document measurement, stubbed in the SAME module mock as the
+ * driver. Mocking `@/lib/pdf/text` instead would make the real client an
+ * intermediary evaluated under a stub — the cross-file leak
+ * `src/tests/mock-isolation.test.ts` exists to catch — and running the real
+ * pdfjs in jsdom on a three-byte file measures nothing.
+ */
+const measureChatDocument = vi.hoisted(() => vi.fn());
+const MEASURED = { characters: 2_140, textPages: 3 };
 
 vi.mock("@/lib/workers/chat-with-pdf-client", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@/lib/workers/chat-with-pdf-client")
   >()),
   runWorkerChatWithPdf,
+  measureChatDocument,
 }));
 
 // Imported after the mock so the panel picks up the stubbed driver.
@@ -82,6 +92,7 @@ const READY: WorkerStatus = {
 };
 
 function stubStatus() {
+  measureChatDocument.mockResolvedValue({ kind: "counted", count: MEASURED });
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
@@ -172,6 +183,7 @@ async function ask(question: string) {
 afterEach(() => {
   resetTelemetry();
   runWorkerChatWithPdf.mockReset();
+  measureChatDocument.mockReset();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -294,6 +306,12 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     render(<ChatWithPdfWorkerPanel tool={chatTool} />);
     await screen.findByRole("textbox");
     await ask("Q about A");
+    // The request must actually be IN FLIGHT before the swap — the shape this
+    // test is about. Since 2026-09-27 the panel measures the document before
+    // it sends anything, so a swap made immediately would land during the
+    // measurement, send nothing, and let the assertions below pass for a
+    // different reason than the one they were written for.
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
 
     // Swap the document while the request is still running.
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
@@ -385,6 +403,69 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     expect(
       screen.getByText(/oldest exchanges are left out/i),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ChatWithPdfWorkerPanel — what each question declares", () => {
+  /**
+   * Until 2026-09-27 the panel declared nothing, so every question reserved a
+   * whole call's worth of the daily allowance — a third of the day for a
+   * question about one page. The declaration is read here off the request the
+   * DRIVER receives, which is what goes on the wire
+   * (`workers/chat-allowance.chain.test.ts` follows it from there through the
+   * real route and limiter).
+   */
+  it("declares the document it measured on every question, measuring it once", async () => {
+    stubStatus();
+    runWorkerChatWithPdf
+      .mockImplementationOnce(() => workerSuccess("Q one", "A one [p.1]."))
+      .mockImplementationOnce(() => workerSuccess("Q two", "A two [p.1]."));
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+    await screen.findByText("A one [p.1].");
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "Q two" },
+    });
+    const submit = screen.getByRole("button", { name: /send follow-up/i });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+
+    for (const index of [0, 1]) {
+      expect(
+        (requestAt(index) as { declaration?: unknown }).declaration,
+        "a question went out without the document's count, so it reserves " +
+          "a whole call's worth of the daily allowance",
+      ).toEqual(MEASURED);
+    }
+    // Once per FILE: a follow-up re-sends the same document, not a new one.
+    expect(measureChatDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes undeclared, not refused, when the browser cannot read the PDF", async () => {
+    stubStatus();
+    measureChatDocument.mockResolvedValue({ kind: "uncounted" });
+    runWorkerChatWithPdf.mockImplementationOnce(() =>
+      workerSuccess("Q", "A [p.1]."),
+    );
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q");
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    expect((requestAt(0) as { declaration?: unknown }).declaration).toBeNull();
+  });
+
+  it("uploads nothing, and says why, for a PDF with no selectable text", async () => {
+    stubStatus();
+    measureChatDocument.mockResolvedValue({ kind: "no-text" });
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q");
+    expect(await screen.findByText(/no selectable text/i)).toBeInTheDocument();
+    expect(screen.getByText(/run OCR PDF first/i)).toBeInTheDocument();
+    expect(runWorkerChatWithPdf).not.toHaveBeenCalled();
   });
 });
 

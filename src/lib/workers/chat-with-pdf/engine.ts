@@ -8,14 +8,19 @@ import {
   type PageStart,
   type TruncationWindow,
 } from "../ai/truncation";
-import type { ChatOptions, ChatTurn } from "@/lib/jobs/chat-with-pdf";
+import {
+  CHAT_MAX_CHARACTERS_PER_QUESTION,
+  chatConversationCharacters,
+  type ChatOptions,
+  type ChatTurn,
+} from "@/lib/jobs/chat-with-pdf";
+import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
 import {
   validateCompletionRequest,
   type AiCompletionResult,
   type AiMessage,
   type AiProvider,
 } from "../ai/provider";
-import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
 
 /**
@@ -65,6 +70,15 @@ export interface ChatWithPdfLimits {
   maxOutputBytes?: number;
   /** Max source characters sent to the model; longer input is truncated (never silently). */
   maxInputChars?: number;
+  /**
+   * What THIS job reserved, as the route decided when it charged the allowance.
+   * Per job, so it arrives here from the processor rather than from the
+   * worker's start-up wiring. The conversation is paid out of it first and the
+   * document gets the rest; `pages`, when declared, stops the document after
+   * that many pages with text. Absent means unbounded BY THE CAP — the
+   * `maxInputChars` ceiling above still applies.
+   */
+  delivery?: JobDeliveryCap;
   /** Ceiling on the model's generated tokens; the default budget is clamped to it. */
   maxOutputTokens?: number;
 }
@@ -127,6 +141,7 @@ export interface ChatWithPdfMeta {
 
 export type ChatWithPdfFailureKind =
   | "unsupported"
+  | "over_reservation"
   | "ai_unconfigured"
   | "no_text"
   | "too_large"
@@ -177,7 +192,13 @@ export type ChatWithPdfRun =
  * raise) is sufficient.
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 2000;
-const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
+/**
+ * Chat's reading ceiling is its per-question charge ceiling — see
+ * {@link CHAT_MAX_CHARACTERS_PER_QUESTION} for why the read and the charge must
+ * be one number. It was the shared 500,000-character reading cap until
+ * 2026-09-27, read on a 41,032-character charge.
+ */
+const DEFAULT_MAX_INPUT_CHARS = CHAT_MAX_CHARACTERS_PER_QUESTION;
 
 /** Assemble the grounding text. When pages carry text, prefix each with a `[Page N]`
  * marker so the model can cite pages; otherwise fall back to the joined text (ungrounded). */
@@ -410,7 +431,43 @@ export async function runChatWithPdf(
     };
   }
 
-  const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
+  // What this job may read. The engine's own ceiling first, then the job's
+  // reservation: the conversation is AI text the model reads too, so it is
+  // paid out of the same cap and the document gets what is left.
+  let maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
+  const delivery = deps.limits?.delivery;
+  if (delivery) {
+    const conversation = chatConversationCharacters(options);
+    const documentBudget = delivery.characters - conversation;
+    if (documentBudget <= 0) {
+      // Before any provider call. The route adds the conversation to every
+      // reservation it makes — even a declaration of one character reserves
+      // the conversation plus four — so only a cap the route did not make
+      // reaches this. That holds only while every conversation the API
+      // accepts is shorter than the route's per-question cap: the chat parser
+      // alone admits 50,000 characters, and it is the 8 KB options limit that
+      // keeps them under 41,032. `chat-with-pdf.conversation-bound.test.ts`
+      // runs the longest accepted conversation through the real request
+      // parser and reservation formula and fails if it leaves no room.
+      return {
+        ok: false,
+        kind: "over_reservation",
+        retryable: false,
+        message: `This question and its conversation are ${conversation.toLocaleString("en-US")} characters, which is more than the ${delivery.characters.toLocaleString("en-US")} this job reserved, so no document text could be sent with them. Nothing was sent to the AI model.`,
+      };
+    }
+    maxChars = Math.min(maxChars, documentBudget);
+    // The EXACT bound: stop at the end of the last declared page with text.
+    // Only a grounded document has page offsets to stop at; an ungrounded one
+    // is bounded by characters alone.
+    const lastDeclared =
+      delivery.pages !== undefined && pageStarts.length > delivery.pages
+        ? pageStarts[delivery.pages - 1]
+        : undefined;
+    if (lastDeclared) {
+      maxChars = Math.min(maxChars, lastDeclared.offset + lastDeclared.length);
+    }
+  }
   // One description of the window, shared by the prompt, the meta and the ZIP,
   // so the model and the user cannot be told different things about it.
   const window = describeWindow(
