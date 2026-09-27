@@ -73,9 +73,10 @@ export interface JobResults {
    */
   ai?: AiResultMeta;
   /**
-   * What qpdf had to fix. Present on a completed `repair-pdf` job — including
-   * a clean one, so a missing block means "this worker did not report",
-   * not "nothing was wrong". See {@link RepairResultMeta}.
+   * What qpdf had to fix. Present on a completed `repair-pdf` or
+   * `optimize-web` job (both run qpdf's parser, and both can meet a damaged
+   * file) — including a clean one, so a missing block means "this worker did
+   * not report", not "nothing was wrong". See {@link RepairResultMeta}.
    */
   repair?: RepairResultMeta;
   /**

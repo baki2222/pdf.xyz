@@ -86,6 +86,9 @@ export function pdfStructureJobError(run: PdfStructureFailure): JobError {
         retryable: false,
       };
     case "unreadable":
+    // A PDF cut off before its trailer, refused before qpdf ran: the same
+    // next step (Repair PDF), and just as final.
+    case "damaged":
       return {
         code: OFFICE_EXPORT_ERROR_CODES.unreadable,
         message: run.message,
@@ -175,17 +178,18 @@ export function createPdfStructureProcessor(deps: PdfStructureDeps): Processor {
           },
         ],
         toProcessorMeta(run.meta),
-        // Only repair reports this: optimize-web makes no claim about
-        // recovering anything, so a warnings block there would describe a
-        // promise the tool never made.
-        input.tool === REPAIR_TOOL
-          ? {
-              repair: {
-                recoveredWithWarnings: run.meta.recoveredWithWarnings,
-                warnings: run.meta.warnings,
-              },
-            }
-          : undefined,
+        // Both tools report this. qpdf exits 3 on `--linearize` exactly as on
+        // a rewrite, and the output is then its RECONSTRUCTION of a damaged
+        // file. This was repair-only ("optimize-web makes no claim about
+        // recovering anything"): the tool made no claim, qpdf still did the
+        // recovery, and the user was told nothing. The key keeps its name —
+        // it is qpdf's structural report, and the sanitizer already bounds it.
+        {
+          repair: {
+            recoveredWithWarnings: run.meta.recoveredWithWarnings,
+            warnings: run.meta.warnings,
+          },
+        },
       );
     },
   };

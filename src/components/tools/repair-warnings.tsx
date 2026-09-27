@@ -59,7 +59,27 @@ export function RepairOutcome({ job }: { job: Job | undefined }) {
 }
 
 /**
- * What qpdf had to fix, shown beside a completed repair.
+ * What each tool says about a qpdf exit 3. Repair PDF asked for a rebuild and
+ * got one. Optimize for Web asked for a linearized copy and qpdf rebuilt the
+ * file on the way — true, but not a repair the user asked for, and not one to
+ * announce as a success. Neither links Repair PDF: it runs the same qpdf parse
+ * over the same bytes (`repairArgs` is a plain rewrite), so it cannot recover
+ * more than the run that just reported this.
+ */
+const WARNING_COPY = {
+  repair: {
+    lead: "This PDF was damaged and has been rebuilt.",
+    body: "The repair succeeded; what follows is what had to be reconstructed, so you can check those parts against the original.",
+  },
+  optimize: {
+    lead: "qpdf found problems in this PDF's structure and worked around them while optimizing it.",
+    body: "The optimized file is qpdf's reconstruction. Check these parts against your original before you replace it:",
+  },
+} as const;
+
+/**
+ * What qpdf had to fix, shown beside a completed repair — or a completed
+ * web optimization, which runs the same parser and can hit the same damage.
  *
  * A repair tool that hands back a file and says nothing has told the user the
  * least useful true thing it knows. qpdf reports a recovered document with exit
@@ -71,9 +91,16 @@ export function RepairOutcome({ job }: { job: Job | undefined }) {
  * wrong" is exactly the one a repair tool must not blur, so `recoveredWithWarnings`
  * is read directly rather than derived from whether the list is empty.
  */
-export function RepairWarnings({ job }: { job: Job | undefined }) {
+export function RepairWarnings({
+  job,
+  variant = "repair",
+}: {
+  job: Job | undefined;
+  variant?: keyof typeof WARNING_COPY;
+}) {
   const repair = job?.results?.repair;
   if (!repair || !repair.recoveredWithWarnings) return null;
+  const copy = WARNING_COPY[variant];
 
   return (
     <div
@@ -83,11 +110,7 @@ export function RepairWarnings({ job }: { job: Job | undefined }) {
       <p className="flex items-start gap-2">
         <Wrench className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
-          <strong className="font-semibold">
-            This PDF was damaged and has been rebuilt.
-          </strong>{" "}
-          The repair succeeded; what follows is what had to be reconstructed, so
-          you can check those parts against the original.
+          <strong className="font-semibold">{copy.lead}</strong> {copy.body}
         </span>
       </p>
       {repair.warnings.length > 0 ? (

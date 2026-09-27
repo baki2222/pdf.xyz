@@ -37,7 +37,11 @@ import {
   type QpdfStructureExecResult,
 } from "@/lib/workers/pdf-structure/native";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
+import { formatBytes } from "@/lib/utils";
+import { isLinearized } from "@/lib/pdf/linearization";
+import { linearizedPdf } from "@/tests/linearized-pdf-fixture";
 import { PdfStructureWorkerPanel } from "./pdf-structure-worker-panel";
+import { OptimizeOutcome } from "./optimize-outcome";
 
 const providers = getProviderReadiness("remote-configured");
 
@@ -83,7 +87,13 @@ async function jobFrom(
   slug: Slug,
   main: QpdfStructureExecResult,
   probe: QpdfStructureExecResult = { code: 2, timedOut: false },
+  files: { input?: Uint8Array; output?: Uint8Array } = {},
 ): Promise<{ job: Job; artifact?: Uint8Array; qpdfCalls: string[][] }> {
+  const input = files.input ?? INPUT;
+  // What qpdf writes to the output path: a linearized file for `--linearize`
+  // (the worker delivers nothing else since 2026-09-27), a plain one otherwise.
+  const output =
+    files.output ?? (slug === "optimize-web" ? linearizedPdf() : OUTPUT);
   let clock = 100_000;
   const store = new DevWorkerStore(() => clock);
   const queue = createLocalDevQueue({ store, now: () => clock });
@@ -106,7 +116,7 @@ async function jobFrom(
           fs: {
             mkdtemp: async (p) => `${p}dir`,
             writeFile: async () => {},
-            readFile: async () => OUTPUT,
+            readFile: async () => output,
             rm: async () => {},
           },
         },
@@ -119,9 +129,9 @@ async function jobFrom(
     sessionId: "sess_test00000",
     filename: "statement.pdf",
     contentType: "application/pdf",
-    declaredBytes: INPUT.byteLength,
+    declaredBytes: input.byteLength,
   });
-  store.putBytes(slot.fileId, INPUT);
+  store.putBytes(slot.fileId, input);
   await queue.submit({
     job: {
       jobId: "job_panel00000",
@@ -182,7 +192,7 @@ function stubNetwork(slug: Slug, job: Job, artifact?: Uint8Array) {
   );
 }
 
-async function runOnePdf(slug: Slug) {
+async function runOnePdf(slug: Slug, chosen: Uint8Array = INPUT) {
   render(
     <>
       <PdfStructureWorkerPanel tool={getToolBySlug(slug)!} />
@@ -196,7 +206,11 @@ async function runOnePdf(slug: Slug) {
   });
   fireEvent.change(input, {
     target: {
-      files: [new File([INPUT], "statement.pdf", { type: "application/pdf" })],
+      files: [
+        new File([chosen.slice()], "statement.pdf", {
+          type: "application/pdf",
+        }),
+      ],
     },
   });
   // Focused first, as a keyboard or pointer user leaves it: the result card
@@ -387,5 +401,135 @@ describe("repair-pdf success — says what qpdf reported, not more", () => {
     stubNetwork("optimize-web", job, artifact);
     await runOnePdf("optimize-web");
     expect(await announced()).toBe("Your web-optimized PDF is ready.");
+  });
+});
+
+/**
+ * Optimize for Web, after a run: the one property it promises, measured from
+ * the bytes the user downloads — not from the fact that a job succeeded. The
+ * worker image deploys by hand and can be older than this page, so the panel
+ * checks the file itself before it says "linearized".
+ */
+describe("optimize-web success — the property, read from the downloaded bytes", () => {
+  it("a linearized file says so, with its size before and after", async () => {
+    const { job, artifact } = await jobFrom("optimize-web", {
+      code: 0,
+      timedOut: false,
+    });
+    // HEALTH: the real chain delivered the linearized bytes qpdf wrote.
+    expect(isLinearized(artifact!)).toBe(true);
+    stubNetwork("optimize-web", job, artifact);
+    await runOnePdf("optimize-web");
+
+    const group = await screen.findByRole("group");
+    expect(group).toHaveTextContent(/Linearized for fast web view/);
+    expect(group).toHaveTextContent(
+      `${formatBytes(INPUT.byteLength)} → ${formatBytes(artifact!.byteLength)}`,
+    );
+    expect(await announced()).toBe("Your web-optimized PDF is ready.");
+  });
+
+  it("a file that is NOT linearized is not called web-optimized — an older worker can deliver one", async () => {
+    const { job, artifact } = await jobFrom("optimize-web", {
+      code: 0,
+      timedOut: false,
+    });
+    expect(artifact).toBeDefined();
+    // The job an older image completed: same record, unlinearized bytes.
+    const plain = OUTPUT;
+    expect(isLinearized(plain)).toBe(false);
+    stubNetwork("optimize-web", job, plain);
+    await runOnePdf("optimize-web");
+
+    const group = await screen.findByRole("group");
+    // The group rendered (so the absence below is not a blank card).
+    expect(group).toHaveTextContent(
+      `${formatBytes(INPUT.byteLength)} → ${formatBytes(plain.byteLength)}`,
+    );
+    expect(group).not.toHaveTextContent(/Linearized for fast web view/);
+    expect(group).not.toHaveTextContent(/web-optimized PDF is ready/);
+    expect(group).toHaveTextContent(/not linearized/);
+    expect(await announced()).toMatch(/not linearized/);
+  });
+
+  it("a file that grew points at Compress PDF; one that shrank does not", async () => {
+    const compress = `/tools/${getToolBySlug("compress-pdf")!.slug}`;
+    const { job, artifact } = await jobFrom("optimize-web", {
+      code: 0,
+      timedOut: false,
+    });
+    // HEALTH: this fixture pair is the "grew" case.
+    expect(artifact!.byteLength).toBeGreaterThan(INPUT.byteLength);
+    stubNetwork("optimize-web", job, artifact);
+    await runOnePdf("optimize-web");
+    await screen.findByRole("group");
+    expect(hrefsTo(compress)).toEqual([compress]);
+
+    document.body.innerHTML = "";
+    resetAnnouncer();
+    // CONTROL: the same result from a larger upload shrank, and links nothing.
+    const bigger = new TextEncoder().encode(
+      `%PDF-1.7\n${"0".repeat(artifact!.byteLength * 2)}\n%%EOF\n`,
+    );
+    stubNetwork("optimize-web", job, artifact);
+    await runOnePdf("optimize-web", bigger);
+    await screen.findByRole("group");
+    expect(hrefsTo(compress)).toEqual([]);
+  });
+
+  it("what qpdf reconstructed while linearizing is shown — not as a repair", async () => {
+    const { job, artifact } = await jobFrom("optimize-web", {
+      code: 3,
+      timedOut: false,
+      stderr: "qpdf: file is damaged\nqpdf: reconstructing xref table\n",
+    });
+    expect(job.results?.repair?.recoveredWithWarnings).toBe(true);
+    stubNetwork("optimize-web", job, artifact);
+    await runOnePdf("optimize-web");
+
+    const group = await screen.findByRole("group");
+    expect(group).toHaveTextContent("reconstructing xref table");
+    expect(group).toHaveTextContent(/worked around/);
+    // Optimize for Web did not promise a repair and must not report one.
+    expect(group).not.toHaveTextContent(/repair succeeded|has been rebuilt/);
+  });
+
+  it("a truncated PDF is refused and sent to Repair PDF — through the real chain", async () => {
+    const truncated = new TextEncoder().encode(
+      `%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n${"0".repeat(64)}`,
+    );
+    const { job, qpdfCalls } = await jobFrom(
+      "optimize-web",
+      { code: 0, timedOut: false },
+      undefined,
+      { input: truncated },
+    );
+    expect(qpdfCalls).toEqual([]);
+    expect(job.error?.retryable).toBe(false);
+    stubNetwork("optimize-web", job);
+    await runOnePdf("optimize-web", truncated);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Repair PDF/);
+    expect(
+      screen.getByRole("link", { name: "Open Repair PDF" }),
+    ).toHaveAttribute("href", "/tools/repair-pdf");
+  });
+});
+
+describe("OptimizeOutcome without a known input size (a job resumed after a reload)", () => {
+  it("shows the output size alone — no '0 B', and no 'the file grew'", () => {
+    const output = linearizedPdf();
+    render(<OptimizeOutcome job={undefined} output={output} />);
+    expect(document.body).toHaveTextContent(
+      `Linearized for fast web view · ${formatBytes(output.byteLength)}`,
+    );
+    expect(document.body).not.toHaveTextContent(/0 B|→|grew/);
+    expect(hrefsTo("/tools/compress-pdf")).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the same output with a smaller known input says it grew", () => {
+    const output = linearizedPdf();
+    render(<OptimizeOutcome job={undefined} inputBytes={10} output={output} />);
+    expect(document.body).toHaveTextContent(/grew/);
+    expect(hrefsTo("/tools/compress-pdf")).toEqual(["/tools/compress-pdf"]);
   });
 });

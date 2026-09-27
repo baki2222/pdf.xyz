@@ -8,6 +8,7 @@ import { DevWorkerStore } from "./store";
 import type { CompressionDeps } from "./compression/engine";
 import type { QpdfRunner } from "./pdf-security/engine";
 import type { QpdfStructureRunner } from "./pdf-structure/engine";
+import { linearizedPdf } from "@/tests/linearized-pdf-fixture";
 import type { WorkerAdapter } from "./types";
 
 async function makePdf(pages = 4): Promise<Uint8Array> {
@@ -520,7 +521,11 @@ describe("local-dev worker — qpdf structure job flow", () => {
     over: Partial<QpdfStructureRunner> = {},
   ): QpdfStructureRunner => ({
     repair: async () => ({ bytes: taggedPdf("REPAIRED"), warnings: [] }),
-    linearize: async () => ({ bytes: taggedPdf("LINEARIZED"), warnings: [] }),
+    // A real linearized file: the engine delivers nothing else for optimize-web.
+    linearize: async () => ({
+      bytes: linearizedPdf("LINEARIZED"),
+      warnings: [],
+    }),
     ...over,
   });
 

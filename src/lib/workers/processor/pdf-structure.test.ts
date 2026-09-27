@@ -6,6 +6,8 @@ import type {
   QpdfStructureRunner,
 } from "../pdf-structure/engine";
 import { createPdfStructureProcessor } from "./pdf-structure";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
+import { linearizedPdf } from "@/tests/linearized-pdf-fixture";
 
 /** Minimal, structurally-valid PDF bytes (passes `looksLikePdf`). */
 function pdf(pad = 40): Uint8Array {
@@ -26,7 +28,7 @@ function fakeRunner(
 ): QpdfStructureRunner {
   return {
     repair: async () => ({ bytes: pdf(64), warnings: [] }),
-    linearize: async () => ({ bytes: pdf(80), warnings: [] }),
+    linearize: async () => ({ bytes: linearizedPdf(), warnings: [] }),
     ...over,
   };
 }
@@ -95,7 +97,7 @@ describe("pdf-structure processor — repair", () => {
 
 describe("pdf-structure processor — optimize-web", () => {
   it("linearizes a PDF and returns a named artifact + content-free meta", async () => {
-    const optimized = pdf(120);
+    const optimized = linearizedPdf("catalog");
     const proc = createPdfStructureProcessor(
       wired({ linearize: async () => ({ bytes: optimized, warnings: [] }) }),
     );
@@ -147,4 +149,69 @@ describe("pdf-structure processor — optimize-web", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("unprocessable_entity");
   });
+
+  it("a TRUNCATED PDF is refused finally, by the code that links Repair PDF", async () => {
+    // A header and no `%%EOF`: damage, not "not a PDF". The panel links the
+    // next step by CODE, so the code is the pointer, not only the sentence.
+    const truncated = new TextEncoder().encode(
+      `%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n${"0".repeat(64)}`,
+    );
+    const result = await createPdfStructureProcessor(wired()).process({
+      tool: "optimize-web",
+      options: {},
+      inputs: [file("cut.pdf", truncated)],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe(OFFICE_EXPORT_ERROR_CODES.unreadable);
+    expect(result.error.retryable).toBe(false);
+    expect(result.error.message).toMatch(/Repair PDF/);
+  });
+});
+
+/**
+ * qpdf exits 3 on `--linearize` exactly as on a rewrite — "warnings issued,
+ * output created" — and the output is then qpdf's RECONSTRUCTION of a file it
+ * found damaged. Until 2026-09-27 the processor sent that report only for
+ * repair-pdf ("optimize-web makes no claim about recovering anything"), so a
+ * user whose file was silently rebuilt read "Your web-optimized PDF is ready."
+ * and nothing else. The tool made no recovery claim; qpdf still performed one.
+ */
+describe("pdf-structure processor — what qpdf reported reaches the job", () => {
+  for (const tool of ["repair-pdf", "optimize-web"] as const) {
+    it(`${tool}: a run qpdf reconstructed carries its warnings`, async () => {
+      const bytes = tool === "repair-pdf" ? pdf(64) : linearizedPdf();
+      const proc = createPdfStructureProcessor(
+        wired({
+          repair: async () => ({ bytes, warnings: ["xref reconstructed"] }),
+          linearize: async () => ({ bytes, warnings: ["xref reconstructed"] }),
+        }),
+      );
+      const result = await proc.process({
+        tool,
+        options: {},
+        inputs: [file()],
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.results?.repair).toEqual({
+        recoveredWithWarnings: true,
+        warnings: ["xref reconstructed"],
+      });
+    });
+
+    it(`${tool}: a clean run reports clean, so "no report" still means an older worker`, async () => {
+      const result = await createPdfStructureProcessor(wired()).process({
+        tool,
+        options: {},
+        inputs: [file()],
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.results?.repair).toEqual({
+        recoveredWithWarnings: false,
+        warnings: [],
+      });
+    });
+  }
 });

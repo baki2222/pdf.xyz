@@ -11,6 +11,7 @@
  */
 
 import { looksLikePdf, looksRepairable } from "../compression/engine";
+import { isLinearized } from "@/lib/pdf/linearization";
 import { QpdfRefusedError } from "./errors";
 
 export const REPAIR_TOOL = "repair-pdf";
@@ -70,6 +71,12 @@ export type PdfStructureRun =
   | { ok: true; output: Uint8Array; meta: PdfStructureResultMeta }
   | { ok: false; kind: "unsupported"; message: string }
   | { ok: false; kind: "invalid_pdf"; message: string }
+  /**
+   * optimize-web only: a PDF header, but no `%%EOF` trailer — a file cut off
+   * in transit. Final, and named apart from `invalid_pdf` because Repair PDF
+   * takes exactly this file, while bytes with no header go nowhere.
+   */
+  | { ok: false; kind: "damaged"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
   /** qpdf needs a password to open it. Final: a retry gets the same answer. */
   | { ok: false; kind: "password_protected"; message: string }
@@ -83,6 +90,8 @@ const UNSUPPORTED_MESSAGE =
 const TOO_LARGE_MESSAGE =
   "The input PDF exceeds the worker's size limit for this operation.";
 const INVALID_PDF_MESSAGE = "The input could not be read as a PDF.";
+const DAMAGED_MESSAGE =
+  "This PDF looks damaged or incomplete: its end is missing, so it may have been cut off. Repair PDF can often rebuild it; then optimize the repaired file.";
 const FAILED_MESSAGE =
   "The PDF structure engine could not process this file. No output was produced.";
 
@@ -131,21 +140,28 @@ const failed = (): PdfStructureRun => ({
 });
 
 /**
- * The INPUT floor, chosen by operation.
+ * The INPUT floors, by operation. What each one actually does:
  *
- * repair-pdf exists to accept damage, so it requires only a header
- * ({@link looksRepairable}). optimize-web promises fast web viewing, not
- * recovery — a damaged file there is honestly refused and the user is pointed at
- * repair, rather than silently handed a repair they did not ask for.
+ *  - Every operation needs a `%PDF-` header ({@link looksRepairable}). Without
+ *    one there is no document, and the answer is `invalid_pdf` — which names no
+ *    other tool, because Repair PDF refuses the same bytes.
+ *  - repair-pdf needs nothing more: it exists to accept damage.
+ *  - optimize-web also needs the `%%EOF` trailer ({@link looksLikePdf}). A file
+ *    with a header and no trailer was cut off; it is refused as `damaged`, and
+ *    that message and its error code send the user to Repair PDF.
+ *
+ * What this floor does NOT do is catch damage behind an intact trailer (a
+ * broken xref, bad offsets). Those files reach qpdf, which rebuilds them and
+ * says so with exit 3; the warnings travel on the result for BOTH operations,
+ * and the optimize panel shows them. Until 2026-09-27 this docblock said a
+ * damaged file on optimize-web "is honestly refused and the user is pointed at
+ * repair": the pointer did not exist, and a file qpdf reconstructed was
+ * delivered with its warnings dropped.
  *
  * Deliberately NOT `deps.validate`: that seam is the OUTPUT validator, and a
  * deployment tightening its output check must not thereby re-close the door on
  * the files repair exists for.
  */
-function inputFloor(operation: "repair" | "linearize") {
-  return operation === "repair" ? looksRepairable : looksLikePdf;
-}
-
 async function preflight(
   input: Uint8Array,
   deps: PdfStructureDeps,
@@ -166,10 +182,16 @@ async function preflight(
     };
   }
 
-  if (!inputFloor(operation)(input)) {
+  if (!looksRepairable(input)) {
     return {
       ok: false,
       run: { ok: false, kind: "invalid_pdf", message: INVALID_PDF_MESSAGE },
+    };
+  }
+  if (operation === "linearize" && !looksLikePdf(input)) {
+    return {
+      ok: false,
+      run: { ok: false, kind: "damaged", message: DAMAGED_MESSAGE },
     };
   }
 
@@ -204,6 +226,10 @@ async function runStructure(
   }
 
   if (!(await validate(result.bytes))) return failed();
+  // Optimize for Web promises one property. A well-formed file without it is
+  // not a web-optimized PDF, whatever produced it, so it is not delivered —
+  // the check stands where the user's job is, not only in the operator's proof.
+  if (operation === "linearize" && !isLinearized(result.bytes)) return failed();
 
   return {
     ok: true,

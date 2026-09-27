@@ -63,6 +63,7 @@ import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { linearizationVerdict } from "@/lib/pdf/linearization";
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
 import { pptxProofVerdict } from "@/lib/workers/pdf-office-export/validate-ooxml";
 import {
@@ -633,6 +634,11 @@ const SPECS: ProofSpec[] = [
     expect: () => false,
     want: "a final refusal, not a retry",
   },
+  // "linearized PDF" was printed on the strength of `%PDF-` at byte 0 until
+  // 2026-09-27; the one property this tool sells was never read. `textPdf` is
+  // pdf-lib output and NOT linearized, so a worker that skipped `--linearize`
+  // and returned its input rewritten fails here — the verdict reads the
+  // linearization dictionary and holds its /L to the artifact's length.
   {
     tool: "optimize-web",
     make: textPdf,
@@ -640,6 +646,7 @@ const SPECS: ProofSpec[] = [
     type: PDF_MIME,
     expect: isPdf,
     want: "linearized PDF",
+    verify: async (bytes) => linearizationVerdict(bytes),
   },
   {
     tool: "ocr-pdf",

@@ -20,6 +20,8 @@ import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { runOptimizeWeb, runRepair, type QpdfStructureRunner } from "./engine";
 import { QpdfRefusedError, type QpdfRefusalReason } from "./errors";
+import { isLinearized } from "@/lib/pdf/linearization";
+import { linearizedPdf } from "@/tests/linearized-pdf-fixture";
 
 /** A real, well-formed PDF. */
 async function healthyPdf(pages = 3): Promise<Uint8Array> {
@@ -50,7 +52,7 @@ function recordingQpdf(warnings: string[] = []): QpdfStructureRunner & {
     },
     async linearize(input) {
       seen.push(input);
-      return { bytes: await healthyPdf(6), warnings };
+      return { bytes: linearizedPdf(), warnings };
     },
   };
 }
@@ -91,17 +93,41 @@ describe("repair-pdf accepts the damage it exists to repair", () => {
     expect(qpdf.seen).toHaveLength(0);
   });
 
-  it("keeps the STRICTER floor on optimize-web, which does not claim to repair", async () => {
-    // A different tool with a different promise: "fast web view", not recovery.
-    // A damaged file there is honestly refused and the user is pointed at
-    // repair, rather than silently getting a repair they did not ask for.
+  /**
+   * INVERTED 2026-09-27. This asserted only `kind: "invalid_pdf"`, and the
+   * docblock it quoted said the user "is pointed at repair". The message was
+   * "The input could not be read as a PDF." — no pointer — and nothing read it.
+   * A truncated PDF is not "not a PDF": it has a header and lost its tail, which
+   * is exactly what Repair PDF accepts. So it is its own kind now, final, and
+   * the sentence names the tool that takes it.
+   */
+  it("optimize-web refuses a TRUNCATED pdf and names Repair PDF, without running qpdf", async () => {
     const damaged = await damagedPdf();
     const qpdf = recordingQpdf();
 
     const run = await runOptimizeWeb(damaged, { qpdf });
 
     expect(run.ok).toBe(false);
-    if (!run.ok) expect(run.kind).toBe("invalid_pdf");
+    if (run.ok) return;
+    expect(run.kind).toBe("damaged");
+    expect(run.message).toMatch(/Repair PDF/);
+    expect(qpdf.seen).toHaveLength(0);
+    // The same bytes are what repair-pdf exists for: it hands them to qpdf.
+    const repair = await runRepair(damaged, { qpdf });
+    expect(repair.ok).toBe(true);
+    expect(qpdf.seen).toHaveLength(1);
+  });
+
+  it("optimize-web does NOT send bytes that are not a PDF at all to Repair PDF", async () => {
+    // Repair refuses these too (no header, nothing to rebuild), so naming it
+    // here would send the user to a second refusal.
+    const notAPdf = new Uint8Array(4096).fill(0x41);
+    const qpdf = recordingQpdf();
+    const optimize = await runOptimizeWeb(notAPdf, { qpdf });
+    const repair = await runRepair(notAPdf, { qpdf });
+    expect(!optimize.ok && optimize.kind).toBe("invalid_pdf");
+    expect(!repair.ok && repair.kind).toBe("invalid_pdf");
+    expect(!optimize.ok && optimize.message).not.toMatch(/Repair PDF/);
     expect(qpdf.seen).toHaveLength(0);
   });
 
@@ -233,6 +259,69 @@ describe("a document qpdf refuses is named, not retried", () => {
     });
     expect(!optimize.ok && optimize.message).toMatch(/Repair PDF/);
     expect(!repair.ok && repair.message).not.toMatch(/Repair PDF/);
+  });
+});
+
+/**
+ * Optimize for Web promises ONE property — a linearized file — and until
+ * 2026-09-27 no output was ever checked for it: any `%PDF-…%%EOF` qpdf wrote
+ * went to the user as "Your web-optimized PDF is ready." A worker running the
+ * rewrite without `--linearize` would have been green everywhere.
+ */
+describe("optimize-web delivers only a file that IS linearized", () => {
+  const returning = (bytes: Uint8Array): QpdfStructureRunner => ({
+    async repair() {
+      return { bytes, warnings: [] };
+    },
+    async linearize() {
+      return { bytes, warnings: [] };
+    },
+  });
+
+  it("HEALTH: the two outputs differ in exactly the property under test", async () => {
+    expect(isLinearized(linearizedPdf())).toBe(true);
+    expect(isLinearized(await healthyPdf())).toBe(false);
+  });
+
+  it("POSITIVE CONTROL: a linearized output is delivered", async () => {
+    const out = linearizedPdf();
+    const run = await runOptimizeWeb(await healthyPdf(), {
+      qpdf: returning(out),
+    });
+    expect(run.ok).toBe(true);
+    if (run.ok) expect(run.output).toBe(out);
+  });
+
+  it("a well-formed but UNlinearized output is not delivered", async () => {
+    const run = await runOptimizeWeb(await healthyPdf(), {
+      qpdf: returning(await healthyPdf(2)),
+    });
+    expect(run.ok).toBe(false);
+    if (!run.ok) expect(run.kind).toBe("failed");
+  });
+
+  it("SCOPE: repair makes no linearization promise and is not held to one", async () => {
+    const run = await runRepair(await healthyPdf(), {
+      qpdf: returning(await healthyPdf(2)),
+    });
+    expect(run.ok).toBe(true);
+  });
+});
+
+/**
+ * qpdf exits 3 on a linearize too, and then its output is a RECONSTRUCTION.
+ * The meta carries that for both operations; the processor used to drop it for
+ * optimize-web (see processor/pdf-structure.test.ts).
+ */
+describe("optimize-web keeps what qpdf said about the file", () => {
+  it("carries warnings from a linearize run onto the meta", async () => {
+    const run = await runOptimizeWeb(await healthyPdf(), {
+      qpdf: recordingQpdf(["xref table reconstructed"]),
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.meta.recoveredWithWarnings).toBe(true);
+    expect(run.meta.warnings).toEqual(["xref table reconstructed"]);
   });
 });
 

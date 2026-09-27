@@ -37,6 +37,7 @@ import {
   type WorkerPhase,
 } from "./worker-status";
 import { RepairOutcome, repairDoneSentence } from "./repair-warnings";
+import { OptimizeOutcome, optimizeDoneSentence } from "./optimize-outcome";
 import { OfficeExportNextStep } from "./office-export-notices";
 
 type Phase = WorkerPhase;
@@ -105,12 +106,6 @@ const COPY: Record<
     running: "Optimizing on the worker…",
   },
 };
-
-/**
- * Optimize for Web makes no repair claim, so its sentence is fixed. A finished
- * repair's sentence depends on what qpdf reported: see `repairDoneSentence`.
- */
-const OPTIMIZE_DONE = "Your web-optimized PDF is ready.";
 
 export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "repair-pdf" ? "repair" : "optimize";
@@ -249,6 +244,10 @@ function StructureRunArea({
   localDevOnly: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  // The size of the file the CURRENT outcome came from — recorded when the run
+  // starts, so a job resumed after a reload (no file in hand) reports none
+  // rather than 0, and a file picked afterwards is never compared with it.
+  const [ranBytes, setRanBytes] = useState<number | undefined>(undefined);
   const job = useWorkerJob<PdfStructureWorkerResult>({
     tool: mode === "repair" ? "repair-pdf" : "optimize-web",
     resume: (id, controls) =>
@@ -262,6 +261,7 @@ function StructureRunArea({
 
   const start = useCallback(async () => {
     if (!file) return;
+    setRanBytes(file.size);
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
@@ -292,6 +292,7 @@ function StructureRunArea({
             onClick={() => {
               setFile(null);
               setOutcome(null);
+              setRanBytes(undefined);
             }}
             className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
           >
@@ -329,7 +330,9 @@ function StructureRunArea({
       {outcome?.ok === true && (
         <ResultCard
           announce={
-            mode === "repair" ? repairDoneSentence(outcome.job) : OPTIMIZE_DONE
+            mode === "repair"
+              ? repairDoneSentence(outcome.job)
+              : optimizeDoneSentence(outcome.output)
           }
         >
           {/* Before the download button: a user who clicks and leaves is
@@ -337,7 +340,11 @@ function StructureRunArea({
           {mode === "repair" ? (
             <RepairOutcome job={outcome.job} />
           ) : (
-            <p className="text-ok text-sm">{OPTIMIZE_DONE}</p>
+            <OptimizeOutcome
+              job={outcome.job}
+              inputBytes={ranBytes}
+              output={outcome.output}
+            />
           )}
           <DownloadCta
             onClick={() =>
