@@ -78,7 +78,9 @@ export function pdfjsOpenError(err: unknown): PdfEngineError | null {
 /**
  * Await a pdfjs loading task, releasing it and translating the failure when
  * the document does not open. Every `getDocument` caller goes through this, so
- * no tool can surface pdfjs's raw "No password given" again.
+ * no tool can surface pdfjs's raw "No password given" again —
+ * `pdfjs-open.test.ts` pairs every `getDocument` in shipped source with a call
+ * to this.
  */
 export async function awaitPdfjsDocument<T>(task: {
   promise: Promise<T>;

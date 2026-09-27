@@ -1,14 +1,16 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   PDFArray,
+  PDFContext,
   PDFDict,
   PDFDocument,
   PDFHexString,
   PDFName,
   PDFPageLeaf,
   PDFRawStream,
+  PDFRef,
   type PDFForm,
   PDFString,
   StandardFonts,
@@ -71,17 +73,26 @@ interface Inspection {
   pageDicts: number;
   /** Pages in the document's page tree. */
   pageCount: number;
+  /**
+   * Every reference in the file that resolves to no object, as `N G R`. The
+   * assembler copies a reference to a dropped page as a sentinel it never
+   * assigns; an edge to it that nothing cut ships as exactly this.
+   */
+  dangling: string[];
   doc: PDFDocument;
 }
 
 async function inspect(bytes: Uint8Array): Promise<Inspection> {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   const parts: string[] = [];
+  const dangling = new Set<string>();
   const seen = new Set<PDFObject>();
   const visit = (obj: PDFObject | undefined): void => {
     if (!obj || seen.has(obj)) return;
     seen.add(obj);
-    if (obj instanceof PDFString || obj instanceof PDFHexString) {
+    if (obj instanceof PDFRef) {
+      if (doc.context.lookup(obj) === undefined) dangling.add(obj.toString());
+    } else if (obj instanceof PDFString || obj instanceof PDFHexString) {
       parts.push(obj.decodeText());
     } else if (obj instanceof PDFArray) {
       obj.asArray().forEach(visit);
@@ -112,10 +123,13 @@ async function inspect(bytes: Uint8Array): Promise<Inspection> {
     }
     visit(obj);
   }
+  visit(doc.context.trailerInfo.Root);
+  visit(doc.context.trailerInfo.Info);
   return {
     text: parts.join("\n"),
     pageDicts,
     pageCount: doc.getPageCount(),
+    dangling: [...dangling],
     doc,
   };
 }
@@ -371,6 +385,167 @@ function resetTrigger(shape: "widget-aa" | "next-chain" | "field-aa") {
   };
 }
 
+const OUTLINE_MARKER = "SECRET-OUTLINE-TITLE";
+const METADATA_MARKER = "SECRET-XMP-METADATA";
+const ATTACHMENT_MARKER = "SECRET-EMBEDDED-FILE";
+const INFO_MARKER = "SECRET-INFO-SUBJECT";
+
+/**
+ * Document-level state a kept page can reach without going through a page:
+ *  - `catalog`: a kept signature whose transform names the source CATALOG —
+ *    Acrobat's FieldMDP / DocMDP shape, `/Reference [<< /TransformMethod
+ *    /FieldMDP /Data <catalog> >>]`. The catalog roots everything the output
+ *    does not carry, so this one edge reaches all of it at once: the whole
+ *    `/AcroForm` (every page's field values, pdf-lib's fields being separate
+ *    from their widgets), a bookmark titled after page 2, an XMP `/Metadata`
+ *    stream and an embedded file. Measured at 7394803: a 1-page extract
+ *    shipped the page-2 value and the title; at 59811fd the value was cut and
+ *    the title, the XMP stream and the attached file still shipped. The
+ *    name tree sits INLINE in the catalog here, so marking only the objects
+ *    the catalog names would still let a copy of the catalog carry it.
+ *  - `direct`: a key no rule knows, on a kept widget, naming the catalog's own
+ *    dictionaries and the trailer's `/Info` directly — so it is the
+ *    document-level objects themselves that must be foreign, not only the
+ *    catalog that roots them.
+ */
+function documentLevelReach(shape: "catalog" | "direct") {
+  return (doc: PDFDocument) => {
+    const ctx = doc.context;
+    const catalogRef = ctx.trailerInfo.Root;
+    const infoRef = ctx.trailerInfo.Info;
+    if (!(catalogRef instanceof PDFRef) || !(infoRef instanceof PDFRef)) {
+      throw new Error("catalog or info is not a ref");
+    }
+    doc.setSubject(INFO_MARKER);
+
+    const outlinesRef = ctx.nextRef();
+    const itemRef = ctx.nextRef();
+    ctx.assign(
+      itemRef,
+      ctx.obj({
+        Title: PDFString.of(OUTLINE_MARKER),
+        Parent: outlinesRef,
+        Dest: [doc.getPage(1).ref, "Fit"],
+      }),
+    );
+    ctx.assign(
+      outlinesRef,
+      ctx.obj({ Type: "Outlines", First: itemRef, Last: itemRef, Count: 1 }),
+    );
+    doc.catalog.set(PDFName.of("Outlines"), outlinesRef);
+
+    const metadataRef = ctx.register(
+      ctx.stream(`<x:xmpmeta>${METADATA_MARKER}</x:xmpmeta>`, {
+        Type: "Metadata",
+        Subtype: "XML",
+      }),
+    );
+    doc.catalog.set(PDFName.of("Metadata"), metadataRef);
+
+    const file = ctx.register(
+      ctx.stream(ATTACHMENT_MARKER, { Type: "EmbeddedFile" }),
+    );
+    const spec = ctx.register(
+      ctx.obj({
+        Type: "Filespec",
+        F: PDFString.of("notes.txt"),
+        EF: { F: file },
+      }),
+    );
+    const names = ctx.obj({
+      EmbeddedFiles: { Names: [PDFString.of("notes.txt"), spec] },
+    });
+    // Inline in the catalog shape, as many writers put it: then nothing but
+    // the catalog itself being foreign keeps it out. Indirect in the direct
+    // shape, so a kept object can name it.
+    const namesRef = ctx.register(names);
+    doc.catalog.set(PDFName.of("Names"), shape === "direct" ? namesRef : names);
+
+    if (shape === "direct") {
+      doc
+        .getForm()
+        .getTextField(fieldName(1))
+        .acroField.getWidgets()[0]!
+        .dict.set(
+          PDFName.of("XYZDocState"),
+          ctx.obj([outlinesRef, metadataRef, namesRef, infoRef]),
+        );
+      return;
+    }
+    const sig = ctx.register(
+      ctx.obj({
+        Type: "Sig",
+        Filter: "Adobe.PPKLite",
+        Reference: [
+          {
+            Type: "SigRef",
+            TransformMethod: "FieldMDP",
+            Data: catalogRef,
+            TransformParams: { Type: "TransformParams", Action: "All" },
+          },
+        ],
+      }),
+    );
+    const widget = addAnnot(
+      doc,
+      0,
+      ctx.obj({
+        Type: "Annot",
+        Subtype: "Widget",
+        FT: "Sig",
+        T: PDFString.of("approval"),
+        Rect: [200, 200, 280, 230],
+        V: sig,
+      }),
+    );
+    doc.catalog
+      .lookup(PDFName.of("AcroForm"), PDFDict)
+      .lookup(PDFName.of("Fields"), PDFArray)
+      .push(widget);
+  };
+}
+
+/**
+ * A kept button whose action names an ANNOTATION on dropped page 2 by
+ * reference — a Screen annotation, the kind a media button drives:
+ *  - `hide`: a Hide action's `/T` (layer 2 knows Hide, and removes it);
+ *  - `rendition`: a Rendition action's `/AN`, a key no layer-2 rule knows, so
+ *    only the layer-3 backstop cuts the edge to the dropped annotation.
+ * Layer 1 copies the reference as the sentinel, which is never assigned: an
+ * edge to it that survives ships as a reference to nothing.
+ */
+function buttonNamingDroppedAnnot(shape: "hide" | "rendition") {
+  return (doc: PDFDocument, form: PDFForm) => {
+    const screen = addAnnot(
+      doc,
+      1,
+      doc.context.obj({
+        Type: "Annot",
+        Subtype: "Screen",
+        Rect: [20, 200, 220, 280],
+        T: PDFString.of("Clip on page 2"),
+      }),
+    );
+    const button = form.createButton("play");
+    button.addToPage("Play", doc.getPage(0), {
+      x: 20,
+      y: 160,
+      width: 80,
+      height: 24,
+    });
+    button.acroField
+      .getWidgets()[0]!
+      .dict.set(
+        PDFName.of("A"),
+        doc.context.obj(
+          shape === "hide"
+            ? { S: "Hide", T: screen, H: true }
+            : { S: "Rendition", OP: 0, AN: screen },
+        ),
+      );
+  };
+}
+
 /** An article thread whose beads run p1 → p3 → p1. */
 async function beadDoc(): Promise<Uint8Array> {
   const doc = await withBodies(3);
@@ -493,11 +668,99 @@ const FIXTURES: {
     excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
   },
   {
+    name: "a kept button whose Hide /T names a dropped page's annotation",
+    build: () => formDoc(buttonNamingDroppedAnnot("hide")),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept button whose Rendition /AN names a dropped page's annotation (backstop only)",
+    build: () => formDoc(buttonNamingDroppedAnnot("rendition")),
+    excluded: [bodyMarker(2), bodyMarker(3), secretMarker(2), secretMarker(3)],
+  },
+  {
+    name: "a kept signature whose FieldMDP /Data names the source catalog",
+    build: () => formDoc(documentLevelReach("catalog")),
+    excluded: [
+      bodyMarker(2),
+      bodyMarker(3),
+      secretMarker(2),
+      secretMarker(3),
+      OUTLINE_MARKER,
+      METADATA_MARKER,
+      ATTACHMENT_MARKER,
+      INFO_MARKER,
+    ],
+  },
+  {
+    name: "a vendor key on a kept widget naming the source's outline, XMP, name tree and /Info directly",
+    build: () => formDoc(documentLevelReach("direct")),
+    excluded: [
+      bodyMarker(2),
+      bodyMarker(3),
+      secretMarker(2),
+      secretMarker(3),
+      OUTLINE_MARKER,
+      METADATA_MARKER,
+      ATTACHMENT_MARKER,
+      INFO_MARKER,
+    ],
+  },
+  {
     name: "an article thread (beads) running into a dropped page",
     build: beadDoc,
     excluded: [bodyMarker(3)],
   },
 ];
+
+const isPageDict = (obj: PDFObject) =>
+  obj instanceof PDFPageLeaf ||
+  (obj instanceof PDFDict &&
+    obj.get(PDFName.of("Type")) === PDFName.of("Page"));
+
+/**
+ * Run a tool and report, for every document it CREATES, how many page objects
+ * were ever registered into it against how many pages it ends with.
+ *
+ * Layer 1's promise is stronger than the file oracle can see: a dropped page is
+ * never COPIED — not copied and then garbage-collected before save, which is
+ * what layers 2 and 3 would do to it, and which is exactly as clean on disk.
+ * The difference is cost: a per-page split of a form whose field tree spans N
+ * pages copies N pages into every part without layer 1, N² in all.
+ */
+async function pagesRegistered<T>(run: () => Promise<T>) {
+  const created: PDFDocument[] = [];
+  const assigned: { context: PDFContext; obj: PDFObject }[] = [];
+  const create = PDFDocument.create.bind(PDFDocument);
+  const assign = PDFContext.prototype.assign;
+  const createSpy = vi
+    .spyOn(PDFDocument, "create")
+    .mockImplementation(async (options) => {
+      const doc = await create(options);
+      created.push(doc);
+      return doc;
+    });
+  const assignSpy = vi
+    .spyOn(PDFContext.prototype, "assign")
+    .mockImplementation(function (this: PDFContext, ref, obj) {
+      assigned.push({ context: this, obj });
+      assign.call(this, ref, obj);
+    });
+  try {
+    const result = await run();
+    return {
+      result,
+      docs: created.map((doc) => ({
+        registered: assigned.filter(
+          (a) => a.context === doc.context && isPageDict(a.obj),
+        ).length,
+        pages: doc.getPageCount(),
+      })),
+    };
+  } finally {
+    createSpy.mockRestore();
+    assignSpy.mockRestore();
+  }
+}
 
 describe("page tools ship only the pages the user kept", () => {
   it("POSITIVE CONTROL: the oracle finds every marker in each input", async () => {
@@ -509,10 +772,35 @@ describe("page tools ship only the pages the user kept", () => {
     }
   });
 
+  it("POSITIVE CONTROL: the oracle reports a reference to nothing", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage().node.set(PDFName.of("XYZ"), PDFRef.of(9999));
+    const input = await inspect(await doc.save());
+    expect(input.dangling).toEqual(["9999 0 R"]);
+    // ...and a clean file reports none, so the detector is not always-on.
+    expect((await inspect(await linkedDoc())).dangling).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the page-registration probe sees the tool's own copies", async () => {
+    const bytes = await linkedDoc();
+    const { docs } = await pagesRegistered(() =>
+      splitPdf(bytes, buildSplitParts("doc", rangesPerPage(3))),
+    );
+    // One created document per part, each with its one page registered: the
+    // probe is attached to the contexts the assembler really writes into.
+    expect(docs).toEqual([
+      { registered: 1, pages: 1 },
+      { registered: 1, pages: 1 },
+      { registered: 1, pages: 1 },
+    ]);
+  });
+
   for (const fixture of FIXTURES) {
     for (const op of KEEP_FIRST_ONLY) {
       it(`${op.tool}: ${fixture.name}`, async () => {
-        const out = await inspect(await op.run(await fixture.build()));
+        const bytes = await fixture.build();
+        const { result, docs } = await pagesRegistered(() => op.run(bytes));
+        const out = await inspect(result);
         expect(out.pageCount).toBe(1);
         // The kept page is really there — the absence below is not an empty file.
         expect(out.text).toContain(bodyMarker(1));
@@ -523,6 +811,12 @@ describe("page tools ship only the pages the user kept", () => {
         }
         // No page object anywhere in the file except the one in the tree.
         expect(out.pageDicts).toBe(out.pageCount);
+        // Every edge to a dropped object was CUT, not left pointing at nothing.
+        expect(out.dangling, `dangling refs in ${op.tool}`).toEqual([]);
+        // Layer 1: a dropped page was never copied into any output, not even
+        // on its way to the garbage collector.
+        expect(docs.length).toBeGreaterThan(0);
+        for (const doc of docs) expect(doc.registered).toBe(doc.pages);
       });
     }
   }

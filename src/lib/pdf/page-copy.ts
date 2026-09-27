@@ -36,9 +36,17 @@ import type { PdfLibModule } from "./pdf-lib";
  *
  *  1. The copier is told which source objects belong to dropped pages — the
  *     page dicts, the page-tree nodes, and every annotation listed only on a
- *     dropped page — and copies a reference to any of them as a SENTINEL
- *     instead of following it. A dropped page is never copied at all, which is
- *     also what keeps a per-page split of a big form linear.
+ *     dropped page — and which belong to the source DOCUMENT: its catalog, its
+ *     `/Info`, and every object the catalog names directly. It copies a
+ *     reference to any of them as a SENTINEL instead of following it. A
+ *     dropped page is never copied at all, not even on its way to the garbage
+ *     collector, which is what keeps a per-page split of a big form linear
+ *     (the page-registration probe in the tests counts every page object ever
+ *     assigned into an output). The document-level objects matter because a
+ *     kept page can reach them without a page in between: an Acrobat FieldMDP
+ *     signature's `/Data` names the catalog, and a copied catalog brought the
+ *     outline titles, embedded files and XMP stream along — measured at
+ *     59811fd, where layer 3 already cut the field values it also brought.
  *     A kept page is copied BY REFERENCE, so a link to it lands on the copy
  *     that is in the tree rather than on a duplicate.
  *  2. Semantic repair on the output: a Link or GoTo whose target was dropped is
@@ -56,7 +64,10 @@ import type { PdfLibModule } from "./pdf-lib";
  *     object outside the tree, at a page-tree node that is not ours, or at a
  *     field node outside the kept field trees is cut, and then every indirect
  *     object the trailer cannot reach is DELETED from the context, because the
- *     writer would otherwise ship it.
+ *     writer would otherwise ship it. The cut is what sees an edge no layer-2
+ *     rule knows (a Rendition action's `/AN`, a vendor key): left alone it
+ *     ships as a reference to the never-assigned sentinel, and the tests'
+ *     oracle fails any output holding a reference to nothing.
  *
  * What this does NOT promise: that nothing else a kept page references came
  * from elsewhere in the source. Field data needed its own kind in layer 3
@@ -66,6 +77,12 @@ import type { PdfLibModule } from "./pdf-lib";
  * 1-page extract shipped the other pages' filled values. A new kind of
  * page-scoped object needs a new kind here; `page-copy.test.ts` FIXTURES is
  * where each one found so far is pinned.
+ *
+ * Nor does it prune what kept and dropped pages SHARE. When pages share one
+ * `/Resources` dictionary, as some writers emit, every XObject and font in it
+ * ships, including an image only a dropped page draws. Pruning a shared
+ * resource dictionary per page would mean parsing each page's content
+ * streams, and it is not done.
  */
 
 /** One source document and the 0-based pages to take from it, in order. */
@@ -87,8 +104,10 @@ const MAX_FIELD_DEPTH = 64;
 
 /**
  * Copy `sources`' selected pages, in order, into a fresh document and return
- * it with no page, page-tree node or form field in the file that is not part
- * of the output, and nothing the trailer cannot reach.
+ * it with no page, page-tree node, form field or source document-level object
+ * in the file that is not part of the output, and nothing the trailer cannot
+ * reach. (Resources the kept pages share with dropped ones still ship; see
+ * the module doc.)
  */
 export async function assemblePages(
   lib: PdfLibModule,
@@ -172,7 +191,8 @@ export async function assemblePages(
 
 /**
  * Source refs that must never be followed: pages not kept, every page-tree
- * node, and annotations that appear only on pages not kept.
+ * node, annotations that appear only on pages not kept, and the document-level
+ * objects (catalog, `/Info`, everything the catalog names directly).
  */
 function foreignObjects(
   lib: PdfLibModule,
@@ -204,6 +224,21 @@ function foreignObjects(
     ) {
       foreign.add(ref);
     }
+  }
+  // Document-level state: the source catalog, its /Info, and every object the
+  // catalog names directly — derived from the catalog, not typed, so a key
+  // added tomorrow is covered. A kept page can reach them without a page in
+  // between (a FieldMDP signature's `/Data` names the catalog), and each one
+  // brings the WHOLE document: every page's field values through `/AcroForm`,
+  // bookmark titles, embedded files, the XMP stream. The output has its own
+  // catalog; the form fields and title it carries are rebuilt from their parts
+  // (`assemblePages` reads `/AcroForm` from the source, not through a copy).
+  const { Root, Info } = src.context.trailerInfo;
+  for (const docLevel of [Root, Info]) {
+    if (docLevel instanceof PDFRef) foreign.add(docLevel);
+  }
+  for (const [, value] of src.catalog.entries()) {
+    if (value instanceof PDFRef) foreign.add(value);
   }
   return foreign;
 }

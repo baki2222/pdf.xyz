@@ -30,25 +30,40 @@ const PDF_LIB_OPEN = /\b(loadPdf|loadPdfLib|load|PDFDocument\.load)\s*\(/;
 
 const SEARCH_DIRS = [PDF_DIR, RUNNER_DIR];
 
+/** Every non-test source file in SEARCH_DIRS, read once per run. */
+let sources: string[] | null = null;
+const searchSources = (): string[] =>
+  (sources ??= SEARCH_DIRS.flatMap((dir) =>
+    readdirSync(dir)
+      .filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file))
+      .map((file) => readFileSync(join(dir, file), "utf8")),
+  ));
+
+/**
+ * Memoized per name: the recursive walk asks for the same callees many times,
+ * and re-reading and re-scanning two directories on every lookup took ~8 s and
+ * timed out on a slower filesystem.
+ */
+const bodies = new Map<string, string | null>();
+
 /** Body of `export (async) function name(` in src/lib/pdf or the runners. */
 function functionBody(name: string): string | null {
-  for (const dir of SEARCH_DIRS) {
-    for (const file of readdirSync(dir)) {
-      if (!/\.tsx?$/.test(file) || /\.test\.tsx?$/.test(file)) continue;
-      const source = readFileSync(join(dir, file), "utf8");
-      const start = source.search(
-        new RegExp(`export (async )?function ${name}\\s*[(<]`),
-      );
-      if (start < 0) continue;
-      // Up to the next top-level declaration.
-      const rest = source.slice(start + 1);
-      const end = rest.search(
-        /\n(export |function |async function |const |\/\*\*)/,
-      );
-      return end < 0 ? rest : rest.slice(0, end);
-    }
+  if (bodies.has(name)) return bodies.get(name)!;
+  let body: string | null = null;
+  const definition = new RegExp(`export (async )?function ${name}\\s*[(<]`);
+  for (const source of searchSources()) {
+    const start = source.search(definition);
+    if (start < 0) continue;
+    // Up to the next top-level declaration.
+    const rest = source.slice(start + 1);
+    const end = rest.search(
+      /\n(export |function |async function |const |\/\*\*)/,
+    );
+    body = end < 0 ? rest : rest.slice(0, end);
+    break;
   }
-  return null;
+  bodies.set(name, body);
+  return body;
 }
 
 type Opener = "pdfjs" | "pdf-lib";
