@@ -219,7 +219,7 @@ export function judgeExpectedRefusal(
     return {
       ok: false,
       detail:
-        "the job COMPLETED — the worker delivered a PDF of a page the site refused, as if it were the page",
+        "the job COMPLETED — the worker delivered an artifact for an input it should have refused",
     };
   if (job.status !== "failed")
     return {
@@ -230,7 +230,7 @@ export function judgeExpectedRefusal(
     return {
       ok: false,
       detail:
-        `the job failed, but not with the site's reason: ${job.error ? `${job.error.code}: ${job.error.message}` : "(no error)"}`.slice(
+        `the job failed, but not with the expected reason: ${job.error ? `${job.error.code}: ${job.error.message}` : "(no error)"}`.slice(
           0,
           240,
         ),

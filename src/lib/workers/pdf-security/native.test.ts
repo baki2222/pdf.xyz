@@ -61,7 +61,37 @@ function fakeExec(result: QpdfExecResult) {
   return { exec, calls };
 }
 
+/**
+ * A fake exec that answers each successive call with the next result, and
+ * records each call's argv together with the at-file's content AT THAT MOMENT
+ * (a follow-up call rewrites the at-file, so reading `writes` afterwards shows
+ * only the last one).
+ */
+function seqExec(
+  results: readonly QpdfExecResult[],
+  writes: Map<string, Uint8Array>,
+) {
+  const calls: { args: string[]; argfile: string[] | null }[] = [];
+  const exec: QpdfExec = async (_command, args) => {
+    const at = args[0]?.startsWith("@") ? args[0].slice(1) : null;
+    const content = at === null ? undefined : writes.get(at);
+    calls.push({
+      args: [...args],
+      argfile:
+        content === undefined
+          ? null
+          : new TextDecoder().decode(content).split("\n"),
+    });
+    const result = results[calls.length - 1];
+    if (!result) throw new Error(`unexpected qpdf call #${calls.length}`);
+    return result;
+  };
+  return { exec, calls };
+}
+
 const OK: QpdfExecResult = { code: 0, timedOut: false };
+const EXIT = (code: number): QpdfExecResult => ({ code, timedOut: false });
+const TIMEOUT: QpdfExecResult = { code: -1, timedOut: true };
 
 describe("argument builders", () => {
   it("builds the AES-256 encrypt vector with qpdf positional password operands", () => {
@@ -247,11 +277,40 @@ describe("createNativeQpdfRunner — isEncrypted", () => {
     expect(calls[0]!.args[1]).toMatch(/input\.pdf$/);
   });
 
-  it("maps exit 2 → not encrypted", async () => {
-    const { fs } = fakeFs(pdf());
-    const { exec } = fakeExec({ code: 2, timedOut: false });
+  // INVERTED, not deleted. Until 2026-09 this was "maps exit 2 → not
+  // encrypted", on the exit status alone. qpdf's 2 is ALSO "could not open the
+  // file at all" — a broken file, or an encryption scheme qpdf does not support —
+  // so such a file was told "This PDF isn't password-protected, so there's
+  // nothing to unlock", and a decrypt output qpdf could not read passed the
+  // engine's "no longer encrypted" proof. Exit 2 now gets a second question:
+  // does the file open, with no password, at all?
+  it.each([0, QPDF_EXIT_WARNINGS])(
+    "maps exit 2 → not encrypted only when the file then opens (open-check exit %i)",
+    async (openCheck) => {
+      const { fs, writes, rmCount } = fakeFs(pdf());
+      const { exec, calls } = seqExec(
+        [EXIT(QPDF_EXIT_ERROR), EXIT(openCheck)],
+        writes,
+      );
+      const runner = createNativeQpdfRunner(config(), { exec, fs });
+      expect(await runner.isEncrypted(pdf())).toBe(false);
+      expect(calls).toHaveLength(2);
+      expect(calls[1]!.args[0]).toBe("--show-npages");
+      expect(calls[1]!.args[1]).toMatch(/input\.pdf$/);
+      expect(calls[1]!.argfile).toBeNull();
+      expect(rmCount()).toBe(1);
+    },
+  );
+
+  it("throws on exit 2 when the file does not open either (never 'not encrypted')", async () => {
+    const { fs, writes, rmCount } = fakeFs(pdf());
+    const { exec } = seqExec(
+      [EXIT(QPDF_EXIT_ERROR), EXIT(QPDF_EXIT_ERROR)],
+      writes,
+    );
     const runner = createNativeQpdfRunner(config(), { exec, fs });
-    expect(await runner.isEncrypted(pdf())).toBe(false);
+    await expect(runner.isEncrypted(pdf())).rejects.toThrow();
+    expect(rmCount()).toBe(1);
   });
 
   it("throws on any other exit status", async () => {
@@ -278,15 +337,66 @@ describe("createNativeQpdfRunner — unlock", () => {
     );
   });
 
-  it("maps exit 2 → wrong password (not a throw)", async () => {
-    const { fs } = fakeFs(pdf());
-    const { exec } = fakeExec({ code: 2, timedOut: false });
+  // INVERTED, not deleted. Until 2026-09 this was "maps exit 2 → wrong
+  // password (not a throw)". qpdf has no exit status for a wrong password: 2 is
+  // its status for ANY error. So a damaged encrypted PDF, or one whose
+  // encryption qpdf cannot open, was reported as "The password is incorrect"
+  // — the user retyped a correct password and re-uploaded, and could never
+  // succeed. A wrong password is now established POSITIVELY: the same password
+  // is put to `--requires-password`, which answers 0 only when a password is
+  // needed and the one supplied does not open the file.
+  it("exit 2 is a wrong password only when qpdf then says that password does not open it", async () => {
+    const { fs, writes, rmCount } = fakeFs(pdf());
+    const { exec, calls } = seqExec([EXIT(QPDF_EXIT_ERROR), OK], writes);
+    const runner = createNativeQpdfRunner(config(), { exec, fs });
+    expect(await runner.unlock(pdf(), { password: "P4SS-SENTINEL" })).toEqual({
+      ok: false,
+      reason: "wrong-password",
+    });
+    expect(calls).toHaveLength(2);
+    // The check carries the password too, so it goes through the at-file.
+    expect(calls[1]!.args).toHaveLength(1);
+    expect(JSON.stringify(calls[1]!.args)).not.toContain("P4SS");
+    expect(calls[1]!.argfile).toEqual([
+      "--password=P4SS-SENTINEL",
+      "--requires-password",
+      expect.stringMatching(/input\.pdf$/),
+    ]);
+    // It asks, it does not write: no --decrypt, no output path.
+    expect(calls[1]!.argfile!.join("\n")).not.toMatch(/--decrypt|output\.pdf/);
+    expect(rmCount()).toBe(1);
+  });
+
+  it("exit 2 whose password check says the file cannot be opened at all → unreadable, not a wrong password", async () => {
+    const { fs, writes } = fakeFs(pdf());
+    const { exec } = seqExec(
+      [EXIT(QPDF_EXIT_ERROR), EXIT(QPDF_EXIT_ERROR)],
+      writes,
+    );
     const runner = createNativeQpdfRunner(config(), { exec, fs });
     expect(await runner.unlock(pdf(), { password: "x" })).toEqual({
       ok: false,
-      wrongPassword: true,
+      reason: "unreadable",
     });
   });
+
+  it.each([
+    [
+      "the password opens it (3), yet the decrypt failed",
+      EXIT(QPDF_EXIT_WARNINGS),
+    ],
+    ["an unexpected status", EXIT(1)],
+    ["a timeout", TIMEOUT],
+  ])(
+    "exit 2 followed by %s throws (an engine failure, never a user error)",
+    async (_label, check) => {
+      const { fs, writes, rmCount } = fakeFs(pdf());
+      const { exec } = seqExec([EXIT(QPDF_EXIT_ERROR), check], writes);
+      const runner = createNativeQpdfRunner(config(), { exec, fs });
+      await expect(runner.unlock(pdf(), { password: "x" })).rejects.toThrow();
+      expect(rmCount()).toBe(1);
+    },
+  );
 
   it("throws on any other non-zero exit", async () => {
     const { fs } = fakeFs(pdf());
@@ -333,7 +443,6 @@ describe("createNativeQpdfRunner — requiresPassword", () => {
   // refused as "already password-protected".
   it.each([
     [0, "needs-password"],
-    [QPDF_EXIT_ERROR, "not-encrypted"],
     [QPDF_EXIT_WARNINGS, "opens-freely"],
   ] as const)("maps exit %i → %s", async (code, expected) => {
     const { fs } = fakeFs(pdf());
@@ -341,6 +450,39 @@ describe("createNativeQpdfRunner — requiresPassword", () => {
     const runner = createNativeQpdfRunner(config(), { exec, fs });
     expect(await runner.requiresPassword(pdf())).toBe(expected);
   });
+
+  // Exit 2 is "not encrypted" OR "could not open the file". Until 2026-09 it
+  // was mapped to "not-encrypted" alone, so Unlock told the owner of a damaged
+  // or unsupported-encryption PDF that it "isn't password-protected".
+  it.each([
+    [0, "not-encrypted"],
+    [QPDF_EXIT_WARNINGS, "not-encrypted"],
+    [QPDF_EXIT_ERROR, "unreadable"],
+  ] as const)(
+    "maps exit 2 by whether the file then opens (open-check exit %i → %s)",
+    async (openCheck, expected) => {
+      const { fs, writes } = fakeFs(pdf());
+      const { exec, calls } = seqExec(
+        [EXIT(QPDF_EXIT_ERROR), EXIT(openCheck)],
+        writes,
+      );
+      const runner = createNativeQpdfRunner(config(), { exec, fs });
+      expect(await runner.requiresPassword(pdf())).toBe(expected);
+      expect(calls[1]!.args[0]).toBe("--show-npages");
+      expect(calls[1]!.argfile).toBeNull();
+    },
+  );
+
+  it.each([[EXIT(1)], [TIMEOUT]])(
+    "throws when the open check after exit 2 answers %o",
+    async (openCheck) => {
+      const { fs, writes, rmCount } = fakeFs(pdf());
+      const { exec } = seqExec([EXIT(QPDF_EXIT_ERROR), openCheck], writes);
+      const runner = createNativeQpdfRunner(config(), { exec, fs });
+      await expect(runner.requiresPassword(pdf())).rejects.toThrow();
+      expect(rmCount()).toBe(1);
+    },
+  );
 
   it.each([
     [{ code: 1, timedOut: false }],

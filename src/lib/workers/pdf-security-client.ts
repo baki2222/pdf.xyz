@@ -53,7 +53,10 @@ export interface ProtectWorkerInput {
 export interface UnlockWorkerInput {
   filename: string;
   bytes: Uint8Array;
-  /** The password that currently opens the encrypted PDF. */
+  /**
+   * The password that opens the encrypted PDF — or, for one that opens without
+   * a password and only restricts printing/copying/editing, its owner password.
+   */
   password: string;
 }
 

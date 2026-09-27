@@ -67,6 +67,11 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
 import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
+import { unsupportedEncryptionPdf } from "@/tests/unsupported-encryption";
+import {
+  UNREADABLE_MESSAGE,
+  WRONG_PASSWORD_MESSAGE,
+} from "@/lib/workers/pdf-security/engine";
 import { webpageFetchMessage } from "@/lib/workers/html-render/engine";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
@@ -822,6 +827,33 @@ const SPECS: ProofSpec[] = [
     options: { password: PROOF_PASSWORD },
     expect: isPdf,
     want: "decrypted PDF",
+  },
+  // qpdf exits 2 for a wrong password AND for every other error; until 2026-09
+  // the runner called every 2 a wrong password. The two specs below prove both
+  // halves of the split on the running worker: a genuinely wrong password is
+  // still named as one (established by qpdf's password check, not the 2), and
+  // a file qpdf cannot open is not.
+  {
+    tool: "unlock-pdf",
+    label: "unlock-pdf (wrong password)",
+    from: "encrypted",
+    name: "secret-protected.pdf",
+    type: PDF_MIME,
+    options: { password: `${PROOF_PASSWORD}-not-it` },
+    expect: isPdf,
+    refuses: WRONG_PASSWORD_MESSAGE,
+    want: "the job refused with 'The password is incorrect'",
+  },
+  {
+    tool: "unlock-pdf",
+    label: "unlock-pdf (unsupported encryption)",
+    make: async () => Buffer.from(await unsupportedEncryptionPdf()),
+    name: "certificate-encrypted.pdf",
+    type: PDF_MIME,
+    options: { password: PROOF_PASSWORD },
+    expect: isPdf,
+    refuses: UNREADABLE_MESSAGE,
+    want: "the job refused as damaged/unsupported — not 'incorrect password' or 'isn't password-protected'",
   },
   // A damaged-but-recoverable input. qpdf repairs it on the way in and exits 3;
   // until 2026-09 the security runner treated any non-zero exit as failure, so

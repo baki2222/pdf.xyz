@@ -483,7 +483,9 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
 
   it("maps a wrong unlock password to a failed job, password-free", async () => {
     const adapter = adapterWith(
-      fakeQpdf({ unlock: async () => ({ ok: false, wrongPassword: true }) }),
+      fakeQpdf({
+        unlock: async () => ({ ok: false, reason: "wrong-password" }),
+      }),
     );
     const fileId = await seed(
       adapter,

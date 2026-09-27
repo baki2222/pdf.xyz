@@ -121,6 +121,23 @@ describe("runProtect", () => {
     expect(protectCalls).toBe(0);
   });
 
+  it("refuses a PDF qpdf cannot open as unreadable (non-retryable) without trying to encrypt it", async () => {
+    let protectCalls = 0;
+    const run = await runProtect(pdf(), PROTECT, {
+      qpdf: fakeQpdf({
+        requiresPassword: async () => "unreadable",
+        protect: async () => {
+          protectCalls += 1;
+          return pdf(64);
+        },
+      }),
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("unreadable");
+    expect(protectCalls).toBe(0);
+  });
+
   it("fails when the engine cannot tell whether the input needs a password", async () => {
     const run = await runProtect(pdf(), PROTECT, {
       qpdf: fakeQpdf({
@@ -237,7 +254,7 @@ describe("runUnlock", () => {
     const run = await runUnlock(enc, UNLOCK, {
       qpdf: fakeQpdf({
         isEncrypted: async (b) => b === enc,
-        unlock: async () => ({ ok: false, wrongPassword: true }),
+        unlock: async () => ({ ok: false, reason: "wrong-password" }),
       }),
     });
     expect(run.ok).toBe(false);
@@ -245,6 +262,96 @@ describe("runUnlock", () => {
       expect(run.kind).toBe("wrong_password");
       expect(run.message).not.toContain(UNLOCK.password);
     }
+  });
+
+  // A PDF with only an owner (permissions) password opens for anyone, so the
+  // user has no "password that opens it" to type. Until 2026-09 whatever they
+  // tried came back as "The password is incorrect" — a dead end with a false
+  // diagnosis. The rule stands (the restrictions are removed only with the
+  // owner password); the message now names the password that is needed.
+  it("tells the owner of a restrictions-only PDF which password it needs — not 'incorrect password'", async () => {
+    const run = await runUnlock(pdf(), UNLOCK, {
+      qpdf: fakeQpdf({
+        isEncrypted: async () => true,
+        requiresPassword: async () => "opens-freely",
+        unlock: async () => ({ ok: false, reason: "wrong-password" }),
+      }),
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("owner_password_required");
+    expect(run.message).toMatch(/opens without a password/);
+    expect(run.message).toMatch(/owner \(permissions\) password/);
+    expect(run.message).not.toMatch(/password is incorrect/i);
+    expect(run.message).not.toContain(UNLOCK.password);
+  });
+
+  it("unlocks a restrictions-only PDF with its owner password (no refusal before qpdf is asked)", async () => {
+    const enc = pdf(48);
+    const dec = pdf(96);
+    let unlockCalls = 0;
+    const run = await runUnlock(enc, UNLOCK, {
+      qpdf: fakeQpdf({
+        isEncrypted: async (b) => b === enc,
+        requiresPassword: async (b) =>
+          b === enc ? "opens-freely" : "not-encrypted",
+        unlock: async () => {
+          unlockCalls += 1;
+          return { ok: true, output: dec };
+        },
+      }),
+    });
+    expect(unlockCalls).toBe(1);
+    expect(run.ok).toBe(true);
+  });
+
+  it("reports a PDF qpdf cannot open as unreadable — never 'isn't password-protected'", async () => {
+    let unlockCalls = 0;
+    const run = await runUnlock(pdf(), UNLOCK, {
+      qpdf: fakeQpdf({
+        // qpdf --is-encrypted answers 2 for this file too; that is the defect.
+        isEncrypted: async () => false,
+        requiresPassword: async () => "unreadable",
+        unlock: async () => {
+          unlockCalls += 1;
+          return { ok: true, output: pdf(96) };
+        },
+      }),
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("unreadable");
+    expect(run.message).not.toMatch(/isn't password-protected/);
+    expect(unlockCalls).toBe(0);
+  });
+
+  it("reports a decrypt qpdf could not open as unreadable — never 'incorrect password'", async () => {
+    const enc = pdf();
+    const run = await runUnlock(enc, UNLOCK, {
+      qpdf: fakeQpdf({
+        isEncrypted: async (b) => b === enc,
+        unlock: async () => ({ ok: false, reason: "unreadable" }),
+      }),
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("unreadable");
+    expect(run.message).not.toMatch(/incorrect/i);
+  });
+
+  it("fails (never succeeds) when the unlocked output cannot be inspected", async () => {
+    const enc = pdf();
+    const run = await runUnlock(enc, UNLOCK, {
+      qpdf: fakeQpdf({
+        isEncrypted: async (b) => {
+          if (b === enc) return true;
+          throw new Error("qpdf could not open the file.");
+        },
+        unlock: async () => ({ ok: true, output: pdf(96) }),
+      }),
+    });
+    expect(run.ok).toBe(false);
+    if (!run.ok) expect(run.kind).toBe("failed");
   });
 
   it("decrypts and returns bytes + content-free meta", async () => {

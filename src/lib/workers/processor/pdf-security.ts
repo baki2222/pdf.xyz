@@ -51,9 +51,10 @@ type PdfSecurityFailure = Extract<PdfSecurityRun, { ok: false }>;
  * non-retryable except a genuine engine crash (`failed`), which MAY be transient:
  *  - `unsupported` → `not_implemented` (retrying won't install qpdf);
  *  - `too_large` → `payload_too_large` (retrying the same bytes can't shrink them);
- *  - `invalid_pdf` / `already_encrypted` / `restrictions_only` / `not_encrypted` /
- *    `wrong_password` → `unprocessable_entity` (a deterministic property of THIS
- *    input/request);
+ *  - `invalid_pdf` / `unreadable` / `already_encrypted` / `restrictions_only` /
+ *    `not_encrypted` / `wrong_password` / `owner_password_required` →
+ *    `unprocessable_entity` (a deterministic property of THIS input/request —
+ *    re-running the same bytes with the same password cannot change it);
  *  - `failed` → retryable `internal_error` (a transient worker failure the executor
  *    may re-attempt, bounded by the attempt cap).
  * The message is the engine's fixed, content-free string — never a password.
@@ -78,10 +79,12 @@ export function pdfSecurityJobError(run: PdfSecurityFailure): JobError {
         retryable: false,
       };
     case "invalid_pdf":
+    case "unreadable":
     case "already_encrypted":
     case "restrictions_only":
     case "not_encrypted":
     case "wrong_password":
+    case "owner_password_required":
       return {
         code: "unprocessable_entity",
         message: run.message,

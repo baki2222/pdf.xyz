@@ -69,9 +69,11 @@ export interface QpdfExecResult {
  * reject on a non-zero exit, because for this engine a non-zero code is a normal
  * signal (e.g. `--is-encrypted` returns 2 for "not encrypted" — or for a file it
  * could not open at all, the same number — `--decrypt` returns 2 for a wrong
- * password, and any write returns 3 when it had to repair the
- * input on the way — see `../qpdf-exit`). Injectable so tests never spawn a real
- * process.
+ * password AND for every other error, and any write returns 3 when it had to
+ * repair the input on the way — see `../qpdf-exit`). Because one number carries
+ * several answers, the runner asks qpdf a second, narrower question whenever it
+ * sees 2 (see {@link openCheckArgs} and {@link passwordCheckArgs}). Injectable
+ * so tests never spawn a real process.
  */
 export type QpdfExec = (
   command: string,
@@ -209,6 +211,38 @@ export function unlockArgs(
   return [`--password=${opts.password}`, "--decrypt", inputPath, outputPath];
 }
 
+/**
+ * Build the qpdf argument vector for "does opening this file with THIS password
+ * work?" — `--requires-password` with the supplied password. qpdf answers 0 when
+ * a password is needed and the one supplied does not open the file, 3 when it
+ * does, and 2 when the file is not encrypted or cannot be opened at all. It
+ * reads the file and writes nothing. It carries the password, so it goes through
+ * the at-file like the decrypt it follows.
+ *
+ * Why it exists: `--decrypt` exits 2 for a wrong password and for EVERY other
+ * error, and qpdf has no status of its own for a wrong password. Reading qpdf's
+ * stderr would tell them apart, but stderr is deliberately discarded (it can
+ * carry qpdf's diagnostics, which are never surfaced or logged), so the wrong
+ * password is established by this exit status instead.
+ */
+export function passwordCheckArgs(
+  inputPath: string,
+  opts: QpdfUnlockInput,
+): string[] {
+  return [`--password=${opts.password}`, "--requires-password", inputPath];
+}
+
+/**
+ * Build the qpdf argument vector for "can qpdf open this file, with no password,
+ * at all?" — `--show-npages` reads the file and its page tree and writes
+ * nothing: 0 (or 3, opened with warnings) yes; 2 no. It is asked only after an
+ * encryption check answered 2, which means "not encrypted" OR "could not open
+ * the file" — one number, two answers, and only the first is "not encrypted".
+ */
+export function openCheckArgs(inputPath: string): string[] {
+  return ["--show-npages", inputPath];
+}
+
 /** Build the qpdf argument vector for the presence-only encryption check. */
 export function isEncryptedArgs(inputPath: string): string[] {
   return ["--is-encrypted", inputPath];
@@ -238,16 +272,24 @@ export function createNativeQpdfRunner(
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
 
-  /** Run one qpdf invocation inside a fresh temp dir; `build` produces the argv. */
+  /**
+   * One job's qpdf invocations, all over the same isolated temp dir: `run`
+   * builds an argv over the job's input/output paths and executes it (through
+   * the at-file when `sensitive`), `readOutput` reads and bounds the output.
+   */
+  interface QpdfJob {
+    run: (
+      build: (inputPath: string, outputPath: string) => string[],
+      /** When true, the argv carries a password and MUST go through an at-file. */
+      sensitive: boolean,
+    ) => Promise<QpdfExecResult>;
+    readOutput: () => Promise<Uint8Array>;
+  }
+
+  /** Run `body` inside a fresh temp dir holding the input; ALWAYS removes the dir. */
   async function withJob<T>(
     input: Uint8Array,
-    build: (inputPath: string, outputPath: string) => string[],
-    interpret: (
-      result: QpdfExecResult,
-      readOutput: () => Promise<Uint8Array>,
-    ) => Promise<T>,
-    /** When true, the argv carries a password and MUST go through an at-file. */
-    sensitive: boolean,
+    body: (job: QpdfJob) => Promise<T>,
   ): Promise<T> {
     if (input.byteLength > config.maxInputBytes) {
       throw new Error("Input exceeds the configured maximum size.");
@@ -257,24 +299,28 @@ export function createNativeQpdfRunner(
     const outputPath = path.join(dir, "output.pdf");
     try {
       await fs.writeFile(inputPath, input);
-      const argv = build(inputPath, outputPath);
 
-      let commandArgs: string[];
-      if (sensitive) {
-        // Write the full argv (one token per line) to a qpdf at-file, so the
-        // password never appears on the command line or in an exec error string.
-        const argsPath = path.join(dir, "qpdf.args");
-        await fs.writeFile(argsPath, new TextEncoder().encode(argv.join("\n")));
-        commandArgs = [`@${argsPath}`];
-      } else {
-        commandArgs = argv;
-      }
-
-      const result = await exec(config.binary, commandArgs, {
-        timeout: config.timeoutMs,
-        maxBuffer: EXEC_MAX_BUFFER,
-        windowsHide: true,
-      });
+      const run: QpdfJob["run"] = async (build, sensitive) => {
+        const argv = build(inputPath, outputPath);
+        let commandArgs: string[];
+        if (sensitive) {
+          // Write the full argv (one token per line) to a qpdf at-file, so the
+          // password never appears on the command line or in an exec error string.
+          const argsPath = path.join(dir, "qpdf.args");
+          await fs.writeFile(
+            argsPath,
+            new TextEncoder().encode(argv.join("\n")),
+          );
+          commandArgs = [`@${argsPath}`];
+        } else {
+          commandArgs = argv;
+        }
+        return exec(config.binary, commandArgs, {
+          timeout: config.timeoutMs,
+          maxBuffer: EXEC_MAX_BUFFER,
+          windowsHide: true,
+        });
+      };
 
       const readOutput = async (): Promise<Uint8Array> => {
         const output = await fs.readFile(outputPath);
@@ -290,7 +336,7 @@ export function createNativeQpdfRunner(
         return bytes;
       };
 
-      return await interpret(result, readOutput);
+      return await body({ run, readOutput });
     } finally {
       // Cleanup runs on every exit path — success, throw, or timeout. Never let a
       // cleanup error mask the real outcome or leak a path (and it removes the
@@ -299,78 +345,111 @@ export function createNativeQpdfRunner(
     }
   }
 
+  /**
+   * After an encryption check answered 2: does the file open at all? 2 from
+   * `--is-encrypted` / `--requires-password` is "not encrypted" only when it
+   * does; otherwise qpdf could not open it (damaged beyond repair, or an
+   * encryption scheme qpdf does not support) and "not encrypted" would be a lie.
+   */
+  async function opensAtAll(job: QpdfJob): Promise<boolean> {
+    const check = await job.run((inputPath) => openCheckArgs(inputPath), false);
+    if (check.timedOut) throw new Error("qpdf timed out.");
+    // 0, or 3 = opened with warnings (a repaired xref still opens).
+    if (check.code === 0 || check.code === QPDF_EXIT_WARNINGS) return true;
+    if (check.code === QPDF_EXIT_ERROR) return false;
+    throw new Error("qpdf could not determine whether the file opens.");
+  }
+
   return {
     async isEncrypted(input) {
       // No password involved, so the argv is not sensitive.
-      return withJob(
-        input,
-        (inputPath) => isEncryptedArgs(inputPath),
-        async (result) => {
-          if (result.timedOut) throw new Error("qpdf timed out.");
-          if (result.code === 0) return true;
-          if (result.code === QPDF_EXIT_ERROR) return false;
-          throw new Error("qpdf could not determine encryption status.");
-        },
-        false,
-      );
+      return withJob(input, async (job) => {
+        const result = await job.run(
+          (inputPath) => isEncryptedArgs(inputPath),
+          false,
+        );
+        if (result.timedOut) throw new Error("qpdf timed out.");
+        if (result.code === 0) return true;
+        if (result.code === QPDF_EXIT_ERROR) {
+          // "Not encrypted" only for a file qpdf can open; an unreadable one
+          // throws, so it can never pass as a successfully decrypted output.
+          if (await opensAtAll(job)) return false;
+          throw new Error("qpdf could not open the file.");
+        }
+        throw new Error("qpdf could not determine encryption status.");
+      });
     },
 
     async requiresPassword(input): Promise<QpdfPasswordRequirement> {
       // No password involved (qpdf tries the empty one), so not sensitive.
-      return withJob(
-        input,
-        (inputPath) => requiresPasswordArgs(inputPath),
-        async (result): Promise<QpdfPasswordRequirement> => {
-          if (result.timedOut) throw new Error("qpdf timed out.");
-          // qpdf's documented answers to `--requires-password`. 3 here is NOT
-          // "warnings": it is "encrypted, and the (empty) password opens it".
-          // 2 is "not encrypted" OR "qpdf could not open the file" — one
-          // number; an unreadable file then fails at the protect step.
-          if (result.code === 0) return "needs-password";
-          if (result.code === QPDF_EXIT_ERROR) return "not-encrypted";
-          if (result.code === QPDF_EXIT_WARNINGS) return "opens-freely";
-          throw new Error("qpdf could not determine the password requirement.");
-        },
-        false,
-      );
+      return withJob(input, async (job): Promise<QpdfPasswordRequirement> => {
+        const result = await job.run(
+          (inputPath) => requiresPasswordArgs(inputPath),
+          false,
+        );
+        if (result.timedOut) throw new Error("qpdf timed out.");
+        // qpdf's documented answers to `--requires-password`. 3 here is NOT
+        // "warnings": it is "encrypted, and the (empty) password opens it".
+        // 2 is "not encrypted" OR "qpdf could not open the file" — one
+        // number, so it is split by asking whether the file opens at all.
+        if (result.code === 0) return "needs-password";
+        if (result.code === QPDF_EXIT_WARNINGS) return "opens-freely";
+        if (result.code === QPDF_EXIT_ERROR) {
+          return (await opensAtAll(job)) ? "not-encrypted" : "unreadable";
+        }
+        throw new Error("qpdf could not determine the password requirement.");
+      });
     },
 
     async protect(input, opts) {
-      return withJob(
-        input,
-        (inputPath, outputPath) => protectArgs(inputPath, outputPath, opts),
-        async (result, readOutput) => {
-          // 0, or 3 = "warnings, output written": qpdf had to repair the input
-          // (a broken xref, a wrong startxref) and then encrypted it. The output
-          // is still read and validated here, and the engine re-proves it needs
-          // the new password to open, so accepting 3 accepts no unproven bytes.
-          if (!qpdfWroteOutput(result)) {
-            throw new Error("qpdf encryption failed.");
-          }
-          return readOutput();
-        },
-        true,
-      );
+      return withJob(input, async (job) => {
+        const result = await job.run(
+          (inputPath, outputPath) => protectArgs(inputPath, outputPath, opts),
+          true,
+        );
+        // 0, or 3 = "warnings, output written": qpdf had to repair the input
+        // (a broken xref, a wrong startxref) and then encrypted it. The output
+        // is still read and validated here, and the engine re-proves it needs
+        // the new password to open, so accepting 3 accepts no unproven bytes.
+        if (!qpdfWroteOutput(result)) {
+          throw new Error("qpdf encryption failed.");
+        }
+        return job.readOutput();
+      });
     },
 
     async unlock(input, opts): Promise<QpdfUnlockOutcome> {
-      return withJob(
-        input,
-        (inputPath, outputPath) => unlockArgs(inputPath, outputPath, opts),
-        async (result, readOutput): Promise<QpdfUnlockOutcome> => {
-          if (result.timedOut) throw new Error("qpdf timed out.");
-          // Exit 2 on a decrypt of a known-encrypted file is a wrong password.
-          if (result.code === QPDF_EXIT_ERROR) {
-            return { ok: false, wrongPassword: true };
+      return withJob(input, async (job): Promise<QpdfUnlockOutcome> => {
+        const result = await job.run(
+          (inputPath, outputPath) => unlockArgs(inputPath, outputPath, opts),
+          true,
+        );
+        if (result.timedOut) throw new Error("qpdf timed out.");
+        if (result.code === QPDF_EXIT_ERROR) {
+          // 2 is qpdf's status for ANY error, not a wrong-password status (it
+          // has none). Ask the narrower question with the same password.
+          const check = await job.run(
+            (inputPath) => passwordCheckArgs(inputPath, opts),
+            true,
+          );
+          if (check.timedOut) throw new Error("qpdf timed out.");
+          // 0: a password is needed and this one does not open the file.
+          if (check.code === 0) return { ok: false, reason: "wrong-password" };
+          // 2: qpdf cannot open the file at all (damaged, or an encryption
+          // scheme it does not support) — the password was never the problem.
+          if (check.code === QPDF_EXIT_ERROR) {
+            return { ok: false, reason: "unreadable" };
           }
-          // 0, or 3 = decrypted a damaged file with warnings (see protect).
-          if (!qpdfWroteOutput(result)) {
-            throw new Error("qpdf decryption failed.");
-          }
-          return { ok: true, output: await readOutput() };
-        },
-        true,
-      );
+          // 3 (the password opens it, yet the decrypt failed) or anything else:
+          // neither the password nor provably the file — an engine failure.
+          throw new Error("qpdf decryption failed.");
+        }
+        // 0, or 3 = decrypted a damaged file with warnings (see protect).
+        if (!qpdfWroteOutput(result)) {
+          throw new Error("qpdf decryption failed.");
+        }
+        return { ok: true, output: await job.readOutput() };
+      });
     },
   };
 }

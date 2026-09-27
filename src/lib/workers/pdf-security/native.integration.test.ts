@@ -14,7 +14,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { looksLikePdf } from "../compression/engine";
-import { QPDF_EXIT_WARNINGS } from "../qpdf-exit";
+import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
 import { runProtect, runUnlock, type PdfSecurityDeps } from "./engine";
 import {
   createNativeQpdfRunner,
@@ -24,6 +24,7 @@ import {
 } from "./native";
 import { resolveNativePdfSecurityConfig } from "./native-config";
 import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
+import { unsupportedEncryptionPdf } from "@/tests/unsupported-encryption";
 
 const HAS_QPDF = resolveOnPath("qpdf");
 const suite = HAS_QPDF ? describe : describe.skip;
@@ -140,7 +141,9 @@ suite("qpdf runner (real binary)", () => {
     const attempt = await runner.unlock(encrypted, {
       password: "not-the-password",
     });
-    expect(attempt).toEqual({ ok: false, wrongPassword: true });
+    // Established positively: qpdf's own password check said this password
+    // does not open the file — not merely "the decrypt exited 2".
+    expect(attempt).toEqual({ ok: false, reason: "wrong-password" });
   });
 
   it("supports the AES-128 compatibility level", async () => {
@@ -238,6 +241,46 @@ suite("qpdf runner (real binary) — restrictions-only input", () => {
     expect(await runner.requiresPassword(locked)).toBe("needs-password");
   });
 
+  it("unlocks it with the owner password, and the output carries no encryption", async () => {
+    const run = await runUnlock(
+      await restrictionsOnlyPdf(),
+      { password: "owner-only-secret" },
+      { qpdf: runner },
+    );
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(await runner.isEncrypted(run.output)).toBe(false);
+    expect(await runner.requiresPassword(run.output)).toBe("not-encrypted");
+  });
+
+  it("tells a wrong password on it to use the owner password — not 'The password is incorrect'", async () => {
+    // Positive control: the raw decrypt with this password exits 2, which is
+    // exactly what used to be reported as a wrong OPEN password.
+    const restricted = await restrictionsOnlyPdf();
+    const code = await withScratch(async (dir) => {
+      const input = path.join(dir, "in.pdf");
+      await writeFile(input, restricted);
+      return qpdfDirect([
+        "--password=not-it",
+        "--decrypt",
+        input,
+        path.join(dir, "out.pdf"),
+      ]);
+    });
+    expect(code).toBe(QPDF_EXIT_ERROR);
+
+    const run = await runUnlock(
+      restricted,
+      { password: "not-it" },
+      {
+        qpdf: runner,
+      },
+    );
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("owner_password_required");
+  });
+
   it("refuses it as restrictions_only — never as 'already password-protected'", async () => {
     const run = await runProtect(
       await restrictionsOnlyPdf(),
@@ -247,5 +290,85 @@ suite("qpdf runner (real binary) — restrictions-only input", () => {
     expect(run.ok).toBe(false);
     if (run.ok) return;
     expect(run.kind).toBe("restrictions_only");
+  });
+});
+
+suite("qpdf runner (real binary) — files qpdf cannot open", () => {
+  const runner = createNativeQpdfRunner(resolveNativePdfSecurityConfig({}));
+
+  it("positive control: qpdf answers 2 to both the encryption check and the open check", async () => {
+    const bytes = await unsupportedEncryptionPdf();
+    // Health check: the engine's preflight admits it, so the tests below reach qpdf.
+    expect(looksLikePdf(bytes)).toBe(true);
+    const [isEncrypted, opens] = await withScratch(async (dir) => {
+      const input = path.join(dir, "in.pdf");
+      await writeFile(input, bytes);
+      return [
+        await qpdfDirect(["--is-encrypted", input]),
+        await qpdfDirect(["--show-npages", input]),
+      ];
+    });
+    expect(isEncrypted).toBe(QPDF_EXIT_ERROR);
+    expect(opens).toBe(QPDF_EXIT_ERROR);
+  });
+
+  it("is unreadable to every question — never 'not encrypted'", async () => {
+    const bytes = await unsupportedEncryptionPdf();
+    expect(await runner.requiresPassword(bytes)).toBe("unreadable");
+    await expect(runner.isEncrypted(bytes)).rejects.toThrow();
+    const unlock = await runUnlock(
+      bytes,
+      { password: "anything" },
+      {
+        qpdf: runner,
+      },
+    );
+    expect(unlock.ok).toBe(false);
+    if (!unlock.ok) expect(unlock.kind).toBe("unreadable");
+    const protect = await runProtect(
+      bytes,
+      { password: "p", ownerPassword: "p", keyLength: 256 },
+      { qpdf: runner },
+    );
+    expect(protect.ok).toBe(false);
+    if (!protect.ok) expect(protect.kind).toBe("unreadable");
+  });
+
+  it("a damaged ENCRYPTED file is decrypted with the right password (exit 3), not called a wrong one", async () => {
+    const password = "right password";
+    const damaged = await withScratch(async (dir) => {
+      const input = path.join(dir, "in.pdf");
+      const output = path.join(dir, "out.pdf");
+      await writeFile(input, await realPdf(2));
+      // A classic xref table, so the startxref lie can be spliced in.
+      const code = await qpdfDirect([
+        "--object-streams=disable",
+        "--encrypt",
+        password,
+        password,
+        "256",
+        "--",
+        input,
+        output,
+      ]);
+      expect(code).toBe(0);
+      return spliceStartxrefPastEnd(new Uint8Array(await readFile(output)));
+    });
+    const { exec, calls } = recordingExec();
+    const run = await runUnlock(
+      damaged,
+      { password },
+      {
+        qpdf: createNativeQpdfRunner(resolveNativePdfSecurityConfig({}), {
+          exec,
+        }),
+      },
+    );
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    // The decrypt itself took the repair path.
+    const decrypts = calls.filter((c) => c.argv.includes("--decrypt"));
+    expect(decrypts.map((c) => c.code)).toEqual([QPDF_EXIT_WARNINGS]);
+    expect((await PDFDocument.load(run.output)).getPageCount()).toBe(2);
   });
 });

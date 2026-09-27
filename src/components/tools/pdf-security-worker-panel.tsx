@@ -126,7 +126,7 @@ const COPY: Record<
     icon: Unlock,
     badge: "Secure-worker unlock",
     blurb:
-      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that already opens the file — Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
+      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that opens the file — or, if it opens without one and only printing, copying or editing is locked, its owner (permissions) password. Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
     cta: "Unlock on the worker",
     running: "Unlocking on the worker…",
   },
@@ -493,7 +493,11 @@ function SecurityRunArea({
       >
         {mode === "protect"
           ? "Anyone opening the PDF will need this password. Store it somewhere safe — it can't be recovered."
-          : "Enter the password that currently opens this PDF."}
+          : // A PDF that opens freely but locks printing or copying has no
+            // password that "opens" it; its owner password is the one qpdf
+            // accepts. Until 2026-09 this hint named only the open password,
+            // so that user had nothing true to type.
+            "Enter the password that opens this PDF — or, if it opens without one, its owner (permissions) password."}
         {tooLong
           ? ` Too long: ${passwordBytes}/${MAX_PDF_PASSWORD_BYTES} bytes.`
           : ""}

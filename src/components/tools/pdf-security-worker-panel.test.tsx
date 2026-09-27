@@ -16,8 +16,24 @@
  * (`run-trigger-focus.test.ts`), both of which ran red on the unmodified tree.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { PasswordField } from "./pdf-security-worker-panel";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { tools } from "@/lib/tools/catalog";
+import { buildWorkerStatus } from "@/lib/workers/status";
+import {
+  runProtect,
+  runUnlock,
+  type QpdfRunner,
+} from "@/lib/workers/pdf-security/engine";
+import {
+  PasswordField,
+  PdfSecurityWorkerPanel,
+} from "./pdf-security-worker-panel";
 
 afterEach(() => {
   cleanup();
@@ -68,5 +84,82 @@ describe("PasswordField while the run is busy", () => {
     expect(input).not.toHaveAttribute("readonly");
     fireEvent.change(input, { target: { value: "changed" } });
     expect(onChange).toHaveBeenCalledWith("changed");
+  });
+});
+
+/**
+ * What the Unlock form tells the user to type, read from the rendered panel,
+ * against the passwords the engine's refusals ask for.
+ *
+ * History: the hint said "Enter the password that currently opens this PDF."
+ * A PDF with only an owner (permissions) password opens for anyone and has no
+ * such password, so its owner had nothing true to type, and whatever they
+ * tried came back as "The password is incorrect". Both refusals that send a
+ * user to Unlock with an owner password now name it, and so must the form.
+ */
+describe("Unlock form names every password the engine accepts", () => {
+  const unlockTool = tools.find((t) => t.slug === "unlock-pdf")!;
+
+  async function renderUnlockForm() {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        // The payload the status route builds for a local-dev worker with qpdf.
+        JSON.stringify(
+          buildWorkerStatus("local-dev", undefined, undefined, {}, true),
+        ),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    render(<PdfSecurityWorkerPanel tool={unlockTool} />);
+    return waitFor(() => {
+      const hint = document.getElementById("pdf-security-password-hint");
+      if (!hint) throw new Error("the unlock form has not rendered");
+      return hint.textContent ?? "";
+    });
+  }
+
+  /** The owner-password name each refusal uses, from the message a user reads. */
+  async function refusalsNamingTheOwnerPassword(): Promise<string[]> {
+    const opensFreely: QpdfRunner = {
+      isEncrypted: async () => true,
+      requiresPassword: async () => "opens-freely",
+      protect: async () => new Uint8Array(),
+      unlock: async () => ({ ok: false, reason: "wrong-password" }),
+    };
+    const pdf = new TextEncoder().encode(
+      `%PDF-1.7\n${"0".repeat(32)}\n%%EOF\n`,
+    );
+    const runs = [
+      await runUnlock(pdf, { password: "x" }, { qpdf: opensFreely }),
+      await runProtect(
+        pdf,
+        { password: "x", ownerPassword: "x", keyLength: 256 },
+        { qpdf: opensFreely },
+      ),
+    ];
+    return runs.map((run) => {
+      if (run.ok) throw new Error("expected a refusal");
+      return run.message;
+    });
+  }
+
+  it("positive control: both refusals exist and name the owner password", async () => {
+    const messages = await refusalsNamingTheOwnerPassword();
+    expect(messages).toHaveLength(2);
+    for (const message of messages) expect(message).toMatch(/owner/);
+  });
+
+  it("the rendered hint admits the owner (permissions) password the refusals ask for", async () => {
+    const hint = await renderUnlockForm();
+    // Health check: this is the unlock hint, not protect's or an empty node.
+    expect(hint).toMatch(/opens this PDF/);
+    for (const message of await refusalsNamingTheOwnerPassword()) {
+      const named = /owner(?: \(permissions\))? password/.exec(message)?.[0];
+      expect(named, message).toBeTruthy();
+      expect(hint).toContain("owner (permissions) password");
+    }
+    expect(hint).not.toMatch(
+      /^Enter the password that currently opens this PDF\.$/,
+    );
   });
 });
