@@ -13,6 +13,7 @@
 
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
+import { workerFileCeilingBytes } from "@/lib/workers/engine-file-ceilings";
 import {
   getToolInputKind,
   capabilityForMode,
@@ -200,6 +201,7 @@ function parseFileDescriptor(
   value: unknown,
   index: number,
   allowedMimes: Set<string>,
+  maxFileBytes: number,
 ): ParseResult<UploadFileDescriptor> {
   const field = `files[${index}]`;
   if (!isRecord(value)) {
@@ -231,9 +233,9 @@ function parseFileDescriptor(
       `${field}.bytes`,
     );
   }
-  if (bytes > JOB_LIMITS.maxFileBytes) {
+  if (bytes > maxFileBytes) {
     return tooLarge(
-      `${field}.bytes exceeds the ${JOB_LIMITS.maxFileBytes}-byte per-file limit.`,
+      `${field}.bytes exceeds the ${maxFileBytes}-byte per-file limit.`,
       `${field}.bytes`,
     );
   }
@@ -276,10 +278,14 @@ export function parseCreateUploadSessionRequest(
   }
 
   const allowedMimes = allowedMimeTypesForTool(tool);
+  // The tighter of the global cap and the ENGINE's: refusing here, before a
+  // slot is minted, is what keeps a file LibreOffice will refuse from being
+  // uploaded in full and malware-scanned first.
+  const maxFileBytes = workerFileCeilingBytes(tool.slug);
   const descriptors: UploadFileDescriptor[] = [];
   let totalBytes = 0;
   for (let i = 0; i < files.length; i++) {
-    const parsed = parseFileDescriptor(files[i], i, allowedMimes);
+    const parsed = parseFileDescriptor(files[i], i, allowedMimes, maxFileBytes);
     if (!parsed.ok) return parsed;
     totalBytes += parsed.value.bytes;
     descriptors.push(parsed.value);

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunOfficeConversion,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/workers/office-conversion-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
+import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
@@ -59,6 +60,7 @@ function badgeFor(
 export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState<WorkerStatus | null>(null);
+  const ceilingBytes = toolFileCeilingBytes(tool);
   const officeTool: OfficeTool = isOfficeTool(tool.slug)
     ? tool.slug
     : "word-to-pdf";
@@ -178,11 +180,16 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
             label="Retention"
             value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
           />
-          <SpecRow
-            icon={ShieldCheck}
-            label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
-          />
+          {/* LibreOffice's own gate, not the worker's global one. This row
+              read `JOB_LIMITS.maxFileBytes` — "100.0 MB/file" — on three
+              pages whose engine refuses above 50 MB. */}
+          {ceilingBytes !== null && (
+            <SpecRow
+              icon={ShieldCheck}
+              label="Limit"
+              value={`${formatBytes(ceilingBytes)}/file`}
+            />
+          )}
         </div>
       </div>
     </div>

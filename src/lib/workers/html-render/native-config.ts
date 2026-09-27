@@ -8,6 +8,15 @@ const DEFAULT_CANDIDATES = [
   "google-chrome-stable",
 ];
 
+/**
+ * The largest HTML input Chromium is handed, in bytes — and the figure the HTML
+ * to PDF page states, through `@/lib/workers/engine-file-ceilings`. The web
+ * tier cannot read the worker's environment, so the published number is this
+ * CODE default: `PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES` may lower it, never raise
+ * it past what the page promised.
+ */
+export const HTML_RENDER_DEFAULT_MAX_INPUT_BYTES = 20 * 1024 * 1024;
+
 export interface NativeHtmlRenderConfig {
   enabled: boolean;
   candidates: string[];
@@ -56,9 +65,12 @@ export function resolveNativeHtmlRenderConfig(
     candidates,
     overridden,
     timeoutMs: parsePositiveInt(env.PDFXYZ_HTML_RENDER_TIMEOUT_MS, 120_000),
-    maxInputBytes: parsePositiveInt(
-      env.PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES,
-      20 * 1024 * 1024,
+    maxInputBytes: Math.min(
+      parsePositiveInt(
+        env.PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES,
+        HTML_RENDER_DEFAULT_MAX_INPUT_BYTES,
+      ),
+      HTML_RENDER_DEFAULT_MAX_INPUT_BYTES,
     ),
     maxOutputBytes: parsePositiveInt(
       env.PDFXYZ_HTML_RENDER_MAX_OUTPUT_BYTES,

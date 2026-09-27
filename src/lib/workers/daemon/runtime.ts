@@ -41,7 +41,10 @@ import { createQueueProvider } from "../queue/factory";
 import type { RedisQueueDeps } from "../queue/redis";
 import type { ClaimableQueue } from "../queue/claim";
 import type { QueueProvider } from "../queue/types";
-import { createProcessorRegistry } from "../processor";
+import {
+  createProcessorRegistry,
+  type SecureWorkerProcessorDeps,
+} from "../processor";
 import type { OcrProcessorDeps } from "../processor/ocr";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { ProcessorCapability } from "../processor/types";
@@ -388,17 +391,21 @@ export function resolveExecutorStorage(
 }
 
 /**
- * Build the daemon runtime from an environment. Deterministic given its injected
- * deps; with none, it reads real provider config from `env` and probes the host
- * for native engines. Returns an executor only when the queue is drainable AND
- * storage is configured; otherwise `blocked` says honestly why not.
+ * The dependencies of every processor the worker wires, resolved from `env`
+ * exactly as {@link resolveWorkerRuntime} wires them — it calls this and nothing
+ * else to get them.
+ *
+ * It is its own function so the web tier can ask the WORKER'S question: a tool
+ * page states a per-file ceiling, and the engine this returns for that tool is
+ * what refuses above its own. `Required<>` is load-bearing: a processor added to
+ * {@link SecureWorkerProcessorDeps} cannot compile until it is resolved here, so
+ * a guard that walks the returned keys cannot miss it
+ * (`src/lib/tools/worker-engine-ceilings.test.ts`).
  */
-export function resolveWorkerRuntime(
+export function resolveProcessorDeps(
   env: EnvSource = process.env,
   deps: WorkerRuntimeDeps = {},
-): WorkerRuntime {
-  const readiness = resolveDaemonReadiness(env);
-
+): Required<SecureWorkerProcessorDeps> {
   // Resolve the compression dependencies ONCE so the wired processor and the
   // health readout can never disagree about which native engines are present.
   // The host PATH probe (`nativeCompressionDeps`) runs only when neither explicit
@@ -441,24 +448,39 @@ export function resolveWorkerRuntime(
   // opted in). With no provider the processor is registered but honestly not-ready and
   // fails as not_implemented — never a fabricated answer.
   const chatWithPdf = deps.chatWithPdf ?? chatWithPdfDeps(env);
-  const registry =
-    deps.registry ??
-    createProcessorRegistry({
-      compression: compressionDeps,
-      ocr: ocrDeps,
-      pdfSecurity: pdfSecurityDeps,
-      pdfStructure: pdfStructureDeps,
-      pdfArchive: pdfArchiveDeps,
-      htmlRender: htmlRenderDeps,
-      officeConversion: officeConversionDeps,
-      pdfOfficeExport,
-      tableExtract,
-      requestSignatures,
-      summarize,
-      translate,
-      aiExtract,
-      chatWithPdf,
-    });
+  return {
+    compression: compressionDeps,
+    ocr: ocrDeps,
+    pdfSecurity: pdfSecurityDeps,
+    pdfStructure: pdfStructureDeps,
+    pdfArchive: pdfArchiveDeps,
+    htmlRender: htmlRenderDeps,
+    officeConversion: officeConversionDeps,
+    pdfOfficeExport,
+    tableExtract,
+    requestSignatures,
+    summarize,
+    translate,
+    aiExtract,
+    chatWithPdf,
+  };
+}
+
+/**
+ * Build the daemon runtime from an environment. Deterministic given its injected
+ * deps; with none, it reads real provider config from `env` and probes the host
+ * for native engines. Returns an executor only when the queue is drainable AND
+ * storage is configured; otherwise `blocked` says honestly why not.
+ */
+export function resolveWorkerRuntime(
+  env: EnvSource = process.env,
+  deps: WorkerRuntimeDeps = {},
+): WorkerRuntime {
+  const readiness = resolveDaemonReadiness(env);
+
+  const processorDeps = resolveProcessorDeps(env, deps);
+  const compressionDeps = processorDeps.compression;
+  const registry = deps.registry ?? createProcessorRegistry(processorDeps);
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
 

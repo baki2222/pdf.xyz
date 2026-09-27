@@ -1,6 +1,11 @@
-import { JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "@/lib/tools/limits";
+import { workerFileCeilingBytes } from "@/lib/workers/engine-file-ceilings";
+import {
+  EXCEL_TO_PDF_TOOL,
+  POWERPOINT_TO_PDF_TOOL,
+  WORD_TO_PDF_TOOL,
+} from "@/lib/workers/office-conversion/tools";
 
 /**
  * ONE list behind BOTH halves of a drop zone: what the file picker admits, and
@@ -23,6 +28,13 @@ import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "@/lib/tools/limits";
  * So a kind carries its own ceiling, and the caption is GENERATED from the same
  * array the `accept` attribute is generated from. Adding a kind here changes
  * both; it cannot change one.
+ *
+ * The Office kinds repeated the mistake one tier over until 2026-09-27: they
+ * read `JOB_LIMITS.maxFileBytes`, the worker's GLOBAL cap, and the caption
+ * promised "Word, Excel, PowerPoint up to 100 MB" while LibreOffice — the only
+ * engine that takes those files — refuses above 50. They now read the ceiling
+ * of the tool that converts them, and `tools/worker-engine-ceilings.test.ts`
+ * renders this caption and checks every kind against every tool that takes it.
  */
 export type AcceptedKind = {
   /** What the caption calls this kind, in a person's words. */
@@ -57,17 +69,17 @@ export const ACCEPTED_KINDS: readonly AcceptedKind[] = [
   {
     label: "Word",
     accept: [".doc", ".docx"],
-    maxBytes: JOB_LIMITS.maxFileBytes,
+    maxBytes: workerFileCeilingBytes(WORD_TO_PDF_TOOL),
   },
   {
     label: "Excel",
     accept: [".xls", ".xlsx"],
-    maxBytes: JOB_LIMITS.maxFileBytes,
+    maxBytes: workerFileCeilingBytes(EXCEL_TO_PDF_TOOL),
   },
   {
     label: "PowerPoint",
     accept: [".ppt", ".pptx"],
-    maxBytes: JOB_LIMITS.maxFileBytes,
+    maxBytes: workerFileCeilingBytes(POWERPOINT_TO_PDF_TOOL),
   },
   {
     label: "text",
