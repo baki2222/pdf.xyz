@@ -26,6 +26,10 @@ import {
   aiPagesAtSparsest,
 } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
+import {
+  CHAT_MAX_CHARACTERS_PER_QUESTION,
+  CHAT_TOOL_SLUG,
+} from "@/lib/jobs/chat-with-pdf";
 import { AI_ALLOWANCE_FACT, aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
 import { HYBRID_SUMMARY } from "./processing";
@@ -136,6 +140,18 @@ const translatePagesAtDensest = Math.floor(
 );
 const translatePagesAtSparsest = Math.floor(
   TRANSLATE_MAX_INPUT_CHARS / AI_INPUT_LIMITS.sparsestCharactersPerPage,
+);
+
+/**
+ * Chat's page floors, from ITS per-question ceiling at the same measured
+ * densities — the constant its engine reads to and its route charges up to
+ * (`CHAT_MAX_CHARACTERS_PER_QUESTION`), not the shared reading cap.
+ */
+const chatPagesAtDensest = Math.floor(
+  CHAT_MAX_CHARACTERS_PER_QUESTION / AI_INPUT_LIMITS.densestCharactersPerPage,
+);
+const chatPagesAtSparsest = Math.floor(
+  CHAT_MAX_CHARACTERS_PER_QUESTION / AI_INPUT_LIMITS.sparsestCharactersPerPage,
 );
 
 /** "1 page" / "5 pages" — the dense floor IS 1 today, so this is exercised. */
@@ -1605,6 +1621,17 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
       entries.push({
         question: `How much of my PDF can ${tool.name} translate in one run?`,
         answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A LONGER DOCUMENT IS NOT REFUSED: it is split at page boundaries and translated a few pages at a time, then reassembled in order. Two things bound how far it gets. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. And a document longer than the free daily allowance leaves for it is translated as far as the allowance reaches, with the rest marked in place and the reason named, so nothing stops silently.`,
+      });
+    } else if (tool.slug === CHAT_TOOL_SLUG) {
+      // PER QUESTION: every question is its own job, and since L08 (9ebe3e6)
+      // the engine reads at most what one question is charged —
+      // CHAT_MAX_CHARACTERS_PER_QUESTION, with the question and the carried
+      // conversation paid out of it first. Until 2026-09-27 this answer fell
+      // to the branch below and told readers (and FAQPage JSON-LD) the shared
+      // 500,000 — twelve times what a question reads.
+      entries.push({
+        question: `How much of my PDF does ${tool.name} read?`,
+        answer: `Up to ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters for each question, the question and the conversation sent with it included — roughly ${chatPagesAtDensest} ${pluralPages(chatPagesAtDensest)} of dense text, or about ${chatPagesAtSparsest} of sparsely-set pages. The document gets what the conversation leaves; a longer one is read up to that point only, and the answer tells you which page it reached rather than treating the rest as absent.`,
       });
     } else {
       entries.push({
