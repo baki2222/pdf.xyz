@@ -476,19 +476,30 @@ describe("toContentSpace / displayedSize", () => {
   });
 
   it("agrees with placeStamp, the site's other viewer-frame placement, on every rotation", () => {
-    // Two independent statements of the same transform: the stamp tools'
-    // (page numbers, headers) and annotate's. Every alignment is an anchor on
-    // the displayed page; with a zero-size text the anchor IS the point.
+    // Every alignment is an anchor on the displayed page; with a zero-size
+    // text the anchor IS the point.
+    //
+    // CHANGED 2026-09-27 (integration), history kept. This was "two
+    // independent statements of the same transform": placeStamp carried its
+    // own rotation switch, over a box at 0,0. The merge made both map through
+    // page-frame's `viewToContent`, and gave placeStamp the VISIBLE box
+    // (header/footer fix) — origin included. So what this now pins is
+    // placeStamp's alignment anchors AND its use of the box origin against
+    // annotate's displayed-frame mapping, on a box that does not start at 0,0.
     let compared = 0;
     for (const rotation of QUARTER_TURNS) {
-      const frame = frameFor(rotation);
+      const frame = { ...frameFor(rotation), x: 30, y: 50 };
       const shown = displayedSize(frame);
       for (const position of STAMP_POSITIONS) {
         const { h, v } = resolveAlign(position);
         const margin = 36;
         const stamp = placeStamp({
-          pageWidth: frame.width,
-          pageHeight: frame.height,
+          box: {
+            x: frame.x,
+            y: frame.y,
+            width: frame.width,
+            height: frame.height,
+          },
           pageRotation: rotation,
           textWidth: 0,
           textHeight: 0,
