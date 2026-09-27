@@ -20,6 +20,9 @@ import {
 } from "./capabilities";
 import { apiError, type ParseResult } from "./responses";
 import { sanitizeDisplayFilename } from "./filenames";
+// The intake gate's normalizer, not a copy: both layers must read a content type the
+// same way. Imported from the import-free leaf, not the intake barrel.
+import { normalizeContentType } from "@/lib/uploads/intake/families";
 import {
   JOB_LIMITS,
   type CreateJobRequest,
@@ -33,7 +36,6 @@ import {
 const FILE_ID = /^f_[A-Za-z0-9_-]{10,64}$/;
 const JOB_ID = /^job_[A-Za-z0-9_-]{10,64}$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,200}$/;
-const MIME_SHAPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 
 export function isValidJobId(id: string): boolean {
   return JOB_ID.test(id);
@@ -96,14 +98,6 @@ function isValidFilename(name: unknown): name is string {
   if (/[\\/]/.test(trimmed)) return false; // no path separators
   if (hasControlChars(trimmed)) return false;
   return true;
-}
-
-function normalizeContentType(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  // Strip any parameters, e.g. "text/plain; charset=utf-8".
-  const base = value.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!MIME_SHAPE.test(base)) return null;
-  return base;
 }
 
 function byteLength(text: string): number {

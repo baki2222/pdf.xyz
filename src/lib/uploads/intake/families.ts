@@ -73,8 +73,16 @@ export const UPLOAD_FAMILIES: Record<UploadFamily, FamilySpec> = {
   },
 };
 
-/** Shape of a plausible MIME type; mirrors the validator so the two never diverge. */
+/**
+ * Shape of a plausible MIME type. Defined once, here: the job validator
+ * (`@/lib/jobs/validation.ts`) imports {@link normalizeContentType} rather than
+ * keeping a copy, so the intake and the validator read a content type the same way.
+ * This module stays import-free so that direction costs the browser bundle nothing.
+ */
 const MIME_SHAPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
+
+/** The longest content type {@link normalizeContentType} accepts, in characters. */
+export const MAX_CONTENT_TYPE_LENGTH = 255;
 
 // Reverse indexes, built once, for O(1) lookups.
 const FAMILY_BY_MIME = new Map<string, UploadFamily>();
@@ -97,7 +105,7 @@ for (const [family, spec] of Object.entries(UPLOAD_FAMILIES) as [
 export function normalizeContentType(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const base = value.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (base.length === 0 || base.length > 255) return null;
+  if (base.length === 0 || base.length > MAX_CONTENT_TYPE_LENGTH) return null;
   return MIME_SHAPE.test(base) ? base : null;
 }
 
