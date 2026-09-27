@@ -43,6 +43,10 @@ import type { PdfLibModule } from "./pdf-lib";
  * Deliberately NOT carried: custom `/Info` keys, the XMP `/Metadata` stream
  * (it describes the whole source and would need rewriting, not copying), the
  * structure tree of a tagged PDF, embedded files, and document JavaScript.
+ * That is a subset's trade, so a plan that removes NO page never comes here:
+ * Rotate PDF, and Organize when only rotations changed, rotate the file in
+ * place (`organizePages`; pinned in page-copy.test.ts "removes no page" and
+ * at the Rotate PDF download in runner-flows.test.tsx).
  */
 
 /** Source page ref -> output page ref, for the pages the output kept. */

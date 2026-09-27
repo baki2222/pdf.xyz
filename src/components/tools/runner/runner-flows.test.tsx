@@ -19,6 +19,8 @@ import { MarkdownToPdfRunner } from "./markdown-to-pdf-runner";
 import { ImageToPdfRunner } from "./image-to-pdf-runner";
 import { isImageAllowedForKind } from "@/lib/pdf/image-to-pdf";
 import { HandoffLoadedBadge } from "./handoff-notice";
+import { RotateRunner } from "./rotate-runner";
+import { documentLevelState, wholeDocumentPdf } from "@/tests/whole-document";
 
 /**
  * Whole runners, driven the way a person drives them: pick a file, press the
@@ -272,4 +274,53 @@ describe("the hand-off badge names what was skipped truthfully for every tool", 
     );
     expect(status.textContent).not.toMatch(/non-PDF/);
   });
+});
+
+describe("Rotate PDF downloads the whole document, turned", () => {
+  // Read at the download, not at the engine: the runner builds the plan it
+  // sends, and "removes nothing" is a property of THAT plan. Measured at
+  // 8e270e8, the downloaded file had lost the attachment, the XMP stream, the
+  // tag tree and the custom /Info key of a file the user only rotated.
+  it("keeps every catalog and /Info entry, the attachment, XMP and tags", async () => {
+    const bytes = await wholeDocumentPdf();
+    const input = await documentLevelState(bytes);
+    const downloads: Blob[] = [];
+    const previous = URL.createObjectURL;
+    URL.createObjectURL = (blob: Blob | MediaSource) => {
+      if (blob instanceof Blob && blob.type === "application/pdf") {
+        downloads.push(blob);
+      }
+      return "blob:download";
+    };
+    try {
+      const { container } = renderRunner(<RotateRunner />);
+      pick(container, [
+        new File([bytes.slice()], "ledger.pdf", { type: "application/pdf" }),
+      ]);
+      await screen.findAllByText(/3 pages/, undefined, { timeout: 10_000 });
+      fireEvent.click(screen.getByRole("button", { name: "Right" }));
+      fireEvent.click(screen.getByRole("button", { name: /apply rotation/i }));
+      await screen.findByText("PDF rotated", undefined, { timeout: 10_000 });
+      fireEvent.click(
+        screen.getByRole("button", { name: /download rotated pdf/i }),
+      );
+      expect(downloads).toHaveLength(1);
+      const output = await documentLevelState(
+        new Uint8Array(await downloads[0]!.arrayBuffer()),
+      );
+      // The runner did what the user asked...
+      expect(output.rotations).toEqual(input.rotations.map((r) => r + 90));
+      // ...and nothing else.
+      expect(output.catalogKeys).toEqual(input.catalogKeys);
+      expect(output.info).toEqual(input.info);
+      expect(output.attachments).toEqual(input.attachments);
+      expect(output.xmpTitle).toBe(input.xmpTitle);
+      expect(output.marked).toBe(true);
+      // Health check: the input really carried each of them.
+      expect(Object.keys(input.attachments)).toHaveLength(1);
+      expect(input.xmpTitle).not.toBeNull();
+    } finally {
+      URL.createObjectURL = previous;
+    }
+  }, 30_000);
 });

@@ -28,6 +28,12 @@ import {
 } from "./engine";
 import { loadPdfjs } from "./pdfjs";
 import { buildSplitParts, rangesPerPage } from "./ranges";
+import type { OrganizePlanItem } from "./types";
+import {
+  WHOLE_DOCUMENT,
+  documentLevelState,
+  wholeDocumentPdf,
+} from "@/tests/whole-document";
 
 /**
  * What a page tool's OUTPUT FILE carries — read the way an attacker with a PDF
@@ -1970,6 +1976,382 @@ describe("form actions name only the fields the output still has", () => {
     expect(hide?.lookup(PDFName.of("T"), PDFString).decodeText()).toBe(
       "topmostSubform.shared",
     );
+  });
+});
+
+// --------------------------------------------------------------------------
+// Organize and Rotate. Audit at 67e8d0f: organize rebuilt every plan into a
+// blank document. The assembler above fixed the pages, form, bookmarks and
+// links of a subset; two shapes of organize plan were still wrong at 8e270e8.
+//
+//  1. A plan that removes NOTHING — every page, in order: what Rotate PDF
+//     always sends, and Organize when only rotations changed. It went through
+//     the assembler too, which by design rebuilds only what a SUBSET needs, so
+//     the attachment, the XMP stream, the tag tree and custom /Info keys were
+//     dropped from a file the user only rotated. Nothing is removed, so
+//     nothing can leak: it is rotated in place.
+//  2. A DUPLICATED page shared its annotation objects with the page it copied
+//     — one widget listed in two pages' /Annots, its /P naming the first
+//     (PDF 2.0 §12.5.2: an annotation is referenced from ONE page). A viewer
+//     reported the field on one page only, and Flatten PDF then drew it on
+//     that page, deleted the widget, and left the copy with no value and a
+//     reference to nothing in both pages' /Annots.
+// --------------------------------------------------------------------------
+
+describe("organize: a plan that removes no page keeps the whole document", () => {
+  const PLANS: Record<string, OrganizePlanItem[]> = {
+    "Rotate PDF (every page turned, in order)": Array.from(
+      { length: WHOLE_DOCUMENT.pageCount },
+      (_, i) => ({ sourceIndex: i, rotation: 90 }),
+    ),
+    "one page turned": Array.from(
+      { length: WHOLE_DOCUMENT.pageCount },
+      (_, i) => ({ sourceIndex: i, rotation: i === 1 ? 180 : 0 }),
+    ),
+  };
+
+  it("POSITIVE CONTROL: the reader sees every piece of document-level state in the input", async () => {
+    const input = await documentLevelState(await wholeDocumentPdf());
+    // Health check on the derived corpus: these are the keys that matter, and
+    // a reader that found none of them would make every comparison vacuous.
+    for (const key of ["Lang", "Metadata", "Names", "StructTreeRoot"]) {
+      expect(input.catalogKeys).toContain(key);
+    }
+    expect(input.info[WHOLE_DOCUMENT.customInfoKey]).toBe(
+      WHOLE_DOCUMENT.customInfoValue,
+    );
+    expect(input.attachments).toEqual({
+      [WHOLE_DOCUMENT.attachmentName]: WHOLE_DOCUMENT.attachmentText,
+    });
+    expect(input.xmpTitle).toBe(WHOLE_DOCUMENT.xmpTitle);
+    expect(input.marked).toBe(true);
+  });
+
+  for (const [name, plan] of Object.entries(PLANS)) {
+    it(`${name}: every catalog and /Info entry, the attachment, XMP and tags survive`, async () => {
+      const bytes = await wholeDocumentPdf();
+      const input = await documentLevelState(bytes);
+      const out = await organizePages(bytes, plan);
+      const output = await documentLevelState(out);
+      expect(output.catalogKeys).toEqual(input.catalogKeys);
+      expect(output.info).toEqual(input.info);
+      expect(output.attachments).toEqual(input.attachments);
+      expect(output.xmpTitle).toBe(input.xmpTitle);
+      expect(output.marked).toBe(true);
+      // ...and it did what was asked.
+      expect(output.rotations).toEqual(plan.map((item) => item.rotation));
+      const inspected = await inspect(out);
+      expect(inspected.pageDicts).toBe(WHOLE_DOCUMENT.pageCount);
+      expect(inspected.dangling).toEqual([]);
+    });
+  }
+
+  it("CONTRAST: a plan that drops a page still goes through the assembler", async () => {
+    // The in-place path is licensed by "nothing removed", not by "every
+    // rotation is absolute". Dropped page 3's body must not ship.
+    const out = await inspect(
+      await organizePages(await wholeDocumentPdf(), [
+        { sourceIndex: 0, rotation: 90 },
+        { sourceIndex: 1, rotation: 90 },
+      ]),
+    );
+    expect(out.pageCount).toBe(2);
+    expect(out.text).toContain("WHOLE-BODY-P1");
+    expect(out.text).not.toContain("WHOLE-BODY-P3");
+  });
+});
+
+const NOTE_TEXT = "DUP-NOTE-TEXT";
+
+/**
+ * Page 1 holds one of each annotation shape a duplicate must re-own: a field
+ * whose widget is its own dictionary (pdf-lib's shape), a field MERGED with
+ * its widget (Acrobat's usual shape for a one-widget field), a link to page
+ * 2, and a note with its popup. Page 2 is a plain page.
+ */
+async function duplicateDoc(): Promise<Uint8Array> {
+  const doc = await withBodies(2);
+  const [p1, p2] = doc.getPages();
+  const form = doc.getForm();
+  const kid = form.createTextField("kidWidget");
+  kid.setText("KID-VALUE");
+  kid.addToPage(p1!, { x: 20, y: 40, width: 120, height: 20 });
+  const merged = form.createTextField("mergedWidget");
+  merged.setText("MERGED-VALUE");
+  merged.addToPage(p1!, { x: 20, y: 70, width: 120, height: 20 });
+  // Merge the widget into its field: the field dictionary becomes the widget.
+  const field = merged.acroField.dict;
+  const [widget] = merged.acroField.getWidgets();
+  const widgetRef = merged.acroField.normalizedEntries().Kids.get(0);
+  for (const [key, value] of widget!.dict.entries()) {
+    if (key !== PDFName.of("Parent")) field.set(key, value);
+  }
+  field.delete(PDFName.of("Kids"));
+  const annots = p1!.node.lookup(PDFName.of("Annots"), PDFArray);
+  annots.set(annots.indexOf(widgetRef)!, merged.ref);
+  doc.context.delete(widgetRef as PDFRef);
+
+  addAnnot(
+    doc,
+    0,
+    doc.context.obj({
+      Type: "Annot",
+      Subtype: "Link",
+      Rect: [150, 10, 200, 30],
+      Border: [0, 0, 0],
+      Dest: [p2!.ref, "Fit"],
+    }),
+  );
+  const noteRef = addAnnot(
+    doc,
+    0,
+    doc.context.obj({
+      Type: "Annot",
+      Subtype: "Text",
+      Rect: [250, 250, 270, 270],
+      Contents: PDFString.of(NOTE_TEXT),
+    }),
+  );
+  const popupRef = addAnnot(
+    doc,
+    0,
+    doc.context.obj({
+      Type: "Annot",
+      Subtype: "Popup",
+      Rect: [150, 200, 290, 290],
+      Parent: noteRef,
+    }),
+  );
+  doc.context.lookup(noteRef, PDFDict).set(PDFName.of("Popup"), popupRef);
+  return doc.save();
+}
+
+/** Each field a viewer finds -> the page index of each of its widgets. */
+async function fieldPages(bytes: Uint8Array) {
+  const pdfjs = await loadPdfjs();
+  const task = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await task.promise;
+  try {
+    const objects = ((await pdf.getFieldObjects()) ?? {}) as Record<
+      string,
+      { page?: number }[]
+    >;
+    return Object.fromEntries(
+      Object.entries(objects)
+        .map(([name, list]): [string, number[]] => [
+          name,
+          (list ?? [])
+            .map((o) => o.page)
+            .filter((p): p is number => typeof p === "number" && p >= 0)
+            .sort(),
+        ])
+        .filter(([, pages]) => pages.length > 0),
+    ) as Record<string, number[]>;
+  } finally {
+    await task.destroy();
+  }
+}
+
+/** The text a viewer extracts from each page. */
+async function pageTexts(bytes: Uint8Array) {
+  const pdfjs = await loadPdfjs();
+  const task = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  const pdf = await task.promise;
+  try {
+    const texts: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const content = await (await pdf.getPage(i)).getTextContent();
+      texts.push(
+        content.items.map((item) => ("str" in item ? item.str : "")).join(" "),
+      );
+    }
+    return texts;
+  } finally {
+    await task.destroy();
+  }
+}
+
+/**
+ * Every annotation reference on every page, with the pages listing it, and
+ * each annotation's /P, /Popup, popup /Parent and /IRT targets.
+ */
+function annotationOwnership(doc: PDFDocument) {
+  const listedOn = new Map<string, number[]>();
+  const strays: string[] = [];
+  const pages = doc.getPages();
+  const pageOf = new Map(pages.map((p, i) => [p.ref.toString(), i]));
+  pages.forEach((page, i) => {
+    const annots = page.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+    const own = new Set(annots?.asArray().map(String) ?? []);
+    for (const entry of annots?.asArray() ?? []) {
+      const key = String(entry);
+      listedOn.set(key, [...(listedOn.get(key) ?? []), i]);
+      const annot = doc.context.lookup(entry, PDFDict);
+      const p = annot.get(PDFName.of("P"));
+      if (p !== undefined && pageOf.get(String(p)) !== i) {
+        strays.push(`${key} on page ${i} has /P ${String(p)}`);
+      }
+      for (const link of ["Popup", "Parent", "IRT"]) {
+        const target = annot.get(PDFName.of(link));
+        const resolved =
+          target === undefined ? undefined : doc.context.lookup(target);
+        const isAnnot =
+          resolved instanceof PDFDict && resolved.has(PDFName.of("Rect"));
+        if (isAnnot && !own.has(String(target))) {
+          strays.push(`${key} on page ${i} has /${link} on another page`);
+        }
+      }
+    }
+  });
+  return {
+    shared: [...listedOn].filter(([, on]) => on.length > 1).map(([k]) => k),
+    strays,
+    perPage: pages.map(
+      (p) => p.node.lookupMaybe(PDFName.of("Annots"), PDFArray)?.size() ?? 0,
+    ),
+  };
+}
+
+describe("organize: a duplicated page owns its own annotations", () => {
+  /** Page 1, its duplicate, then page 2. */
+  const PLAN: OrganizePlanItem[] = [0, 0, 1].map((sourceIndex) => ({
+    sourceIndex,
+    rotation: 0,
+  }));
+
+  it("POSITIVE CONTROL: the fixture's page 1 has four annotations and two fields, and nothing is shared", async () => {
+    const bytes = await duplicateDoc();
+    const src = await PDFDocument.load(bytes);
+    const owned = annotationOwnership(src);
+    expect(owned.perPage).toEqual([5, 0]);
+    expect(owned.shared).toEqual([]);
+    expect(owned.strays).toEqual([]);
+    // Health check on the checker: it DOES see a shared annotation.
+    const annots = src.getPage(0).node.lookup(PDFName.of("Annots"), PDFArray);
+    src.getPage(1).node.set(PDFName.of("Annots"), annots);
+    expect(annotationOwnership(src).shared).toHaveLength(5);
+    expect(await fieldPages(bytes)).toEqual({
+      kidWidget: [0],
+      mergedWidget: [0],
+    });
+  });
+
+  it("no annotation is listed on two pages, and each points only at its own page's", async () => {
+    const src = await PDFDocument.load(await duplicateDoc());
+    const doc = await PDFDocument.load(
+      await organizePages(await duplicateDoc(), PLAN),
+    );
+    const owned = annotationOwnership(doc);
+    const perSourcePage = annotationOwnership(src).perPage;
+    // Derived: each output page holds as many as the source page it shows.
+    expect(owned.perPage).toEqual(
+      PLAN.map((i) => perSourcePage[i.sourceIndex]),
+    );
+    expect(owned.shared).toEqual([]);
+    expect(owned.strays).toEqual([]);
+  });
+
+  it("a viewer finds each field of the page on both copies, with its value", async () => {
+    const bytes = await duplicateDoc();
+    const out = await organizePages(bytes, PLAN);
+    const input = await fieldPages(bytes);
+    expect(await fieldPages(out)).toEqual(
+      Object.fromEntries(Object.keys(input).map((name) => [name, [0, 1]])),
+    );
+    // Still ONE field each (two widgets), so an answer typed on one copy
+    // shows on the other; and the form keeps its values.
+    expect(await viewerFields(out)).toEqual({
+      values: {
+        kidWidget: ["KID-VALUE", "KID-VALUE"],
+        mergedWidget: ["MERGED-VALUE", "MERGED-VALUE"],
+      },
+    });
+  });
+
+  it("an answer filled in after organizing reaches both copies", async () => {
+    const doc = await PDFDocument.load(
+      await organizePages(await duplicateDoc(), PLAN),
+    );
+    const form = doc.getForm();
+    expect(
+      form
+        .getFields()
+        .map((f) => f.getName())
+        .sort(),
+    ).toEqual(["kidWidget", "mergedWidget"]);
+    form.getTextField("mergedWidget").setText("NEW-ANSWER");
+    expect((await viewerFields(await doc.save())).values.mergedWidget).toEqual([
+      "NEW-ANSWER",
+      "NEW-ANSWER",
+    ]);
+  });
+
+  it("Flatten PDF after organizing draws every value on both copies (the composed chain)", async () => {
+    const { flattenPdf } = await import("./flatten");
+    // Positive control: the reader sees flattened values on the source page.
+    const flatSource = await pageTexts(
+      (await flattenPdf(await duplicateDoc())).bytes,
+    );
+    expect(flatSource[0]).toContain("KID-VALUE");
+    expect(flatSource[0]).toContain("MERGED-VALUE");
+
+    const organized = await organizePages(await duplicateDoc(), PLAN);
+    const texts = await pageTexts((await flattenPdf(organized)).bytes);
+    for (const page of [0, 1]) {
+      expect(texts[page]).toContain("KID-VALUE");
+      expect(texts[page]).toContain("MERGED-VALUE");
+    }
+    expect(texts[2]).not.toContain("KID-VALUE");
+    // Organize's own file is whole: no reference to nothing, no stray page.
+    // (Not asserted on the FLATTENED file: pdf-lib's flatten leaves a
+    // widget that is not merged with its field listed in /Annots after
+    // deleting it — any two-widget field, organized or not.)
+    const inspected = await inspect(organized);
+    expect(inspected.dangling).toEqual([]);
+    expect(inspected.pageDicts).toBe(inspected.pageCount);
+  });
+
+  it("the copy's link lands where the original's does, and its note keeps its popup", async () => {
+    const out = await organizePages(await duplicateDoc(), PLAN);
+    const original = await readAsViewer(out, 0);
+    const copy = await readAsViewer(out, 1);
+    // Source page 2 is output page 3.
+    expect(original.links).toEqual([2]);
+    expect(copy.links).toEqual(original.links);
+    const doc = await PDFDocument.load(out);
+    const notes = doc.getPages().map((page) =>
+      page.node
+        .lookup(PDFName.of("Annots"), PDFArray)
+        .asArray()
+        .map((ref) => doc.context.lookup(ref, PDFDict))
+        .find((a) => a.get(PDFName.of("Subtype")) === PDFName.of("Text")),
+    );
+    expect(notes[1]).toBeDefined();
+    expect(notes[1]).not.toBe(notes[0]);
+    const popup = doc.context.lookup(
+      notes[1]!.get(PDFName.of("Popup")),
+      PDFDict,
+    );
+    expect(popup.get(PDFName.of("Parent"))).toBe(
+      doc
+        .getPage(1)
+        .node.lookup(PDFName.of("Annots"), PDFArray)
+        .asArray()
+        .find((ref) => doc.context.lookup(ref) === notes[1]),
+    );
+  });
+
+  it("a page duplicated three times still has one field with three widgets", async () => {
+    const out = await organizePages(await duplicateDoc(), [
+      { sourceIndex: 0, rotation: 0 },
+      { sourceIndex: 0, rotation: 90 },
+      { sourceIndex: 0, rotation: 0 },
+    ]);
+    expect(await fieldPages(out)).toEqual({
+      kidWidget: [0, 1, 2],
+      mergedWidget: [0, 1, 2],
+    });
+    expect(annotationOwnership(await PDFDocument.load(out)).shared).toEqual([]);
   });
 });
 

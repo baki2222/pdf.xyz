@@ -180,8 +180,10 @@ export async function assemblePages(
       if (!srcPage) continue;
       let ref: PDFRefT;
       if (copiedOnce.has(index)) {
-        // A duplicate (organize): a second page object sharing resources.
+        // A duplicate (organize): a second page object sharing resources,
+        // with annotations of its own.
         ref = out.context.register(copier.copy(srcPage.node));
+        ownAnnotations(lib, out.context, ref);
       } else {
         copiedOnce.add(index);
         ref = copier.copyRef(srcPage.ref);
@@ -380,6 +382,188 @@ class ForeignAwareCopier {
     }
     return cloned;
   }
+}
+
+// --------------------------------------------------------------------------
+// Duplicates (organize)
+// --------------------------------------------------------------------------
+
+/**
+ * The keys a field dictionary holds AS A FIELD (ISO 32000-2 tables 226, 228,
+ * 229, 231, 232, 234): what moves out of a widget that is merged with its
+ * field when that field gains a second widget.
+ */
+const FIELD_KEYS = [
+  "FT",
+  "T",
+  "TU",
+  "TM",
+  "Ff",
+  "V",
+  "DV",
+  "DA",
+  "Q",
+  "DS",
+  "RV",
+  "Opt",
+  "TI",
+  "I",
+  "MaxLen",
+  "Lock",
+  "SV",
+];
+/** The `/AA` triggers of a FIELD — keystroke, format, validate, calculate. */
+const FIELD_TRIGGERS = ["K", "F", "V", "C"];
+
+/**
+ * Give a duplicated page annotations of its own. The copier maps each source
+ * annotation to ONE output object, so a second copy of a page listed the very
+ * objects the first copy lists — one annotation on two pages, which PDF 2.0
+ * §12.5.2 forbids. A viewer then reported each field on the first copy only,
+ * and Flatten PDF drew the value there, deleted the widget, and left the
+ * duplicate with no value and a reference to nothing (measured at 8e270e8).
+ *
+ * Each annotation on the page is cloned, its `/P` pointed at this page, and
+ * references between annotations of the page (`/Popup`, a popup's `/Parent`,
+ * `/IRT`) pointed at the clones. A widget's clone joins the SAME field as one
+ * more widget — a duplicated page shows the same answers, and an answer typed
+ * on either copy shows on both, as two widgets of one field do. A widget that
+ * is merged with its field cannot have a sibling, so it is first separated:
+ * its field keys move to a new field dictionary that takes its place in the
+ * tree, with it and the clone as kids. Clones share their appearance streams.
+ *
+ * What it does not do: an action that names the merged field BY REFERENCE
+ * (a SubmitForm `/Fields`, a calculation order) still names the widget, now
+ * no longer a field.
+ */
+function ownAnnotations(
+  lib: PdfLibModule,
+  context: PDFContext,
+  pageRef: PDFRefT,
+): void {
+  const { PDFName, PDFArray, PDFDict, PDFRef } = lib;
+  const page = context.lookup(pageRef, PDFDict);
+  const annots = page.lookupMaybe(PDFName.of("Annots"), PDFArray);
+  if (!annots) return;
+  const entries = annots.asArray();
+  const clones = new Map<PDFObject, PDFRefT>();
+  for (const entry of entries) {
+    if (entry instanceof PDFRef && context.lookup(entry) instanceof PDFDict) {
+      clones.set(entry, context.nextRef());
+    }
+  }
+  const own = entries.map((entry) => {
+    const cloneRef = clones.get(entry);
+    if (!cloneRef) {
+      // Not an indirect annotation (the sentinel, or a direct dictionary,
+      // which the spec does not allow here): a direct one is copied.
+      const value = context.lookup(entry);
+      return value instanceof PDFDict
+        ? cloneDirect(lib, context, value)
+        : entry;
+    }
+    const original = context.lookup(entry, PDFDict);
+    const isWidget =
+      original.get(PDFName.of("Subtype")) === PDFName.of("Widget");
+    if (
+      isWidget &&
+      (original.has(PDFName.of("FT")) || original.has(PDFName.of("T")))
+    ) {
+      separateField(lib, context, entry as PDFRefT, original);
+    }
+    const clone = cloneDirect(lib, context, original) as PDFDictT;
+    for (const key of ["Popup", "IRT", "Parent"]) {
+      const target = clone.get(PDFName.of(key));
+      const mapped = target === undefined ? undefined : clones.get(target);
+      if (mapped) clone.set(PDFName.of(key), mapped);
+    }
+    clone.set(PDFName.of("P"), pageRef);
+    context.assign(cloneRef, clone);
+    const parent = isWidget ? clone.get(PDFName.of("Parent")) : undefined;
+    const field = parent === undefined ? undefined : context.lookup(parent);
+    if (field instanceof PDFDict) {
+      const kids = field.lookupMaybe(PDFName.of("Kids"), PDFArray);
+      if (kids) kids.push(cloneRef);
+      else field.set(PDFName.of("Kids"), context.obj([cloneRef]));
+    }
+    return cloneRef;
+  });
+  // A new array: the one there is the first copy's (the copier shares it).
+  page.set(PDFName.of("Annots"), context.obj(own));
+}
+
+/**
+ * Split a widget merged with its field into a field dictionary and a widget
+ * kid of it, in place: the field takes the widget's place under its parent.
+ */
+function separateField(
+  lib: PdfLibModule,
+  context: PDFContext,
+  widgetRef: PDFRefT,
+  widget: PDFDictT,
+): void {
+  const { PDFName, PDFDict, PDFArray } = lib;
+  const field = PDFDict.withContext(context);
+  for (const key of FIELD_KEYS) {
+    const name = PDFName.of(key);
+    const value = widget.get(name);
+    if (value === undefined) continue;
+    field.set(name, value);
+    widget.delete(name);
+  }
+  const triggers = widget.lookupMaybe(PDFName.of("AA"), PDFDict);
+  if (triggers) {
+    const fieldTriggers = PDFDict.withContext(context);
+    for (const key of FIELD_TRIGGERS) {
+      const name = PDFName.of(key);
+      const action = triggers.get(name);
+      if (action === undefined) continue;
+      fieldTriggers.set(name, action);
+      triggers.delete(name);
+    }
+    if (fieldTriggers.keys().length > 0) {
+      field.set(PDFName.of("AA"), fieldTriggers);
+    }
+    if (triggers.keys().length === 0) widget.delete(PDFName.of("AA"));
+  }
+  const fieldRef = context.register(field);
+  const parent = widget.get(PDFName.of("Parent"));
+  if (parent !== undefined) {
+    field.set(PDFName.of("Parent"), parent);
+    const parentDict = context.lookup(parent);
+    const kids =
+      parentDict instanceof PDFDict
+        ? parentDict.lookupMaybe(PDFName.of("Kids"), PDFArray)
+        : undefined;
+    const at = kids?.indexOf(widgetRef);
+    if (kids && at !== undefined) kids.set(at, fieldRef);
+  }
+  field.set(PDFName.of("Kids"), context.obj([widgetRef]));
+  widget.set(PDFName.of("Parent"), fieldRef);
+}
+
+/** A copy of `obj` in which no direct dictionary or array is shared. */
+function cloneDirect(
+  lib: PdfLibModule,
+  context: PDFContext,
+  obj: PDFObject,
+): PDFObject {
+  const { PDFDict, PDFArray } = lib;
+  if (obj instanceof PDFDict) {
+    const copy = PDFDict.withContext(context);
+    for (const [key, value] of obj.entries()) {
+      copy.set(key, cloneDirect(lib, context, value));
+    }
+    return copy;
+  }
+  if (obj instanceof PDFArray) {
+    const copy = PDFArray.withContext(context);
+    for (const value of obj.asArray()) {
+      copy.push(cloneDirect(lib, context, value));
+    }
+    return copy;
+  }
+  return obj;
 }
 
 // --------------------------------------------------------------------------
