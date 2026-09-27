@@ -123,7 +123,7 @@ const content: ToolContent = {
     },
     {
       q: "Does it work on password-protected PDFs?",
-      a: `No. Any encrypted PDF is turned away as soon as you choose it, with a "password-protected" message, and that includes a file that opens without a password but carries an owner password restricting printing or copying. Unlock PDF strips the encryption if you give it the open password, or the owner password for one of those restricted files; its password box cannot be left blank. That tool is not in-browser: the file and password go over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the unlocked copy's link lasts ${OUTPUT_TTL} minutes, and a daily storage rule erases it after that. Bring the unlocked copy back here.`,
+      a: `No. Any encrypted PDF is turned away as soon as you choose it, with a "password-protected" message, and that includes a file that opens without a password but carries an owner password restricting printing or copying. Unlock PDF strips the encryption if you give it the open password, or the owner password for one of those restricted files; its password box cannot be left blank. Unlock PDF is not in-browser: the file and password go over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the unlocked copy's link lasts ${OUTPUT_TTL} minutes, and a daily storage rule erases it after that. Bring the unlocked copy back here.`,
     },
     {
       q: "Why does the result say some images could not be decoded?",

@@ -116,7 +116,7 @@ const content: ToolContent = {
     },
     {
       title: "Getting a locked file into the other pdf.xyz tools",
-      body: "The in-browser editors, such as page numbers, crop and flatten, stop on an encrypted file with a request to unlock it first. Download the unlocked copy here, then add that file to the editor you wanted.",
+      body: "The in-browser editors, such as Add Page Numbers, Crop PDF and Flatten PDF, stop on an encrypted file with a request to unlock it first. Download the unlocked copy here, then add that file to the editor you wanted.",
     },
     {
       title: "A file that opens but will not let you print or edit",

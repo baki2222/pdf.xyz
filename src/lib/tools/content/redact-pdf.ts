@@ -119,7 +119,7 @@ const content: ToolContent = {
     },
     {
       q: "Why can't I select or search text in the redacted PDF?",
-      a: `Every page is rebuilt as an image, which is what makes the removal permanent. OCR PDF can add a searchable text layer back, and the boxed areas give it nothing to read. OCR is not done in the browser: the file goes over TLS to pdf.xyz's secure worker, the upload is deleted when the job finishes, the result's link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `Every page is rebuilt as an image, which is what makes the removal permanent. OCR PDF can add a searchable text layer back, and the boxed areas give it nothing to read. OCR PDF does not run in the browser: the file goes over TLS to pdf.xyz's secure worker, the upload is deleted when the job finishes, the result's link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
       q: "Is my file uploaded when I redact it here?",

@@ -8,6 +8,14 @@ const DEFAULT_CANDIDATES = [
   "google-chrome-stable",
 ];
 
+/**
+ * What the renderer refuses an HTML upload above when no env override is set.
+ * Exported because it is BELOW the upload gate (`JOB_LIMITS.maxFileBytes`),
+ * which makes it the real per-file ceiling of HTML to PDF: `file-ceilings.ts`
+ * reads it from here rather than restating 20 MB.
+ */
+export const HTML_RENDER_DEFAULT_MAX_INPUT_BYTES = 20 * 1024 * 1024;
+
 export interface NativeHtmlRenderConfig {
   enabled: boolean;
   candidates: string[];
@@ -58,7 +66,7 @@ export function resolveNativeHtmlRenderConfig(
     timeoutMs: parsePositiveInt(env.PDFXYZ_HTML_RENDER_TIMEOUT_MS, 120_000),
     maxInputBytes: parsePositiveInt(
       env.PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES,
-      20 * 1024 * 1024,
+      HTML_RENDER_DEFAULT_MAX_INPUT_BYTES,
     ),
     maxOutputBytes: parsePositiveInt(
       env.PDFXYZ_HTML_RENDER_MAX_OUTPUT_BYTES,

@@ -120,7 +120,7 @@ const content: ToolContent = {
     },
     {
       q: "Why is my password-protected PDF refused?",
-      a: `Delete Pages will not open any file that carries encryption, including one with only printing or editing restrictions, and the error it shows says to unlock the file first. Unlock PDF takes the encryption off when you enter its password, and it cannot get around one you do not know; since an empty password is refused, a restrictions-only file needs its owner password. Unlocking happens on the server rather than here: the PDF and password are uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the download link expires after ${linkMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `Delete Pages will not open any file that carries encryption, including one with only printing or editing restrictions, and the error it shows says to unlock the file first. Unlock PDF takes the encryption off when you enter its password, and it cannot get around one you do not know; since an empty password is refused, a restrictions-only file needs its owner password. Unlock PDF runs on the server rather than here: the PDF and password are uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the download link expires after ${linkMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
       q: "Does deleting pages change my original file?",

@@ -1,8 +1,8 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import { getToolBySlug } from "@/lib/tools";
+import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { formatBytes } from "@/lib/utils";
-import { resolveNativeHtmlRenderConfig } from "@/lib/workers/html-render/native-config";
 
 /**
  * Every claim below was read off the implementation, not the marketing:
@@ -62,25 +62,27 @@ const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 const INPUT_MINUTES = DEFAULT_RETENTION.inputTtlMinutes;
 
 /**
- * What the renderer itself refuses above (`runHtmlToPdf` → `too_large`, and
- * again inside the native runner). Read from the config resolver with an
- * empty environment, i.e. the code's own default. A deployment can override
- * it with PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES; no deploy file in this repo
- * does, but if production ever does, this number is stale. Formatted with
- * the same formatBytes the panel's Limit row uses, so the two figures read
- * in one style and a non-whole-MB override is not rounded into a false one.
+ * The HTML ceiling: the smaller of what the upload accepts and what the
+ * renderer refuses above (`runHtmlToPdf` → `too_large`, and again inside the
+ * native runner). The renderer's default cap is the smaller, so it is the
+ * ceiling, and it is ONE figure: the panel's Limit row and the derived "How
+ * large can my file be?" answer read the same `toolFileCeiling`. Until
+ * 2026-09-27 this sentence quoted the Limit row as the upload gate and called
+ * the renderer's cap "the real ceiling", while the derived answer below it
+ * said "Up to 100 MB per file". Formatted with the formatBytes the Limit row
+ * uses, so the two read in one style. A deployment can override the cap with
+ * PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES; no deploy file in this repo does
+ * (`file-ceilings.test.ts` fails if one does), but production's env was not
+ * read.
  */
-const RENDER_BYTES = resolveNativeHtmlRenderConfig({}).maxInputBytes;
+const CEILING = toolFileCeiling(getToolBySlug("html-to-pdf")!);
+const CEILING_TEXT = formatBytes(CEILING.bytes ?? 0);
 
-/**
- * The size sentence names the SMALLER cap as the one a visitor meets, so the
- * comparison is computed rather than assumed: if the two constants ever swap
- * order, the copy changes shape instead of going false.
- */
+/** Who refuses above the ceiling, computed rather than assumed. */
 const SIZE_SENTENCE =
-  RENDER_BYTES < WORKER_FILE_CEILING
-    ? `The panel's Limit row reads ${formatBytes(WORKER_FILE_CEILING)}/file, which is what the upload accepts, but the renderer refuses HTML larger than ${formatBytes(RENDER_BYTES)} before Chromium starts, with “The HTML input exceeds the worker's size limit.”, so ${formatBytes(RENDER_BYTES)} is the real ceiling.`
-    : `One HTML file of up to ${formatBytes(WORKER_FILE_CEILING)} is accepted per run.`;
+  CEILING.tier === "worker" && CEILING.engine
+    ? `One HTML file of up to ${CEILING_TEXT} per run: the renderer refuses a larger one before Chromium starts, with “The HTML input exceeds the worker's size limit.”`
+    : `One HTML file of up to ${CEILING_TEXT} is accepted per run.`;
 
 const content: ToolContent = {
   slug: "html-to-pdf",
@@ -141,7 +143,7 @@ const content: ToolContent = {
     },
     {
       q: "Does JavaScript run before the page is printed?",
-      a: "Yes, within a fixed budget of rendering time, so a chart or table built by script can appear. Content that waits on a long timer, or on files that were not uploaded, may be missing.",
+      a: "Yes, within a fixed budget of rendering time, so a chart or table built by script can appear. Content that waits on a long timer, or on other files the page links to, which the worker never receives, may be missing.",
     },
     {
       q: "Can I choose the page size, margins or orientation?",

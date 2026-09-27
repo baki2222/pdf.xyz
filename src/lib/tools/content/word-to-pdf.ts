@@ -1,8 +1,8 @@
 import type { ToolContent } from "./types";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
-import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { getToolBySlug } from "@/lib/tools";
+import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
-import { formatBytes } from "@/lib/utils";
 
 /**
  * Facts this copy leans on, each read from the code that makes it true
@@ -31,18 +31,18 @@ import { formatBytes } from "@/lib/utils";
  *    worker" / "Not enabled" / "Status unknown" badge, the "Limit" spec row,
  *    and NotifyMe's "Notify me when this ships".
  *
- * SIZE. Two gates refuse a Word upload: the upload intake at
- * WORKER_FILE_CEILING (an alias of JOB_LIMITS.maxFileBytes; the panel's "Limit"
- * row formats JOB_LIMITS.maxFileBytes itself, so that quote interpolates the
- * panel's own constant), and then `runOfficeToPdf` at `maxInputBytes` from the
- * LibreOffice config, whose default is LOWER. That check runs BEFORE LibreOffice
- * is started, so the copy says "the converter", not "LibreOffice". Both are stated, because the panel
- * shows the first and the converter enforces the second; a file between them
- * uploads and is then refused. The runner figure and the time limit are the
- * config's DEFAULTS (no env override). Neither `.env.worker.example` nor the
- * compose file sets PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES or
- * PDFXYZ_OFFICE_CONVERSION_TIMEOUT_MS, but the production worker's env was not
- * read; if it ever sets either, these figures must follow.
+ * SIZE. ONE figure, the tool's ceiling (`toolFileCeiling`): the smaller of the
+ * upload gate and the converter's own `maxInputBytes`. The converter's is
+ * lower, so it is the ceiling, and the panel's "Limit" row, the derived "How
+ * large can my file be?" answer and this copy all state it. Until 2026-09-27
+ * this page stated both — "uploads are accepted up to" the gate and "the
+ * converter refuses a Word file over" its cap — beside a derived answer of
+ * "Up to 100 MB per file", which was false; a larger file is still UPLOADED
+ * (the intake compares against the gate), then refused before LibreOffice
+ * starts, and the copy says that without naming the gate's figure. The
+ * converter figure and the time limit are the config's DEFAULTS; no deploy
+ * artifact in this repo overrides either (`file-ceilings.test.ts` fails if one
+ * does), but the production worker's env was not read.
  *
  * NOT PROVEN BY A REAL JOB. `worker:prove-tools` checks only that word-to-pdf
  * returns a PDF (`isPdf`), not what is in it, and no LibreOffice was available
@@ -64,19 +64,16 @@ import { formatBytes } from "@/lib/utils";
  */
 const MB = 1024 * 1024;
 const officeConfig = resolveNativeOfficeConversionConfig({});
-const uploadMb = Math.round(WORKER_FILE_CEILING / MB);
-const panelLimit = formatBytes(JOB_LIMITS.maxFileBytes);
-const converterMb = Math.round(
-  Math.min(WORKER_FILE_CEILING, officeConfig.maxInputBytes) / MB,
-);
+const ceiling = toolFileCeiling(getToolBySlug("word-to-pdf")!);
+const ceilingMb = Math.round((ceiling.bytes ?? 0) / MB);
 const timeLimitSeconds = Math.round(officeConfig.timeoutMs / 1000);
 const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 
-/** Only explain the two-gate gap when there is one. */
+/** Who refuses above the ceiling: the converter when its cap is the lower. */
 const sizeAnswer =
-  converterMb < uploadMb
-    ? `One document per conversion. The panel's Limit row reads ${panelLimit}/file, and uploads are accepted up to that, but the converter refuses a Word file over ${converterMb} MB before LibreOffice ever opens it, so a document between the two uploads and then comes back with a size error. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
-    : `One document per conversion, up to ${converterMb} MB. For a batch, convert one file, press Remove, and add the next.`;
+  ceiling.tier === "worker" && ceiling.engine
+    ? `One document per conversion, of up to ${ceilingMb} MB: the converter refuses a larger Word file before LibreOffice ever opens it, so it is uploaded and then comes back with a size error. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
+    : `One document per conversion, up to ${ceilingMb} MB. For a batch, convert one file, press Remove, and add the next.`;
 
 const content: ToolContent = {
   slug: "word-to-pdf",
@@ -88,7 +85,7 @@ const content: ToolContent = {
   intro: [
     "Word to PDF takes one .docx or .doc file and hands it to LibreOffice, running headless on pdf.xyz's secure worker. LibreOffice lays out the pages from the page size, margins, headers and footers set in the document itself and exports a PDF named after your file. Typed text comes out as text, so it can be searched, selected and copied; a picture of text, such as a pasted scan, stays a picture.",
     "LibreOffice reads Word's formats, but it is not Microsoft Word, and differences tend to show in fonts and floating objects. A font the worker lacks is replaced by a stand-in whose letter widths may differ, which can move line and page breaks, and text boxes or wrapped images may land slightly elsewhere. Styles, tables and in-line images give it the least to reinterpret.",
-    `Nothing is converted on your own computer. Your document goes to pdf.xyz's secure worker over an encrypted (TLS) connection and is deleted there when the job ends. The finished PDF can be fetched for ${linkMinutes} minutes, after which a daily storage rule clears the stored copy. The converter takes Word files of up to ${converterMb} MB, one at a time.`,
+    `Nothing is converted on your own computer. Your document goes to pdf.xyz's secure worker over an encrypted (TLS) connection and is deleted there when the job ends. The finished PDF can be fetched for ${linkMinutes} minutes, after which a daily storage rule clears the stored copy. The converter takes Word files of up to ${ceilingMb} MB, one at a time.`,
   ],
 
   useCases: [

@@ -63,11 +63,21 @@ export function stepText(step: PageStep): string {
  *
  * With authored content: its questions first, then the derived FACTS
  * (`factFaq` — the file ceiling, the AI allowance and ceiling, OCR languages),
- * which stay because the ceiling guards hold them to the engines. The mode
- * TEMPLATE (`modeFaq` — "Is my file uploaded when I use X?") is dropped: it is
- * the same question on thirty pages, and the authored FAQ answers it for this
- * tool. A derived question the author already asked, word for word, is not
- * repeated. Without authored content, the whole derived FAQ, as before.
+ * which stay because the ceiling guards hold them to the engines. That was
+ * NOT true of the file ceiling on four pages until 2026-09-27: it was the
+ * upload gate, while LibreOffice and Chromium refuse lower, so Word, Excel,
+ * PowerPoint and HTML to PDF answered "Up to 100 MB" beside authored copy
+ * stating the real cap. `toolFileCeiling` now takes the engine's cap when it
+ * is lower (`ENGINE_INPUT_CEILINGS`), and `file-ceilings.test.ts` runs each
+ * engine at it.
+ *
+ * The mode TEMPLATE (`modeFaq` — "Is my file uploaded when I use X?") is
+ * dropped: it is the same question on thirty pages, and the authored FAQ
+ * answers it for this tool. The template was true by construction; the
+ * authored answers are held to the mode by "the body's location claims are
+ * the tool's mode" in `content/content.test.ts`, which reads everything this
+ * module returns. A derived question the author already asked, word for word,
+ * is not repeated. Without authored content, the whole derived FAQ, as before.
  */
 export function pageFaq(tool: Tool): readonly ToolFaqEntry[] {
   const content = pageContent(tool);

@@ -2,6 +2,14 @@ const TRUE_VALUES = new Set(["1", "true", "yes", "on", "auto"]);
 const FALSE_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 const DEFAULT_CANDIDATES = ["soffice", "libreoffice"];
 
+/**
+ * What the converter refuses above when no env override is set. Exported
+ * because it is BELOW the upload gate (`JOB_LIMITS.maxFileBytes`), which makes
+ * it the real per-file ceiling of the three Office tools: `file-ceilings.ts`
+ * reads it from here rather than restating 50 MB.
+ */
+export const OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES = 50 * 1024 * 1024;
+
 export interface NativeOfficeConversionConfig {
   enabled: boolean;
   candidates: string[];
@@ -55,7 +63,7 @@ export function resolveNativeOfficeConversionConfig(
     ),
     maxInputBytes: parsePositiveInt(
       env.PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES,
-      50 * 1024 * 1024,
+      OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES,
     ),
     maxOutputBytes: parsePositiveInt(
       env.PDFXYZ_OFFICE_CONVERSION_MAX_OUTPUT_BYTES,

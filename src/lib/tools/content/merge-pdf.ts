@@ -111,7 +111,7 @@ const content: ToolContent = {
     },
     {
       q: "How do I merge a PDF that has a password?",
-      a: `Remove the protection, then add the unlocked copy. Unlock PDF strips it when you supply a password it accepts: the one that opens the file or, for a PDF that opens without one yet blocks printing or editing, the owner password; an empty password field is not accepted. Unlike Merge, Unlock does not run in your browser. The locked PDF is uploaded over TLS to pdf.xyz's secure worker, which deletes that input when the job finishes; the link to the unlocked copy expires after ${linkMinutes} minutes, and a daily storage rule then erases the worker's stored copy. If your own PDF app can save an unprotected copy, that keeps the file on your device.`,
+      a: `Remove the protection, then add the unlocked copy. Unlock PDF strips it when you supply a password it accepts: the one that opens the file or, for a PDF that opens without one yet blocks printing or editing, the owner password; an empty password field is not accepted. Unlike Merge, Unlock does not run in your browser. Unlock PDF uploads the locked PDF over TLS to pdf.xyz's secure worker, which deletes that input when the job finishes; the link to the unlocked copy expires after ${linkMinutes} minutes, and a daily storage rule then erases the worker's stored copy. If your own PDF app can save an unprotected copy, that keeps the file on your device.`,
     },
     {
       q: "Can I merge only some pages of a file, or reorder single pages?",
@@ -119,7 +119,7 @@ const content: ToolContent = {
     },
     {
       q: "Will merging change the quality or size of my pages?",
-      a: "Text, fonts and images are copied as they are, not re-encoded, so nothing gets blurrier. Images are not downsampled either, so a merge of large scans stays large. If the result is too big to email, Compress PDF's in-browser lossless pass will find almost nothing left to remove, since the merge already packs the file the same way. The step that can shrink scans is its optional deep image compression, which uploads the merged file to pdf.xyz's secure worker.",
+      a: "Text, fonts and images are copied as they are, not re-encoded, so nothing gets blurrier. Images are not downsampled either, so a merge of large scans stays large. If the result is too big to email, Compress PDF's in-browser lossless pass will find almost nothing left to remove, since the merge already packs the file the same way. The step that can shrink scans is Compress PDF's optional deep image compression, which uploads the merged file to pdf.xyz's secure worker.",
     },
   ],
 

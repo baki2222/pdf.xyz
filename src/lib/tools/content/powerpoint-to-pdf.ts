@@ -1,27 +1,31 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import { getToolBySlug } from "@/lib/tools";
+import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
 import { officePdfOutputName } from "@/lib/workers/processor/office-conversion";
 
 const MB = 1024 * 1024;
 
-/** What `/api/uploads` and the worker store refuse a single file above. */
-const UPLOAD_MB = Math.round(WORKER_FILE_CEILING / MB);
-
 /**
- * The LibreOffice step's own limits, read from the config resolver with an
- * empty environment, i.e. the code's own defaults. The input cap is SMALLER
- * than the upload ceiling (`runOfficeToPdf` → `too_large`, and again inside
- * the native runner), so it is the number a visitor actually meets. A
- * deployment can override all three with PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES,
+ * The deck ceiling: the smaller of what `/api/uploads` accepts and what the
+ * LibreOffice step refuses above (`runOfficeToPdf` → `too_large`, and again
+ * inside the native runner). The converter's cap is the smaller, so it is the
+ * ceiling — and ONE figure, the one the panel's Limit row and the derived FAQ
+ * state too. Until 2026-09-27 this page quoted the upload gate beside the cap
+ * as "the upload limit", while the derived answer said "Up to 100 MB".
+ *
+ * The other limits are the config resolver's defaults (empty environment). A
+ * deployment can override them with PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES,
  * _MAX_OUTPUT_BYTES and _TIMEOUT_MS; the deploy files in the repo set none of
- * them, but the production worker's environment was not checked, so if it
- * ever does, these sentences are stale.
+ * them (`file-ceilings.test.ts` fails on the input cap if one does), but the
+ * production worker's environment was not checked. The OUTPUT cap is named but
+ * not given a figure: it equals the upload gate today, and a second size on
+ * this page would read as a second, false ceiling.
  */
+const CEILING = toolFileCeiling(getToolBySlug("powerpoint-to-pdf")!);
+const CEILING_MB = Math.round((CEILING.bytes ?? 0) / MB);
 const OFFICE_DEFAULTS = resolveNativeOfficeConversionConfig({});
-const CONVERTER_MB = Math.round(OFFICE_DEFAULTS.maxInputBytes / MB);
-const OUTPUT_MB = Math.round(OFFICE_DEFAULTS.maxOutputBytes / MB);
 const TIMEOUT_SECONDS = Math.round(OFFICE_DEFAULTS.timeoutMs / 1000);
 
 const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
@@ -77,7 +81,7 @@ const content: ToolContent = {
 
   intro: [
     `PowerPoint to PDF takes one presentation, a modern .pptx or a legacy .ppt from PowerPoint 97–2003, and returns a PDF with one slide per page. Each page keeps the slide's shape, so a widescreen deck is not squeezed onto A4 or Letter. Text typed into text boxes stays searchable, copyable text; words inside a picture stay a picture.`,
-    `Conversion does not happen in your browser. The deck is uploaded over TLS to pdf.xyz's secure worker, and LibreOffice exports it there with its default PDF settings, because this page sends the converter no options of its own. The uploaded presentation is deleted when the job finishes, the download link expires after ${LINK_MINUTES} minutes, and the stored copy is erased by a daily storage rule after that. Uploads are accepted up to ${UPLOAD_MB} MB, but the converter refuses decks larger than ${CONVERTER_MB} MB, so that is the practical ceiling.`,
+    `Conversion does not happen in your browser. The deck is uploaded over TLS to pdf.xyz's secure worker, and LibreOffice exports it there with its default PDF settings, because this page sends the converter no options of its own. The uploaded presentation is deleted when the job finishes, the download link expires after ${LINK_MINUTES} minutes, and the stored copy is erased by a daily storage rule after that. The converter takes decks of up to ${CEILING_MB} MB.`,
     `Animations do not carry over, so bullet points that appeared one click at a time all show together. LibreOffice's default export leaves speaker notes and hidden slides out. Because LibreOffice rather than Microsoft PowerPoint does the drawing, missing fonts are substituted and elaborate effects can shift slightly, so skim the result before you send it.`,
   ],
 
@@ -115,7 +119,7 @@ const content: ToolContent = {
     },
     {
       title: "Download the PDF",
-      body: `When "Your PDF is ready." appears, click the Download button, which carries the file's name: ${EXAMPLE_IN} comes back as ${EXAMPLE_OUT}. The PDF is already in this browser tab by then, so save it before you close or reload the page.`,
+      body: `When "Your PDF is ready." appears, click the Download button, which carries the file's name: ${EXAMPLE_IN} comes back as ${EXAMPLE_OUT}. The PDF has already been fetched to this page by then, so save it before you close or reload the page.`,
     },
   ],
 
@@ -138,11 +142,11 @@ const content: ToolContent = {
     },
     {
       q: "How large a presentation can I convert?",
-      a: `A deck over ${CONVERTER_MB} MB still uploads, because the upload limit is ${UPLOAD_MB} MB per file, but the LibreOffice step then refuses it and the job ends with a size error, without a retry. Decks that big are usually carrying photos or embedded video; PowerPoint's Compress Pictures command can shrink the images before you try again.`,
+      a: `Up to ${CEILING_MB} MB. A bigger deck still uploads, but the LibreOffice step then refuses it and the job ends with a size error, without a retry. Decks that big are usually carrying photos or embedded video; PowerPoint's Compress Pictures command can shrink the images before you try again.`,
     },
     {
       q: "Why did my conversion fail?",
-      a: `A password-protected deck cannot be opened, because there is no field on this page to type the password into; clear the password in PowerPoint, save a copy and convert that. A file too damaged for LibreOffice to open also fails, as does one it cannot finish within ${TIMEOUT_SECONDS} seconds or whose PDF would exceed ${OUTPUT_MB} MB. Each of those failures is retried automatically before the job is marked failed, so a slow deck can outlast the page's wait, and the panel then shows the job's id instead of a download. The worker also rejects any output missing the %PDF header or the closing %%EOF marker, so a broken export never comes back as a download.`,
+      a: `A password-protected deck cannot be opened, because there is no field on this page to type the password into; clear the password in PowerPoint, save a copy and convert that. A file too damaged for LibreOffice to open also fails, as does one it cannot finish within ${TIMEOUT_SECONDS} seconds or whose PDF comes out larger than the worker's output limit. Each of those failures is retried automatically before the job is marked failed, so a slow deck can outlast the page's wait, and the panel then shows the job's id instead of a download. The worker also rejects any output missing the %PDF header or the closing %%EOF marker, so a broken export never comes back as a download.`,
     },
   ],
 

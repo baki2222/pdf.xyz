@@ -157,7 +157,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my password-protected PDF rejected?",
-      a: "The library that opens the file stops at any encryption, including PDFs that open freely but restrict printing or copying. Unlock PDF removes the protection when you give it a password that works (for a restricted file, its owner password); it cannot recover one. Be aware that unlocking, unlike this conversion, is not done in your browser: the locked file and the password you type are uploaded to pdf.xyz's secure worker. Convert the unlocked copy here afterwards.",
+      a: "The library that opens the file stops at any encryption, including PDFs that open freely but restrict printing or copying. Unlock PDF removes the protection when you give it a password that works (for a restricted file, its owner password); it cannot recover one. Be aware that Unlock PDF, unlike this conversion, does not run in your browser: the locked file and the password you type are uploaded to pdf.xyz's secure worker. Convert the unlocked copy here afterwards.",
     },
     {
       q: "Will the text in the JPG still be selectable or searchable?",

@@ -72,7 +72,7 @@ const content: ToolContent = {
     },
     {
       title: "Reports hosted in a document portal or intranet",
-      body: "Annual reports and policy handbooks are read a few pages at a time; linearized, an in-browser viewer can fetch just the pages a reader opens.",
+      body: "Annual reports and policy handbooks are read a few pages at a time; linearized, a web viewer can fetch just the pages a reader opens.",
     },
     {
       title: "Meeting a Fast Web View requirement",

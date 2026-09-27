@@ -117,7 +117,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I rotate a password-protected PDF, and is my file uploaded?",
-      a: `Not while it is encrypted: opening one stops with "This PDF is password-protected. Unlock it first, then try again." That includes a PDF anyone can open but whose author blocked printing or copying. Unlock PDF removes a password you know, which for a restricted file means its owner password. Unlike rotation, it runs on a server: the file is uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes. Rotation itself uploads nothing: your browser turns a PDF of up to ${ceilingMb} MB.`,
+      a: `Not while it is encrypted: opening one stops with "This PDF is password-protected. Unlock it first, then try again." That includes a PDF anyone can open but whose author blocked printing or copying. Unlock PDF removes a password you know, which for a restricted file means its owner password. Unlike rotation, Unlock PDF runs on a server: the file is uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes. Rotation itself uploads nothing: your browser turns a PDF of up to ${ceilingMb} MB.`,
     },
   ],
 

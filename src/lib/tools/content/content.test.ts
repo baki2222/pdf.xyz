@@ -22,9 +22,17 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import {
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "@/lib/tools/page-copy";
+import {
   modeHasBrowserPath,
   modeUploadsFiles,
 } from "@/lib/tools/processing-split";
+import type { ProcessingMode, Tool } from "@/lib/tools/types";
 import { getAllGuideSlugs } from "@/lib/guides";
 import { getToolContent, toolContent, type ToolContent } from "./index";
 
@@ -353,5 +361,300 @@ describe("the search result's location claim is the tool's mode", () => {
     ).toEqual([
       'metaDescription says nothing is uploaded, but "hybrid" uploads',
     ]);
+  });
+});
+
+/*
+ * ...and the same claim in the BODY and the FAQ, where the page makes it at
+ * length and the FAQPage JSON-LD ships it to a search engine.
+ *
+ * Added 2026-09-27 after review. The derived `modeFaq` ("Is my file uploaded
+ * when I use X?") was TRUE BY CONSTRUCTION, read off the mode; the authored
+ * content replaced it with answers nothing tied to the mode. The reviewer put
+ * "Your file is never uploaded; it stays on your device." into the intro of
+ * `protect-pdf`, a server tool, and the whole suite stayed at its baseline.
+ * Every sentence shipped then was true; the property this checks is that a
+ * tool which CHANGES mode turns its own body red.
+ *
+ * Read through `page-copy` (what the page renders), one sentence at a time:
+ *
+ *  - on a tool with NO browser path, a sentence may not say the work stays
+ *    local ("in your browser", "not uploaded", "never leaves") unless it is
+ *    negated there ("does not run in your browser");
+ *  - on a tool that NEVER uploads, a sentence may not say the file goes to the
+ *    worker ("is uploaded", "over TLS", "secure worker");
+ *  - either way, a sentence that NAMES another catalogued tool whose mode does
+ *    what the sentence says is about that tool: "PDF to Text runs in your
+ *    browser" on the PDF to Word page, "Unlock PDF uploads the file" on Merge
+ *    PDF's. The named tool must support the claim, so "Unlike Unlock PDF, your
+ *    file is never uploaded" on a server page is still red. What this cannot
+ *    see is a sentence that names a supporting tool AND makes the claim about
+ *    this one ("Like PDF to Text, this never uploads"): the subject is not
+ *    parsed, only the names.
+ *  - a mode with BOTH paths (`hybrid`, today) is not checked here, since
+ *    either sentence can be true of it. Its title and description are (above).
+ */
+/** Local claims the title check does not need, spelled as the body spells them. */
+const STAYS_LOCAL =
+  /\b(?:uploads nothing|never leaves|(?:does|do) not leave (?:your|the)|stays? on your (?:own )?device|(?:not|never) sent to pdf\.xyz|no copy sent)\b/i;
+const RUNS_LOCALLY_BODY =
+  /\b(?:in your browser|in-browser|on your (?:own )?device|by your own browser|browser tab|locally)\b/i;
+/** A negation just before a location phrase: "does not run in your browser". */
+const NEGATED_BEFORE =
+  /\b(?:not|no|cannot|never|neither|none|nothing)\b(?:\s+[\w-]+){0,3}\s+$/i;
+/** The work, or the file, leaving the device. Third person: "uploads the PDF",
+ * never the reader's "upload a PNG of your signature", which picks a file. */
+const GOES_REMOTE =
+  /\b(?:secure worker|over TLS|pdf\.xyz's worker|(?:is|are|gets?|be) uploaded|uploads (?:it|your|the|a|each|them)|on (?:a|the) server|server-side)\b/i;
+
+type Claim = "local" | "remote";
+
+/** Matches of `pattern` in `sentence` that no negation just before undoes. */
+function affirmed(sentence: string, pattern: RegExp): boolean {
+  return [...sentence.matchAll(new RegExp(pattern.source, "gi"))].some(
+    (m) => !NEGATED_BEFORE.test(sentence.slice(0, m.index)),
+  );
+}
+
+/**
+ * What one sentence says about where the work happens, if anything. A
+ * question asks rather than claims ("Does my PDF get uploaded?"), and its
+ * answer is the next sentence, which is read.
+ */
+function sentenceClaims(sentence: string): Claim[] {
+  if (/\?\s*$/.test(sentence)) return [];
+  const out: Claim[] = [];
+  if (
+    NO_UPLOAD.test(sentence) ||
+    STAYS_LOCAL.test(sentence) ||
+    affirmed(sentence, RUNS_LOCALLY_BODY)
+  )
+    out.push("local");
+  if (affirmed(sentence, GOES_REMOTE)) out.push("remote");
+  return out;
+}
+
+/** Other catalogued tools a sentence names, whose mode makes `claim` true. */
+function namedSupporters(
+  sentence: string,
+  claim: Claim,
+  self: string,
+): string[] {
+  return catalogueTools
+    .filter((t) => t.slug !== self)
+    .filter((t) =>
+      new RegExp(`(?<![\\w])${escapeRe(t.name)}(?![\\w])`).test(sentence),
+    )
+    .filter((t) =>
+      claim === "local"
+        ? modeHasBrowserPath(t.processing)
+        : modeUploadsFiles(t.processing),
+    )
+    .map((t) => t.name);
+}
+
+function escapeRe(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** The `|`-separated alternatives of a `\b(?:a|b|c)\b` pattern, nesting kept. */
+function topLevelAlternatives(pattern: RegExp): string[] {
+  const inner = pattern.source.replace(/^\\b\(\?:/, "").replace(/\)\\b$/, "");
+  const alts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i]!;
+    if (ch === "\\") {
+      current += ch + inner[i + 1];
+      i++;
+      continue;
+    }
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "|" && depth === 0) {
+      alts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  alts.push(current);
+  return alts;
+}
+
+export function sentencesOf(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+/).filter(Boolean);
+}
+
+/** Every string of prose the rendered page carries for this tool. */
+function pageProse(tool: Tool): string[] {
+  return [
+    ...pageIntro(tool),
+    ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
+    ...pageSteps(tool).map(stepText),
+    ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+  ];
+}
+
+interface BodyClaim {
+  sentence: string;
+  claim: Claim;
+  supporters: string[];
+}
+
+function bodyClaims(tool: Tool, prose = pageProse(tool)): BodyClaim[] {
+  const out: BodyClaim[] = [];
+  for (const text of prose)
+    for (const sentence of sentencesOf(text))
+      for (const claim of sentenceClaims(sentence))
+        out.push({
+          sentence,
+          claim,
+          supporters: namedSupporters(sentence, claim, tool.slug),
+        });
+  return out;
+}
+
+function bodyLocationProblems(
+  tool: Tool,
+  mode: ProcessingMode = tool.processing,
+  prose = pageProse(tool),
+): string[] {
+  if (hasBothPaths(mode)) return [];
+  return bodyClaims(tool, prose)
+    .filter((c) => c.supporters.length === 0)
+    .filter((c) =>
+      c.claim === "local" ? !modeHasBrowserPath(mode) : !modeUploadsFiles(mode),
+    )
+    .map((c) =>
+      c.claim === "local"
+        ? `says the work stays local, but "${mode}" has no browser path: ${c.sentence}`
+        : `says the file is uploaded, but "${mode}" never uploads: ${c.sentence}`,
+    );
+}
+
+const catalogueTools = catalogue.map((slug) => getToolBySlug(slug)!);
+const catalogueModes = [...new Set(catalogueTools.map((t) => t.processing))];
+
+/** A mode with a browser path AND an upload path, where either claim is true. */
+function hasBothPaths(mode: ProcessingMode): boolean {
+  return modeUploadsFiles(mode) && modeHasBrowserPath(mode);
+}
+
+describe("the body's location claims are the tool's mode", () => {
+  it.each(catalogue)("%s", (slug) => {
+    expect(bodyLocationProblems(getToolBySlug(slug)!)).toEqual([]);
+  });
+
+  it("health check: both claims are made, both exemptions are used", () => {
+    // `[] ⊆ X`: a claim detector gone blind passes every page above.
+    const all = catalogueTools.flatMap((t) =>
+      bodyClaims(t).map((c) => ({ ...c, mode: t.processing })),
+    );
+    const localOnClient = all.filter(
+      (c) => c.claim === "local" && !modeUploadsFiles(c.mode),
+    );
+    const remoteOnServer = all.filter(
+      (c) => c.claim === "remote" && modeUploadsFiles(c.mode),
+    );
+    expect(localOnClient.length).toBeGreaterThanOrEqual(29);
+    expect(remoteOnServer.length).toBeGreaterThanOrEqual(20);
+    // The named-tool exemption is exercised in BOTH directions today...
+    expect(
+      all.filter((c) => !modeUploadsFiles(c.mode) && c.claim === "remote")
+        .length,
+    ).toBeGreaterThanOrEqual(10);
+    expect(
+      all.filter((c) => !modeHasBrowserPath(c.mode) && c.claim === "local")
+        .length,
+    ).toBeGreaterThanOrEqual(3);
+    // ...and the negation is too: these server pages say where they do NOT run.
+    const negated = catalogueTools
+      .filter((t) => !modeHasBrowserPath(t.processing))
+      .flatMap((t) => pageProse(t).flatMap(sentencesOf))
+      .filter(
+        (s) =>
+          RUNS_LOCALLY_BODY.test(s) && !sentenceClaims(s).includes("local"),
+      );
+    expect(negated.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("every alternative in the claim patterns catches a sentence that ships", () => {
+    // Rule 1, the second direction: a spelling nothing exercises is
+    // decoration, and it is where a pattern quietly stops meaning its name.
+    // (The first direction is the mode-change control below: every page's
+    // own location sentences are caught once its mode is wrong.)
+    const shipped = catalogueTools.flatMap((t) => [
+      getToolContent(t.slug)!.seoTitle,
+      getToolContent(t.slug)!.metaDescription,
+      ...pageProse(t).flatMap(sentencesOf),
+    ]);
+    const patterns = { NO_UPLOAD, STAYS_LOCAL, RUNS_LOCALLY_BODY, GOES_REMOTE };
+    let total = 0;
+    for (const [name, pattern] of Object.entries(patterns)) {
+      const alts = topLevelAlternatives(pattern);
+      // Health: the splitter really split (a blind one returns the whole).
+      expect(alts.length, `${name} split into alternatives`).toBeGreaterThan(3);
+      total += alts.length;
+      for (const alt of alts) {
+        const one = new RegExp(`\\b(?:${alt})\\b`, "i");
+        expect(
+          shipped.some((s) => one.test(s)),
+          `${name}'s "${alt}" matches no shipped sentence`,
+        ).toBe(true);
+      }
+    }
+    expect(total).toBeGreaterThanOrEqual(20);
+  });
+
+  it("positive control: the reviewer's mutation on protect-pdf is caught", () => {
+    const protect = getToolBySlug("protect-pdf")!;
+    expect(protect.processing).toBe("server");
+    const mutated = [
+      "Your file is never uploaded; it stays on your device.",
+      ...pageProse(protect),
+    ];
+    expect(bodyLocationProblems(protect, protect.processing, mutated)).toEqual([
+      'says the work stays local, but "server" has no browser path: Your file is never uploaded; it stays on your device.',
+    ]);
+    // A named tool that does NOT support the claim is no cover for it.
+    expect(
+      bodyLocationProblems(protect, "server", [
+        "Unlike Unlock PDF, your file is never uploaded.",
+      ]),
+    ).toHaveLength(1);
+    // Negated, it is the true statement it is on a server page.
+    expect(
+      bodyLocationProblems(protect, "server", [
+        "qpdf is a native program, so this tool does not run in your browser.",
+      ]),
+    ).toEqual([]);
+  });
+
+  it("positive control: a tool that changes mode turns its own body red", () => {
+    // The property: each page's body is true of ITS mode, and false of the
+    // other. Moved to the browser, Protect PDF's page still describes the
+    // worker; moved to the worker, Split PDF's still promises the browser.
+    const protect = getToolBySlug("protect-pdf")!;
+    const split = getToolBySlug("split-pdf")!;
+    expect(bodyLocationProblems(protect, "client").length).toBeGreaterThan(0);
+    expect(bodyLocationProblems(split, "server").length).toBeGreaterThan(0);
+    // Every page with a single-sided mode says enough to be caught if moved.
+    for (const t of catalogueTools) {
+      if (hasBothPaths(t.processing)) continue;
+      // The mode on the other side of BOTH questions, found in the catalogue
+      // rather than typed: a tool that never uploads moves to one with no
+      // browser path, and the reverse.
+      const other = catalogueModes.find(
+        (m) =>
+          modeUploadsFiles(m) !== modeUploadsFiles(t.processing) &&
+          modeHasBrowserPath(m) !== modeHasBrowserPath(t.processing),
+      )!;
+      expect(
+        bodyLocationProblems(t, other).length,
+        `${t.slug}'s page would read the same if its tool changed mode`,
+      ).toBeGreaterThan(0);
+    }
   });
 });

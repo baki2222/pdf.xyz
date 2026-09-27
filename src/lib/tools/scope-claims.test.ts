@@ -74,6 +74,12 @@ const DELIVERY_CLAIMS: readonly RegExp[] = [
   /\bcollect(?:s|ing)? (?:legally-binding |audited )?e-?signatures\b/gi,
   /\bcollect(?:s|ing)? signatures from\b/gi,
   /\bsends? (?:a |the )?(?:document|pdf|request)s? to (?:others|recipients|signers|other people)\b/gi,
+  // Synonyms, added 2026-09-27 when review put "pdf.xyz emails the PDF to
+  // each signer and tracks who has signed." through the full suite, green.
+  // Delivery by another verb is still delivery, and tracking who has signed
+  // is collection by another name.
+  /\bemails? (?:it|them|(?:a |the )?(?:document|pdf|request|package)s?) to (?:each |every |all |the |your )?(?:signers?|recipients?|others|other people)\b/gi,
+  /\btrack(?:s|ing)? (?:who has signed|who signed|(?:the |signing |signature )?status)\b/gi,
 ];
 
 /** Copy that says compare finds every change. */
@@ -90,6 +96,8 @@ const SHIPPED = {
     "Collect legally-binding e-signatures.",
     "Send a document to others, track status, and collect audited e-signatures in order.",
     "To collect signatures from others, use the Request Signatures tool, which sends a document to recipients",
+    // Review of seo/content, 2026-09-27: the synonym that passed the suite.
+    "pdf.xyz emails the PDF to each signer and tracks who has signed.",
   ],
   exhaustiveDiff: [
     "lock form fields into the page, or compare two versions to see exactly what changed.",
@@ -104,6 +112,7 @@ const HONEST = [
   "or prepare signing fields for other people, ready for you to send.",
   "You send it to them yourself: pdf.xyz sets up the signing fields and does not deliver it or collect signatures.",
   "or compare the text, page count and file size of two versions.",
+  "Email a payslip or tax return to an accountant",
 ];
 
 function hits(text: string, patterns: readonly RegExp[]): string[] {
@@ -116,8 +125,11 @@ function hits(text: string, patterns: readonly RegExp[]): string[] {
  * not a ceiling, so the number can only move in the change that moves it.
  */
 const PENDING_DELIVERY: Record<string, number> = {
-  "src/lib/tools/catalog.ts": 3,
-  "src/lib/guides/catalog.ts": 6,
+  // Raised 2026-09-27 by the "track status" pattern, not by new copy: the
+  // same catalogue and guide sentences, now counted for the tracking claim
+  // they already made (3 -> 4 and 6 -> 8).
+  "src/lib/tools/catalog.ts": 4,
+  "src/lib/guides/catalog.ts": 8,
 };
 
 /* ------------------------------------------------------------------ *

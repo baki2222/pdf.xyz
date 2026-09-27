@@ -314,7 +314,8 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
    * engine cap reached this branch the page would have advertised 100 MB
    * against a gate that refuses at 2 MB. Deriving it per tool
    * closes both: `toolFileCeilingMb` reads the constant the tool's own runner
-   * (or the worker upload gate) compares against, and returns `null` only for a
+   * (or the worker upload gate, or the lower engine cap behind it) compares
+   * against, and returns `null` only for a
    * tool with no file input at all, whose page must not state a per-file cap.
    */
   const ceilingMb = toolFileCeilingMb(tool);

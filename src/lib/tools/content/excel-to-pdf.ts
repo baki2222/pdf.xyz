@@ -1,7 +1,7 @@
 import type { ToolContent } from "./types";
 import { getToolBySlug } from "@/lib/tools";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { officePdfOutputName } from "@/lib/workers/processor/office-conversion";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
 
@@ -35,10 +35,14 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *    maxAttempts — it does not fail on the first attempt. The browser stops
  *    polling after DEFAULT_MAX_POLL_ATTEMPTS and says so. too_large is
  *    non-retryable and checked before conversion.
- *  - converter input cap and timeout: native-config.ts defaults, overridable on
- *    the worker (PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES / _TIMEOUT_MS); the
- *    production env was not read, so both are stated as defaults. The cap is
- *    enforced by engine.ts AFTER upload (too_large, non-retryable).
+ *  - size: ONE figure, `toolFileCeiling` — the smaller of the upload gate and
+ *    the converter's input cap (native-config.ts default, overridable on the
+ *    worker by PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES; the production env
+ *    was not read, so it is stated as a default). The cap is enforced by
+ *    engine.ts AFTER upload (too_large, non-retryable). Until 2026-09-27 this
+ *    FAQ stated the gate as "the upload itself is turned away above" beside
+ *    the cap, and the derived FAQ answered "Up to 100 MB", which was false.
+ *  - timeout: native-config.ts default (_TIMEOUT_MS), stated as a default.
  *  - output name: processor/office-conversion.ts `officePdfOutputName`.
  *  - retention: src/app/privacy/page.tsx ("typically survive a few hours").
  *
@@ -62,22 +66,21 @@ const MB = 1024 * 1024;
 const officeDefaults = resolveNativeOfficeConversionConfig({});
 const formatsAnd = listOf(accepted, "and");
 const formatsOr = listOf(accepted, "or");
-const CEILING_MB = Math.round(WORKER_FILE_CEILING / MB);
-const CONVERTER_DEFAULT_MB = Math.round(officeDefaults.maxInputBytes / MB);
+const CEILING = tool ? toolFileCeiling(tool) : null;
+const CEILING_MB = Math.round((CEILING?.bytes ?? 0) / MB);
 const TIMEOUT_DEFAULT_SECONDS = Math.round(officeDefaults.timeoutMs / 1000);
 const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 const EXAMPLE_IN = "Q3 budget.xlsx";
 const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
 
 /**
- * Only describe a second, lower gate when the default actually is lower. The
- * worker can override the default (PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES),
- * so the copy says "by default" and never presents it as the live figure.
+ * Who refuses above the ceiling. When the converter's cap is the lower one, a
+ * bigger file is uploaded first and refused after, which is worth saying.
  */
-const converterCap =
-  CONVERTER_DEFAULT_MB < CEILING_MB
-    ? ` The LibreOffice converter has a lower input cap of its own, ${CONVERTER_DEFAULT_MB} MB unless the worker is configured otherwise; a bigger file is still uploaded, then turned away with a size error before any conversion starts, so nothing half-rendered comes back.`
-    : "";
+const sizeRefusal =
+  CEILING?.tier === "worker" && CEILING.engine
+    ? `The LibreOffice converter takes a file of up to ${CEILING_MB} MB unless the worker is configured otherwise; a bigger one is still uploaded, then turned away with a size error before any conversion starts, so nothing half-rendered comes back.`
+    : `Files of up to ${CEILING_MB} MB are accepted.`;
 
 const content: ToolContent = {
   slug: "excel-to-pdf",
@@ -149,7 +152,7 @@ const content: ToolContent = {
     },
     {
       q: "How large can the file be, and what if it fails?",
-      a: `The upload itself is turned away above ${CEILING_MB} MB per file.${converterCap} If LibreOffice errors, or runs past its time limit (${TIMEOUT_DEFAULT_SECONDS} seconds by default), the worker retries a limited number of times and returns no file if all attempts fail. If the page stops waiting, it says so, and Convert to PDF starts a fresh job.`,
+      a: `${sizeRefusal} If LibreOffice errors, or runs past its time limit (${TIMEOUT_DEFAULT_SECONDS} seconds by default), the worker retries a limited number of times and returns no file if all attempts fail. If the page stops waiting, it says so, and Convert to PDF starts a fresh job.`,
     },
     {
       q: "Is my spreadsheet stored?",

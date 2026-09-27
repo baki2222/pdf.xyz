@@ -76,13 +76,13 @@ const rtlScripts = list(
 const content: ToolContent = {
   slug: "sign-pdf",
 
-  seoTitle: "Sign PDF Online — Draw, Type or Upload a Signature",
+  seoTitle: "Sign PDF Online: Draw, Type or Add a Signature",
 
   metaDescription:
-    "Sign a PDF in your browser: draw, type or upload your signature, then pin it to any page's corner, edge or center. Nothing is uploaded to pdf.xyz.",
+    "Sign a PDF in your browser: draw or type your signature, or add an image of it, then pin it to a page's corner, edge or center. Nothing is uploaded to pdf.xyz.",
 
   intro: [
-    `Sign PDF puts your signature on a document you already have, such as an offer letter, a lease or a consent form. Draw it with a mouse, pen or fingertip, type your name in the Script (serif italic) or Print style, or upload a PNG or JPEG of the signature you already use. Then pick the page and one of ${anchorCount} anchor points (corners, edge midpoints or center) and tune Size and Margin until it sits on the line.`,
+    `Sign PDF puts your signature on a document you already have, such as an offer letter, a lease or a consent form. Draw it with a mouse, pen or fingertip, type your name in the Script (serif italic) or Print style, or pick a PNG or JPEG of the signature you already use under Upload; the image is read on your device. Then pick the page and one of ${anchorCount} anchor points (corners, edge midpoints or center) and tune Size and Margin until it sits on the line.`,
     `Everything runs in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. Ink is added to the chosen page only; the other pages, fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. A name with letters beyond the Western European alphabet (a Polish Ł counts) is drawn in a Noto font the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
     "The result is a visual electronic signature: no certificate, no PKI, no tamper evidence. The FAQ below says what that means if someone asks how you signed.",
   ],
@@ -94,7 +94,7 @@ const content: ToolContent = {
     },
     {
       title: "Reusing the signature you keep on file",
-      body: "Upload a PNG of your scanned signature with a transparent background, and the page shows through around the ink instead of a rectangle of paper.",
+      body: "Under Upload, choose a PNG of your scanned signature with a transparent background, and the page shows through around the ink instead of a rectangle of paper.",
     },
     {
       title: "A form that also needs your signature",
@@ -143,12 +143,12 @@ const content: ToolContent = {
       a: "Each run signs one page. To add another, download the signed PDF, press Start over, open that copy and sign the next page. Type mode is not limited to a name, so initials or a date go on the same way, one pass each.",
     },
     {
-      q: "Why is there a box around my uploaded signature?",
+      q: "Why is there a box around my signature image?",
       a: "A JPEG cannot be transparent, so the paper around your ink, white or the grey of a scan, lands on the page with it. A PNG avoids that only if its background really is transparent; a signature drawn on the pad always is, because the pad exports ink with nothing behind it.",
     },
     {
       q: "Can I sign a password-protected or already certified PDF?",
-      a: `Any encryption blocks signing, whether it guards opening the file or only printing and copying. Unlock PDF can remove it if you know a password: the open password, or the owner password for a file that opens freely but is restricted. Unlike signing, unlocking is not done in your browser: the file is uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that already carries a certificate signature can be signed here, but the whole file is rewritten rather than appended to, so the byte range that certificate covers no longer lines up with the file; expect a viewer that checks signatures to flag it.`,
+      a: `Any encryption blocks signing, whether it guards opening the file or only printing and copying. Unlock PDF can remove it if you know a password: the open password, or the owner password for a file that opens freely but is restricted. Unlike signing, Unlock PDF does not run in your browser: the file is uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the unlocked copy's link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that. A PDF that already carries a certificate signature can be signed here, but the whole file is rewritten rather than appended to, so the byte range that certificate covers no longer lines up with the file; expect a viewer that checks signatures to flag it.`,
     },
   ],
 

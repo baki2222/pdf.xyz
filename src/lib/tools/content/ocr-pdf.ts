@@ -123,7 +123,7 @@ const content: ToolContent = {
     },
     {
       title: "Add the scan and run it",
-      body: `Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Run OCR on the worker. That area appears only after the page confirms the OCR worker is available, and nothing is uploaded until you press the button.`,
+      body: `Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Run OCR on the worker. That area appears only after the page confirms the OCR worker is available, and your file is sent only when you press the button.`,
     },
     {
       title: "Download and check the result",

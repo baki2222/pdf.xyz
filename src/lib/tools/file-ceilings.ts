@@ -2,6 +2,8 @@ import { getToolInputKind } from "@/lib/jobs/capabilities";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
+import { HTML_RENDER_DEFAULT_MAX_INPUT_BYTES } from "@/lib/workers/html-render/native-config";
+import { OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES } from "@/lib/workers/office-conversion/native-config";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import type { Tool } from "./types";
 
@@ -45,6 +47,10 @@ import type { Tool } from "./types";
  *  - everything else is worker-tier, and `JOB_LIMITS.maxFileBytes` is not a
  *    fallback there: it is the constant `parseCreateUploadSessionRequest`,
  *    `evaluateIntake` and the worker store all compare an upload against.
+ *  - ...UNLESS the engine that runs the tool refuses lower
+ *    ({@link ENGINE_INPUT_CEILINGS}). Then the ceiling is the smaller of the
+ *    two, because a file between them uploads and is then refused: the upload
+ *    gate is not the size of file the tool can convert.
  */
 
 /**
@@ -90,6 +96,51 @@ export const RUNNER_FILE_CEILINGS: Record<RunnerKind, number> = {
 export const WORKER_FILE_CEILING = JOB_LIMITS.maxFileBytes;
 
 /**
+ * Worker engines that refuse an input BELOW the upload gate, by tool: the
+ * engine's own default `maxInputBytes`, read from its config module.
+ *
+ * Added 2026-09-27 after a review of the tool-page content. The Word, Excel,
+ * PowerPoint and HTML pages stated "Up to 100 MB per file" (this module's
+ * ceiling, then the upload gate alone) and, a few lines higher, "the converter
+ * refuses a Word file over 50 MB" — both in the FAQPage JSON-LD. The second was
+ * true; the first was the gate, not the ceiling. A guard class had been added
+ * that called the 50 MB and 20 MB "NOT the per-file ceiling of the file the
+ * reader picks", which is exactly what they are; it licensed the false figure
+ * and was removed in the same change as this table.
+ *
+ * Keyed by slug because the engine modules that own the tool lists import
+ * pdf-lib, and this module reaches a client bundle. `file-ceilings.test.ts`
+ * holds the keys to those lists (`OFFICE_TO_PDF_TOOLS`, `HTML_TO_PDF_TOOL`) in
+ * both directions, and discovers every worker config whose default cap is
+ * below the gate, so an engine that starts refusing lower cannot be missed.
+ *
+ * These are DEFAULTS: the worker's env can override each
+ * (`PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES`, `PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES`).
+ * The same test fails if any deploy artifact in this repo sets either; the
+ * production worker's own env is outside what a test here can read.
+ */
+export const ENGINE_INPUT_CEILINGS: Readonly<
+  Record<string, { readonly engine: string; readonly bytes: number }>
+> = {
+  "word-to-pdf": {
+    engine: "LibreOffice",
+    bytes: OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES,
+  },
+  "excel-to-pdf": {
+    engine: "LibreOffice",
+    bytes: OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES,
+  },
+  "powerpoint-to-pdf": {
+    engine: "LibreOffice",
+    bytes: OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES,
+  },
+  "html-to-pdf": {
+    engine: "Chromium",
+    bytes: HTML_RENDER_DEFAULT_MAX_INPUT_BYTES,
+  },
+};
+
+/**
  * Where a tool's ceiling comes from. The tier is carried, not just the number,
  * so a surface can say *which* thing refuses the file and a guard can check the
  * classification rather than only the value.
@@ -100,7 +151,12 @@ export type ToolFileCeiling =
       readonly runner: RunnerKind;
       readonly bytes: number;
     }
-  | { readonly tier: "worker"; readonly bytes: number }
+  | {
+      readonly tier: "worker";
+      readonly bytes: number;
+      /** Set when the engine, not the upload gate, is the lower refusal. */
+      readonly engine?: string;
+    }
   | { readonly tier: "no-file-input"; readonly bytes: null };
 
 export function toolFileCeiling(tool: Tool): ToolFileCeiling {
@@ -113,6 +169,12 @@ export function toolFileCeiling(tool: Tool): ToolFileCeiling {
   if (runner) {
     return { tier: "in-browser", runner, bytes: RUNNER_FILE_CEILINGS[runner] };
   }
+  const engine = Object.hasOwn(ENGINE_INPUT_CEILINGS, tool.slug)
+    ? ENGINE_INPUT_CEILINGS[tool.slug]
+    : undefined;
+  if (engine && engine.bytes < WORKER_FILE_CEILING) {
+    return { tier: "worker", bytes: engine.bytes, engine: engine.engine };
+  }
   return { tier: "worker", bytes: WORKER_FILE_CEILING };
 }
 
@@ -123,7 +185,7 @@ export function toolFileCeilingBytes(tool: Tool): number | null {
 
 /**
  * The ceiling in whole megabytes — the unit every one of these surfaces states
- * it in. All three constants are exact multiples of a mebibyte today, so this
+ * it in. Every constant it can return is an exact multiple of a mebibyte today, so this
  * neither rounds a cap up (advertising bytes the gate refuses) nor down.
  */
 export function toolFileCeilingMb(tool: Tool): number | null {
