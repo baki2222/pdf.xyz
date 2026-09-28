@@ -184,12 +184,21 @@ function stubNetwork() {
   return fetchMock;
 }
 
-/** Tools whose run button also waits on something other than the file. */
+/**
+ * Tools whose run button also waits on something other than the file.
+ *
+ * `unlock-pdf` joined at the merge of wave1/l06-copy-other (2026-09-28). This
+ * lane had let Unlock run with a blank password, so a file was all it needed;
+ * the integrated product keeps the other lane's rule (a50c54c) that Unlock
+ * removes protection only with a password the file accepts, and its form
+ * waits for one like Protect's does.
+ */
 const NEEDS_MORE_THAN_A_FILE = new Set([
   "ai-extract",
   "chat-with-pdf",
   "protect-pdf",
   "request-signatures",
+  "unlock-pdf",
 ]);
 
 const blocked = (el: Element) => el.getAttribute("aria-disabled") === "true";
@@ -334,7 +343,7 @@ describe.each(
 
     expect(await screen.findByText(file.name)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    // Where the file is all the run needs, the button unblocks. Four panels
+    // Where the file is all the run needs, the button unblocks. Five panels
     // also need a prompt, a question, a password or a signer, so for them the
     // staged file name above is the evidence — and the set is held to that:
     // a tool that stops needing more must leave it.
