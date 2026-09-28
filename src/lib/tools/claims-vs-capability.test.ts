@@ -67,9 +67,13 @@
  * from the thing that must already be true for the tool to work: the runner
  * registry's kind, the engine's own tool constant, the panel the tool page
  * mounts. The copy is read through the functions the pages call — the
- * JSON-LD builders, `howToSteps`, `toolFacts`, `toolFaq`, and every guide
- * whose `tools` field names the subject — so the corpus is what a crawler and
- * a reader receive.
+ * JSON-LD builders, `toolFacts`, the `@/lib/tools/page-copy` accessors (the
+ * authored title, description, intro, use cases, steps and FAQ the tool page
+ * renders), and every guide whose `tools` field names the subject — so the
+ * corpus is what a crawler and a reader receive. It read `howToSteps` and
+ * `toolFaq` until the authored content landed (seo/content); from then those
+ * were no longer what the page served, and the corpus scanned copy no reader
+ * received.
  *
  * The page modules themselves are NOT imported: importing the tool page
  * evaluates every worker panel, and one panel test mocks its client, so under
@@ -106,7 +110,15 @@ import { tools, getToolBySlug } from "@/lib/tools";
 import { guides } from "@/lib/guides";
 import type { Guide } from "@/lib/guides";
 import type { Tool } from "./types";
-import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
+import { toolFacts } from "./tool-facts";
+import {
+  pageDescription,
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageTitle,
+  pageUseCases,
+} from "./page-copy";
 import { withoutComments } from "./copy-surface";
 import {
   articleSchema,
@@ -235,20 +247,26 @@ function metadataFields(pageFile: string, entity: string): string[] {
   if (!body || !body.includes("buildMetadata("))
     throw new Error(`${pageFile}: no generateMetadata/buildMetadata found`);
   return [
-    ...new Set(
-      [...body.matchAll(new RegExp(`\\b${entity}\\.(\\w+)`, "g"))].map(
+    ...new Set([
+      ...[...body.matchAll(new RegExp(`\\b${entity}\\.(\\w+)`, "g"))].map(
         (m) => m[1]!,
       ),
-    ),
+      // A copy accessor handed the entity (`pageTitle(tool)`) is a field too:
+      // the tool page's title and description come through
+      // `@/lib/tools/page-copy`, and a direct-field scan alone misses them.
+      ...[...body.matchAll(new RegExp(`\\b(\\w+)\\(${entity}\\)`, "g"))].map(
+        (m) => `${m[1]!}()`,
+      ),
+    ]),
   ].sort();
 }
 
 /** Fields of each entity the containers read as served meta copy. */
 const TOOL_META_FIELDS = [
-  "description",
   "keywords",
   "name",
-  "seoTitle",
+  "pageDescription()",
+  "pageTitle()",
   "slug",
   "tagline",
 ];
@@ -256,8 +274,9 @@ const GUIDE_META_FIELDS = ["description", "keywords", "slug", "title"];
 
 async function toolContainer(tool: Tool): Promise<Container> {
   const texts = [
-    // <title> and og:title when set (the page falls back to the name).
-    ...(tool.seoTitle ? [tool.seoTitle] : []),
+    // <title> and og:title, and the meta description, as the page serves them.
+    pageTitle(tool),
+    pageDescription(tool),
     tool.tagline,
     tool.description,
     // og:image:alt, exactly as the page composes it.
@@ -265,9 +284,12 @@ async function toolContainer(tool: Tool): Promise<Container> {
     ...tool.keywords,
     ...toolFacts(tool.slug).flatMap((f) => [f.label, f.value]),
     ...prose(toolApplicationSchema(tool)),
-    ...prose(howToSchema(tool.name, howToSteps(tool))),
+    // "About this tool": the authored intro and use cases.
+    ...pageIntro(tool),
+    ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
+    ...prose(howToSchema(tool.name, pageSteps(tool))),
     ...prose(
-      faqPageSchema(toolFaq(tool).map((e) => ({ q: e.question, a: e.answer }))),
+      faqPageSchema(pageFaq(tool).map((e) => ({ q: e.question, a: e.answer }))),
     ),
   ];
   return { where: `/tools/${tool.slug}`, home: tool.slug, texts };

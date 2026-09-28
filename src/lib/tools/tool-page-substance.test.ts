@@ -158,13 +158,13 @@ const GENERIC_OPTIONS_STEP = /^\s*choose (?:your|the) options\.?\s*$/i;
  * own steps: pdf-to-markdown, pdf-to-text, header-footer and compare-pdf as
  * authored `how`, grayscale-pdf, page-numbers and overlay-pdf as DERIVED_STEPS
  * built from their runners' constants.
+ *
+ * EMPTIED 2026-09-28 at the seo/content merge: the authored content gave the
+ * last four (extract-pages, watermark-pdf, fill-forms, create-forms) steps of
+ * their own. It stays, empty, so a tool that falls back to the template again
+ * fails the test above by name.
  */
-const DEFAULT_STEPS_BASELINE = new Set([
-  "extract-pages",
-  "watermark-pdf",
-  "fill-forms",
-  "create-forms",
-]);
+const DEFAULT_STEPS_BASELINE = new Set<string>([]);
 
 /**
  * The template, as a tool with NO steps of its own would get it. The slug is

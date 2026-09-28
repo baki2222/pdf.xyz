@@ -136,7 +136,12 @@ import {
 import { runAiExtract } from "@/lib/workers/ai-extract/engine";
 import type { AiProvider } from "@/lib/workers/ai/provider";
 import { withoutComments } from "./copy-surface";
-import { FACTS_SLUGS, SPLIT_NAME_EXAMPLES, toolFacts } from "./tool-facts";
+import {
+  FACTS_SLUGS,
+  SPLIT_NAME_EXAMPLES,
+  modeFaq,
+  toolFacts,
+} from "./tool-facts";
 import {
   renderToolPages,
   type RenderedToolPage,
@@ -214,12 +219,16 @@ const SHIPPED_MERGE_FAQ = [
 const normalize = (question: string, tool: Tool) =>
   question.split(tool.name).join("{tool}");
 
-function templatedQuestions(): Set<string> {
+/** The questions each tool page serves: the census the detector reads. */
+const servedQuestions = (tool: Tool): readonly string[] =>
+  page(tool.slug).faq.map((e) => e.question);
+
+function templatedQuestions(
+  questionsOf: (tool: Tool) => readonly string[] = servedQuestions,
+): Set<string> {
   const askedOn = new Map<string, number>();
   for (const tool of tools) {
-    const seen = new Set(
-      page(tool.slug).faq.map((e) => normalize(e.question, tool)),
-    );
+    const seen = new Set(questionsOf(tool).map((q) => normalize(q, tool)));
     for (const q of seen) askedOn.set(q, (askedOn.get(q) ?? 0) + 1);
   }
   const floor = Math.ceil(tools.length / 4);
@@ -240,7 +249,17 @@ function ownQuestions(
 describe("every tool page answers a question of its own", () => {
   it("the detector classifies the shipped boilerplate as templated (positive control)", () => {
     expect(pages.size, "the render lost pages").toBe(tools.length);
-    const templated = templatedQuestions();
+    // The census the boilerplate lived in: every served page PLUS the mode
+    // template (`modeFaq`) it was built from. Since the authored content
+    // (seo/content) a page with its own FAQ no longer serves that template,
+    // so on the served census alone "Is my file uploaded when I use …?" is
+    // asked on a handful of pages and is — correctly — not boilerplate any
+    // more. The control still has to show the detector CAN see it, so it runs
+    // the same predicate over the census that carries it.
+    const templated = templatedQuestions((tool) => [
+      ...servedQuestions(tool),
+      ...modeFaq(tool).map((e) => e.question),
+    ]);
     const merge = tools.find((t) => t.slug === "merge-pdf")!;
     for (const q of SHIPPED_MERGE_FAQ)
       expect(templated.has(normalize(q, merge)), q).toBe(true);
@@ -258,6 +277,11 @@ describe("every tool page answers a question of its own", () => {
       templated.size,
       `implausibly many templated questions: ${[...templated].join(" | ")}`,
     ).toBeLessThan(10);
+    // …and on the served census the detector still finds the boilerplate that
+    // IS served everywhere (the size question), and not the whole FAQ.
+    const served = templatedQuestions();
+    expect(served.has("How large can my file be?")).toBe(true);
+    expect(served.size).toBeLessThan(10);
   });
 
   it("no served page's FAQ consists only of templated questions", () => {

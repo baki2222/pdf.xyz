@@ -1030,8 +1030,10 @@ describe("an engine that refuses below the upload gate sets the ceiling", () => 
     const names = new Set<string>();
     for (const cap of caps.filter((c) => c.bytes < WORKER_FILE_CEILING)) {
       const source = read(path.join(ROOT, cap.module.replace(/^\//, "")));
+      // `Math.max(` in front since wave1 made an override able only to RAISE
+      // the published default; the variable is the same one.
       for (const match of source.matchAll(
-        /maxInputBytes:\s*parsePositiveInt\(\s*env\.(\w+)/g,
+        /maxInputBytes:\s*(?:Math\.max\(\s*)?parsePositiveInt\(\s*env\.(\w+)/g,
       ))
         names.add(match[1]!);
     }

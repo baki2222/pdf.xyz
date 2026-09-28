@@ -128,8 +128,15 @@ const PENDING_DELIVERY: Record<string, number> = {
   // Raised 2026-09-27 by the "track status" pattern, not by new copy: the
   // same catalogue and guide sentences, now counted for the tracking claim
   // they already made (3 -> 4 and 6 -> 8).
-  "src/lib/tools/catalog.ts": 4,
-  "src/lib/guides/catalog.ts": 8,
+  //
+  // Shrunk to 1 and 1 at the seo/content merge (2026-09-28): wave1 rewrote the
+  // Request Signatures catalogue and guide copy to say what the tool does
+  // (prepare the package; you send it). What still counts is one denial each —
+  // "pdf.xyz does not email it or track who has signed" and the FAQ question
+  // "Can I collect signatures from other people?" — which the shapes cannot
+  // tell from a claim, so they stay counted rather than exempted.
+  "src/lib/tools/catalog.ts": 1,
+  "src/lib/guides/catalog.ts": 1,
 };
 
 /* ------------------------------------------------------------------ *

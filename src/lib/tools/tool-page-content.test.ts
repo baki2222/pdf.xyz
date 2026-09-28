@@ -64,6 +64,7 @@ import type { Guide } from "@/lib/guides";
 import type { Tool } from "./types";
 import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
+import * as pageCopy from "./page-copy";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { STAMP_POSITIONS, applyTokens } from "@/lib/pdf/stamp";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
@@ -488,10 +489,27 @@ function servedToolTitle(): (t: Tool) => string {
     .find((args) => /\bpath:/.test(args));
   const expr = call && /\btitle:\s*([^,\n]+),/.exec(call)?.[1]?.trim();
   if (!expr) throw new Error("tool page: no title in its buildMetadata call");
-  // Only property reads of `tool` may be evaluated — never arbitrary source.
-  if (!/^tool\.\w+(\s*\?\?\s*tool\.\w+)*$/.test(expr))
+  let pick: (t: Tool) => string;
+  const accessor = /^(\w+)\(tool\)$/.exec(expr);
+  if (accessor) {
+    // Since seo/content the page hands the title to a `@/lib/tools/page-copy`
+    // accessor (the authored search title, then the catalogue's). It is
+    // resolved as that module's OWN export, and only if the page imports it
+    // from there — never evaluated as source.
+    const name = accessor[1]!;
+    const imported = new RegExp(
+      `import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*"@/lib/tools/page-copy"`,
+    ).test(page);
+    const fn = (pageCopy as Record<string, unknown>)[name];
+    if (!imported || typeof fn !== "function")
+      throw new Error(`tool page: ${name} is not a page-copy accessor`);
+    pick = fn as (t: Tool) => string;
+  } else if (/^tool\.\w+(\s*\?\?\s*tool\.\w+)*$/.test(expr)) {
+    // Only property reads of `tool` may be evaluated — never arbitrary source.
+    pick = new Function("tool", `return (${expr});`) as (t: Tool) => string;
+  } else {
     throw new Error(`tool page: unexpected title expression "${expr}"`);
-  const pick = new Function("tool", `return (${expr});`) as (t: Tool) => string;
+  }
 
   const layout = withoutComments(read("src/app/layout.tsx"));
   const raw = /template:\s*`([^`]*)`/.exec(layout)?.[1];
@@ -524,6 +542,11 @@ const words = (text: string) =>
  * guards already read (name, tagline, description, keywords), or the formats
  * the page lists it taking and producing (`accept`, `outputs`) — Add Page
  * Numbers never writes "PDF" in its prose, and it only takes PDFs.
+ *
+ * Since seo/content the page also serves an authored meta description, intro,
+ * use cases, steps and FAQ (`@/lib/tools/page-copy`), and the honesty guards
+ * read those too — so they back a title word as the catalogue copy does. The
+ * seoTitle itself is never its own backing.
  */
 function unbackedTitleWords(t: Tool, seoTitle: string): string[] {
   const backed = new Set(
@@ -535,11 +558,23 @@ function unbackedTitleWords(t: Tool, seoTitle: string): string[] {
         ...t.keywords,
         ...t.accept,
         ...t.outputs,
+        pageCopy.pageDescription(t),
+        ...pageCopy.pageIntro(t),
+        ...pageCopy.pageUseCases(t).flatMap((u) => [u.title, u.body]),
+        ...pageCopy.pageSteps(t).map(pageCopy.stepText),
+        ...pageCopy.pageFaq(t).flatMap((e) => [e.question, e.answer]),
       ].join(" "),
     ),
   );
   return [...new Set(words(seoTitle))].filter((w) => !backed.has(w));
 }
+
+/** The search title a tool has, authored or catalogue, if any. */
+const seoTitleOf = (t: Tool): string | undefined =>
+  pageCopy.pageContent(t)?.seoTitle ?? t.seoTitle;
+
+/** A slug no content file or table keys, for controls that need a bare tool. */
+const NO_CONTENT = "⟦no-content⟧";
 
 describe("the served <title> carries the head term", () => {
   const title = servedToolTitle();
@@ -563,14 +598,15 @@ describe("the served <title> carries the head term", () => {
   });
 
   it("an seoTitle promises nothing the tool's own copy does not say", () => {
-    const withTitle = tools.filter((t) => t.seoTitle !== undefined);
+    const withTitle = tools.filter((t) => seoTitleOf(t) !== undefined);
     // Health: the branch is exercised, and the served title really is it.
     expect(withTitle.length).toBeGreaterThanOrEqual(1);
-    for (const t of withTitle) expect(title(t)).toContain(t.seoTitle);
+    for (const t of withTitle) expect(title(t)).toContain(seoTitleOf(t));
 
     const offenders = withTitle.flatMap((t) => {
-      const extra = unbackedTitleWords(t, t.seoTitle!);
-      const same = t.seoTitle === t.name ? ["(identical to the name)"] : [];
+      const seoTitle = seoTitleOf(t)!;
+      const extra = unbackedTitleWords(t, seoTitle);
+      const same = seoTitle === t.name ? ["(identical to the name)"] : [];
       return [...extra, ...same].length
         ? [`${t.slug}: ${[...extra, ...same].join(", ")}`]
         : [];
@@ -580,13 +616,19 @@ describe("the served <title> carries the head term", () => {
 
   it("controls: the checks see a bare name, an overlong title and an invented promise", () => {
     const edit = tool("edit-pdf");
-    // The shipped title of AI Data Extraction, before seoTitle.
-    const bare = { ...tool("ai-extract"), seoTitle: undefined };
+    // The shipped title of AI Data Extraction, before seoTitle — on a slug no
+    // authored content keys, so no search title of either kind stands in.
+    const bare = {
+      ...tool("ai-extract"),
+      slug: NO_CONTENT,
+      seoTitle: undefined,
+    };
     expect(/\bPDF\b/.test(title(bare))).toBe(false);
     expect(
       // Both fields, so the control holds whichever one the page reads.
       title({
         ...edit,
+        slug: NO_CONTENT,
         name: "x".repeat(TITLE_BUDGET),
         seoTitle: "x".repeat(TITLE_BUDGET),
       }).length,

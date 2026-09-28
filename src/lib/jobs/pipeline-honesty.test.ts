@@ -43,6 +43,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { tools } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
+import { howToSteps } from "@/lib/tools/tool-facts";
 import {
   modeHasBrowserPath,
   modeUploadsFiles,
@@ -367,7 +368,17 @@ describe("URL tools do not describe an upload", () => {
       (t) => getToolInputKind(t.slug) === "file",
     )!;
     expect(page(fileWorker.slug)).toMatch(/Encrypted upload/);
-    expect(page(fileWorker.slug)).toMatch(/Upload your/);
+    expect(page(fileWorker.slug)).toMatch(/Your file is uploaded/i);
+    // "Upload your …" was HowToStep 1 of every worker page until the authored
+    // steps (seo/content) replaced the derived ones on the page; the product
+    // still writes it — `howToSteps`, the fallback a tool without authored
+    // steps renders — so the pattern is exercised on that wording. (Searching
+    // the rendered page for it case-insensitively "passes" only by reading
+    // the heading "Encrypted upload" into the next line's "Your file".)
+    const derived = WORKER_TOOLS.filter(
+      (t) => getToolInputKind(t.slug) === "file",
+    ).map((t) => howToSteps(t).join(" "));
+    expect(derived.some((steps) => /Upload your/.test(steps))).toBe(true);
   });
 });
 

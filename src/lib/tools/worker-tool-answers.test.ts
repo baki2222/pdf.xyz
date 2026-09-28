@@ -90,6 +90,7 @@ import {
   TRANSLATE_LANGUAGES_ANSWER,
 } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
+import { pageDescription, pageIntro } from "./page-copy";
 import {
   renderToolPages,
   type RenderedToolPage,
@@ -646,6 +647,11 @@ describe("no copy promises the Office exports keep a PDF's layout or tables", ()
       const tool = getToolBySlug(slug)!;
       out.push({ where: `${slug} tagline`, text: tool.tagline });
       out.push({ where: `${slug} description`, text: tool.description });
+      // What the page serves around the FAQ since the authored content
+      // (seo/content): the meta description and the whole visible page — the
+      // intro and use cases under "About this tool" included.
+      out.push({ where: `${slug} meta`, text: pageDescription(tool) });
+      out.push({ where: `${slug} (served)`, text: page(slug).text });
       for (const e of page(slug).faq) {
         out.push({ where: `${slug} FAQ`, text: `${e.question} ${e.answer}` });
       }
@@ -678,8 +684,13 @@ describe("no copy promises the Office exports keep a PDF's layout or tables", ()
   });
 
   it("the tool pages serve their catalogue copy, and no surface makes the promise", () => {
+    // "About this tool" renders the authored intro since seo/content, and the
+    // catalogue description only where a tool has none — so the page is held
+    // to serving the copy it renders (`pageIntro`), and every surface above,
+    // the served page among them, is scanned for the promise.
     for (const slug of PDF_OFFICE_EXPORT_TOOLS) {
-      expect(page(slug).text).toContain(getToolBySlug(slug)!.description);
+      for (const paragraph of pageIntro(getToolBySlug(slug)!))
+        expect(page(slug).text).toContain(paragraph);
     }
     const all = surfaces();
     expect(all.length).toBeGreaterThan(20);

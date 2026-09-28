@@ -409,9 +409,11 @@ describe("user-facing copy does not hand-write figures the code owns", () => {
     const real = readFileSync(file, "utf8");
     expect(findingsIn(file, real)).toEqual([]);
     // The shape the deleted pricing tier shipped, planted in a real answer.
+    // Anchored on the intro's first words: the answer it used to be planted
+    // in ("Merge copies pages, …") left the page at the seo/content merge.
     const planted = real.replace(
-      "Merge copies pages,",
-      "Files up to 100 MB each. Links expire after 60 minutes. Merge copies pages,",
+      "Merge PDF joins whole documents",
+      "Files up to 100 MB each. Links expire after 60 minutes. Merge PDF joins whole documents",
     );
     expect(planted).not.toBe(real);
     const found = findingsIn(file, planted).map(

@@ -443,9 +443,11 @@ describe("the policy pages do not promise what the product does not do", () => {
     const file = toolContentFiles().get("merge-pdf")!;
     const real = withoutComments(read(file));
     expect(OVERCLAIMS.filter((o) => o.pattern.test(real))).toEqual([]);
+    // Anchored on the intro's first words: the answer it used to be planted
+    // in ("Merge copies pages …") left the page at the seo/content merge.
     const planted = real.replace(
-      "Merge copies pages",
-      "Your files are permanently deleted within minutes and nothing is retained. Merge copies pages",
+      "Merge PDF joins whole documents",
+      "Your files are permanently deleted within minutes and nothing is retained. Merge PDF joins whole documents",
     );
     expect(planted).not.toBe(real);
     const caught = OVERCLAIMS.filter((o) => o.pattern.test(planted)).map((o) =>
