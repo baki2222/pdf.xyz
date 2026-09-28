@@ -64,6 +64,7 @@ import type {
   CleanupEvidenceAge,
   CleanupEvidenceReportKind,
 } from "@/lib/workers/observability";
+import { CLEANUP_EVIDENCE_AGE_DAYS } from "@/lib/workers/cleanup-evidence/types";
 import { cn } from "@/lib/utils";
 import { StatusBadge, StatusCard, type StatusTone } from "./status-ui";
 import { AlertPostureCallout, normalizeAlertPosture } from "./alert-posture";
@@ -563,8 +564,8 @@ const CLEANUP_EVIDENCE_FRESHNESS_LABEL: Record<
 const CLEANUP_EVIDENCE_AGE_LABEL: Record<CleanupEvidenceAge, string> = {
   "under-1h": "Under 1h",
   "1-24h": "Under 24h",
-  "1-7d": "1–7 days",
-  "over-7d": "Over 7 days",
+  "1-7d": `1–${CLEANUP_EVIDENCE_AGE_DAYS} days`,
+  "over-7d": `Over ${CLEANUP_EVIDENCE_AGE_DAYS} days`,
   unknown: "Unknown",
 };
 

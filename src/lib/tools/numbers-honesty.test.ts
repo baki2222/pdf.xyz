@@ -37,6 +37,7 @@ import { DEFAULT_RETENTION, JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
 import { MAX_OCR_LANGUAGES, OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { toolCount } from "@/lib/tools";
 import { DEFAULT_JOB_TTL_SECONDS } from "@/lib/workers/queue/redis-config";
+import { CLEANUP_EVIDENCE_AGE_DAYS } from "@/lib/workers/cleanup-evidence/types";
 import {
   RETENTION_WINDOW_MINUTES,
   RETENTION_WINDOWS,
@@ -109,6 +110,15 @@ const OWNED: { value: number; units: readonly string[]; source: string }[] = [
     value: processingSplit().mayUpload.length,
     units: ["tools", "tool"],
     source: "processingSplit().mayUpload (tools that may upload)",
+  },
+  {
+    // The edge between the cleanup-evidence age buckets the operations page
+    // labels ("1–7 days", "Over 7 days"). Registered at the merge of
+    // wave1/l06-copy-other, when the shared copy walk grew to reach
+    // src/components/status and met labels this census could now read.
+    value: CLEANUP_EVIDENCE_AGE_DAYS,
+    units: ["days", "day"],
+    source: "CLEANUP_EVIDENCE_AGE_DAYS (cleanup-evidence age buckets)",
   },
   {
     value: OCR_LANGUAGES.length,

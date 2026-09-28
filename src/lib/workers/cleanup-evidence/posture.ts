@@ -18,6 +18,7 @@
  */
 
 import {
+  CLEANUP_EVIDENCE_AGE_DAYS,
   CLEANUP_EVIDENCE_DETAIL,
   DISABLED_CLEANUP_EVIDENCE_POSTURE,
   type CleanupEvidenceAge,
@@ -78,7 +79,7 @@ function ageBucket(ageMs: number | null): CleanupEvidenceAge {
   if (ageMs === null || !Number.isFinite(ageMs) || ageMs < 0) return "unknown";
   if (ageMs < MS_PER_HOUR) return "under-1h";
   if (ageMs < MS_PER_DAY) return "1-24h";
-  if (ageMs < 7 * MS_PER_DAY) return "1-7d";
+  if (ageMs < CLEANUP_EVIDENCE_AGE_DAYS * MS_PER_DAY) return "1-7d";
   return "over-7d";
 }
 

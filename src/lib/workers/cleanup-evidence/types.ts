@@ -133,6 +133,13 @@ export const CLEANUP_EVIDENCE_AGE_BUCKETS = [
 export type CleanupEvidenceAge = (typeof CLEANUP_EVIDENCE_AGE_BUCKETS)[number];
 
 /**
+ * Where the `1-7d` bucket ends and `over-7d` begins, in days. The posture
+ * resolver buckets a report's age by it, and the operations page labels the
+ * buckets with it, so the label cannot state an edge the resolver does not use.
+ */
+export const CLEANUP_EVIDENCE_AGE_DAYS = 7;
+
+/**
  * Which content-free tool report drove the posture (or `none` when disabled / no report):
  *  - `cleanup-check`    — the absence verifier's `pdfxyz.cleanup-check/1` summary;
  *  - `artifact-cleanup` — the dry-run sweeper's `pdfxyz.artifact-cleanup/1` summary.
