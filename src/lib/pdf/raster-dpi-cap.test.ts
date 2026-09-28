@@ -109,7 +109,12 @@ describe("rasterPageScale — the engine reports the DPI it actually renders at"
           readFileSync(path.join(pdfDir, f), "utf8"),
         ),
       );
-    expect(declares).toEqual(["render-utils.ts"]);
+    // The ONE declaration. It said ["render-utils.ts"] when L11 moved the
+    // constant there; L06 had meanwhile moved it to pdf-to-image.ts, beside the
+    // presets the tool pages state and a leaf tool-facts can import, and at
+    // the merge render-utils re-exports it. The property is unchanged: exactly
+    // one file declares the cap.
+    expect(declares).toEqual(["pdf-to-image.ts"]);
   });
 });
 

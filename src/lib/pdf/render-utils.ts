@@ -4,7 +4,7 @@
  * without pulling in the (heavy, browser-only) rendering pipeline.
  */
 
-import { rasterScaleForDpi } from "./pdf-to-image";
+import { RASTER_MAX_DEVICE_PX, rasterScaleForDpi } from "./pdf-to-image";
 
 /** A rendered thumbnail: an object URL plus its pixel dimensions. */
 export interface Thumbnail {
@@ -109,9 +109,10 @@ export function renderDimensions(
 
 /**
  * Cap on either rendered dimension (px) for full-page rasterization (PDF to
- * PNG / JPG, grayscale, redact). Higher than the thumbnail cap so print-DPI
- * output stays crisp, but still bounds peak canvas memory (one page's bitmap is
- * freed before the next renders).
+ * PNG / JPG, grayscale, redact) — DECLARED in `./pdf-to-image`, beside the
+ * presets the tool pages state, and re-exported here for the renderer. Two
+ * lanes each moved it (L06 to pdf-to-image.ts, L11 to this file); one
+ * declaration survives, and `raster-dpi-cap.test.ts` fails on a second.
  *
  * It is a promise-breaker by design: any page longer than
  * `RASTER_MAX_DEVICE_PX / dpi` inches on a side (16.67 in at 300 DPI — tabloid
@@ -122,7 +123,7 @@ export function renderDimensions(
  * and redact also name a DPI on their presets and do NOT read it yet, so a
  * large page there is still lowered without a word.
  */
-export const RASTER_MAX_DEVICE_PX = 5000;
+export { RASTER_MAX_DEVICE_PX };
 
 export interface RasterPageScale {
   /** Scale to pass to `getViewport`. */
