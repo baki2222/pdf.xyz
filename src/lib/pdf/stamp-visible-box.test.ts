@@ -14,6 +14,7 @@ import {
   type PDFPage,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
+import { withoutComments } from "@/lib/tools/copy-surface";
 import { cropPdf } from "./crop";
 import { addHeaderFooter } from "./header-footer";
 import { addPageNumbers } from "./page-numbers";
@@ -245,6 +246,16 @@ const DRIVERS: Record<string, Driver> = {
   },
 };
 
+/**
+ * Whether `source` CALLS a placement primitive. Comments are stripped first: a
+ * docblock that explains what `placeStamp()` does is not a call, and the tool
+ * page content for Add Header & Footer (src/lib/tools/content/header-footer.ts)
+ * does exactly that — the discovery enrolled it as a stamping module.
+ */
+function callsPlacement(source: string): boolean {
+  return /\bplace(?:Centered)?Stamp\s*\(/.test(withoutComments(source));
+}
+
 /** The modules that call the placement primitives, from the tracked tree. */
 function discoverStampingModules(): string[] {
   const listed = execFileSync(
@@ -264,8 +275,7 @@ function discoverStampingModules(): string[] {
   ).toBeGreaterThan(200);
   return listed.filter((f) => {
     if (f === "src/lib/pdf/stamp.ts") return false;
-    const source = readFileSync(path.join(process.cwd(), f), "utf8");
-    return /\bplace(?:Centered)?Stamp\s*\(/.test(source);
+    return callsPlacement(readFileSync(path.join(process.cwd(), f), "utf8"));
   });
 }
 
@@ -275,6 +285,13 @@ describe("stamps land inside the visible page (CropBox ∩ MediaBox)", () => {
     // Positive control for the discovery itself: the tool this was found in.
     expect(discovered).toContain("src/lib/pdf/header-footer.ts");
     expect(discovered).toEqual(Object.keys(DRIVERS).sort());
+    // Controls through the same predicate: a call is found, prose is not.
+    expect(callsPlacement("placeStamp(page, box, text);")).toBe(true);
+    expect(callsPlacement("placeCenteredStamp (page, text)")).toBe(true);
+    expect(callsPlacement("/** placeStamp() cancels a rotation. */")).toBe(
+      false,
+    );
+    expect(callsPlacement("// placeStamp() cancels a rotation.")).toBe(false);
   });
 
   it("HEALTH CHECK: pdf.js sees the fixture's visible boxes as the geometry intends", async () => {
