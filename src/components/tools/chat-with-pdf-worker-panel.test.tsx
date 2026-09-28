@@ -460,7 +460,7 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
       workerSuccess("Q one", "A one [p.1]."),
     );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
     await ask("Q one");
     expect(await screen.findByText("A one [p.1].")).toBeInTheDocument();
