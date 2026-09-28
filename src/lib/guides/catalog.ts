@@ -402,7 +402,7 @@ export const guides: Guide[] = [
       "turn a pdf into word",
     ],
     intro: [
-      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word, one paragraph per line, so you edit the words instead of retyping them — the formatting is not rebuilt.",
+      "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word as plain paragraphs in reading order, so you edit the words instead of retyping them — the formatting is not rebuilt.",
       `PDF to Word is a server tool: your PDF travels over an encrypted connection to an encrypted, isolated worker, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let the worker convert it, and save the DOCX before the link expires.`,
     ],
@@ -412,7 +412,7 @@ export const guides: Guide[] = [
       "Start the conversion.",
       "Wait while the secure worker converts the PDF into a Word document. The worker deletes the input when the job finishes.",
       `Download the DOCX. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
-      "Open the downloaded DOCX in Word and format the text the way you need it — the words arrive as plain paragraphs, one per line of the PDF.",
+      "Open the downloaded DOCX in Word and format the text the way you need it — the words arrive as plain paragraphs, in reading order.",
     ],
     sections: [
       {
@@ -420,7 +420,7 @@ export const guides: Guide[] = [
         heading: "What to expect from the converted document",
         body: [
           `The output is a DOCX file, the standard editable Word format. ${PDF_TO_WORD_KEEPS}`,
-          "A paragraph that wrapped across several lines in the PDF arrives as several short paragraphs, so expect to restyle the document: the conversion saves you the retyping, not the formatting.",
+          "Headings, lists and tables arrive as plain lines of text with no styles, so expect to restyle the document: the conversion saves you the retyping, not the formatting.",
           "That makes PDF to Word the right tool when you need the words back to rework them — rewrite a paragraph, fix a date, reuse a section — and the wrong one when the look of the page is what matters. For that, keep the PDF itself.",
         ],
       },
@@ -800,7 +800,7 @@ export const guides: Guide[] = [
         id: "changing-existing-text",
         heading: "Changing the text that is already there",
         body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, one paragraph per line. Images, fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, as plain paragraphs in reading order. Images, fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
         ],
       },
       {

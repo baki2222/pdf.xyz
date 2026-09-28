@@ -125,9 +125,14 @@ import {
   PDF_TO_POWERPOINT_TOOL,
   PDF_TO_WORD_TOOL,
   runPdfOfficeExport,
+  type PdfFlowExtractor,
   type PdfOfficeExportTool,
 } from "@/lib/workers/pdf-office-export/engine";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { flowText } from "@/lib/workers/pdf-text/flow";
+import { parseBboxFlow } from "@/lib/workers/pdf-text/parse";
+import { OFFICE_METRIC_CLONES } from "@/lib/workers/office-conversion/fonts";
+import { TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
 import { runWorkerHtmlToPdf } from "@/lib/workers/html-render-client";
 import type { FetchLike } from "@/lib/workers/pdf-security-client";
 import { resetUploadedThisSessionForTests } from "@/lib/uploads/session-uploads";
@@ -439,12 +444,29 @@ function stubExtract(pages: string[]): () => Promise<ExtractedPdfText> {
     }) as unknown as ExtractedPdfText;
 }
 
+/**
+ * Both extractors, as production wires them. PDF to Word reads `extractFlow`
+ * since the wave-1 L03 merge (2026-09-28) and answers `unsupported` without
+ * it; by default it is served each page's lines as one-cell paragraphs, and a
+ * probe about Word's LAYOUT passes poppler's real output instead.
+ */
 async function officeParts(
   tool: PdfOfficeExportTool,
   pages: string[],
+  extractFlow: PdfFlowExtractor = async () => ({
+    pageCount: pages.length,
+    pages: pages.map((t, i) => ({
+      pageNumber: i + 1,
+      paragraphs: t
+        .split("\n")
+        .filter((l) => l.trim())
+        .map((l) => [l.trim()]),
+    })),
+  }),
 ): Promise<Record<string, string>> {
   const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
     extract: stubExtract(pages),
+    extractFlow,
   });
   if (!run.ok) throw new Error(`${tool} export failed: ${run.message}`);
   const zip = await JSZip.loadAsync(run.output);
@@ -456,15 +478,24 @@ async function officeParts(
   return parts;
 }
 
-/** Cell text by reference (A1, B2…) from the exported sheet. */
+/**
+ * Cell text by reference (A1, B2…) from the exported sheet — inline strings
+ * AND number cells.
+ *
+ * It read inline strings only until the wave-1 L03 merge (2026-09-28), when
+ * the engine began writing amounts as numbers (`<v>`). Those cells were then
+ * invisible here, and the "rows and columns intact" probe below stayed
+ * "absent" because the price it looked for had become a number, not because
+ * the column was wrong: a pass in the convenient direction.
+ */
 async function sheetCells(lines: string[]): Promise<Map<string, string>> {
   const parts = await officeParts(PDF_TO_EXCEL_TOOL, [lines.join("\n")]);
   const sheet = parts["xl/worksheets/sheet1.xml"] ?? "";
   const cells = new Map<string, string>();
   for (const m of sheet.matchAll(
-    /<c r="([A-Z]+\d+)"[^>]*><is><t>([^<]*)<\/t>/g,
+    /<c r="([A-Z]+\d+)"[^>]*>(?:<is><t[^>]*>([^<]*)<\/t><\/is>|<v>([^<]*)<\/v>)/g,
   ))
-    cells.set(m[1]!, m[2]!);
+    cells.set(m[1]!, m[2] ?? m[3]!);
   return cells;
 }
 
@@ -674,7 +705,9 @@ const RULES: readonly ClaimRule[] = [
         const forwards =
           /\.\.\.rest\b/.test(rasterize) &&
           /capturePdfPages\(\s*bytes,\s*\{\s*\.\.\.rest\b/.test(render);
-        const captured = forwards ? optionDefaults("capturePdfPages") : undefined;
+        const captured = forwards
+          ? optionDefaults("capturePdfPages")
+          : undefined;
         if (!captured)
           throw new Error(
             "rasterizePdf neither defaults `background` nor forwards its options to capturePdfPages — find where the PNG background is decided and point this probe there",
@@ -807,9 +840,12 @@ const RULES: readonly ClaimRule[] = [
       "No — it carries over the text, not the look.",
     ],
     probe: async () => {
-      const parts = await officeParts(PDF_TO_WORD_TOOL, [
-        "Heading\n\nLeft column text      Right column text",
-      ]);
+      // A real two-column page, as poppler reads it: the engine now reads it
+      // in order (see worker-tool-answers.test.ts); the question here is only
+      // whether any LAYOUT reaches the DOCX.
+      const parts = await officeParts(PDF_TO_WORD_TOOL, [""], async () =>
+        flowText(parseBboxFlow(TWO_COLUMN_BBOX)),
+      );
       const doc = parts["word/document.xml"] ?? "";
       const layout = [
         ...doc.matchAll(/<w:(?:tbl|drawing|rPr|pPr|sectPr>|cols)\b/g),
@@ -846,15 +882,35 @@ const RULES: readonly ClaimRule[] = [
       "Blank cells are dropped, so a value can shift left into the wrong column.",
     ],
     probe: async () => {
-      // A three-column table whose middle cell is blank. Columns are intact
-      // only if the price still lands in column C.
-      const cells = await sheetCells([
+      // HISTORY: this asked only whether a blank middle cell kept the price in
+      // column C. Since the wave-1 L03 merge (2026-09-28) it does — so, as
+      // this rule says, the copy was re-evaluated, and "intact" is still not
+      // true: one cell running across two columns MERGES them for the table
+      // (layout-grid.ts lists it as not promised; the page says so in
+      // XLSX_MERGE_CAVEAT). The property is now both: blanks kept AND a
+      // straddling cell leaving the header's three columns apart.
+      const blank = await sheetCells([
         "Item      Qty      Price",
         "Pear               4.00",
       ]);
+      const straddle = await sheetCells([
+        "Item      Qty      Price",
+        "A very long description here  2   4.00",
+        "Pear      1        3.00",
+      ]);
+      // Health: the price was decoded in SOME column. A reader blind to
+      // number cells (this file's, until the fix above) finds it in neither,
+      // and "absent" would then be the reader's answer, not the engine's.
+      if (!blank.has("B2") && !blank.has("C2"))
+        throw new Error("the probe row's price was decoded in no column");
+      const blanksKept = blank.get("C2") === "4.00" && !blank.has("B2");
+      const headersApart =
+        straddle.get("A1") === "Item" &&
+        straddle.get("B1") === "Qty" &&
+        straddle.get("C1") === "Price";
       return {
-        present: cells.get("C2") === "4.00",
-        evidence: `row 2 → B2=${JSON.stringify(cells.get("B2"))}, C2=${JSON.stringify(cells.get("C2"))}`,
+        present: blanksKept && headersApart,
+        evidence: `blank row → B2=${JSON.stringify(blank.get("B2"))}, C2=${JSON.stringify(blank.get("C2"))}; straddled header → A1=${JSON.stringify(straddle.get("A1"))}, B1=${JSON.stringify(straddle.get("B1"))}`,
       };
     },
   },
@@ -929,9 +985,20 @@ const RULES: readonly ClaimRule[] = [
     probe: async () => {
       // THE PROPERTY: can the worker lay a Word document out in the faces it
       // was written in? LibreOffice, not Word, does the layout, so the only
-      // way it keeps Calibri/Cambria line breaks is a metric-compatible face
-      // installed in the image that runs the job. The stage is found by what
-      // it runs (`worker:daemon`), not by its name.
+      // way it keeps Office line breaks is a metric-compatible face installed
+      // in the image that runs the job. The stage is found by what it runs
+      // (`worker:daemon`), not by its name.
+      //
+      // RE-EVALUATED at the wave-1 L03 merge (2026-09-28), as this rule asked
+      // the day the Dockerfile gained Carlito and Caladea. What may the copy
+      // now claim? Still none of the banned shapes: the clones are
+      // SUBSTITUTES with the same metrics, not the document's fonts; there is
+      // no clone for Aptos, Word's default face since 2023
+      // (office-conversion/fonts.ts leaves it out on purpose); and the
+      // running worker has them only once its image is rebuilt, which no test
+      // here can see. So "present" now needs every Office default a document
+      // is likely to be set in — Aptos included — to have a clone in the
+      // image. When that changes, prove it on a real output and decide again.
       const dockerfile = read("Dockerfile");
       const stage = dockerfile
         .split(/^FROM\s/m)
@@ -939,11 +1006,19 @@ const RULES: readonly ClaimRule[] = [
       if (!stage) throw new Error("no Dockerfile stage runs worker:daemon");
       if (!/\blibreoffice\b/.test(stage))
         throw new Error("the worker stage no longer installs libreoffice");
-      const fonts = stage.match(/\bfonts-[a-z0-9-]+/g) ?? [];
-      const metric = fonts.filter((f) => /carlito|caladea/.test(f));
+      const fonts: string[] = [...(stage.match(/\bfonts-[a-z0-9-]+/g) ?? [])];
+      const installed = OFFICE_METRIC_CLONES.filter((c) =>
+        fonts.includes(c.debianPackage),
+      ).map((c) => c.office);
+      // Health: the list and the image agree on what they have — a probe
+      // reading an empty list would report "absent" for the wrong reason.
+      if (installed.length === 0)
+        throw new Error("no metric clone the font list names is installed");
+      const OFFICE_DEFAULTS = ["Calibri", "Cambria", "Aptos"];
+      const uncovered = OFFICE_DEFAULTS.filter((f) => !installed.includes(f));
       return {
-        present: metric.length > 0,
-        evidence: `worker stage font packages: ${fonts.join(", ") || "none"}`,
+        present: uncovered.length === 0,
+        evidence: `worker stage font packages: ${fonts.join(", ") || "none"}; clones installed for ${installed.join(", ")}; no clone for ${uncovered.join(", ") || "none"}`,
       };
     },
   },
@@ -1242,25 +1317,49 @@ describe("the replacement copy states what the output actually is", () => {
     expect(wrong, wrong.join("\n")).toEqual([]);
   });
 
-  it("PDF to Excel: dropped blank cells are disclosed while the engine drops them", async () => {
+  it("PDF to Excel: the page says blank cells shift values exactly while the engine shifts them", async () => {
+    // INVERTED at the wave-1 L03 merge (2026-09-28). This required the
+    // warning because the engine dropped blank cells; L03 placed cells by
+    // column, the control "the probe row no longer shifts" fired as written,
+    // and the engine was re-read. The warning is now a claim the engine
+    // contradicts, so the rule is the relationship: say it iff it happens.
     const cells = await sheetCells([
       "Item      Qty      Price",
       "Pear               4.00",
     ]);
+    // Health: the probe row was decoded at all.
+    expect(cells.get("A2")).toBe("Pear");
     const shifts = cells.get("B2") === "4.00";
     const tool = getToolBySlug(PDF_TO_EXCEL_TOOL)!;
     const said = [
       tool.description,
       ...toolFacts(tool.slug).map((f) => f.value),
-    ].some((t) => /\bblank cells?\b/i.test(t));
+    ].some((t) =>
+      /\bblank cells? (?:are|is) dropped\b|\bshift left\b/i.test(t),
+    );
+    expect(said, `engine shifts: ${shifts}`).toBe(shifts);
+    // POSITIVE CONTROL: the sentence shipped while the engine shifted is seen.
     expect(
-      shifts,
-      "control: the probe row no longer shifts — re-read the engine",
+      /\bblank cells? (?:are|is) dropped\b|\bshift left\b/i.test(
+        "Every line of text becomes a row. Blank cells are dropped, so a value can shift left into the wrong column — there is no table detection.",
+      ),
     ).toBe(true);
+  });
+
+  it("PDF to Excel: a cell straddling two columns merges them, as the page warns", async () => {
+    const cells = await sheetCells([
+      "Item      Qty      Price",
+      "A very long description here  2   4.00",
+      "Pear      1        3.00",
+    ]);
+    // The header's three runs share one cell once a row straddles its gutters.
+    expect(cells.get("A1")).toBe("Item Qty Price");
+    const tool = getToolBySlug(PDF_TO_EXCEL_TOOL)!;
     expect(
-      said,
-      "the engine shifts values left past blank cells and the page does not say so",
-    ).toBe(true);
+      toolFacts(tool.slug)
+        .map((f) => f.value)
+        .join(" "),
+    ).toContain("columns can merge");
   });
 
   it("PDF to PowerPoint: while slides carry no pictures or positions, the description says text only", async () => {

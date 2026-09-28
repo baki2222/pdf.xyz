@@ -39,9 +39,10 @@ import { PDFDocument, PDFTextField } from "pdf-lib";
 import { tools, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import {
-  XLSX_CELL_BREAK,
   XLSX_CELL_BREAK_PHRASE,
+  XLSX_NUMBER_EXAMPLES,
   XLSX_SHEET_NAME,
+  XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD, buildPdfAResultMeta } from "@/lib/jobs/pdfa-results";
 import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
@@ -58,8 +59,19 @@ import { applyFormValues } from "@/lib/pdf/forms";
 import {
   PDF_OFFICE_EXPORT_TOOLS,
   runPdfOfficeExport,
+  type PdfFlowExtractor,
   type PdfOfficeExportTool,
 } from "@/lib/workers/pdf-office-export/engine";
+import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import { readXlsxSheet } from "@/lib/workers/ooxml/sheet-read";
+import { flowText, type PdfFlowText } from "@/lib/workers/pdf-text/flow";
+import { parseBboxFlow } from "@/lib/workers/pdf-text/parse";
+import { TABLE_BBOX, TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
+import {
+  LEFT_COLUMN,
+  RIGHT_COLUMN,
+  TABLE_ROWS,
+} from "@/tests/pdf-office-fixtures";
 import { runSignatureRequest } from "@/lib/workers/request-signatures/engine";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
 import { ghostscriptPdfAArgs } from "@/lib/workers/pdf-archive/native";
@@ -138,15 +150,54 @@ function extracted(pagesText: readonly string[]): ExtractedPdfText {
   };
 }
 
+/**
+ * The same pages as PDF to Word's reading-order input: each non-blank line a
+ * one-cell paragraph. For tests about the package, not about paragraphs —
+ * those read REAL poppler output through {@link flowOf}.
+ */
+function linesAsFlow(pagesText: readonly string[]): PdfFlowText {
+  return {
+    pageCount: pagesText.length,
+    pages: pagesText.map((t, i) => ({
+      pageNumber: i + 1,
+      paragraphs: t
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => [l]),
+    })),
+  };
+}
+
+/** A flow extractor serving poppler's own `-bbox-layout` output, parsed. */
+function flowOf(xhtml: string): PdfFlowExtractor {
+  return async () => flowText(parseBboxFlow(xhtml));
+}
+
+/**
+ * Run an export with both extractors wired, as production wires them: Excel
+ * and PowerPoint read `extract`, Word reads `extractFlow` (since the wave-1
+ * L03 merge; without it Word answers `unsupported`).
+ */
+async function exportRun(
+  tool: PdfOfficeExportTool,
+  pagesText: readonly string[],
+  extractFlow: PdfFlowExtractor = async () => linesAsFlow(pagesText),
+): Promise<Uint8Array> {
+  const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
+    extract: async () => extracted(pagesText),
+    extractFlow,
+  });
+  if (!run.ok) throw new Error(`${tool}: ${run.message}`);
+  return run.output;
+}
+
 async function exportFile(
   tool: PdfOfficeExportTool,
   pagesText: readonly string[],
+  extractFlow?: PdfFlowExtractor,
 ): Promise<JSZip> {
-  const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
-    extract: async () => extracted(pagesText),
-  });
-  if (!run.ok) throw new Error(`${tool}: ${run.message}`);
-  return JSZip.loadAsync(run.output);
+  return JSZip.loadAsync(await exportRun(tool, pagesText, extractFlow));
 }
 
 const part = async (zip: JSZip, name: string) => {
@@ -173,17 +224,41 @@ async function richContentIn(zip: JSZip): Promise<string[]> {
 }
 
 describe("PDF to Word: the DOCX is the page's sentence", () => {
-  it("each line becomes a paragraph, and nothing but text goes in", async () => {
-    const lines = ["Quarterly report", "Revenue rose.", "Costs fell."];
-    const zip = await exportFile("pdf-to-word", [lines.join("\n")]);
-    const doc = await part(zip, "word/document.xml");
-    const paragraphs = [...doc.matchAll(/<w:p>([\s\S]*?)<\/w:p>/g)].map((m) =>
-      [...m[1]!.matchAll(/<w:t>([^<]*)<\/w:t>/g)].map((t) => t[1]).join(""),
+  /*
+   * HISTORY: this was "each line becomes a paragraph", true of the engine
+   * until the wave-1 L03 merge (2026-09-28), which made Word read poppler's
+   * reading order. Each clause of the new sentence is paired below with the
+   * engine run that makes it true, on poppler's REAL output for a real PDF
+   * (`poppler-samples.ts`), read back out of the DOCX a user downloads.
+   */
+  it("reading order, wrapped lines joined, one column at a time, table rows tabbed — and nothing but text", async () => {
+    const twoColumns = await exportRun(
+      "pdf-to-word",
+      [""],
+      flowOf(TWO_COLUMN_BBOX),
     );
-    expect(paragraphs).toEqual(lines);
+    expect(PDF_TO_WORD_KEEPS).toContain(
+      "lines that wrap in the PDF are joined",
+    );
+    expect(PDF_TO_WORD_KEEPS).toContain("read one column at a time");
+    // The left column's three printed lines are ONE paragraph, and all of it
+    // comes before any of the right column.
+    expect(await readDocxParagraphs(twoColumns)).toEqual([
+      "Quarterly Report",
+      LEFT_COLUMN.join(" "),
+      RIGHT_COLUMN.join(" "),
+    ]);
+
+    const table = await exportRun("pdf-to-word", [""], flowOf(TABLE_BBOX));
+    expect(PDF_TO_WORD_KEEPS).toContain("its cells separated by tabs");
+    expect(await readDocxParagraphs(table)).toEqual(
+      TABLE_ROWS.map((row) => row.join("\t")),
+    );
+
     // Images, tables, fonts/colors, layout: none of their markup, none of the
-    // parts that would carry them.
-    expect(await richContentIn(zip)).toEqual([]);
+    // parts that would carry them — in either real export.
+    for (const bytes of [twoColumns, table])
+      expect(await richContentIn(await JSZip.loadAsync(bytes))).toEqual([]);
     expect(answer("pdf-to-word", /keep/i)).toContain(PDF_TO_WORD_KEEPS);
   });
 
@@ -228,37 +303,85 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
 });
 
 describe("PDF to Excel: the sheet is the page's sentence", () => {
-  /** Each separator the phrase must name, and a line that exercises it. */
-  const SEPARATORS = [
+  /*
+   * HISTORY: until the wave-1 L03 merge (2026-09-28) the engine split each
+   * line on a regex (`\t| {2,}|,`) this file checked the phrase against, and
+   * wrote every cell as text; the page said "1,250" lands in two cells and
+   * "nothing is converted to a number". L03 placed cells by position and typed
+   * amounts. The regex is gone, so the phrase is now held to the ENGINE: each
+   * candidate break is run, and the phrase must name exactly the ones that
+   * split. The two tests that pinned the old answers are inverted below.
+   */
+  const BREAKS = [
     { word: "tabs", line: "a\tb" },
     { word: "two or more spaces", line: "a  b" },
-    { word: "commas", line: "a,b" },
+    { word: "comma", line: "a,b" },
+    { word: "single space", line: "a b" },
   ];
 
+  async function sheetOf(lines: readonly string[]) {
+    return readXlsxSheet(await exportRun("pdf-to-excel", [lines.join("\n")]));
+  }
   async function cells(line: string): Promise<string[]> {
-    const zip = await exportFile("pdf-to-excel", [line]);
-    const sheet = await part(zip, "xl/worksheets/sheet1.xml");
-    return [...sheet.matchAll(/<t>([^<]*)<\/t>/g)].map((m) => m[1]!);
+    return (await sheetOf([line])).rows.flatMap((r) =>
+      r.cells.map((c) => c.value),
+    );
   }
 
-  it("the regex has exactly the alternatives the phrase names", () => {
-    expect(XLSX_CELL_BREAK.source.split("|")).toHaveLength(SEPARATORS.length);
-  });
-
-  it("every named separator splits a cell, and a single space does not", async () => {
-    for (const { word, line } of SEPARATORS) {
-      expect(XLSX_CELL_BREAK_PHRASE, word).toContain(word);
-      expect(await cells(line), line).toEqual(["a", "b"]);
+  it("the phrase names exactly the breaks the engine makes", async () => {
+    let splitting = 0;
+    for (const { word, line } of BREAKS) {
+      const splits = (await cells(line)).length > 1;
+      if (splits) {
+        splitting += 1;
+        expect(await cells(line), line).toEqual(["a", "b"]);
+      }
+      expect(XLSX_CELL_BREAK_PHRASE.includes(word), word).toBe(splits);
     }
-    expect(await cells("a b")).toEqual(["a b"]);
-    // The consequence the page warns about, run.
-    expect(await cells("1,250")).toEqual(["1", "250"]);
-    const served = answer("pdf-to-excel", /lay out/i);
-    expect(served).toContain(XLSX_CELL_BREAK_PHRASE);
-    expect(served).toContain("1,250");
+    // Health: some break splits and some does not, so neither direction of
+    // the equality above is vacuous.
+    expect(splitting).toBeGreaterThan(0);
+    expect(splitting).toBeLessThan(BREAKS.length);
+    expect(answer("pdf-to-excel", /lay out/i)).toContain(
+      XLSX_CELL_BREAK_PHRASE,
+    );
   });
 
-  it("one sheet, with the name the page gives it, holding only text cells", async () => {
+  it("INVERTED: a comma no longer splits a cell, and the named amounts are numbers", async () => {
+    // Was: `cells("1,250")` equals ["1", "250"], and the page said so.
+    const served = answer("pdf-to-excel", /lay out/i);
+    expect(served).toContain("A comma never splits a cell");
+    for (const example of XLSX_NUMBER_EXAMPLES) {
+      const sheet = await sheetOf([`Total    ${example}`]);
+      const value = sheet.rows[0]!.cells[1];
+      expect(value?.type, example).toBe("number");
+      expect(served, example).toContain(example);
+    }
+    // …and the text the page says stays text does.
+    for (const stays of [XLSX_TEXT_EXAMPLE, "=SUM(B1)"]) {
+      const sheet = await sheetOf([`Date    ${stays}`]);
+      expect(sheet.rows[0]!.cells[1]?.type, stays).toBe("text");
+      expect(sheet.rows[0]!.cells[1]?.value, stays).toBe(stays);
+    }
+    expect(served).toContain(XLSX_TEXT_EXAMPLE);
+  });
+
+  it("an empty cell stays in its column, as the page says", async () => {
+    const sheet = await sheetOf([
+      "Item      Qty      Price",
+      "Pear               4.00",
+    ]);
+    const pear = sheet.rows[1]!.cells.map((c) => [c.ref, c.value]);
+    expect(pear).toEqual([
+      ["A2", "Pear"],
+      ["C2", "4.00"],
+    ]);
+    expect(answer("pdf-to-excel", /lay out/i)).toContain(
+      "an empty cell stays empty",
+    );
+  });
+
+  it("one sheet, with the name the page gives it", async () => {
     const zip = await exportFile("pdf-to-excel", ["x,1\ny,2"]);
     const workbook = await part(zip, "xl/workbook.xml");
     const names = [...workbook.matchAll(/<sheet name="([^"]+)"/g)].map(
@@ -268,10 +391,9 @@ describe("PDF to Excel: the sheet is the page's sentence", () => {
     expect(answer("pdf-to-excel", /lay out/i)).toContain(
       `“${XLSX_SHEET_NAME}”`,
     );
-    const sheet = await part(zip, "xl/worksheets/sheet1.xml");
-    const types = [...sheet.matchAll(/<c [^>]*t="([^"]+)"/g)].map((m) => m[1]);
-    expect(types.length).toBeGreaterThan(0);
-    expect(new Set(types)).toEqual(new Set(["inlineStr"]));
+    // INVERTED: this also required every cell to be text ("inlineStr"),
+    // pinning a sheet whose SUM over an invoice returned 0. What is text and
+    // what is a number is now asserted, value by value, above.
   });
 });
 
@@ -299,6 +421,7 @@ describe("the three exports refuse a PDF with no text, as each page says", () =>
     for (const tool of PDF_OFFICE_EXPORT_TOOLS) {
       const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
         extract: async () => extracted([""]),
+        extractFlow: async () => linesAsFlow([""]),
       });
       expect(run.ok, tool).toBe(false);
       expect(run.ok === false && run.kind, tool).toBe("no_text");

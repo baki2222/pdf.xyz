@@ -261,9 +261,12 @@ export const tools: Tool[] = [
     name: "Word to PDF",
     tagline: "DOCX and DOC into a shareable PDF.",
     description:
-      // LibreOffice lays the document out, not Word, and the worker image
-      // installs no Word-metric font packages — claims-vs-capability.test.ts
-      // bans fidelity promises while its Dockerfile probe finds none.
+      // LibreOffice lays the document out, not Word. Since the wave-1 L03
+      // merge the worker image installs metric clones of Calibri, Cambria,
+      // Arial, Times New Roman and Courier New (office-conversion/fonts.ts) —
+      // substitutes, not the fonts themselves, with none for Aptos, Word's
+      // default since 2023, and only in an image rebuilt from that commit.
+      // claims-vs-capability.test.ts bans fidelity promises.
       "Convert Word documents to PDF, rendered by LibreOffice on a secure worker that deletes the input after the job. Fonts the worker lacks are substituted.",
     category: "convert-to",
     icon: "word",
@@ -442,13 +445,15 @@ export const tools: Tool[] = [
     slug: "pdf-to-word",
     name: "PDF to Word",
     // Was "Editable DOCX from any PDF" and "while preserving layout and text
-    // flow": the engine writes one plain paragraph per line of selectable
-    // text — no styles, images, tables or columns — and refuses a PDF with
-    // none. `worker-tool-answers.test.ts` and claims-vs-capability.test.ts
-    // decode a real export against this copy.
+    // flow": the engine writes plain paragraphs of selectable text — no
+    // styles, images, tables or columns — and refuses a PDF with none. It
+    // wrote one paragraph per line until the wave-1 L03 merge; it now reads
+    // poppler's reading order (workers/pdf-text/flow.ts).
+    // `worker-tool-answers.test.ts` and claims-vs-capability.test.ts decode a
+    // real export against this copy.
     tagline: "Editable DOCX from a PDF's text.",
     description:
-      "Turn a PDF's selectable text into an editable Word (DOCX) file, one paragraph per line. Images, fonts, tables and layout are not recreated; scans need OCR first.",
+      "Turn a PDF's selectable text into editable Word (DOCX) paragraphs, in reading order. Images, fonts, tables and layout are not recreated; scans need OCR first.",
     category: "convert-from",
     icon: "word",
     processing: "server",
@@ -462,14 +467,15 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-excel",
     name: "PDF to Excel",
-    // Was "Convert tables … with rows and columns intact": the engine detects
-    // no tables — it splits each line of text at separators, so "1,250" lands
-    // in two cells. Every separator named here is one the engine splits on,
-    // and every one it splits on is named — checked on a decoded XLSX by
-    // claims-vs-capability.test.ts.
+    // Was "Convert tables … with rows and columns intact": the engine does not
+    // pull tables out. Until the wave-1 L03 merge it split each line at tabs,
+    // wide gaps and COMMAS, so "1,250" landed in two cells; it now places
+    // each run of text in the column it sits in (layout-grid.ts). Every break
+    // named here is one the engine makes, and every one it makes is named —
+    // checked on a decoded XLSX by claims-vs-capability.test.ts.
     tagline: "A PDF's text, line by line, in a sheet.",
     description:
-      "Export a PDF’s selectable text to an XLSX sheet: one row per line, cells split at tabs, wide gaps and commas. For tables, use Extract Tables.",
+      "A PDF’s selectable text in an XLSX sheet: a row per line, cells split at tabs and wide gaps and kept in their column. For tables, use Extract Tables.",
     category: "convert-from",
     icon: "excel",
     processing: "server",

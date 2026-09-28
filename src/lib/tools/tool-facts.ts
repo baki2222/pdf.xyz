@@ -38,7 +38,10 @@ import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
 import {
   XLSX_CELL_BREAK_PHRASE,
+  XLSX_MERGE_CAVEAT,
+  XLSX_NUMBER_EXAMPLES,
   XLSX_SHEET_NAME,
+  XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
@@ -570,11 +573,13 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "pdf-to-excel": [
     {
       label: "Cells",
-      // rows() in workers/pdf-office-export/engine.ts filters out empty
-      // cells, so a blank cell shifts the rest of its row left — measured on a
-      // decoded XLSX by claims-vs-capability.test.ts.
-      value:
-        "Every line of text becomes a row. Blank cells are dropped, so a value can shift left into the wrong column — there is no table detection.",
+      // Said "Blank cells are dropped, so a value can shift left" until the
+      // wave-1 L03 merge (2026-09-28): the engine then placed cells by column
+      // position (workers/pdf-office-export/layout-grid.ts). The limits named
+      // here are the ones layout-grid.ts documents as NOT promised;
+      // claims-vs-capability.test.ts holds the blank-cell sentence to a
+      // decoded XLSX in both directions.
+      value: `Every line of text becomes a row, and each value goes in the column it sits in on the page, so an empty cell stays empty. ${XLSX_MERGE_CAVEAT}`,
     },
     {
       label: "Tables",
@@ -1192,13 +1197,19 @@ function listed(
 }
 
 /**
- * What PDF to Word's DOCX holds — one paragraph per line of selectable text,
- * nothing else. The catalogue and the guide said "preserving layout and text
- * flow" for the life of the product; `worker-tool-answers.test.ts` decodes the
- * DOCX the engine writes and holds this sentence (and bans that one) to it.
+ * What PDF to Word's DOCX holds. The catalogue and the guide said "preserving
+ * layout and text flow" for the life of the product; `worker-tool-answers.test.ts`
+ * decodes the DOCX the engine writes from REAL poppler output and holds each
+ * clause of this sentence to it (and bans that one).
+ *
+ * Said "Each line of the PDF's selectable text becomes its own paragraph"
+ * until the wave-1 L03 merge (2026-09-28), when the engine began reading
+ * poppler's reading order (`workers/pdf-text/flow.ts`). The table clause is
+ * limited to cells that fit on one line: flow.ts documents that a table whose
+ * cells wrap is read in poppler's order instead.
  */
 export const PDF_TO_WORD_KEEPS =
-  "Each line of the PDF's selectable text becomes its own paragraph in the DOCX. Images, tables, fonts, colors and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.";
+  "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs. Images, tables, fonts, colors and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.";
 
 /** Every language Translate PDF offers, named, from the list its panel renders. */
 export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(
@@ -1250,11 +1261,11 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `How does ${tool.name} lay out the spreadsheet?`,
-          answer: `In one sheet, named “${XLSX_SHEET_NAME}”. Each line of the PDF's selectable text becomes a row, split into cells at ${XLSX_CELL_BREAK_PHRASE}. Because every comma starts a new cell, a number written with a thousands separator, such as 1,250, lands in two cells. Every cell holds text: nothing is converted to a number, a date or a formula.`,
+          answer: `In one sheet, named “${XLSX_SHEET_NAME}”. Each line of the PDF's selectable text becomes a row, split into cells at ${XLSX_CELL_BREAK_PHRASE}, and each cell goes in the column where its text sits on the line, so an empty cell stays empty. A comma never splits a cell, and an amount or a percentage, such as ${listed([...XLSX_NUMBER_EXAMPLES], "or")}, is stored as a number a formula can add up. A date such as ${XLSX_TEXT_EXAMPLE} stays text, and nothing becomes a formula. ${XLSX_MERGE_CAVEAT}`,
         },
         {
           question: `Should I use ${tool.name} or ${toolName("extract-tables")}?`,
-          answer: `For a table, ${toolName("extract-tables")}: it looks for tables by where the text sits on the page and exports each one it finds. ${tool.name} does not look for tables — it splits every line of text at those separators — so it suits text you want in a grid, not a table you want reproduced.`,
+          answer: `For a table on its own, ${toolName("extract-tables")}: it looks for tables by where the text sits on the page and exports each one it finds. ${tool.name} puts every line of the PDF's text in one sheet, placing each value in the column it sits in, so it suits getting all of the text into a grid rather than pulling one table out.`,
         },
         scanned,
       ];
