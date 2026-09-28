@@ -185,7 +185,11 @@ const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 /** Readers of `policyFor` that decide whether a request or a job proceeds. */
 const ENFORCEMENT = [
   "enforceRateLimit",
-  "enforceAiCharacterAllowance",
+  // The allowance's reader since the integration of wave1/l01-page-leak: the
+  // job route RESERVES (and gives the charge back when no job is created);
+  // `enforceAiCharacterAllowance` became the decision-only wrapper around it
+  // and reads no policy of its own.
+  "reserveAiCharacterAllowance",
   "peekAiSpendCeiling",
   "recordAiSpend",
 ] as const;
@@ -195,6 +199,8 @@ const NOT_ENFORCEMENT: Record<string, string> = {
   rateLimitHeaders: "formats headers for a decision already made",
   spendProbePolicy:
     "the probe's own bucket; it moves nothing the ceiling reads",
+  peekAiCharacterAllowance:
+    "the upload route asking the reservation's question early; it spends nothing, so the job route's reservation is what bounds the day",
 };
 
 interface Source {
@@ -485,7 +491,7 @@ describe("docs/RATE_LIMITING.md — the policy table is the policy", () => {
       );
       expect(actionOf).toMatchObject({
         enforceRateLimit: { kind: "argument", index: 0 },
-        enforceAiCharacterAllowance: {
+        reserveAiCharacterAllowance: {
           kind: "fixed",
           action: AI_ALLOWANCE_ACTION,
         },
@@ -557,7 +563,7 @@ describe("docs/RATE_LIMITING.md — the policy table is the policy", () => {
     });
 
     it("CONTROL: the other enforcers drop their action when their callers go, and a superseded action that regains one is seen", () => {
-      const allowance = neuter(corpus, ["enforceAiCharacterAllowance"]);
+      const allowance = neuter(corpus, ["reserveAiCharacterAllowance"]);
       expect(allowance.landed).toBeGreaterThan(0);
       expect(enforcedActions(allowance.corpus).has(AI_ALLOWANCE_ACTION)).toBe(
         false,
