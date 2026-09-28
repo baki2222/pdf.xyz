@@ -19,7 +19,10 @@
  * has not shipped, and "Notify me" is true there.
  *
  * THE CLAIMS ARE DERIVED where they can be: the notify text from rendering
- * `NotifyMe` itself, the scan claims from `workerPipelineStages`. Each
+ * `NotifyMe` itself, the scan claims from `workerPipelineStages` — PER TOOL,
+ * since the merge with HEAD's per-tool pipeline (2026-09-28): the preflight
+ * sentence names each tool's own refusals, and a URL tool (webpage-to-pdf)
+ * uploads nothing, so its pipeline has no scan stage to claim anything with. Each
  * banned claim must ALSO appear when the worker really is off — the positive
  * control — so a claim that no panel renders any more cannot sit here as
  * decoration, and an absence check that cannot see its string cannot pass.
@@ -35,7 +38,11 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
+import {
+  getToolInputKind,
+  workerPipelineStages,
+} from "@/lib/jobs/capabilities";
+import type { Tool } from "@/lib/tools/types";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
@@ -65,20 +72,31 @@ const NOTIFY_TEXT = textOf(
 );
 // The button's label: the part of NotifyMe that says "not shipped".
 const NOTIFY_CLAIM = /Notify me when this ships/;
-const NOT_SCANNED = scanStageOf(false).description;
-const SCANNED = scanStageOf(true).description;
 /** The unavailable box's apology, in each panel's own words. */
 const NEVER_PRETENDS = /never pretends/;
 
-function scanStageOf(active: boolean) {
-  const on = workerPipelineStages(true);
-  const off = workerPipelineStages(false);
+/**
+ * The two answers `tool`'s scan stage can give — the one stage that differs
+ * between its scanning and non-scanning pipelines — or `null` when the two
+ * do not differ, which the corpus test below allows only for a URL tool.
+ */
+function scanClaimsOf(
+  tool: Tool,
+): { scanned: string; notScanned: string } | null {
+  const on = workerPipelineStages(true, tool);
+  const off = workerPipelineStages(false, tool);
   const index = off.findIndex((s, i) => s.description !== on[i]?.description);
-  const stage = (active ? on : off)[index];
-  if (index < 0 || !stage)
-    throw new Error("the scanning and non-scanning pipelines do not differ");
-  return stage;
+  if (index < 0) return null;
+  return {
+    scanned: on[index]!.description,
+    notScanned: off[index]!.description,
+  };
 }
+const CLAIMS = new Map(
+  SUBJECTS.map((s) => [s.slug, scanClaimsOf(toolOf(s.slug))] as const),
+);
+/** The subjects whose pipeline has a scan stage — every one that uploads. */
+const SCANNABLE = SUBJECTS.filter((s) => CLAIMS.get(s.slug) !== null);
 
 const providers = getProviderReadiness("disabled");
 /** A worker that is really off: every panel's gate must say so. */
@@ -124,8 +142,21 @@ describe("the corpus — derived from the tool page's own dispatch", () => {
 
   it("the derived claims are real sentences", () => {
     expect(NOTIFY_TEXT).toMatch(NOTIFY_CLAIM);
-    expect(NOT_SCANNED).toMatch(/not scanned for malware/);
-    expect(SCANNED).toMatch(/scanned for malware before/);
+    // Every subject that uploads a file has both claims; only a URL tool,
+    // which uploads nothing, has neither. Derived from the catalogue, not
+    // from the pipelines being compared.
+    for (const { slug } of SUBJECTS) {
+      const claims = CLAIMS.get(slug);
+      if (getToolInputKind(slug) === "url") {
+        expect(claims, slug).toBeNull();
+        continue;
+      }
+      expect(claims, slug).not.toBeNull();
+      expect(claims!.notScanned, slug).toMatch(/not scanned for malware/);
+      expect(claims!.scanned, slug).toMatch(/scanned for malware before/);
+    }
+    // Health: the per-tool derivation did not collapse to the URL case.
+    expect(SCANNABLE.length).toBeGreaterThanOrEqual(SUBJECTS.length - 1);
   });
 });
 
@@ -140,8 +171,11 @@ describe("the server-rendered (loading) HTML of every dispatched worker panel", 
       const text = textOf(html);
       expect(text).not.toMatch(NOTIFY_CLAIM);
       expect(text).not.toMatch(NEVER_PRETENDS);
-      expect(text).not.toContain(NOT_SCANNED);
-      expect(text).not.toContain(SCANNED);
+      const claims = CLAIMS.get(subject.slug);
+      if (claims) {
+        expect(text).not.toContain(claims.notScanned);
+        expect(text).not.toContain(claims.scanned);
+      }
       // …and it does say something: a live status line, not a blank box.
       expect(html).toMatch(/role="status"/);
     },
@@ -168,13 +202,14 @@ describe("POSITIVE CONTROL: the same panels once the worker is known to be off",
       });
       const text = (container.textContent ?? "").replace(/\s+/g, " ");
       if (NEVER_PRETENDS.test(text)) seen.neverPretends += 1;
-      if (text.includes(NOT_SCANNED)) seen.notScanned += 1;
+      const claims = CLAIMS.get(subject.slug);
+      if (claims && text.includes(claims.notScanned)) seen.notScanned += 1;
       unmount();
     }
     // Rule 1, the other direction: each pattern still catches a shipped
     // sentence, so none of the absences above is decoration.
     expect(seen.neverPretends).toBeGreaterThan(0);
-    expect(seen.notScanned).toBe(SUBJECTS.length);
+    expect(seen.notScanned).toBe(SCANNABLE.length);
   });
 });
 
