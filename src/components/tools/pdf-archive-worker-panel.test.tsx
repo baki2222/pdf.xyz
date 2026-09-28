@@ -7,7 +7,13 @@
  * attempts, with nothing pointing at the tool that fixes it. Now the worker
  * returns its own code, and this panel turns that code into a link. The test
  * drives the real panel: status fetch → file pick → Convert → the rendered
- * outcome. Only the job client is stubbed.
+ * outcome. Only the network is stubbed: the REAL job client runs over a
+ * stubbed global `fetch` (`@/tests/stub-job-network`).
+ *
+ * It used to `vi.mock` the client. At the merge with L06, whose
+ * worker-panel-ceiling-refusal.test.tsx imports this same panel, that made
+ * the panel module stay cached bound to the stub for the other file under
+ * `isolate: false` — what src/tests/mock-isolation.test.ts fails on.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -20,15 +26,7 @@ import {
 import { getToolBySlug } from "@/lib/tools";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { PDF_ARCHIVE_PASSWORD_REQUIRED_CODE } from "@/lib/workers/pdf-archive/contract";
-
-const run = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/workers/pdf-archive-client", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@/lib/workers/pdf-archive-client")
-  >()),
-  runWorkerPdfToPdfA: run,
-}));
-
+import { stubJobNetwork } from "@/tests/stub-job-network";
 import { PdfArchiveWorkerPanel } from "./pdf-archive-worker-panel";
 
 const tool = getToolBySlug("pdf-to-pdfa")!;
@@ -54,16 +52,15 @@ const READY = {
 
 afterEach(() => {
   cleanup();
-  run.mockReset();
   vi.unstubAllGlobals();
 });
 
-async function convertAndGetOutcome(outcome: unknown) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-  );
-  run.mockResolvedValue(outcome);
+/** Convert one PDF; the worker's job ends failed with `error`. */
+async function convertAndGetOutcome(error: { code: string; message: string }) {
+  const network = stubJobNetwork(READY, (body) => {
+    expect(body.tool).toBe("pdf-to-pdfa");
+    return { status: "failed", error: { ...error, retryable: false } };
+  });
   render(<PdfArchiveWorkerPanel tool={tool} />);
   const input = await waitFor(() => {
     const el = document.querySelector<HTMLInputElement>('input[type="file"]');
@@ -80,14 +77,14 @@ async function convertAndGetOutcome(outcome: unknown) {
   fireEvent.click(
     await screen.findByRole("button", { name: /convert to pdf\/a/i }),
   );
-  await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+  expect(network.uploads()).toBe(1);
   return screen.findByRole("alert");
 }
 
 describe("PdfArchiveWorkerPanel failure outcomes", () => {
   it("links an open-password failure to Unlock PDF — a real tool page", async () => {
     const alert = await convertAndGetOutcome({
-      ok: false,
       code: PDF_ARCHIVE_PASSWORD_REQUIRED_CODE,
       message: "This PDF needs a password to open.",
     });
@@ -102,7 +99,6 @@ describe("PdfArchiveWorkerPanel failure outcomes", () => {
 
   it("NEGATIVE CONTROL: any other failure shows the message and no unlock link", async () => {
     const alert = await convertAndGetOutcome({
-      ok: false,
       code: "internal_error",
       message: "The PDF/A engine could not process this file.",
     });
@@ -111,10 +107,7 @@ describe("PdfArchiveWorkerPanel failure outcomes", () => {
   });
 
   it("does not describe the output as certified PDF/A", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-    );
+    stubJobNetwork(READY);
     render(<PdfArchiveWorkerPanel tool={tool} />);
     expect(await screen.findByText(/not validated/i)).toBeInTheDocument();
   });

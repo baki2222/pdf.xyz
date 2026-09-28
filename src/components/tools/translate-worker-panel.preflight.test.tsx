@@ -14,9 +14,21 @@
  * intro promises that a scanned PDF "fails honestly". It had no test at all,
  * so nothing ever dropped a scan on it.
  *
- * Only the network driver is stubbed (`runWorkerTranslate`), so the test also
- * proves the property the pre-upload check exists for: a document the worker
- * would refuse is refused BEFORE it is uploaded and charged a daily AI run.
+ * Only the network is stubbed (`@/tests/stub-job-network`): the REAL job
+ * client runs over a stubbed global `fetch`, so the test also proves the
+ * property the pre-upload check exists for — a document the worker would
+ * refuse is refused BEFORE it is uploaded and charged a daily AI run.
+ *
+ * MOVED AND REWRITTEN at the merge of L09 with L06, history kept here. This
+ * suite lived at translate-worker-panel.test.tsx and `vi.mock`ed
+ * `runWorkerTranslate` and `pdfjs-dist`; L06's suite at that path renders the
+ * same panel with its real imports. Under `isolate: false` the mocked file
+ * left the panel cached bound to the stub for L06's file and two others
+ * (src/tests/mock-isolation.test.ts). Every assertion is kept: "runWorkerTranslate
+ * was not called" is now "no upload and no job request was made", its
+ * recorded request is now the parsed `POST /api/jobs` body, and the legacy
+ * pdfjs build reaches the panel through its `extractText` seam instead of a
+ * module mock.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -36,26 +48,21 @@ import {
   TRANSLATE_NO_TEXT_MESSAGE,
 } from "@/lib/jobs/translate-limits";
 import { runTranslate } from "@/lib/workers/translate/engine";
+import { extractPdfText } from "@/lib/pdf/text";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { imageOnlyPdf, textPdf } from "@/tests/pdf-text-fixtures";
-
-const runWorkerTranslate = vi.hoisted(() => vi.fn());
-
-vi.mock("@/lib/workers/translate-client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/workers/translate-client")>()),
-  runWorkerTranslate,
-}));
+import { stubJobNetwork, type JobNetwork } from "@/tests/stub-job-network";
+import { TranslateWorkerPanel } from "./translate-worker-panel";
 
 // The browser build of pdfjs cannot run here; the legacy build is the same
-// text layer, shipped by the same package for this environment. See
-// `@/tests/pdf-text-fixtures`.
-vi.mock("pdfjs-dist", async () => ({
-  ...(await import("pdfjs-dist/legacy/build/pdf.mjs")),
-  GlobalWorkerOptions: { workerSrc: "" },
-}));
-
-// Imported after the mocks so the panel picks up the stubbed driver.
-const { TranslateWorkerPanel } = await import("./translate-worker-panel");
+// text layer, shipped by the same package for this environment. It reaches
+// the panel through its `extractText` seam — never a module mock.
+const legacy = async () =>
+  (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as Pick<
+    typeof import("pdfjs-dist"),
+    "getDocument"
+  >;
+const realExtract = (bytes: Uint8Array) => extractPdfText(bytes, legacy);
 
 const translateTool = getToolBySlug("translate-pdf")!;
 const ocrTool = getToolBySlug("ocr-pdf")!;
@@ -99,13 +106,25 @@ const READY: WorkerStatus = {
   },
 };
 
-/** Render the ready panel, drop `bytes` in as a PDF, and press Translate. */
-async function translate(bytes: Uint8Array) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
+/**
+ * Render the ready panel, drop `bytes` in as a PDF, and press Translate. The
+ * worker's job, if one is created, ends as `workerSays` decides.
+ */
+async function translate(
+  bytes: Uint8Array,
+  workerSays: Parameters<typeof stubJobNetwork>[1] = () => ({
+    status: "failed",
+    error: {
+      code: "internal_error",
+      message: "The job ended for a reason unrelated to text.",
+      retryable: false,
+    },
+  }),
+): Promise<JobNetwork> {
+  const network = stubJobNetwork(READY, workerSays);
+  render(
+    <TranslateWorkerPanel tool={translateTool} extractText={realExtract} />,
   );
-  render(<TranslateWorkerPanel tool={translateTool} />);
   const run = await screen.findByRole("button", { name: /translate pdf/i });
   const input = document.querySelector('input[type="file"]');
   expect(input, "the builder's file input").not.toBeNull();
@@ -118,6 +137,13 @@ async function translate(bytes: Uint8Array) {
   });
   await screen.findByText("document.pdf");
   fireEvent.click(run);
+  return network;
+}
+
+/** Nothing left the browser: no upload, no job, no allowance charged. */
+function nothingSent(network: JobNetwork) {
+  expect(network.uploads(), "the file was uploaded").toBe(0);
+  expect(network.jobBodies, "a job was created").toEqual([]);
 }
 
 /** The alert the run ended in. */
@@ -134,13 +160,12 @@ function ocrLinkIn(alert: HTMLElement) {
 
 afterEach(() => {
   resetTelemetry();
-  runWorkerTranslate.mockReset();
   vi.unstubAllGlobals();
 });
 
 describe("TranslateWorkerPanel — a scanned PDF", () => {
   it("is sent to OCR, not told it has 0 characters and should be split", async () => {
-    await translate(await imageOnlyPdf(2));
+    const network = await translate(await imageOnlyPdf(2));
     const { alert, text } = await alertText();
 
     expect(text).toContain(TRANSLATE_NO_TEXT_MESSAGE);
@@ -154,7 +179,7 @@ describe("TranslateWorkerPanel — a scanned PDF", () => {
     expect(link!.getAttribute("href")).toBe(`/tools/${ocrTool.slug}`);
 
     // Refused before upload: nothing was sent, nothing was charged.
-    expect(runWorkerTranslate).not.toHaveBeenCalled();
+    nothingSent(network);
   });
 
   it("offers OCR when the WORKER refuses for no text, too", async () => {
@@ -182,22 +207,27 @@ describe("TranslateWorkerPanel — a scanned PDF", () => {
     );
     expect(worker.ok).toBe(false);
     if (worker.ok) return;
-    runWorkerTranslate.mockResolvedValue({
-      ok: false,
-      message: worker.message,
-      code: "unprocessable_entity",
-    });
+    const refusal = worker.message;
 
-    await translate(await textPdf([600]));
+    const network = await translate(await textPdf([600]), () => ({
+      status: "failed",
+      error: {
+        code: "unprocessable_entity",
+        message: refusal,
+        retryable: false,
+      },
+    }));
     const { alert } = await alertText();
-    expect(runWorkerTranslate).toHaveBeenCalledTimes(1);
+    expect(network.jobBodies).toHaveLength(1);
     expect(ocrLinkIn(alert)).not.toBeNull();
   });
 });
 
 describe("TranslateWorkerPanel — a page too long for one pass", () => {
   it("names the page, and does not suggest splitting the file", async () => {
-    await translate(await textPdf([TRANSLATE_MAX_INPUT_CHARS + 2_000]));
+    const network = await translate(
+      await textPdf([TRANSLATE_MAX_INPUT_CHARS + 2_000]),
+    );
     const { alert, text } = await alertText();
 
     expect(text).toMatch(/Page 1 alone holds [\d,]+ characters/);
@@ -205,20 +235,16 @@ describe("TranslateWorkerPanel — a page too long for one pass", () => {
     expect(text).not.toMatch(/Split it into smaller files/);
     // OCR is not the answer to a page with too much text.
     expect(ocrLinkIn(alert)).toBeNull();
-    expect(runWorkerTranslate).not.toHaveBeenCalled();
+    nothingSent(network);
   });
 });
 
 describe("TranslateWorkerPanel — what may be submitted still is (positive control)", () => {
   it("submits a page under the ceiling, declaring what it extracted", async () => {
-    runWorkerTranslate.mockResolvedValue({
-      ok: false,
-      message: "The job ended for a reason unrelated to text.",
-    });
-    await translate(await textPdf([1_200]));
+    const network = await translate(await textPdf([1_200]));
 
-    await waitFor(() => expect(runWorkerTranslate).toHaveBeenCalledTimes(1));
-    const request = runWorkerTranslate.mock.calls[0]![0] as {
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    const request = network.jobBodies[0] as {
       declaredCharacters: number;
       declaredTextPages: number;
     };
