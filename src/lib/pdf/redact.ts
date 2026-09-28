@@ -322,11 +322,17 @@ export async function redactPdf(
    * needs a browser, but the paint that makes a redaction a redaction does not.
    * (A `vi.mock` of ./render would poison this module in the shared test cache:
    * see src/tests/mock-isolation.test.ts.)
+   *
+   * The default CALLS `rasterizePdf` rather than naming it: the size-promise
+   * guard (`tools/size-neighbours.test.ts`) finds the tools that rebuild pages
+   * as images by their `rasterizePdf(` call, and a bare reference made Redact
+   * drop out of that set at the merge of this parameter (L13) with the guard
+   * (L06).
    */
   rasterize: (
     bytes: Uint8Array,
     options: RasterizeOptions,
-  ) => Promise<RasterPage[]> = rasterizePdf,
+  ) => Promise<RasterPage[]> = (pdf, opts) => rasterizePdf(pdf, opts),
 ): Promise<RedactResult> {
   const rects = options.rects ?? [];
   if (rects.length === 0) {
