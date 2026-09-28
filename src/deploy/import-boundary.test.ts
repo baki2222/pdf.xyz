@@ -106,6 +106,12 @@ const ALLOWED = new Set(
     // keys for the hand-written encrypted fixtures. Pulled in only by the PDF
     // to Office `*.test.ts(x)` files, never by a route, component or barrel.
     "src/tests/pdf-office-fixtures.ts",
+    // Builds the Extract tables proof PDFs from `pdf-office-fixtures`, so it
+    // inherits that module's PATH probe. Imported by the table-extract
+    // `*.test.ts` files and the proof script, never by a route, component or
+    // barrel. (Added at the wave-1 L03 merge: L03 wrote it against a
+    // direct-importers check; this closure check sees the transitive edge.)
+    "src/tests/table-extract-fixtures.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 
