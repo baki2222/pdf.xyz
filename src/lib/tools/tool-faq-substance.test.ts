@@ -63,7 +63,7 @@ import { editPdf } from "@/lib/pdf/edit";
 import { annotatePdf } from "@/lib/pdf/annotate";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
-import { addHeaderFooter } from "@/lib/pdf/header-footer";
+import { addHeaderFooter, stampDateCandidates } from "@/lib/pdf/header-footer";
 import { applyTokens } from "@/lib/pdf/stamp";
 import { cropPdf } from "@/lib/pdf/crop";
 import { flattenPdf } from "@/lib/pdf/flatten";
@@ -642,8 +642,11 @@ describe("the stamping tools answer where and what they stamp", () => {
     }
     for (const tool of mounting("watermark")) {
       // Text only: the engine takes a string, and the runner offers no image.
+      // The runner calls `watermarkPdf` since L11 (8fa96e1), which returns
+      // whether the text had to shrink; `addWatermark`, drawn above, is that
+      // same engine returning the bytes alone.
       const src = runnerSource(tool.slug);
-      expect(src).toMatch(/addWatermark\(pdf\.bytes, text/);
+      expect(src).toMatch(/\bwatermarkPdf\(pdf\.bytes, text/);
       expect(src).not.toMatch(/\.png|image\/|embedRasterImage|<Dropzone/i);
       expect(answer(tool.slug, /image or logo/)).toMatch(/it draws text/);
       expect(answer(tool.slug, /remove the watermark/)).toMatch(
@@ -787,7 +790,18 @@ describe("the stamping tools answer where and what they stamp", () => {
         expect(src).toContain(`token: "${token}"`);
         expect(served).toContain(token);
       }
-      expect(src).toContain("toLocaleDateString()");
+      // WAS `expect(src).toContain("toLocaleDateString()")`. Since L13
+      // (0a1f815) the runner resolves {date} through `resolveStampDate`, which
+      // tries the device's own format first and falls back when no shipped
+      // face can draw it beside the user's text — so the answer names the
+      // fallbacks, and the first candidate must still be the device's format.
+      expect(src).toContain("resolveStampDate(");
+      const now = new Date(2026, 8, 27);
+      expect(stampDateCandidates(now)[0]).toBe(now.toLocaleDateString());
+      expect(served).toMatch(/the way your device writes dates/);
+      expect(served).toMatch(/Latin digits/);
+      expect(served).toContain("YYYY-MM-DD");
+      expect(stampDateCandidates(now).at(-1)).toBe("2026-09-27");
       expect(answer(tool.slug, /first page without/)).toMatch(
         /go on every page/,
       );
@@ -988,7 +1002,21 @@ describe("the remaining in-browser tools answer what their engines do", () => {
     // SHAPE is the precondition: pages come only from rendered page images.
     // Since L08 (85ee451) each is a one-channel plane stored as a JPEG or,
     // when smaller, losslessly — so the answer says "image", not "JPEG".
-    const engine = withoutComments(read("src/lib/pdf/grayscale.ts"));
+    // The engine is grayscale.ts AND the leaf it builds the output in: L13
+    // (4d9eff2) moved the builder to `./grayscale-builder` so the e2e suite
+    // could load it without the renderer. Followed from the import, not typed.
+    const engineEntry = read("src/lib/pdf/grayscale.ts");
+    const builders = [
+      ...engineEntry.matchAll(/from "\.\/(grayscale-[a-z-]+)"/g),
+    ].map((m) => m[1]!);
+    expect(builders, "grayscale.ts imports no builder leaf").toEqual([
+      "grayscale-builder",
+    ]);
+    const engine = withoutComments(
+      [engineEntry, ...builders.map((b) => read(`src/lib/pdf/${b}.ts`))].join(
+        "\n",
+      ),
+    );
     expect(engine).toMatch(/capturePdfPages\(bytes, \{/);
     expect(engine).toContain("PDFDocument.create()");
     expect(engine).not.toMatch(/copyPages|embedPage|embedPdf|drawText/);

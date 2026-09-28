@@ -1008,7 +1008,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "What can a header or footer show?",
           answer:
-            "Any text you type, plus {n} for the page number, {total} for the number of pages and {date} for today's date, written the way your device writes dates. Each is one line, aligned left, center or right.",
+            "Any text you type, plus {n} for the page number, {total} for the number of pages and {date} for today's date, written the way your device writes dates — or, when that form has characters none of our fonts can draw beside your text, in Latin digits in the same order, or as YYYY-MM-DD. Each is one line, aligned left, center or right.",
         },
         {
           question: "Can I leave the first page without a header or footer?",
