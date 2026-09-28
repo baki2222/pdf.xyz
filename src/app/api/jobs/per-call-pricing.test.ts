@@ -22,6 +22,13 @@
  * calls — not by mocking a module, which `vitest.config.ts`'s `isolate: false`
  * would leak into every later file in the thread (see
  * `workers/delivery-cap.chain.test.ts`). The stub is removed after each test.
+ *
+ * THE JOBS ARE CREATED (integration of wave1/l01-page-leak). This file used to
+ * submit against an unconfigured adapter: the route charged, then answered 503.
+ * The route now gives the charge back when no job is created, so every run
+ * here would be free and none would ever be refused. The deployment is WIRED
+ * (`@/tests/wired-job-route`): the real adapter queues each job in an
+ * in-memory Redis, which also holds the heartbeat the route reads.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REQUIRED_WORKER_ENV, parseCreateJobRequest } from "@/lib/jobs";
@@ -49,24 +56,20 @@ import {
 import {
   buildHeartbeat,
   emptyCapabilities,
-  heartbeatKey,
   serializeHeartbeat,
-  WORKER_HEARTBEAT_ENV,
 } from "@/lib/workers/heartbeat";
-import { REDIS_QUEUE_ENV } from "@/lib/workers/queue/redis-config";
+import {
+  publishHeartbeat,
+  unwireJobRoute,
+  wireJobRoute,
+  type WiredJobRoute,
+} from "@/tests/wired-job-route";
 import {
   PER_CALL_PROCESSORS,
   providerCharactersSent,
 } from "@/lib/workers/processor/read-cap-proof";
 import { POST } from "./route";
 
-const REDIS_URL = "https://heartbeat.example.test";
-const HEARTBEAT_ENV: Record<string, string> = {
-  [REDIS_QUEUE_ENV.provider]: "redis",
-  [REDIS_QUEUE_ENV.restUrl]: REDIS_URL,
-  [REDIS_QUEUE_ENV.restToken]: "AX_tokenEXAMPLEvalue000000000000000000000",
-  [WORKER_HEARTBEAT_ENV.enabled]: "enabled",
-};
 const DECLARED = 2_000;
 const CLIENT_IP = "203.0.113.9";
 /** One whole run: what an undeclared run has always cost. */
@@ -80,23 +83,15 @@ function perCallTools(): string[] {
     .map(([slug]) => slug);
 }
 
-/** Serve `record` (or nothing) as the heartbeat key; answer anything else empty. */
-function serveHeartbeat(record: string | null): { reads: () => number } {
-  let reads = 0;
-  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
-    if (!String(url).startsWith(REDIS_URL)) {
-      throw new Error(`unexpected request: ${String(url)}`);
-    }
-    const command = JSON.parse(String(init?.body)) as string[];
-    const isHeartbeat =
-      command[0] === "GET" && command[1] === heartbeatKey("pdfxyz");
-    if (isHeartbeat) reads += 1;
-    return new Response(
-      JSON.stringify({ result: isHeartbeat ? record : null }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
-  });
-  return { reads: () => reads };
+/** The wired deployment for the current test (see the module docblock). */
+let route: WiredJobRoute;
+
+/** Publish `record` as the running worker's heartbeat; count the route's reads. */
+async function serveHeartbeat(
+  record: string | null,
+): Promise<{ reads: () => number }> {
+  await publishHeartbeat(route, record);
+  return { reads: () => route.heartbeatReads() };
 }
 
 function heartbeatRecord(aiReadCap: boolean | undefined, at: number): string {
@@ -176,6 +171,7 @@ beforeEach(() => {
   resetRateLimitGuardForTests();
   for (const name of REQUIRED_WORKER_ENV) delete process.env[name];
   process.env[RATE_LIMIT_ENV.provider] = "local-memory";
+  route = wireJobRoute();
 });
 afterEach(() => {
   // `isolate: false`: the limiter singleton, process.env and globals are all
@@ -183,11 +179,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
   resetRateLimitGuardForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
-  for (const name of Object.keys(HEARTBEAT_ENV)) delete process.env[name];
+  unwireJobRoute();
 });
 
-function enableHeartbeat(): void {
-  Object.assign(process.env, HEARTBEAT_ENV);
+/** Heartbeats on, with no record yet — `serveHeartbeat` publishes one. */
+async function enableHeartbeat(): Promise<void> {
+  await publishHeartbeat(route, null);
 }
 
 describe("POST /api/jobs prices a per-call run by the running worker's proof", () => {
@@ -198,8 +195,8 @@ describe("POST /api/jobs prices a per-call run by the running worker's proof", (
   it.each(perCallTools())(
     "%s: a fresh heartbeat proving the read cap gives a one-page run its own size",
     async (tool) => {
-      enableHeartbeat();
-      const served = serveHeartbeat(heartbeatRecord(true, Date.now()));
+      await enableHeartbeat();
+      const served = await serveHeartbeat(heartbeatRecord(true, Date.now()));
       const accepted = await acceptedInADay(tool);
       expect(
         served.reads(),
@@ -231,8 +228,10 @@ describe("POST /api/jobs prices a per-call run by the running worker's proof", (
   it.each(perCallTools())(
     "%s: an image that never published aiReadCap gets no discount",
     async (tool) => {
-      enableHeartbeat();
-      const served = serveHeartbeat(heartbeatRecord(undefined, Date.now()));
+      await enableHeartbeat();
+      const served = await serveHeartbeat(
+        heartbeatRecord(undefined, Date.now()),
+      );
       expect(await acceptedInADay(tool)).toBe(3);
       expect(served.reads()).toBeGreaterThan(0);
     },
@@ -241,8 +240,8 @@ describe("POST /api/jobs prices a per-call run by the running worker's proof", (
   it.each(perCallTools())(
     "%s: a STALE heartbeat is not a witness, whatever it says",
     async (tool) => {
-      enableHeartbeat();
-      serveHeartbeat(heartbeatRecord(true, Date.now() - 24 * 3_600_000));
+      await enableHeartbeat();
+      await serveHeartbeat(heartbeatRecord(true, Date.now() - 24 * 3_600_000));
       expect(await acceptedInADay(tool)).toBe(3);
     },
   );
@@ -269,8 +268,8 @@ describe("POST /api/jobs charges a per-call run every character it sends", () =>
     // The contract allows 2,000 + 12 x 4,000 characters, but the route refuses
     // any options over its byte cap first, so the most a run can carry is
     // about 8 KB. The heavy bodies below are built to that cap.
-    enableHeartbeat();
-    serveHeartbeat(heartbeatRecord(true, Date.now()));
+    await enableHeartbeat();
+    await serveHeartbeat(heartbeatRecord(true, Date.now()));
     const body = jobBody(
       "chat-with-pdf",
       {
@@ -306,14 +305,17 @@ describe("POST /api/jobs charges a per-call run every character it sends", () =>
     it.each(heavy.map((options, index) => [index, options] as const))(
       `${tool}: declaring one character with heavy body %i pays for all of it`,
       async (_index, options) => {
-        enableHeartbeat();
-        const served = serveHeartbeat(heartbeatRecord(true, Date.now()));
+        await enableHeartbeat();
+        const served = await serveHeartbeat(heartbeatRecord(true, Date.now()));
 
         const response = await submit(jobBody(tool, options, 1));
+        // Created, so the charge stands (a job that is not created is given
+        // back — until the integration of wave1/l01-page-leak this read 503,
+        // an unconfigured adapter answering AFTER the charge).
         expect(
           response.status,
-          "the route refused the job, so it charged nothing to measure",
-        ).toBe(503);
+          "the route did not create the job, so it charged nothing to measure",
+        ).toBe(202);
         expect(served.reads()).toBeGreaterThan(0);
 
         // What that job sends: the real processor, under the read bound the

@@ -51,7 +51,16 @@ import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type * as TS from "typescript";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { unwireJobRoute, wireJobRoute } from "@/tests/wired-job-route";
 import { tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import {
@@ -238,13 +247,20 @@ beforeAll(() => {
   pages = renderToolPages();
 }, 180_000);
 
+// A WIRED deployment, so each admitted job is created and its charge stands:
+// since the integration of wave1/l01-page-leak a job that is NOT created is
+// given its allowance back, and against an unconfigured worker no probe here
+// would ever be refused (`@/tests/wired-job-route`).
 beforeEach(() => {
   resetRateLimitGuardForTests();
   process.env[RATE_LIMIT_ENV.provider] = "local-memory";
+  wireJobRoute();
 });
 afterEach(() => {
   resetRateLimitGuardForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
+  unwireJobRoute();
+  vi.unstubAllGlobals();
 });
 
 describe("which AI clients declare their characters", () => {

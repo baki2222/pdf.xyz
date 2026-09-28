@@ -24,9 +24,16 @@
  * `delivery-cap.chain.test.ts` explains why the route may not be driven into a
  * MOCKED adapter (`isolate: false` shares the module registry). Nothing here is
  * mocked: the transport hands the client's real bytes to the real `POST`, and
- * with no worker configured the route answers 503 AFTER it has charged the
- * allowance — the same technique `ratelimit/allowance-probe.test.ts` uses. The
- * limiter is the real local-memory provider, reset on both sides of every test.
+ * the deployment is WIRED (`@/tests/wired-job-route`), so the real adapter
+ * queues each job in an in-memory Redis. The limiter is the real local-memory
+ * provider, reset on both sides of every test.
+ *
+ * INTEGRATED (wave1/l01-page-leak): this file used to leave the worker
+ * unconfigured — the route answered 503 AFTER charging, "the same technique
+ * `ratelimit/allowance-probe.test.ts` uses". Since that merge a job that is not
+ * created costs nothing (the charge is released), so every question here would
+ * have been free and the refusals below could never happen. A kept charge
+ * needs a created job: each admitted question now answers 202.
  *
  * ── THE DISCOUNT NEEDS A WORKER THAT PROVES ITS READ CAP ────────────────────
  *
@@ -36,9 +43,9 @@
  * more of the document than was declared (`aiReservationFor`). The worker image
  * is built by hand after the web tier deploys, so until it runs, every question
  * costs the fallback again. The declared cases below therefore serve such a
- * heartbeat, read by the route off the same wire it reads in production — a
- * stubbed global `fetch` answering the Redis REST call, never a module mock —
- * and a CONTROL runs the same conversation without one.
+ * heartbeat, read by the route off the same wire it reads in production — the
+ * wired deployment's Redis, behind a stubbed global `fetch`, never a module
+ * mock — and a CONTROL runs the same conversation without one.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
@@ -62,33 +69,31 @@ import { POST } from "@/app/api/jobs/route";
 import {
   buildHeartbeat,
   emptyCapabilities,
-  heartbeatKey,
   serializeHeartbeat,
-  WORKER_HEARTBEAT_ENV,
 } from "./heartbeat";
-import { REDIS_QUEUE_ENV } from "./queue/redis-config";
+import {
+  publishHeartbeat,
+  unwireJobRoute,
+  wireJobRoute,
+  type WiredJobRoute,
+} from "@/tests/wired-job-route";
 import {
   measureChatDocument,
   runWorkerChatWithPdf,
   type ChatDocumentCount,
 } from "./chat-with-pdf-client";
 
-const REDIS_URL = "https://heartbeat.example.test";
-const HEARTBEAT_ENV: Record<string, string> = {
-  [REDIS_QUEUE_ENV.provider]: "redis",
-  [REDIS_QUEUE_ENV.restUrl]: REDIS_URL,
-  [REDIS_QUEUE_ENV.restToken]: "AX_tokenEXAMPLEvalue000000000000000000000",
-  [WORKER_HEARTBEAT_ENV.enabled]: "enabled",
-};
+/** The wired deployment for the current test. */
+let route: WiredJobRoute;
 
 /**
- * A running worker whose fresh heartbeat proves the read cap, answered where
- * the route reads it: the Redis REST call the heartbeat reader makes through
- * the global `fetch`. The client's own requests go through the injected
- * transport, so they never reach this stub. Returns how often it was read.
+ * A running worker whose fresh heartbeat proves the read cap, published where
+ * the route reads it: the wired deployment's Redis, which the heartbeat reader
+ * reaches through the global `fetch`. The client's own requests go through
+ * the injected transport, so they never reach that stub. Returns how often
+ * the heartbeat was read.
  */
-function workerProvesReadCap(): { reads: () => number } {
-  Object.assign(process.env, HEARTBEAT_ENV);
+async function workerProvesReadCap(): Promise<{ reads: () => number }> {
   const record = serializeHeartbeat(
     buildHeartbeat({
       mode: "loop",
@@ -96,21 +101,8 @@ function workerProvesReadCap(): { reads: () => number } {
       at: Date.now(),
     }),
   );
-  let reads = 0;
-  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
-    if (!String(url).startsWith(REDIS_URL)) {
-      throw new Error(`unexpected request: ${String(url)}`);
-    }
-    const command = JSON.parse(String(init?.body)) as string[];
-    const isHeartbeat =
-      command[0] === "GET" && command[1] === heartbeatKey("pdfxyz");
-    if (isHeartbeat) reads += 1;
-    return new Response(
-      JSON.stringify({ result: isHeartbeat ? record : null }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
-  });
-  return { reads: () => reads };
+  await publishHeartbeat(route, record);
+  return { reads: () => route.heartbeatReads() };
 }
 
 const FILE_ID = "f_chat00000000001";
@@ -222,6 +214,7 @@ beforeEach(() => {
   resetRateLimitGuardForTests();
   for (const name of REQUIRED_WORKER_ENV) delete process.env[name];
   process.env[RATE_LIMIT_ENV.provider] = "local-memory";
+  route = wireJobRoute();
 });
 afterEach(() => {
   // Both hooks, and the env vars deleted: `isolate: false` shares the limiter
@@ -229,7 +222,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   resetRateLimitGuardForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
-  for (const name of Object.keys(HEARTBEAT_ENV)) delete process.env[name];
+  unwireJobRoute();
 });
 
 describe("a follow-up conversation about a one-page PDF", () => {
@@ -244,7 +237,7 @@ describe("a follow-up conversation about a one-page PDF", () => {
   });
 
   it("is allowed four questions in a row, once the worker proves its read cap", async () => {
-    const worker = workerProvesReadCap();
+    const worker = await workerProvesReadCap();
     const statuses = await converse(await measured());
     expect(
       worker.reads(),
@@ -261,9 +254,11 @@ describe("a follow-up conversation about a one-page PDF", () => {
         "each question is being charged as if the document were a whole " +
         "call's worth of text",
     ).toEqual([]);
-    // And it got PAST the allowance for the reason we think: the unconfigured
-    // worker is what answers, after the charge.
-    expect(new Set(statuses)).toEqual(new Set([503]));
+    // And it got PAST the allowance for the reason we think: each question
+    // became a job, and its charge stands. (503 until the integration of
+    // wave1/l01-page-leak: an unconfigured worker answering after the charge,
+    // which a created-or-refunded route no longer keeps.)
+    expect(new Set(statuses)).toEqual(new Set([202]));
   });
 
   it("CONTROL: the same conversation, undeclared, is refused on the fourth question", async () => {
@@ -272,7 +267,7 @@ describe("a follow-up conversation about a one-page PDF", () => {
     // the whole bucket. If this ever stops refusing, the property above is
     // being certified by a limiter that is not counting. The same proving
     // worker as above, so the declaration is the only difference.
-    workerProvesReadCap();
+    await workerProvesReadCap();
     const statuses = await converse(null);
     expect(statuses).toHaveLength(QUESTIONS.length);
     expect(statuses.slice(0, 3).every((status) => status !== 429)).toBe(true);
@@ -311,7 +306,8 @@ describe("what one question is charged", () => {
       },
       { fetchImpl, pollIntervalMs: 0, maxPollAttempts: 1 },
     );
-    expect(jobStatuses).toEqual([503]);
+    // Created, so the charge stands (a job that is not created is given back).
+    expect(jobStatuses).toEqual([202]);
     expect(
       (
         await enforceAiCharacterAllowance(
@@ -343,7 +339,7 @@ describe("what one question is charged", () => {
     // over-count a string the engine sends verbatim) plus
     // `AI_PER_CALL_INSTRUCTION_CHARACTERS`. Exactly-the-conversation left the
     // instructions free.
-    workerProvesReadCap();
+    await workerProvesReadCap();
     const count = await measured();
     const context: ChatTurn[] = [
       { role: "user", content: QUESTIONS[0]! },
@@ -361,7 +357,8 @@ describe("what one question is charged", () => {
       },
       { fetchImpl, pollIntervalMs: 0, maxPollAttempts: 1 },
     );
-    expect(jobStatuses).toEqual([503]);
+    // Created, so the charge stands (a job that is not created is given back).
+    expect(jobStatuses).toEqual([202]);
 
     const conversation =
       question.length + context.reduce((n, t) => n + t.content.length, 0);
@@ -390,7 +387,7 @@ describe("what one question is charged", () => {
     // and the worker reads no more than that. Asked of a worker that proves
     // its cap — without one every question costs the fallback anyway, and
     // this would ask nothing.
-    workerProvesReadCap();
+    await workerProvesReadCap();
     const huge: ChatDocumentCount = { characters: 400_000, textPages: 120 };
     const { fetchImpl, jobStatuses } = routedTransport();
     await runWorkerChatWithPdf(
@@ -402,7 +399,8 @@ describe("what one question is charged", () => {
       },
       { fetchImpl, pollIntervalMs: 0, maxPollAttempts: 1 },
     );
-    expect(jobStatuses).toEqual([503]);
+    // Created, so the charge stands (a job that is not created is given back).
+    expect(jobStatuses).toEqual([202]);
     expect(
       (
         await enforceAiCharacterAllowance(
