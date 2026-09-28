@@ -38,13 +38,21 @@
  * exactly the ceiling must reach the provider. Loading a module is not running
  * a function, and a classification the engine never enforces is decoration.
  *
- * WHAT IS NOT PROVEN HERE, recorded rather than discovered: the three
- * read-bound engines are not run against their 500,000-character window —
- * their derivation from the shared constant is pinned by source scan here and
- * in `ai-input-limit.test.ts`, but no probe feeds them 500,001 characters and
- * watches the truncation land. If a read-bound engine ever gains a refusal
- * path, add its probe to {@link OUTPUT_BOUND_PROBES} — the completeness check
- * below will demand it by name.
+ * THE READ-BOUND TOOLS ARE RUN TOO, AND THROUGH THE PROCESSOR (2026-09-28).
+ * Until then this file classified them from the ENGINE source alone
+ * (`AI_INPUT_LIMITS.maxInputCharacters`, 500,000) and recorded, here, that no
+ * probe ever ran them. Then the worker began enforcing what each job reserved
+ * (`processor/read-cap.ts`): a run reads `min(engine window, reservation)`,
+ * and the largest reservation a browser makes is one day's allowance. Every
+ * read-bound page still said 500,000 and this guard stayed green — the bound
+ * had moved from the engine into the PROCESSOR, and the classifier read the
+ * engine. The set searched was the wrong artifact. So a read-bound tool's
+ * honoured ceiling is now MEASURED, end to end in the unit a reader is given:
+ * the real `declareAiRead` counts an over-long real PDF (the most a browser
+ * ever declares), the route's own `deliveryCapFor` prices it, and the real
+ * processor from the worker's registry — with the production deps' limits —
+ * runs an over-long text under that cap and reports what it sent. The panel is
+ * likewise checked as RENDERED, not as source.
  *
  * THE EXIT CONDITION names the property: an entry leaves this guard only when
  * the surface derives its figure from the same constant its engine enforces —
@@ -52,8 +60,23 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { createElement, type ComponentType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
+import { AI_DELIVERY_LIMITS, deliveryCapFor } from "@/lib/jobs/delivery-cap";
+import {
+  declareAiRead,
+  READ_BOUND_AI_TOOLS,
+  type ReadBoundAiTool,
+} from "@/lib/workers/ai-read-declaration";
+import { createProcessorRegistry } from "@/lib/workers/processor";
+import type { ProcessorInput } from "@/lib/workers/processor/types";
+import { summarizeDeps } from "@/lib/workers/summarize/native";
+import { aiExtractDeps } from "@/lib/workers/ai-extract/native";
+import { chatWithPdfDeps } from "@/lib/workers/chat-with-pdf/native";
+import { translateDeps } from "@/lib/workers/translate/native";
 import type { TranslateOptions } from "@/lib/jobs/translate-pdf";
 import type {
   AiCompletionRequest,
@@ -136,7 +159,7 @@ const engines = discoverEngines();
  * classify — a new AI engine with a third kind of bound must extend the
  * classification, loudly, not slide past it.
  */
-function honouredCeiling(slug: string): number {
+function boundKind(slug: string): "output" | "read" {
   const engineFile = engines.get(slug);
   if (!engineFile) {
     throw new Error(
@@ -144,25 +167,39 @@ function honouredCeiling(slug: string): number {
     );
   }
   const source = read(engineFile);
-  const refusesByOutputBudget = /translateMaxInputChars\s*\(/.test(source);
-  const truncatesAtSharedCap = source.includes(
-    "AI_INPUT_LIMITS.maxInputCharacters",
-  );
-  if (refusesByOutputBudget) {
-    // The refusal runs against the OUTPUT-derived ceiling; the shared reading
-    // cap, if also present, is only the truncation window above it. The
-    // honoured bound is the smaller of the two.
-    const refusal = translateMaxInputChars(TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS);
-    return truncatesAtSharedCap
-      ? Math.min(refusal, AI_INPUT_LIMITS.maxInputCharacters)
-      : refusal;
-  }
-  if (truncatesAtSharedCap) return AI_INPUT_LIMITS.maxInputCharacters;
+  if (/translateMaxInputChars\s*\(/.test(source)) return "output";
+  if (source.includes("AI_INPUT_LIMITS.maxInputCharacters")) return "read";
   throw new Error(
     `${relative(engineFile)} enforces neither translateMaxInputChars(...) nor ` +
       "AI_INPUT_LIMITS.maxInputCharacters — classify its bound here before " +
       "any page may state one",
   );
+}
+
+function honouredCeiling(slug: string): number {
+  if (boundKind(slug) === "output") {
+    // The refusal runs against the OUTPUT-derived ceiling; the shared reading
+    // cap, if also present, is only the truncation window above it. The
+    // honoured bound is the smaller of the two.
+    const source = read(engines.get(slug)!);
+    const refusal = translateMaxInputChars(TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS);
+    return source.includes("AI_INPUT_LIMITS.maxInputCharacters")
+      ? Math.min(refusal, AI_INPUT_LIMITS.maxInputCharacters)
+      : refusal;
+  }
+  // READ-bound: the engine's window is only the outer bound. What a run reads
+  // is decided in the PROCESSOR, so the honoured figure is MEASURED there (see
+  // `probeReadBound`) — the engine source cannot see a bound that lives above
+  // it, which is exactly how 500,000 stayed "honoured" here after it wasn't.
+  const probe = readProbes.get(slug);
+  if (!probe) {
+    throw new Error(
+      `${slug} is read-bound but no processor probe ran for it — a ceiling ` +
+        "classified from the engine alone cannot see the reservation the " +
+        "processor enforces",
+    );
+  }
+  return probe.honoured;
 }
 
 /* ------------------------------------------------------------------ *
@@ -177,6 +214,12 @@ const PAGE = path.join(ROOT, "src", "app", "tools", "[slug]", "page.tsx");
  * page's own import statements. A typed slug→panel table here would be a list,
  * and a list cannot see the panel it does not name.
  */
+/** slug → the panel's module specifier and exported component, as the page imports it. */
+const panelComponents = new Map<
+  string,
+  { specifier: string; component: string }
+>();
+
 function panelsFromDispatch(): Map<string, string> {
   const source = withoutComments(read(PAGE));
   const imports = new Map<string, string>();
@@ -209,7 +252,13 @@ function panelsFromDispatch(): Map<string, string> {
       "src",
       moduleSpecifier.replace(/^@\//, "").replace(/\//g, path.sep) + ".tsx",
     );
-    for (const slug of pending) bySlug.set(slug, file);
+    for (const slug of pending) {
+      bySlug.set(slug, file);
+      panelComponents.set(slug, {
+        specifier: moduleSpecifier,
+        component: token[2]!,
+      });
+    }
     pending = [];
   }
   return bySlug;
@@ -233,15 +282,6 @@ function allNumbers(text: string): number[] {
   return [...text.matchAll(/\d[\d,]*/g)].map((m) =>
     Number(m[0].replace(/,/g, "")),
   );
-}
-
-/** The rendered strings a tool's page shows: facts, FAQ (→ JSON-LD), steps. */
-function renderedStrings(tool: Tool): string[] {
-  return [
-    ...toolFacts(tool.slug).map((fact) => `${fact.label}: ${fact.value}`),
-    ...toolFaq(tool).map((entry) => `${entry.question} ${entry.answer}`),
-    ...howToSteps(tool),
-  ];
 }
 
 /* ------------------------------------------------------------------ *
@@ -321,6 +361,254 @@ const OUTPUT_BOUND_PROBES: Record<
 };
 
 /* ------------------------------------------------------------------ *
+ *  The behavioural probes for engines that READ a prefix — measured
+ *  through the declaration, the charge and the PROCESSOR.
+ * ------------------------------------------------------------------ */
+
+/** The read-bound tools, as the engine classification derives them. */
+const readBoundSlugs = (): string[] =>
+  aiTools.map((t) => t.slug).filter((slug) => boundKind(slug) === "read");
+
+/**
+ * A real PDF longer than one day's allowance, so the declaration the real
+ * extractor makes for it is the LARGEST any browser can make. Built, not
+ * typed: its own count is checked against the declaration in a health test.
+ */
+async function overLongPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const line =
+    "Quarterly report, section 4: revenue, costs and outlook for the region. ";
+  for (let p = 0; p < 14; p += 1) {
+    const page = doc.addPage([612, 792]);
+    for (let l = 0; l < 48; l += 1) {
+      page.drawText(`${line}(${p + 1}.${l + 1})`, {
+        x: 20,
+        y: 770 - l * 15,
+        size: 8,
+        font,
+      });
+    }
+  }
+  return doc.save();
+}
+
+/** Longer than every engine window, so whatever binds is visible. */
+const OVER_LONG_TEXT = "The invoice total is 1200 euros. ".repeat(
+  Math.ceil((AI_INPUT_LIMITS.maxInputCharacters + 20_000) / 33),
+);
+
+/**
+ * The minimal valid options per read-bound processor. The completeness test
+ * below demands an entry for every read-bound slug, by name.
+ */
+const READ_PROBE_OPTIONS: Record<string, Record<string, unknown>> = {
+  "summarize-pdf": {},
+  "chat-with-pdf": { question: "What is the total?" },
+  "ai-extract": { mode: "prompt", prompt: "Extract the total." },
+};
+
+interface ReadProbe {
+  /** Browser characters of the over-long PDF, by the real extractor. */
+  documentCharacters: number;
+  /** What `declareAiRead` declares for it — the largest declaration there is. */
+  declared: number;
+  /** Worker characters the route charges for that declaration. */
+  reserved: number;
+  /** Worker characters the processor reports it sent under that charge. */
+  sent: number;
+  /** The same processor with NO cap — the engine window alone (control). */
+  sentUncapped: number;
+  /** What one run honours, in the browser's unit a page states. */
+  honoured: number;
+}
+
+/** The PRODUCTION deps' limits — the window the worker really runs with. */
+function productionLimits() {
+  return {
+    summarize: summarizeDeps({}).limits,
+    translate: translateDeps({}).limits,
+    aiExtract: aiExtractDeps({}).limits,
+    chatWithPdf: chatWithPdfDeps({}).limits,
+  };
+}
+
+async function runReadProcessor(
+  slug: string,
+  delivery: ProcessorInput["delivery"] | undefined,
+): Promise<number> {
+  const extract = vi.fn(async (): Promise<ExtractedPdfText> => ({
+    pageCount: 1,
+    pages: [
+      {
+        pageNumber: 1,
+        text: OVER_LONG_TEXT,
+        characterCount: OVER_LONG_TEXT.length,
+      },
+    ],
+    text: OVER_LONG_TEXT,
+    characterCount: OVER_LONG_TEXT.length,
+    hasText: true,
+  }));
+  const provider: AiProvider = {
+    id: "openai",
+    model: "gpt-test",
+    async complete() {
+      return {
+        ok: true,
+        text: '{"total": 1200}',
+        model: "gpt-test",
+        usage: { inputTokens: 10, outputTokens: 5 },
+      };
+    },
+  };
+  const limits = productionLimits();
+  const registry = createProcessorRegistry({
+    summarize: { extract, provider, limits: limits.summarize },
+    translate: { extract, provider, limits: limits.translate },
+    aiExtract: { extract, provider, limits: limits.aiExtract },
+    chatWithPdf: { extract, provider, limits: limits.chatWithPdf },
+  });
+  const processor = registry.resolve(slug);
+  if (!processor) throw new Error(`the worker registry resolves no ${slug}`);
+  const result = await processor.process({
+    tool: slug,
+    options: READ_PROBE_OPTIONS[slug] ?? {},
+    inputs: [
+      {
+        fileId: "f_abc123def456",
+        filename: "report.pdf",
+        contentType: "application/pdf",
+        bytes: new Uint8Array([1, 2, 3]),
+      },
+    ],
+    ...(delivery ? { delivery } : {}),
+  });
+  if (!result.ok) {
+    throw new Error(`${slug}'s processor failed: ${JSON.stringify(result)}`);
+  }
+  const sent = result.results?.ai?.truncation?.charactersSent;
+  if (typeof sent !== "number") {
+    throw new Error(`${slug}'s job record carries no truncation window`);
+  }
+  return sent;
+}
+
+async function probeReadBound(
+  slug: string,
+  pdf: Uint8Array,
+  documentCharacters: number,
+): Promise<ReadProbe> {
+  if (!(READ_BOUND_AI_TOOLS as readonly string[]).includes(slug)) {
+    throw new Error(
+      `${slug} is read-bound by its engine but declareAiRead does not know it`,
+    );
+  }
+  const declaration = await declareAiRead(slug as ReadBoundAiTool, pdf);
+  if (!declaration.ok || declaration.declaredCharacters === undefined) {
+    throw new Error(`${slug}: the real PDF declared nothing`);
+  }
+  const declared = declaration.declaredCharacters;
+  const cap = deliveryCapFor(
+    { declaredCharacters: declared },
+    AI_DELIVERY_LIMITS,
+  );
+  const sent = await runReadProcessor(slug, cap);
+  const sentUncapped = await runReadProcessor(slug, undefined);
+  return {
+    documentCharacters,
+    declared,
+    reserved: cap.characters,
+    sent,
+    sentUncapped,
+    // A document of `honoured` browser characters is admitted (it is within
+    // the largest declaration) AND read whole (its worst-case worker size,
+    // × headroom, is within what the processor sends). Both, so neither half
+    // can move without this figure moving with it.
+    honoured: Math.min(
+      declared,
+      Math.floor(sent / AI_DELIVERY_LIMITS.headroom),
+    ),
+  };
+}
+
+const readProbes = new Map<string, ReadProbe>();
+
+beforeAll(async () => {
+  const pdf = await overLongPdf();
+  const documentCharacters = (await extractPdfText(pdf)).characterCount;
+  for (const slug of readBoundSlugs()) {
+    readProbes.set(slug, await probeReadBound(slug, pdf, documentCharacters));
+  }
+}, 60_000);
+
+/**
+ * COPY OWED — surfaces this guard knows are false and cannot fix from here.
+ *
+ * `tool-facts.ts` is a shared copy file; the lane that moved the read-bound
+ * bound into the processor may not edit it, and escalated the sentence instead.
+ * Each entry pins the STALE figure EXACTLY, so this is not a licence: the day
+ * the corrected sentence lands, the ratchet below goes red ON PURPOSE and the
+ * entry must be deleted — after which the ordinary check holds that sentence
+ * to the measured ceiling like every other surface. Exit condition: the
+ * sentence states what one run reads. Keep this list empty otherwise.
+ */
+const COPY_OWED: {
+  slugs: readonly string[];
+  surface: string;
+  question: RegExp;
+  staleFigure: number;
+}[] = [
+  {
+    slugs: READ_BOUND_AI_TOOLS,
+    surface: "src/lib/tools/tool-facts.ts FAQ (also FAQPage JSON-LD)",
+    question: /^How much of my PDF does .+ read\?$/,
+    staleFigure: AI_INPUT_LIMITS.maxInputCharacters,
+  },
+];
+
+/** The FAQ entries on a tool's page that a {@link COPY_OWED} entry holds. */
+function owedSentences(tool: Tool) {
+  const owed = COPY_OWED.filter((o) => o.slugs.includes(tool.slug));
+  return toolFaq(tool).filter((entry) =>
+    owed.some((o) => o.question.test(entry.question)),
+  );
+}
+
+/**
+ * The rendered strings a tool's page shows — facts, FAQ (→ JSON-LD), steps —
+ * minus any sentence listed in {@link COPY_OWED}, which the ratchet holds.
+ */
+function checkedStrings(tool: Tool): string[] {
+  const owed = new Set(owedSentences(tool).map((entry) => entry.question));
+  return [
+    ...toolFacts(tool.slug).map((fact) => `${fact.label}: ${fact.value}`),
+    ...toolFaq(tool)
+      .filter((entry) => !owed.has(entry.question))
+      .map((entry) => `${entry.question} ${entry.answer}`),
+    ...howToSteps(tool),
+  ];
+}
+
+/** The panel as a visitor receives it: server-rendered, tags stripped. */
+async function renderedPanelText(slug: string, tool: Tool): Promise<string> {
+  const entry = panelComponents.get(slug);
+  if (!entry) throw new Error(`no dispatched panel component for ${slug}`);
+  const mod = (await import(/* @vite-ignore */ entry.specifier)) as Record<
+    string,
+    ComponentType<{ tool: Tool }>
+  >;
+  const Panel = mod[entry.component];
+  if (!Panel) {
+    throw new Error(`${entry.specifier} exports no ${entry.component}`);
+  }
+  return renderToStaticMarkup(createElement(Panel, { tool }))
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ");
+}
+
+/* ------------------------------------------------------------------ *
  *  The checks.
  * ------------------------------------------------------------------ */
 
@@ -377,6 +665,65 @@ describe("the derived sets are alive", () => {
   });
 });
 
+describe("the read-bound probes are alive", () => {
+  it("every read-bound engine was probed through its processor, by name", () => {
+    const readBound = readBoundSlugs();
+    // Vacuity bound: three read-bound tools today. A classifier that quietly
+    // found none would leave every read-bound page unmeasured and green.
+    expect(readBound.length).toBeGreaterThanOrEqual(3);
+    // Both directions against the declaration's own list: a tool the engine
+    // calls read-bound must be one the browser declares for, and vice versa.
+    expect([...readBound].sort()).toEqual([...READ_BOUND_AI_TOOLS].sort());
+    for (const slug of readBound) {
+      expect(
+        READ_PROBE_OPTIONS[slug],
+        `${slug} is read-bound but has no processor options to probe it with`,
+      ).toBeDefined();
+      expect(readProbes.has(slug), `${slug} was never probed`).toBe(true);
+    }
+  });
+
+  it.each(READ_BOUND_AI_TOOLS.map((slug) => [slug] as const))(
+    "health: %s's probe used a document longer than any declaration",
+    (slug) => {
+      const probe = readProbes.get(slug)!;
+      // Otherwise `declared` is the document's size, not the ceiling, and the
+      // honoured figure below would be whatever this fixture happens to hold.
+      expect(probe.documentCharacters).toBeGreaterThan(probe.declared);
+      expect(OVER_LONG_TEXT.length).toBeGreaterThan(probe.sentUncapped);
+    },
+  );
+});
+
+describe("the read-bound processor honours the reservation (run, not read)", () => {
+  it.each(READ_BOUND_AI_TOOLS.map((slug) => [slug] as const))(
+    "%s reads no more than the largest charge, and all of it",
+    (slug) => {
+      const probe = readProbes.get(slug)!;
+      expect(
+        probe.sent,
+        `${slug} sent ${probe.sent.toLocaleString("en-US")} characters under a ` +
+          `${probe.reserved.toLocaleString("en-US")}-character charge — the ` +
+          "reservation is decorative and no per-run figure is true",
+      ).toBeLessThanOrEqual(probe.reserved);
+      // And it is not cut short of what was paid for, inside the engine window.
+      expect(probe.sent).toBe(Math.min(probe.reserved, probe.sentUncapped));
+    },
+  );
+
+  it.each(READ_BOUND_AI_TOOLS.map((slug) => [slug] as const))(
+    "POSITIVE CONTROL: %s uncapped reads the engine window, so the probe can see a window move",
+    (slug) => {
+      // Without this, "sent <= reserved" could hold because the probe's text
+      // or truncation reading were blind. Uncapped, the ENGINE window binds —
+      // the 500,000 that every read-bound page stated.
+      expect(readProbes.get(slug)!.sentUncapped).toBe(
+        AI_INPUT_LIMITS.maxInputCharacters,
+      );
+    },
+  );
+});
+
 describe("the enforcement honours the classified ceiling (run, not read)", () => {
   it.each(Object.keys(OUTPUT_BOUND_PROBES))(
     "%s refuses one character over its ceiling BEFORE paying, and accepts the ceiling",
@@ -410,11 +757,12 @@ describe("every stated ceiling is the honoured one", () => {
     "%s's rendered page states its own ceiling and no other",
     (slug, tool) => {
       const honoured = honouredCeiling(slug);
-      const claims = renderedStrings(tool).flatMap(characterClaims);
+      const claims = checkedStrings(tool).flatMap(characterClaims);
       // Vacuity bound: the page must STATE the ceiling somewhere a reader
       // meets it before uploading — zero claims is a blind census, not a pass.
+      // An owed sentence counts as stated: the ratchet below holds it.
       expect(
-        claims.length,
+        claims.length + owedSentences(tool).length,
         `${slug}'s page never states a character ceiling at all`,
       ).toBeGreaterThanOrEqual(1);
       for (const claim of claims) {
@@ -440,10 +788,12 @@ describe("every stated ceiling is the honoured one", () => {
         pagesAtDensest(honoured),
         pagesAtSparsest(honoured),
       ]);
-      const ceilingSentences = renderedStrings(tool).filter(
+      const ceilingSentences = checkedStrings(tool).filter(
         (text) => characterClaims(text).length > 0,
       );
-      expect(ceilingSentences.length).toBeGreaterThanOrEqual(1);
+      expect(
+        ceilingSentences.length + owedSentences(tool).length,
+      ).toBeGreaterThanOrEqual(1);
       for (const sentence of ceilingSentences) {
         for (const value of allNumbers(sentence)) {
           expect(
@@ -458,27 +808,94 @@ describe("every stated ceiling is the honoured one", () => {
     },
   );
 
-  it.each(aiTools.map((tool) => [tool.slug] as const))(
-    "%s's panel references the constant its engine enforces, and not the other",
-    (slug) => {
+  it.each(aiTools.map((tool) => [tool.slug, tool] as const))(
+    "%s's panel, AS RENDERED, states its own ceiling and no other",
+    async (slug, tool) => {
+      // The panel a visitor receives, not its source: the Limit row said
+      // "500,000 characters read" on all three read-bound panels while the
+      // processor read a quarter of that, and a source scan for the constant's
+      // NAME was satisfied by exactly that sentence.
       const honoured = honouredCeiling(slug);
+      const text = await renderedPanelText(slug, tool);
+      const claims = characterClaims(text);
+      expect(
+        claims.length,
+        `${relative(panels.get(slug)!)} renders no character ceiling at all`,
+      ).toBeGreaterThanOrEqual(1);
+      for (const claim of claims) {
+        expect(
+          claim,
+          `${relative(panels.get(slug)!)} renders "${claim.toLocaleString("en-US")} ` +
+            `characters" but one run of ${slug} honours ` +
+            honoured.toLocaleString("en-US"),
+        ).toBe(honoured);
+      }
+    },
+  );
+
+  it.each(aiTools.map((tool) => [tool.slug] as const))(
+    "%s's panel DERIVES its figure from its bound's owning constant, and not the other",
+    (slug) => {
+      // The exit condition, as a check: a panel passes because it interpolates
+      // the constant its bound is defined by — never because two numbers
+      // happen to agree today.
       const panel = withoutComments(read(panels.get(slug)!));
-      const readBound = honoured === AI_INPUT_LIMITS.maxInputCharacters;
+      const readBound = boundKind(slug) === "read";
       const required = readBound
-        ? "AI_INPUT_LIMITS.maxInputCharacters"
+        ? "AI_READ_LIMIT_CHARACTERS"
         : "TRANSLATE_MAX_INPUT_CHARS";
       const forbidden = readBound
-        ? "TRANSLATE_MAX_INPUT_CHARS"
-        : "AI_INPUT_LIMITS";
+        ? ["TRANSLATE_MAX_INPUT_CHARS", "AI_INPUT_LIMITS.maxInputCharacters"]
+        : ["AI_INPUT_LIMITS", "AI_READ_LIMIT_CHARACTERS"];
       expect(
         panel,
         `${relative(panels.get(slug)!)} must state its limit via ${required}`,
       ).toContain(required);
-      expect(
-        panel,
-        `${relative(panels.get(slug)!)} references ${forbidden}, which is the ` +
-          "other bound's constant — the two numbers were 49x apart on 2026-08-11",
-      ).not.toContain(forbidden);
+      for (const name of forbidden) {
+        expect(
+          panel,
+          `${relative(panels.get(slug)!)} references ${name}, which is not ` +
+            `the bound one run of ${slug} honours`,
+        ).not.toContain(name);
+      }
+    },
+  );
+});
+
+describe("copy owed (a ratchet, not a licence)", () => {
+  it("every owed entry names real AI tools and exactly one real FAQ question each", () => {
+    for (const owed of COPY_OWED) {
+      expect(owed.slugs.length).toBeGreaterThanOrEqual(1);
+      for (const slug of owed.slugs) {
+        const tool = aiTools.find((t) => t.slug === slug);
+        expect(tool, `${slug} is not a catalogue AI tool`).toBeDefined();
+        // A pattern matching nothing would exempt nothing and prove nothing;
+        // one matching two would exempt a sentence nobody escalated.
+        expect(
+          toolFaq(tool!).filter((e) => owed.question.test(e.question)),
+        ).toHaveLength(1);
+      }
+    }
+  });
+
+  it.each(
+    COPY_OWED.flatMap((owed) =>
+      owed.slugs.map((slug) => [slug, owed] as const),
+    ),
+  )(
+    "%s: the owed sentence still states EXACTLY the stale figure (red on purpose once fixed: delete the entry)",
+    (slug, owed) => {
+      const tool = aiTools.find((t) => t.slug === slug)!;
+      const sentence = toolFaq(tool).find((e) =>
+        owed.question.test(e.question),
+      )!;
+      // The day this fails, the corrected copy has landed: delete the
+      // COPY_OWED entry, and `checkedStrings` hands the sentence to the
+      // ordinary checks above, which hold it to the measured ceiling.
+      expect(characterClaims(sentence.answer)).toEqual([owed.staleFigure]);
+      // And the stale figure really is not the measured one — otherwise
+      // nothing is owed and the entry is a place to park a surface.
+      expect(owed.staleFigure).not.toBe(honouredCeiling(slug));
     },
   );
 });
@@ -530,6 +947,7 @@ describe("the third surface someone adds next month", () => {
         const source = withoutComments(read(file));
         return (
           source.includes("AI_INPUT_LIMITS") ||
+          source.includes("AI_READ_LIMIT_CHARACTERS") ||
           source.includes("TRANSLATE_MAX_INPUT_CHARS")
         );
       })
@@ -578,6 +996,24 @@ describe("controls", () => {
     const claims = characterClaims(shipped);
     expect(claims.length).toBeGreaterThanOrEqual(1);
     expect(claims.some((claim) => claim !== honoured)).toBe(true);
+  });
+
+  it("positive control: the checker catches the read-bound FAQ answer and panel row shipped until 2026-09-28", () => {
+    // What every read-bound page carried while the processor read a quarter
+    // of it. If the measured ceiling ever collapses back onto the engine
+    // window, this stops failing them.
+    const shipped = [
+      `Up to ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters of selectable text`,
+      `25 MB/file · ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters read`,
+    ];
+    for (const slug of READ_BOUND_AI_TOOLS) {
+      const honoured = honouredCeiling(slug);
+      for (const sentence of shipped) {
+        const claims = characterClaims(sentence);
+        expect(claims).toHaveLength(1);
+        expect(claims[0]).not.toBe(honoured);
+      }
+    }
   });
 
   it("health check: the extractor sees numbers in known-good copy", () => {

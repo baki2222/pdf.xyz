@@ -21,12 +21,15 @@
  * declares them (`extractPdfText(bytes).characterCount`) — the same unit the
  * allowance is published in, so the headroom cancels out the same way.
  *
- * CLAMPED to one whole day's allowance. A read-bound engine does not refuse a
- * long document; it reads a prefix and says which page it reached (see
- * `ai/truncation.ts`). A declaration larger than the whole bucket could never
- * be admitted, so declaring it would turn "read the first part and say so"
- * into "refused, with nothing read". The worker enforces what was reserved
- * (`processor/read-cap.ts`), so the clamp is also exactly how far it reads.
+ * CLAMPED to one whole day's allowance — `AI_READ_LIMIT_CHARACTERS`, the
+ * per-run read limit every read-bound page publishes (`@/lib/jobs/ai-read-limit`).
+ * A read-bound engine does not refuse a long document; it reads a prefix and
+ * says which page it reached (see `ai/truncation.ts`). A declaration larger
+ * than the whole bucket could never be admitted, so declaring it would turn
+ * "read the first part and say so" into "refused, with nothing read". The
+ * worker enforces what was reserved (`processor/read-cap.ts`), so the clamp is
+ * also exactly how far it reads — which is why the published figure and this
+ * clamp are one constant, and `ai-ceiling-surfaces.test.ts` measures both.
  *
  * ── WHEN NOTHING IS DECLARED ────────────────────────────────────────────────
  *
@@ -36,7 +39,7 @@
  * such job cost before this existed — and the worker gives its own verdict.
  */
 import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
-import { AI_CHARACTER_ALLOWANCE_DELIVERED } from "@/lib/jobs/ai-allowance";
+import { AI_READ_LIMIT_CHARACTERS } from "@/lib/jobs/ai-read-limit";
 
 /** The AI tools whose engine READS the document (and truncates), not writes it. */
 export const READ_BOUND_AI_TOOLS = [
@@ -87,7 +90,7 @@ export async function declareAiRead(
     // at least one character, and the floor makes that unconditional.
     declaredCharacters: Math.max(
       1,
-      Math.min(extracted.characterCount, AI_CHARACTER_ALLOWANCE_DELIVERED),
+      Math.min(extracted.characterCount, AI_READ_LIMIT_CHARACTERS),
     ),
   };
 }

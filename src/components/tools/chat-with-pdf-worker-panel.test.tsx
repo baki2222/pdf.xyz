@@ -18,7 +18,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
+import { AI_READ_LIMIT_CHARACTERS } from "@/lib/jobs/ai-read-limit";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
@@ -475,5 +477,57 @@ describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
     expect(await screen.findByText(/The total is/)).toBeInTheDocument();
     // A caveat on a complete reading would be its own false claim.
     expect(screen.queryByText(/could be read/)).not.toBeInTheDocument();
+  });
+});
+
+describe("ChatWithPdfWorkerPanel — what the job declares", () => {
+  it("sends the extracted character count with its job, not nothing", async () => {
+    // Review of 2026-09-28: the only panel-level assertion checked that the
+    // key was PRESENT, and a present key holding `undefined` passed it — an
+    // undeclared chat-with-pdf job reserves a third of the day. A REAL
+    // pdf-lib PDF, counted by the real extractor, dropped into the panel; the
+    // driver must receive that count. (The driver is this file's mock; the
+    // client → wire → route half is `ai-read-declaration.chain.test.ts`.)
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([612, 792]);
+    for (let l = 0; l < 8; l += 1) {
+      page.drawText(`Invoice 2026-0412, line ${l + 1}: total 1200.`, {
+        x: 20,
+        y: 760 - l * 18,
+        size: 10,
+        font,
+      });
+    }
+    const bytes = await doc.save();
+    const counted = (await extractPdfText(bytes)).characterCount;
+    // Health: a count the clamp does not touch, so equality means THIS count.
+    expect(counted).toBeGreaterThan(100);
+    expect(counted).toBeLessThan(AI_READ_LIMIT_CHARACTERS);
+
+    stubStatus();
+    runWorkerChatWithPdf.mockResolvedValue({ ok: false, message: "stop" });
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([bytes.slice()], "invoice.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "What is the total?" },
+    });
+    const submit = screen.getByRole("button", { name: /ask the pdf/i });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    expect(runWorkerChatWithPdf.mock.calls[0]![0].declaredCharacters).toBe(
+      counted,
+    );
   });
 });

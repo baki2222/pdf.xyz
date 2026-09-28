@@ -21,6 +21,9 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { parseExtractOptions } from "@/lib/jobs/ai-extract";
 import { resetTelemetry } from "@/lib/telemetry/track";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { extractPdfText } from "@/lib/pdf/text";
+import { AI_READ_LIMIT_CHARACTERS } from "@/lib/jobs/ai-read-limit";
 
 const runWorkerAiExtract = vi.hoisted(() => vi.fn());
 
@@ -177,5 +180,64 @@ describe("AiExtractWorkerPanel — duplicate field names", () => {
     expect(
       Object.prototype.hasOwnProperty.call(input, "declaredCharacters"),
     ).toBe(true);
+  });
+});
+
+describe("AiExtractWorkerPanel — what the job declares", () => {
+  it("sends the extracted character count with its job, not nothing", async () => {
+    // Review of 2026-09-28: the POSITIVE CONTROL above checks that the key is
+    // PRESENT, and a present key holding `undefined` passed it — an
+    // undeclared ai-extract job reserves a third of the day. A REAL pdf-lib
+    // PDF, counted by the real extractor, dropped into the panel; the driver
+    // must receive that count. (The client → wire → route half is
+    // `ai-read-declaration.chain.test.ts`.)
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([612, 792]);
+    for (let l = 0; l < 8; l += 1) {
+      page.drawText(`Invoice 2026-0412, line ${l + 1}: total 1200.`, {
+        x: 20,
+        y: 760 - l * 18,
+        size: 10,
+        font,
+      });
+    }
+    const bytes = await doc.save();
+    const counted = (await extractPdfText(bytes)).characterCount;
+    // Health: a count the clamp does not touch, so equality means THIS count.
+    expect(counted).toBeGreaterThan(100);
+    expect(counted).toBeLessThan(AI_READ_LIMIT_CHARACTERS);
+
+    runWorkerAiExtract.mockResolvedValue({ ok: false, message: "stop" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
+    );
+    render(<AiExtractWorkerPanel tool={tool} />);
+    const input = await waitFor(() => {
+      const found = document.querySelector('input[type="file"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([bytes.slice()], "invoice.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.change(nameInput(1), { target: { value: "Total" } });
+    await waitFor(() =>
+      expect(extractButton()).not.toHaveAttribute("aria-disabled"),
+    );
+    fireEvent.click(extractButton());
+
+    await waitFor(() => expect(runWorkerAiExtract).toHaveBeenCalledTimes(1));
+    const sent = runWorkerAiExtract.mock.calls[0]![0] as {
+      declaredCharacters?: unknown;
+    };
+    expect(sent.declaredCharacters).toBe(counted);
   });
 });

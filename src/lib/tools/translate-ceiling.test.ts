@@ -157,15 +157,30 @@ describe("the two numbers cannot drift back together", () => {
     ).not.toContain("AI_INPUT_LIMITS");
   });
 
+  // INVERTED 2026-09-28. This used to read "%s still states the shared reading
+  // cap, which is correct for it" and required AI_INPUT_LIMITS.maxInputCharacters
+  // (500,000) in each read-bound panel. It stopped being correct when the
+  // worker began enforcing what each job reserved (`processor/read-cap.ts`):
+  // a run reads min(engine window, reservation), and the largest reservation a
+  // browser makes is one day's allowance — so the panels said 500,000 while a
+  // run read a quarter of it, and this test REQUIRED that. What a run reads is
+  // measured end to end in `ai-ceiling-surfaces.test.ts`; here the panel must
+  // state the per-run read limit that measurement agrees with, and must not
+  // state the engine window it no longer reaches.
   it.each(SHARED_CAP_PANELS)(
-    "%s still states the shared reading cap, which is correct for it",
+    "%s states the per-run READ limit, not the engine window it no longer reaches",
     (panel) => {
       const source = read(panel);
       expect(
         source,
-        `${panel} is bounded by READING, so AI_INPUT_LIMITS.maxInputCharacters ` +
-          "is its true limit and must stay.",
-      ).toContain("AI_INPUT_LIMITS.maxInputCharacters");
+        `${panel} is bounded by READING what the job reserved, so ` +
+          "AI_READ_LIMIT_CHARACTERS is its true limit.",
+      ).toContain("AI_READ_LIMIT_CHARACTERS");
+      expect(
+        source,
+        `${panel} states the engine window AI_INPUT_LIMITS.maxInputCharacters, ` +
+          "which a reserved run never reaches.",
+      ).not.toContain("AI_INPUT_LIMITS.maxInputCharacters");
       expect(
         source,
         `${panel} must not borrow translate's OUTPUT-derived ceiling.`,
