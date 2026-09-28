@@ -10,7 +10,6 @@ import {
 import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { organizePages } from "@/lib/pdf/engine";
 import {
   lostStructure,
   makeStructuredPdf,
@@ -123,6 +122,34 @@ async function rotateThroughTheUi(bytes: Uint8Array): Promise<Uint8Array> {
   return blobBytes(downloads[0]!);
 }
 
+/**
+ * The REBUILD these positive controls are about, reconstructed here: a fresh
+ * document with the pages `copyPages`d in and turned — what `organizePages`
+ * shipped until wave1/l01-page-leak rebuilt it on the clean page assembler
+ * (`./page-copy`), which now carries the catalog, the form and the metadata
+ * across. The control used to CALL `organizePages` for this, and so pinned
+ * that defect; after the merge it certified nothing (the predicate found
+ * nothing to lose). Built with pdf-lib directly, in a test file, which the
+ * no-direct-copyPages guard does not walk.
+ */
+async function bareRebuild(
+  bytes: Uint8Array,
+  plan: { sourceIndex: number; rotation: number }[],
+): Promise<Uint8Array> {
+  const { PDFDocument: Doc, degrees } = await import("pdf-lib");
+  const src = await Doc.load(bytes);
+  const out = await Doc.create();
+  const pages = await out.copyPages(
+    src,
+    plan.map((item) => item.sourceIndex),
+  );
+  pages.forEach((page, i) => {
+    page.setRotation(degrees(plan[i]!.rotation));
+    out.addPage(page);
+  });
+  return out.save();
+}
+
 describe("rotate-pdf: what the downloaded file still carries", () => {
   it("rotates every page and keeps every document-level member of the input", async () => {
     const input = await makeStructuredPdf(3);
@@ -140,12 +167,14 @@ describe("rotate-pdf: what the downloaded file still carries", () => {
   }, 30_000);
 
   it("POSITIVE CONTROL: the rebuild the tool used to ship fails the same predicate", async () => {
-    // The exact call the runner made before this fix, on the same fixture.
+    // The rebuild the runner shipped before this fix, on the same fixture.
     // Same rotations as the true artifact, so the predicate is the only thing
-    // that can tell them apart — and it must.
+    // that can tell them apart — and it must. (It called `organizePages`
+    // until wave1/l01-page-leak made that keep the structure too; see
+    // `bareRebuild`.)
     const input = await makeStructuredPdf(3);
     const before = await readDocumentStructure(input);
-    const rebuilt = await organizePages(
+    const rebuilt = await bareRebuild(
       input,
       before.rotations.map((_, i) => ({ sourceIndex: i, rotation: 90 })),
     );

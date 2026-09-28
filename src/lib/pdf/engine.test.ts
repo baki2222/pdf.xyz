@@ -210,6 +210,34 @@ describe("organizePages", () => {
   });
 });
 
+/**
+ * The REBUILD these positive controls are about, reconstructed here: a fresh
+ * document with the pages `copyPages`d in and turned — what `organizePages`
+ * shipped until wave1/l01-page-leak rebuilt it on the clean page assembler
+ * (`./page-copy`), which now carries the catalog, the form and the metadata
+ * across. The control used to CALL `organizePages` for this, and so pinned
+ * that defect; after the merge it certified nothing (the predicate found
+ * nothing to lose). Built with pdf-lib directly, in a test file, which the
+ * no-direct-copyPages guard does not walk.
+ */
+async function bareRebuild(
+  bytes: Uint8Array,
+  plan: { sourceIndex: number; rotation: number }[],
+): Promise<Uint8Array> {
+  const { PDFDocument: Doc, degrees } = await import("pdf-lib");
+  const src = await Doc.load(bytes);
+  const out = await Doc.create();
+  const pages = await out.copyPages(
+    src,
+    plan.map((item) => item.sourceIndex),
+  );
+  pages.forEach((page, i) => {
+    page.setRotation(degrees(plan[i]!.rotation));
+    out.addPage(page);
+  });
+  return out.save();
+}
+
 describe("setPageRotations", () => {
   /*
    * The rotate tool's engine. It used to be `organizePages`, which rebuilds the
@@ -252,7 +280,7 @@ describe("setPageRotations", () => {
   it("POSITIVE CONTROL: the rebuild path it replaced is caught by the same predicate", async () => {
     const input = await makeStructuredPdf(3);
     const before = await readDocumentStructure(input);
-    const rebuilt = await organizePages(input, [
+    const rebuilt = await bareRebuild(input, [
       { sourceIndex: 0, rotation: 90 },
       { sourceIndex: 1, rotation: 0 },
       { sourceIndex: 2, rotation: 270 },
@@ -271,6 +299,22 @@ describe("setPageRotations", () => {
         "field/customer.name",
       ]),
     );
+  });
+
+  it("INVERTED: organizePages itself no longer drops what the bare rebuild drops", async () => {
+    // Until wave1/l01-page-leak the control above called organizePages AS the
+    // rebuild that loses structure. It was fixed there; kept here so the day
+    // it regresses, this goes red rather than the control going quiet.
+    const input = await makeStructuredPdf(3);
+    const before = await readDocumentStructure(input);
+    const organized = await organizePages(input, [
+      { sourceIndex: 0, rotation: 90 },
+      { sourceIndex: 1, rotation: 0 },
+      { sourceIndex: 2, rotation: 270 },
+    ]);
+    expect(
+      lostStructure(before, await readDocumentStructure(organized)),
+    ).toEqual([]);
   });
 
   it("keeps a page's existing rotation when asked for the same angle", async () => {
