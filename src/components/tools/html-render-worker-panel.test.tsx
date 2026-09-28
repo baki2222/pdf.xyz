@@ -66,9 +66,18 @@ afterEach(() => {
  */
 function heldFile(html: string, name = "report.html") {
   let release!: () => void;
-  const read = new Promise<string>((r) => (release = () => r(html)));
+  // The panel reads the BYTES (`decodeTextFile`, in the file's own encoding —
+  // until the integration of wave1/l01-page-leak it called Blob.text(), and
+  // this held that).
+  const read = new Promise<ArrayBuffer>(
+    (r) =>
+      (release = () => {
+        const bytes = new TextEncoder().encode(html);
+        r(bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer);
+      }),
+  );
   const file = new File([html], name, { type: "text/html" });
-  Object.defineProperty(file, "text", { value: () => read });
+  Object.defineProperty(file, "arrayBuffer", { value: () => read });
   return {
     file,
     /** Let the panel read the file, and let everything that follows settle. */

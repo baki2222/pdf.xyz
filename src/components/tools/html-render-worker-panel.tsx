@@ -37,6 +37,7 @@ import {
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import { decodeTextFile } from "@/lib/text/decode-text-file";
 import {
   useWorkerStatus,
   WorkerStatusPending,
@@ -238,9 +239,11 @@ function useUnbundledAssetsNote(file: File | null): string | null {
   useEffect(() => {
     if (!file) return;
     let active = true;
-    file
-      .text()
-      .then((html) => {
+    // Decoded in the file's own encoding, as every read of a user's text file
+    // is (`decodeTextFile`): Blob.text() would turn a Windows-1252 page's
+    // accented link names into U+FFFD before they were looked for.
+    decodeTextFile(file)
+      .then(({ text: html }) => {
         if (active)
           setNote({
             file,
