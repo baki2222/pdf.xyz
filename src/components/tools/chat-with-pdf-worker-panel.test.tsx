@@ -337,7 +337,11 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     fireEvent.change(await screen.findByRole("textbox"), {
       target: { value: "Q about B" },
     });
-    const submit = screen.getByRole("button", {
+    // FOUND, not got: A's job is still settling here — the button reads
+    // "Answering…" until it does. The shared job hook (wave-1 L03, merged
+    // 2026-09-28) adds awaits between the answer and the end of the run, and
+    // under a full parallel run this query landed before them.
+    const submit = await screen.findByRole("button", {
       name: /ask the pdf|send follow-up/i,
     });
     await waitFor(() => expect(submit).not.toBeDisabled());
