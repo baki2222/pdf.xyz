@@ -168,6 +168,9 @@ describe("summarize-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         length: "brief",
         format: "bullets",
         focus: "risks",
@@ -242,6 +245,9 @@ describe("summarize-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         length: "standard",
         format: "paragraphs",
       },
@@ -297,6 +303,9 @@ describe("summarize-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         length: "brief",
         format: "bullets",
       },

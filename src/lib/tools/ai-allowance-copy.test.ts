@@ -27,6 +27,7 @@ import {
   AI_ALLOWANCE_RUNS,
   AI_ALLOWANCE_USED_MESSAGE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
+  aiAllowanceUsedMessage,
 } from "@/lib/jobs/ai-allowance";
 import { flattenForPhraseSearch, withoutComments } from "./copy-surface";
 
@@ -195,5 +196,60 @@ describe("there is exactly one copy of the sentence", () => {
     expect(AI_DAILY_ALLOWANCE_NOTE).toBe(AI_ALLOWANCE_FACT);
     expect(fromTools).toBe(AI_ALLOWANCE_FACT);
     expect(fromRateLimit).toBe(AI_ALLOWANCE_USED_MESSAGE);
+  });
+});
+
+describe("the refusal speaks to a reader, about every AI tool", () => {
+  /**
+   * Until 2026-09-28 the served refusal ended *"On a shared network that can
+   * include text translated by someone else. The allowance resets daily; retry
+   * after the interval in the Retry-After header."* Summarize, Chat and AI Data
+   * Extraction spend the same bucket, and the panel renders this string
+   * verbatim — so a reader refused after three extractions was told about
+   * somebody's translations and pointed at an HTTP header.
+   */
+  it("names no single AI tool's work", async () => {
+    // Derived from the catalog: the verb of every AI tool, as a stem, so
+    // "translated", "summarised" and "extracting" are all caught.
+    const { tools } = await import("./index");
+    const { capabilityForMode } = await import("@/lib/jobs/capabilities");
+    const aiTools = tools.filter(
+      (tool) => capabilityForMode(tool.processing) === "ai",
+    );
+    expect(aiTools.length).toBeGreaterThanOrEqual(4);
+    const STEMS: Record<string, RegExp> = {
+      "translate-pdf": /translat/i,
+      "summarize-pdf": /summar/i,
+      "ai-extract": /extract/i,
+      "chat-with-pdf": /\bchat/i,
+    };
+    // Every AI tool has a stem, so a fifth tool fails here until it is added.
+    expect(Object.keys(STEMS).sort()).toEqual(
+      aiTools.map((tool) => tool.slug).sort(),
+    );
+    const served = aiAllowanceUsedMessage(3 * 3600);
+    for (const [slug, stem] of Object.entries(STEMS)) {
+      expect(served, `the refusal names ${slug}'s work`).not.toMatch(stem);
+    }
+    // Positive control: the sentence that shipped is caught.
+    expect(
+      "On a shared network that can include text translated by someone else.",
+    ).toMatch(STEMS["translate-pdf"]!);
+  });
+
+  it("states the wait in words and never names a header", () => {
+    for (const seconds of [1, 59, 60, 61, 3599, 3600, 3601, 86_400]) {
+      const served = aiAllowanceUsedMessage(seconds);
+      expect(served.startsWith(AI_ALLOWANCE_USED_MESSAGE)).toBe(true);
+      expect(served).not.toMatch(/header|retry-after/i);
+    }
+    expect(aiAllowanceUsedMessage(30)).toMatch(
+      /It resets in under a minute\.$/,
+    );
+    expect(aiAllowanceUsedMessage(60)).toMatch(/in about 1 minute\.$/);
+    // Rounded UP: a reader told "3 hours" at 3h20m would come back early and
+    // be refused again.
+    expect(aiAllowanceUsedMessage(3 * 3600 + 1)).toMatch(/in about 4 hours\.$/);
+    expect(aiAllowanceUsedMessage(86_400)).toMatch(/in about 24 hours\.$/);
   });
 });

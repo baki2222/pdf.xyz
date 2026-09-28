@@ -168,6 +168,9 @@ describe("ai-extract-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         mode: "schema",
         schema: [{ name: "total", type: "number" }],
       },
@@ -240,6 +243,9 @@ describe("ai-extract-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         mode: "prompt",
         prompt: "Extract the vendor and date",
       },
@@ -295,6 +301,9 @@ describe("ai-extract-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         mode: "prompt",
         prompt: "Extract totals",
       },

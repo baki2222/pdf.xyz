@@ -32,6 +32,7 @@ import {
   type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
+import { boundReadLimits } from "./read-cap";
 
 type Failure = Extract<AiExtractRun, { ok: false }>;
 
@@ -154,7 +155,21 @@ export function createAiExtractProcessor(deps: AiExtractDeps): Processor {
           retryable: false,
         });
       }
-      const run = await runAiExtract(file.bytes, parsed.value, deps);
+      // The reservation, enforced: the engine reads no more than the route
+      // charged for. See `./read-cap` for why this was decorative until
+      // 2026-09-28 and why a malformed cap fails closed.
+      const bounded = boundReadLimits(deps.limits, input.delivery);
+      if (!bounded.ok) {
+        return processorFail({
+          code: "internal_error",
+          message: bounded.message,
+          retryable: false,
+        });
+      }
+      const run = await runAiExtract(file.bytes, parsed.value, {
+        ...deps,
+        limits: bounded.limits,
+      });
       // A run that failed AFTER a provider call still owes the job record what
       // it spent — see `aiResultsFromFailure`. Absent when no call happened.
       if (!run.ok)

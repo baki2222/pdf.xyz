@@ -25,6 +25,10 @@ import {
   runWorkerChatWithPdf,
 } from "@/lib/workers/chat-with-pdf-client";
 import {
+  declareAiRead,
+  type AiReadDeclaration,
+} from "@/lib/workers/ai-read-declaration";
+import {
   buildChatContext,
   readAnswerFromPackage,
   type ChatExchange,
@@ -273,6 +277,16 @@ function ChatBuilder() {
    * panel displays it as if it belonged to the file on screen.
    */
   const fileToken = useRef(0);
+  /**
+   * The document's declaration, counted ONCE per file and reused for every
+   * question: each question is its own job, and re-parsing the same PDF for
+   * each would cost a pdfjs pass per question to learn nothing new. Keyed by
+   * {@link fileToken} so a swapped file is counted afresh.
+   */
+  const declaration = useRef<{
+    token: number;
+    result: Promise<AiReadDeclaration>;
+  } | null>(null);
 
   const chooseFile = useCallback((next: File | null) => {
     fileToken.current += 1;
@@ -293,9 +307,27 @@ function ChatBuilder() {
     // forever with no error, recoverable only by reloading the page.
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
+      // Counted BEFORE anything is uploaded or reserved, so each question
+      // reserves what this document holds instead of a third of the day — see
+      // `@/lib/workers/ai-read-declaration`.
+      if (declaration.current?.token !== startedFor) {
+        declaration.current = {
+          token: startedFor,
+          result: declareAiRead("chat-with-pdf", bytes),
+        };
+      }
+      const declared = await declaration.current.result;
+      if (fileToken.current !== startedFor) {
+        return;
+      }
+      if (!declared.ok) {
+        setError(declared.message);
+        return;
+      }
       const result = await runWorkerChatWithPdf({
         filename: file.name,
         bytes,
+        declaredCharacters: declared.declaredCharacters,
         question: asked,
         ...(context.turns.length > 0 ? { context: context.turns } : {}),
       });

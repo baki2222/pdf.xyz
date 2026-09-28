@@ -25,6 +25,7 @@ import {
   runWorkerSummarize,
   type SummarizeWorkerResult,
 } from "@/lib/workers/summarize-client";
+import { declareAiRead } from "@/lib/workers/ai-read-declaration";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
@@ -242,9 +243,19 @@ function SummaryBuilder() {
     try {
       setOutcome(null);
       const trimmedFocus = focus.trim();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // Counted BEFORE anything is uploaded or reserved, so the job reserves
+      // what this document holds instead of a third of the day — see
+      // `@/lib/workers/ai-read-declaration`.
+      const declared = await declareAiRead("summarize-pdf", bytes);
+      if (!declared.ok) {
+        setOutcome({ ok: false, message: declared.message });
+        return;
+      }
       const result = await runWorkerSummarize({
         filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
+        bytes,
+        declaredCharacters: declared.declaredCharacters,
         length,
         format,
         ...(trimmedFocus ? { focus: trimmedFocus } : {}),

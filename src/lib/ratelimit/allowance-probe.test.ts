@@ -42,6 +42,7 @@ import {
   AI_CHARACTER_ALLOWANCE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
   AI_ALLOWANCE_USED_MESSAGE,
+  aiAllowanceUsedMessage,
 } from "@/lib/jobs/ai-allowance";
 import { TRANSLATE_EXTRACTOR_HEADROOM } from "@/lib/jobs/translate-limits";
 import { S3_ENV } from "@/lib/workers/storage/s3-config";
@@ -177,7 +178,10 @@ describe("the zero-cost allowance probe", () => {
       body.error.message,
       "the refusal does not name the allowance, so an operator cannot tell it " +
         "apart from an ordinary throttle",
-    ).toBe(AI_ALLOWANCE_USED_MESSAGE);
+    ).toBe(
+      // Stated in words from the same seconds as the header (2026-09-28).
+      aiAllowanceUsedMessage(Number(response.headers.get("retry-after"))),
+    );
 
     // A refusal PEEKS. If it spent, a probe run while exhausted would push the
     // window out and punish the person asking a read-only question.

@@ -50,6 +50,7 @@ import {
 } from "@/lib/ratelimit/guard";
 import {
   AI_ALLOWANCE_USED_MESSAGE,
+  aiAllowanceUsedMessage,
   AI_CHARACTER_ALLOWANCE,
 } from "@/lib/jobs/ai-allowance";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
@@ -186,8 +187,12 @@ describe("POST /api/uploads agrees with POST /api/jobs about the allowance", () 
         error: { code: string; message: string };
       };
       expect(body.error.code).toBe("rate_limited");
-      expect(body.error.message).toBe(AI_ALLOWANCE_USED_MESSAGE);
+      // The body states the wait in words, from the SAME seconds as the
+      // header — until 2026-09-28 it told a browser user to read the header.
       expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+      expect(body.error.message).toBe(
+        aiAllowanceUsedMessage(Number(res.headers.get("retry-after"))),
+      );
     }
   });
 
@@ -277,9 +282,10 @@ describe("what the panel receives", () => {
         },
       );
       expect(result.ok, slug).toBe(false);
-      expect(!result.ok && result.message, slug).toBe(
-        AI_ALLOWANCE_USED_MESSAGE,
-      );
+      const message = !result.ok ? result.message : "";
+      expect(message.startsWith(AI_ALLOWANCE_USED_MESSAGE), slug).toBe(true);
+      // What the panel renders: a wait a reader can act on, not a header name.
+      expect(message, slug).toMatch(/ It resets in about \d+ hours?\.$/);
       expect(calls, `${slug} went past the refused upload`).toEqual([
         "/api/uploads",
       ]);

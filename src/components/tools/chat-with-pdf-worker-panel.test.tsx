@@ -294,6 +294,10 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     render(<ChatWithPdfWorkerPanel tool={chatTool} />);
     await screen.findByRole("textbox");
     await ask("Q about A");
+    // The panel counts the document's text before it sends anything, so the
+    // request is only IN FLIGHT once the driver has been called. Swapping
+    // earlier would test the (also discarded) pre-send phase instead.
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
 
     // Swap the document while the request is still running.
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));

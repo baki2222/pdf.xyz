@@ -171,6 +171,9 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         question: "What is the total?",
         context: [
           { role: "user", content: "hi" },
@@ -249,6 +252,9 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         question: "What is the total?",
       },
       { fetchImpl, sleep: async () => {} },
@@ -300,6 +306,9 @@ describe("chat-with-pdf-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        // No count: these tests are about the lifecycle, not the declaration
+        // (`ai-read-declaration.chain.test.ts` drives that seam).
+        declaredCharacters: undefined,
         question: "What is the total?",
       },
       { fetchImpl, sleep: async () => {} },

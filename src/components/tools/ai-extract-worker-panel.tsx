@@ -35,6 +35,7 @@ import {
   runWorkerAiExtract,
   type AiExtractWorkerResult,
 } from "@/lib/workers/ai-extract-client";
+import { declareAiRead } from "@/lib/workers/ai-read-declaration";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
@@ -247,17 +248,28 @@ function AiExtractBuilder() {
     try {
       setOutcome(null);
       const bytes = new Uint8Array(await file.arrayBuffer());
+      // Counted BEFORE anything is uploaded or reserved, so the job reserves
+      // what this document holds instead of a third of the day — see
+      // `@/lib/workers/ai-read-declaration`.
+      const declared = await declareAiRead("ai-extract", bytes);
+      if (!declared.ok) {
+        setOutcome({ ok: false, message: declared.message });
+        return;
+      }
+      const { declaredCharacters } = declared;
       const result = await runWorkerAiExtract(
         mode === "prompt"
           ? {
               filename: file.name,
               bytes,
+              declaredCharacters,
               mode: "prompt",
               prompt: prompt.trim(),
             }
           : {
               filename: file.name,
               bytes,
+              declaredCharacters,
               mode: "schema",
               schema: namedFields.map((f) => ({
                 name: f.name.trim(),

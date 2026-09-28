@@ -30,6 +30,17 @@ export interface AiExtractWorkerInput {
   prompt?: string;
   /** The typed field list to extract. Required (non-empty) iff `mode === "schema"`. */
   schema?: ExtractionField[];
+  /**
+   * Browser-counted characters of selectable text, from `declareAiRead` —
+   * `undefined` only when the browser could not open the PDF to count.
+   *
+   * A REQUIRED KEY whose value may be `undefined`, and the asymmetry is the
+   * point: until 2026-09-28 this client had no such field, so every job it
+   * created reserved the route's undeclared fallback (a third of the day)
+   * whatever the document held. Required means a caller cannot drop it by
+   * omission; it has to write down that it has no count.
+   */
+  declaredCharacters: number | undefined;
 }
 
 export function runWorkerAiExtract(
@@ -47,6 +58,7 @@ export function runWorkerAiExtract(
     input.bytes,
     jobOptions,
     options,
+    input.declaredCharacters,
   );
 }
 

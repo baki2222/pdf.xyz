@@ -19,6 +19,7 @@ import { policyFor } from "./policy";
 import {
   AI_ALLOWANCE_ACTION,
   AI_ALLOWANCE_USED_MESSAGE,
+  aiAllowanceUsedMessage,
 } from "@/lib/jobs/ai-allowance";
 
 /** Client-facing 429 message. Generic by design; names no caller and no identity. */
@@ -46,8 +47,13 @@ export function rateLimitErrorResult(
     // Compared against the constant the GUARD uses, never a literal repeated
     // here. The literal is what went stale: the allowance moved to a new action
     // and this line went on answering about the old one.
+    //
+    // The allowance refusal states its wait in words, from the SAME seconds
+    // `retryAfterHeaderValue` puts in the header — a reader in a browser panel
+    // cannot see a header, and a second source for the number could disagree
+    // with the first.
     decision.action === AI_ALLOWANCE_ACTION
-      ? AI_ALLOWANCE_USED_MESSAGE
+      ? aiAllowanceUsedMessage(Number(retryAfterHeaderValue(decision)))
       : RATE_LIMITED_MESSAGE,
   );
 }

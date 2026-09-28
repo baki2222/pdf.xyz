@@ -204,4 +204,52 @@ export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection —
  * "shared across everyone using pdf.xyz", which claimed one bucket for the whole
  * product and was false for every visitor.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include text translated by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today, or too little is left for this document. On a shared network that can include AI text used by someone else. The allowance resets daily.`;
+
+/**
+ * The refusal as it is SERVED: {@link AI_ALLOWANCE_USED_MESSAGE} plus when the
+ * allowance comes back, in words.
+ *
+ * ── WHAT THE SENTENCE SAID UNTIL 2026-09-28, AND WHY IT WAS WRONG THREE WAYS ─
+ *
+ * *"…On a shared network that can include text translated by someone else. The
+ * allowance resets daily; retry after the interval in the Retry-After header."*
+ *
+ *  1. **"translated"** — written while Translate was the only tool that
+ *     declared a size. Summarize, Chat and AI Data Extraction spend the same
+ *     bucket, so a reader refused after three extractions was told somebody
+ *     else's TRANSLATIONS were the cause.
+ *  2. **"used up"** alone — the limiter refuses when `used + this job` would
+ *     pass the bucket, not only when the bucket is empty. A connection with
+ *     most of its day left is refused a document larger than what remains, and
+ *     "used up" was false for it. The added clause says which of the two it
+ *     can be without claiming to know.
+ *  3. **"the Retry-After header"** — an HTTP header, quoted to someone holding
+ *     a PDF in a browser panel that renders this string verbatim. The same
+ *     number is now stated in words, from the SAME decision that fills the
+ *     header, so the two cannot say different things.
+ *
+ * The constant is kept as the stable, time-free part: the runbook quotes its
+ * opening, and the probes compare against it. This function is what the route
+ * sends.
+ */
+export function aiAllowanceUsedMessage(retryAfterSeconds: number): string {
+  return `${AI_ALLOWANCE_USED_MESSAGE} It resets ${resetsIn(retryAfterSeconds)}.`;
+}
+
+/**
+ * A wait, in the words a person would use. Rounded UP to the unit it is stated
+ * in, so the reader is never told a time at which the refusal would still
+ * stand — "in about 3 hours" when it is 3 hours and 20 minutes would send them
+ * back twenty minutes early.
+ */
+function resetsIn(seconds: number): string {
+  const s = Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds)) : 0;
+  if (s < 60) return "in under a minute";
+  if (s < 3600) {
+    const minutes = Math.ceil(s / 60);
+    return `in about ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  const hours = Math.ceil(s / 3600);
+  return `in about ${hours} hour${hours === 1 ? "" : "s"}`;
+}
