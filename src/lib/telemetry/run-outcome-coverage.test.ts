@@ -32,6 +32,14 @@
  *     that `track()` a `tool_completed`/`tool_failed`, closed over resolved
  *     imports to a fixpoint.
  *
+ *     A SHARED RUN HOOK DELEGATES. At the integration of wave1/l01-page-leak
+ *     twelve worker panels' own `busy` state moved into one hook,
+ *     `useWorkerJob`, which runs the work its caller HANDS it — so its own
+ *     calls reach no reporter, and a static walk of the hook cannot see the
+ *     work. Such an owner passes only when it HAS callers and EVERY one of
+ *     them reaches a reporter: the reporting moved to them with the work. The
+ *     rule is exercised both ways by the delegating-hook controls below.
+ *
  * WHAT IT DOES NOT PROVE, stated rather than overclaimed: B asks whether a
  * run-state owner CALLS a reporter somewhere, not that every branch does — a
  * panel that picks between two lifecycles passes if either reports, which is
@@ -463,6 +471,12 @@ interface RunOwner {
   fn: string;
   pattern: string;
   reaches: boolean;
+  /**
+   * For an owner whose own calls reach no reporter: the functions that call
+   * it (`file#fn`). It is a delegating hook, and `reaches` is whether it has
+   * callers and every one reaches a reporter. Empty otherwise.
+   */
+  callers: string[];
 }
 
 function runStatePattern(decl: TS.VariableDeclaration): string | null {
@@ -503,6 +517,18 @@ function runStatePattern(decl: TS.VariableDeclaration): string | null {
   return null;
 }
 
+/** Every top-level function (`file#fn`) whose body calls `target`. */
+function callersOf(corpus: Corpus, target: string): string[] {
+  const out: string[] = [];
+  for (const mod of corpus.modules.values()) {
+    for (const [name, fn] of mod.functions) {
+      if (callsIn(corpus, mod.file, fn).includes(target))
+        out.push(`${mod.file}#${name}`);
+    }
+  }
+  return out;
+}
+
 function runOwners(corpus: Corpus, reporting: Set<string>): RunOwner[] {
   const out: RunOwner[] = [];
   for (const mod of corpus.modules.values()) {
@@ -511,13 +537,21 @@ function runOwners(corpus: Corpus, reporting: Set<string>): RunOwner[] {
         const pattern = runStatePattern(n);
         const fn = pattern ? nearestFn(n) : null;
         if (pattern && fn) {
+          const name = fnName(fn, mod.sf);
+          const own = callsIn(corpus, mod.file, fn).some((c) =>
+            reporting.has(c),
+          );
+          // See the module docblock: a hook that runs work its callers hand
+          // it reports through them — all of them, and at least one.
+          const callers = own ? [] : callersOf(corpus, `${mod.file}#${name}`);
           out.push({
             file: mod.file,
-            fn: fnName(fn, mod.sf),
+            fn: name,
             pattern,
-            reaches: callsIn(corpus, mod.file, fn).some((c) =>
-              reporting.has(c),
-            ),
+            reaches:
+              own ||
+              (callers.length > 0 && callers.every((c) => reporting.has(c))),
+            callers,
           });
         }
       }
@@ -567,6 +601,22 @@ const FIXTURE_DIR = "src/components/tools/runner";
 const SILENT_EDITOR = `${FIXTURE_DIR}/__fixture-silent.tsx`;
 const REPORTING_EDITOR = `${FIXTURE_DIR}/__fixture-reporting.tsx`;
 const SILENT_LIFECYCLE = "src/lib/workers/__fixture-lifecycle.ts";
+const HOOK = `${FIXTURE_DIR}/__fixture-run-hook.tsx`;
+const HOOK_SILENT_CALLER = `${FIXTURE_DIR}/__fixture-hook-silent.tsx`;
+const HOOK_REPORTING_CALLER = `${FIXTURE_DIR}/__fixture-hook-reporting.tsx`;
+const LONE_HOOK = `${FIXTURE_DIR}/__fixture-lone-hook.tsx`;
+/** A shared run hook: holds `busy`, runs whatever work it is handed. */
+const runHook = (name: string) => `
+import { useState } from "react";
+export function ${name}() {
+  const [busy, setBusy] = useState(false);
+  const run = async (work: () => Promise<unknown>) => {
+    setBusy(true);
+    await work();
+    setBusy(false);
+  };
+  return { busy, run };
+}`;
 const LEAKY_LIFECYCLE = "src/lib/workers/__fixture-leaky.ts";
 const editor = (report: boolean) => `
 import { useEffect, useState } from "react";
@@ -583,6 +633,25 @@ export function Editor({ bytes }: { bytes: Uint8Array }) {
   return state.busy ? null : null;
 }`;
 const CONTROLS = corpusOf({
+  [HOOK]: runHook("useFixtureRun"),
+  // Two callers of the same hook: one hands it work that reaches a reporter,
+  // one does not — so the hook must be flagged.
+  [HOOK_REPORTING_CALLER]: `
+import { useFixtureRun } from "./__fixture-run-hook";
+import { reportToolCompleted } from "@/lib/telemetry/tool-outcome";
+export function ReportingPanel() {
+  const job = useFixtureRun();
+  return job.run(async () => reportToolCompleted({}));
+}`,
+  [HOOK_SILENT_CALLER]: `
+import { useFixtureRun } from "./__fixture-run-hook";
+import { analyzePdf } from "@/lib/pdf/analyze";
+export function SilentPanel() {
+  const job = useFixtureRun();
+  return job.run(async () => analyzePdf(new Uint8Array()));
+}`,
+  // A run hook nothing calls reaches nothing.
+  [LONE_HOOK]: runHook("useLoneRun"),
   [SILENT_EDITOR]: editor(false),
   [REPORTING_EDITOR]: editor(true),
   [SILENT_LIFECYCLE]: `
@@ -627,10 +696,15 @@ describe("the instruments", () => {
       [...lifecycleFiles].join("\n"),
     ).toBeGreaterThanOrEqual(4);
     // Seventeen functions held their own run state when it was written.
-    expect(
-      R.owners.length,
-      R.owners.map((o) => `${o.file} ${o.fn}`).join("\n"),
-    ).toBeGreaterThanOrEqual(17);
+    // Since the integration of wave1/l01-page-leak twelve of them hold it
+    // through the shared hook they call, so the population is the owners plus
+    // a delegating owner's callers — the same functions, counted where their
+    // state now lives. Printed, not counted.
+    const holders = new Set([
+      ...R.owners.map((o) => `${o.file}#${o.fn}`),
+      ...R.owners.flatMap((o) => o.callers),
+    ]);
+    expect(holders.size, [...holders].join("\n")).toBeGreaterThanOrEqual(17);
     expect(R.reporting.size).toBeGreaterThan(R.owners.length);
   });
 
@@ -664,7 +738,21 @@ describe("the instruments", () => {
         )
         .map((m) => m.file),
     );
-    expect([...pollers].sort()).toEqual([...creators].sort());
+    // A module that polls must create the job it polls — the direction that
+    // finds a lifecycle hiding its URL in a constant.
+    expect([...pollers].filter((f) => !creators.has(f))).toEqual([]);
+    // And a module that creates a job must reach the poller: directly, or —
+    // since the integration of wave1/l01-page-leak — through a shared finish
+    // it imports (`runWorkerWebpageToPdf` hands its job to
+    // `finishSecurityJob`, the wait every other worker tool uses).
+    const reachesPoller = reporters(REAL, pollerKey);
+    const polling = new Set([...reachesPoller].map((k) => k.split("#")[0]!));
+    expect(
+      [...creators].filter((f) => !polling.has(f)),
+      "these modules create a job and never wait for it",
+    ).toEqual([]);
+    // Health: the direct pollers are still most of the creators.
+    expect(pollers.size).toBeGreaterThanOrEqual(3);
   });
 
   it("positive control: 6a2fc17's silent compress state is flagged, the reporting one is not", () => {
@@ -688,6 +776,25 @@ describe("the instruments", () => {
     expect(
       C.lifecycle.filter((p) => p.includes("__fixture-leaky")),
     ).toHaveLength(1);
+  });
+
+  it("positive control: a shared run hook is flagged when ANY caller hands it silent work, or nothing calls it", () => {
+    const hook = C.owners.find((o) => o.file === HOOK);
+    expect(hook).toMatchObject({ fn: "useFixtureRun", reaches: false });
+    expect(hook!.callers.sort()).toEqual([
+      `${HOOK_REPORTING_CALLER}#ReportingPanel`,
+      `${HOOK_SILENT_CALLER}#SilentPanel`,
+    ]);
+    expect(C.owners.find((o) => o.file === LONE_HOOK)).toMatchObject({
+      fn: "useLoneRun",
+      reaches: false,
+      callers: [],
+    });
+    // And the real shared hook is a delegating owner whose callers all report.
+    const shared = R.owners.find((o) => o.fn === "useWorkerJob");
+    expect(shared, "the shared worker-job hook is not a subject").toBeDefined();
+    expect(shared!.callers.length).toBeGreaterThanOrEqual(10);
+    expect(shared!.reaches).toBe(true);
   });
 
   it("positive control: the real defect sites are subjects", () => {

@@ -288,11 +288,14 @@ async function finishOcrJob(
 
 /**
  * Pick up an OCR job this browser stopped waiting for — by id, with no new
- * upload and no new job — and download its results when it finishes.
+ * upload and no new job — and download its results when it finishes. It
+ * reports how the job ended, as the run that started it does.
  */
 export function resumeWorkerOcr(
   jobId: string,
   options: OcrWorkerOptions = {},
 ): Promise<OcrWorkerResult> {
-  return finishOcrJob({ jobId, status: "processing" } as Job, options);
+  return withToolOutcome(OCR_TOOL, () =>
+    finishOcrJob({ jobId, status: "processing" } as Job, options),
+  );
 }

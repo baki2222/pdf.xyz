@@ -216,11 +216,19 @@ describe("the instruments", () => {
       FILES.length,
       "git ls-files found implausibly few files",
     ).toBeGreaterThan(300);
-    // Fifteen track() sites existed before this guard; it must never see fewer.
+    // Fifteen track() sites existed before this guard, twelve of them the
+    // same `worker_status_checked` fetch copied into each worker panel. At
+    // the integration of wave1/l01-page-leak those twelve became ONE shared
+    // status hook (`worker-status.tsx`), so a typed fifteen went false for a
+    // reason that is not blindness. The floor is DERIVED instead: every
+    // declared event has a sender (checked below), so a walker that sees
+    // fewer sites than there are declared events cannot be seeing them all.
+    // Printed, not counted.
     expect(
       SITES.length,
-      "the walker found implausibly few track() calls",
-    ).toBeGreaterThanOrEqual(15);
+      "the walker found implausibly few track() calls:\n" +
+        SITES.map((site) => `${site.file} ${site.event}`).join("\n"),
+    ).toBeGreaterThanOrEqual(EVENT_NAMES.length);
     expect(
       BUILDERS.size,
       "no event builders were read from events.ts",
@@ -248,7 +256,9 @@ describe("the instruments", () => {
       SITES.some(
         (s) =>
           s.event === "worker_status_checked" &&
-          s.file === "src/components/tools/summarize-worker-panel.tsx",
+          // The one shared status hook every worker panel mounts (it was a
+          // copy in each panel, summarize-worker-panel.tsx among them).
+          s.file === "src/components/tools/worker-status.tsx",
       ),
     ).toBe(true);
   });

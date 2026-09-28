@@ -34,6 +34,7 @@ import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
 import { useAsyncRun } from "@/components/tools/runner/runner-kit";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import {
+  resumeSecurityJob,
   runSecurityJob,
   type FetchLike,
 } from "@/lib/workers/pdf-security-client";
@@ -387,5 +388,65 @@ describe("the run paths that held their own state now report", () => {
     ))
       expect(e).toMatchObject({ toolSlug: "compress-pdf" });
     expect(JSON.stringify(seen)).not.toContain("broken");
+  });
+});
+
+describe("a resumed job reports how it ended", () => {
+  /**
+   * Integration of wave1/l01-page-leak: the worker panels' shared hook can
+   * "Keep waiting" on a job the first wait gave up on (`resumeSecurityJob`).
+   * The first wait reported `timeout`; the finish the reader went back for —
+   * the download — reported nothing, so a slow tool read as only ever failing.
+   */
+  const finished: FetchLike = async (url) => {
+    if (url.startsWith("/api/jobs/"))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jobId: "j_resumed",
+          tool: "summarize-pdf",
+          status: "completed",
+          progress: 100,
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+          expiresAt: new Date(3_600_000).toISOString(),
+          retention: {},
+          artifacts: [
+            {
+              kind: "output",
+              filename: "summary.zip",
+              contentType: "application/zip",
+              bytes: 3,
+              url: "/download/summary.zip",
+            },
+          ],
+        }),
+        arrayBuffer: async () => new ArrayBuffer(0),
+      };
+    if (url === "/download/summary.zip")
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    throw new Error(`unexpected ${url}`);
+  };
+
+  it("a resumed job that finishes is tool_completed, for the page's tool", async () => {
+    const seen = sink();
+    render(<ToolTelemetry toolSlug="summarize-pdf" capability="ai" />);
+    const result = await resumeSecurityJob("j_resumed", {
+      tool: "summarize-pdf",
+      fetchImpl: finished,
+      sleep: async () => {},
+    });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    expect(seen.filter((e) => e.name === "tool_completed")).toHaveLength(1);
+    expect(seen.find((e) => e.name === "tool_completed")).toMatchObject({
+      toolSlug: "summarize-pdf",
+      capability: "ai",
+    });
   });
 });

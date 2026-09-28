@@ -413,15 +413,20 @@ export async function finishSecurityJob(
  * Pick up a job this browser stopped waiting for — by id, with no new upload,
  * no new job and no new charge — and download its result when it finishes.
  * Returns the same result shape as the run that created it.
+ *
+ * It reports how the job ENDED, like the run that started it: that run
+ * reported `timeout` when it stopped waiting, and without this the finish a
+ * reader went back for — the result they downloaded — was never counted.
  */
 export function resumeSecurityJob(
   jobId: string,
   opts: PdfSecurityWorkerOptions & { tool?: string } = {},
 ): Promise<PdfSecurityWorkerResult> {
+  const tool = opts.tool ?? "";
   // "processing" so the first read happens after one interval: the job was
   // already running when the previous wait ended.
   const job = { jobId, status: "processing" } as Job;
-  return finishSecurityJob(opts.tool ?? "", job, opts);
+  return withToolOutcome(tool, () => finishSecurityJob(tool, job, opts));
 }
 
 /**
