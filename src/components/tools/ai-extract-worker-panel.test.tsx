@@ -10,7 +10,16 @@
  * developer text: "`schema[1].name` duplicates an earlier field name."
  *
  * Read at the point of consumption: the attributes and text a user and a
- * screen reader get, and whether the driver was ever called.
+ * screen reader get, and what reached the network.
+ *
+ * NO MODULE MOCK (integration of wave1/l01-page-leak). This file first
+ * `vi.mock`ed `ai-extract-client`; on the branch it merged into, three other
+ * test files import this same panel, and under `isolate: false` the panel stayed
+ * cached bound to the stub for them (`src/tests/mock-isolation.test.ts`). The
+ * REAL client now runs over a stubbed global `fetch`
+ * (`@/tests/stub-job-network`), and each spy-shaped assertion is restated on
+ * the wire: "the driver was not called" is no upload and no `POST /api/jobs`;
+ * what the driver received is the job body the route would parse.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -23,15 +32,8 @@ import { parseExtractOptions } from "@/lib/jobs/ai-extract";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { extractPdfText } from "@/lib/pdf/text";
-
-const runWorkerAiExtract = vi.hoisted(() => vi.fn());
-
-vi.mock("@/lib/workers/ai-extract-client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/workers/ai-extract-client")>()),
-  runWorkerAiExtract,
-}));
-
-const { AiExtractWorkerPanel } = await import("./ai-extract-worker-panel");
+import { stubJobNetwork, type JobNetwork } from "@/tests/stub-job-network";
+import { AiExtractWorkerPanel } from "./ai-extract-worker-panel";
 
 const tool = getToolBySlug("ai-extract")!;
 const providers = getProviderReadiness("remote-configured");
@@ -74,15 +76,14 @@ const READY: WorkerStatus = {
 
 afterEach(() => {
   resetTelemetry();
-  runWorkerAiExtract.mockReset();
   vi.unstubAllGlobals();
 });
 
-async function openBuilder() {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-  );
+/** The panel over the stubbed network, with `bytes` dropped in as a PDF. */
+async function openBuilder(
+  bytes: Uint8Array = new Uint8Array([1, 2, 3]),
+): Promise<JobNetwork> {
+  const network = stubJobNetwork(READY);
   render(<AiExtractWorkerPanel tool={tool} />);
   const input = await waitFor(() => {
     const found = document.querySelector('input[type="file"]');
@@ -92,12 +93,13 @@ async function openBuilder() {
   fireEvent.change(input, {
     target: {
       files: [
-        new File([new Uint8Array([1, 2, 3])], "invoice.pdf", {
+        new File([bytes.slice()], "invoice.pdf", {
           type: "application/pdf",
         }),
       ],
     },
   });
+  return network;
 }
 
 const nameInput = (n: number) =>
@@ -118,7 +120,7 @@ async function nameTwoFields(first: string, second: string) {
 
 describe("AiExtractWorkerPanel — duplicate field names", () => {
   it("marks the later duplicate, says why in words, and never runs the job", async () => {
-    await openBuilder();
+    const network = await openBuilder();
     await nameTwoFields("Total", " total");
 
     const second = nameInput(2);
@@ -136,9 +138,9 @@ describe("AiExtractWorkerPanel — duplicate field names", () => {
     fireEvent.click(extractButton());
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(
-      runWorkerAiExtract,
+      [network.uploads(), network.jobBodies.length],
       "a schema the worker refuses was sent — the upload and the reservation happen first",
-    ).not.toHaveBeenCalled();
+    ).toEqual([0, 0]);
   });
 
   it("agrees with the worker's contract: what the panel flags, the parser refuses", async () => {
@@ -156,8 +158,7 @@ describe("AiExtractWorkerPanel — duplicate field names", () => {
   });
 
   it("POSITIVE CONTROL: distinct names run, with the schema and a declaration key", async () => {
-    runWorkerAiExtract.mockResolvedValue({ ok: false, message: "stop" });
-    await openBuilder();
+    const network = await openBuilder();
     await nameTwoFields("Total", "Vendor");
 
     expect(nameInput(2)).not.toHaveAttribute("aria-invalid");
@@ -165,20 +166,18 @@ describe("AiExtractWorkerPanel — duplicate field names", () => {
       expect(extractButton()).not.toHaveAttribute("aria-disabled"),
     );
     fireEvent.click(extractButton());
-    await waitFor(() => expect(runWorkerAiExtract).toHaveBeenCalledTimes(1));
-    const input = runWorkerAiExtract.mock.calls[0]![0] as Record<
-      string,
-      unknown
-    >;
-    expect(input.schema).toEqual([
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    const body = network.jobBodies[0]!;
+    expect(body.tool).toBe("ai-extract");
+    expect((body.options as Record<string, unknown>).schema).toEqual([
       { name: "Total", type: "string" },
       { name: "Vendor", type: "string" },
     ]);
-    // The key is always written — here without a count, since pdfjs cannot
-    // open three bytes — so a panel cannot drop it by omission.
-    expect(
-      Object.prototype.hasOwnProperty.call(input, "declaredCharacters"),
-    ).toBe(true);
+    // pdfjs cannot open three bytes, so there is no count — and the job says
+    // so by declaring NOTHING, never a zero or a guess (the route then prices
+    // it as a whole run). That the panel cannot drop the key by omission is the
+    // client's type: `declaredCharacters` is required, `number | null`.
+    expect(body).not.toHaveProperty("declaredCharacters");
   });
 });
 
@@ -187,8 +186,8 @@ describe("AiExtractWorkerPanel — what the job declares", () => {
     // Review of 2026-09-28: the POSITIVE CONTROL above checks that the key is
     // PRESENT, and a present key holding `undefined` passed it — an
     // undeclared ai-extract job reserves a third of the day. A REAL pdf-lib
-    // PDF, counted by the real extractor, dropped into the panel; the driver
-    // must receive that count. (The client → wire → route half is
+    // PDF, counted by the real extractor, dropped into the panel; the job body
+    // on the wire must carry that count. (The wire → route half is
     // `ai-read-declaration.chain.test.ts`.)
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -206,36 +205,15 @@ describe("AiExtractWorkerPanel — what the job declares", () => {
     // Health: a real count, so equality below means THIS document's count.
     expect(counted).toBeGreaterThan(100);
 
-    runWorkerAiExtract.mockResolvedValue({ ok: false, message: "stop" });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
-    );
-    render(<AiExtractWorkerPanel tool={tool} />);
-    const input = await waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
-      expect(found).not.toBeNull();
-      return found!;
-    });
-    fireEvent.change(input, {
-      target: {
-        files: [
-          new File([bytes.slice()], "invoice.pdf", {
-            type: "application/pdf",
-          }),
-        ],
-      },
-    });
+    const network = await openBuilder(bytes);
     fireEvent.change(nameInput(1), { target: { value: "Total" } });
     await waitFor(() =>
       expect(extractButton()).not.toHaveAttribute("aria-disabled"),
     );
     fireEvent.click(extractButton());
 
-    await waitFor(() => expect(runWorkerAiExtract).toHaveBeenCalledTimes(1));
-    const sent = runWorkerAiExtract.mock.calls[0]![0] as {
-      declaredCharacters?: unknown;
-    };
-    expect(sent.declaredCharacters).toBe(counted);
+    await waitFor(() => expect(network.jobBodies).toHaveLength(1));
+    expect(network.jobBodies[0]!.tool).toBe("ai-extract");
+    expect(network.jobBodies[0]!.declaredCharacters).toBe(counted);
   });
 });
