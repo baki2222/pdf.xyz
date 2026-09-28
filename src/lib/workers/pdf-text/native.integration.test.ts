@@ -29,9 +29,13 @@ import {
   ownerOnlyEncryptedPdf,
   userPasswordEncryptedPdf,
 } from "@/tests/encrypted-pdf-fixture";
-import { runPdfOfficeExport } from "../pdf-office-export/engine";
+import {
+  PDF_OFFICE_EXPORT_TOOLS,
+  runPdfOfficeExport,
+} from "../pdf-office-export/engine";
 import { PdfTextOpenError } from "./errors";
 import {
+  createNativePdfFlowExtractor,
   createNativePdfLayoutExtractor,
   createNativePdfTextExtractor,
 } from "./native";
@@ -70,6 +74,7 @@ suite("pdftotext runner (real binary)", () => {
   const config = resolveNativePdfTextConfig({});
   const extract = createNativePdfTextExtractor(POPPLER!, config, "keep");
   const layout = createNativePdfLayoutExtractor(POPPLER!, config);
+  const extractFlow = createNativePdfFlowExtractor(POPPLER!, config);
 
   it("positive control: a real text PDF extracts its words", async () => {
     const result = await extract(await textPdf("Quarterly totals 2026"));
@@ -90,13 +95,18 @@ suite("pdftotext runner (real binary)", () => {
     const result = await extract(ownerOnlyEncryptedPdf());
     // The fixture has no content stream, so no text, but it OPENED.
     expect(result.pageCount).toBeGreaterThanOrEqual(1);
-    const run = await runPdfOfficeExport(
-      "pdf-to-word",
-      ownerOnlyEncryptedPdf(),
-      { extract },
-    );
-    expect(run.ok).toBe(false);
-    if (!run.ok) expect(run.kind).toBe("no_text");
+    // Every office tool, each through the extractor it really reads: PDF to
+    // Word reads `extractFlow` (-bbox-layout) since the wave-1 L03 merge, and
+    // with only `extract` wired it answers `unsupported` before opening
+    // anything — which is not the property this asks about.
+    for (const tool of PDF_OFFICE_EXPORT_TOOLS) {
+      const run = await runPdfOfficeExport(tool, ownerOnlyEncryptedPdf(), {
+        extract,
+        extractFlow,
+      });
+      expect(run.ok, tool).toBe(false);
+      if (!run.ok) expect(run.kind, tool).toBe("no_text");
+    }
   });
 
   it("a file that is not a PDF is refused as unreadable, not as locked", async () => {

@@ -18,6 +18,14 @@
  * JobError, which is what the job record carries and the panel's ErrorNote
  * renders (it links Unlock PDF for every sentence in ENCRYPTED_PDF_MESSAGES).
  *
+ * TWO ANSWERS, ONE DECISION. The runner classifies the file once. Summarize,
+ * Translate, AI extraction and Chat report it in the shared sentences
+ * (`unprocessable_entity`, which the panel's ErrorNote links by the Unlock
+ * tool's name). PDF to Office and Extract tables were fixed on a second branch
+ * (wave-1 L03) to report it under their own next-step CODES, which their
+ * panels link by code; at the merge (2026-09-28) both were kept, so each
+ * driver below says which answer it gives, and both are asserted exactly.
+ *
  * THE SUBJECTS ARE DISCOVERED, not named: every `src/lib/workers/<engine>/native.ts`
  * that imports the pdftotext runner. A new consumer without a driver below
  * fails the coverage check instead of passing unseen.
@@ -31,6 +39,7 @@ import {
   UNLOCK_TOOL_NAME,
 } from "@/lib/pdf/encryption";
 import { UNREADABLE_PDF_MESSAGE } from "@/lib/pdf/engine";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
   ownerOnlyEncryptedPdf,
   userPasswordEncryptedPdf,
@@ -45,6 +54,7 @@ import { createTranslateProcessor } from "../processor/translate";
 import type { Processor, ProcessorResult } from "../processor/types";
 import { PdfTextExecError, hasEncryptEntry } from "./errors";
 import {
+  createNativePdfFlowExtractor,
   createNativePdfLayoutExtractor,
   createNativePdfTextExtractor,
   pdfTextArgs,
@@ -85,7 +95,11 @@ function failingExec(exitCode: number | null, seen: Mode[]): PdfTextExec {
     expect(args).toEqual(pdfTextArgs(mode, inputPath));
     expect(args).toContain("-q");
     seen.push(mode);
-    throw new PdfTextExecError(exitCode);
+    throw new PdfTextExecError({
+      exitCode,
+      killed: exitCode === null,
+      outputTooLarge: false,
+    });
   };
 }
 
@@ -104,41 +118,65 @@ function unreachableProvider(calls: { count: number }): AiProvider {
 interface Seams {
   text: () => ReturnType<typeof createNativePdfTextExtractor>;
   layout: () => ReturnType<typeof createNativePdfLayoutExtractor>;
+  flow: () => ReturnType<typeof createNativePdfFlowExtractor>;
   provider: AiProvider;
 }
 
 /** How to build each discovered consumer's processor, and a valid request for it. */
+/**
+ * How a consumer reports a file that cannot open: `shared` — the shared
+ * sentence under `unprocessable_entity`; `coded` — its own sentence under
+ * the next-step code (`OFFICE_EXPORT_ERROR_CODES`) its panel links by.
+ */
+type Answers = "shared" | "coded";
+
 const DRIVERS: Record<
   string,
-  { build: (s: Seams) => Processor; options: Record<string, unknown> }
+  {
+    build: (s: Seams) => Processor;
+    options: Record<string, unknown>;
+    answers: Answers;
+  }
 > = {
   "pdf-office-export": {
-    build: (s) => createPdfOfficeExportProcessor({ extract: s.text() }),
+    // Both extractors: Word reads `extractFlow`, Excel and PowerPoint read
+    // `extract`, and the processor claims all three tools only with both.
+    build: (s) =>
+      createPdfOfficeExportProcessor({
+        extract: s.text(),
+        extractFlow: s.flow(),
+      }),
     options: {},
+    answers: "coded",
   },
   summarize: {
     build: (s) =>
       createSummarizeProcessor({ extract: s.text(), provider: s.provider }),
     options: {},
+    answers: "shared",
   },
   translate: {
     build: (s) =>
       createTranslateProcessor({ extract: s.text(), provider: s.provider }),
     options: { targetLanguage: "fr" },
+    answers: "shared",
   },
   "ai-extract": {
     build: (s) =>
       createAiExtractProcessor({ extract: s.text(), provider: s.provider }),
     options: { mode: "prompt", prompt: "Extract totals" },
+    answers: "shared",
   },
   "chat-with-pdf": {
     build: (s) =>
       createChatWithPdfProcessor({ extract: s.text(), provider: s.provider }),
     options: { question: "What is the total?" },
+    answers: "shared",
   },
   "table-extract": {
     build: (s) => createTableExtractProcessor({ extractLayout: s.layout() }),
     options: {},
+    answers: "coded",
   },
 };
 
@@ -146,7 +184,13 @@ async function runEvery(
   bytes: Uint8Array,
   exitCode: number | null,
 ): Promise<
-  { consumer: string; tool: string; result: ProcessorResult; modes: Mode[] }[]
+  {
+    consumer: string;
+    tool: string;
+    answers: Answers;
+    result: ProcessorResult;
+    modes: Mode[];
+  }[]
 > {
   const config = resolveNativePdfTextConfig({});
   const out = [];
@@ -161,6 +205,7 @@ async function runEvery(
         createNativePdfTextExtractor("pdftotext", config, "keep", { exec }),
       layout: () =>
         createNativePdfLayoutExtractor("pdftotext", config, { exec }),
+      flow: () => createNativePdfFlowExtractor("pdftotext", config, { exec }),
       provider: unreachableProvider(calls),
     });
     for (const tool of processor.tools) {
@@ -177,7 +222,13 @@ async function runEvery(
         ],
       });
       expect(calls.count, `${tool} called the model`).toBe(0);
-      out.push({ consumer, tool, result, modes: [...modes] });
+      out.push({
+        consumer,
+        tool,
+        answers: driver.answers,
+        result,
+        modes: [...modes],
+      });
     }
   }
   return out;
@@ -210,34 +261,57 @@ describe("a PDF that needs a password, through every consumer", () => {
 
   it("says it is password-protected, links Unlock PDF, and is not retried", async () => {
     const rows = await runEvery(userPasswordEncryptedPdf(), 1);
-    expect(rows.length).toBeGreaterThanOrEqual(8); // 3 office tools + 5 others
-    for (const { tool, result, modes } of rows) {
+    expect(rows.length).toBeGreaterThanOrEqual(8); // 3 office + tables + 4 AI
+    const answered = { shared: 0, coded: 0 };
+    for (const { tool, answers, result, modes } of rows) {
       expect(modes.length, `${tool} never ran pdftotext`).toBeGreaterThan(0);
       expect(result.ok, tool).toBe(false);
       if (result.ok) continue;
-      expect(result.error, tool).toEqual({
-        code: "unprocessable_entity",
-        message: PDF_NEEDS_PASSWORD_MESSAGE,
-        retryable: false,
-      });
-      // The panel's ErrorNote offers the Unlock PDF link for exactly these.
-      expect(ENCRYPTED_PDF_MESSAGES).toContain(result.error.message);
+      answered[answers] += 1;
+      if (answers === "shared") {
+        expect(result.error, tool).toEqual({
+          code: "unprocessable_entity",
+          message: PDF_NEEDS_PASSWORD_MESSAGE,
+          retryable: false,
+        });
+        // The panel's ErrorNote offers the Unlock PDF link for exactly these.
+        expect(ENCRYPTED_PDF_MESSAGES).toContain(result.error.message);
+      } else {
+        // The code the panel links Unlock PDF from, never message text.
+        expect(result.error.code, tool).toBe(
+          OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+        );
+        expect(result.error.retryable, tool).toBe(false);
+        expect(result.error.message, tool).toMatch(/password-protected/);
+      }
       expect(result.error.message).toContain(UNLOCK_TOOL_NAME);
     }
+    // Both answers were really exercised: 4 shared tools, 4 coded.
+    expect(answered.shared).toBeGreaterThanOrEqual(4);
+    expect(answered.coded).toBeGreaterThanOrEqual(4);
   });
 });
 
 describe("a file that is not a readable PDF, through every consumer", () => {
   it("says so, without mentioning a password, and is not retried", async () => {
     const rows = await runEvery(new TextEncoder().encode("not a pdf"), 1);
-    for (const { tool, result } of rows) {
+    for (const { tool, answers, result } of rows) {
       expect(result.ok, tool).toBe(false);
       if (result.ok) continue;
-      expect(result.error, tool).toEqual({
-        code: "unprocessable_entity",
-        message: UNREADABLE_PDF_MESSAGE,
-        retryable: false,
-      });
+      if (answers === "shared") {
+        expect(result.error, tool).toEqual({
+          code: "unprocessable_entity",
+          message: UNREADABLE_PDF_MESSAGE,
+          retryable: false,
+        });
+        continue;
+      }
+      expect(result.error.code, tool).toBe(
+        OFFICE_EXPORT_ERROR_CODES.unreadable,
+      );
+      expect(result.error.retryable, tool).toBe(false);
+      expect(result.error.message, tool).not.toMatch(/password/i);
+      expect(result.error.message, tool).not.toContain(UNLOCK_TOOL_NAME);
     }
   });
 });
