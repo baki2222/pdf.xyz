@@ -277,18 +277,25 @@ const MARKDOWN_BLOCK_PHRASE: Record<MarkdownBlockKind, string> = {
   "list-item": "bulleted and numbered lists",
   quote: "block quotes",
   code: "fenced code blocks",
+  rule: "horizontal rules",
+  table: "tables",
 };
 
 /**
  * The syntax Markdown to PDF typesets — every kind in MARKDOWN_BLOCK_KINDS,
  * which cannot disagree with the renderer's own union (a compile check in
  * markdown-to-pdf.ts). What it does NOT style is said too, because a reader
- * pasting a README will have tables and bold in it.
+ * pasting a README will have bold and links in it.
+ *
+ * It said "Tables, bold, italics and links print as plain text" until the
+ * merge with L09 (20ba6ce), which draws GFM tables as a grid and horizontal
+ * rules as rules; both joined the renderer's union and, through the compile
+ * check, this list.
  */
 export const MARKDOWN_SYNTAX_FACT = (() => {
   const names = MARKDOWN_BLOCK_KINDS.map((k) => MARKDOWN_BLOCK_PHRASE[k]);
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  return `${list[0]!.toUpperCase()}${list.slice(1)}. Tables, bold, italics and links print as plain text — a link keeps its address in parentheses.`;
+  return `${list[0]!.toUpperCase()}${list.slice(1)}. Bold and italics print as plain text, and a link keeps its address in parentheses.`;
 })();
 
 /** PDF to JPG / PNG: the presets, and what one page becomes. */

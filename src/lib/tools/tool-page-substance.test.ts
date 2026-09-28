@@ -603,6 +603,8 @@ describe("the converters' pages describe the page they produce", () => {
         "code",
         "```",
         "",
+        "---",
+        "",
         "| a | b |",
         "| - | - |",
         "| 1 | 2 |",
@@ -611,12 +613,21 @@ describe("the converters' pages describe the page they produce", () => {
     const kinds = new Set(blocks.map((b) => b.kind));
     for (const kind of MARKDOWN_BLOCK_KINDS)
       expect(kinds.has(kind), `no ${kind} block parsed`).toBe(true);
-    const table = blocks.find((b) => "text" in b && b.text.includes("| a"));
-    expect(table?.kind, "a GFM table is not a plain paragraph").toBe(
-      "paragraph",
-    );
-    // "cell dividers included" — the guide's words.
-    expect(table && "text" in table && table.text).toContain("|");
+    // INVERTED at the merge with L09 (20ba6ce), history kept. This asserted
+    // `table?.kind === "paragraph"` — "a GFM table is not a plain paragraph"
+    // — and that its text kept the "|" dividers, because the guide said "A
+    // table's rows print as plain text, cell dividers included". That pinned
+    // the defect L09 fixed: the renderer now draws the table as a grid. What
+    // the page must say is what the parser produces, so the table is a table,
+    // with its cells and no pipe left in any text block.
+    const table = blocks.find((b) => b.kind === "table");
+    expect(table, "a GFM table parsed as no table").toBeDefined();
+    expect(table && "header" in table && table.header).toEqual(["a", "b"]);
+    expect(table && "rows" in table && table.rows).toEqual([["1", "2"]]);
+    expect(
+      blocks.some((b) => "text" in b && b.text.includes("|")),
+      "table syntax survived into a text block",
+    ).toBe(false);
     const para = blocks.find(
       (b) => b.kind === "paragraph" && b.text.startsWith("Some"),
     )!;
@@ -626,10 +637,18 @@ describe("the converters' pages describe the page they produce", () => {
     const answer = page("markdown-to-pdf").faq.find((e) =>
       /Which Markdown/.test(e.question),
     )!.answer;
-    expect(answer).toMatch(
-      /Tables, bold, italics and links print as plain text/,
-    );
+    expect(answer).toMatch(/Bold and italics print as plain text/);
     expect(answer).toMatch(/address in parentheses/);
+    // The sentence that shipped until the merge, false once tables are drawn.
+    expect(answer).not.toMatch(/\btables?\b[^.]*\bplain text\b/i);
+    const guideAnswer = guides
+      .flatMap((g) => g.faq)
+      .find((e) => /Does it support tables\?/.test(e.question))?.answer;
+    expect(
+      guideAnswer,
+      "the Markdown guide lost its tables answer",
+    ).toBeDefined();
+    expect(guideAnswer).not.toMatch(/plain text|cell dividers/);
   });
 });
 

@@ -12,6 +12,8 @@ export const MARKDOWN_BLOCK_KINDS = [
   "list-item",
   "quote",
   "code",
+  "rule",
+  "table",
 ] as const;
 
 export type MarkdownBlockKind = (typeof MARKDOWN_BLOCK_KINDS)[number];

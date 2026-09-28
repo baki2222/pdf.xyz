@@ -1504,7 +1504,7 @@ export const guides: Guide[] = [
       {
         question: "Does it support tables?",
         answer:
-          "Not as tables. A table's rows print as plain text, cell dividers included, so reformat a table as a list if its layout matters.",
+          "Yes. A GFM table — a header row, then a divider row of dashes — prints as a grid, keeping each column's alignment and wrapping long cells to fit the page width.",
       },
       {
         question: "Can I choose the page size?",
