@@ -216,13 +216,27 @@ describe("pdf-to-markdown: the facts describe what the converter emits", () => {
 /* ------------------------------------------------------------------ */
 
 describe("tools that read only embedded text say scans need OCR, and never promise any PDF", () => {
+  /**
+   * EVERY office export, each wired with both extractors as production wires
+   * them. This asked only the first tool with `extract` alone until the wave-1
+   * L03 merge (2026-09-28): PDF to Word now reads `extractFlow`, and with only
+   * `extract` it answers `unsupported` before reading anything — so the one
+   * tool asked stopped proving the property for all three.
+   */
   async function officeRefusesTextless(): Promise<boolean> {
-    const run = await runPdfOfficeExport(
-      PDF_OFFICE_EXPORT_TOOLS[0],
-      new Uint8Array([1]),
-      { extract: async () => extracted([""], false) },
-    );
-    return !run.ok && run.kind === "no_text";
+    let asked = 0;
+    for (const tool of PDF_OFFICE_EXPORT_TOOLS) {
+      const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
+        extract: async () => extracted([""], false),
+        extractFlow: async () => ({
+          pageCount: 1,
+          pages: [{ pageNumber: 1, paragraphs: [] }],
+        }),
+      });
+      if (run.ok || run.kind !== "no_text") return false;
+      asked += 1;
+    }
+    return asked >= 3;
   }
 
   /**
