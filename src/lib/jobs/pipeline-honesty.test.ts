@@ -446,7 +446,10 @@ describe("each preflight clause is a check the gate actually runs", () => {
       )
         offenders.push(`${tool.slug}: gate passed an empty file`);
 
-      if (!/declared type contradicts its name/.test(copy))
+      // Was /declared type contradicts its name/ until the merge of
+      // wave1/l06-copy-other reworded the clause without the protocol word
+      // "declared" (refusal-copy.test.ts bans it). The clause is still required.
+      if (!/a file whose type contradicts its name or this tool/.test(copy))
         offenders.push(`${tool.slug}: no type clause`);
       const otherName = format === "pdf" ? "x.docx" : "x.pdf";
       if (

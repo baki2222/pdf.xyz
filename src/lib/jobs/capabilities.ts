@@ -214,12 +214,17 @@ export function workerPipelineStages(
  * the `%%EOF` check off). `pipeline-honesty.test.ts` runs the real gate against
  * each clause, so the policy and this sentence cannot part ways silently. The
  * PDF-header clause appears only where the tool takes PDFs.
+ *
+ * It said "a file whose DECLARED type contradicts its name" until the merge of
+ * wave1/l06-copy-other: the browser client declares the type, never the
+ * person reading this, and `uploads/refusal-copy.test.ts` bans that protocol
+ * word from every string in src.
  */
 function preflightRefusals(tool: PipelineTool): string {
   const takesPdf = tool.accept.some((f) => f.toUpperCase() === "PDF");
   return takesPdf
-    ? "an empty file, a file whose declared type contradicts its name or this tool, or a PDF with no PDF header is refused"
-    : "an empty file, or a file whose declared type contradicts its name or this tool, is refused";
+    ? "an empty file, a file whose type contradicts its name or this tool, or a PDF with no PDF header is refused"
+    : "an empty file, or a file whose type contradicts its name or this tool, is refused";
 }
 
 /** The damaged-input exemption, stated right where the refusals are. */
