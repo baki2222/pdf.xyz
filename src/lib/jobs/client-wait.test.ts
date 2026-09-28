@@ -13,6 +13,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { AI_TIMEOUT_MS_BOUNDS } from "@/lib/workers/ai/config";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
+import { resolveNativePdfArchiveConfig } from "@/lib/workers/pdf-archive/native-config";
+import { PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS } from "@/lib/workers/pdf-archive/contract";
 import { retryRequeueDelayMs } from "@/lib/workers/executor/executor";
 import { OFFICE_TO_PDF_TOOLS } from "@/lib/workers/office-conversion/engine";
 import { tools } from "@/lib/tools";
@@ -30,6 +32,7 @@ import {
   OFFICE_TO_PDF_JOB_POLL,
   OFFICE_TO_PDF_JOB_TOOLS,
   OCR_JOB_POLL,
+  PDF_TO_PDFA_JOB_POLL,
   PIPELINE_MARGIN_MS,
   pollWaitMs,
   translateJobPoll,
@@ -79,6 +82,17 @@ describe("each budget outlasts the worker's own work", () => {
     expect(pollWaitMs(OFFICE_TO_PDF_JOB_POLL)).toBeGreaterThanOrEqual(
       resolveNativeOfficeConversionConfig({}).timeoutMs + PIPELINE_MARGIN_MS,
     );
+  });
+
+  it("PDF to PDF/A: Ghostscript's timeout, the password probe after it, and the pipeline", () => {
+    // Read from the WORKER's config resolver, not the contract constant the
+    // budget is built from, so an override default moving there is seen here.
+    expect(pollWaitMs(PDF_TO_PDFA_JOB_POLL)).toBeGreaterThanOrEqual(
+      resolveNativePdfArchiveConfig({}).timeoutMs +
+        PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS +
+        PIPELINE_MARGIN_MS,
+    );
+    expect(jobPollFor("pdf-to-pdfa")).toBe(PDF_TO_PDFA_JOB_POLL);
   });
 
   it("a long AI wait stays well inside the per-client status allowance", () => {
@@ -144,6 +158,7 @@ describe("browserStoppedWaitingAt — what the deployment proof asks of every jo
       DEFAULT_JOB_POLL,
       OFFICE_TO_PDF_JOB_POLL,
       OCR_JOB_POLL,
+      PDF_TO_PDFA_JOB_POLL,
     ])
       expect(timeout).toBeGreaterThan(pollWaitMs(budget));
   });

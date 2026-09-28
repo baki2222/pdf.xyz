@@ -20,8 +20,15 @@
  * every worker panel can keep waiting on that same job.
  *
  * Client-safe: no worker module, no catalog. The tool slugs below are pinned
- * to the catalog by `client-wait.test.ts`, in both directions.
+ * to the catalog by `client-wait.test.ts`, in both directions. (The PDF/A
+ * figures come from `pdf-archive/contract`, an import-free leaf the browser
+ * client already reads — the worker's own defaults, not a copy of them.)
  */
+
+import {
+  PDF_ARCHIVE_DEFAULT_TIMEOUT_MS,
+  PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS,
+} from "@/lib/workers/pdf-archive/contract";
 
 export interface JobPollBudget {
   /** Pause between status reads. */
@@ -99,6 +106,25 @@ export const OFFICE_TO_PDF_JOB_POLL: JobPollBudget = budgetFor(
 );
 
 /**
+ * PDF to PDF/A: Ghostscript's own budget, the password probe the worker runs
+ * after a failure, and the margin.
+ *
+ * It WAS the shared default — 150 × 800 ms = 120 s — which is exactly the
+ * worker's Ghostscript timeout with nothing left over: a job that used its full
+ * engine budget, or spent a second in the queue, outlived the page waiting for
+ * it. The integration branch fixed that in the PDF/A client (75d7a4b) while
+ * wave-1 L03 moved every wait here; since their merge (2026-09-28) the figure
+ * lives here, derived from the worker's own defaults, so there is one place
+ * to read it and the deployment proof's browser-wait check sees it too.
+ */
+export const PDF_TO_PDFA_JOB_POLL: JobPollBudget = budgetFor(
+  PDF_ARCHIVE_DEFAULT_TIMEOUT_MS +
+    PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS +
+    PIPELINE_MARGIN_MS,
+  800,
+);
+
+/**
  * OCR keeps its three minutes. Its worker default is five minutes a run and
  * configurable to thirty; no browser wait covers that honestly, so a long scan
  * relies on "Keep waiting" rather than on a longer spinner.
@@ -126,6 +152,7 @@ export const OFFICE_TO_PDF_JOB_TOOLS: readonly string[] = [
 /** The wait a browser gives a job of this tool. */
 export function jobPollFor(tool: string): JobPollBudget {
   if (tool === "ocr-pdf") return OCR_JOB_POLL;
+  if (tool === "pdf-to-pdfa") return PDF_TO_PDFA_JOB_POLL;
   if (AI_JOB_TOOLS.includes(tool)) return AI_JOB_POLL;
   if (OFFICE_TO_PDF_JOB_TOOLS.includes(tool)) return OFFICE_TO_PDF_JOB_POLL;
   return DEFAULT_JOB_POLL;
