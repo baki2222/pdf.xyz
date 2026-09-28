@@ -138,7 +138,7 @@ describe("Compare PDF runner — what the user is told", () => {
   });
 
   it.each(COMPARE_VERDICTS.filter((v) => !COMPARED.has(v)))(
-    "%s: a neutral panel that says text is missing, points to OCR, and never says 'Differences found'",
+    "%s: a warn panel that says text is missing, points to OCR, and never says 'Differences found'",
     async (verdict) => {
       const [left, right] = await PAIRS[verdict]();
       mount(left, right);
@@ -148,7 +148,10 @@ describe("Compare PDF runner — what the user is told", () => {
         { name: /no text to compare|has no selectable text/i },
         { timeout: 5_000 },
       );
-      expect(panel).toHaveAttribute("data-tone", "neutral");
+      // "neutral" until the merge with L06, which gave ResultPanel a `warn`
+      // tone for exactly this outcome and holds every no-text branch to it
+      // (no-text-note.test.tsx). Still never the green "ok".
+      expect(panel).toHaveAttribute("data-tone", "warn");
       expect(within(panel).queryByText(/differences found/i)).toBeNull();
       expect(within(panel).queryByText(/selectable text matches/i)).toBeNull();
 
