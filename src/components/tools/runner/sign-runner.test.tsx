@@ -9,15 +9,14 @@
  * mounted (hidden) while another source is shown.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withAppRouter } from "@/tests/app-router";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PDFDocument } from "pdf-lib";
 import { SignRunner } from "./sign-runner";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/tools/sign-pdf",
-  useSearchParams: () => new URLSearchParams(),
-}));
+// The router comes from its context (`withAppRouter`), not a module mock:
+// under isolate:false a runner another file imported first stays cached bound
+// to the real `next/navigation`, and a mock here would never reach it.
 
 afterEach(() => {
   cleanup();
@@ -30,7 +29,7 @@ async function openSignRunner() {
   const file = new File([bytes.slice().buffer], "contract.pdf", {
     type: "application/pdf",
   });
-  const { container } = render(<SignRunner />);
+  const { container } = render(withAppRouter(<SignRunner />));
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input, "the dropzone's file input").not.toBeNull();
   fireEvent.change(input!, { target: { files: [file] } });

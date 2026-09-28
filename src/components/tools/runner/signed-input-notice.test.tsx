@@ -28,7 +28,8 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { withAppRouter } from "@/tests/app-router";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { PDFDocument } from "pdf-lib";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
@@ -36,11 +37,9 @@ import { getToolBySlug } from "@/lib/tools";
 import { signedPdf } from "@/tests/signed-pdf";
 import { ToolRunner } from "./tool-runner";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/tools/sign-pdf",
-  useSearchParams: () => new URLSearchParams(),
-}));
+// The router comes from its context (`withAppRouter`), not a module mock:
+// under isolate:false a runner another file imported first stays cached bound
+// to the real `next/navigation`, and a mock here would never reach it.
 
 afterEach(() => {
   cleanup();
@@ -58,7 +57,9 @@ async function unsignedPdf(): Promise<Uint8Array> {
 /** Render a tool's runner, load `file`, and report what the reader sees. */
 async function openIn(slug: string, file: File) {
   const kind = getRunnerKind(slug)!;
-  const { container, unmount } = render(<ToolRunner kind={kind} slug={slug} />);
+  const { container, unmount } = render(
+    withAppRouter(<ToolRunner kind={kind} slug={slug} />),
+  );
   try {
     if (!container.querySelector('[data-single-pdf-runner="empty"]')) {
       return { single: false as const };

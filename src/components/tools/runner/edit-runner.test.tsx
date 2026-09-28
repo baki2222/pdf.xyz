@@ -8,16 +8,15 @@
  * page they see, and that an over-long line is refused when it is ADDED, not
  * silently accepted into a list whose export then fails.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { withAppRouter } from "@/tests/app-router";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PDFDocument, degrees } from "pdf-lib";
 import { EditRunner } from "./edit-runner";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/tools/edit-pdf",
-  useSearchParams: () => new URLSearchParams(),
-}));
+// The router comes from its context (`withAppRouter`), not a module mock:
+// under isolate:false a runner another file imported first stays cached bound
+// to the real `next/navigation`, and a mock here would never reach it.
 
 afterEach(() => {
   cleanup();
@@ -33,7 +32,7 @@ async function letterPdf(rotate: number): Promise<File> {
 }
 
 async function openInRunner(file: File) {
-  const { container } = render(<EditRunner />);
+  const { container } = render(withAppRouter(<EditRunner />));
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input, "the dropzone's file input").not.toBeNull();
   fireEvent.change(input!, { target: { files: [file] } });
