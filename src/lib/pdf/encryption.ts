@@ -52,19 +52,14 @@ export type PdfjsForAccess = Pick<
   "getDocument" | "PasswordResponses"
 >;
 
-let workerConfigured = false;
-
-/** The browser build, pointed at the bundled worker (once). */
+/**
+ * The browser build, pointed at the bundled worker (once) — in
+ * `./pdfjs-browser`, reached by `import()` so this module stays free of
+ * `import.meta` (see that file: the e2e suite loads `./engine`, and so this
+ * module, as CommonJS).
+ */
 async function loadBrowserPdfjs(): Promise<PdfjsForAccess> {
-  const pdfjs = await import("pdfjs-dist");
-  if (!workerConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
-    workerConfigured = true;
-  }
-  return pdfjs;
+  return (await import("./pdfjs-browser")).loadBrowserPdfjs();
 }
 
 type PdfjsSource = () => Promise<PdfjsForAccess>;
