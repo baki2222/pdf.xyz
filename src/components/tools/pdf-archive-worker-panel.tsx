@@ -198,7 +198,7 @@ function ArchiveUnavailable({
       <NotifyMe
         toolName="PDF to PDF/A"
         toolSlug="pdf-to-pdfa"
-        checking={phase === "loading"}
+        checking={false}
       />
     </div>
   );

@@ -123,7 +123,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
             <NotifyMe
               toolName={tool.name}
               toolSlug={tool.slug}
-              checking={phase === "loading"}
+              checking={false}
             />
           </div>
         ) : (

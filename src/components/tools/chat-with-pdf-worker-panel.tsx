@@ -159,7 +159,7 @@ export function ChatWithPdfWorkerPanel({
             <NotifyMe
               toolName={tool.name}
               toolSlug={tool.slug}
-              checking={phase === "loading"}
+              checking={false}
             />
           </div>
         ) : (

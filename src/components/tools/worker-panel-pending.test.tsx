@@ -68,7 +68,9 @@ function textOf(html: string): string {
 }
 
 const NOTIFY_TEXT = textOf(
-  renderToString(createElement(NotifyMe, { toolName: "X", toolSlug: "x" })),
+  renderToString(
+    createElement(NotifyMe, { toolName: "X", toolSlug: "x", checking: false }),
+  ),
 );
 // The button's label: the part of NotifyMe that says "not shipped".
 const NOTIFY_CLAIM = /Notify me when this ships/;

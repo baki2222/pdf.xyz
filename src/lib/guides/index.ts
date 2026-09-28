@@ -2,7 +2,6 @@ import { guides } from "./catalog";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import type { Guide, GuideFaqEntry, GuideSection } from "./types";
-import { getToolBySlug } from "@/lib/tools";
 
 export { guides };
 export type { Guide, GuideFaqEntry, GuideSection };

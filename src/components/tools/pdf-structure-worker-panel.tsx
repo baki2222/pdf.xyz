@@ -236,11 +236,7 @@ function StructureUnavailable({
         No uploader is shown until the worker is ready, so {toolName} never
         pretends to process a file it cannot actually run.
       </p>
-      <NotifyMe
-        toolName={toolName}
-        toolSlug={toolSlug}
-        checking={phase === "loading"}
-      />
+      <NotifyMe toolName={toolName} toolSlug={toolSlug} checking={false} />
     </div>
   );
 }

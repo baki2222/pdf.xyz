@@ -301,11 +301,7 @@ function SecurityUnavailable({
           "PDF password protection isn't enabled in this environment. No file is uploaded."}
       </p>
       <div className="flex flex-col gap-2">
-        <NotifyMe
-          toolName={toolName}
-          toolSlug={toolSlug}
-          checking={phase === "loading"}
-        />
+        <NotifyMe toolName={toolName} toolSlug={toolSlug} checking={false} />
       </div>
     </div>
   );
