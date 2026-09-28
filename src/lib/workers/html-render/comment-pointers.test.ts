@@ -22,7 +22,11 @@ import { describe, expect, it } from "vitest";
 const DIR = __dirname;
 const ROOT = path.resolve(DIR, "..", "..", "..", "..");
 
-/** `./network`, `@/lib/x`, `src/x.ts`, `scripts/x.ts`, or a bare `x.ts`. */
+/**
+ * `./network`, `@/lib/<module>`, `src/x.ts`, `scripts/x.ts`, or a bare `x.ts`.
+ * (`@/lib/<module>`, not a real-looking name: `src/tests/comment-pointers.test.ts`
+ * reads every backticked `@/` path in src as a pointer that must resolve.)
+ */
 const POINTER =
   /`(\.\/[\w./-]+|@\/[\w./-]+|(?:src|scripts)\/[\w./-]+|[\w.-]+\.tsx?)`/g;
 
