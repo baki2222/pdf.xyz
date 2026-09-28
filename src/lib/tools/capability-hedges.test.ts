@@ -230,10 +230,15 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
   },
   aiReadCap: {
     // The panels say "One run never counts more than N" — true whether or not
-    // this is proven, so it is not a hedge on it. The catalogue says nothing
-    // about per-run pricing yet; the day it does, this goes red on purpose.
+    // this is proven, so it is not a hedge on it. The catalogue said nothing
+    // about per-run pricing, and this read `catalogueCopy: false` with "the
+    // day it does, this goes red on purpose". That day was the merge with
+    // L04: each AI tool's fact line and "Is it free?" answer ARE its panel
+    // note, one string, so the per-call sentence is catalogue copy on
+    // Summarize, Chat and Extract. Paired on purpose: it must now be found
+    // there, and — like every capability here — never be hedged.
     subject: /\bread cap\b|one run never counts|reads no more of/i,
-    catalogueCopy: false,
+    catalogueCopy: true,
   },
 };
 
