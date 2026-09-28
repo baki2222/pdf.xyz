@@ -1,19 +1,17 @@
-import type { Job, JobArtifact } from "@/lib/jobs/types";
+import type { Job } from "@/lib/jobs/types";
 import type { WorkerStatus } from "./status";
 import {
   canRunPdfSecurity,
+  finishSecurityJob,
   runSecurityJob,
   type FetchLike,
   type PdfSecurityWorkerOptions,
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
-import { pollJobToTerminal } from "./job-polling";
 import { readWorkerError } from "./read-error";
 
 const HTML_TO_PDF_TOOL = "html-to-pdf";
 const WEBPAGE_TO_PDF_TOOL = "webpage-to-pdf";
-const DEFAULT_POLL_INTERVAL_MS = 800;
-const DEFAULT_MAX_POLL_ATTEMPTS = 150;
 
 export type HtmlRenderWorkerResult = PdfSecurityWorkerResult;
 
@@ -57,8 +55,6 @@ export async function runWorkerWebpageToPdf(
   options: PdfSecurityWorkerOptions = {},
 ): Promise<HtmlRenderWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
-  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const maxPollAttempts = options.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
 
   const jobRes = await fetchImpl("/api/jobs", {
     method: "POST",
@@ -68,44 +64,12 @@ export async function runWorkerWebpageToPdf(
   });
   if (!jobRes.ok)
     return readError(jobRes, "The worker could not create the webpage job.");
-  let job = (await jobRes.json()) as Job;
-  const polled = await pollJobToTerminal({
-    job,
-    fetchImpl,
-    pollIntervalMs,
-    maxPollAttempts,
-    ...(options.signal ? { signal: options.signal } : {}),
-    ...(options.sleep ? { sleepImpl: options.sleep } : {}),
-  });
-  if (!polled.ok) {
-    return {
-      ok: false,
-      message: polled.stillRunning
-        ? `${polled.message} (job ${polled.jobId})`
-        : polled.message,
-    };
-  }
-  job = polled.job;
-  if (job.status !== "completed") {
-    return {
-      ok: false,
-      message:
-        job.error?.message ??
-        `The job ended as "${job.status}" without producing a result.`,
-      code: job.error?.code,
-    };
-  }
-  const artifact: JobArtifact | undefined = job.artifacts?.[0];
-  if (!artifact)
-    return { ok: false, message: "The job completed but produced no output." };
-  const out = await fetchImpl(artifact.url, { signal: options.signal });
-  if (!out.ok) return readError(out, "Downloading the PDF result failed.");
-  return {
-    ok: true,
-    job,
-    artifact,
-    output: new Uint8Array(await out.arrayBuffer()),
-  };
+  const job = (await jobRes.json()) as Job;
+  options.onJobCreated?.(job.jobId);
+  // The same wait-and-download half every other worker tool uses — and so
+  // the same structured "still running" failure a panel can resume from. This
+  // copy used to fold the job id into its message and drop it.
+  return finishSecurityJob(WEBPAGE_TO_PDF_TOOL, job, options);
 }
 
 /** Remote worker readiness; local-dev cannot observe Chromium through WorkerStatus yet. */

@@ -2,7 +2,15 @@
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
-import type { OcrOptions } from "@/lib/jobs/ocr";
+import { OCR_MAX_INPUT_FILES, type OcrOptions } from "@/lib/jobs/ocr";
+import { findPopplerPdfToText } from "@/tests/pdf-office-fixtures";
+import {
+  MIXED_TYPED_LINE,
+  mixedScanPdf,
+  mixedSidecarVerdict,
+} from "@/tests/ocr-proof-fixtures";
+import { OcrEngineRefusal } from "./ocr-engine-errors";
+import { skippedSidecarPages } from "./ocr-sidecar";
 import type { ProcessorInputFile } from "./processor/types";
 import type { NativeOcrConfig } from "./ocr-native-config";
 import {
@@ -36,17 +44,17 @@ function cfg(over: Partial<NativeOcrConfig> = {}): NativeOcrConfig {
 const BOTH: OcrOptions = {
   languages: ["eng", "spa"],
   outputMode: "both",
-  skipTextPages: false,
+  redoOcr: false,
 };
 const PDF_ONLY: OcrOptions = {
   languages: ["eng"],
   outputMode: "searchable-pdf",
-  skipTextPages: false,
+  redoOcr: false,
 };
 const TEXT_ONLY: OcrOptions = {
   languages: ["eng"],
   outputMode: "text",
-  skipTextPages: false,
+  redoOcr: false,
 };
 
 const scan: ProcessorInputFile = {
@@ -111,7 +119,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       inputPath: "/tmp/j/input.pdf",
       workDir: "/tmp/j",
       languages: ["eng", "spa"],
-      skipTextPages: false,
+      redoOcr: false,
       wantPdf: true,
       wantText: true,
     });
@@ -126,17 +134,40 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
     expect(inv.pdfOut).toBe(join("/tmp/j", "output.pdf"));
   });
 
-  it("adds --skip-text only when requested, and omits the sidecar for pdf-only", () => {
-    const inv = nativeOcrArgs("ocrmypdf", "ocrmypdf", {
+  // INVERTED 2026-09-27. This test used to read "adds --skip-text only when
+  // requested" — and it pinned the defect. With the option off (the panel's
+  // default), OCRmyPDF was given neither --skip-text nor --redo-ocr, so it
+  // aborted the WHOLE job on any PDF where one page already had text
+  // (PriorOcrFoundError, exit 6) or that was tagged: every scanner-app
+  // "searchable PDF", every scan with a typed cover page, every Word export.
+  // Now a page that already has text is always kept as it is, and the only
+  // opt-in is --redo-ocr (never --force-ocr, which rasterizes vector text).
+  it("skips pages that already have text by default, redoes them only on request, never both", () => {
+    const ctx = {
       inputPath: "/t/in.pdf",
       workDir: "/t",
       languages: ["eng"],
-      skipTextPages: true,
       wantPdf: true,
       wantText: false,
-    });
-    expect(inv.args).toContain("--skip-text");
-    expect(inv.args).not.toContain("--sidecar");
+    };
+    const byDefault = nativeOcrArgs("ocrmypdf", "ocrmypdf", {
+      ...ctx,
+      redoOcr: false,
+    }).args;
+    expect(byDefault).toContain("--skip-text");
+    expect(byDefault).not.toContain("--redo-ocr");
+    expect(byDefault).not.toContain("--sidecar");
+
+    const redo = nativeOcrArgs("ocrmypdf", "ocrmypdf", {
+      ...ctx,
+      redoOcr: true,
+    }).args;
+    expect(redo).toContain("--redo-ocr");
+    // OCRmyPDF rejects the two together as conflicting arguments.
+    expect(redo).not.toContain("--skip-text");
+    // And never the destructive mode, under either setting.
+    for (const args of [byDefault, redo])
+      expect(args).not.toContain("--force-ocr");
   });
 
   it("builds Tesseract args with an output base and pdf/txt config tokens", () => {
@@ -144,7 +175,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       inputPath: "/t/in.png",
       workDir: "/t",
       languages: ["eng", "deu"],
-      skipTextPages: true, // ignored for tesseract
+      redoOcr: true, // ignored for tesseract
       wantPdf: true,
       wantText: true,
     });
@@ -157,8 +188,9 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
     ]);
     expect(inv.args).toContain("pdf");
     expect(inv.args).toContain("txt");
-    // tesseract has no page-level skip-text notion.
+    // tesseract reads a raster, which has no text layer to skip or redo.
     expect(inv.args).not.toContain("--skip-text");
+    expect(inv.args).not.toContain("--redo-ocr");
     expect(inv.pdfOut).toBe(join("/t", "output.pdf"));
     expect(inv.txtOut).toBe(join("/t", "output.txt"));
   });
@@ -168,7 +200,7 @@ describe("nativeOcrArgs — fixed argv, no shell interpolation", () => {
       inputPath: "/t/in.pdf",
       workDir: "/t",
       languages: ["eng"],
-      skipTextPages: false,
+      redoOcr: false,
       wantPdf: true,
       wantText: false,
     });
@@ -478,6 +510,216 @@ describe("createNativeOcrRunner — failure paths always clean up and never leak
     );
   });
 });
+
+/** A rejection shaped like `promisify(execFile)`'s on a non-zero exit. */
+function exitError(code: number, stderr = "") {
+  return Object.assign(new Error("Command failed"), {
+    code,
+    killed: false,
+    signal: null,
+    stderr,
+  });
+}
+
+describe("createNativeOcrRunner — document refusals are typed, the run stays retryable", () => {
+  it("turns OCRmyPDF's encrypted-input exit (8) into an OcrEngineRefusal, and still cleans up", async () => {
+    const { fs, calls } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {
+        throw exitError(8, "EncryptedPdfError: Input PDF is encrypted.");
+      },
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+    });
+    const failure = await runner({ options: BOTH, inputs: [scan] }).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(OcrEngineRefusal);
+    expect((failure as OcrEngineRefusal).kind).toBe("encrypted");
+    // The engine's stderr classified the failure; it never rides along.
+    expect((failure as Error).message).not.toContain("EncryptedPdfError");
+    expect(calls.rm).toHaveLength(1);
+  });
+
+  it("leaves a timeout as a plain error, so the processor keeps it retryable", async () => {
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {
+        throw Object.assign(new Error("Command failed"), {
+          code: null,
+          killed: true,
+          signal: "SIGTERM",
+        });
+      },
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+    });
+    const failure = await runner({ options: BOTH, inputs: [scan] }).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(OcrEngineRefusal);
+  });
+
+  it("reads OCRmyPDF's exit codes only for OCRmyPDF, never for Tesseract", async () => {
+    // Exit statuses are per-program: Tesseract's 8 is not "encrypted".
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {
+        throw exitError(8);
+      },
+      fs,
+      resolveOnPath: onlyEngine("tesseract"),
+    });
+    const png: ProcessorInputFile = {
+      ...scan,
+      filename: "scan.png",
+      contentType: "image/png",
+    };
+    const failure = await runner({ options: PDF_ONLY, inputs: [png] }).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(OcrEngineRefusal);
+  });
+
+  it("refuses more inputs than OCR_MAX_INPUT_FILES — the number the panel shows", async () => {
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+    });
+    const inputs = Array.from({ length: OCR_MAX_INPUT_FILES + 1 }, () => scan);
+    await expect(runner({ options: PDF_ONLY, inputs })).rejects.toThrow();
+    // Positive control: exactly the limit runs.
+    await expect(
+      runner({
+        options: PDF_ONLY,
+        inputs: inputs.slice(0, OCR_MAX_INPUT_FILES),
+      }),
+    ).resolves.toBeTruthy();
+  });
+});
+
+/** A merged OCRmyPDF sidecar where page 1 was skipped because it had text. */
+const SKIPPED_SIDECAR = new TextEncoder().encode(
+  "[OCR skipped on page 1]\fScanned words from page two\n",
+);
+const skippedSidecarFs = () =>
+  fakeFs((file) => (file.endsWith(".txt") ? SKIPPED_SIDECAR : VALID_PDF));
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+describe("createNativeOcrRunner — a skipped page's text reaches the .txt", () => {
+  it("fills a skipped page from the existing text layer instead of shipping the placeholder", async () => {
+    const seen: Uint8Array[] = [];
+    const { fs } = skippedSidecarFs();
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      readExistingText: async (pdf) => {
+        seen.push(pdf);
+        return { pages: [{ text: "Typed cover page\n" }, { text: "" }] };
+      },
+    });
+    const { artifacts, meta } = await runner({
+      options: TEXT_ONLY,
+      inputs: [scan],
+    });
+    const txt = decode(artifacts[0]!.bytes);
+    expect(skippedSidecarPages(txt)).toEqual([]);
+    expect(txt).toContain("Typed cover page");
+    expect(txt).toContain("Scanned words from page two");
+    // Read from the user's own input, and the count covers what they receive.
+    expect(seen[0]).toBe(scan.bytes);
+    expect(meta.textCharacters).toBe(txt.length);
+  });
+
+  it("leaves OCRmyPDF's placeholder when no text reader is wired, and the job still succeeds", async () => {
+    const { fs } = skippedSidecarFs();
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+    });
+    const { artifacts } = await runner({ options: TEXT_ONLY, inputs: [scan] });
+    expect(skippedSidecarPages(decode(artifacts[0]!.bytes))).toEqual([1]);
+  });
+
+  it("never fails a good job because the existing text could not be read", async () => {
+    const { fs } = skippedSidecarFs();
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      readExistingText: async () => {
+        throw new Error("pdftotext failed.");
+      },
+    });
+    const { artifacts } = await runner({ options: TEXT_ONLY, inputs: [scan] });
+    expect(skippedSidecarPages(decode(artifacts[0]!.bytes))).toEqual([1]);
+  });
+
+  it("does not read the text layer when no page was skipped", async () => {
+    let reads = 0;
+    const { fs } = fakeFs(pdfOrText);
+    const runner = createNativeOcrRunner(cfg(), {
+      exec: async () => {},
+      fs,
+      resolveOnPath: onlyEngine("ocrmypdf"),
+      readExistingText: async () => {
+        reads += 1;
+        return { pages: [] };
+      },
+    });
+    await runner({ options: TEXT_ONLY, inputs: [scan] });
+    expect(reads).toBe(0);
+  });
+});
+
+/**
+ * The composed chain, through the PRODUCTION deps builder and a real poppler:
+ * `nativeOcrDeps` must wire the text reader, the reader must return the page's
+ * words, and the runner must put them in the artifact. Each unit above can pass
+ * while this path drops everything. The worker runs a different poppler and a
+ * real OCRmyPDF; `pnpm worker:prove-tools ocr-pdf` proves that one.
+ */
+const POPPLER = findPopplerPdfToText();
+describe.skipIf(!POPPLER)(
+  POPPLER
+    ? "nativeOcrDeps → real poppler → the .txt a user downloads"
+    : "nativeOcrDeps → real poppler (SKIPPED: no poppler pdftotext found on PATH)",
+  () => {
+    it("fills the typed page of the proof's mixed document with its own words", async () => {
+      // The deployment proof's own fixture and verdict (`worker:prove-tools`,
+      // "ocr-pdf (text + scan)"), so the verdict is known to pass on a correct
+      // chain here and not only on the day it meets a deployment.
+      const bytes = await mixedScanPdf();
+      const { fs } = skippedSidecarFs();
+      const deps = nativeOcrDeps(
+        { PDFXYZ_OCR: "1", PDFXYZ_PDF_TEXT_BIN: POPPLER! },
+        {
+          exec: async () => {},
+          fs,
+          resolveOnPath: onlyEngine("ocrmypdf"),
+          pdfText: { resolveOnPath: () => true, fileExists: () => true },
+        },
+      );
+      const run = await deps.runner!({
+        options: TEXT_ONLY,
+        inputs: [{ ...scan, bytes }],
+      });
+      const txt = decode(run.artifacts[0]!.bytes);
+      expect(txt).toContain(MIXED_TYPED_LINE);
+      expect(txt).toContain("Scanned words from page two");
+      expect(skippedSidecarPages(txt)).toEqual([]);
+      expect(await mixedSidecarVerdict(run.artifacts[0]!.bytes)).toMatchObject({
+        ok: true,
+      });
+    });
+  },
+);
 
 describe("probeNativeOcrEnginesFromConfig / firstUsableOcrEngine — config-aware detection", () => {
   const seams = (

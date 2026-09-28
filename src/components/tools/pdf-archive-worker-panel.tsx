@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Archive, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
@@ -13,7 +13,6 @@ import {
 } from "@/lib/workers/pdf-archive-client";
 import { PDF_ARCHIVE_PASSWORD_REQUIRED_CODE } from "@/lib/workers/pdf-archive/contract";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
@@ -21,14 +20,20 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 import { PdfANotes } from "./pdfa-notes";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 /** Where a user with an open-password PDF can remove the password first. */
 export const UNLOCK_TOOL_SLUG = "unlock-pdf";
@@ -70,33 +75,7 @@ function SpecRow({
 }
 
 export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((s) => {
-        if (!active) return;
-        setStatus(s);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: s.mode,
-          enabled: s.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunPdfArchive(status);
@@ -136,7 +115,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
             refuse={(file) => pickRefusal(tool, file)}
           />
         ) : (
-          <ArchiveUnavailable phase={phase} status={status} />
+          <ArchiveUnavailable onRetry={retry} phase={phase} status={status} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -194,17 +173,21 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
 
 function ArchiveUnavailable({
   phase,
+  onRetry,
   status,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   const detail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
   return (
     <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
       <p className="text-muted text-sm leading-relaxed">{detail}</p>
@@ -225,29 +208,23 @@ function ArchiveRunArea({
   refuse: PickRefusal;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfArchiveWorkerResult | null>(null);
+  const job = useWorkerJob<PdfArchiveWorkerResult>({
+    tool: "pdf-to-pdfa",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "pdf-to-pdfa" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = await runWorkerPdfToPdfA({ filename: file.name, bytes });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file]);
+      const result = await runWorkerPdfToPdfA(
+        { filename: file.name, bytes },
+        controls,
+      );
+      return result;
+    });
+  }, [file, run]);
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
@@ -285,30 +262,30 @@ function ArchiveRunArea({
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel="Converting to PDF/A…"
+        busyLabel={jobBusyLabel(job.phase, "Converting to PDF/A…")}
         icon={Archive}
       >
         Convert to PDF/A
       </WorkerRunButton>
-      {outcome?.ok === false && (
-        <>
-          <ErrorNote message={outcome.message} />
-          {/* The worker can tell an open-password file from a broken one; the
-              user should not have to guess which Unlock tool that means. */}
-          {outcome.code === PDF_ARCHIVE_PASSWORD_REQUIRED_CODE && (
-            <p className="text-muted text-sm">
-              <Link
-                href={`/tools/${UNLOCK_TOOL_SLUG}`}
-                className="text-fg font-medium underline underline-offset-2"
-              >
-                Unlock PDF
-              </Link>{" "}
-              removes the password if you know it. Then convert the unlocked
-              copy here.
-            </p>
-          )}
-        </>
-      )}
+      {/* The failure itself (with its ErrorNote), a still-running job and
+          Cancel are the shared hook's; the Unlock pointer below is this
+          tool's own next step for the one code it knows. */}
+      <WorkerJobStatus job={job} />
+      {/* The worker can tell an open-password file from a broken one; the
+          user should not have to guess which Unlock tool that means. */}
+      {outcome?.ok === false &&
+        outcome.code === PDF_ARCHIVE_PASSWORD_REQUIRED_CODE && (
+          <p className="text-muted text-sm">
+            <Link
+              href={`/tools/${UNLOCK_TOOL_SLUG}`}
+              className="text-fg font-medium underline underline-offset-2"
+            >
+              Unlock PDF
+            </Link>{" "}
+            removes the password if you know it. Then convert the unlocked copy
+            here.
+          </p>
+        )}
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF/A file is ready.">
           {/* Above the download: a user who clicks and leaves is exactly the

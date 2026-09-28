@@ -65,6 +65,36 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
+import { linearizationVerdict } from "@/lib/pdf/linearization";
+import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import { pptxProofVerdict } from "@/lib/workers/pdf-office-export/validate-ooxml";
+import {
+  readXlsxSheet,
+  sheetGridProblems,
+} from "@/lib/workers/ooxml/sheet-read";
+import {
+  INVOICE_FOOTER,
+  INVOICE_ROWS,
+  invoicePdf,
+  invoiceSheetMismatches,
+} from "@/tests/pdf-office-fixtures";
+import { handBuiltPptx } from "@/tests/pptx-fixture";
+import {
+  officeFontProofDocx,
+  officeFontProofVerdict,
+} from "@/tests/office-font-fixtures";
+import { mixedScanPdf, mixedSidecarVerdict } from "@/tests/ocr-proof-fixtures";
+import {
+  reportTablesPdf,
+  tablesProofVerdict,
+} from "@/tests/table-extract-fixtures";
+import {
+  recoverablyDamagedPdf,
+  repairProofVerdict,
+  unrecoverablePdf,
+} from "@/tests/repair-proof-fixtures";
+import type { JobResults } from "@/lib/jobs/results";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
 import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
@@ -75,6 +105,7 @@ import {
 } from "@/lib/workers/pdf-security/engine";
 import { webpageFetchMessage } from "@/lib/workers/html-render/engine";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
+import { browserStoppedWaitingAt } from "@/lib/jobs/client-wait";
 import {
   harnessExitCode,
   judgeExpectedRefusal,
@@ -213,8 +244,13 @@ async function chatDocPdf(): Promise<Buffer> {
 }
 
 /**
- * A PDF whose text is laid out as a column-aligned grid, which is what the table
- * engine detects. Columns sit at fixed x positions and rows at fixed y.
+ * A PDF whose text is laid out as a column-aligned grid under a title, for
+ * AI Extract. Columns sit at fixed x positions and rows at fixed y.
+ *
+ * Until 2026-09-27 this was Extract Tables' proof fixture too, checked only
+ * for a `PK` at byte 0 — while the engine returned its title as a data row
+ * and an empty column in every row. Extract Tables now proves itself on
+ * `reportTablesPdf`, cell by cell (see its spec).
  */
 async function tablePdf(): Promise<Buffer> {
   const doc = await PDFDocument.create();
@@ -507,28 +543,6 @@ const rootRels = (target: string, type: string) =>
   `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${type}" Target="${target}"/></Relationships>`;
 
-/** A real DOCX. LibreOffice rejects a stub, so the required parts are all here. */
-async function docxFile(): Promise<Buffer> {
-  const zip = new JSZip();
-  zip.file(
-    "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
-  );
-  zip.file(
-    "_rels/.rels",
-    rootRels("word/document.xml", `${ODOC_NS}/officeDocument`),
-  );
-  zip.file(
-    "word/document.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
-<w:p><w:r><w:t>Word to PDF — pdf.xyz deployment proof</w:t></w:r></w:p>
-<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>`,
-  );
-  return zip.generateAsync({ type: "nodebuffer" });
-}
-
 /** A real XLSX with one inline-string worksheet. */
 async function xlsxFile(): Promise<Buffer> {
   const zip = new JSZip();
@@ -559,101 +573,6 @@ async function xlsxFile(): Promise<Buffer> {
 <row r="1">${cell("A1", "Region")}${cell("B1", "Q1")}</row>
 <row r="2">${cell("A2", "North")}${cell("B2", "1200")}</row>
 </sheetData></worksheet>`,
-  );
-  return zip.generateAsync({ type: "nodebuffer" });
-}
-
-/** A real PPTX. PresentationML needs the whole master/layout/theme chain to open. */
-async function pptxFile(): Promise<Buffer> {
-  const P = "http://schemas.openxmlformats.org/presentationml/2006/main";
-  const A = "http://schemas.openxmlformats.org/drawingml/2006/main";
-  const zip = new JSZip();
-
-  zip.file(
-    "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>`,
-  );
-  zip.file(
-    "_rels/.rels",
-    rootRels("ppt/presentation.xml", `${ODOC_NS}/officeDocument`),
-  );
-  zip.file(
-    "ppt/presentation.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:presentation xmlns:p="${P}" xmlns:a="${A}" xmlns:r="${ODOC_NS}">
-<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
-<p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst>
-<p:sldSz cx="9144000" cy="6858000"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`,
-  );
-  zip.file(
-    "ppt/_rels/presentation.xml.rels",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="${REL_NS}">
-<Relationship Id="rId1" Type="${ODOC_NS}/slideMaster" Target="slideMasters/slideMaster1.xml"/>
-<Relationship Id="rId2" Type="${ODOC_NS}/slide" Target="slides/slide1.xml"/>
-<Relationship Id="rId3" Type="${ODOC_NS}/theme" Target="theme/theme1.xml"/></Relationships>`,
-  );
-
-  const spTree = (title: string) => `<p:spTree>
-<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
-<p:spPr><a:xfrm><a:off x="685800" y="2130425"/><a:ext cx="7772400" cy="1470025"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
-<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="3200"/><a:t>${title}</a:t></a:r></a:p></p:txBody></p:sp>
-</p:spTree>`;
-
-  zip.file(
-    "ppt/slides/slide1.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:p="${P}" xmlns:a="${A}" xmlns:r="${ODOC_NS}"><p:cSld>${spTree("PowerPoint to PDF — pdf.xyz proof")}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`,
-  );
-  zip.file(
-    "ppt/slides/_rels/slide1.xml.rels",
-    rootRels("../slideLayouts/slideLayout1.xml", `${ODOC_NS}/slideLayout`),
-  );
-  zip.file(
-    "ppt/slideLayouts/slideLayout1.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sldLayout xmlns:p="${P}" xmlns:a="${A}" xmlns:r="${ODOC_NS}" type="title"><p:cSld name="Title Slide">${spTree("")}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`,
-  );
-  zip.file(
-    "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
-    rootRels("../slideMasters/slideMaster1.xml", `${ODOC_NS}/slideMaster`),
-  );
-
-  const clrMap = `<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>`;
-  zip.file(
-    "ppt/slideMasters/slideMaster1.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sldMaster xmlns:p="${P}" xmlns:a="${A}" xmlns:r="${ODOC_NS}"><p:cSld>${spTree("")}</p:cSld>${clrMap}<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>`,
-  );
-  zip.file(
-    "ppt/slideMasters/_rels/slideMaster1.xml.rels",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="${REL_NS}">
-<Relationship Id="rId1" Type="${ODOC_NS}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
-<Relationship Id="rId2" Type="${ODOC_NS}/theme" Target="../theme/theme1.xml"/></Relationships>`,
-  );
-
-  const clr = (tag: string, hex: string) =>
-    `<a:${tag}><a:srgbClr val="${hex}"/></a:${tag}>`;
-  const fnt = (tag: string) =>
-    `<a:${tag}><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:${tag}>`;
-  const styleList = (tag: string, inner: string) =>
-    `<a:${tag}>${inner.repeat(3)}</a:${tag}>`;
-  zip.file(
-    "ppt/theme/theme1.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:theme xmlns:a="${A}" name="Proof"><a:themeElements>
-<a:clrScheme name="Proof">${clr("dk1", "000000")}${clr("lt1", "FFFFFF")}${clr("dk2", "1F497D")}${clr("lt2", "EEECE1")}${clr("accent1", "4F81BD")}${clr("accent2", "C0504D")}${clr("accent3", "9BBB59")}${clr("accent4", "8064A2")}${clr("accent5", "4BACC6")}${clr("accent6", "F79646")}${clr("hlink", "0000FF")}${clr("folHlink", "800080")}</a:clrScheme>
-<a:fontScheme name="Proof">${fnt("majorFont")}${fnt("minorFont")}</a:fontScheme>
-<a:fmtScheme name="Proof">
-${styleList("fillStyleLst", `<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>`)}
-${styleList("lnStyleLst", `<a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>`)}
-${styleList("effectStyleLst", `<a:effectStyle><a:effectLst/></a:effectStyle>`)}
-${styleList("bgFillStyleLst", `<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>`)}
-</a:fmtScheme></a:themeElements></a:theme>`,
   );
   return zip.generateAsync({ type: "nodebuffer" });
 }
@@ -740,14 +659,33 @@ interface ProofSpec {
    * and used the prior turns, and that lives in the manifest inside the ZIP. The
    * returned detail is printed on success, so a measurement (rather than a mere
    * pass) reaches the operator.
+   *
+   * `job` is the completed job record exactly as GET /api/jobs/:id served it,
+   * for a claim that lives on the record rather than in the bytes — what
+   * repair-pdf reported it rebuilt is the sentence the panel shows.
    */
-  verify?: (bytes: Buffer) => Promise<{ ok: boolean; detail: string }>;
+  verify?: (
+    bytes: Buffer,
+    job: ApiResponse,
+  ) => Promise<{ ok: boolean; detail: string }>;
+  /**
+   * Which artifact to download, by filename, when a job returns several (OCR's
+   * "both" mode returns the PDF first). Absent ⇒ the first. A job with no
+   * artifact matching it is a FAIL, never a fall-back to another artifact.
+   */
+  artifact?: (filename: string) => boolean;
   /**
    * The proof passes only if the job FAILS with exactly this user-facing
    * message (see `judgeExpectedRefusal`). A delivered artifact is itself the
    * failure, so `expect` and `verify` are never reached for such a spec.
    */
   refuses?: string;
+  /**
+   * A proof that the tool REFUSES an input properly: the job must end `failed`
+   * with exactly this code and retryability, and a message matching `message`.
+   * A job that completes is the FAIL here. `expect` is then never reached.
+   */
+  expectFailure?: { code: string; retryable: boolean; message: RegExp };
   want: string;
   keepArtifactAs?: string;
 }
@@ -762,14 +700,53 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "PDF",
   },
+  // Until 2026-09-27 this sent the healthy `textPdf` under the name
+  // `broken.pdf`, so the only real-job proof of Repair PDF exercised qpdf's
+  // exit 0 and nothing a damaged file goes through. Now it sends real damage —
+  // the recipe measured on the production worker's qpdf, with the fixture
+  // checking itself — and reads what the job record says was rebuilt.
   {
     tool: "repair-pdf",
-    make: textPdf,
+    make: async () => Buffer.from(await recoverablyDamagedPdf()),
     name: "broken.pdf",
     type: PDF_MIME,
     expect: isPdf,
-    want: "PDF",
+    want: "rebuilt PDF",
+    verify: (bytes, job) => repairProofVerdict(bytes, job, "recovered"),
   },
+  // The other half of the panel's sentence: a healthy file must come back
+  // reported CLEAN, or "qpdf found no structural damage" would never show.
+  {
+    tool: "repair-pdf",
+    label: "repair-pdf (clean)",
+    make: textPdf,
+    name: "healthy.pdf",
+    type: PDF_MIME,
+    expect: isPdf,
+    want: "PDF reported clean",
+    verify: (bytes, job) => repairProofVerdict(bytes, job, "clean"),
+  },
+  // Nothing to rebuild from. Until 2026-09-27 qpdf's refusal was a retryable
+  // internal_error: three identical runs, then "could not process this file".
+  {
+    tool: "repair-pdf",
+    label: "repair-pdf (unrecoverable)",
+    make: async () => Buffer.from(await unrecoverablePdf()),
+    name: "rubble.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: OFFICE_EXPORT_ERROR_CODES.unreadable,
+      retryable: false,
+      message: /could not be rebuilt/,
+    },
+    expect: () => false,
+    want: "a final refusal, not a retry",
+  },
+  // "linearized PDF" was printed on the strength of `%PDF-` at byte 0 until
+  // 2026-09-27; the one property this tool sells was never read. `textPdf` is
+  // pdf-lib output and NOT linearized, so a worker that skipped `--linearize`
+  // and returned its input rewritten fails here — the verdict reads the
+  // linearization dictionary and holds its /L to the artifact's length.
   {
     tool: "optimize-web",
     make: textPdf,
@@ -777,6 +754,7 @@ const SPECS: ProofSpec[] = [
     type: PDF_MIME,
     expect: isPdf,
     want: "linearized PDF",
+    verify: async (bytes) => linearizationVerdict(bytes),
   },
   {
     tool: "ocr-pdf",
@@ -807,6 +785,26 @@ const SPECS: ProofSpec[] = [
     type: "image/jpeg",
     expect: isPdf,
     want: "searchable PDF",
+  },
+  // A page that already has text beside a scanned one, with the panel's
+  // defaults plus the text output. The job completing is half the proof (it
+  // aborted on every such file until 2026-09-27); the .txt holding the typed
+  // page's own words is the other half.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (text + scan)",
+    make: async () => Buffer.from(await mixedScanPdf()),
+    name: "mixed.pdf",
+    type: PDF_MIME,
+    options: { languages: ["eng"], outputMode: "both" },
+    artifact: (filename) => filename.endsWith(".txt"),
+    expect: (bytes) => bytes.length > 0,
+    want: "text sidecar",
+    // A page with text AND a scanned one (a scanner app's "searchable PDF", a
+    // scan behind a typed cover). Until 2026-09-27 OCRmyPDF aborted every such
+    // file; the pure-scan `imagePdf` proof above can never hit it. The same
+    // verdict runs through real poppler in `ocr-native.test.ts`.
+    verify: (bytes) => mixedSidecarVerdict(bytes),
   },
   {
     tool: "protect-pdf",
@@ -877,6 +875,42 @@ const SPECS: ProofSpec[] = [
   // `expect: isPdf` alone was this proof until the PDF/A gate existed: it passed
   // any PDF, so it could not fail on a file whose PDF/A claim no validator
   // accepts. `verify` asks the downloaded artifact the engine's own question.
+  // The same locked document through OCR. It can never succeed, so the proof is
+  // HOW it fails: final on the first attempt, naming the tool that fixes it.
+  // Until 2026-09-27 it was retried three times and reported as "The OCR engine
+  // could not process this file".
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (encrypted)",
+    from: "encrypted",
+    name: "locked.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: "unprocessable_entity",
+      retryable: false,
+      message: /Unlock PDF/,
+    },
+    // Never reached: with `expectFailure`, a completed job is itself the FAIL.
+    expect: () => false,
+    want: "a final refusal naming Unlock PDF",
+  },
+  // The commonest reason a PDF "won't open" is a password, and Repair PDF is
+  // where a user takes it. Until 2026-09-27 that was retried three times and
+  // then "could not process this file"; it must be one attempt, naming Unlock.
+  {
+    tool: "repair-pdf",
+    label: "repair-pdf (encrypted)",
+    from: "encrypted",
+    name: "locked.pdf",
+    type: PDF_MIME,
+    expectFailure: {
+      code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+      retryable: false,
+      message: /Unlock PDF/,
+    },
+    expect: () => false,
+    want: "a final refusal naming Unlock PDF",
+  },
   {
     tool: "pdf-to-pdfa",
     make: textPdf,
@@ -948,13 +982,20 @@ const SPECS: ProofSpec[] = [
     expect: () => false,
     want: "the job refused with the site's 404, not a PDF of the error page",
   },
+  // Until 2026-09-27 this sent one unstyled English line and accepted any
+  // `%PDF-`, which the worker passed while its image had no fonts at all:
+  // Calibri and Cambria came out in a face with other metrics, and CJK,
+  // Bengali, Hindi and Thai as empty boxes. Now the document asks for every
+  // Office font and writes every script `office-conversion/fonts.ts` names,
+  // and the verdict reads which faces the returned PDF actually embeds.
   {
     tool: "word-to-pdf",
-    make: docxFile,
+    make: officeFontProofDocx,
     name: "letter.docx",
     type: DOCX_MIME,
     expect: isPdf,
     want: "PDF",
+    verify: (bytes) => officeFontProofVerdict(bytes),
   },
   {
     tool: "excel-to-pdf",
@@ -975,7 +1016,7 @@ const SPECS: ProofSpec[] = [
   },
   {
     tool: "powerpoint-to-pdf",
-    make: pptxFile,
+    make: handBuiltPptx,
     name: "deck.pptx",
     type: PPTX_MIME,
     expect: isPdf,
@@ -988,14 +1029,57 @@ const SPECS: ProofSpec[] = [
     type: PDF_MIME,
     expect: isZipContainer,
     want: "DOCX",
+    // `PK` at byte 0 is true of a DOCX with an empty body, and was true of the
+    // column-scrambled DOCX this tool shipped. Read the text a reader gets.
+    verify: async (bytes) => {
+      const paragraphs = await readDocxParagraphs(bytes);
+      const found = paragraphs.some((p) =>
+        p.includes("pdf.xyz deployment proof"),
+      );
+      return found
+        ? {
+            ok: true,
+            detail: `${paragraphs.length} paragraph(s), fixture text found`,
+          }
+        : {
+            ok: false,
+            detail: `word/document.xml has ${paragraphs.length} paragraph(s) and none carries the fixture's "pdf.xyz deployment proof"`,
+          };
+    },
   },
   {
     tool: "pdf-to-excel",
-    make: tablePdf,
-    name: "table.pdf",
+    make: async () =>
+      Buffer.from(
+        await invoicePdf(16, INVOICE_ROWS, { footer: INVOICE_FOOTER }),
+      ),
+    name: "invoice.pdf",
     type: PDF_MIME,
     expect: isZipContainer,
     want: "XLSX",
+    // `PK` at byte 0 was true of the sheet this tool shipped, which put
+    // `1,250.00` in two columns and moved every value after an empty cell
+    // under the wrong header. Read every cell at its reference instead: the
+    // invoice carries a thousands separator, a comma inside text, empty
+    // cells, a leading-zero code and currency. And a two-run page footer a
+    // blank line below the table, which until 2026-09-27 joined the table
+    // and merged its first two columns; the footer's own row is not compared.
+    verify: async (bytes) => {
+      const sheet = await readXlsxSheet(bytes);
+      const problems = [
+        ...sheetGridProblems(sheet),
+        ...invoiceSheetMismatches(sheet, "invoice"),
+      ];
+      return problems.length === 0
+        ? {
+            ok: true,
+            detail: `${sheet.rows.length} row(s), every invoice cell at its reference`,
+          }
+        : {
+            ok: false,
+            detail: `sheet1.xml differs from the invoice in ${problems.length} place(s): ${problems.slice(0, 4).join("; ")}`,
+          };
+    },
   },
   {
     tool: "pdf-to-powerpoint",
@@ -1004,14 +1088,54 @@ const SPECS: ProofSpec[] = [
     type: PDF_MIME,
     expect: isZipContainer,
     want: "PPTX",
+    // `PK` at byte 0 was true of every deck this tool shipped until
+    // 2026-09-27, and PowerPoint refused every one of them as "corrupted and
+    // unreadable": no master, layout or theme, no slide size, empty shape
+    // properties. Walk the package the way PowerPoint does — the same checker
+    // the unit test runs on `main`, here run on the bytes the deployment
+    // returned — then read the fixture's text off a slide.
+    verify: (bytes) => pptxProofVerdict(bytes, "pdf.xyz deployment proof"),
+    keepArtifactAs: "pptx-from-pdf",
+  },
+  // A SECOND reader for the same deck: LibreOffice, through powerpoint-to-pdf
+  // on the same worker. It is NOT the PowerPoint check and cannot stand in for
+  // `pptxProofVerdict` above: LibreOffice's importer is more forgiving than
+  // PowerPoint's, and this round trip has never been shown to go red on a deck
+  // PowerPoint refuses. What it adds is that a real office suite laid the deck
+  // out — one PDF page for the one-slide deck of the one-page fixture.
+  {
+    tool: "powerpoint-to-pdf",
+    label: "powerpoint-to-pdf (round-trip)",
+    from: "pptx-from-pdf",
+    name: "doc.pptx",
+    type: PPTX_MIME,
+    expect: isPdf,
+    want: "PDF",
+    verify: async (bytes) => {
+      const pages = (await PDFDocument.load(bytes)).getPageCount();
+      return pages === 1
+        ? { ok: true, detail: "LibreOffice laid the deck out as 1 page" }
+        : {
+            ok: false,
+            detail: `LibreOffice laid the 1-slide deck out as ${pages} page(s)`,
+          };
+    },
   },
   {
     tool: "extract-tables",
-    make: tablePdf,
-    name: "table.pdf",
+    make: async () => Buffer.from(await reportTablesPdf()),
+    name: "report.pdf",
     type: PDF_MIME,
     expect: isZipContainer,
     want: "ZIP of CSV+XLSX",
+    // `PK` at byte 0 was true of the ZIP this tool shipped until 2026-09-27,
+    // whose one table had the title as a data row and an empty column in
+    // every row. Read every CSV a user gets instead: a report page with a
+    // title, a paragraph, two tables (multi-word cells, amounts set flush
+    // right), a caption, a two-run note and a footer — both tables, every
+    // cell, nothing else, and the workbook beside them. The same verdict runs
+    // on real poppler in `table-extract/engine.poppler.test.ts`.
+    verify: (bytes) => tablesProofVerdict(bytes),
   },
   {
     tool: "request-signatures",
@@ -1193,8 +1317,9 @@ interface ApiResponse {
   jobId?: string;
   id?: string;
   status?: string;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; retryable?: boolean };
   artifacts?: { artifactId: string; filename: string }[];
+  results?: JobResults;
 }
 
 const TERMINAL_STATUSES = new Set([
@@ -1409,13 +1534,28 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       detail: "the job was accepted but carried no id",
     };
   }
-  const deadline = Date.now() + JOB_TIMEOUT_MS;
+  const createdAt = Date.now();
+  const deadline = createdAt + JOB_TIMEOUT_MS;
   let job = created.body;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2500));
     const poll = await fetch(`${BASE}/api/jobs/${jobId}`);
     job = (await poll.json().catch(() => ({}))) as ApiResponse;
     if (job.status && TERMINAL_STATUSES.has(job.status)) break;
+  }
+  // This proof waits JOB_TIMEOUT_MS; a browser waits what `jobPollFor` gives
+  // its tool. A job that finished between the two was a PASS here and a
+  // "still working" to every real user (CLAUDE.md rule 5: check what the
+  // reader receives). Measured from creation, as the browser's wait is.
+  const stoppedAt = browserStoppedWaitingAt(spec.tool, Date.now() - createdAt);
+  if (stoppedAt !== null && job.status && TERMINAL_STATUSES.has(job.status)) {
+    return {
+      label,
+      outcome: "failed",
+      seconds: seconds(),
+      stage: "browser wait",
+      detail: `the job ended "${job.status}" after ${Math.round((Date.now() - createdAt) / 1000)}s; a browser stops waiting for ${spec.tool} at ${Math.round(stoppedAt / 1000)}s`,
+    };
   }
   if (spec.refuses !== undefined) {
     const verdict = judgeExpectedRefusal(spec.refuses, job);
@@ -1434,6 +1574,33 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
           detail: verdict.detail,
         };
   }
+  if (spec.expectFailure) {
+    const want = spec.expectFailure;
+    const got = job.error;
+    const matches =
+      job.status === "failed" &&
+      got?.code === want.code &&
+      got.retryable === want.retryable &&
+      want.message.test(got.message);
+    return matches
+      ? {
+          label,
+          outcome: "proven",
+          seconds: seconds(),
+          detail: `refused as ${want.code} (retryable: ${want.retryable}) — ${spec.want}`,
+        }
+      : {
+          label,
+          outcome: "failed",
+          seconds: seconds(),
+          stage: `job ${job.status ?? "timeout"}`,
+          detail: `wanted ${spec.want}, got ${
+            got
+              ? `${got.code} (retryable: ${String(got.retryable)}): ${got.message}`
+              : "no error"
+          }`.slice(0, 240),
+        };
+  }
   if (job.status !== "completed") {
     return {
       label,
@@ -1446,13 +1613,18 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     };
   }
 
-  const artifact = job.artifacts?.[0];
+  const artifact = spec.artifact
+    ? job.artifacts?.find((a) => spec.artifact!(a.filename))
+    : job.artifacts?.[0];
   if (!artifact)
     return {
       label,
       outcome: "failed",
       seconds: seconds(),
       stage: "no artifact",
+      detail: spec.artifact
+        ? `none of ${job.artifacts?.length ?? 0} artifact(s) is the ${spec.want}`
+        : "",
     };
 
   const download = await fetch(`${BASE}/api/artifacts/${artifact.artifactId}`, {
@@ -1483,7 +1655,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   if (spec.verify) {
     let outcome: { ok: boolean; detail: string };
     try {
-      outcome = await spec.verify(buf);
+      outcome = await spec.verify(buf, job);
     } catch (error) {
       outcome = { ok: false, detail: (error as Error).message };
     }

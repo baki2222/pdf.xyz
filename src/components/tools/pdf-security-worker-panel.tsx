@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Download,
   Eye,
@@ -29,7 +29,6 @@ import {
   type PdfSecurityWorkerResult,
 } from "@/lib/workers/pdf-security-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { cn, formatBytes } from "@/lib/utils";
@@ -37,14 +36,19 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
-  Spinner,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 type Mode = "protect" | "unlock";
 
 /**
@@ -161,34 +165,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
   const copy = COPY[mode];
   const HeaderIcon = copy.icon;
 
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((s) => {
-        if (!active) return;
-        setStatus(s);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: s.mode,
-          enabled: s.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunPdfSecurity(status);
@@ -224,6 +201,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
           />
         ) : (
           <SecurityUnavailable
+            onRetry={retry}
             phase={phase}
             status={status}
             toolName={tool.name}
@@ -299,33 +277,29 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
  */
 function SecurityUnavailable({
   phase,
+  onRetry,
   status,
   toolName,
   toolSlug,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
   toolName: string;
   toolSlug: string;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   return (
     <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-4">
-      {phase === "loading" ? (
-        <p
-          className="text-muted inline-flex items-center gap-2 text-sm"
-          role="status"
-        >
-          <Spinner className="size-4" />
-          Checking whether a secure worker is available…
-        </p>
-      ) : (
-        <p className="text-warn text-sm leading-relaxed">
-          {phase === "error"
-            ? "We couldn't confirm secure-worker availability just now, so this isn't offered here. No file is ever uploaded until it's confirmed available."
-            : (status?.security.detail ??
-              "PDF password protection isn't enabled in this environment. No file is uploaded.")}
-        </p>
-      )}
+      <p className="text-warn text-sm leading-relaxed">
+        {status?.security.detail ??
+          "PDF password protection isn't enabled in this environment. No file is uploaded."}
+      </p>
       <div className="flex flex-col gap-2">
         <NotifyMe toolName={toolName} toolSlug={toolSlug} />
       </div>
@@ -421,8 +395,15 @@ function SecurityRunArea({
   const [keyLength, setKeyLength] = useState<PdfKeyLength>(
     DEFAULT_PDF_KEY_LENGTH,
   );
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfSecurityWorkerResult | null>(null);
+  const job = useWorkerJob<PdfSecurityWorkerResult>({
+    tool: mode === "protect" ? "protect-pdf" : "unlock-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, {
+        ...controls,
+        tool: mode === "protect" ? "protect-pdf" : "unlock-pdf",
+      }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
@@ -431,33 +412,26 @@ function SecurityRunArea({
 
   const start = useCallback(async () => {
     if (!file || passwordMissing || tooLong) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
         mode === "protect"
-          ? await runWorkerProtect({
-              filename: file.name,
-              bytes,
-              password,
-              keyLength,
-            })
-          : await runWorkerUnlock({ filename: file.name, bytes, password });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, password, keyLength, mode, tooLong, passwordMissing]);
+          ? await runWorkerProtect(
+              {
+                filename: file.name,
+                bytes,
+                password,
+                keyLength,
+              },
+              controls,
+            )
+          : await runWorkerUnlock(
+              { filename: file.name, bytes, password },
+              controls,
+            );
+      return result;
+    });
+  }, [file, password, keyLength, mode, tooLong, passwordMissing, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -580,13 +554,13 @@ function SecurityRunArea({
         busy={busy}
         // `canSubmit` already folds in `!busy`; both go through one blocked branch.
         disabled={!canSubmit}
-        busyLabel={COPY[mode].running}
+        busyLabel={jobBusyLabel(job.phase, COPY[mode].running)}
         icon={mode === "protect" ? Lock : Unlock}
       >
         {COPY[mode].cta}
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
 
       {outcome?.ok === true && (
         <ResultCard

@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { WorkerStatus } from "@/lib/workers/status";
+import { describeOcrLanguage } from "@/lib/jobs/ocr";
 import { track } from "@/lib/telemetry/track";
 import {
   AssuranceNote,
@@ -240,6 +241,15 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                 <p className="text-muted text-xs leading-relaxed">
                   {status.ocr.detail}
                 </p>
+                {/* The list the detail refers to ("The languages listed are
+                    the recognition packs that worker actually has installed").
+                    Until 2026-09-27 the sentence rendered and the list did not. */}
+                {status.ocr.available && status.ocr.languages.length > 0 && (
+                  <p className="text-muted text-xs leading-relaxed">
+                    <span className="text-fg font-medium">Languages:</span>{" "}
+                    {status.ocr.languages.map(describeOcrLanguage).join(", ")}
+                  </p>
+                )}
               </div>
 
               {/* Same honesty for the AI tools: a drainable pipeline says nothing

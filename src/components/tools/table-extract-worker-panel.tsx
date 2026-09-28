@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Download, ShieldCheck, Table, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
@@ -11,7 +11,6 @@ import {
   type TableExtractWorkerResult,
 } from "@/lib/workers/table-extract-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
@@ -19,13 +18,20 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
+import { OfficeExportNextStep } from "./office-export-notices";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 function badgeFor(
   phase: Phase,
@@ -41,43 +47,14 @@ function badgeFor(
 }
 
 export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunTableExtract(status);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
   const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
 
   return (
     <div className="">
@@ -107,7 +84,7 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
 
         {available ? (
           <TableExtractRunArea refuse={(file) => pickRefusal(tool, file)} />
-        ) : (
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -118,6 +95,8 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
             </p>
             <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -190,31 +169,25 @@ function SpecRow({
 
 function TableExtractRunArea({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<TableExtractWorkerResult | null>(null);
+  const job = useWorkerJob<TableExtractWorkerResult>({
+    tool: "extract-tables",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "extract-tables" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
-      const result = await runWorkerTableExtract({
-        filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file]);
+    await run(async (controls) => {
+      const result = await runWorkerTableExtract(
+        {
+          filename: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -252,12 +225,15 @@ function TableExtractRunArea({ refuse }: { refuse: PickRefusal }) {
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel="Extracting tables…"
+        busyLabel={jobBusyLabel(job.phase, "Extracting tables…")}
         icon={Table}
       >
         Extract tables
       </WorkerRunButton>
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
+      {outcome?.ok === false && !outcome.stillRunning && (
+        <OfficeExportNextStep code={outcome.code} />
+      )}
       {outcome?.ok === true && (
         <ResultCard announce="Your tables are ready as a ZIP of CSV files plus a combined Excel workbook.">
           <p className="text-ok text-sm">

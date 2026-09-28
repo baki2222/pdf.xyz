@@ -4,7 +4,82 @@ import { Wrench } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
 
 /**
- * What qpdf had to fix, shown beside a completed repair.
+ * The sentence a finished repair ends on — shown AND announced, from the same
+ * function, so the eye and the screen reader cannot be told different things.
+ *
+ * It says what qpdf reported and no more. Until 2026-09-27 every success said
+ * "Your repaired PDF is ready.", including a run where qpdf exited 0 — nothing
+ * to repair — so a user whose file "won't open" for a reason a structural
+ * rewrite cannot see (damage inside the page content) was told it had been
+ * repaired and handed an identical file. (Not a password: the worker gives
+ * qpdf none, so a file that needs one never reaches exit 0.) Exit 0 means qpdf issued no
+ * warnings; it does not prove the file is undamaged, hence "found no
+ * structural damage", not "the file is fine".
+ *
+ * No `repair` block means the worker did not report (its image deploys by hand
+ * and can be older than this page), so the sentence claims neither outcome.
+ */
+export function repairDoneSentence(job: Job | undefined): string {
+  const recovered = job?.results?.repair?.recoveredWithWarnings;
+  if (recovered === true) return "Your repaired PDF is ready.";
+  if (recovered === false)
+    return "qpdf found no structural damage and rewrote the file cleanly.";
+  return "Your PDF is ready.";
+}
+
+/**
+ * Everything a finished repair shows above its download: what qpdf rebuilt
+ * when it rebuilt something, the outcome sentence, and — on a clean run —
+ * what a clean result does and does not rule out.
+ *
+ * The clean line must hold on the branch it sits on. It renders only when
+ * qpdf exited 0, and the worker passes qpdf no password (`repairArgs`), so
+ * qpdf has just opened the file without one. Until 2026-09-27 this line said
+ * the file "may be password-protected — try Unlock PDF": impossible here, the
+ * same wrong route `requiresPasswordArgs` rejects `--is-encrypted` for. What
+ * survives a clean open is only that the damage may be inside the page
+ * content, which a structural rewrite does not rebuild. It links nowhere: no
+ * tool has been shown to help a file qpdf opened cleanly, and a link here is a
+ * claim that one can (pdf-structure-worker-panel.test.tsx pins the absence).
+ */
+export function RepairOutcome({ job }: { job: Job | undefined }) {
+  const clean = job?.results?.repair?.recoveredWithWarnings === false;
+  return (
+    <>
+      <RepairWarnings job={job} />
+      <p className="text-ok text-sm">{repairDoneSentence(job)}</p>
+      {clean && (
+        <p className="text-muted text-sm leading-relaxed">
+          If it still won&apos;t open, the problem may be in the page content,
+          which a structural repair cannot rebuild.
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * What each tool says about a qpdf exit 3. Repair PDF asked for a rebuild and
+ * got one. Optimize for Web asked for a linearized copy and qpdf rebuilt the
+ * file on the way — true, but not a repair the user asked for, and not one to
+ * announce as a success. Neither links Repair PDF: it runs the same qpdf parse
+ * over the same bytes (`repairArgs` is a plain rewrite), so it cannot recover
+ * more than the run that just reported this.
+ */
+const WARNING_COPY = {
+  repair: {
+    lead: "This PDF was damaged and has been rebuilt.",
+    body: "The repair succeeded; what follows is what had to be reconstructed, so you can check those parts against the original.",
+  },
+  optimize: {
+    lead: "qpdf found problems in this PDF's structure and worked around them while optimizing it.",
+    body: "The optimized file is qpdf's reconstruction. Check these parts against your original before you replace it:",
+  },
+} as const;
+
+/**
+ * What qpdf had to fix, shown beside a completed repair — or a completed
+ * web optimization, which runs the same parser and can hit the same damage.
  *
  * A repair tool that hands back a file and says nothing has told the user the
  * least useful true thing it knows. qpdf reports a recovered document with exit
@@ -16,9 +91,16 @@ import type { Job } from "@/lib/jobs/types";
  * wrong" is exactly the one a repair tool must not blur, so `recoveredWithWarnings`
  * is read directly rather than derived from whether the list is empty.
  */
-export function RepairWarnings({ job }: { job: Job | undefined }) {
+export function RepairWarnings({
+  job,
+  variant = "repair",
+}: {
+  job: Job | undefined;
+  variant?: keyof typeof WARNING_COPY;
+}) {
   const repair = job?.results?.repair;
   if (!repair || !repair.recoveredWithWarnings) return null;
+  const copy = WARNING_COPY[variant];
 
   return (
     <div
@@ -28,11 +110,7 @@ export function RepairWarnings({ job }: { job: Job | undefined }) {
       <p className="flex items-start gap-2">
         <Wrench className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
-          <strong className="font-semibold">
-            This PDF was damaged and has been rebuilt.
-          </strong>{" "}
-          The repair succeeded; what follows is what had to be reconstructed, so
-          you can check those parts against the original.
+          <strong className="font-semibold">{copy.lead}</strong> {copy.body}
         </span>
       </p>
       {repair.warnings.length > 0 ? (

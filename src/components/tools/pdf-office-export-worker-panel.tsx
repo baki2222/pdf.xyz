@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
@@ -11,7 +11,6 @@ import {
   type PdfOfficeExportWorkerResult,
 } from "@/lib/workers/pdf-office-export-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
@@ -19,14 +18,24 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
+import {
+  OfficeExportCoverageNotice,
+  OfficeExportNextStep,
+} from "./office-export-notices";
 
 type PdfOfficeTool = "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint";
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 function isPdfOfficeTool(slug: string): slug is PdfOfficeTool {
   return (
@@ -56,49 +65,20 @@ function badgeFor(
 }
 
 export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
+  const { phase, status, retry } = useWorkerStatus();
   const officeTool: PdfOfficeTool = isPdfOfficeTool(tool.slug)
     ? tool.slug
     : "pdf-to-word";
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const badge = badgeFor(phase, status);
   const available =
     phase === "ready" &&
     canRunPdfOfficeExport(status) &&
     isPdfOfficeTool(tool.slug);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
   const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
 
   return (
     <div className="">
@@ -120,8 +100,8 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             The worker extracts selectable PDF text and packages it into a real{" "}
-            {extensionFor(officeTool)} file. Scanned PDFs fail honestly and
-            should be OCR’d first.
+            {extensionFor(officeTool)} file. Pages without selectable text
+            (scans) are not included; run OCR first to include them.
           </p>
         </div>
 
@@ -131,7 +111,7 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
             output={extensionFor(officeTool)}
             refuse={(file) => pickRefusal(tool, file)}
           />
-        ) : (
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -142,6 +122,8 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
             </p>
             <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -226,34 +208,26 @@ function PdfOfficeRunArea({
   refuse: PickRefusal;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfOfficeExportWorkerResult | null>(
-    null,
-  );
+  const job = useWorkerJob<PdfOfficeExportWorkerResult>({
+    tool: tool,
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: tool }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
-      const result = await runWorkerPdfOfficeExport({
-        tool,
-        filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, tool]);
+    await run(async (controls) => {
+      const result = await runWorkerPdfOfficeExport(
+        {
+          tool,
+          filename: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, tool, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -291,15 +265,19 @@ function PdfOfficeRunArea({
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel={`Exporting ${output}…`}
+        busyLabel={jobBusyLabel(job.phase, `Exporting ${output}…`)}
         icon={FileText}
       >
         Export {output}
       </WorkerRunButton>
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
+      {outcome?.ok === false && !outcome.stillRunning && (
+        <OfficeExportNextStep code={outcome.code} />
+      )}
       {outcome?.ok === true && (
         <ResultCard announce={`Your ${output} file is ready.`}>
           <p className="text-ok text-sm">Your {output} file is ready.</p>
+          <OfficeExportCoverageNotice job={outcome.job} />
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)

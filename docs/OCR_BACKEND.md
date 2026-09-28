@@ -186,8 +186,10 @@ inside the freshly built image with nothing wired and processing no document:
   the PDF→PDF counterpart of the recognition proof above. It renders the fixed sentinel into
   an **image-only PDF** with Ghostscript's `pdfimage` device (each page a raster — **no**
   text layer), confirms with `pdftotext` that the source PDF yields **no** selectable
-  sentinel text, runs the packaged **OCRmyPDF** over it by fixed argv (the same option shape
-  the native runner uses — `--language eng --output-type pdf --sidecar … --quiet in out`),
+  sentinel text, runs the packaged **OCRmyPDF** over it by fixed argv (the native runner's
+  core option shape — `--language eng --output-type pdf --sidecar … --quiet in out`; the
+  runner also always passes `--skip-text`, or `--redo-ocr` on request, which an image-only
+  input never exercises — `pnpm worker:prove-tools ocr-pdf` covers a PDF with a text page),
   and then confirms with the **same** `pdftotext` that the **output** PDF now yields the
   sentinel — proving OCRmyPDF added a real, selectable text layer (image-only → searchable).
   The OCRmyPDF sidecar corroborates recognition. Because the same tool extracts nothing from
@@ -249,9 +251,11 @@ and it is bounded on every axis — the same hardening as native compression:
 Nothing OCR-related ever leaks a filename, object key, URL, byte content, command
 line, binary path, **recognized OCR text**, or secret:
 
-- The native runner throws **fixed, content-free** messages; the processor maps any
-  throw to `internal_error` with a fixed client message (the raw error text is
-  discarded).
+- The native runner throws **fixed, content-free** messages; the processor maps a
+  typed document refusal (`OcrEngineRefusal`, from OCRmyPDF's exit status) to a
+  non-retryable `unprocessable_entity` with that refusal's fixed copy, and any other
+  throw to `internal_error` with a fixed client message. The raw error text and the
+  engine's stderr are read only to classify, and discarded.
 - The executor and daemon log only opaque ids, the tool slug, an attempt number, and
   an error **code** — the same content-free structured logging as every other job.
 - The recognized text lives **only** in the artifact bytes the user downloads; it is
@@ -377,9 +381,12 @@ native runner → OcrResultMeta                     (measured from the actual ru
 → completed`; a failure logs the terminal event with an error **code** only. There is
   no OCR-specific log field — by design, so no recognition detail can leak.
 - **Failure codes** a client may see: `not_implemented` (OCR not enabled / no engine),
-  `unprocessable_entity` (bad languages/options), `malware_detected` / `scan_invalid`
-  (blocked by the scan gate), `internal_error` (engine failed — retryable, bounded by
-  the attempt cap).
+  `unprocessable_entity` (bad languages/options, more than one file, or a document
+  OCRmyPDF refuses — password-protected (exit 8, pointing to Unlock PDF), digitally
+  signed, already OCR'd, or unreadable (exit 2, pointing to Repair PDF); never retried),
+  `malware_detected` / `scan_invalid` (blocked by the scan gate), `internal_error`
+  (a timeout, a crash, or an exit status not listed — retryable, bounded by the
+  attempt cap).
 
 ## Caveats & roadmap
 
@@ -403,12 +410,11 @@ native runner → OcrResultMeta                     (measured from the actual ru
   (`Job.results.ocr`) and returned by `GET /api/jobs/{id}`, re-bounded at the persistence
   boundary (`sanitizeJobResults`) — see _Client-visible OCR metadata_ above. The recognized
   text itself remains **artifact-only**; only its structural description is client-visible.
-- **Retryable failures are coarse.** The `OcrRunner` seam is throw-based, so the
-  processor treats any runner failure as a retryable `internal_error`; a _deterministic_
-  failure (e.g. a corrupt input) therefore exhausts the attempt cap before failing
-  terminally. A future refinement can give the runner a discriminated result (like the
-  compression engine's) for precise `not_implemented` / `payload_too_large` /
-  `unprocessable_entity` classification.
+- **Retryable failures are classified for OCRmyPDF only (2026-09-27).** The runner
+  throws a typed `OcrEngineRefusal` for the document failures OCRmyPDF names by exit
+  status (`src/lib/workers/ocr-engine-errors.ts`), and the processor reports those as
+  final. Tesseract (image inputs) has no such contract, so a deterministic image failure
+  still exhausts the attempt cap before failing terminally.
 - **Determinism.** OCRmyPDF embeds timestamps, so native output is not byte-stable;
   only the injected fake runner used in tests and the synthetic proofs' structural /
   sentinel / searchability checks are deterministic.

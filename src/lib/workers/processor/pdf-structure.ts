@@ -5,6 +5,7 @@
  */
 
 import type { JobError } from "@/lib/jobs";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -73,6 +74,28 @@ export function pdfStructureJobError(run: PdfStructureFailure): JobError {
         message: run.message,
         retryable: false,
       };
+    // Properties of the DOCUMENT: qpdf refuses the same bytes the same way on
+    // every attempt, so neither is retryable. Each carries the shared
+    // document-failure code the panel links its next step from (Unlock PDF,
+    // Repair PDF). Both used to fall through to the retryable
+    // `internal_error` below, and a locked PDF was run three times.
+    case "password_protected":
+      return {
+        code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+        message: run.message,
+        retryable: false,
+      };
+    case "unreadable":
+    // A PDF cut off before its trailer, refused before qpdf ran: the same
+    // next step (Repair PDF), and just as final.
+    case "damaged":
+      return {
+        code: OFFICE_EXPORT_ERROR_CODES.unreadable,
+        message: run.message,
+        retryable: false,
+      };
+    // Only a run that did not finish reaches here now: a timeout, a spawn or
+    // IO error, unusable output. Those are what a retry can change.
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };
@@ -155,17 +178,18 @@ export function createPdfStructureProcessor(deps: PdfStructureDeps): Processor {
           },
         ],
         toProcessorMeta(run.meta),
-        // Only repair reports this: optimize-web makes no claim about
-        // recovering anything, so a warnings block there would describe a
-        // promise the tool never made.
-        input.tool === REPAIR_TOOL
-          ? {
-              repair: {
-                recoveredWithWarnings: run.meta.recoveredWithWarnings,
-                warnings: run.meta.warnings,
-              },
-            }
-          : undefined,
+        // Both tools report this. qpdf exits 3 on `--linearize` exactly as on
+        // a rewrite, and the output is then its RECONSTRUCTION of a damaged
+        // file. This was repair-only ("optimize-web makes no claim about
+        // recovering anything"): the tool made no claim, qpdf still did the
+        // recovery, and the user was told nothing. The key keeps its name —
+        // it is qpdf's structural report, and the sanitizer already bounds it.
+        {
+          repair: {
+            recoveredWithWarnings: run.meta.recoveredWithWarnings,
+            warnings: run.meta.warnings,
+          },
+        },
       );
     },
   };

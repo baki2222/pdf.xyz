@@ -6,6 +6,8 @@ import {
 } from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
 import type { SummaryFormat, SummaryLength } from "@/lib/jobs/summarize-pdf";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
+import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 
 /**
  * Browser-side driver for the secure-worker Summarize PDF flow (`summarize-pdf`).
@@ -67,4 +69,72 @@ export function canRunSummarize(
   status: WorkerStatus | null | undefined,
 ): boolean {
   return canRunAiTool(status);
+}
+
+/**
+ * Ask the document, in the browser, whether it can be summarized at all —
+ * BEFORE anything is uploaded or charged.
+ *
+ * The route reserves the AI allowance when the job is CREATED, so the
+ * worker's own "no selectable text" answer arrives after the cost. A scan or
+ * a locked PDF has no character count to declare (`countDeclaredCharacters`
+ * returns `null`), so it is priced at the undeclared fallback, a third of the
+ * day. A scanned PDF was uploaded, charged, then refused, and a locked one
+ * read "could not be read for text extraction". Translate had the same trap
+ * and checks locally for the same reason.
+ *
+ * Refusals carry the shared document-failure codes, which the panel links to
+ * the tool that fixes each one (OCR, Unlock, Repair) — never by message text.
+ * Only a pdfjs `PasswordException` is called "password-protected"; any other
+ * throw is "could not be read", which is true whatever caused it. This check
+ * declares nothing: the count the route prices is `declaredCharacters` on
+ * {@link SummarizeWorkerInput}, which the panel counts separately.
+ */
+export type SummarizePreflight =
+  { ok: true } | { ok: false; message: string; code: string };
+
+/**
+ * The extractor the preflight reads with. An object rather than a bare import
+ * so a test can swap it and put it back: pdfjs needs `DOMMatrix`, which the
+ * test DOM lacks, and `vi.mock` of the text module would leave it cached with
+ * the stub for every later file in the same worker (see mock-isolation.test).
+ */
+export const summarizePreflightDeps: {
+  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+} = { extract: extractPdfText };
+
+export async function preflightSummarize(
+  bytes: Uint8Array,
+  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText> = (b) =>
+    summarizePreflightDeps.extract(b),
+): Promise<SummarizePreflight> {
+  let extracted: ExtractedPdfText;
+  try {
+    extracted = await extract(bytes);
+  } catch (error) {
+    const name = (error as { name?: unknown } | null)?.name;
+    if (name === "PasswordException")
+      return {
+        ok: false,
+        code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+        message:
+          "This PDF is password-protected. Unlock it with Unlock PDF, then summarize it. Nothing was uploaded.",
+      };
+    return {
+      ok: false,
+      code: OFFICE_EXPORT_ERROR_CODES.unreadable,
+      message:
+        name === "InvalidPDFException"
+          ? "This file could not be read as a PDF. If it is one, it may be damaged; Repair PDF can often fix that. Nothing was uploaded."
+          : "This PDF could not be read. It may be damaged; Repair PDF can often fix that. Nothing was uploaded.",
+    };
+  }
+  if (!extracted.hasText || extracted.text.trim().length === 0)
+    return {
+      ok: false,
+      code: OFFICE_EXPORT_ERROR_CODES.noText,
+      message:
+        "This PDF has no selectable text to summarize. It may be a scan or image-only PDF — run OCR PDF first, then summarize the result. Nothing was uploaded.",
+    };
+  return { ok: true };
 }

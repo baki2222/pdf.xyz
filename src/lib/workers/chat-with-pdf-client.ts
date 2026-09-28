@@ -141,3 +141,15 @@ export function canRunChatWithPdf(
 ): boolean {
   return canRunAiTool(status);
 }
+
+/**
+ * What the Chat with PDF panel calls to run a question. An object so a test
+ * can swap the driver and put it back. The panel test used to `vi.mock` this
+ * module and import the panel AFTER it — which only works if nothing in the
+ * same worker imported the panel first. Under `isolate: false` the tool-page
+ * guards that walk every panel do exactly that, and the mock then never
+ * reached the (already cached) panel: nine tests red, only in a full run.
+ */
+export const chatWithPdfDeps: { run: typeof runWorkerChatWithPdf } = {
+  run: runWorkerChatWithPdf,
+};

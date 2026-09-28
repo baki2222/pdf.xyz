@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Download,
   Plus,
@@ -38,7 +38,6 @@ import {
 } from "@/lib/workers/ai-extract-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { TruncationNotice } from "./truncation-notice";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
@@ -46,13 +45,19 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 function badgeFor(
   phase: Phase,
@@ -68,43 +73,13 @@ function badgeFor(
 }
 
 export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunAiExtract(status);
-  const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : aiToolUnavailableDetail(status);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
+  const unavailableDetail = aiToolUnavailableDetail(status);
 
   return (
     <div className="">
@@ -144,7 +119,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
         )}
         {available ? (
           <AiExtractBuilder refuse={(file) => pickRefusal(tool, file)} />
-        ) : (
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -156,6 +131,8 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
             </p>
             <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -237,8 +214,12 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
   const [mode, setMode] = useState<ExtractionMode>("schema");
   const [prompt, setPrompt] = useState("");
   const [fields, setFields] = useState<ExtractionField[]>([{ ...EMPTY_FIELD }]);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<AiExtractWorkerResult | null>(null);
+  const job = useWorkerJob<AiExtractWorkerResult>({
+    tool: "ai-extract",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "ai-extract" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const namedFields = fields.filter((f) => f.name.trim().length > 0);
   const requestReady =
@@ -247,9 +228,7 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
 
   const start = useCallback(async () => {
     if (!file || !requestReady) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       // Counted before upload so the run is charged what this document holds,
       // not a third of the day. `null` sends it undeclared at the old price.
@@ -276,21 +255,11 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
                   : {}),
               })),
             },
+        controls,
       );
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, mode, prompt, namedFields, requestReady]);
+      return result;
+    });
+  }, [file, mode, prompt, namedFields, requestReady, run]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -429,14 +398,14 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Extracting…"
+        busyLabel={jobBusyLabel(job.phase, "Extracting…")}
         icon={ScanSearch}
         tone="violet"
       >
         Extract data
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce="Your AI extraction package is ready.">
           <TruncationNotice

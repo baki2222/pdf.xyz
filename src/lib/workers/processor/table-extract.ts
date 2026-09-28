@@ -1,4 +1,5 @@
 import type { JobError } from "@/lib/jobs";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -60,11 +61,25 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    // Properties of the DOCUMENT: a retry returns the same answer, so none of
+    // them is retryable, and each carries the shared document-failure code the
+    // panel links its next step from (OCR, Unlock, Repair). A locked PDF used
+    // to fall through to the retryable `internal_error` below.
     case "no_text":
-    case "cannot_open":
-      // Both are facts about the file: retrying cannot change them.
       return {
-        code: "unprocessable_entity",
+        code: OFFICE_EXPORT_ERROR_CODES.noText,
+        message: run.message,
+        retryable: false,
+      };
+    case "password_protected":
+      return {
+        code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+        message: run.message,
+        retryable: false,
+      };
+    case "unreadable":
+      return {
+        code: OFFICE_EXPORT_ERROR_CODES.unreadable,
         message: run.message,
         retryable: false,
       };

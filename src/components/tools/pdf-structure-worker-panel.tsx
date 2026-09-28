@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   FileDown,
   FileUp,
@@ -19,7 +19,6 @@ import {
   type PdfStructureWorkerResult,
 } from "@/lib/workers/pdf-structure-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
@@ -27,14 +26,22 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
-import { RepairWarnings } from "./repair-warnings";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
+import { RepairOutcome, repairDoneSentence } from "./repair-warnings";
+import { OptimizeOutcome, optimizeDoneSentence } from "./optimize-outcome";
+import { OfficeExportNextStep } from "./office-export-notices";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 type Mode = "repair" | "optimize";
 
 function badgeFor(
@@ -81,7 +88,6 @@ const COPY: Record<
     blurb: string;
     cta: string;
     running: string;
-    done: string;
   }
 > = {
   repair: {
@@ -91,7 +97,6 @@ const COPY: Record<
       "Repair rewrites the PDF through qpdf's parser/writer on an isolated secure worker, recovering readable structure when possible. It never fabricates pages or content: if qpdf cannot produce a valid PDF, the job fails honestly.",
     cta: "Repair on the worker",
     running: "Repairing on the worker…",
-    done: "Your repaired PDF is ready.",
   },
   optimize: {
     icon: Zap,
@@ -100,7 +105,6 @@ const COPY: Record<
       "Optimize PDF for Web linearizes the PDF with qpdf so browsers can start rendering before the whole file downloads. The worker produces a real fast-web-view PDF or fails honestly.",
     cta: "Optimize on the worker",
     running: "Optimizing on the worker…",
-    done: "Your web-optimized PDF is ready.",
   },
 };
 
@@ -108,34 +112,7 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "repair-pdf" ? "repair" : "optimize";
   const copy = COPY[mode];
   const HeaderIcon = copy.icon;
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((s) => {
-        if (!active) return;
-        setStatus(s);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: s.mode,
-          enabled: s.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunPdfStructure(status);
@@ -169,6 +146,7 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
           />
         ) : (
           <StructureUnavailable
+            onRetry={retry}
             phase={phase}
             status={status}
             toolName={tool.name}
@@ -231,22 +209,26 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
 
 function StructureUnavailable({
   phase,
+  onRetry,
   status,
   toolName,
   toolSlug,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
   toolName: string;
   toolSlug: string;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   const detail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.security.detail ??
-          "This qpdf-backed worker path is not enabled here.");
+    status?.security.detail ??
+    "This qpdf-backed worker path is not enabled here.";
   return (
     <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
       <p className="text-muted text-sm leading-relaxed">{detail}</p>
@@ -269,34 +251,36 @@ function StructureRunArea({
   refuse: PickRefusal;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfStructureWorkerResult | null>(null);
+  // The size of the file the CURRENT outcome came from — recorded when the run
+  // starts, so a job resumed after a reload (no file in hand) reports none
+  // rather than 0, and a file picked afterwards is never compared with it.
+  const [ranBytes, setRanBytes] = useState<number | undefined>(undefined);
+  const job = useWorkerJob<PdfStructureWorkerResult>({
+    tool: mode === "repair" ? "repair-pdf" : "optimize-web",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, {
+        ...controls,
+        tool: mode === "repair" ? "repair-pdf" : "optimize-web",
+      }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const copy = COPY[mode];
 
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    setRanBytes(file.size);
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
         mode === "repair"
-          ? await runWorkerRepairPdf({ filename: file.name, bytes })
-          : await runWorkerOptimizeWeb({ filename: file.name, bytes });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, mode]);
+          ? await runWorkerRepairPdf({ filename: file.name, bytes }, controls)
+          : await runWorkerOptimizeWeb(
+              { filename: file.name, bytes },
+              controls,
+            );
+      return result;
+    });
+  }, [file, mode, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -315,6 +299,7 @@ function StructureRunArea({
             onClick={() => {
               setFile(null);
               setOutcome(null);
+              setRanBytes(undefined);
             }}
             className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
           >
@@ -337,19 +322,38 @@ function StructureRunArea({
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel={copy.running}
+        busyLabel={jobBusyLabel(job.phase, copy.running)}
         icon={copy.icon}
       >
         {copy.cta}
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
+      {outcome?.ok === false && !outcome.stillRunning && (
+        <OfficeExportNextStep
+          code={outcome.code}
+          from={mode === "repair" ? "repair-pdf" : "optimize-web"}
+        />
+      )}
       {outcome?.ok === true && (
-        <ResultCard announce={copy.done}>
+        <ResultCard
+          announce={
+            mode === "repair"
+              ? repairDoneSentence(outcome.job)
+              : optimizeDoneSentence(outcome.output)
+          }
+        >
           {/* Before the download button: a user who clicks and leaves is
               exactly the user this is for. */}
-          <RepairWarnings job={outcome.job} />
-          <p className="text-ok text-sm">{copy.done}</p>
+          {mode === "repair" ? (
+            <RepairOutcome job={outcome.job} />
+          ) : (
+            <OptimizeOutcome
+              job={outcome.job}
+              inputBytes={ranBytes}
+              output={outcome.output}
+            />
+          )}
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)

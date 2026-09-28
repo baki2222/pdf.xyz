@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Download,
   MessageSquare,
@@ -24,6 +24,8 @@ import {
   measureChatDocument,
   runWorkerChatWithPdf,
   type ChatDocumentMeasurement,
+  chatWithPdfDeps,
+  type ChatWithPdfWorkerResult,
 } from "@/lib/workers/chat-with-pdf-client";
 import { extractPdfText } from "@/lib/pdf/text";
 import {
@@ -32,17 +34,23 @@ import {
   type ChatExchange,
 } from "@/lib/workers/chat-with-pdf-conversation";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, WorkerRunButton } from "./runner/runner-kit";
+import { Dropzone, WorkerRunButton } from "./runner/runner-kit";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { TruncationNotice } from "./truncation-notice";
 import type { Job } from "@/lib/jobs/types";
 import { NotifyMe } from "./notify-me";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 /**
  * Shown under every answer. The only safeguard against a wrong answer is an
@@ -68,8 +76,11 @@ function badgeFor(
 
 /** The job driver. A prop, not a module mock, so a test can stub it without
  * leaving this panel cached against a stub for the next test file (see
- * src/tests/mock-isolation.test.ts). The page never passes it. */
+ * src/tests/mock-isolation.test.ts). The page never passes it; the default
+ * calls through `chatWithPdfDeps`, the client module's own swappable seam. */
 type RunChat = typeof runWorkerChatWithPdf;
+const runThroughDeps: RunChat = (input, options) =>
+  chatWithPdfDeps.run(input, options);
 
 /** How the panel counts a document before a question is sent; a prop for the
  * same reason as `runChat`. The page never passes it. */
@@ -79,50 +90,20 @@ const measureWithPdfText: MeasureChat = (bytes) =>
 
 export function ChatWithPdfWorkerPanel({
   tool,
-  runChat = runWorkerChatWithPdf,
+  runChat = runThroughDeps,
   measureChat = measureWithPdfText,
 }: {
   tool: Tool;
   runChat?: RunChat;
   measureChat?: MeasureChat;
 }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunChatWithPdf(status);
-  const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : aiToolUnavailableDetail(status);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
+  const unavailableDetail = aiToolUnavailableDetail(status);
 
   return (
     <div className="">
@@ -166,7 +147,7 @@ export function ChatWithPdfWorkerPanel({
             runChat={runChat}
             measureChat={measureChat}
           />
-        ) : (
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -177,6 +158,8 @@ export function ChatWithPdfWorkerPanel({
             </p>
             <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -230,6 +213,16 @@ export function ChatWithPdfWorkerPanel({
     </div>
   );
 }
+
+/**
+ * The outcome of a run that ended before anything was sent because the file
+ * was swapped. Never shown: the caller clears any outcome for a file that is
+ * no longer on screen.
+ */
+const NOT_SENT = {
+  ok: false as const,
+  message: "The document changed before the question was sent.",
+};
 
 /** Shown instead of uploading a PDF the browser found no text in. */
 const NO_TEXT_MESSAGE =
@@ -286,9 +279,46 @@ function ChatBuilder({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  /** The question the job in flight (or left running) is answering. */
+  const asking = useRef<string | null>(null);
+
+  /** Add an answered job to the transcript. */
+  const record = useCallback(
+    async (result: ChatWithPdfWorkerResult, asked: string) => {
+      if (!result.ok) return;
+      const answer = await readAnswerFromPackage(result.output, asked);
+      setTranscript((prev) => [
+        ...prev,
+        {
+          id: prev.length,
+          question: asked,
+          answer,
+          filename: result.artifact.filename,
+          output: result.output,
+          job: result.job,
+        },
+      ]);
+    },
+    [],
+  );
+
+  const job = useWorkerJob<ChatWithPdfWorkerResult>({
+    tool: "chat-with-pdf",
+    // Picking up an answer the browser stopped waiting for. After a reload
+    // the question is no longer on screen, and the transcript says so rather
+    // than inventing it.
+    resume: async (id, controls) => {
+      const result = await resumeSecurityJob(id, {
+        ...controls,
+        tool: "chat-with-pdf",
+      });
+      await record(result, asking.current ?? "Your earlier question");
+      if (result.ok) setQuestion("");
+      return result;
+    },
+  });
+  const { busy, setOutcome, run } = job;
 
   const requestReady = question.trim().length > 0;
   const canRun = file != null && !busy && requestReady;
@@ -331,24 +361,22 @@ function ChatBuilder({
     result: Promise<ChatDocumentMeasurement>;
   } | null>(null);
 
-  const chooseFile = useCallback((next: File | null) => {
-    fileToken.current += 1;
-    setFile(next);
-    setTranscript([]);
-    setError(null);
-  }, []);
+  const chooseFile = useCallback(
+    (next: File | null) => {
+      fileToken.current += 1;
+      setFile(next);
+      setTranscript([]);
+      setOutcome(null);
+    },
+    [setOutcome],
+  );
 
   const start = useCallback(async () => {
     if (!file || !requestReady) return;
     const asked = question.trim();
     const startedFor = fileToken.current;
-    setBusy(true);
-    setError(null);
-    // Every exit from here — the two file-swap bail-outs, the happy path, and a
-    // rejected fetch — has to stop the spinner. A rejection used to escape this
-    // callback entirely, so `setBusy(false)` never ran and the button spun
-    // forever with no error, recoverable only by reloading the page.
-    try {
+    asking.current = asked;
+    const outcome = await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       // MEASURED BEFORE ANYTHING IS SPENT, and declared with the job. Without
       // the count every question reserved a whole call's worth — a third of
@@ -360,62 +388,62 @@ function ChatBuilder({
         };
       }
       const measured = await measurement.current.result;
-      if (fileToken.current !== startedFor) {
-        return;
-      }
-      if (measured.kind === "no-text") {
-        setError(NO_TEXT_MESSAGE);
-        return;
-      }
-      const result = await runChat({
-        filename: file.name,
-        bytes,
-        question: asked,
-        ...(context.turns.length > 0 ? { context: context.turns } : {}),
-        // Only the DOCUMENT is declared: the route measures the question and
-        // the carried turns off the job's options and charges them itself.
-        documentCharacters:
-          measured.kind === "counted" ? measured.count.characters : null,
-      });
-      // The document changed while this was running: the answer is about a file the user
-      // has already replaced, so it belongs to no transcript on screen. Drop it rather
-      // than showing it under the wrong PDF.
-      if (fileToken.current !== startedFor) {
-        return;
-      }
+      // Nothing has been sent yet. A file swapped during the measurement ends
+      // the run here; the outcome is cleared below, as any other outcome for a
+      // file no longer on screen is.
+      if (fileToken.current !== startedFor) return NOT_SENT;
+      if (measured.kind === "no-text")
+        return { ok: false as const, message: NO_TEXT_MESSAGE };
+      const result = await runChat(
+        {
+          filename: file.name,
+          bytes,
+          question: asked,
+          ...(context.turns.length > 0 ? { context: context.turns } : {}),
+          // Only the DOCUMENT is declared: the route measures the question and
+          // the carried turns off the job's options and charges them itself.
+          documentCharacters:
+            measured.kind === "counted" ? measured.count.characters : null,
+        },
+        controls,
+      );
+      // The document changed while this was running: the answer is about a
+      // file the user has already replaced, so it belongs to no transcript on
+      // screen. Drop it rather than showing it under the wrong PDF.
+      if (fileToken.current !== startedFor) return result;
+      // Re-checked after the await: reading the package is itself asynchronous.
       if (result.ok) {
         const answer = await readAnswerFromPackage(result.output, asked);
-        // Re-checked after the await: reading the package is itself asynchronous.
-        if (fileToken.current !== startedFor) {
-          return;
+        if (fileToken.current === startedFor) {
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: prev.length,
+              question: asked,
+              answer,
+              filename: result.artifact.filename,
+              output: result.output,
+              job: result.job,
+            },
+          ]);
+          setQuestion("");
         }
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: prev.length,
-            question: asked,
-            answer,
-            filename: result.artifact.filename,
-            output: result.output,
-            job: result.job,
-          },
-        ]);
-        setQuestion("");
-      } else {
-        setError(result.message);
       }
-    } catch {
-      // No response to inspect: offline, DNS failure, a reset connection, or a
-      // file that could not be read. Say what is true and nothing more.
-      if (fileToken.current === startedFor) {
-        setError(
-          "Lost the connection before the answer came back. Check your network and try again.",
-        );
-      }
-    } finally {
-      setBusy(false);
-    }
-  }, [file, question, requestReady, context, runChat, measureChat]);
+      return result;
+    });
+    // Whatever came back for a file that is no longer on screen — an answer
+    // or an error — is not about the document the user is looking at.
+    if (outcome && fileToken.current !== startedFor) setOutcome(null);
+  }, [
+    file,
+    question,
+    requestReady,
+    context,
+    run,
+    setOutcome,
+    runChat,
+    measureChat,
+  ]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -486,14 +514,14 @@ function ChatBuilder({
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Answering…"
+        busyLabel={jobBusyLabel(job.phase, "Answering…")}
         icon={MessageSquare}
         tone="violet"
       >
         {transcript.length > 0 ? "Send follow-up" : "Ask the PDF"}
       </WorkerRunButton>
 
-      {error !== null && <ErrorNote message={error} />}
+      <WorkerJobStatus job={job} />
     </div>
   );
 }

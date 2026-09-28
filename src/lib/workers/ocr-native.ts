@@ -39,10 +39,17 @@ import { promisify } from "node:util";
 import {
   buildOcrResultMeta,
   OCR_LOW_CONFIDENCE_WORD_THRESHOLD,
+  OCR_MAX_INPUT_FILES,
 } from "@/lib/jobs/ocr";
 import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
 import { looksLikePdf } from "./compression/engine";
 import { OCR_ENGINES, type OcrEngine, type OcrEngineAvailability } from "./ocr";
+import { classifyOcrmypdfFailure, OcrEngineRefusal } from "./ocr-engine-errors";
+import { fillSkippedSidecarPages, skippedSidecarPages } from "./ocr-sidecar";
+import {
+  resolveNativePdfTextExtractor,
+  type PdfTextSeams,
+} from "./pdf-text/native";
 import {
   resolveNativeOcrConfig,
   type NativeOcrConfig,
@@ -114,6 +121,21 @@ export interface NativeOcrSeams {
    * without a real pdf-lib parse.
    */
   countPages?: (pdf: Uint8Array) => Promise<number | null>;
+  /**
+   * Read the text layer a PDF already carries, page by page — what fills the
+   * pages OCRmyPDF skipped back into the text sidecar (see `./ocr-sidecar`).
+   * Absent ⇒ the sidecar keeps OCRmyPDF's placeholder for those pages. The
+   * runner has no default; {@link nativeOcrDeps} wires poppler's `pdftotext`
+   * when the host has it.
+   */
+  readExistingText?: (
+    pdf: Uint8Array,
+  ) => Promise<{ pages: readonly { text: string }[] }>;
+  /**
+   * Seams for the `pdftotext` probe {@link nativeOcrDeps} uses to build
+   * {@link readExistingText}. Only for tests that point it at a specific binary.
+   */
+  pdfText?: PdfTextSeams;
 }
 
 const runExecFile = promisify(execFile);
@@ -193,7 +215,8 @@ export interface NativeOcrArgsContext {
   /** The isolated temp dir; outputs are placed inside it. */
   workDir: string;
   languages: readonly string[];
-  skipTextPages: boolean;
+  /** Replace an existing OCR text layer (`--redo-ocr`) instead of keeping it. */
+  redoOcr: boolean;
   wantPdf: boolean;
   wantText: boolean;
 }
@@ -206,12 +229,18 @@ export interface NativeOcrArgsContext {
  * interpreted as flags or shell syntax.
  *
  *  - **OCRmyPDF** takes a PDF in and always writes a searchable PDF out; a text
- *    sidecar is produced with `--sidecar`. `--skip-text` leaves pages that already
- *    carry a text layer untouched. `--output-type pdf` avoids the PDF/A path (which
- *    would additionally require Ghostscript).
+ *    sidecar is produced with `--sidecar`. `--output-type pdf` avoids the PDF/A
+ *    path (which would additionally require Ghostscript). Exactly ONE of
+ *    `--skip-text` (the default: a page that already has text is kept as it is)
+ *    or `--redo-ocr` (the opt-in: invisible OCR text is replaced, typed text is
+ *    kept) is always passed. Passing neither is not a neutral default — OCRmyPDF
+ *    then aborts the whole job on the first page with text (exit 6) or on a
+ *    tagged PDF, which is what every "searchable" scan and office export used to
+ *    hit. Passing both is a usage error. `--force-ocr` is never passed: it
+ *    rasterizes every page and destroys vector text.
  *  - **Tesseract** OCRs an image and writes `<base>.pdf` / `<base>.txt` selected by
- *    trailing `pdf`/`txt` config tokens. It has no page-level skip-text notion, so
- *    `skipTextPages` does not apply to it.
+ *    trailing `pdf`/`txt` config tokens. An image has no text layer, so neither
+ *    flag applies to it.
  */
 export function nativeOcrArgs(
   engine: OcrEngine,
@@ -228,7 +257,7 @@ export function nativeOcrArgs(
         lang,
         "--output-type",
         "pdf",
-        ...(ctx.skipTextPages ? ["--skip-text"] : []),
+        ctx.redoOcr ? "--redo-ocr" : "--skip-text",
         ...(ctx.wantText ? ["--sidecar", txtOut] : []),
         "--quiet",
         ctx.inputPath,
@@ -464,6 +493,39 @@ export function parseTesseractConfidence(
 }
 
 /**
+ * Put the text of the pages OCRmyPDF skipped (they already had text) into its
+ * sidecar in place of the `[OCR skipped on page N]` placeholders. See
+ * `./ocr-sidecar` for why, and for the rules that keep it from misplacing a page.
+ *
+ * Best-effort and never fatal, like the confidence read: no reader wired, a
+ * reader that throws, or pages that cannot be mapped all return the sidecar as
+ * OCRmyPDF wrote it — a job that produced good output must not fail because it
+ * could not be improved. The reader is not called at all when nothing was
+ * skipped, so a pure scan pays nothing.
+ */
+async function fillSkippedPages(
+  sidecar: Uint8Array,
+  inputPdf: Uint8Array,
+  readExistingText: NativeOcrSeams["readExistingText"],
+): Promise<Uint8Array> {
+  if (!readExistingText || sidecar.byteLength > META_TEXT_MAX_MEASURE_BYTES) {
+    return sidecar;
+  }
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(sidecar);
+  if (skippedSidecarPages(text).length === 0) return sidecar;
+  try {
+    const existing = await readExistingText(inputPdf);
+    const { text: filled, filled: pages } = fillSkippedSidecarPages(
+      text,
+      existing.pages.map((page) => page.text),
+    );
+    return pages.length > 0 ? new TextEncoder().encode(filled) : sidecar;
+  } catch {
+    return sidecar;
+  }
+}
+
+/**
  * Build a native OCR runner bound to a configuration. Writes the single input to an
  * isolated temp dir, invokes the engine with a fixed argv array, reads the requested
  * outputs, validates them, and ALWAYS removes the temp dir afterward — on success,
@@ -482,8 +544,9 @@ export function createNativeOcrRunner(
 
   return async ({ options, inputs }): Promise<OcrRunResult> => {
     const input = inputs[0];
-    // OCR runs over a single document; the contract and UI submit exactly one file.
-    if (inputs.length !== 1 || !input) {
+    // OCR runs over a single document; the processor refuses more before this,
+    // and the tool page states the same number.
+    if (inputs.length > OCR_MAX_INPUT_FILES || !input) {
       throw new Error("OCR accepts exactly one input file.");
     }
     // Backstop the input ceiling here too, in case a caller reaches the runner
@@ -521,16 +584,28 @@ export function createNativeOcrRunner(
           inputPath,
           workDir: dir,
           languages: options.languages,
-          skipTextPages: options.skipTextPages,
+          redoOcr: options.redoOcr,
           wantPdf,
           wantText,
         },
       );
-      await exec(command, args, {
-        timeout: config.timeoutMs,
-        maxBuffer: EXEC_MAX_BUFFER,
-        windowsHide: true,
-      });
+      try {
+        await exec(command, args, {
+          timeout: config.timeoutMs,
+          maxBuffer: EXEC_MAX_BUFFER,
+          windowsHide: true,
+        });
+      } catch (error) {
+        // A failure that belongs to the DOCUMENT (encrypted, signed, unreadable,
+        // already has text) is thrown typed, so the processor can report it as
+        // final with its next step instead of retrying it three times. Exit
+        // statuses are per-program, so only OCRmyPDF's are read. Everything else
+        // (a timeout, a crash) is rethrown untouched and stays retryable.
+        const refusal =
+          engine === "ocrmypdf" ? classifyOcrmypdfFailure(error) : null;
+        if (refusal) throw new OcrEngineRefusal(refusal);
+        throw error;
+      }
 
       const base = ocrOutputBase(input.filename);
       const artifacts: ProcessorArtifact[] = [];
@@ -552,7 +627,14 @@ export function createNativeOcrRunner(
       }
 
       if (wantText) {
-        const txt = await fs.readFile(txtOut);
+        let txt = await fs.readFile(txtOut);
+        if (engine === "ocrmypdf") {
+          txt = await fillSkippedPages(
+            txt,
+            input.bytes,
+            seams.readExistingText,
+          );
+        }
         if (txt.byteLength === 0 || txt.byteLength > config.maxOutputBytes) {
           throw new Error("OCR produced no usable text output.");
         }
@@ -624,9 +706,18 @@ export function nativeOcrDeps(
 ): OcrProcessorDeps {
   const config = resolveNativeOcrConfig(env);
   if (!config.enabled) return {};
+  // The existing-text reader: poppler, when this host has it (it ships in the
+  // worker image for the text tools). Resolved here rather than defaulted in
+  // the runner, so the runner's own tests never probe the host.
+  const readExistingText =
+    seams.readExistingText ??
+    resolveNativePdfTextExtractor(env, seams.pdfText ?? {});
   return {
     engines: probeNativeOcrEnginesFromConfig(config, seams),
-    runner: createNativeOcrRunner(config, seams),
+    runner: createNativeOcrRunner(config, {
+      ...seams,
+      ...(readExistingText ? { readExistingText } : {}),
+    }),
     // What this host can genuinely recognize, so a request for a language with no
     // pack is refused by name instead of surfacing as a broken document.
     installedLanguages: probeInstalledOcrLanguages(env),

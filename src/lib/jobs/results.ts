@@ -37,6 +37,11 @@ import {
   type RepairResultMeta,
 } from "./repair-results";
 import {
+  buildOfficeExportResultMeta,
+  isOfficeExportResultMeta,
+  type OfficeExportResultMeta,
+} from "./office-export-results";
+import {
   buildAiResultMeta,
   isAiWindowMeta,
   type AiResultMeta,
@@ -68,9 +73,10 @@ export interface JobResults {
    */
   ai?: AiResultMeta;
   /**
-   * What qpdf had to fix. Present on a completed `repair-pdf` job — including
-   * a clean one, so a missing block means "this worker did not report",
-   * not "nothing was wrong". See {@link RepairResultMeta}.
+   * What qpdf had to fix. Present on a completed `repair-pdf` or
+   * `optimize-web` job (both run qpdf's parser, and both can meet a damaged
+   * file) — including a clean one, so a missing block means "this worker did
+   * not report", not "nothing was wrong". See {@link RepairResultMeta}.
    */
   repair?: RepairResultMeta;
   /**
@@ -84,6 +90,13 @@ export interface JobResults {
    * not report", not "nothing was removed". See {@link PdfAResultMeta}.
    */
   pdfa?: PdfAResultMeta;
+  /**
+   * Which pages of a PDF to Word / Excel / PowerPoint export had text to
+   * export. Present on every completed export — including one where every
+   * page did, so a missing block means "this worker did not report", not
+   * "nothing was left out". See {@link OfficeExportResultMeta}.
+   */
+  officeExport?: OfficeExportResultMeta;
 }
 
 /** True when a {@link JobResults} carries at least one populated block. */
@@ -146,6 +159,11 @@ export function sanitizeJobResults(
   const pdfa = results.pdfa;
   if (isPdfAResultMeta(pdfa)) {
     clean.pdfa = buildPdfAResultMeta(pdfa);
+  }
+
+  const officeExport = results.officeExport;
+  if (isOfficeExportResultMeta(officeExport)) {
+    clean.officeExport = buildOfficeExportResultMeta(officeExport);
   }
 
   return hasJobResults(clean) ? clean : undefined;

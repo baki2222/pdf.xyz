@@ -1,5 +1,6 @@
 import { looksLikePdf } from "../compression/engine";
 import { describeByteCeiling } from "../engine-file-ceilings";
+import { isEncryptedOoxml, LibreOfficeRunError } from "./errors";
 import {
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
@@ -38,7 +39,39 @@ export type OfficeConversionRun =
   | { ok: false; kind: "unsupported"; message: string }
   | { ok: false; kind: "invalid_input"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
+  /** Needs a password to open: an encrypted OOXML package. Final. */
+  | { ok: false; kind: "password_protected"; message: string }
+  /** LibreOffice could not load it, or wrote no usable PDF. Final. */
+  | { ok: false; kind: "unreadable"; message: string }
+  /** Hit the conversion timeout. Final: the same bytes time out again. */
+  | { ok: false; kind: "timeout"; message: string }
+  /** A run that did not finish for reasons outside the document. Retryable. */
   | { ok: false; kind: "failed"; message: string };
+
+/** What each tool's users call the file and the program that saves it. */
+const DOCUMENT_WORDS: Record<
+  OfficeToPdfTool,
+  { noun: string; app: string; ext: string; protect: string }
+> = {
+  [WORD_TO_PDF_TOOL]: {
+    noun: "document",
+    app: "Word",
+    ext: ".docx",
+    protect: "File > Info > Protect Document",
+  },
+  [EXCEL_TO_PDF_TOOL]: {
+    noun: "workbook",
+    app: "Excel",
+    ext: ".xlsx",
+    protect: "File > Info > Protect Workbook",
+  },
+  [POWERPOINT_TO_PDF_TOOL]: {
+    noun: "presentation",
+    app: "PowerPoint",
+    ext: ".pptx",
+    protect: "File > Info > Protect Presentation",
+  },
+};
 
 const EXTENSIONS: Record<OfficeToPdfTool, readonly string[]> = {
   [WORD_TO_PDF_TOOL]: ["docx", "doc"],
@@ -91,32 +124,60 @@ export async function runOfficeToPdf(
       message: `This document is larger than ${describeByteCeiling(maxInput)}, the most Office to PDF converts per file.`,
     };
   }
+  const words = DOCUMENT_WORDS[tool];
+  // Checked before LibreOffice runs: a locked package cannot convert, and
+  // soffice's answer to one is an empty exit that says nothing about why.
+  if (isEncryptedOoxml(input)) {
+    return {
+      ok: false,
+      kind: "password_protected",
+      message: `This ${words.noun} is password-protected. Remove the password in ${words.app} (${words.protect}), save it, and try again.`,
+    };
+  }
+  const unreadable: OfficeConversionRun = {
+    ok: false,
+    kind: "unreadable",
+    message: `This ${words.noun} could not be converted. If it is password-protected, remove the password in ${words.app} and try again; otherwise open it in ${words.app}, save it again as ${words.ext}, and retry.`,
+  };
   let output: Uint8Array;
   try {
     output = await deps.libreoffice.convertToPdf(input, filename);
-  } catch {
-    return {
-      ok: false,
-      kind: "failed",
-      message: "LibreOffice could not convert this document to PDF.",
-    };
+  } catch (error) {
+    if (!(error instanceof LibreOfficeRunError))
+      return {
+        ok: false,
+        kind: "failed",
+        message: "LibreOffice could not convert this document to PDF.",
+      };
+    switch (error.reason) {
+      case "timeout":
+        return {
+          ok: false,
+          kind: "timeout",
+          message: `This ${words.noun} took too long to convert. Try splitting it into smaller files or reducing large embedded images and media, then try again.`,
+        };
+      case "too_large":
+        return {
+          ok: false,
+          kind: "too_large",
+          limitBytes: deps.limits?.maxOutputBytes ?? 0,
+          message: "The converted PDF exceeds the worker size limit.",
+        };
+      default:
+        return unreadable;
+    }
   }
   const maxOutput = deps.limits?.maxOutputBytes;
   if (maxOutput !== undefined && output.byteLength > maxOutput) {
     return {
       ok: false,
-      kind: "failed",
+      kind: "too_large",
+      limitBytes: maxOutput,
       message: "The converted PDF exceeds the worker size limit.",
     };
   }
   const validate = deps.validate ?? looksLikePdf;
-  if (!(await validate(output))) {
-    return {
-      ok: false,
-      kind: "failed",
-      message: "LibreOffice produced no usable PDF output.",
-    };
-  }
+  if (!(await validate(output))) return unreadable;
   return {
     ok: true,
     output,

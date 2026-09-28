@@ -23,7 +23,6 @@ import {
   unbundledAssetsNote,
 } from "@/lib/workers/html-render/unbundled-assets";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal } from "@/lib/uploads/pick-check";
@@ -32,13 +31,19 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 type Mode = "html" | "url";
 
 function badgeFor(
@@ -80,34 +85,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "webpage-to-pdf" ? "url" : "html";
   const Icon = mode === "url" ? Globe : FileCode;
   const ceilingBytes = toolFileCeilingBytes(tool);
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunHtmlRender(status);
@@ -142,6 +120,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
           <HtmlRenderRunArea mode={mode} tool={tool} />
         ) : (
           <HtmlRenderUnavailable
+            onRetry={retry}
             phase={phase}
             status={status}
             toolName={tool.name}
@@ -214,21 +193,25 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
 
 function HtmlRenderUnavailable({
   phase,
+  onRetry,
   status,
   toolName,
   toolSlug,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
   toolName: string;
   toolSlug: string;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   const detail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
 
   return (
     <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
@@ -279,37 +262,34 @@ function useUnbundledAssetsNote(file: File | null): string | null {
 function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("https://");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<HtmlRenderWorkerResult | null>(null);
+  const job = useWorkerJob<HtmlRenderWorkerResult>({
+    tool: mode === "url" ? "webpage-to-pdf" : "html-to-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, {
+        ...controls,
+        tool: mode === "url" ? "webpage-to-pdf" : "html-to-pdf",
+      }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
   const assetsNote = useUnbundledAssetsNote(mode === "html" ? file : null);
 
   const start = useCallback(async () => {
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const result =
         mode === "url"
-          ? await runWorkerWebpageToPdf(url.trim())
+          ? await runWorkerWebpageToPdf(url.trim(), controls)
           : file
-            ? await runWorkerHtmlToPdf({
-                filename: file.name,
-                bytes: new Uint8Array(await file.arrayBuffer()),
-              })
+            ? await runWorkerHtmlToPdf(
+                {
+                  filename: file.name,
+                  bytes: new Uint8Array(await file.arrayBuffer()),
+                },
+                controls,
+              )
             : { ok: false as const, message: "Choose an HTML file first." };
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, mode, url]);
+      return result;
+    });
+  }, [file, mode, url, run]);
 
   const disabled =
     busy || (mode === "html" ? !file : url.trim().length <= "https://".length);
@@ -383,13 +363,13 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         busy={busy}
         // `disabled` already folds in `busy`; both go through one blocked branch.
         disabled={disabled}
-        busyLabel="Rendering PDF…"
+        busyLabel={jobBusyLabel(job.phase, "Rendering PDF…")}
         icon={FileCode}
       >
         Render PDF
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">
           <p className="text-ok text-sm">Your PDF is ready.</p>

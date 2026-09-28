@@ -102,6 +102,10 @@ const ALLOWED = new Set(
     // pages' JSON-LD back out of the markup. Imported only by `*.test.ts` copy
     // guards; nothing on a route, a component or a barrel reaches it.
     "src/tests/rendered-tool-pages.ts",
+    // Probes PATH for a POPPLER `pdftotext` (spawning `-v`) and hashes RC4
+    // keys for the hand-written encrypted fixtures. Pulled in only by the PDF
+    // to Office `*.test.ts(x)` files, never by a route, component or barrel.
+    "src/tests/pdf-office-fixtures.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 
